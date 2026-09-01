@@ -2,24 +2,25 @@ package ac.grim.grimac.checks.impl.multiactions;
 
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
+import ac.grim.grimac.checks.type.CheckListener;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
+import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 
 @CheckData(name = "MultiActionsD", stableKey = "grim.multiactions.inventory_close_while_moving", description = "Closed inventory while moving")
-public class MultiActionsD extends Check implements PacketReceiveListener {
+public class MultiActionsD extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("sprinting={bool}, sneaking={bool}, input={bool}");
 
     public MultiActionsD(GrimPlayer player) {
         super(player);
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() != PacketType.Play.Client.CLOSE_WINDOW) return;
+
+    @GrimPacketHandler
+    public void onContainerClose(PacketReceiveEvent event, GrimPlayer player, ServerboundContainerClosePacket packet) {
         if (player.serverOpenedInventoryThisTick) return;
 
         boolean sprinting = MultiActionsC.isVerboseSprinting(player);

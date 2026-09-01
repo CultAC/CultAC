@@ -1,7 +1,7 @@
 package ac.grim.grimac.platform.api.manager;
 
 import ac.grim.grimac.platform.api.player.PlatformPlayer;
-import com.github.retrooper.packetevents.protocol.player.InteractionHand;
+import net.minecraft.world.InteractionHand;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.Nullable;
 

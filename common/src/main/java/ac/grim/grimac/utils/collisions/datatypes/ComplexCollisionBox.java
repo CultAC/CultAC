@@ -1,101 +1,64 @@
 package ac.grim.grimac.utils.collisions.datatypes;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class ComplexCollisionBox implements CollisionBox {
+    private final List<CollisionBox> boxes = new ArrayList<>();
 
-    // Most complex shape is the Modern MC Cauldron which is made up of 15 boxes
-    public static final int DEFAULT_MAX_COLLISION_BOX_SIZE = 15; // increase if we somehow have a shape made of more than 15 parts.
-    private final SimpleCollisionBox[] boxes;
-    private int currentLength;
-
-    public ComplexCollisionBox(SimpleCollisionBox... boxes) {
-        this(DEFAULT_MAX_COLLISION_BOX_SIZE, boxes);
+    public ComplexCollisionBox(CollisionBox... boxes) {
+        Collections.addAll(this.boxes, boxes);
     }
 
-    public ComplexCollisionBox(int maxIndex) {
-        this.boxes = new SimpleCollisionBox[maxIndex];
-    }
-
-    public ComplexCollisionBox(int maxIndex, SimpleCollisionBox... boxes) {
-        this.boxes = new SimpleCollisionBox[maxIndex];
-        currentLength = Math.min(maxIndex, boxes.length);
-        System.arraycopy(boxes, 0, this.boxes, 0, this.currentLength);
-    }
-
-    public boolean add(SimpleCollisionBox collisionBox) {
-        boxes[currentLength] = collisionBox;
-        currentLength++;
-        return currentLength <= boxes.length;
-    }
-
-    @Override
-    public CollisionBox union(SimpleCollisionBox other) {
-        add(other);
-        return this;
+    public boolean add(CollisionBox collisionBox) {
+        return boxes.add(collisionBox);
     }
 
     @Override
     public boolean isCollided(SimpleCollisionBox other) {
-        for (int i = 0; i < currentLength; i++) {
-            if (boxes[i].isCollided(other)) return true;
+        for (CollisionBox box : boxes) {
+            if (box.isCollided(other)) return true;
         }
         return false;
     }
 
     @Override
     public boolean isIntersected(SimpleCollisionBox other) {
-        for (int i = 0; i < currentLength; i++) {
-            if (boxes[i].isIntersected(other)) return true;
+        for (CollisionBox box : boxes) {
+            if (box.isIntersected(other))
+                return true;
         }
         return false;
     }
 
     @Override
     public CollisionBox copy() {
-        ComplexCollisionBox copy = new ComplexCollisionBox(boxes.length);
-        for (int i = 0; i < currentLength; i++) {
-            copy.boxes[i] = boxes[i].copy();
-        }
-        copy.currentLength = this.currentLength;
-        return copy;
+        ComplexCollisionBox cc = new ComplexCollisionBox();
+        for (CollisionBox b : boxes)
+            cc.boxes.add(b.copy());
+        return cc;
     }
 
     @Override
     public CollisionBox offset(double x, double y, double z) {
-        for (int i = 0; i < currentLength; i++) {
-            boxes[i].offset(x, y, z);
-        }
+        for (CollisionBox b : boxes)
+            b.offset(x, y, z);
         return this;
     }
 
     @Override
     public void downCast(List<SimpleCollisionBox> list) {
-        for (int i = 0; i < currentLength; i++) {
-            list.add(boxes[i]);
-        }
-    }
-
-    @Override
-    public int downCast(SimpleCollisionBox[] list) {
-        System.arraycopy(boxes, 0, list, 0, currentLength);
-        return currentLength;
+        for (CollisionBox box : boxes)
+            box.downCast(list);
     }
 
     @Override
     public boolean isNull() {
-        for (int i = 0; i < currentLength; i++) {
-            if (!boxes[i].isNull()) return false;
-        }
+        for (CollisionBox box : boxes)
+            if (!box.isNull())
+                return false;
         return true;
-    }
-
-    public int size() {
-        int size = 0;
-        for (SimpleCollisionBox box : boxes) {
-            if (box != null) ++size;
-        }
-        return size;
     }
 
     @Override

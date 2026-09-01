@@ -10,6 +10,11 @@ group = rootProject.group
 version = rootProject.version
 description = rootProject.description
 
+// Lombok 1.18.44 supports the JDK 25 compile worker.
+lombok {
+    version.set("1.18.44")
+}
+
 // Java compilation settings
 java {
     toolchain.languageVersion.set(JavaLanguageVersion.of(21))
@@ -55,7 +60,6 @@ tasks {
             "git_branch" to rootProject.ext["git_branch"],
             "git_repo" to rootProject.ext["git_repo"],
             "git_org" to rootProject.ext["git_org"],
-            "build_shade_pe" to BuildConfig.shadePE,
             "build_relocate" to BuildConfig.relocate,
             "build_release" to BuildConfig.release,
         )
@@ -66,7 +70,6 @@ tasks {
             listOf(
                 "bungee.yml",
                 "velocity-plugin.json",
-                "fabric.mod.json",
                 "grimac.properties"
             )
         ) {

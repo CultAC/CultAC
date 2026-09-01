@@ -6,7 +6,10 @@ import lombok.Setter;
 @Getter
 @Setter
 public class TeleportAcceptData {
-    private boolean isTeleport;
-    private SetBackData setback;
-    private TeleportData teleportData;
+    boolean isTeleport;
+    boolean isInitialSpawnTeleport;
+    boolean matchedTeleportPosition;
+    SetBackData setback;
+    TeleportData teleportData;
+    VehicleTeleportData vehicleTeleportData;
 }

@@ -1,68 +1,277 @@
 package ac.grim.grimac.events.packets;
 
-import ac.grim.grimac.GrimAPI;
-import ac.grim.grimac.api.config.ConfigManager;
-import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
-import ac.grim.grimac.checks.type.PacketSendListener;
+import ac.grim.grimac.checks.GrimProcessor;
+import ac.grim.grimac.checks.impl.combat.FairReach;
+import ac.grim.grimac.checks.type.CheckListener;
+import ac.grim.grimac.checks.type.ClientTickEndListener;
+import ac.grim.grimac.network.GrimPacketGroup;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.PacketGroup;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
+import ac.grim.grimac.network.packet.PacketCodecUtil;
+import ac.grim.grimac.network.protocol.teleport.RelativeFlag;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.LogUtil;
-import ac.grim.grimac.utils.data.SprintingState;
 import ac.grim.grimac.utils.data.TrackerData;
-import ac.grim.grimac.utils.data.packetentity.DashableEntity;
+import ac.grim.grimac.utils.data.VehicleTeleportData;
+import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.grim.grimac.utils.data.ReachInterpolationData;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityHorse;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHook;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityStrider;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityTrackXRot;
-import ac.grim.grimac.utils.enums.Pose;
-import ac.grim.grimac.utils.nmsutil.EntityMetadataPoseUtil;
-import ac.grim.grimac.utils.viaversion.ViaVersionUtil;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.event.PacketSendEvent;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.entity.EntityPositionData;
-import com.github.retrooper.packetevents.protocol.entity.data.EntityData;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.InteractionHand;
-import com.github.retrooper.packetevents.protocol.player.UserProfile;
-import com.github.retrooper.packetevents.protocol.potion.PotionType;
-import com.github.retrooper.packetevents.util.Vector3d;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerAttachEntity;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityEffect;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityEquipment;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityPositionSync;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityRelativeMove;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityRelativeMoveAndRotation;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityRotation;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityStatus;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityTeleport;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerInfo;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerInfoRemove;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerInfoUpdate;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerRemoveEntityEffect;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetSlot;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnLivingEntity;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnPainting;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnPlayer;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerUpdateAttributes;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerWindowItems;
-import org.jetbrains.annotations.NotNull;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityUtil;
+import ac.grim.grimac.utils.nmsutil.EntityTypesCompat;
+import ac.grim.grimac.utils.nmsutil.WatchableIndexUtil;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.event.PacketSendEvent;
+import ac.grim.grimac.utils.nmsutil.MobEffectsCompat;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
+import net.minecraft.core.Holder;
+import net.minecraft.network.PacketBundleUnpacker;
+import net.minecraft.network.protocol.BundleDelimiterPacket;
+import net.minecraft.network.protocol.BundlerInfo;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.common.ClientboundPingPacket;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
+import net.minecraft.network.protocol.game.ClientboundBundleDelimiterPacket;
+import net.minecraft.network.protocol.game.ClientboundDamageEventPacket;
+import net.minecraft.network.protocol.game.ClientboundEntityEventPacket;
+import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
+import net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket;
+import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
+import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
+import net.minecraft.network.protocol.game.ClientboundRemoveMobEffectPacket;
+import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
+import net.minecraft.network.protocol.game.ClientboundSetCameraPacket;
+import net.minecraft.network.protocol.game.ClientboundSetEquipmentPacket;
+import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
+import net.minecraft.network.protocol.game.ClientboundSetPassengersPacket;
+import net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket;
+import net.minecraft.network.protocol.game.ClientboundUpdateAttributesPacket;
+import net.minecraft.network.protocol.game.ClientboundUpdateMobEffectPacket;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.phys.Vec3;
+import org.bukkit.potion.PotionEffectType;
+import org.jetbrains.annotations.Nullable;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class PacketEntityReplication extends Check implements PacketReceiveListener, PacketSendListener {
+public class PacketEntityReplication extends GrimProcessor implements CheckListener, ClientTickEndListener {
+    private static final Vec3 SELF_DISMOUNT_VELOCITY = Vec3.ZERO;
+    private static final double VEHICLE_MOVE_RESYNC_SNAP_EPSILON = 2.0E-5D;
+    private static final AtomicBoolean LOGGED_SMOKETEST_BUNDLE_DELIMITER_LOOKUP = new AtomicBoolean(false);
 
-    private final AtomicBoolean hasSentPreWavePacket = new AtomicBoolean(true);
+    private Packet<?> clientboundBundleDelimiterPacket;
+    private final Map<Integer, PacketHandlerDeltaMovement> packetHandlerDeltaMovements = new HashMap<>();
+    private final Map<Integer, PacketHandlerEntityTransform> packetHandlerEntityTransforms = new HashMap<>();
+    private int packetHandlerDeltaMovementSequence = 0;
+    private boolean useReachBundleDelimiter = true;
+    private boolean hasSentPreWavePacket = true;
+    private int removedPlayerVehicleId = Integer.MIN_VALUE;
+
+    private record EntityMovement(int entityId,
+                                  MovementKind kind,
+                                  PositionChange position,
+                                  @Nullable EntityRotation rotation,
+                                  @Nullable Boolean onGround,
+                                  DeltaMovementChange deltaMovement) {
+        private static EntityMovement relativeEntityPacket(int entityId,
+                                                           boolean hasPosition,
+                                                           int xa,
+                                                           int ya,
+                                                           int za,
+                                                           @Nullable EntityRotation rotation,
+                                                           boolean onGround) {
+            return new EntityMovement(
+                    entityId,
+                    MovementKind.RELATIVE_ENTITY,
+                    PositionChange.relative(hasPosition, xa, ya, za),
+                    rotation,
+                    onGround,
+                    DeltaMovementChange.NONE
+            );
+        }
+
+        private static EntityMovement teleportEntityPacket(int entityId,
+                                                           Vec3 position,
+                                                           EntityRotation rotation,
+                                                           boolean onGround,
+                                                           DeltaMovementChange deltaMovement) {
+            return new EntityMovement(
+                    entityId,
+                    MovementKind.TELEPORT_ENTITY,
+                    PositionChange.absolute(position),
+                    rotation,
+                    onGround,
+                    deltaMovement
+            );
+        }
+
+        private static EntityMovement positionSyncPacket(int entityId,
+                                                         Vec3 position,
+                                                         EntityRotation rotation,
+                                                         boolean onGround) {
+            return new EntityMovement(
+                    entityId,
+                    MovementKind.POSITION_SYNC,
+                    PositionChange.absolute(position),
+                    rotation,
+                    onGround,
+                    DeltaMovementChange.NONE
+            );
+        }
+
+        private static EntityMovement minecartPacket(int entityId,
+                                                     Vec3 position,
+                                                     EntityRotation rotation) {
+            return new EntityMovement(
+                    entityId,
+                    MovementKind.MINECART,
+                    PositionChange.absolute(position),
+                    rotation,
+                    null,
+                    DeltaMovementChange.NONE
+            );
+        }
+
+        private boolean hasPosition() {
+            return position.hasPosition();
+        }
+
+        @Nullable
+        private Float yaw() {
+            return rotation == null ? null : rotation.yaw();
+        }
+
+        @Nullable
+        private Float pitch() {
+            return rotation == null ? null : rotation.pitch();
+        }
+    }
+
+    private interface PositionChange {
+        boolean relative();
+
+        boolean hasPosition();
+
+        double x();
+
+        double y();
+
+        double z();
+
+        static PositionChange relative(boolean hasPosition, int xa, int ya, int za) {
+            return new RelativePositionChange(hasPosition, packRelativeEntityMove(xa, ya, za));
+        }
+
+        static PositionChange absolute(Vec3 position) {
+            return new AbsolutePositionChange(position.x, position.y, position.z);
+        }
+    }
+
+    private record RelativePositionChange(boolean hasPosition, long packedMove) implements PositionChange {
+        @Override
+        public boolean relative() {
+            return true;
+        }
+
+        @Override
+        public double x() {
+            return unpackRelativeEntityMove(packedMove, 32) / 4096.0D;
+        }
+
+        @Override
+        public double y() {
+            return unpackRelativeEntityMove(packedMove, 16) / 4096.0D;
+        }
+
+        @Override
+        public double z() {
+            return unpackRelativeEntityMove(packedMove, 0) / 4096.0D;
+        }
+    }
+
+    private record AbsolutePositionChange(double x, double y, double z) implements PositionChange {
+        @Override
+        public boolean relative() {
+            return false;
+        }
+
+        @Override
+        public boolean hasPosition() {
+            return true;
+        }
+    }
+
+    private record EntityRotation(float yaw, float pitch) {
+    }
+
+    private record DeltaMovementChange(boolean present, double x, double y, double z, int packetHandlerSequence) {
+        private static final DeltaMovementChange NONE = new DeltaMovementChange(false, 0.0D, 0.0D, 0.0D, -1);
+
+        private static DeltaMovementChange fixed(Vec3 movement, int packetHandlerSequence) {
+            return new DeltaMovementChange(true, movement.x, movement.y, movement.z, packetHandlerSequence);
+        }
+
+        private Vec3 movement() {
+            return new Vec3(x, y, z);
+        }
+    }
+
+    private enum MovementKind {
+        RELATIVE_ENTITY(true, false),
+        TELEPORT_ENTITY(false, false),
+        POSITION_SYNC(true, true),
+        MINECART(false, false);
+
+        private final boolean skipLocalAuthoritativeRoot;
+        private final boolean exactAtProof;
+
+        MovementKind(boolean skipLocalAuthoritativeRoot, boolean exactAtProof) {
+            this.skipLocalAuthoritativeRoot = skipLocalAuthoritativeRoot;
+            this.exactAtProof = exactAtProof;
+        }
+
+        private boolean shouldSkip(PacketEntityReplication replication, int entityId) {
+            return skipLocalAuthoritativeRoot
+                    && replication.isEntityMovementIgnoredForLocalAuthoritativeVehicle(entityId);
+        }
+
+        private boolean exactAtProof() {
+            return exactAtProof;
+        }
+    }
+
+    private static long packRelativeEntityMove(int xa, int ya, int za) {
+        return ((long) (xa & 0xFFFF) << 32)
+                | ((long) (ya & 0xFFFF) << 16)
+                | (za & 0xFFFFL);
+    }
+
+    private static short unpackRelativeEntityMove(long packedMove, int shift) {
+        return (short) (packedMove >> shift);
+    }
+
+    private record PacketHandlerDeltaMovement(double x, double y, double z, int sequence) {
+    }
+
+    private record PacketHandlerEntityTransform(double x, double y, double z, float yRot, float xRot) {
+        private Vec3 position() {
+            return new Vec3(x, y, z);
+        }
+    }
 
     // Let's imagine the player is on a boat.
     // The player breaks this boat
@@ -83,545 +292,1397 @@ public class PacketEntityReplication extends Check implements PacketReceiveListe
     // Another valid solution is to simply spam more transactions, but let's not waste bandwidth.
     private final List<Integer> despawnedEntitiesThisTransaction = new ArrayList<>();
 
-    // Maximum ping when a firework boost is removed from the player.
-    private int maxFireworkBoostPing = 1000;
+    public boolean wasDespawnedThisTransaction(int entityId) {
+        return despawnedEntitiesThisTransaction.contains(entityId);
+    }
 
     public PacketEntityReplication(GrimPlayer player) {
         super(player);
     }
 
     @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        // Teleports don't interpolate, duplicate 1.17 packets don't interpolate
-        if (!isTickPacket(event.getPacketType())) return;
-        player.compensatedEntities.entitiesRemovedThisTick.clear();
-        boolean isTickingReliably = player.isTickingReliablyFor(3);
-
-        PacketEntity playerVehicle = player.compensatedEntities.self.getRiding();
-        for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-            if (entity == playerVehicle && !player.vehicleData.lastDummy) {
-                // The player has this as their vehicle, so they aren't interpolating it.
-                // And it isn't a dummy position
-                entity.setPositionRaw(player, entity.getPossibleLocationBoxes());
-            } else {
-                entity.onMovement(isTickingReliably);
-            }
-        }
-
-        if (player.vehicleData.camelSprintingState == SprintingState.STOPPING) {
-            player.vehicleData.camelSprintingState = SprintingState.STOPPED;
-        } else if (player.vehicleData.camelSprintingState == SprintingState.STOPPED && player.isSprinting) { // For sprint desyncs
-            player.vehicleData.camelSprintingState = SprintingState.STARTED;
-        }
+    public void reload() {
+        useReachBundleDelimiter = getConfig().getBooleanElse("Reach.use-bundle-delimiter", true);
     }
 
     @Override
-    public void onPacketSend(PacketSendEvent event) {
-        // ensure grim is the one that sent the transaction
-        if ((event.getPacketType() == PacketType.Play.Server.PING || event.getPacketType() == PacketType.Play.Server.WINDOW_CONFIRMATION) && player.packetStateData.lastServerTransWasValid) {
-            despawnedEntitiesThisTransaction.clear();
-        } else if (event.getPacketType() == PacketType.Play.Server.SPAWN_LIVING_ENTITY) {
-            WrapperPlayServerSpawnLivingEntity packetOutEntity = new WrapperPlayServerSpawnLivingEntity(event);
-            addEntity(packetOutEntity.getEntityId(), packetOutEntity.getEntityUUID(), packetOutEntity.getEntityType(), packetOutEntity.getPosition(), packetOutEntity.getYaw(), packetOutEntity.getPitch(), packetOutEntity.getEntityMetadata(), 0);
-        } else if (event.getPacketType() == PacketType.Play.Server.SPAWN_ENTITY) {
-            WrapperPlayServerSpawnEntity packetOutEntity = new WrapperPlayServerSpawnEntity(event);
-            addEntity(packetOutEntity.getEntityId(), packetOutEntity.getUUID().orElse(null), packetOutEntity.getEntityType(), packetOutEntity.getPosition(), packetOutEntity.getYaw(), packetOutEntity.getPitch(), null, packetOutEntity.getData());
-        } else if (event.getPacketType() == PacketType.Play.Server.SPAWN_PLAYER) {
-            WrapperPlayServerSpawnPlayer packetOutEntity = new WrapperPlayServerSpawnPlayer(event);
-            addEntity(packetOutEntity.getEntityId(), packetOutEntity.getUUID(), EntityTypes.PLAYER, packetOutEntity.getPosition(), packetOutEntity.getYaw(), packetOutEntity.getPitch(), packetOutEntity.getEntityMetadata(), 0);
-        } else if (event.getPacketType() == PacketType.Play.Server.SPAWN_PAINTING) {
-            WrapperPlayServerSpawnPainting packetOutEntity = new WrapperPlayServerSpawnPainting(event);
-            addEntity(packetOutEntity.getEntityId(), packetOutEntity.getUUID(), EntityTypes.PAINTING, packetOutEntity.getPosition().toVector3d(), 0, 0f, null, packetOutEntity.getDirection().getHorizontalIndex());
-        } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_RELATIVE_MOVE) {
-            WrapperPlayServerEntityRelativeMove move = new WrapperPlayServerEntityRelativeMove(event);
-            handleMoveEntity(event, move.getEntityId(), move.getDeltaX(), move.getDeltaY(), move.getDeltaZ(), null, null, true, true);
-        } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION) {
-            WrapperPlayServerEntityRelativeMoveAndRotation move = new WrapperPlayServerEntityRelativeMoveAndRotation(event);
-            handleMoveEntity(event, move.getEntityId(), move.getDeltaX(), move.getDeltaY(), move.getDeltaZ(), move.getYaw() * 0.7111111F, move.getPitch() * 0.7111111F, true, true);
-        } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_TELEPORT) {
-            WrapperPlayServerEntityTeleport move = new WrapperPlayServerEntityTeleport(event);
-            Vector3d pos = move.getPosition();
-            handleMoveEntity(event, move.getEntityId(), pos.getX(), pos.getY(), pos.getZ(), move.getYaw(), move.getPitch(), false, true);
-        } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_POSITION_SYNC) {
-            // ENTITY_TELEPORT but without relative flags
-            WrapperPlayServerEntityPositionSync move = new WrapperPlayServerEntityPositionSync(event);
-            final EntityPositionData values = move.getValues();
-            final Vector3d pos = values.getPosition();
-            // TODO this isn't technically correct
-            // If the position sync is to a pos > 4096 from the entity pos, client does some special stuff without interpolation
-            handleMoveEntity(event, move.getId(), pos.getX(), pos.getY(), pos.getZ(), values.getYaw(), values.getPitch(), false, true);
-        } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_ROTATION) { // Affects interpolation
-            WrapperPlayServerEntityRotation move = new WrapperPlayServerEntityRotation(event);
-            handleMoveEntity(event, move.getEntityId(), 0, 0, 0, move.getYaw() * 0.7111111F, move.getPitch() * 0.7111111F, true, false);
-        } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_METADATA) {
-            WrapperPlayServerEntityMetadata entityMetadata = new WrapperPlayServerEntityMetadata(event);
-            schedulePoseTransition(entityMetadata, event);
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.compensatedEntities.updateEntityMetadata(entityMetadata.getEntityId(), entityMetadata.getEntityMetadata()));
-        } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_EQUIPMENT) {
-            WrapperPlayServerEntityEquipment equipment = new WrapperPlayServerEntityEquipment(event);
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.compensatedEntities.updateEntityEquipment(equipment.getEntityId(), equipment.getEquipment()));
-        }
+    public void onPlayerTickEnd(PacketReceiveEvent event) {
+        tickEntityInterpolationAtClientTickEnd();
+        player.compensatedEntities.vehicles.onClientTickEnd();
+        player.compensatedEntities.vehicles.updateServerControlledSafeSetbackPositionOnTickEnd();
+        packetHandlerEntityTransforms.clear();
+    }
 
-        // 1.19.3+
-        else if (event.getPacketType() == PacketType.Play.Server.PLAYER_INFO_UPDATE) {
-            WrapperPlayServerPlayerInfoUpdate info = new WrapperPlayServerPlayerInfoUpdate(event);
-            if (info.getActions().contains(WrapperPlayServerPlayerInfoUpdate.Action.ADD_PLAYER)) {
-                player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
-                    for (WrapperPlayServerPlayerInfoUpdate.PlayerInfo entry : info.getEntries()) {
-                        final UserProfile gameProfile = entry.getGameProfile();
-                        final UUID uuid = gameProfile.getUUID();
-                        player.compensatedEntities.profiles.put(uuid, gameProfile);
-                    }
-                });
+    private void tickEntityInterpolationAtClientTickEnd() {
+        boolean tickingReliably = player.isTickingReliablyFor(3);
+        PacketEntity velocityVehicle = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
+        for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
+            if (entity == velocityVehicle
+                    && (player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(entity)
+                    || player.packetStateData.clientTickVehicleMovePacketsThisClientTick > 0
+                    || player.packetStateData.localAuthoritativeVehicleMovePacketsThisClientTick > 0)) {
+                continue;
             }
-        } else if (event.getPacketType() == PacketType.Play.Server.PLAYER_INFO_REMOVE) {
-            WrapperPlayServerPlayerInfoRemove remove = new WrapperPlayServerPlayerInfoRemove(event);
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> remove.getProfileIds().forEach(player.compensatedEntities.profiles::remove));
-        } else if (event.getPacketType() == PacketType.Play.Server.PLAYER_INFO) {
-            WrapperPlayServerPlayerInfo info = new WrapperPlayServerPlayerInfo(event);
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
-                if (info.getAction() == WrapperPlayServerPlayerInfo.Action.ADD_PLAYER) {
-                    for (WrapperPlayServerPlayerInfo.PlayerData entry : info.getPlayerDataList()) {
-                        final UserProfile gameProfile = entry.getUserProfile();
-                        final UUID uuid = gameProfile.getUUID();
-                        player.compensatedEntities.profiles.put(uuid, gameProfile);
-                    }
-                } else if (info.getAction() == WrapperPlayServerPlayerInfo.Action.REMOVE_PLAYER) {
-                    info.getPlayerDataList().forEach(profile -> player.compensatedEntities.profiles.remove(profile.getUserProfile().getUUID()));
-                }
-            });
-        } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_EFFECT) {
-            WrapperPlayServerEntityEffect effect = new WrapperPlayServerEntityEffect(event);
-
-            PotionType type = effect.getPotionType();
-
-            // ViaVersion tries faking levitation effects and fails badly lol, flagging the anticheat
-            // Block other effects just in case ViaVersion gets any ideas
-            //
-            // Set to 24 so ViaVersion blocks it
-            // 24 is the levitation effect
-            if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9) && ViaVersionUtil.isAvailable && type.getId(player.getClientVersion()) > 23) {
-                event.setCancelled(true);
-                return;
-            }
-
-            // ViaVersion dolphin's grace also messes us up, set it to a potion effect that doesn't exist on 1.12
-            // Effect 31 is bad omen
-            if (player.getClientVersion().isOlderThan(ClientVersion.V_1_13) && ViaVersionUtil.isAvailable && type.getId(player.getClientVersion()) == 30) {
-                event.setCancelled(true);
-                return;
-            }
-
-            if (isDirectlyAffectingPlayer(player, effect.getEntityId())) player.sendTransaction();
-
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
-                PacketEntity entity = player.compensatedEntities.getEntity(effect.getEntityId());
-                if (entity == null) return;
-
-                entity.addPotionEffect(type, effect.getEffectAmplifier());
-            });
-        } else if (event.getPacketType() == PacketType.Play.Server.REMOVE_ENTITY_EFFECT) {
-            WrapperPlayServerRemoveEntityEffect effect = new WrapperPlayServerRemoveEntityEffect(event);
-
-            if (isDirectlyAffectingPlayer(player, effect.getEntityId())) player.sendTransaction();
-
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
-                PacketEntity entity = player.compensatedEntities.getEntity(effect.getEntityId());
-                if (entity == null) return;
-
-                entity.removePotionEffect(effect.getPotionType());
-            });
-        } else if (event.getPacketType() == PacketType.Play.Server.UPDATE_ATTRIBUTES) {
-            WrapperPlayServerUpdateAttributes attributes = new WrapperPlayServerUpdateAttributes(event);
-
-            int entityID = attributes.getEntityId();
-
-            // The attributes for this entity is active, currently
-            if (isDirectlyAffectingPlayer(player, entityID)) player.sendTransaction();
-
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(),
-                    () -> player.compensatedEntities.updateAttributes(entityID, attributes.getProperties()));
-        } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_STATUS) {
-            WrapperPlayServerEntityStatus status = new WrapperPlayServerEntityStatus(event);
-            // This hasn't changed from 1.7.2 to 1.17
-            // Needed to exempt players on dead vehicles, as dead entities have strange physics.
-            if (status.getStatus() == 3) {
-                PacketEntity entity = player.compensatedEntities.getEntity(status.getEntityId());
-
-                if (entity == null) return;
-                entity.isDead = true;
-            }
-
-            if (status.getStatus() == 9) {
-                if (status.getEntityId() != player.entityID) return;
-
-                player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.packetStateData.setSlowedByUsingItem(false));
-                player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get() + 1, () -> player.packetStateData.setSlowedByUsingItem(false));
-            }
-
-            if (status.getStatus() == 31) {
-                PacketEntity hook = player.compensatedEntities.getEntity(status.getEntityId());
-                if (!(hook instanceof PacketEntityHook hookEntity)) return;
-
-                if (hookEntity.attached == player.entityID) {
-                    player.sendTransaction();
-                    // We don't transaction sandwich this, it's too rare to be a real problem.
-                    player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.uncertaintyHandler.fishingRodPulls.add(hookEntity.owner));
-                }
-            }
-
-            if (status.getStatus() >= 24 && status.getStatus() <= 28 && status.getEntityId() == player.entityID) {
-                player.compensatedEntities.self.opLevel = status.getStatus() - 24;
-            }
-        } else if (event.getPacketType() == PacketType.Play.Server.SET_SLOT) {
-            WrapperPlayServerSetSlot slot = new WrapperPlayServerSetSlot(event);
-
-            if (slot.getWindowId() == 0) {
-                Runnable task = () -> {
-                    if (slot.getSlot() - 36 == player.packetStateData.lastSlotSelected && (
-                            !player.inventory.getHeldItem().is(slot.getItem().getType()) || player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8)
-                    ) || slot.getSlot() == 45 && !player.inventory.getOffHand().is(slot.getItem().getType())) {
-                        InteractionHand hand = slot.getSlot() == 45 ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
-                        if (hand == player.packetStateData.itemInUseHand) {
-                            player.packetStateData.setSlowedByUsingItem(false);
-                        }
-
-                        if (player.isResetItemUsageOnItemUpdate() && hand == GrimAPI.INSTANCE.getItemResetHandler().getItemUsageHand(player.platformPlayer)) {
-                            GrimAPI.INSTANCE.getItemResetHandler().resetItemUsage(player.platformPlayer);
-                        }
-                    }
-                };
-
-                player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), task);
-                player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get() + 1, task);
-            }
-        } else if (event.getPacketType() == PacketType.Play.Server.WINDOW_ITEMS) {
-            WrapperPlayServerWindowItems items = new WrapperPlayServerWindowItems(event);
-
-            if (items.getWindowId() == 0) { // Player inventory
-                Runnable task = () -> {
-                    if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8)) {
-                        player.packetStateData.setSlowedByUsingItem(false);
-                        if (player.isResetItemUsageOnItemUpdate()) {
-                            GrimAPI.INSTANCE.getItemResetHandler().resetItemUsage(player.platformPlayer);
-                        }
-                    } else {
-                        if (items.getItems().size() > 45 && !player.inventory.getOffHand().is(items.getItems().get(45).getType())) {
-                            if (player.packetStateData.itemInUseHand == InteractionHand.OFF_HAND) {
-                                player.packetStateData.setSlowedByUsingItem(false);
-                            }
-
-                            if (player.isResetItemUsageOnItemUpdate() && GrimAPI.INSTANCE.getItemResetHandler().getItemUsageHand(player.platformPlayer) == InteractionHand.OFF_HAND) {
-                                GrimAPI.INSTANCE.getItemResetHandler().resetItemUsage(player.platformPlayer);
-                            }
-                        }
-
-                        if (!player.inventory.getHeldItem().is(items.getItems().get(player.packetStateData.lastSlotSelected + 36).getType())) {
-                            if (player.packetStateData.itemInUseHand == InteractionHand.MAIN_HAND) {
-                                player.packetStateData.setSlowedByUsingItem(false);
-                            }
-
-                            if (player.isResetItemUsageOnItemUpdate() && GrimAPI.INSTANCE.getItemResetHandler().getItemUsageHand(player.platformPlayer) == InteractionHand.MAIN_HAND) {
-                                GrimAPI.INSTANCE.getItemResetHandler().resetItemUsage(player.platformPlayer);
-                            }
-                        }
-                    }
-                };
-
-                player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), task);
-                player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get() + 1, task);
-            }
-        }
-
-        // 1.8 clients fail to send the RELEASE_USE_ITEM packet when a window is opened client sided while using an item
-        else if (event.getPacketType() == PacketType.Play.Server.OPEN_WINDOW) {
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.packetStateData.setSlowedByUsingItem(false));
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get() + 1, () -> player.packetStateData.setSlowedByUsingItem(false));
-        } else if (event.getPacketType() == PacketType.Play.Server.OPEN_HORSE_WINDOW) {
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.packetStateData.setSlowedByUsingItem(false));
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get() + 1, () -> player.packetStateData.setSlowedByUsingItem(false));
-        } else if (event.getPacketType() == PacketType.Play.Server.SET_PASSENGERS) {
-            WrapperPlayServerSetPassengers mount = new WrapperPlayServerSetPassengers(event);
-
-            int vehicleID = mount.getEntityId();
-            int[] passengers = mount.getPassengers();
-
-            handleMountVehicle(event, vehicleID, passengers);
-        } else if (event.getPacketType() == PacketType.Play.Server.ATTACH_ENTITY) {
-            WrapperPlayServerAttachEntity attach = new WrapperPlayServerAttachEntity(event);
-
-            // This packet was replaced by the mount packet on 1.9+ servers - to support multiple passengers on one vehicle
-            if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9))
-                return;
-
-            // If this is mounting rather than leashing
-            if (!attach.isLeash()) {
-                // Alright, let's convert this to the 1.9+ format to make it easier for grim
-                int vehicleID = attach.getHoldingId();
-                int attachID = attach.getAttachedId();
-                TrackerData trackerData = player.compensatedEntities.getTrackedEntity(attachID);
-
-                if (trackerData != null) {
-                    // 1.8 sends a vehicle ID of -1 to dismount the entity from its vehicle
-                    // This is opposite of the 1.9+ format, which sends the vehicle ID and then an empty array.
-                    if (vehicleID == -1) { // Dismounting
-                        vehicleID = trackerData.getLegacyPointEightMountedUpon();
-                        handleMountVehicle(event, vehicleID, new int[]{}); // The vehicle is empty
-                    } else { // Mounting
-                        trackerData.setLegacyPointEightMountedUpon(vehicleID);
-                        handleMountVehicle(event, vehicleID, new int[]{attachID});
-                    }
-                } else {
-                    // I don't think we can recover from this... warn and move on as this shouldn't happen.
-                    LogUtil.warn("Server sent an invalid attach entity packet for entity " + attach.getHoldingId() + " with passenger " + attach.getAttachedId() + "! The client ignores this.");
-                }
-            }
-        } else if (event.getPacketType() == PacketType.Play.Server.DESTROY_ENTITIES) {
-            WrapperPlayServerDestroyEntities destroy = new WrapperPlayServerDestroyEntities(event);
-
-            int[] destroyEntityIds = destroy.getEntityIds();
-
-            for (int entityID : destroyEntityIds) {
-                despawnedEntitiesThisTransaction.add(entityID);
-                player.compensatedEntities.serverPositionsMap.remove(entityID);
-                // Remove the tracked vehicle (handling tracking knockback) if despawned
-                if (player.compensatedEntities.serverPlayerVehicle != null && player.compensatedEntities.serverPlayerVehicle == entityID) {
-                    player.compensatedEntities.serverPlayerVehicle = null;
-                }
-            }
-
-            final int destroyTransaction = player.lastTransactionSent.get() + 1;
-            player.latencyUtils.addRealTimeTask(destroyTransaction, () -> {
-                for (int entityId : destroyEntityIds) {
-                    player.compensatedEntities.removeEntity(entityId);
-                    player.dashableEntities.removeEntity(entityId);
-                    player.fireworks.removeFirework(entityId);
-                    player.compensatedEntities.entitiesRemovedThisTick.add(entityId);
-                }
-            });
-
-            // Don't let the player freeze transactions to keep the firework boost velocity + uncertainty
-            // Also generally prevents people with high ping gaining too high an advantage in firework use
-            if (maxFireworkBoostPing > 0) {
-                player.runNettyTaskInMs(() -> {
-                    if (player.lastTransactionReceived.get() >= destroyTransaction) return;
-                    for (int entityID : destroyEntityIds) {
-                        // If the player has a firework boosting them, setback
-                        if (player.fireworks.hasFirework(entityID)) {
-                            player.getSetbackTeleportUtil().executeViolationSetback();
-                            break;
-                        }
-                    }
-                }, maxFireworkBoostPing);
-            }
+            entity.onMovement(player, tickingReliably);
         }
     }
 
-    private void handleMountVehicle(PacketSendEvent event, int vehicleID, int[] passengers) {
-        boolean wasInVehicle = player.compensatedEntities.serverPlayerVehicle != null && player.compensatedEntities.serverPlayerVehicle == vehicleID;
-        boolean inThisVehicle = false;
-
-        for (int passenger : passengers) {
-            inThisVehicle = passenger == player.entityID;
-            if (inThisVehicle) break;
+    public void resyncTrackedVehicle(@Nullable PacketEntity vehicle) {
+        if (vehicle == null) {
+            return;
         }
 
-        if (inThisVehicle && !wasInVehicle) {
-            player.handleMountVehicle(vehicleID);
+        VehicleMountResyncState resyncState = vehicleMountResyncState(vehicle.getEntityId());
+        if (resyncState == null) {
+            return;
         }
 
-        if (!inThisVehicle && wasInVehicle) {
-            player.handleDismountVehicle(event);
+        sendVehicleProtocolResync(resyncState);
+    }
+
+    private void sendVehicleProtocolResync(VehicleMountResyncState resyncState) {
+        GrimPlayer.TrackedTransaction proof = player.createTrackedTransactionPacketForBundle();
+        if (proof == null) {
+            return;
         }
-        // Better lag compensation if we were affected by this
-        if (wasInVehicle || inThisVehicle) {
+
+        queueVehicleProtocolResyncAndApply(proof.transaction(), resyncState);
+        writeProofGroupNow(proof, resyncPackets(resyncState, null));
+    }
+
+    @GrimPacketHandler
+    @GrimPacketGroup(PacketGroup.CLIENTBOUND_ENTITY_MOVEMENT)
+    public void onMoveEntity(PacketSendEvent event, GrimPlayer player, ClientboundMoveEntityPacket packet) {
+        handleMoveEntityPacket(event, packet);
+    }
+
+    @GrimPacketHandler
+    public void onPing(PacketSendEvent event, GrimPlayer player, ClientboundPingPacket packet) {
+        clearDespawnedEntitiesForServerTransaction();
+    }
+
+    @GrimPacketHandler
+    public void onAddEntity(PacketSendEvent event, GrimPlayer player, ClientboundAddEntityPacket packet) {
+        handleAddEntity(event, packet);
+    }
+
+    @GrimPacketHandler
+    public void onTeleportEntity(PacketSendEvent event, GrimPlayer player, ClientboundTeleportEntityPacket packet) {
+        handleTeleportEntity(event, packet);
+    }
+
+    @GrimPacketHandler(packetClass = "net.minecraft.network.protocol.game.ClientboundEntityPositionSyncPacket")
+    public void onEntityPositionSync(PacketSendEvent event, GrimPlayer player, Packet<?> packet) {
+        handleEntityPositionSync(event, packet);
+    }
+
+    @GrimPacketHandler(packetClass = "net.minecraft.network.protocol.game.ClientboundMoveMinecartPacket")
+    public void onMoveMinecart(PacketSendEvent event, GrimPlayer player, Packet<?> packet) {
+        handleMoveMinecart(event, packet);
+    }
+
+    @GrimPacketHandler
+    public void onSetEntityMotion(PacketSendEvent event, GrimPlayer player, ClientboundSetEntityMotionPacket packet) {
+        handleSetEntityMotion(event, packet);
+    }
+
+    @GrimPacketHandler
+    public void onSetEntityData(PacketSendEvent event, GrimPlayer player, ClientboundSetEntityDataPacket packet) {
+        handleSetEntityData(packet);
+    }
+
+    @GrimPacketHandler
+    public void onSetEquipment(PacketSendEvent event, GrimPlayer player, ClientboundSetEquipmentPacket packet) {
+        handleSetEquipment(packet);
+    }
+
+    @GrimPacketHandler
+    public void onUpdateMobEffect(PacketSendEvent event, GrimPlayer player, ClientboundUpdateMobEffectPacket packet) {
+        handleUpdateMobEffect(event, packet);
+    }
+
+    @GrimPacketHandler
+    public void onRemoveMobEffect(PacketSendEvent event, GrimPlayer player, ClientboundRemoveMobEffectPacket packet) {
+        handleRemoveMobEffect(event, packet);
+    }
+
+    @GrimPacketHandler
+    public void onUpdateAttributes(PacketSendEvent event, GrimPlayer player, ClientboundUpdateAttributesPacket packet) {
+        handleUpdateAttributes(event, packet);
+    }
+
+    @GrimPacketHandler
+    public void onEntityEvent(PacketSendEvent event, GrimPlayer player, ClientboundEntityEventPacket packet) {
+        handleEntityEvent(packet);
+    }
+
+    @GrimPacketHandler
+    public void onDamageEvent(PacketSendEvent event, GrimPlayer player, ClientboundDamageEventPacket packet) {
+        handleDamageEvent(event, packet);
+    }
+
+    @GrimPacketHandler
+    public void onSetPassengers(PacketSendEvent event, GrimPlayer player, ClientboundSetPassengersPacket packet) {
+        handleSetPassengers(event, packet);
+    }
+
+    @GrimPacketHandler
+    public void onRemoveEntities(PacketSendEvent event, GrimPlayer player, ClientboundRemoveEntitiesPacket packet) {
+        handleRemoveEntities(event, packet);
+    }
+
+    // Keep the compensated camera entity synchronized.
+    @GrimPacketHandler
+    public void onSetCamera(PacketSendEvent event, GrimPlayer player, ClientboundSetCameraPacket packet) {
+        player.cameraEntity.onSetCamera(packet);
+    }
+
+    private void clearDespawnedEntitiesForServerTransaction() {
+        if (player.packetStateData.lastServerTransWasValid) {
+            despawnedEntitiesThisTransaction.clear();
+        }
+    }
+
+    private void handleAddEntity(PacketSendEvent event, ClientboundAddEntityPacket packet) {
+        boolean despawnedThisTransaction = despawnedEntitiesThisTransaction.contains(packet.getId());
+        if (despawnedThisTransaction) {
             player.sendTransaction();
         }
-        player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
-            PacketEntity vehicle = player.compensatedEntities.getEntity(vehicleID);
+        if (removedPlayerVehicleId == packet.getId()) {
+            removedPlayerVehicleId = Integer.MIN_VALUE;
+        }
+        int transaction = appendTrailingProofTransactionId(event);
+        addEntity(
+                packet.getId(),
+                packet.getType(),
+                new Vec3(packet.getX(), packet.getY(), packet.getZ()),
+                packet.getYRot(),
+                packet.getXRot(),
+                null,
+                packet.getData(),
+                transaction
+        );
+    }
 
-            // Vanilla likes sending null vehicles, so we must ignore those like the client ignores them
-            if (vehicle == null) return;
-
-            // Eject existing passengers for this vehicle
-            for (PacketEntity passenger : new ArrayList<>(vehicle.passengers)) {
-                passenger.eject();
+    private void handleSetEntityMotion(PacketSendEvent event, ClientboundSetEntityMotionPacket packet) {
+        NmsPacketUtil.EntityMotionData motion = NmsPacketUtil.readEntityMotion(packet);
+        int velocityTransaction = player.checkManager.getKnockbackHandler().handleEntityVelocity(event, packet);
+        if (velocityTransaction <= 0) {
+            GrimPlayer.TrackedTransaction afterVelocity = appendTrailingProofTransaction(event);
+            velocityTransaction = afterVelocity == null ? player.lastTransactionSent.get() : afterVelocity.transaction();
+        }
+        Vec3 movement = PacketCodecUtil.quantizeClientboundVelocity(player.getClientVersion(), motion.movement());
+        int packetHandlerDeltaSequence = recordPacketHandlerDeltaMovement(motion.entityId(), movement);
+        player.latencyUtils.addRealTimeTask(velocityTransaction, () -> {
+            PacketEntity entity = player.compensatedEntities.getEntity(motion.entityId());
+            if (entity != null) {
+                if (!player.compensatedEntities.vehicles.applyClientboundVehicleVelocity(entity, movement)) {
+                    entity.deltaMovement = movement;
+                }
             }
-
-            // Add the entities as vehicles
-            for (int entityID : passengers) {
-                PacketEntity passenger = player.compensatedEntities.getEntity(entityID);
-                if (passenger == null) continue;
-                passenger.mount(vehicle);
-            }
+            clearPacketHandlerDeltaMovement(motion.entityId(), packetHandlerDeltaSequence);
         });
     }
 
-    private void handleMoveEntity(PacketSendEvent event, int entityId, double deltaX, double deltaY, double deltaZ, Float yaw, Float pitch, boolean isRelative, boolean hasPos) {
-        TrackerData data = player.compensatedEntities.getTrackedEntity(entityId);
+    private void handleMoveEntityPacket(PacketSendEvent event, ClientboundMoveEntityPacket packet) {
+        int entityId = NmsPacketUtil.readMoveEntityId(packet);
+        // ClientPacketListener#handleMoveEntity only updates the position codec
+        // for local-authoritative roots. Applying interpolation waits for the
+        // mounted tick's Rot+MoveVehicle or Rot+TickEnd proof.
+        handleMoveEntity(event, EntityMovement.relativeEntityPacket(
+                entityId,
+                packet.hasPosition(),
+                packet.getXa(),
+                packet.getYa(),
+                packet.getZa(),
+                packet.hasRotation() ? new EntityRotation(
+                        NmsPacketUtil.floatValue(packet, "getYRot", "getyRot"),
+                        NmsPacketUtil.floatValue(packet, "getXRot", "getxRot")
+                ) : null,
+                packet.isOnGround()
+        ));
+    }
 
-        final boolean didNotSendPreWave = hasSentPreWavePacket.compareAndSet(false, true);
-        if (didNotSendPreWave) player.sendTransaction();
+    private void handleTeleportEntity(PacketSendEvent event, ClientboundTeleportEntityPacket packet) {
+        TeleportEntityData teleport = readTeleportEntity(packet);
+        TeleportChange change = teleport.change();
+        RelativeFlag packetFlags = teleport.flags();
+        if (teleport.entityId() == removedPlayerVehicleId) {
+            handleRemovedPlayerVehicleTeleport(event, change, packetFlags);
+            return;
+        }
+        PacketEntity entity = player.compensatedEntities.getEntity(teleport.entityId());
+        TrackerData data = player.compensatedEntities.getTrackedEntity(teleport.entityId());
+        Vec3 sourcePosition = teleportSourcePosition(entity, data);
+        float sourceYaw = teleportSourceYaw(entity, data);
+        float sourcePitch = teleportSourcePitch(entity, data);
+        Vec3 pos = calculateAbsolutePosition(sourcePosition, change.position(), packetFlags);
+        float finalYaw = calculateAbsoluteYaw(sourceYaw, change.yRot(), packetFlags);
+        float finalPitch = calculateAbsolutePitch(sourcePitch, change.xRot(), packetFlags);
+        Vec3 sourceDelta = teleportSourceDeltaMovement(entity);
+        Vec3 finalDelta = calculateAbsoluteDelta(sourceDelta, change.deltaMovement(), sourceYaw, sourcePitch, finalYaw, finalPitch, packetFlags);
+        int packetHandlerDeltaSequence = recordPacketHandlerDeltaMovement(teleport.entityId(), finalDelta);
+        DeltaMovementChange deltaMovementChange = DeltaMovementChange.fixed(finalDelta, packetHandlerDeltaSequence);
+        handleMoveEntity(event, EntityMovement.teleportEntityPacket(
+                teleport.entityId(),
+                pos,
+                new EntityRotation(finalYaw, finalPitch),
+                teleport.onGround(),
+                deltaMovementChange
+        ));
+    }
+
+    private static TeleportEntityData readTeleportEntity(Packet<?> packet) {
+        try {
+            packet.getClass().getMethod("change");
+            Object value = NmsPacketUtil.invokeNoArg(packet, "change");
+            TeleportChange change = new TeleportChange(
+                    (Vec3) NmsPacketUtil.invokeNoArg(value, "position"),
+                    (Vec3) NmsPacketUtil.invokeNoArg(value, "deltaMovement"),
+                    NmsPacketUtil.floatValue(value, "yRot"),
+                    NmsPacketUtil.floatValue(value, "xRot")
+            );
+            Object relatives = NmsPacketUtil.invokeNoArg(packet, "relatives");
+            return new TeleportEntityData(
+                    NmsPacketUtil.intValue(packet, "id"),
+                    change,
+                    new RelativeFlag(relativeMask((Iterable<?>) relatives)),
+                    NmsPacketUtil.booleanValue(packet, "onGround")
+            );
+        } catch (NoSuchMethodException ignored) {
+            TeleportChange change = new TeleportChange(
+                    new Vec3(
+                            ((Number) NmsPacketUtil.invokeNoArg(packet, "getX")).doubleValue(),
+                            ((Number) NmsPacketUtil.invokeNoArg(packet, "getY")).doubleValue(),
+                            ((Number) NmsPacketUtil.invokeNoArg(packet, "getZ")).doubleValue()
+                    ),
+                    Vec3.ZERO,
+                    rotationFromByte(NmsPacketUtil.intValue(packet, "getyRot", "getYRot")),
+                    rotationFromByte(NmsPacketUtil.intValue(packet, "getxRot", "getXRot"))
+            );
+            return new TeleportEntityData(
+                    NmsPacketUtil.intValue(packet, "getId"),
+                    change,
+                    new RelativeFlag(0),
+                    NmsPacketUtil.booleanValue(packet, "isOnGround")
+            );
+        }
+    }
+
+    private static int relativeMask(Iterable<?> relatives) {
+        int mask = 0;
+        for (Object relative : relatives) {
+            if (!(relative instanceof Enum<?> value)) {
+                continue;
+            }
+            mask |= switch (value.name()) {
+                case "X" -> RelativeFlag.X.getMask();
+                case "Y" -> RelativeFlag.Y.getMask();
+                case "Z" -> RelativeFlag.Z.getMask();
+                case "Y_ROT" -> RelativeFlag.Y_ROT.getMask();
+                case "X_ROT" -> RelativeFlag.X_ROT.getMask();
+                case "DELTA_X" -> RelativeFlag.DELTA_X.getMask();
+                case "DELTA_Y" -> RelativeFlag.DELTA_Y.getMask();
+                case "DELTA_Z" -> RelativeFlag.DELTA_Z.getMask();
+                case "ROTATE_DELTA" -> RelativeFlag.ROTATE_DELTA.getMask();
+                default -> 0;
+            };
+        }
+        return mask;
+    }
+
+    private static float rotationFromByte(int value) {
+        return (byte) value * 360.0F / 256.0F;
+    }
+
+    private void handleRemovedPlayerVehicleTeleport(PacketSendEvent event, TeleportChange change, RelativeFlag packetFlags) {
+        Vec3 position = calculateAbsolutePosition(new Vec3(player.x, player.y, player.z), change.position(), packetFlags);
+        float finalYaw = calculateAbsoluteYaw(player.xRot, change.yRot(), packetFlags);
+        float finalPitch = calculateAbsolutePitch(player.yRot, change.xRot(), packetFlags);
+        Vec3 deltaMovement = calculateAbsoluteDelta(Vec3.ZERO, change.deltaMovement(), player.xRot, player.yRot, finalYaw, finalPitch, packetFlags);
+        int proofTransaction = appendTrailingProofTransactionId(event);
+
+        player.getSetbackTeleportUtil().addImmediatePlayerTeleport(
+                position,
+                deltaMovement,
+                new RelativeFlag(0),
+                proofTransaction,
+                player.xRot,
+                player.yRot,
+                finalYaw,
+                finalPitch
+        );
+    }
+
+    private Vec3 teleportSourcePosition(PacketEntity entity, TrackerData data) {
+        return packetHandlerTransformSource(entity, data).position();
+    }
+
+    private float teleportSourceYaw(PacketEntity entity, TrackerData data) {
+        return packetHandlerTransformSource(entity, data).yRot();
+    }
+
+    private float teleportSourcePitch(PacketEntity entity, TrackerData data) {
+        return packetHandlerTransformSource(entity, data).xRot();
+    }
+
+    private PacketHandlerEntityTransform packetHandlerTransformSource(PacketEntity entity, TrackerData data) {
+        if (entity != null) {
+            PacketHandlerEntityTransform deferredTransform = packetHandlerEntityTransforms.get(entity.getEntityId());
+            if (deferredTransform != null) {
+                return deferredTransform;
+            }
+        }
+
+        ReachInterpolationData interpolationTarget = teleportSourceInterpolationTarget(entity);
+        if (interpolationTarget != null) {
+            // MCP-Reborn PositionMoveRotation#of(entity) reads the current
+            // InterpolationHandler target in the packet handler. The next
+            // InterpolationHandler#interpolate carry happens later, during the
+            // entity tick, so do not pre-carry the target here.
+            Vec3 position = positionFromPacketEntityBox(interpolationTarget.getTargetLocation());
+            return new PacketHandlerEntityTransform(
+                    position.x,
+                    position.y,
+                    position.z,
+                    interpolationTarget.getTargetYaw(),
+                    interpolationTarget.getTargetPitch()
+            );
+        }
+
+        if (entity != null && entity.clientPhysicalPosition != null) {
+            // MCP-Reborn PositionMoveRotation#of(entity) reads the client entity's
+            // current position/yaw/pitch when no interpolation target is active.
+            // TrackerData is the latest server-authored position Grim sent to the
+            // client; it can be ahead of the transaction-proven client shadow.
+            return new PacketHandlerEntityTransform(
+                    entity.clientPhysicalPosition.x,
+                    entity.clientPhysicalPosition.y,
+                    entity.clientPhysicalPosition.z,
+                    entity.clientPhysicalYaw,
+                    entity.clientPhysicalPitch
+            );
+        }
 
         if (data != null) {
-            // Update the tracked server's entity position
-            if (isRelative) {
-                // There is a bug where vehicles may start flying due to mojang setting packet position on the client
-                // (Works at 0 ping but causes funny bugs at any higher ping)
-                // As we don't want vehicles to fly, we need to replace it with a teleport if it is player vehicle
-                //
-                // Don't bother with client controlled vehicles though
-                boolean vanillaVehicleFlight = player.compensatedEntities.serverPlayerVehicle != null
-                        && player.compensatedEntities.serverPlayerVehicle == entityId
-                        && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
-                        // TODO: https://discord.com/channels/721686193061888071/721686193515003966/1310659538831020123
-                        // Why does the server now send an entity rel move packet matching the player's vehicle movement every time?
-                        && PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_21_2)
-                        && PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9);
-
-                // ViaVersion sends two relative packets when moving more than 4 blocks
-                // This is broken and causes the client to interpolate like (0, 4) and (1, 3) instead of (1, 7)
-                // This causes impossible hits, so grim must replace this with a teleport entity packet
-                // Not ideal, but neither is 1.8 players on a 1.9+ server.
-                if (vanillaVehicleFlight ||
-                        ((Math.abs(deltaX) >= 3.9375 || Math.abs(deltaY) >= 3.9375 || Math.abs(deltaZ) >= 3.9375) && player.getClientVersion().isOlderThan(ClientVersion.V_1_9) && PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9))) {
-                    player.user.writePacket(new WrapperPlayServerEntityTeleport(entityId, new Vector3d(data.getX() + deltaX, data.getY() + deltaY, data.getZ() + deltaZ), yaw == null ? data.getXRot() : yaw, pitch == null ? data.getYRot() : pitch, false));
-                    event.setCancelled(true);
-                    return;
-                }
-
-                data.setX(data.getX() + deltaX);
-                data.setY(data.getY() + deltaY);
-                data.setZ(data.getZ() + deltaZ);
-            } else {
-                data.setX(deltaX);
-                data.setY(deltaY);
-                data.setZ(deltaZ);
-            }
-            if (yaw != null) {
-                data.setXRot(yaw);
-                data.setYRot(pitch);
-            }
-
-            // We can't hang two relative moves on one transaction
-            if (data.getLastTransactionHung() == player.lastTransactionSent.get()) {
-                player.sendTransaction();
-            }
-            data.setLastTransactionHung(player.lastTransactionSent.get());
+            return new PacketHandlerEntityTransform(data.getX(), data.getY(), data.getZ(), data.getXRot(), data.getYRot());
         }
 
-        int lastTrans = player.lastTransactionSent.get();
-
-        player.latencyUtils.addRealTimeTask(lastTrans, () -> {
-            PacketEntity entity = player.compensatedEntities.getEntity(entityId);
-            if (entity == null) return;
-            if (entity instanceof PacketEntityTrackXRot xRotEntity && yaw != null) {
-                xRotEntity.packetYaw = yaw;
-                xRotEntity.steps = entity.isBoat ? 10 : 3;
-            }
-
-            entity.onFirstTransaction(isRelative, hasPos, deltaX, deltaY, deltaZ, yaw, pitch, player);
-        });
-
-        player.latencyUtils.addRealTimeTask(lastTrans + 1, () -> {
-            PacketEntity entity = player.compensatedEntities.getEntity(entityId);
-            if (entity == null) return;
-            entity.onSecondTransaction();
-        });
+        return new PacketHandlerEntityTransform(0.0D, 0.0D, 0.0D, 0.0F, 0.0F);
     }
 
-    public void addEntity(int entityID, UUID uuid, EntityType type, Vector3d position, float xRot, float yRot, List<EntityData<?>> entityMetadata, int extraData) {
-        if (despawnedEntitiesThisTransaction.contains(entityID)) {
+    private Vec3 teleportSourceDeltaMovement(PacketEntity entity) {
+        // MCP-Reborn PositionMoveRotation#of(entity) reads Entity#getKnownMovement.
+        // Player-controlled ridden entities use the controlling player's known
+        // movement there; non-controlled entities use their own packet-handler delta.
+        if (entity != null && entity == player.compensatedEntities.vehicles.getVelocityMovementVehicle()) {
+            return player.compensatedEntities.getSelf().deltaMovement;
+        }
+
+        return packetHandlerDeltaMovementSource(entity);
+    }
+
+    private ReachInterpolationData teleportSourceInterpolationTarget(PacketEntity entity) {
+        if (entity == null
+                || entity.newPacketLocation == null
+                || !entity.newPacketLocation.hasActiveInterpolationTarget()) {
+            return null;
+        }
+
+        return entity.newPacketLocation;
+    }
+
+    private Vec3 positionFromPacketEntityBox(SimpleCollisionBox box) {
+        return new Vec3(
+                (box.maxX - box.minX) / 2.0D + box.minX,
+                box.minY,
+                (box.maxZ - box.minZ) / 2.0D + box.minZ
+        );
+    }
+
+    private void handleEntityPositionSync(PacketSendEvent event, Packet<?> packet) {
+        Object change = NmsPacketUtil.invokeNoArg(packet, "values");
+        Vec3 pos = (Vec3) NmsPacketUtil.invokeNoArg(change, "position");
+
+        // MCP-Reborn ClientPacketListener#handleEntityPositionSync updates the
+        // position codec for every entity, but skips interpolation/snap/onGround
+        // when the entity is local-authoritative.
+        handleMoveEntity(event, EntityMovement.positionSyncPacket(
+                NmsPacketUtil.intValue(packet, "id"),
+                pos,
+                new EntityRotation(NmsPacketUtil.floatValue(change, "yRot"), NmsPacketUtil.floatValue(change, "xRot")),
+                NmsPacketUtil.booleanValue(packet, "onGround")
+        ));
+    }
+
+    private void handleMoveMinecart(PacketSendEvent event, Packet<?> packet) {
+        List<?> lerpSteps = (List<?>) NmsPacketUtil.invokeNoArg(packet, "lerpSteps");
+        if (lerpSteps.isEmpty()) {
+            return;
+        }
+        Object step = lerpSteps.getLast();
+        Vec3 pos = (Vec3) NmsPacketUtil.invokeNoArg(step, "position");
+        handleMoveEntity(event, EntityMovement.minecartPacket(
+                NmsPacketUtil.intValue(packet, "entityId"),
+                pos,
+                new EntityRotation(
+                        PacketCodecUtil.quantizeRotationByte(NmsPacketUtil.floatValue(step, "yRot")),
+                        PacketCodecUtil.quantizeRotationByte(NmsPacketUtil.floatValue(step, "xRot"))
+                )
+        ));
+    }
+
+    private void handleSetEntityData(ClientboundSetEntityDataPacket packet) {
+        List<SynchedEntityData.DataValue<?>> metadata = packet.packedItems();
+        boolean updatesHorseFlags = player.compensatedEntities.getEntity(packet.id()) instanceof PacketEntityHorse
+                && WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.HORSE_FLAGS) != null;
+        if (WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.ENTITY_NO_GRAVITY) != null) {
             player.sendTransaction();
         }
-
-        player.compensatedEntities.serverPositionsMap.put(entityID, new TrackerData(position.getX(), position.getY(), position.getZ(), xRot, yRot, type, player.lastTransactionSent.get()));
-
-        player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
-            PacketEntity entity = player.compensatedEntities.addEntity(entityID, uuid, type, position, xRot, extraData);
-            if (entity instanceof DashableEntity dashable) {
-                player.dashableEntities.addEntity(entityID, dashable);
+        if (updatesHorseFlags) {
+            // Horse standing changes the rider attachment point. A local
+            // START_RIDING_JUMP also writes that client-visible bit, so a
+            // server metadata packet can only replace it once transaction
+            // ordering proves the client processed the metadata packet.
+            int transaction = player.sendTransactionAndGetId();
+            if (transaction >= 0) {
+                player.latencyUtils.addRealTimeTask(transaction,
+                        () -> player.compensatedEntities.updateEntityMetadata(packet.id(), metadata));
+            } else {
+                player.latencyUtils.addRealTimeTaskNow(() -> player.compensatedEntities.updateEntityMetadata(packet.id(), metadata));
             }
-
-            if (entityMetadata != null) {
-                if (EntityMetadataPoseUtil.usesPoseMetadata(entity) && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14)) {
-                    Pose initialPose = EntityMetadataPoseUtil.getPoseFromMetadata(entityMetadata);
-                    if (initialPose != null) {
-                        entity.currentPose = initialPose;
-                    }
-                }
-
-                player.compensatedEntities.updateEntityMetadata(entityID, entityMetadata);
-            }
-        });
+        } else {
+            player.latencyUtils.addRealTimeTaskNow(() -> player.compensatedEntities.updateEntityMetadata(packet.id(), metadata));
+        }
     }
 
-    private void schedulePoseTransition(WrapperPlayServerEntityMetadata entityMetadata, PacketSendEvent event) {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_14)) return;
+    private void handleSetEquipment(ClientboundSetEquipmentPacket packet) {
+        player.latencyUtils.addRealTimeTaskNow(() -> player.compensatedEntities.updateEntityEquipment(packet.getEntity(), packet.getSlots()));
+    }
 
-        int entityId = entityMetadata.getEntityId();
-        if (entityId == player.entityID) return;
-
-        Pose newPose = EntityMetadataPoseUtil.getPoseFromMetadata(entityMetadata.getEntityMetadata());
-        if (newPose == null) return;
-
-        boolean shouldTrackPoseTransition = false;
-        PacketEntity entity = player.compensatedEntities.getEntity(entityId);
-        if (entity != null) {
-            shouldTrackPoseTransition = EntityMetadataPoseUtil.usesPoseMetadata(entity);
-        } else {
-            // If the client didn't respond to the spawn packet yet, we need to check if we should track the pose transition based on the entity type
-            // is there a better way to do this?
-            TrackerData trackedEntity = player.compensatedEntities.getTrackedEntity(entityId);
-            if (trackedEntity != null) {
-                shouldTrackPoseTransition = EntityMetadataPoseUtil.usesPoseMetadata(trackedEntity.getEntityType());
-            }
+    private void handleUpdateMobEffect(PacketSendEvent event, ClientboundUpdateMobEffectPacket packet) {
+        PotionEffectType type = toPotionEffectType(packet.getEffect());
+        if (type == null) {
+            return;
         }
 
-        if (!shouldTrackPoseTransition) return;
+        if (isDirectlyAffectingPlayer(player, packet.getEntityId())) {
+            event.getTasksAfterSend().add(player::sendTransaction);
+        }
 
-        player.sendTransaction();
-        player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
-            PacketEntity target = player.compensatedEntities.getEntity(entityId);
-            if (target == null) {
+        final Runnable applyMobEffect = () -> {
+            PacketEntity entity = player.compensatedEntities.getEntity(packet.getEntityId());
+            if (entity == null) return;
+
+            entity.addPotionEffect(type, packet.getEffectAmplifier());
+        };
+        player.latencyUtils.addRealTimeTaskNow(applyMobEffect);
+    }
+
+    private void handleRemoveMobEffect(PacketSendEvent event, ClientboundRemoveMobEffectPacket packet) {
+        PotionEffectType type = toPotionEffectType(packet.effect());
+        if (type == null) {
+            return;
+        }
+
+        if (isDirectlyAffectingPlayer(player, packet.entityId())) {
+            event.getTasksAfterSend().add(player::sendTransaction);
+        }
+
+        final Runnable removeMobEffect = () -> {
+            PacketEntity entity = player.compensatedEntities.getEntity(packet.entityId());
+            if (entity == null) return;
+
+            entity.removePotionEffect(type);
+        };
+        player.latencyUtils.addRealTimeTaskNow(removeMobEffect);
+    }
+
+    private void handleUpdateAttributes(PacketSendEvent event, ClientboundUpdateAttributesPacket packet) {
+        int entityID = packet.getEntityId();
+        List<ClientboundUpdateAttributesPacket.AttributeSnapshot> values = new ArrayList<>(packet.getValues());
+
+        if (isDirectlyAffectingPlayer(player, entityID)) {
+            GrimPlayer.TrackedTransaction proof = player.createTrackedTransactionPacketForDeferredSend();
+            if (proof == null) {
+                player.compensatedEntities.updateAttributes(entityID, values);
                 return;
             }
+            event.getPacketsAfterSend().add(proof.packet());
+            event.getTasksAfterSend().add(() -> player.markTrackedTransactionPacketSent(proof));
+            player.latencyUtils.addRealTimeTask(
+                    proof.transaction(),
+                    () -> player.compensatedEntities.updateAttributes(entityID, values));
+            return;
+        }
 
-            target.beginPoseTransition(newPose);
-        });
+        PacketEntity entity = player.compensatedEntities.getEntity(entityID);
+        if (entity == null || PacketEntityUtil.isRideable(entity.type)) {
+            player.compensatedEntities.updateAttributes(entityID, values);
+        } else {
+            player.latencyUtils.addRealTimeTaskNow(() -> player.compensatedEntities.updateAttributes(entityID, values));
+        }
+    }
 
-        event.getTasksAfterSend().add(() -> {
+    private void handleEntityEvent(ClientboundEntityEventPacket packet) {
+        NmsPacketUtil.EntityEventData entityEvent = NmsPacketUtil.readEntityEvent(packet);
+        int entityId = entityEvent.entityId();
+        byte status = entityEvent.status();
+        if (status == 3) {
+            PacketEntity entity = player.compensatedEntities.getEntity(entityId);
+
+            if (entity == null) return;
+            entity.isDead = true;
+        }
+
+        if (status == 31) {
             player.sendTransaction();
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
-                PacketEntity target = player.compensatedEntities.getEntity(entityId);
-                if (target == null) {
-                    return;
-                }
 
-                target.completePoseTransition(newPose);
+            final Runnable applyHookPull = () -> {
+                PacketEntity hook = player.compensatedEntities.getEntity(entityId);
+                if (!(hook instanceof PacketEntityHook)) return;
+
+                PacketEntityHook hookEntity = (PacketEntityHook) hook;
+                if (hookEntity.attached == player.entityID) {
+                    PacketEntity owner = player.compensatedEntities.getEntity(hookEntity.owner);
+                    if (owner == null) return;
+
+                    player.compensatedEntities.fishingRodPulls.add(owner.getPossibleMovementCollisionBoxes());
+                }
+            };
+            player.latencyUtils.addRealTimeTaskNow(applyHookPull);
+        }
+
+        if (status >= 24 && status <= 28 && entityId == player.entityID) {
+            player.compensatedEntities.getSelf().setOpLevel(status - 24);
+        }
+
+        if (status == 35 && entityId == player.entityID) {
+            player.sendTransaction();
+        }
+    }
+
+    private void handleDamageEvent(PacketSendEvent event, ClientboundDamageEventPacket packet) {
+        int entityId = packet.entityId();
+        if (!(player.compensatedEntities.getEntity(entityId) instanceof PacketEntityStrider)) {
+            return;
+        }
+
+        GrimPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event);
+        if (proof == null) {
+            player.latencyUtils.addRealTimeTaskNow(() -> applyStriderDamageEvent(entityId));
+            return;
+        }
+
+        player.latencyUtils.addRealTimeTask(proof.transaction(), () -> applyStriderDamageEvent(entityId));
+    }
+
+    private void applyStriderDamageEvent(int entityId) {
+        PacketEntity entity = player.compensatedEntities.getEntity(entityId);
+        if (entity instanceof PacketEntityStrider strider) {
+            strider.handleDamageEvent();
+        }
+    }
+
+    private void handleSetPassengers(PacketSendEvent event, ClientboundSetPassengersPacket packet) {
+        boolean mountsLocalPlayer = mountsLocalPlayer(packet);
+        PacketEntity vehicle = player.compensatedEntities.getEntity(packet.getVehicle());
+        Integer immediateVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
+        boolean delayedVehicleCanStillBeCurrent = immediateVehicle == null
+                ? removedPlayerVehicleId != packet.getVehicle()
+                : immediateVehicle == packet.getVehicle();
+        boolean removesLocalPlayer = !mountsLocalPlayer
+                && (player.compensatedEntities.vehicles.isServerPlayerPassengerOf(packet.getVehicle())
+                || delayedVehicleCanStillBeCurrent
+                && vehicle != null
+                && vehicle.passengers.contains(player.compensatedEntities.playerEntity));
+
+        if (removesLocalPlayer) {
+            Vec3 dismountPosition = new Vec3(player.x, player.y, player.z);
+            Vec3 dismountVelocity = Vec3.ZERO;
+            SelfDismountResyncState dismountResyncState = new SelfDismountResyncState(dismountPosition, dismountVelocity,
+                    player.getSetbackTeleportUtil().nextTeleportId());
+            int transaction = transactionForSetPassengers(event, null, dismountResyncState);
+            int vehicleId = packet.getVehicle();
+            int[] passengers = packet.getPassengers().clone();
+            player.compensatedEntities.vehicles.setServerVehicleDismount(vehicleId, transaction);
+            player.latencyUtils.addRealTimeTask(transaction, () -> {
+                player.compensatedEntities.playerEntity.deltaMovement = PacketCodecUtil.quantizeLpVec3(SELF_DISMOUNT_VELOCITY);
+                player.compensatedEntities.vehicles.applyVehiclePassengers(vehicleId, passengers);
+                player.compensatedEntities.vehicles.clearServerVehicle(vehicleId, transaction);
+                // Vehicle-switch state changes at the passenger transaction boundary.
+                player.vehicleData.wasVehicleSwitch = true;
             });
+            return;
+        }
+
+        VehicleMountResyncState mountResyncState = null;
+        if (mountsLocalPlayer) {
+            if (shouldResyncVehicleOnMount(vehicle, packet.getPassengers())) {
+                mountResyncState = vehicleMountResyncState(packet.getVehicle());
+            }
+        }
+
+        int transaction = transactionForSetPassengers(event, mountResyncState, null);
+        int vehicleId = packet.getVehicle();
+        int[] passengers = packet.getPassengers().clone();
+        if (mountsLocalPlayer) {
+            player.compensatedEntities.vehicles.setServerVehicle(vehicleId, passengers, transaction);
+        }
+        VehicleMountResyncState resyncState = mountResyncState;
+        if (resyncState != null) {
+            queueVehicleProtocolResync(transaction, resyncState);
+        }
+        player.latencyUtils.addRealTimeTask(transaction, () -> {
+            player.compensatedEntities.vehicles.applyVehiclePassengers(vehicleId, passengers);
+            if (mountsLocalPlayer) {
+                player.vehicleData.wasVehicleSwitch = true;
+            }
+            if (resyncState != null) {
+                player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
+                        resyncState.vehicleId(),
+                        resyncState.position(),
+                        resyncState.yaw(),
+                        resyncState.pitch(),
+                        resyncState.onGround(),
+                        resyncState.velocity(),
+                        resyncState.interpolates());
+            }
         });
+    }
+
+    private int transactionForSetPassengers(PacketSendEvent event,
+                                            @Nullable VehicleMountResyncState mountResyncState,
+                                            @Nullable SelfDismountResyncState dismountResyncState) {
+        List<Packet<? super ClientGamePacketListener>> resyncPackets = resyncPackets(mountResyncState, dismountResyncState);
+        boolean useDelimiter = resyncPackets.isEmpty()
+                ? shouldUseEntityTrackingBundleDelimiter()
+                : shouldUseVehicleProtocolBundleDelimiter();
+        GrimPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, resyncPackets, useDelimiter);
+        return proof == null ? player.lastTransactionSent.get() : proof.transaction();
+    }
+
+    private List<Packet<? super ClientGamePacketListener>> resyncPackets(@Nullable VehicleMountResyncState mountResyncState,
+                                                                        @Nullable SelfDismountResyncState dismountResyncState) {
+        List<Packet<? super ClientGamePacketListener>> packets = new ArrayList<>();
+        if (mountResyncState != null) {
+            packets.add(vehicleMovePacket(mountResyncState));
+            packets.add(new ClientboundSetEntityMotionPacket(mountResyncState.vehicleId(), mountResyncState.velocity()));
+        }
+        if (dismountResyncState != null) {
+            packets.add(new ClientboundSetEntityMotionPacket(player.entityID, dismountResyncState.velocity()));
+            packets.add(selfDismountTeleportPacket(dismountResyncState.teleportId(), dismountResyncState.position(), dismountResyncState.velocity()));
+        }
+        return packets;
+    }
+
+    private ClientboundMoveVehiclePacket vehicleMovePacket(VehicleMountResyncState resyncState) {
+        return NmsPacketUtil.clientboundMoveVehiclePacket(
+                resyncState.position(), resyncState.yaw(), resyncState.pitch());
+    }
+
+    private ClientboundPlayerPositionPacket selfDismountTeleportPacket(int teleportId, Vec3 position, Vec3 velocity) {
+        try {
+            Class<?> changeType = Class.forName("net.minecraft.world.entity.PositionMoveRotation");
+            Object change = changeType
+                    .getConstructor(Vec3.class, Vec3.class, float.class, float.class)
+                    .newInstance(position, velocity, player.xRot, player.yRot);
+            return (ClientboundPlayerPositionPacket) ClientboundPlayerPositionPacket.class
+                    .getMethod("of", int.class, changeType, Set.class)
+                    .invoke(null, teleportId, change, Set.of());
+        } catch (ClassNotFoundException | NoSuchMethodException ignored) {
+            try {
+                return ClientboundPlayerPositionPacket.class
+                        .getConstructor(double.class, double.class, double.class, float.class, float.class, Set.class, int.class)
+                        .newInstance(position.x, position.y, position.z, player.xRot, player.yRot, Set.of(), teleportId);
+            } catch (ReflectiveOperationException exception) {
+                throw new IllegalStateException("Unable to create legacy player teleport packet", exception);
+            }
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to create player teleport packet", exception);
+        }
+    }
+
+    private boolean mountsLocalPlayer(ClientboundSetPassengersPacket packet) {
+        for (int passenger : packet.getPassengers()) {
+            if (passenger == player.entityID) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean shouldResyncVehicleOnMount(PacketEntity vehicle, int[] passengers) {
+        return player.compensatedEntities.vehicles.shouldProtocolResyncOnMount(vehicle, passengers);
+    }
+
+    private void queueVehicleProtocolResync(int transaction, VehicleMountResyncState resyncState) {
+        player.getSetbackTeleportUtil().addVehicleTeleport(resyncState.vehicleId(), transaction, resyncState.position());
+        player.getSetbackTeleportUtil().updateSafeVehiclePosition(resyncState.position());
+    }
+
+    private void queueVehicleProtocolResyncAndApply(int transaction, VehicleMountResyncState resyncState) {
+        queueVehicleProtocolResync(transaction, resyncState);
+        player.latencyUtils.addRealTimeTask(transaction, () ->
+                player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
+                        resyncState.vehicleId(),
+                        resyncState.position(),
+                        resyncState.yaw(),
+                        resyncState.pitch(),
+                        resyncState.onGround(),
+                        resyncState.velocity(),
+                        resyncState.interpolates()
+                ));
+    }
+
+    @Nullable
+    private VehicleMountResyncState vehicleMountResyncState(int vehicleId) {
+        return vehicleMountResyncState(vehicleId, false);
+    }
+
+    @Nullable
+    private VehicleMountResyncState vehicleMountResyncState(int vehicleId, boolean forceSnapNudge) {
+        TrackerData trackedPosition = player.compensatedEntities.getTrackedEntity(vehicleId);
+        if (trackedPosition == null) {
+            return null;
+        }
+
+        Vec3 position = new Vec3(trackedPosition.getX(), trackedPosition.getY(), trackedPosition.getZ());
+        PacketEntity vehicle = player.compensatedEntities.getEntity(vehicleId);
+        if (forceSnapNudge || vehicleMoveWouldNotSnap(vehicle, position)) {
+            position = nudgeVehicleMoveResyncPosition(position);
+        }
+
+        return new VehicleMountResyncState(
+                position,
+                trackedPosition.getXRot(),
+                trackedPosition.getYRot(),
+                null,
+                PacketCodecUtil.quantizeLpVec3(Vec3.ZERO),
+                vehicleId,
+                false
+        );
+    }
+
+    private boolean vehicleMoveWouldNotSnap(@Nullable PacketEntity vehicle, Vec3 packetPosition) {
+        Vec3 serializedPosition = currentSerializedVehiclePosition(vehicle);
+        return serializedPosition != null && packetPosition.distanceTo(serializedPosition) <= 1.0E-5F;
+    }
+
+    private Vec3 nudgeVehicleMoveResyncPosition(Vec3 position) {
+        long xBucket = Math.round(position.x / VEHICLE_MOVE_RESYNC_SNAP_EPSILON);
+        double offset = (xBucket & 1L) == 0L ? VEHICLE_MOVE_RESYNC_SNAP_EPSILON : -VEHICLE_MOVE_RESYNC_SNAP_EPSILON;
+        return position.add(offset, 0.0D, 0.0D);
+    }
+
+    @Nullable
+    private Vec3 currentSerializedVehiclePosition(@Nullable PacketEntity vehicle) {
+        if (vehicle == null) {
+            return null;
+        }
+
+        if (vehicle.newPacketLocation != null && vehicle.newPacketLocation.hasActiveInterpolationTarget()) {
+            return positionFromPacketEntityBox(vehicle.newPacketLocation.getTargetLocation());
+        }
+        return vehicle.clientPhysicalPosition != null ? vehicle.clientPhysicalPosition : vehicle.desyncClientPos;
+    }
+
+    private record VehicleMountResyncState(Vec3 position,
+                                           float yaw,
+                                           float pitch,
+                                           @Nullable Boolean onGround,
+                                           Vec3 velocity,
+                                           int vehicleId,
+                                           boolean interpolates) {
+    }
+
+    private record SelfDismountResyncState(Vec3 position,
+                                           Vec3 velocity,
+                                           int teleportId) {
+    }
+
+    private void handleRemoveEntities(PacketSendEvent event, ClientboundRemoveEntitiesPacket packet) {
+        int[] destroyEntityIds = packet.getEntityIds().toIntArray();
+        int transaction = appendTrailingProofTransactionId(event);
+
+        for (int entityID : destroyEntityIds) {
+            despawnedEntitiesThisTransaction.add(entityID);
+            if (player.compensatedEntities.vehicles.serverPlayerVehicle != null
+                    && player.compensatedEntities.vehicles.serverPlayerVehicle == entityID) {
+                PacketEntity vehicle = player.compensatedEntities.getEntity(entityID);
+                if (vehicle != null && vehicle.passengers.contains(player.compensatedEntities.playerEntity)) {
+                    removedPlayerVehicleId = entityID;
+                }
+                player.compensatedEntities.vehicles.clearServerVehicle();
+            }
+            player.compensatedEntities.serverPositionsMap.remove(entityID);
+        }
+
+        Runnable removeTask = () -> {
+            for (int integer : destroyEntityIds) {
+                player.compensatedEntities.removeEntity(integer);
+                player.compensatedFireworks.removeFirework(integer);
+            }
+        };
+        if (transaction >= 0) {
+            player.latencyUtils.addRealTimeTask(transaction, removeTask);
+        } else {
+            player.latencyUtils.addRealTimeTaskNext(removeTask);
+        }
+    }
+
+    private Vec3 calculateAbsolutePosition(Vec3 current, Vec3 change, RelativeFlag flags) {
+        double x = flags.isSet(RelativeFlag.X.getMask()) ? current.x + change.x : change.x;
+        double y = flags.isSet(RelativeFlag.Y.getMask()) ? current.y + change.y : change.y;
+        double z = flags.isSet(RelativeFlag.Z.getMask()) ? current.z + change.z : change.z;
+        return new Vec3(x, y, z);
+    }
+
+    private float calculateAbsoluteYaw(float current, float change, RelativeFlag flags) {
+        return flags.isSet(RelativeFlag.Y_ROT.getMask()) ? current + change : change;
+    }
+
+    private float calculateAbsolutePitch(float current, float change, RelativeFlag flags) {
+        float pitch = flags.isSet(RelativeFlag.X_ROT.getMask()) ? current + change : change;
+        return Math.max(-90.0F, Math.min(90.0F, pitch));
+    }
+
+    private Vec3 calculateAbsoluteDelta(Vec3 currentDelta,
+                                        Vec3 changeDelta,
+                                        float sourceYaw,
+                                        float sourcePitch,
+                                        float finalYaw,
+                                        float finalPitch,
+                                        RelativeFlag flags) {
+        Vec3 transformed = currentDelta;
+        if (flags.isSet(RelativeFlag.ROTATE_DELTA.getMask())) {
+            transformed = transformed.xRot((float) Math.toRadians(sourcePitch - finalPitch));
+            transformed = transformed.yRot((float) Math.toRadians(sourceYaw - finalYaw));
+        }
+
+        return new Vec3(
+                flags.isSet(RelativeFlag.DELTA_X.getMask()) ? transformed.x + changeDelta.x : changeDelta.x,
+                flags.isSet(RelativeFlag.DELTA_Y.getMask()) ? transformed.y + changeDelta.y : changeDelta.y,
+                flags.isSet(RelativeFlag.DELTA_Z.getMask()) ? transformed.z + changeDelta.z : changeDelta.z
+        );
+    }
+
+    private int appendTrailingProofTransactionId(PacketSendEvent event) {
+        GrimPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event);
+        return proof == null ? -1 : proof.transaction();
+    }
+
+    private GrimPlayer.TrackedTransaction appendTrailingProofTransaction(PacketSendEvent event) {
+        return appendTrailingProofTransaction(event, List.of(), shouldUseEntityTrackingBundleDelimiter());
+    }
+
+    @Nullable
+    public GrimPlayer.TrackedTransaction appendVehicleProtocolProofTransaction(PacketSendEvent event) {
+        return appendTrailingProofTransaction(event, List.of(), shouldUseVehicleProtocolBundleDelimiter());
+    }
+
+    @Nullable
+    public GrimPlayer.TrackedTransaction appendPlainProofTransaction(PacketSendEvent event) {
+        return appendTrailingProofTransaction(event, List.of(), false);
+    }
+
+    private GrimPlayer.TrackedTransaction appendTrailingProofTransaction(PacketSendEvent event,
+                                                                        List<Packet<? super ClientGamePacketListener>> packetsBeforeProof,
+                                                                        boolean requestedDelimiter) {
+        GrimPlayer.TrackedTransaction proof = player.createTrackedTransactionPacketForBundle();
+        if (proof == null) {
+            return null;
+        }
+
+        Packet<?> delimiterPacket = requestedDelimiter ? getClientboundBundleDelimiterPacket() : null;
+        if (delimiterPacket != null) {
+            event.getPacketsBeforeSend().add(delimiterPacket);
+        }
+        addProofGroupPackets(event.getPacketsAfterSend(), proof, packetsBeforeProof, delimiterPacket);
+        event.getTasksAfterSend().add(() -> player.markTrackedTransactionPacketSent(proof));
+        return proof;
+    }
+
+    private void writeProofGroupNow(GrimPlayer.TrackedTransaction proof,
+                                    List<Packet<? super ClientGamePacketListener>> packetsBeforeProof) {
+        Packet<?> delimiterPacket = shouldUseVehicleProtocolBundleDelimiter()
+                ? getClientboundBundleDelimiterPacket()
+                : null;
+        List<Packet<?>> packets = new ArrayList<>(packetsBeforeProof.size() + (delimiterPacket == null ? 1 : 3));
+        addProofGroupPackets(packets, proof, packetsBeforeProof, delimiterPacket);
+        if (delimiterPacket != null) {
+            packets.add(0, delimiterPacket);
+        }
+        writePacketsDirect(packets);
+        player.markTrackedTransactionPacketSent(proof);
+    }
+
+    private void addProofGroupPackets(List<Packet<?>> packets,
+                                      GrimPlayer.TrackedTransaction proof,
+                                      List<Packet<? super ClientGamePacketListener>> packetsBeforeProof,
+                                      @Nullable Packet<?> delimiterPacket) {
+        packets.addAll(packetsBeforeProof);
+        packets.add(proof.packet());
+        if (delimiterPacket != null) {
+            packets.add(delimiterPacket);
+        }
+    }
+
+    private boolean shouldUseEntityTrackingBundleDelimiter() {
+        return useReachBundleDelimiter && player.supportsBundles();
+    }
+
+    private boolean shouldUseVehicleProtocolBundleDelimiter() {
+        return player.supportsBundles();
+    }
+
+    private void handleMoveEntity(PacketSendEvent event, EntityMovement movement) {
+        boolean useDelimiterProof = shouldUseEntityTrackingBundleDelimiter();
+        if (!useDelimiterProof && !hasSentPreWavePacket) {
+            hasSentPreWavePacket = true;
+            player.sendTransaction();
+        }
+
+        TrackerData data = player.compensatedEntities.getTrackedEntity(movement.entityId());
+        PositionChange position = movement.position();
+        boolean absolutePositionKnown = !position.relative();
+        double absoluteX = position.x();
+        double absoluteY = position.y();
+        double absoluteZ = position.z();
+        if (data != null) {
+            if (position.relative()) {
+                Vec3 decodedPosition = PacketCodecUtil.decodeRelativeEntityPosition(
+                        new Vec3(data.getCodecBaseX(), data.getCodecBaseY(), data.getCodecBaseZ()),
+                        position.x(),
+                        position.y(),
+                        position.z()
+                );
+                data.setX(decodedPosition.x);
+                data.setY(decodedPosition.y);
+                data.setZ(decodedPosition.z);
+                data.setCodecBaseX(decodedPosition.x);
+                data.setCodecBaseY(decodedPosition.y);
+                data.setCodecBaseZ(decodedPosition.z);
+                absolutePositionKnown = true;
+                absoluteX = decodedPosition.x;
+                absoluteY = decodedPosition.y;
+                absoluteZ = decodedPosition.z;
+            } else {
+                data.setX(position.x());
+                data.setY(position.y());
+                data.setZ(position.z());
+                data.setCodecBaseX(position.x());
+                data.setCodecBaseY(position.y());
+                data.setCodecBaseZ(position.z());
+            }
+            if (movement.yaw() != null) {
+                data.setXRot(movement.yaw());
+                data.setYRot(movement.pitch());
+            }
+            if (movement.onGround() != null) {
+                data.setOnGround(movement.onGround());
+            }
+
+            if (!useDelimiterProof && data.getLastTransactionHung() == player.lastTransactionSent.get()) {
+                player.sendTransaction();
+            }
+        }
+
+        GrimPlayer.TrackedTransaction proof = useDelimiterProof
+                ? appendTrailingProofTransaction(event, List.of(), true)
+                : null;
+        int firstTransaction = proof == null ? player.lastTransactionSent.get() : proof.transaction();
+        if (data != null) {
+            data.setLastTransactionHung(firstTransaction);
+            if (data.getEntityType() == EntityTypesCompat.PLAYER) {
+                player.checkManager.getListener(FairReach.class).handleEntityMove(movement.entityId(), data.getX(), data.getY(), data.getZ());
+            }
+        }
+
+        boolean ignoredMovement = movement.kind().shouldSkip(this, movement.entityId());
+        if (queuesVehicleTeleportResponse(movement)
+                && !ignoredMovement
+                && movement.hasPosition()
+                && absolutePositionKnown
+                && player.compensatedEntities.vehicles.serverPlayerVehicle != null
+                && player.compensatedEntities.vehicles.serverPlayerVehicle == movement.entityId()) {
+            Vec3 vehicleTarget = new Vec3(absoluteX, absoluteY, absoluteZ);
+            VehicleTeleportData vehicleTeleportData = new VehicleTeleportData(
+                    movement.entityId(),
+                    vehicleTarget,
+                    movement.yaw(),
+                    movement.pitch(),
+                    movement.onGround(),
+                    movement.deltaMovement().movement()
+            );
+            player.getSetbackTeleportUtil().addVehicleTeleport(movement.entityId(), firstTransaction, vehicleTarget, vehicleTeleportData);
+            player.getSetbackTeleportUtil().updateSafeVehiclePosition(vehicleTarget);
+        }
+        if (!ignoredMovement) {
+            recordPacketHandlerTransform(movement.entityId(), movement.hasPosition(), absoluteX, absoluteY, absoluteZ, movement.yaw(), movement.pitch());
+        }
+
+        if (proof != null) {
+            scheduleBundledMovement(movement, proof.transaction());
+        } else {
+            scheduleTransactionBoundMovement(movement, firstTransaction);
+        }
+    }
+
+    private void scheduleBundledMovement(EntityMovement movement,
+                                          int proofTransaction) {
+        if (!movement.kind().exactAtProof()) {
+            scheduleDelimiterBoundMovement(movement, proofTransaction);
+            return;
+        }
+
+        player.latencyUtils.addRealTimeTask(proofTransaction, () -> {
+            PacketEntity entity = applicableMovementEntity(movement);
+            if (entity == null) {
+                return;
+            }
+            applyEntityRotationAndGround(entity, movement.yaw(), movement.onGround());
+            if (movement.hasPosition()) {
+                entity.onBundledPositionSyncTransaction(movement.position().x(), movement.position().y(), movement.position().z(),
+                        movement.yaw(), movement.pitch(), player);
+            } else {
+                applyBundledMovement(entity, movement);
+            }
+            applyDeltaMovementUpdate(entity, movement.deltaMovement());
+            clearPacketHandlerDeltaMovement(movement);
+            player.compensatedEntities.updatePassengerPositions();
+        });
+    }
+
+    private void scheduleDelimiterBoundMovement(EntityMovement movement,
+                                                int proofTransaction) {
+        int entityId = movement.entityId();
+        MovementKind kind = movement.kind();
+        int deltaMovementSequence = movement.deltaMovement().packetHandlerSequence();
+        player.latencyUtils.addRealTimeTaskWithNextTransaction(proofTransaction,
+                () -> {
+                    PacketEntity entity = applicableMovementEntity(movement);
+                    if (entity == null) {
+                        return;
+                    }
+                    applyEntityRotationAndGround(entity, movement.yaw(), movement.onGround());
+                    applyBundleFirstMovement(entity, movement);
+                    applyDeltaMovementUpdate(entity, movement.deltaMovement());
+                    clearPacketHandlerDeltaMovement(movement);
+                    player.compensatedEntities.updatePassengerPositions();
+                },
+                () -> applySecondMovement(entityId, kind, deltaMovementSequence, true));
+    }
+
+    private void scheduleTransactionBoundMovement(EntityMovement movement,
+                                                  int firstTransaction) {
+        int entityId = movement.entityId();
+        MovementKind kind = movement.kind();
+        int deltaMovementSequence = movement.deltaMovement().packetHandlerSequence();
+        player.latencyUtils.addRealTimeTask(firstTransaction, () -> {
+            PacketEntity entity = applicableMovementEntity(movement);
+            if (entity == null) {
+                return;
+            }
+            applyEntityRotationAndGround(entity, movement.yaw(), movement.onGround());
+            applyFirstMovement(entity, movement);
+            applyDeltaMovementUpdate(entity, movement.deltaMovement());
+            clearPacketHandlerDeltaMovement(movement);
+            player.compensatedEntities.updatePassengerPositions();
+            player.latencyUtils.addRealTimeTask(firstTransaction + 1,
+                    () -> applySecondMovement(entityId, kind, deltaMovementSequence, false));
+        });
+    }
+
+    private void applyFirstMovement(PacketEntity entity, EntityMovement movement) {
+        PositionChange position = movement.position();
+        entity.onFirstTransaction(position.relative(), position.hasPosition(),
+                position.x(), position.y(), position.z(), movement.yaw(), movement.pitch(), player);
+    }
+
+    private void applyBundleFirstMovement(PacketEntity entity, EntityMovement movement) {
+        PositionChange position = movement.position();
+        entity.onBundleFirstTransaction(position.relative(), position.hasPosition(),
+                position.x(), position.y(), position.z(), movement.yaw(), movement.pitch(), player);
+    }
+
+    private void applyBundledMovement(PacketEntity entity, EntityMovement movement) {
+        PositionChange position = movement.position();
+        entity.onBundleTransaction(position.relative(), position.hasPosition(),
+                position.x(), position.y(), position.z(), movement.yaw(), movement.pitch(), player);
+    }
+
+    private void applyEntityRotationAndGround(PacketEntity entity, @Nullable Float yaw, @Nullable Boolean onGround) {
+        if (entity instanceof PacketEntityTrackXRot && yaw != null) {
+            PacketEntityTrackXRot xRotEntity = (PacketEntityTrackXRot) entity;
+            xRotEntity.packetYaw = yaw;
+            xRotEntity.steps = 3;
+        }
+        if (onGround != null) {
+            entity.onGround = onGround;
+        }
+    }
+
+    private void applySecondMovement(int entityId,
+                                     MovementKind kind,
+                                     int packetHandlerDeltaMovementSequence,
+                                     boolean updatePassengerPositions) {
+        PacketEntity entity = player.compensatedEntities.getEntity(entityId);
+        if (entity == null || kind.shouldSkip(this, entityId)) {
+            clearPacketHandlerDeltaMovement(entityId, packetHandlerDeltaMovementSequence);
+            return;
+        }
+
+        entity.onSecondTransaction();
+        clearPacketHandlerDeltaMovement(entityId, packetHandlerDeltaMovementSequence);
+        if (updatePassengerPositions) {
+            player.compensatedEntities.updatePassengerPositions();
+        }
+    }
+
+    @Nullable
+    private PacketEntity applicableMovementEntity(EntityMovement movement) {
+        PacketEntity entity = player.compensatedEntities.getEntity(movement.entityId());
+        if (entity == null || shouldIgnoreEntityMovement(movement)) {
+            clearPacketHandlerDeltaMovement(movement);
+            return null;
+        }
+        return entity;
+    }
+
+    private boolean shouldIgnoreEntityMovement(EntityMovement movement) {
+        return movement.kind().shouldSkip(this, movement.entityId());
+    }
+
+    private boolean queuesVehicleTeleportResponse(EntityMovement movement) {
+        // ClientPacketListener#handleTeleportEntity can echo a MoveVehicle
+        // packet for local-authoritative ridden roots. EntityPositionSync only
+        // updates the position codec for those roots and sends no response.
+        return movement.kind() == MovementKind.TELEPORT_ENTITY;
+    }
+
+    private void recordPacketHandlerTransform(int entityId,
+                                              boolean hasPos,
+                                              double x,
+                                              double y,
+                                              double z,
+                                              @Nullable Float yaw,
+                                              @Nullable Float pitch) {
+        PacketEntity entity = player.compensatedEntities.getEntity(entityId);
+        TrackerData data = player.compensatedEntities.getTrackedEntity(entityId);
+        PacketHandlerEntityTransform source = packetHandlerTransformSource(entity, data);
+        double nextX = hasPos ? x : source.x();
+        double nextY = hasPos ? y : source.y();
+        double nextZ = hasPos ? z : source.z();
+        packetHandlerEntityTransforms.put(entityId, new PacketHandlerEntityTransform(
+                nextX,
+                nextY,
+                nextZ,
+                yaw == null ? source.yRot() : yaw,
+                pitch == null ? source.xRot() : pitch
+        ));
+    }
+
+    private boolean isEntityMovementIgnoredForLocalAuthoritativeVehicle(int entityId) {
+        return isLocalAuthoritativeRootVehicle(entityId);
+    }
+
+    private boolean isLocalAuthoritativeRootVehicle(int entityId) {
+        PacketEntity vehicle = player.compensatedEntities.getEntity(entityId);
+        return player.compensatedEntities.vehicles.serverPlayerVehicle != null
+                && player.compensatedEntities.vehicles.serverPlayerVehicle == entityId
+                && player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(vehicle);
+    }
+
+    private void applyDeltaMovementUpdate(PacketEntity entity, DeltaMovementChange update) {
+        if (!update.present()) {
+            return;
+        }
+
+        Vec3 movement = update.movement();
+        if (!player.compensatedEntities.vehicles.applyClientboundVehicleVelocity(entity, movement)) {
+            entity.deltaMovement = movement;
+        }
+    }
+
+    private int recordPacketHandlerDeltaMovement(int entityId, Vec3 movement) {
+        int sequence = ++packetHandlerDeltaMovementSequence;
+        packetHandlerDeltaMovements.put(entityId, new PacketHandlerDeltaMovement(movement.x, movement.y, movement.z, sequence));
+        return sequence;
+    }
+
+    private void clearPacketHandlerDeltaMovement(int entityId, int sequence) {
+        if (sequence < 0) {
+            return;
+        }
+
+        PacketHandlerDeltaMovement movement = packetHandlerDeltaMovements.get(entityId);
+        if (movement != null && movement.sequence() == sequence) {
+            packetHandlerDeltaMovements.remove(entityId);
+        }
+    }
+
+    private void clearPacketHandlerDeltaMovement(EntityMovement movement) {
+        clearPacketHandlerDeltaMovement(movement.entityId(), movement.deltaMovement().packetHandlerSequence());
+    }
+
+    private Vec3 packetHandlerDeltaMovementSource(PacketEntity entity) {
+        if (entity == null) {
+            return Vec3.ZERO;
+        }
+
+        PacketHandlerDeltaMovement movement = packetHandlerDeltaMovements.get(entity.getEntityId());
+        return movement == null ? entity.deltaMovement : new Vec3(movement.x(), movement.y(), movement.z());
+    }
+
+    @Nullable
+    private Packet<?> getClientboundBundleDelimiterPacket() {
+        if (clientboundBundleDelimiterPacket != null) {
+            return clientboundBundleDelimiterPacket;
+        }
+
+        Object channelObject = player.user.getChannel();
+        if (!(channelObject instanceof Channel channel)) {
+            logSmoketestBundleDelimiterLookup("no-channel", null, null);
+            return null;
+        }
+
+        for (Map.Entry<String, ChannelHandler> entry : channel.pipeline()) {
+            Packet<?> delimiterPacket = findClientboundBundleDelimiterPacket(entry.getValue());
+            if (delimiterPacket != null) {
+                clientboundBundleDelimiterPacket = delimiterPacket;
+                logSmoketestBundleDelimiterLookup("found", entry.getKey(), delimiterPacket);
+                return delimiterPacket;
+            }
+        }
+
+        logSmoketestBundleDelimiterLookup("missing", null, null);
+        return null;
+    }
+
+    private void logSmoketestBundleDelimiterLookup(String result, @Nullable String handler, @Nullable Packet<?> packet) {
+        if (!Boolean.getBoolean("grim.validation.smoketestControl")
+                || !LOGGED_SMOKETEST_BUNDLE_DELIMITER_LOOKUP.compareAndSet(false, true)) {
+            return;
+        }
+        StringBuilder message = new StringBuilder("Smoketest reach bundle delimiter lookup attempted=true result=")
+                .append(result);
+        if (handler != null) {
+            message.append(" handler=").append(handler);
+        }
+        if (packet != null) {
+            message.append(" packetClass=").append(packet.getClass().getName());
+        }
+        LogUtil.info(message.toString());
+    }
+
+    @Nullable
+    private Packet<?> findClientboundBundleDelimiterPacket(Object source) {
+        if (!(source instanceof PacketBundleUnpacker) && !(source instanceof BundlerInfo)) {
+            return null;
+        }
+
+        Class<?> type = source.getClass();
+        while (type != null) {
+            for (Field field : type.getDeclaredFields()) {
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(source);
+                    if (value instanceof ClientboundBundleDelimiterPacket delimiter) {
+                        return delimiter;
+                    }
+                    if (value instanceof BundleDelimiterPacket<?> delimiter) {
+                        return (Packet<?>) delimiter;
+                    }
+                    if (value instanceof BundlerInfo) {
+                        Packet<?> delimiter = findClientboundBundleDelimiterPacket(value);
+                        if (delimiter != null) {
+                            return delimiter;
+                        }
+                    }
+                } catch (IllegalAccessException | RuntimeException ignored) {
+                }
+            }
+            type = type.getSuperclass();
+        }
+
+        return null;
+    }
+
+    private void writePacketDirect(Packet<?> packet) {
+        writePacketsDirect(List.of(packet));
+    }
+
+    private void writePacketsDirect(List<Packet<?>> packets) {
+        Object channelObject = player.user.getChannel();
+        if (channelObject instanceof Channel channel) {
+            Runnable write = () -> {
+                for (Packet<?> packet : packets) {
+                    channel.writeAndFlush(packet);
+                }
+            };
+            if (channel.eventLoop().inEventLoop()) {
+                write.run();
+            } else {
+                channel.eventLoop().execute(write);
+            }
+            return;
+        }
+        for (Packet<?> packet : packets) {
+            player.user.writePacket(packet);
+        }
+    }
+
+    public void addEntity(int entityID, EntityType type, Vec3 position, float xRot, float yRot,
+                          List<SynchedEntityData.DataValue<?>> entityMetadata, int extraData, int transaction) {
+        int spawnTransaction = transaction >= 0 ? transaction : player.lastTransactionSent.get();
+        player.compensatedEntities.serverPositionsMap.put(entityID, new TrackerData(position.x, position.y, position.z, xRot, yRot, type, spawnTransaction));
+        Runnable addTask = () -> {
+            player.compensatedEntities.addEntity(entityID, type, position, xRot, yRot, extraData);
+            if (entityMetadata != null) {
+                player.compensatedEntities.updateEntityMetadata(entityID, entityMetadata);
+            }
+        };
+        if (transaction >= 0) {
+            player.latencyUtils.addRealTimeTask(transaction, addTask);
+            return;
+        }
+        player.latencyUtils.addRealTimeTaskNow(addTask);
     }
 
     private boolean isDirectlyAffectingPlayer(GrimPlayer player, int entityID) {
         // The attributes for this entity is active, currently
-        return (player.compensatedEntities.serverPlayerVehicle == null && entityID == player.entityID) ||
-                (player.compensatedEntities.serverPlayerVehicle != null && entityID == player.compensatedEntities.serverPlayerVehicle);
+        return (player.compensatedEntities.vehicles.serverPlayerVehicle == null && entityID == player.entityID) ||
+                (player.compensatedEntities.vehicles.serverPlayerVehicle != null && entityID == player.compensatedEntities.vehicles.serverPlayerVehicle);
     }
 
-    public void onEndOfTickEvent(boolean async, boolean flush) {
-        // Only send a transaction at the end of the tick if we are tracking players
-        player.sendTransaction(async);
-        if (flush) player.user.flushPackets();
-    }
+    public void onEndOfTickEvent() { player.sendTransaction(false); }
 
     public void tickStartTick() {
-        hasSentPreWavePacket.set(false);
+        hasSentPreWavePacket = false;
     }
 
-    @Override
-    public void onReload(@NotNull ConfigManager config) {
-        maxFireworkBoostPing = config.getIntElse("max-ping-firework-boost", 1000);
+    private PotionEffectType toPotionEffectType(Holder<MobEffect> effect) {
+        if (effect == null) {
+            return null;
+        }
+        if (effect.is(MobEffectsCompat.BLINDNESS)) return PotionEffectType.BLINDNESS;
+        if (effect.is(MobEffectsCompat.CONDUIT_POWER)) return PotionEffectType.CONDUIT_POWER;
+        if (effect.is(MobEffectsCompat.DOLPHINS_GRACE)) return PotionEffectType.DOLPHINS_GRACE;
+        if (effect.is(MobEffectsCompat.HASTE)) return PotionEffectType.HASTE;
+        if (effect.is(MobEffectsCompat.JUMP_BOOST)) return PotionEffectType.JUMP_BOOST;
+        if (effect.is(MobEffectsCompat.LEVITATION)) return PotionEffectType.LEVITATION;
+        if (effect.is(MobEffectsCompat.MINING_FATIGUE)) return PotionEffectType.MINING_FATIGUE;
+        if (effect.is(MobEffectsCompat.SPEED)) return PotionEffectType.SPEED;
+        if (effect.is(MobEffectsCompat.SLOWNESS)) return PotionEffectType.SLOWNESS;
+        if (effect.is(MobEffectsCompat.SLOW_FALLING)) return PotionEffectType.SLOW_FALLING;
+        if (effect.is(MobEffectsCompat.WEAVING)) return PotionEffectType.WEAVING;
+        return null;
     }
 
+    private record TeleportChange(Vec3 position, Vec3 deltaMovement, float yRot, float xRot) {
+    }
+
+    private record TeleportEntityData(int entityId, TeleportChange change, RelativeFlag flags, boolean onGround) {
+    }
 }

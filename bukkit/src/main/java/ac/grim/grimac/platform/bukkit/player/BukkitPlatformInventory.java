@@ -1,72 +1,18 @@
 package ac.grim.grimac.platform.bukkit.player;
 
 import ac.grim.grimac.platform.api.player.PlatformInventory;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.item.ItemStack;
-import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import lombok.RequiredArgsConstructor;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
 
 @RequiredArgsConstructor
 public class BukkitPlatformInventory implements PlatformInventory {
 
-    private static final boolean HAS_OFFHAND = PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9);
-
     private final @NotNull Player bukkitPlayer;
-
-    @SuppressWarnings("deprecation")
-    @Override
-    public ItemStack getItemInHand() {
-        return SpigotConversionUtil.fromBukkitItemStack(bukkitPlayer.getInventory().getItemInHand());
-    }
-
-    @Override
-    public ItemStack getItemInOffHand() {
-        return HAS_OFFHAND
-                ? SpigotConversionUtil.fromBukkitItemStack(bukkitPlayer.getInventory().getItemInOffHand())
-                : ItemStack.EMPTY;
-    }
 
     @Override
     public ItemStack getStack(int bukkitSlot, int vanillaSlot) {
-        return SpigotConversionUtil.fromBukkitItemStack(bukkitPlayer.getInventory().getItem(bukkitSlot));
-    }
-
-    @Override
-    public ItemStack getHelmet() {
-        return SpigotConversionUtil.fromBukkitItemStack(bukkitPlayer.getInventory().getHelmet());
-    }
-
-    @Override
-    public ItemStack getChestplate() {
-        return SpigotConversionUtil.fromBukkitItemStack(bukkitPlayer.getInventory().getChestplate());
-    }
-
-    @Override
-    public ItemStack getLeggings() {
-        return SpigotConversionUtil.fromBukkitItemStack(bukkitPlayer.getInventory().getLeggings());
-    }
-
-    @Override
-    public ItemStack getBoots() {
-        return SpigotConversionUtil.fromBukkitItemStack(bukkitPlayer.getInventory().getBoots());
-    }
-
-    @Override
-    public ItemStack[] getContents() {
-        org.bukkit.inventory.ItemStack[] bukkitItems = bukkitPlayer.getInventory().getContents();
-        ItemStack[] items = new ItemStack[bukkitItems.length];
-        for (int i = 0; i < bukkitItems.length; i++) {
-            if (bukkitItems[i] == null) continue;
-            items[i] = SpigotConversionUtil.fromBukkitItemStack(bukkitItems[i]);
-        }
-        return items;
-    }
-
-    @Override
-    public String getOpenInventoryKey() {
-        return bukkitPlayer.getOpenInventory().getType().toString();
+        return bukkitPlayer.getInventory().getItem(bukkitSlot);
     }
 }

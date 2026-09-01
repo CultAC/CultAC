@@ -3,140 +3,183 @@ package ac.grim.grimac.utils.anticheat;
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.api.event.events.GrimJoinEvent;
 import ac.grim.grimac.api.event.events.GrimQuitEvent;
+import ac.grim.grimac.bedrock.MovementPlatform;
+import ac.grim.grimac.bedrock.player.BedrockPlayerState;
+import ac.grim.grimac.network.netty.channel.ChannelHelper;
+import ac.grim.grimac.network.protocol.player.User;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.platform.api.player.PlatformPlayerCache;
-import ac.grim.grimac.utils.reflection.GeyserUtil;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.netty.channel.ChannelHelper;
-import com.github.retrooper.packetevents.protocol.player.User;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-
+import ac.grim.grimac.utils.floodgate.FloodgateUtil;
+import ac.grim.grimac.utils.floodgate.GeyserUtil;
 import java.util.Collection;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArraySet;
+import javax.annotation.Nullable;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 
 public class PlayerDataManager {
-
-    // Holder — PlayerDataManager is constructed inside GrimAPI's ctor, so a
-    // plain static-final would see a null GrimAPI.INSTANCE. Holder init runs
-    // on first fire, after GrimAPI is fully built.
     private static final class Channels {
-        static final GrimJoinEvent.Channel JOIN = GrimAPI.INSTANCE.getEventBus().get(GrimJoinEvent.class);
-        static final GrimQuitEvent.Channel QUIT = GrimAPI.INSTANCE.getEventBus().get(GrimQuitEvent.class);
+        private static final GrimJoinEvent.Channel JOIN =
+                GrimAPI.INSTANCE.getEventBus().get(GrimJoinEvent.class);
+        private static final GrimQuitEvent.Channel QUIT =
+                GrimAPI.INSTANCE.getEventBus().get(GrimQuitEvent.class);
     }
 
-    private final Set<User> exemptUsers = ConcurrentHashMap.newKeySet();
+    // CultAC/PacketEvents keyed this by User. A UUID identifies an account, not
+    // a connection; two live connections with the same UUID must both be checked.
     private final ConcurrentHashMap<User, GrimPlayer> playerDataMap = new ConcurrentHashMap<>();
+    // Exemption belongs to one connection, not to an identity. Two simultaneous
+    // connections may legitimately present the same UUID; carrying an exemption
+    // across them would let the replacement connection evade the anticheat.
+    private final Set<User> exemptUsers = new CopyOnWriteArraySet<>();
 
     public boolean isExemptUser(@Nullable User user) {
         return user != null && exemptUsers.contains(user);
     }
 
     public void exemptUser(@Nullable User user) {
-        if (user == null) return;
-        exemptUsers.add(user);
+        if (user != null) {
+            exemptUsers.add(user);
+        }
     }
 
     public boolean clearExemptions(@Nullable User user) {
-        if (user == null) return false;
-        return exemptUsers.remove(user);
+        return user != null && exemptUsers.remove(user);
     }
 
-    @Nullable
-    public GrimPlayer getPlayer(final @NotNull UUID uuid) {
-        // Is it safe to interact with this, or is this internal PacketEvents code?
-        Object channel = PacketEvents.getAPI().getProtocolManager().getChannel(uuid);
-        if (channel == null) return null;
-        User user = PacketEvents.getAPI().getProtocolManager().getUser(channel);
-        if (user == null) return null;
+    public GrimPlayer getPlayer(final Player player) {
+        if (player == null) {
+            return null;
+        }
+        // External (proxy-hosted) players have no Grim session on this server.
+        if (MultiLibUtil.isExternalPlayer(player)) {
+            return null;
+        }
+        User user = GrimAPI.INSTANCE.getNetworkManager().getUser(player);
         return getPlayer(user);
     }
 
     @Nullable
-    public GrimPlayer getPlayer(final @NotNull User user) {
-        @Nullable GrimPlayer player = playerDataMap.get(user);
-        if (player != null && player.platformPlayer != null && player.platformPlayer.isExternalPlayer())
+    public GrimPlayer getPlayer(final UUID uuid) {
+        if (uuid == null) {
             return null;
-        return player;
+        }
+        return getPlayer(GrimAPI.INSTANCE.getNetworkManager().getUser(uuid));
     }
 
-    public boolean shouldCheck(@NotNull User user) {
+    public boolean shouldCheck(User user) {
+        // assume to check until we can prove otherwise
+        if (user.getUUID() == null) return true;
+
         if (isExemptUser(user)) return false;
         if (!ChannelHelper.isOpen(user.getChannel())) return false;
 
-        if (user.getUUID() != null) {
-            // Bedrock players don't have Java movement
-            if (GeyserUtil.isBedrockPlayer(user.getUUID())) {
-                exemptUser(user);
-                return false;
-            }
-
-            // Has exempt permission
-            GrimPlayer grimPlayer = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(user);
-            if (grimPlayer != null && grimPlayer.hasPermission("grim.exempt")) {
-                exemptUser(user);
-                return false;
-            }
-
-            // Geyser formatted player string
-            // This will never happen for Java players, as the first character in the 3rd group is always 4 (xxxxxxxx-xxxx-4xxx-xxxx-xxxxxxxxxxxx)
-            if (user.getUUID().toString().startsWith("00000000-0000-0000-0009")) {
-                exemptUser(user);
-                return false;
-            }
+        // Match CultAC: permission state belongs to the exact Grim connection.
+        GrimPlayer grimPlayer = getPlayer(user);
+        if (grimPlayer != null && grimPlayer.hasPermission("grim.exempt")) {
+            exemptUser(user);
+            return false;
         }
 
         return true;
     }
 
-    public void addUser(final @NotNull User user) {
-        if (shouldCheck(user)) {
-            GrimPlayer player = new GrimPlayer(user);
-            playerDataMap.put(user, player);
-            Channels.JOIN.fire(player);
+    @Nullable
+    public GrimPlayer getPlayer(final User user) {
+        if (user == null) {
+            return null;
+        }
+        return playerDataMap.get(user);
+    }
+
+    @Nullable
+    public User getUser(final Player player) {
+        return GrimAPI.INSTANCE.getNetworkManager().getUser(player);
+    }
+
+    public void addUser(final User user) {
+        if (!shouldCheck(user)) {
+            remove(user);
+            return;
+        }
+        if (playerDataMap.containsKey(user)) {
+            return;
+        }
+
+        GrimPlayer created = createPlayer(user);
+        GrimPlayer existing = playerDataMap.putIfAbsent(user, created);
+        if (existing != null) {
+            created.onRemove();
+            return;
+        }
+
+        Channels.JOIN.fire(created);
+        UUID uuid = user.getUUID();
+        if (uuid != null && GrimAPI.INSTANCE.getDataStoreLifecycle() != null) {
+            GrimAPI.INSTANCE.getDataStoreLifecycle().playerToggleStore().prefetch(uuid);
         }
     }
 
-    public GrimPlayer remove(final @NotNull User user) {
-        return playerDataMap.remove(user);
+    public boolean remove(final User user) {
+        if (user == null || user.getUUID() == null) {
+            return false;
+        }
+
+        GrimPlayer tracked = playerDataMap.remove(user);
+        if (tracked == null) {
+            return false;
+        }
+        tracked.onRemove();
+        return true;
     }
 
-    public void onDisconnect(User user) {
-        GrimPlayer grimPlayer = remove(user);
-        if (grimPlayer != null) Channels.QUIT.fire(grimPlayer);
+    /**
+     * Ends only this exact connection. Another User presenting the same UUID has
+     * its own map entry and cannot be removed by this path.
+     */
+    public boolean onDisconnect(final User user) {
+        if (user == null || user.getUUID() == null) {
+            clearExemptions(user);
+            return false;
+        }
+
+        GrimPlayer tracked = playerDataMap.remove(user);
+        if (tracked == null) {
+            clearExemptions(user);
+            return false;
+        }
+
+        cleanupOwnedSession(tracked);
+        return true;
+    }
+
+    private void cleanupOwnedSession(GrimPlayer tracked) {
+        User user = tracked.user;
+        UUID uuid = user.getUUID();
+
+        tracked.onRemove();
         clearExemptions(user);
-
-        UUID uuid = user.getProfile().getUUID();
-
-        // All cleanup paths should call onDisconnect; routing the session-close + toggle
-        // eviction here means a stuck PE event (or a JVM-level channel
-        // close that doesn't surface as UserDisconnectEvent) doesn't leak an open session.
-        // hooks/toggles are NOOP when the datastore is disabled or its init failed
-        // AND go NOOP mid-session if an operator runs /grim reload after flipping database.enabled to false
-        // a player who joined under the prior (enabled) config and disconnects post-reload has no live writer to fire onQuit, so their session stays open (row closed_at IS NULL).
-        // The next datastore-enabled boot's crash sweep stamps closed_at = last_activity for still-open rows; permanently-disabled-after-the-fact leaves the row untouched until DB is enabled again.
-        GrimAPI.INSTANCE.getDataStoreLifecycle().liveWriteHooks()
-                .onQuitFromUserDisconnect(user, grimPlayer, System.currentTimeMillis());
-        if (uuid != null) {
+        Channels.QUIT.fire(tracked);
+        if (GrimAPI.INSTANCE.getDataStoreLifecycle() != null) {
+            GrimAPI.INSTANCE.getDataStoreLifecycle().liveWriteHooks()
+                    .onQuitFromUserDisconnect(user, tracked, System.currentTimeMillis());
             GrimAPI.INSTANCE.getDataStoreLifecycle().playerToggleStore().evict(uuid);
         }
-
-        // Check if calling async is safe
-        if (uuid == null)
-            return; // folia doesn't like null getPlayer()
 
         PlatformPlayer quittingPlayer = PlatformPlayerCache.getInstance().getPlayer(uuid);
         if (quittingPlayer != null) {
             GrimAPI.INSTANCE.getAlertManager().handlePlayerQuit(quittingPlayer);
         }
-
-        GrimAPI.INSTANCE.getSpectateManager().onQuit(uuid);
-
-        // TODO (Cross-platform) confirm this is 100% correct and will always remove players from cache when necessary
-        GrimAPI.INSTANCE.getPlatformPlayerFactory().invalidatePlayer(uuid);
+        if (GrimAPI.INSTANCE.getSpectateManager() != null) {
+            GrimAPI.INSTANCE.getSpectateManager().onQuit(uuid);
+        }
+        if (GrimAPI.INSTANCE.getPlatformPlayerFactory() != null) {
+            GrimAPI.INSTANCE.getPlatformPlayerFactory().invalidatePlayer(uuid);
+        }
     }
 
     public Collection<GrimPlayer> getEntries() {
@@ -145,5 +188,38 @@ public class PlayerDataManager {
 
     public int size() {
         return playerDataMap.size();
+    }
+
+    private GrimPlayer createPlayer(User user) {
+        BedrockPlayerState bedrockState = initialBedrockState(user.getUUID());
+        if (bedrockState != null) {
+            return new GrimPlayer(user, MovementPlatform.BEDROCK, bedrockState);
+        }
+        return new GrimPlayer(user);
+    }
+
+    private BedrockPlayerState initialBedrockState(UUID uuid) {
+        if (isKnownBedrockPlayer(uuid)) {
+            return createBedrockState(uuid);
+        }
+        return null;
+    }
+
+    private BedrockPlayerState createBedrockState(UUID uuid) {
+        BedrockPlayerState state = new BedrockPlayerState(uuid);
+        if (GrimAPI.INSTANCE.getConfigManager() != null) {
+            state.setSetbacksEnabled(GrimAPI.INSTANCE.getConfigManager().isBedrockMovementSetbacksEnabled());
+        }
+        return state;
+    }
+
+    private boolean isKnownBedrockPlayer(UUID uuid) {
+        return FloodgateUtil.isFloodgatePlayer(uuid)
+                || isGeyserFormattedUuid(uuid)
+                || (Bukkit.getPluginManager().isPluginEnabled("Geyser-Spigot") && GeyserUtil.isGeyserPlayer(uuid));
+    }
+
+    private boolean isGeyserFormattedUuid(UUID uuid) {
+        return uuid.toString().startsWith("00000000-0000-0000-0009");
     }
 }

@@ -6,7 +6,6 @@ import versioning.BuildConfig.init
 import versioning.BuildConfig.mavenLocalOverride
 import versioning.BuildConfig.release
 import versioning.BuildConfig.relocate
-import versioning.BuildConfig.shadePE
 
 /**
  * BuildConfig provides access to user-defined build flags that control how a Grim
@@ -25,20 +24,19 @@ import versioning.BuildConfig.shadePE
  *
  * Using Gradle -P properties:
  * ```
- * ./gradlew build -PshadePE=true -Prelocate=false -Prelease=true
+ * ./gradlew build -Prelocate=false -Prelease=true
  * ```
  *
  * Using environment variables:
  * ```
- * SHADE_PE=true RELOCATE_JAR=false RELEASE=true ./gradlew build
+ * RELOCATE_JAR=false RELEASE=true ./gradlew build
  * ```
  *
  * Using JVM system properties:
  * ```
- * ./gradlew build -DshadePE=true -Drelease=true
+ * ./gradlew build -Drelease=true
  * ```
  *
- * @property shadePE  If true, shades PacketEvents into the jar. Default: true.
  * @property relocate If true, relocates shaded dependencies to avoid conflicts. Default: true.
  * @property release  If true, omits commit hash and modifiers from version string. Default: false.
  * @property mavenLocalOverride If true, will make artifacts in mavenLocal() will be used instead of their remote counterparts for this build. Default: false
@@ -53,7 +51,6 @@ object BuildConfig {
      * ```
      */
     fun init(project: Project) {
-        _shadePE = resolveBool(project, "shadePE", altKey = "SHADE_PE", default = true)
         _relocate = resolveBool(project, "relocate", altKey = "RELOCATE_JAR", default = true)
         _release = resolveBool(project, "release", default = false)
         _mavenLocalOverride = resolveBool(project, "mavenLocalOverride", altKey = "MAVEN_LOCAL_OVERRIDE", default = false)
@@ -73,14 +70,9 @@ object BuildConfig {
     }
 
     // Private backing vars (nullable because we can't use lateinit with primitives)
-    private var _shadePE: Boolean? = null
     private var _relocate: Boolean? = null
     private var _release: Boolean? = null
     private var _mavenLocalOverride: Boolean? = null
-
-    /** If true, shades PacketEvents into the jar. Default: true. */
-    val shadePE: Boolean get() = _shadePE
-        ?: error("BuildConfig.shadePE accessed before init() was called")
 
     /** If true, relocates shaded dependencies to avoid conflicts. Default: true. */
     val relocate: Boolean get() = _relocate

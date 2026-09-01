@@ -1,8 +1,5 @@
 package ac.grim.grimac.utils.math;
 
-import lombok.experimental.UtilityClass;
-import org.jetbrains.annotations.Contract;
-
 // Optifine fastmath is terrible.
 //
 // Optifine fastmath sends NaN while using an elytra
@@ -39,28 +36,25 @@ import org.jetbrains.annotations.Contract;
 // I'm seriously considering allowing a warning for FastMath users that it may lead to false bans
 // his arrogance is impossible to patch.
 //
-@UtilityClass
 public class OptifineFastMath {
-    private static final float[] SIN = new float[4096];
+    private static final float[] SIN_TABLE_FAST = new float[4096];
+    private static final float radToIndex = roundToFloat(651.8986469044033D);
 
     static {
-        for (int i = 0; i < 4096; i++) {
-            SIN[i] = roundToFloat(StrictMath.sin(i * Math.PI * 2d / 4096d));
+        for (int j = 0; j < SIN_TABLE_FAST.length; ++j) {
+            SIN_TABLE_FAST[j] = roundToFloat(StrictMath.sin((double) j * Math.PI * 2.0D / 4096.0D));
         }
     }
 
-    @Contract(pure = true)
     public static float sin(float value) {
-        return SIN[(int) (value * 651.8986f) & 4095];
+        return SIN_TABLE_FAST[(int) (value * radToIndex) & 4095];
     }
 
-    @Contract(pure = true)
     public static float cos(float value) {
-        return SIN[(int) (value * 651.8986f + 1024f) & 4095];
+        return SIN_TABLE_FAST[(int) (value * radToIndex + 1024.0F) & 4095];
     }
 
-    @Contract(pure = true)
-    public static float roundToFloat(double value) {
-        return (float) ((double) Math.round(value * 1.0E8d) / 1.0E8d);
+    public static float roundToFloat(double d) {
+        return (float) ((double) Math.round(d * 1.0E8D) / 1.0E8D);
     }
 }

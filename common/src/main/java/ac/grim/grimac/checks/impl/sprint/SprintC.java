@@ -2,12 +2,15 @@ package ac.grim.grimac.checks.impl.sprint;
 
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
+import ac.grim.grimac.checks.DeadCheck;
+import ac.grim.grimac.checks.impl.prediction.PredictionResult;
 import ac.grim.grimac.checks.type.PostPredictionListener;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 
 @CheckData(name = "SprintC", stableKey = "grim.sprint.using_item", description = "Sprinting while using an item", setback = 5, experimental = true)
+@DeadCheck(reason = DeadCheck.Reason.VERSION_GATED, detail = "Returns for protocol >= 485 except exactly 1.21.4; dead for all 1.21.2+ clients except 1.21.4.")
 public class SprintC extends Check implements PostPredictionListener {
     private boolean flaggedLastTick = false;
 
@@ -17,15 +20,23 @@ public class SprintC extends Check implements PostPredictionListener {
 
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
+        // Teleport results carry no simulation context; there is nothing to read.
+        if (predictionComplete.isTeleport()) return;
+
+
         if (player.packetStateData.isSlowedByUsingItem()) {
             ClientVersion version = player.getClientVersion();
 
             // https://bugs.mojang.com/browse/MC-152728
-            if (version.isNewerThanOrEquals(ClientVersion.V_1_14_2) && version != ClientVersion.V_1_21_4) {
+            if (version.getProtocolVersion() >= 485 && version != ClientVersion.V_1_21_4) { // PE ClientVersion.V_1_14_2
                 return;
             }
 
-            if (!player.wasTouchingWater || version.isOlderThan(ClientVersion.V_1_13)) {
+            // Read water state pessimistically from the completed prediction.
+            PredictionResult result = predictionComplete.getPredictionResult();
+            boolean wasTouchingWater = result != null
+                    && result.getSimulationContext().getWorldData().getInWater().determinePessimistically();
+            if (!wasTouchingWater || version.isOlderThan(ClientVersion.V_1_13)) {
                 flaggedLastTick = false;
                 return;
             }

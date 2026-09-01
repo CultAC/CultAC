@@ -4,24 +4,33 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.type.BlockBreakListener;
 import ac.grim.grimac.checks.type.BlockPlaceCheck;
-import ac.grim.grimac.checks.type.BlockPlaceListener;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
 import ac.grim.grimac.checks.type.PostPredictionListener;
+import ac.grim.grimac.network.GrimPacketGroup;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.PacketGroup;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockBreak;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.DiggingAction;
+import net.minecraft.SharedConstants;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @CheckData(name = "MultiActionsF", stableKey = "grim.multiactions.block_and_entity_interact", description = "Interacting with a block and an entity in the same tick", experimental = true)
-public class MultiActionsF extends BlockPlaceCheck implements PacketReceiveListener, PostPredictionListener, BlockPlaceListener, BlockBreakListener {
+public class MultiActionsF extends BlockPlaceCheck implements BlockBreakListener, PostPredictionListener {
     // Shape index == ACTION_* constant value.
     private static final Verbose V = Verbose.of("action=place").or("action=entity").or("action=dig");
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
 
     private static final int ACTION_PLACE = 0;
     private static final int ACTION_ENTITY = 1;
@@ -42,7 +51,7 @@ public class MultiActionsF extends BlockPlaceCheck implements PacketReceiveListe
     public void onBlockPlace(BlockPlace place) {
         block = true;
         if (entity) {
-            if (!player.canSkipTicks()) {
+            if (!canSkipTicks()) {
                 if (flag(writeAction(ACTION_PLACE)) && shouldModifyPackets() && shouldCancel()) {
                     place.resync();
                 }
@@ -52,35 +61,59 @@ public class MultiActionsF extends BlockPlaceCheck implements PacketReceiveListe
         }
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY
-                || event.getPacketType() == PacketType.Play.Client.ATTACK
-                || event.getPacketType() == PacketType.Play.Client.SPECTATE_ENTITY) {
-            entity = true;
-            if (block) {
-                if (!player.canSkipTicks()) {
-                    if (flag(writeAction(ACTION_ENTITY)) && shouldModifyPackets()) {
-                        event.setCancelled(true);
-                        player.onPacketCancel();
-                    }
-                } else {
-                    flags.add(new FlagData(ACTION_ENTITY));
+    @GrimPacketHandler
+    public void onInteractEntity(PacketReceiveEvent event, GrimPlayer player, ServerboundInteractPacket packet) {
+        onEntityAction(event);
+    }
+
+    @GrimPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundAttackPacket")
+    public void onAttack(PacketReceiveEvent event, GrimPlayer player, Packet<?> packet) {
+        onEntityAction(event);
+    }
+
+
+    @GrimPacketHandler
+    public void onSpectatorAction(PacketReceiveEvent event, GrimPlayer player, ServerboundSpectatorActionPacket packet) {
+        onEntityAction(event);
+    }
+
+    private void onEntityAction(PacketReceiveEvent event) {
+        entity = true;
+        if (block) {
+            if (!canSkipTicks()) {
+                if (flag(writeAction(ACTION_ENTITY)) && shouldModifyPackets()) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
                 }
+            } else {
+                flags.add(new FlagData(ACTION_ENTITY));
             }
         }
+    }
 
-        if (isTickPacket(event.getPacketType())) {
+    // isTickPacket: movement packets reset unless they answered a teleport
+    @GrimPacketHandler
+    @GrimPacketGroup(PacketGroup.SERVERBOUND_PLAYER_MOVEMENT)
+    public void onMovePlayer(PacketReceiveEvent event, GrimPlayer player, ServerboundMovePlayerPacket packet) {
+        if (!player.packetStateData.lastPacketWasTeleport) {
             block = entity = false;
         }
     }
 
-    @Override
+    // isTickPacket: tick end resets for 1.21.2+ clients when no movement arrived this client tick
+    @GrimPacketHandler
+    public void onClientTickEnd(PacketReceiveEvent event, GrimPlayer player, ServerboundClientTickEndPacket packet) {
+        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && !player.packetStateData.receivedMovementThisClientTick) {
+            block = entity = false;
+        }
+    }
+
     public void onBlockBreak(BlockBreak blockBreak) {
-        if (blockBreak.action == DiggingAction.START_DIGGING || blockBreak.action == DiggingAction.FINISHED_DIGGING) {
+        if (blockBreak.action == ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK || blockBreak.action == ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK) {
             block = true;
             if (entity) {
-                if (!player.canSkipTicks()) {
+                if (!canSkipTicks()) {
                     if (flag(writeAction(ACTION_DIG)) && shouldModifyPackets()) {
                         blockBreak.cancel();
                     }
@@ -93,7 +126,7 @@ public class MultiActionsF extends BlockPlaceCheck implements PacketReceiveListe
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) return;
+        if (!canSkipTicks()) return;
 
         if (player.isTickingReliablyFor(3)) {
             for (FlagData data : flags) {
@@ -104,5 +137,12 @@ public class MultiActionsF extends BlockPlaceCheck implements PacketReceiveListe
         flags.clear();
     }
 
+    private boolean canSkipTicks() {
+        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
+                && !(player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21_2));
+    }
+
     private record FlagData(int action) {}
+
 }

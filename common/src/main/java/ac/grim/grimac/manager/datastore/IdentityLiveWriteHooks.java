@@ -2,9 +2,9 @@ package ac.grim.grimac.manager.datastore;
 
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.internal.storage.identity.PlayerIdentityService;
+import ac.grim.grimac.network.protocol.player.User;
 import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.protocol.player.User;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 

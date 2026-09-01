@@ -2,49 +2,68 @@ package ac.grim.grimac.utils.nmsutil;
 
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.Pair;
-import com.github.retrooper.packetevents.util.Vector3d;
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NotNull;
+import org.bukkit.util.Vector;
 
 // Copied directly from Hawk
-public record Ray(@NotNull Vector3d origin, @NotNull Vector3d direction) implements Cloneable {
-    public Ray(@NotNull GrimPlayer player, double x, double y, double z, float xRot, float yRot) {
-        this(new Vector3d(x, y, z), calculateDirection(player, xRot, yRot));
+public class Ray implements Cloneable {
+
+    private Vector origin;
+    private Vector direction;
+
+    public Ray(Vector origin, Vector direction) {
+        this.origin = origin;
+        this.direction = direction;
+    }
+
+    public Ray(GrimPlayer player, double x, double y, double z, float xRot, float yRot) {
+        this.origin = new Vector(x, y, z);
+        this.direction = calculateDirection(player, xRot, yRot);
     }
 
     // Account for FastMath by using player's trig handler
     // Copied from hawk which probably copied it from NMS
-    public static @NotNull Vector3d calculateDirection(@NotNull GrimPlayer player, float xRot, float yRot) {
+    public static Vector calculateDirection(GrimPlayer player, float xRot, float yRot) {
+        Vector vector = new Vector();
         float rotX = (float) Math.toRadians(xRot);
         float rotY = (float) Math.toRadians(yRot);
+        vector.setY(-player.trigHandler.sin(rotY));
         double xz = player.trigHandler.cos(rotY);
-
-        return new Vector3d(
-                -xz * player.trigHandler.sin(rotX),
-                -player.trigHandler.sin(rotY),
-                xz * player.trigHandler.cos(rotX)
-        );
+        vector.setX(-xz * player.trigHandler.sin(rotX));
+        vector.setZ(xz * player.trigHandler.cos(rotX));
+        return vector;
     }
 
-    @Contract(" -> this")
-    @SuppressWarnings("MethodDoesntCallSuperMethod")
-    @Override
-    public @NotNull Ray clone() {
-        return this;
+    public Ray clone() {
+        // Deep copy: origin and direction are mutable Vectors shared with callers.
+        return new Ray(origin.clone(), direction.clone());
     }
 
-    public @NotNull Vector3d getPointAtDistance(double distance) {
-        return origin.add(direction.multiply(distance));
+    public String toString() {
+        return "origin: " + origin + " direction: " + direction;
     }
 
-    // https://en.wikipedia.org/wiki/Skew_lines#Nearest_Points
-    public @NotNull Pair<@NotNull Vector3d, @NotNull Vector3d> closestPointsBetweenLines(@NotNull Ray other) {
-        Vector3d n1 = direction.crossProduct(other.direction.crossProduct(direction));
-        Vector3d n2 = other.direction.crossProduct(direction.crossProduct(other.direction));
+    public Vector getPointAtDistance(double distance) {
+        Vector dir = new Vector(direction.getX(), direction.getY(), direction.getZ());
+        Vector orig = new Vector(origin.getX(), origin.getY(), origin.getZ());
+        return orig.add(dir.multiply(distance));
+    }
 
-        Vector3d c1 = origin.add(direction.multiply(other.origin.subtract(origin).dot(n2) / direction.dot(n2)));
-        Vector3d c2 = other.origin.add(other.direction.multiply(origin.subtract(other.origin).dot(n1) / other.direction.dot(n1)));
+    //https://en.wikipedia.org/wiki/Skew_lines#Nearest_Points
+    public Pair<Vector, Vector> closestPointsBetweenLines(Ray other) {
+        Vector n1 = direction.clone().crossProduct(other.direction.clone().crossProduct(direction));
+        Vector n2 = other.direction.clone().crossProduct(direction.clone().crossProduct(other.direction));
+
+        Vector c1 = origin.clone().add(direction.clone().multiply(other.origin.clone().subtract(origin).dot(n2) / direction.dot(n2)));
+        Vector c2 = other.origin.clone().add(other.direction.clone().multiply(origin.clone().subtract(other.origin).dot(n1) / other.direction.dot(n1)));
 
         return new Pair<>(c1, c2);
+    }
+
+    public Vector getOrigin() {
+        return origin;
+    }
+
+    public Vector calculateDirection() {
+        return direction;
     }
 }

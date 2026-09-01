@@ -42,7 +42,6 @@ public class CloudCommandService implements CommandService {
     public void registerCommands() {
         if (commandsRegistered) return;
         CommandManager<Sender> commandManager = commandManagerSupplier.get();
-        new GrimPerf().register(commandManager, commandArguments);
         new GrimDebug().register(commandManager, commandArguments);
         new GrimAlerts().register(commandManager, commandArguments);
         new GrimProfile().register(commandManager, commandArguments);

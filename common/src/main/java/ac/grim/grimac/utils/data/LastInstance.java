@@ -1,13 +1,15 @@
 package ac.grim.grimac.utils.data;
 
 import ac.grim.grimac.player.GrimPlayer;
+import lombok.ToString;
 
+@ToString
 public class LastInstance {
-    private int lastInstance = 100;
-
     public LastInstance(GrimPlayer player) {
         player.lastInstanceManager.addInstance(this);
     }
+
+    int lastInstance = 100;
 
     public boolean hasOccurredSince(int time) {
         return lastInstance <= time;
@@ -15,6 +17,14 @@ public class LastInstance {
 
     public void reset() {
         lastInstance = 0;
+    }
+
+    public int getRaw() {
+        return lastInstance;
+    }
+
+    public int setRaw(int value) {
+        return lastInstance = value;
     }
 
     public void tick() {

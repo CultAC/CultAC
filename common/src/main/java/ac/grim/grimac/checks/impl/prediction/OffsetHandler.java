@@ -1,117 +1,96 @@
 package ac.grim.grimac.checks.impl.prediction;
 
 import ac.grim.grimac.GrimAPI;
-import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.event.events.CompletePredictionEvent;
-import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.CheckData;
+import ac.grim.grimac.checks.CheckInfo;
+import ac.grim.grimac.checks.impl.prediction.checks.psuedo.Speed;
+import ac.grim.grimac.checks.impl.prediction.checks.psuedo.Strafe;
+import ac.grim.grimac.checks.impl.prediction.checks.psuedo.VehicleOffset;
+import ac.grim.grimac.checks.impl.prediction.profile.MovementProfiles;
 import ac.grim.grimac.checks.type.PostPredictionListener;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import org.jetbrains.annotations.NotNull;
+import lombok.Getter;
 
-import java.util.concurrent.atomic.AtomicInteger;
-
-@CheckData(name = "Simulation", stableKey = "grim.prediction.simulation", description = "Moved differently than predicted movement simulation", decay = 0.02)
+//@CheckData(name = "Simulation", configName = "Simulation", decay = 0.02)
 public class OffsetHandler extends Check implements PostPredictionListener {
-    private static final Verbose V = Verbose.of("{offset}");
-
-    private static final AtomicInteger flags = new AtomicInteger(0);
+    private static final CompletePredictionEvent.Channel COMPLETE_PREDICTION_CHANNEL =
+            GrimAPI.INSTANCE.getEventBus().get(CompletePredictionEvent.class);
     // Config
-    private double setbackDecayMultiplier;
-    private double threshold;
-    private double immediateSetbackThreshold;
-    private double maxAdvantage;
-    private double maxCeiling;
-    private double setbackViolationThreshold;
+    double setbackDecayMultiplier;
+    double threshold;
+    double immediateSetbackThreshold;
+    double maxAdvantage;
+    double maxCeiling;
+
     // Current advantage gained
-    private double advantageGained = 0;
-    private static final CompletePredictionEvent.Channel COMPLETE_CHANNEL = GrimAPI.INSTANCE.getEventBus().get(CompletePredictionEvent.class);
+    @Getter double advantageGained = 0;
 
-    public OffsetHandler(GrimPlayer player) {
-        super(player);
-    }
+    public OffsetHandler(GrimPlayer grimPlayer) { super(grimPlayer, CheckInfo.builder()
+            .name("Simulation")
+            .stableKey("grim.prediction.simulation")
+            .description("Moved differently than predicted movement simulation")
+            .decay(0.02)
+            .build()); }
 
+    @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
-        if (!predictionComplete.isChecked()) return;
+        PredictionResult predictionResult = predictionComplete.getPredictionResult();
+        if (!MovementProfiles.forPlayer(player).usesSharedOffsetSetbacks(player)) return;
+        if (!player.shouldEnforceMovementSetbacks()) return;
 
-        double offset = predictionComplete.getOffset();
+        // Teleport
+        if (predictionResult.isTeleport) return;
+        // Exempt or otherwise no flagging
+        if (predictionResult.flagSeverity == 0.0) {
+            advantageGained *= setbackDecayMultiplier;
+            return;
+        }
 
-        if (COMPLETE_CHANNEL.fire(player, this, offset)) return;
+        double offset = setbackOffset(predictionResult);
 
-        if ((offset >= threshold || offset >= immediateSetbackThreshold)) {
+        // The pinned API artifact exposes CompletePredictionEvent through Grim's event bus
+        // rather than as a Bukkit event; fire() returns true when a handler cancelled it.
+        if (COMPLETE_PREDICTION_CHANNEL.fire(getPlayer(), this, offset)) return;
+
+        // Short circuit out flag call
+        if ((offset >= threshold || offset >= immediateSetbackThreshold) && flag()) {
             advantageGained += offset;
-            giveOffsetLenienceNextTick(offset);
 
-            synchronized (flags) {
-                int flagId = (flags.get() & 255) + 1; // 1-256 as possible values
+            boolean isSetback = advantageGained >= maxAdvantage || offset >= immediateSetbackThreshold;
 
-                if (flag(V.write(verbose()).f64(offset), () -> humanFormattedOffset(offset) + " /gl " + flagId)) {
-                    flags.incrementAndGet();
-                    predictionComplete.setIdentifier(flagId);
-
-                    if ((advantageGained >= maxAdvantage || offset >= immediateSetbackThreshold)
-                            && !isNoSetbackPermission()
-                            && violations >= setbackViolationThreshold) {
-                        player.getSetbackTeleportUtil().executeViolationSetback();
-                    }
-                }
+            if (isSetback) {
+                player.getSetbackTeleportUtil().executeViolationSetback();
             }
 
             advantageGained = Math.min(advantageGained, maxCeiling);
         } else {
             advantageGained *= setbackDecayMultiplier;
         }
-
-        removeOffsetLenience();
     }
 
-    public static String humanFormattedOffset(double offset) {
-        String humanFormattedOffset;
-        if (offset < 0.001) { // 1.129E-3
-            humanFormattedOffset = String.format("%.4E", offset);
-            // Squeeze out an extra digit here by E-03 to E-3
-            humanFormattedOffset = humanFormattedOffset.replace("E-0", "E-");
-        } else {
-            // 0.00112945678 -> .001129
-            humanFormattedOffset = String.format("%6f", offset);
-            // I like the leading zero, but removing it lets us add another digit to the end
-            humanFormattedOffset = humanFormattedOffset.replace("0.", ".");
+    private double setbackOffset(PredictionResult predictionResult) {
+        double offset = predictionResult.getOffset();
+        for (PredictionResult.Flag flag : predictionResult.getFlags()) {
+            Check check = flag.getCheck();
+            if (check instanceof Speed || check instanceof Strafe || check instanceof VehicleOffset) {
+                offset = Math.max(offset, flag.getSeverity());
+            }
         }
-        return humanFormattedOffset;
-    }
-
-    private void giveOffsetLenienceNextTick(double offset) {
-        // Don't let players carry more than 1 offset into the next tick
-        // (I was seeing cheats try to carry 1,000,000,000 offset into the next tick!)
-        //
-        // This value so that setting back with high ping doesn't allow players to gather high client velocity
-        double minimizedOffset = Math.min(offset, 1);
-
-        // Normalize offsets
-        player.uncertaintyHandler.lastHorizontalOffset = minimizedOffset;
-        player.uncertaintyHandler.lastVerticalOffset = minimizedOffset;
-    }
-
-    private void removeOffsetLenience() {
-        player.uncertaintyHandler.lastHorizontalOffset = 0;
-        player.uncertaintyHandler.lastVerticalOffset = 0;
+        return offset;
     }
 
     @Override
-    public void onReload(@NotNull ConfigManager config) {
-        setbackDecayMultiplier = config.getDoubleElse("Simulation.setback-decay-multiplier", 0.999);
-        threshold = config.getDoubleElse("Simulation.threshold", 0.001);
-        immediateSetbackThreshold = config.getDoubleElse("Simulation.immediate-setback-threshold", 0.1);
-        maxAdvantage = config.getDoubleElse("Simulation.max-advantage", 1);
-        maxCeiling = config.getDoubleElse("Simulation.max-ceiling", 4);
-        setbackViolationThreshold = config.getDoubleElse("Simulation.setback-violation-threshold", 1);
+    public void reload() {
+        super.reload();
+        setbackDecayMultiplier = getConfig().getDoubleElse("Simulation.setback-decay-multiplier", 0.999);
+        threshold = getConfig().getDoubleElse("Simulation.threshold", 0.001);
+        immediateSetbackThreshold = getConfig().getDoubleElse("Simulation.immediate-setback-threshold", 0.1);
+        maxAdvantage = getConfig().getDoubleElse("Simulation.max-advantage", 1);
+        maxCeiling = getConfig().getDoubleElse("Simulation.max-ceiling", 4);
+
         if (maxAdvantage == -1) maxAdvantage = Double.MAX_VALUE;
         if (immediateSetbackThreshold == -1) immediateSetbackThreshold = Double.MAX_VALUE;
-    }
-
-    public boolean doesOffsetFlag(double offset) {
-        return offset >= threshold;
     }
 }

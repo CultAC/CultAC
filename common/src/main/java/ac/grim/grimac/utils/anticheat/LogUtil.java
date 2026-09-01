@@ -14,6 +14,17 @@ public class LogUtil {
         getLogger().info(info);
     }
 
+    /**
+     * Diagnostic detail that is hidden at the default log level; for high-volume
+     * registration/pipeline dumps that operators only need while troubleshooting.
+     */
+    public void debug(final String message) {
+        Logger logger = getLogger();
+        if (logger != null) {
+            logger.fine(message);
+        }
+    }
+
     public void warn(final String warn) {
         getLogger().warning(warn);
     }

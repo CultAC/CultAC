@@ -1,22 +1,28 @@
 package ac.grim.grimac.checks.impl.packetorder;
 
 import ac.grim.grimac.api.storage.verbose.Verbose;
+import ac.grim.grimac.api.storage.verbose.VerboseTags;
 import ac.grim.grimac.checks.Check;
+import ac.grim.grimac.checks.type.CheckListener;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.impl.verbose.VerboseCodecs;
-import ac.grim.grimac.checks.type.PreViaPacketReceiveListener;
+import ac.grim.grimac.checks.DeadCheck;
+import ac.grim.grimac.network.GrimPacketGroup;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.PacketGroup;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.packet.DecodedPacketReliability;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.InteractionHand;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying;
+import ac.grim.grimac.utils.nmsutil.EntityTypesCompat;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.world.InteractionHand;
 
 @CheckData(name = "PacketOrderC", stableKey = "grim.packetorder.interact_order", description = "Sent INTERACT and INTERACT_AT entity packets in the wrong order")
-public class PacketOrderC extends Check implements PreViaPacketReceiveListener {
+@DeadCheck(reason = DeadCheck.Reason.VERSION_GATED, detail = "isApplicable() requires a client older than 26.1.")
+public class PacketOrderC extends Check implements CheckListener {
     // Shape index == KIND_* constant value.
     private static final Verbose V = Verbose
             .of("Skipped Interact-At")
@@ -48,65 +54,73 @@ public class PacketOrderC extends Check implements PreViaPacketReceiveListener {
         return V.write(verbose(), kind);
     }
 
-    @Override
-    public void onPreViaPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
-            final WrapperPlayClientInteractEntity packet = new WrapperPlayClientInteractEntity(event);
+    @GrimPacketHandler
+    public void onInteract(PacketReceiveEvent event, GrimPlayer player, ServerboundInteractPacket packet) {
+        if (!isApplicable()
+                || !DecodedPacketReliability.interactionFamilyReliable(player.getClientVersion())) return;
 
-            final PacketEntity entity = player.compensatedEntities.entityMap.get(packet.getEntityId());
+        final NmsPacketUtil.InteractData data = NmsPacketUtil.readInteract(packet);
 
-            // For armor stands, vanilla clients send:
-            //  - when renaming the armor stand or in spectator mode: INTERACT_AT + INTERACT
-            //  - in all other cases: only INTERACT
-            // Just exempt armor stands to be safe
-            if (entity != null && entity.getType() == EntityTypes.ARMOR_STAND) return;
+        final PacketEntity entity = player.compensatedEntities.entityMap.get(data.entityId());
 
-            final boolean sneaking = packet.isSneaking().orElse(false);
+        // For armor stands, vanilla clients send:
+        //  - when renaming the armor stand or in spectator mode: INTERACT_AT + INTERACT
+        //  - in all other cases: only INTERACT
+        // Just exempt armor stands to be safe
+        if (entity != null && entity.getType() == EntityTypesCompat.ARMOR_STAND) return;
 
-            switch (packet.getAction()) {
-                // INTERACT_AT then INTERACT
-                case INTERACT:
-                    if (!sentInteractAt) {
-                        if (flag(writeKind(KIND_SKIPPED_INTERACT_AT)) && shouldModifyPackets()) {
-                            event.setCancelled(true);
-                            player.onPacketCancel();
-                        }
-                    } else if (packet.getEntityId() != requiredEntity || packet.getHand() != requiredHand || sneaking != requiredSneaking) {
-                        if (flag(V.write(verbose(), KIND_MISMATCH)
-                                .sint(requiredEntity)
-                                .sint(packet.getEntityId())
-                                .uint(VerboseCodecs.enumId(requiredHand))
-                                .uint(VerboseCodecs.enumId(packet.getHand()))
-                                .bool(requiredSneaking)
-                                .bool(sneaking)) && shouldModifyPackets()) {
-                            event.setCancelled(true);
-                            player.onPacketCancel();
-                        }
+        final boolean sneaking = data.sneaking();
+
+        switch (data.action()) {
+            // INTERACT_AT then INTERACT
+            case INTERACT:
+                if (!sentInteractAt) {
+                    if (flag(writeKind(KIND_SKIPPED_INTERACT_AT)) && shouldModifyPackets()) {
+                        event.setCancelled(true);
+                        player.onPacketCancel();
                     }
-
-                    sentInteractAt = false;
-                    break;
-                case INTERACT_AT:
-                    if (sentInteractAt) {
-                        if (flag(writeKind(KIND_SKIPPED_INTERACT)) && shouldModifyPackets()) {
-                            event.setCancelled(true);
-                            player.onPacketCancel();
-                        }
+                } else if (data.entityId() != requiredEntity || data.hand() != requiredHand || sneaking != requiredSneaking) {
+                    if (flag(V.write(verbose(), KIND_MISMATCH)
+                            .sint(requiredEntity)
+                            .sint(data.entityId())
+                            .uint(VerboseTags.enumId(requiredHand))
+                            .uint(VerboseTags.enumId(data.hand()))
+                            .bool(requiredSneaking)
+                            .bool(sneaking)) && shouldModifyPackets()) {
+                        event.setCancelled(true);
+                        player.onPacketCancel();
                     }
+                }
 
-                    requiredHand = packet.getHand();
-                    requiredEntity = packet.getEntityId();
-                    requiredSneaking = sneaking;
-                    sentInteractAt = true;
-                    break;
-            }
-        }
-
-        if (WrapperPlayClientPlayerFlying.isFlying(event.getPacketType())) {
-            if (sentInteractAt) {
                 sentInteractAt = false;
-                flag(writeKind(KIND_SKIPPED_INTERACT_TICK));
-            }
+                break;
+            case INTERACT_AT:
+                if (sentInteractAt) {
+                    if (flag(writeKind(KIND_SKIPPED_INTERACT)) && shouldModifyPackets()) {
+                        event.setCancelled(true);
+                        player.onPacketCancel();
+                    }
+                }
+
+                requiredHand = data.hand();
+                requiredEntity = data.entityId();
+                requiredSneaking = sneaking;
+                sentInteractAt = true;
+                break;
+            default:
+                break;
+        }
+    }
+
+
+    @GrimPacketHandler
+    @GrimPacketGroup(PacketGroup.SERVERBOUND_PLAYER_MOVEMENT)
+    public void onMovePlayer(PacketReceiveEvent event, GrimPlayer player, ServerboundMovePlayerPacket packet) {
+        if (!isApplicable()) return;
+
+        if (sentInteractAt) {
+            sentInteractAt = false;
+            flag(writeKind(KIND_SKIPPED_INTERACT_TICK));
         }
     }
 }

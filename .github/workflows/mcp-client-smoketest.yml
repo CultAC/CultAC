@@ -1,0 +1,641 @@
+name: MCP Client Smoketest
+
+on:
+  push:
+    branches:
+      - "2.0"
+      - "3.0"
+  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - labeled
+    branches:
+      - "2.0"
+      - "3.0"
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - labeled
+    branches:
+      - "2.0"
+      - "3.0"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  MCP_REBORN_CLIENT_VERSION: "26.2"
+  MCP_REBORN_CACHE_VERSION: "v4"
+  MCP_REBORN_RESTORE_CACHE_VERSION: "v2"
+  SMOKETEST_RUNTIME_CACHE_VERSION: "v1"
+  SMOKETEST_MAX_WORKERS: "2"
+  SMOKETEST_GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx1024m -Dorg.gradle.workers.max=2"
+  SMOKETEST_CULTAC_GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2g -Dorg.gradle.workers.max=2"
+  SMOKETEST_MCP_TOOL_HEAP: "4g"
+  SMOKETEST_JVM_HEAP: "2g"
+  SMOKETEST_SERVER_JVM_XMS: "512m"
+  SMOKETEST_SERVER_JVM_HEAP: "1536m"
+  MAPPINGS_GENERATOR_REPOSITORY: CultAC/mappings-generator
+
+jobs:
+  smoketest:
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 30
+
+    steps:
+      - name: Authorize smoketest run
+        id: decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          # Manual approval is per label event. Re-review and re-add this label
+          # after untrusted PR authors push new commits.
+          APPROVAL_LABEL: smoketest-approved
+          LABEL_NAME: ${{ github.event.label.name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+
+          allowed=false
+          trusted_source=false
+          reason=requires-approval
+
+          has_write_permission() {
+            local user="$1"
+            local permission
+            permission="$(gh api "repos/$REPOSITORY/collaborators/$user/permission" --jq '.permission' 2>/dev/null || echo none)"
+            case "$permission" in
+              admin|maintain|write)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          if [ "$EVENT_NAME" != "pull_request_target" ]; then
+            if [ "$EVENT_NAME" != "pull_request" ]; then
+              allowed=true
+              trusted_source=true
+              reason=trusted-event
+            elif [ "$PR_DRAFT" = "true" ]; then
+              reason=draft-pr
+            elif [ "$PR_HEAD_REPOSITORY" = "$REPOSITORY" ] && has_write_permission "$PR_AUTHOR"; then
+              allowed=true
+              trusted_source=true
+              reason=trusted-same-repo-pr
+            else
+              reason=requires-pull-request-target-approval
+            fi
+          elif [ "$PR_DRAFT" = "true" ]; then
+            reason=draft-pr
+          elif has_write_permission "$PR_AUTHOR"; then
+            allowed=true
+            trusted_source=true
+            reason=trusted-pr-author
+          elif [ "$EVENT_ACTION" = "labeled" ] && [ "$LABEL_NAME" = "$APPROVAL_LABEL" ]; then
+            if has_write_permission "$WORKFLOW_ACTOR"; then
+              allowed=true
+              reason=manual-approval-label
+            else
+              reason=approval-label-requires-maintainer
+            fi
+          fi
+
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+          echo "trusted_source=$trusted_source" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "Smoketest authorization: $allowed ($reason)"
+
+      - name: Check out CultAC
+        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+          path: cultac
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Use local CultAC checkout for act
+        if: steps.decision.outputs.allowed == 'true' && env.ACT == 'true'
+        run: |
+          set -euo pipefail
+          cultac_source="$GITHUB_WORKSPACE"
+          if [ -d /tmp/cultac-source ]; then
+            cultac_source="/tmp/cultac-source"
+          fi
+          if ! git -C "$cultac_source" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            echo "act validation requires running from /home/hunter/Downloads/CultAC/CultAC or mounting it at /tmp/cultac-source" >&2
+            exit 1
+          fi
+          mkdir -p cultac
+          git -C "$cultac_source" archive HEAD | tar -xf - -C cultac
+
+      - name: Check out external smoketest project
+        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: CultAC/mcp-client-smoketest
+          token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
+          path: mcp-client-smoketest
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Use local smoketest checkout for act
+        if: steps.decision.outputs.allowed == 'true' && env.ACT == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -d /tmp/mcp-client-smoketest ]; then
+            echo "act validation requires -v /home/hunter/Downloads/CultAC/mcp-client-smoketest:/tmp/mcp-client-smoketest:ro" >&2
+            exit 1
+          fi
+          if ! git -C /tmp/mcp-client-smoketest rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            echo "act validation requires a mounted mcp-client-smoketest git checkout" >&2
+            exit 1
+          fi
+          mkdir -p mcp-client-smoketest
+          git -C /tmp/mcp-client-smoketest archive HEAD | tar -xf - -C mcp-client-smoketest
+
+          copy_real_validation_cache() {
+            local relative="$1"
+            local source="/tmp/mcp-client-smoketest/.real-validation/$relative"
+            local target="mcp-client-smoketest/.real-validation/$relative"
+            if [ ! -e "$source" ]; then
+              return 0
+            fi
+            mkdir -p "$(dirname "$target")"
+            tar -C "$(dirname "$source")" -cf - "$(basename "$source")" | tar -xf - -C "$(dirname "$target")"
+          }
+          copy_real_validation_cache "toolchains/MCP-Reborn"
+          copy_real_validation_cache "lwjgl-natives/linux-x64"
+          copy_real_validation_cache "paper"
+          copy_real_validation_cache "plugins/Geyser-Spigot.jar"
+
+      - name: Check out mappings generator
+        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MAPPINGS_GENERATOR_REPOSITORY }}
+          path: mappings-generator
+          persist-credentials: false
+          token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
+          fetch-depth: 1
+
+      - name: Use local mappings generator checkout for act
+        if: steps.decision.outputs.allowed == 'true' && env.ACT == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -d /tmp/mappings-generator ]; then
+            echo "act validation requires mounting mappings-generator at /tmp/mappings-generator" >&2
+            exit 1
+          fi
+          mkdir -p mappings-generator
+          tar -C /tmp/mappings-generator \
+            --exclude=.git \
+            --exclude=.gradle \
+            -cf - . | tar -xf - -C mappings-generator
+
+      - name: Set up Java 25
+        if: steps.decision.outputs.allowed == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Install Xvfb when missing
+        if: steps.decision.outputs.allowed == 'true'
+        run: |
+          set -euo pipefail
+          if command -v xvfb-run >/dev/null 2>&1; then
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: Cache MCP-Reborn client toolchain
+        id: cache-mcp-reborn-client
+        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true' && github.event_name != 'pull_request_target'
+        uses: actions/cache@v4
+        with:
+          path: |
+            mcp-client-smoketest/.real-validation/toolchains/MCP-Reborn
+            mcp-client-smoketest/.real-validation/lwjgl-natives/linux-x64
+            ~/.gradle/caches/forge_gradle/maven_downloader
+          key: mcp-reborn-client-${{ env.MCP_REBORN_CACHE_VERSION }}-${{ env.MCP_REBORN_CLIENT_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mcp-client-smoketest/settings.gradle.kts', 'mcp-client-smoketest/build.gradle.kts', 'mcp-client-smoketest/gradle.properties', 'mcp-client-smoketest/gradle/libs.versions.toml') }}
+          restore-keys: |
+            mcp-reborn-client-${{ env.MCP_REBORN_CACHE_VERSION }}-${{ env.MCP_REBORN_CLIENT_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
+            mcp-reborn-client-${{ env.MCP_REBORN_RESTORE_CACHE_VERSION }}-${{ env.MCP_REBORN_CLIENT_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore MCP-Reborn client toolchain
+        id: restore-mcp-reborn-client
+        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true' && github.event_name == 'pull_request_target'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            mcp-client-smoketest/.real-validation/toolchains/MCP-Reborn
+            mcp-client-smoketest/.real-validation/lwjgl-natives/linux-x64
+            ~/.gradle/caches/forge_gradle/maven_downloader
+          key: mcp-reborn-client-${{ env.MCP_REBORN_CACHE_VERSION }}-${{ env.MCP_REBORN_CLIENT_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mcp-client-smoketest/settings.gradle.kts', 'mcp-client-smoketest/build.gradle.kts', 'mcp-client-smoketest/gradle.properties', 'mcp-client-smoketest/gradle/libs.versions.toml') }}
+          restore-keys: |
+            mcp-reborn-client-${{ env.MCP_REBORN_CACHE_VERSION }}-${{ env.MCP_REBORN_CLIENT_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
+            mcp-reborn-client-${{ env.MCP_REBORN_RESTORE_CACHE_VERSION }}-${{ env.MCP_REBORN_CLIENT_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Check MCP-Reborn client toolchain
+        if: steps.decision.outputs.allowed == 'true'
+        id: mcp-client
+        run: |
+          set -euo pipefail
+          client_jar="mcp-client-smoketest/.real-validation/toolchains/MCP-Reborn/projects/mcp/build/mcp/stripClient/output.jar"
+          library_list="mcp-client-smoketest/.real-validation/toolchains/MCP-Reborn/projects/mcp/build/mcp/listLibraries/libraries.txt"
+          native_dir="mcp-client-smoketest/.real-validation/lwjgl-natives/linux-x64"
+          native_count=0
+          if [ -d "$native_dir" ]; then
+            native_count="$(find "$native_dir" -name '*.so' -type f | wc -l | tr -d ' ')"
+          fi
+          library_cache_ready=false
+          if [ -f "$library_list" ]; then
+            while IFS= read -r line; do
+              case "$line" in
+                -e=*/org/lwjgl/lwjgl-glfw/*/lwjgl-glfw-*.jar)
+                  library_path="${line#-e=}"
+                  if [ -f "$library_path" ]; then
+                    library_cache_ready=true
+                    break
+                  fi
+                  ;;
+              esac
+            done < "$library_list"
+          fi
+          ready=false
+          if [ -f "$client_jar" ] && [ "$native_count" -gt 0 ] && [ "$library_cache_ready" = "true" ]; then
+            ready=true
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          echo "library_cache_ready=$library_cache_ready" >> "$GITHUB_OUTPUT"
+          echo "MCP-Reborn client ready: $ready (native libraries: $native_count, library cache: $library_cache_ready)"
+
+      - name: Set up MCP-Reborn client toolchain
+        if: steps.decision.outputs.allowed == 'true' && steps.mcp-client.outputs.ready != 'true'
+        timeout-minutes: 25
+        working-directory: mcp-client-smoketest
+        env:
+          GRADLE_OPTS: ${{ env.SMOKETEST_GRADLE_OPTS }}
+          JAVA_TOOL_OPTIONS: -Xmx${{ env.SMOKETEST_MCP_TOOL_HEAP }}
+        run: |
+          set -euo pipefail
+          client_jar=".real-validation/toolchains/MCP-Reborn/projects/mcp/build/mcp/stripClient/output.jar"
+          setup_args=(
+            setupSmoketestClient
+            --no-daemon
+            --console=plain
+            --stacktrace
+            --max-workers="${{ env.SMOKETEST_MAX_WORKERS }}"
+            -Psmoketest.mcp.ref="$MCP_REBORN_CLIENT_VERSION"
+          )
+          if [ -f "$client_jar" ] && [ "${{ steps.mcp-client.outputs.library_cache_ready }}" = "true" ]; then
+            setup_args+=(-Psmoketest.mcp.skipSetup=true)
+          fi
+          ./gradlew "${setup_args[@]}"
+
+      - name: Cache smoketest server runtime
+        id: cache-smoketest-runtime
+        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true' && github.event_name != 'pull_request_target'
+        uses: actions/cache@v4
+        with:
+          path: |
+            mcp-client-smoketest/.real-validation/paper
+            mcp-client-smoketest/.real-validation/plugins/Geyser-Spigot.jar
+          key: smoketest-runtime-${{ env.SMOKETEST_RUNTIME_CACHE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mcp-client-smoketest/build.gradle.kts') }}
+          restore-keys: |
+            smoketest-runtime-${{ env.SMOKETEST_RUNTIME_CACHE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore smoketest server runtime
+        id: restore-smoketest-runtime
+        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true' && github.event_name == 'pull_request_target'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            mcp-client-smoketest/.real-validation/paper
+            mcp-client-smoketest/.real-validation/plugins/Geyser-Spigot.jar
+          key: smoketest-runtime-${{ env.SMOKETEST_RUNTIME_CACHE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mcp-client-smoketest/build.gradle.kts') }}
+          restore-keys: |
+            smoketest-runtime-${{ env.SMOKETEST_RUNTIME_CACHE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Check smoketest server runtime
+        if: steps.decision.outputs.allowed == 'true'
+        id: server-runtime
+        run: |
+          set -euo pipefail
+          paper="mcp-client-smoketest/.real-validation/paper/26.2-111/versions/26.2/paper-26.2.jar"
+          geyser="mcp-client-smoketest/.real-validation/plugins/Geyser-Spigot.jar"
+          ready=false
+          if [ -f "$paper" ] && [ -f "$geyser" ]; then
+            ready=true
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          echo "Smoketest server runtime ready: $ready"
+
+      - name: Generate Bedrock collision overrides
+        if: steps.decision.outputs.allowed == 'true'
+        working-directory: mappings-generator
+        run: |
+          ./gradlew generateCultacBedrockCollisionOverrides --no-daemon --console=plain
+
+      - name: Set up smoketest server runtime
+        if: steps.decision.outputs.allowed == 'true' && steps.server-runtime.outputs.ready != 'true'
+        timeout-minutes: 10
+        working-directory: mcp-client-smoketest
+        env:
+          GRADLE_OPTS: ${{ env.SMOKETEST_GRADLE_OPTS }}
+        run: >-
+          ./gradlew setupSmoketestServer
+          --no-daemon --console=plain --stacktrace
+          --max-workers="${{ env.SMOKETEST_MAX_WORKERS }}"
+
+      - name: Build CultAC dev jar
+        if: steps.decision.outputs.allowed == 'true'
+        working-directory: cultac
+        env:
+          GRADLE_OPTS: ${{ env.SMOKETEST_CULTAC_GRADLE_OPTS }}
+        run: >-
+          ./gradlew devShadowJar --rerun-tasks
+          --no-daemon --console=plain --stacktrace
+          --max-workers="${{ env.SMOKETEST_MAX_WORKERS }}"
+
+      - name: Locate CultAC dev jar
+        if: steps.decision.outputs.allowed == 'true'
+        id: grim-jar
+        run: |
+          set -euo pipefail
+          GRIM_JAR="$(find "$GITHUB_WORKSPACE/cultac/build/libs" -maxdepth 1 -name '*-dev.jar' -print -quit)"
+          if [ -z "$GRIM_JAR" ]; then
+            echo "No CultAC dev jar found under $GITHUB_WORKSPACE/cultac/build/libs" >&2
+            exit 1
+          fi
+          echo "path=$GRIM_JAR" >> "$GITHUB_OUTPUT"
+          echo "Using CultAC dev jar: $GRIM_JAR"
+
+      - name: Prepare smoketest server workspace
+        if: steps.decision.outputs.allowed == 'true'
+        timeout-minutes: 5
+        working-directory: mcp-client-smoketest
+        env:
+          GRADLE_OPTS: ${{ env.SMOKETEST_GRADLE_OPTS }}
+          GRIM_JAR: ${{ steps.grim-jar.outputs.path }}
+        run: |
+          set -euo pipefail
+          ./gradlew setupSmoketestServer writeSmoketestWorkspaceManifest \
+            --no-daemon --console=plain --stacktrace \
+            --max-workers="$SMOKETEST_MAX_WORKERS" \
+            -Psmoketest.grim.devJar="$GRIM_JAR" \
+            -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac"
+
+      - name: Compile smoketest harness
+        if: steps.decision.outputs.allowed == 'true'
+        working-directory: mcp-client-smoketest
+        env:
+          GRADLE_OPTS: ${{ env.SMOKETEST_GRADLE_OPTS }}
+          GRIM_JAR: ${{ steps.grim-jar.outputs.path }}
+        run: |
+          set -euo pipefail
+          ./gradlew classes packetControlPluginJar \
+            --no-daemon --console=plain --stacktrace \
+            --max-workers="$SMOKETEST_MAX_WORKERS" \
+            -Psmoketest.grim.devJar="$GRIM_JAR" \
+            -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac"
+
+      - name: Run smoketest sections
+        if: steps.decision.outputs.allowed == 'true'
+        working-directory: mcp-client-smoketest
+        env:
+          GRIM_JAR: ${{ steps.grim-jar.outputs.path }}
+          RUN_ROOT: ${{ github.workspace }}/mcp-client-smoketest/.real-validation/runs/github-ci-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUN_ROOT"
+          section_times="$RUN_ROOT/section-times.tsv"
+          status_dir="$RUN_ROOT/section-status"
+          mkdir -p "$status_dir"
+          printf "section\tseconds\tstatus\n" > "$section_times"
+          section_status=0
+          pids=()
+          names=()
+
+          run_timed() {
+            local name="$1"
+            local timeout_minutes="$2"
+            shift
+            shift
+            local start end elapsed rc
+            start="$(date +%s)"
+            echo "::group::$name"
+            set +e
+            if timeout -k 30s "${timeout_minutes}m" "$@"; then
+              rc=0
+              echo "$name passed"
+            else
+              rc=$?
+              echo "$name failed with exit code $rc" >&2
+            fi
+            set -e
+            end="$(date +%s)"
+            elapsed=$((end - start))
+            printf "%s\t%d\t%d\n" "$name" "$elapsed" "$rc" | tee -a "$section_times"
+            echo "::endgroup::"
+            return "$rc"
+          }
+
+          java_common=(
+            "-Xmx${SMOKETEST_JVM_HEAP}"
+            "-Dsmoketest.workspace.manifest=$PWD/.real-validation/smoketest-workspace.properties"
+            "-Dsmoketest.grim.devJar=$GRIM_JAR"
+            "-Dsmoketest.cultac.repoRoot=$GITHUB_WORKSPACE/cultac"
+            "-Dsmoketest.packetControlPluginJar=$PWD/build/libs/smoketest-packet-control-plugin.jar"
+            "-Dorg.lwjgl.librarypath=$PWD/.real-validation/lwjgl-natives/linux-x64"
+            -cp "build/classes/java/main:build/resources/main"
+          )
+
+          run_background() {
+            local key="$1"
+            local name="$2"
+            local timeout_minutes="$3"
+            shift 3
+            (
+              local start end elapsed rc
+              start="$(date +%s)"
+              echo "::group::$name"
+              set +e
+              timeout -k 30s "${timeout_minutes}m" "$@"
+              rc=$?
+              set -e
+              if [ "$rc" -eq 0 ]; then
+                echo "$name passed"
+              else
+                echo "$name failed with exit code $rc" >&2
+              fi
+              end="$(date +%s)"
+              elapsed=$((end - start))
+              printf "%s\t%d\t%d\n" "$name" "$elapsed" "$rc" | tee "$status_dir/$key.tsv"
+              echo "::endgroup::"
+              exit "$rc"
+            ) &
+            pids+=("$!")
+            names+=("$name")
+          }
+
+          wait_group() {
+            local group_status=0
+            local index
+            for index in "${!pids[@]}"; do
+              if ! wait "${pids[$index]}"; then
+                echo "${names[$index]} failed" >&2
+                group_status=1
+              fi
+            done
+            pids=()
+            names=()
+            return "$group_status"
+          }
+
+          cleanup_background() {
+            if [ "${#pids[@]}" -gt 0 ]; then
+              kill "${pids[@]}" 2>/dev/null || true
+            fi
+          }
+          trap cleanup_background EXIT
+
+          run_timed "Harness guardrails" 8 \
+            env GRADLE_OPTS="$SMOKETEST_GRADLE_OPTS" \
+            xvfb-run -a -s "-screen 0 1280x720x24" \
+            ./gradlew test verifyVanillaMovementSources verifyVanillaHarnessSources verifyNoHardcodedSmoketestAbsolutePaths \
+            --no-daemon --console=plain --stacktrace \
+            --max-workers="$SMOKETEST_MAX_WORKERS" \
+            -Psmoketest.grim.devJar="$GRIM_JAR" \
+            -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac" || section_status=1
+
+          scenario_catalog_classpath="build/classes/java/main:build/resources/main"
+          scenario_count="$(java -cp "$scenario_catalog_classpath" ac.grim.movementvalidation.ScenarioCatalogListMain --suite ci-full --count)"
+          case "$scenario_count" in
+            ''|*[!0-9]*) echo "could not read ci-full scenario count: $scenario_count" >&2; exit 1 ;;
+          esac
+          echo "ci-full scenario count: $scenario_count"
+
+          run_core_suite() {
+            local key="$1"
+            local name="$2"
+            local base_port="$3"
+            local suite_selector="$4"
+            echo "$name suite: $suite_selector"
+            run_background "$key" "$name" 15 \
+              env REAL_VALIDATION_SERVER_JVM_XMS="$SMOKETEST_SERVER_JVM_XMS" \
+                REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
+              xvfb-run -a -s "-screen 0 1280x720x24" \
+              java "${java_common[@]}" \
+                ac.grim.movementvalidation.RealServerValidationMain \
+                "$RUN_ROOT/$key" "$base_port" \
+                --target grim-dev \
+                --suite "$suite_selector"
+          }
+
+          run_core_scenario() {
+            local key="$1"
+            local name="$2"
+            local base_port="$3"
+            local scenario_selector="$4"
+            echo "$name scenario: $scenario_selector"
+            run_background "$key" "$name" 5 \
+              env REAL_VALIDATION_SERVER_JVM_XMS="$SMOKETEST_SERVER_JVM_XMS" \
+                REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
+              xvfb-run -a -s "-screen 0 1280x720x24" \
+              java "${java_common[@]}" \
+                ac.grim.movementvalidation.RealServerValidationMain \
+                "$RUN_ROOT/$key" "$base_port" \
+                --target grim-dev \
+                --scenario "$scenario_selector"
+          }
+
+          run_core_chunk() {
+            local chunk_index="$1"
+            local chunk_count=4
+            local base_port="$2"
+            local chunk_start chunk_end suite_selector
+            chunk_start=$(( (scenario_count * (chunk_index - 1) / chunk_count) + 1 ))
+            chunk_end=$(( scenario_count * chunk_index / chunk_count ))
+            if [ "$chunk_start" -gt "$chunk_end" ]; then
+              echo "empty ci-full scenario chunk $chunk_index/$chunk_count for count $scenario_count" >&2
+              exit 1
+            fi
+            suite_selector="ci-full:range:${chunk_start}-${chunk_end}"
+            echo "ci-full chunk: $chunk_index/$chunk_count ($chunk_start-$chunk_end)"
+            run_core_suite "core-movement-$chunk_index" "Core movement smoketest $chunk_index/$chunk_count" "$base_port" "$suite_selector"
+          }
+
+          run_core_suite "core-movement-1a" "Core movement smoketest 1/4a" 25720 "ci-full:range:1-58"
+          run_core_chunk 2 25740
+          run_core_chunk 3 25760
+          run_core_chunk 4 25780
+          wait_group || section_status=1
+
+          run_core_scenario "core-movement-strider-fungus" "Core movement smoketest strider-fungus" 25820 "strider-fungus-empty-hand-air-switch"
+          run_core_suite "core-movement-1b" "Core movement smoketest 1/4b" 25840 "ci-full:range:60-72"
+          wait_group || section_status=1
+
+          run_background "deduplication" "Deduplication verification" 20 \
+            env REAL_VALIDATION_SERVER_JVM_XMS="$SMOKETEST_SERVER_JVM_XMS" \
+              REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
+            xvfb-run -a -s "-screen 0 1280x720x24" \
+            java "${java_common[@]}" \
+              -Dgrim.dedupVerification.port=25580 \
+              ac.grim.movementvalidation.DeduplicationVerificationMain
+
+          run_background "combat-reach" "Combat reach smoketest" 8 \
+            env REAL_VALIDATION_SERVER_JVM_XMS="$SMOKETEST_SERVER_JVM_XMS" \
+              REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
+            xvfb-run -a -s "-screen 0 1280x720x24" \
+            java "${java_common[@]}" \
+              -Dgrim.validation.reach.minSamples=24 \
+              -Dgrim.validation.reach.bundled.maxReachExcess=0.005 \
+              -Dgrim.validation.reach.unbundled.meanTrackingError=0.25 \
+              ac.grim.movementvalidation.RealServerCombatReachValidationMain \
+              "$RUN_ROOT/combat-reach" 25620 \
+              --target grim-dev \
+              --bot-count 8 \
+              --segments 1 \
+              --ticks-per-segment 1000 \
+              --seed 424242 \
+              --vehicles off \
+              --pistons off
+
+          wait_group || section_status=1
+
+          find "$status_dir" -name '*.tsv' -type f -print0 | sort -z | xargs -0 cat >> "$section_times"
+          exit "$section_status"
+
+      - name: Upload smoketest artifacts
+        if: always() && steps.decision.outputs.trusted_source == 'true' && env.ACT != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-client-smoketest-artifacts
+          path: |
+            mcp-client-smoketest/.real-validation/runs/**
+            mcp-client-smoketest/build/test-results/test/**
+            mcp-client-smoketest/build/reports/tests/test/**
+            mcp-client-smoketest/build/reports/problems/**
+          if-no-files-found: ignore
+          retention-days: 7

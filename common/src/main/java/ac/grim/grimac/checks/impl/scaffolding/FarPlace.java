@@ -2,18 +2,16 @@ package ac.grim.grimac.checks.impl.scaffolding;
 
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.type.BlockPlaceCheck;
-import ac.grim.grimac.checks.type.BlockPlaceListener;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.math.Vector3dm;
 import ac.grim.grimac.utils.math.VectorUtils;
-import com.github.retrooper.packetevents.protocol.attribute.Attributes;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
-import com.github.retrooper.packetevents.util.Vector3i;
+import net.minecraft.core.BlockPos;
+import org.bukkit.Material;
 
 @CheckData(name = "FarPlace", stableKey = "grim.scaffolding.far_place", description = "Placing blocks from too far away")
-public class FarPlace extends BlockPlaceCheck implements BlockPlaceListener {
+public class FarPlace extends BlockPlaceCheck {
     public FarPlace(GrimPlayer player) {
         super(player);
     }
@@ -22,13 +20,12 @@ public class FarPlace extends BlockPlaceCheck implements BlockPlaceListener {
     public void onBlockPlace(final BlockPlace place) {
         if (!player.cameraEntity.isSelf() || player.inVehicle()) return;
 
-        Vector3i blockPos = place.position;
+        BlockPos blockPos = place.getPlacedAgainstBlockLocation();
 
-        if (place.material == StateTypes.SCAFFOLDING) return;
+        if (place.getMaterial() == Material.SCAFFOLDING) return;
 
         double min = Double.MAX_VALUE;
-        final double[] possibleEyeHeights = player.getPossibleEyeHeights();
-        for (double d : possibleEyeHeights) {
+        for (double d : player.getPossibleEyeHeights()) {
             SimpleCollisionBox box = new SimpleCollisionBox(blockPos);
             Vector3dm best = VectorUtils.cutBoxToVector(player.x, player.y + d, player.z, box);
             min = Math.min(min, best.distanceSquared(player.x, player.y + d, player.z));
@@ -36,7 +33,7 @@ public class FarPlace extends BlockPlaceCheck implements BlockPlaceListener {
 
         // getPickRange() determines this?
         // With 1.20.5+ the new attribute determines creative mode reach using a modifier
-        double maxReach = player.compensatedEntities.self.getAttributeValue(Attributes.BLOCK_INTERACTION_RANGE);
+        double maxReach = player.compensatedEntities.getSelf().getBlockInteractionRange();
         double threshold = player.getMovementThreshold();
         maxReach += Math.hypot(threshold, threshold);
 
@@ -46,4 +43,5 @@ public class FarPlace extends BlockPlaceCheck implements BlockPlaceListener {
             }
         }
     }
+
 }

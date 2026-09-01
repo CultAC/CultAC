@@ -3,40 +3,50 @@ package ac.grim.grimac.checks.impl.badpackets;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
+import ac.grim.grimac.checks.type.OrderedPacketReceiveListener;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 
 @CheckData(name = "BadPacketsE", stableKey = "grim.badpackets.invalid_position", description = "Sent too many movement packets without updating position")
-public class BadPacketsE extends Check implements PacketReceiveListener {
+public class BadPacketsE extends Check implements OrderedPacketReceiveListener {
     private static final Verbose V = Verbose.of("ticks={uint}");
 
     private int noReminderTicks;
-    private final int maxNoReminderTicks = player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8) ? 20 : 19;
-    private final boolean isViaPleaseStopUsingProtocolHacksOnYourServer = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2) || PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_21_2);
+    private final int maxNoReminderTicks;
 
     public BadPacketsE(GrimPlayer player) {
         super(player);
+        maxNoReminderTicks = player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8) ? 20 : 19;
     }
 
     @Override
     public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION ||
-                event.getPacketType() == PacketType.Play.Client.PLAYER_POSITION) {
+        Packet<?> packet = event.getNmsPacket();
+        if (packet instanceof ServerboundMovePlayerPacket.PosRot || packet instanceof ServerboundMovePlayerPacket.Pos) {
             noReminderTicks = 0;
-        } else if (WrapperPlayClientPlayerFlying.isFlying(event.getPacketType()) && !player.packetStateData.lastPacketWasTeleport) {
-            if (++noReminderTicks > maxNoReminderTicks) {
+            return;
+        }
+
+        if (packet instanceof ServerboundMovePlayerPacket) {
+            if (!player.packetStateData.lastPacketWasTeleport && ++noReminderTicks > maxNoReminderTicks) {
                 flag(V.write(verbose()).uint(noReminderTicks));
             }
-        } else if (event.getPacketType() == PacketType.Play.Client.STEER_VEHICLE
-                || (isViaPleaseStopUsingProtocolHacksOnYourServer && player.inVehicle())) {
-            noReminderTicks = 0; // Exempt vehicles
+            return;
         }
+
+        // On a 1.21.2+ server every packet resets this counter while mounted.
+        // Legacy STEER_VEHICLE packets are observed before ViaBackwards and call
+        // handleLegacySteerVehicle(); translated modern input is not equivalent.
+        if (player.inVehicle()) {
+            noReminderTicks = 0;
+        }
+    }
+
+    public void handleLegacySteerVehicle() {
+        noReminderTicks = 0;
     }
 
     public void handleRespawn() {

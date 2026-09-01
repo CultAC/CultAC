@@ -4,24 +4,33 @@ import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
 import ac.grim.grimac.checks.type.PostPredictionListener;
+import ac.grim.grimac.network.GrimPacketGroup;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.PacketGroup;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.utils.nmsutil.BlockBreakSpeed;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
-import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerDigging;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
+import net.minecraft.network.protocol.game.ServerboundUseItemOnPacket;
+import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
+import org.bukkit.GameMode;
+import org.bukkit.block.data.BlockData;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayDeque;
 
 @CheckData(name = "PacketOrderI", stableKey = "grim.packetorder.input_tick_order", description = "Sent combat, use, release, or digging packets in an invalid tick order", experimental = true)
-public class PacketOrderI extends Check implements PacketReceiveListener, PostPredictionListener {
+public class PacketOrderI extends Check implements PostPredictionListener {
     private static final Verbose V = Verbose
             .of("type={str}[, attacking={bool}][, rightClicking={bool}][, picking={bool}][, releasing={bool}], digging={bool}");
 
@@ -39,7 +48,9 @@ public class PacketOrderI extends Check implements PacketReceiveListener, PostPr
     private boolean setback;
     // for placing
     private boolean cancelledDigging;
-    private WrappedBlockState startedDiggingBlock;
+
+    private BlockPos startedDiggingPos;
+    private BlockData startedDiggingState;
     private boolean digging;
     private final ArrayDeque<FlagData> flags = new ArrayDeque<>();
 
@@ -76,92 +87,151 @@ public class PacketOrderI extends Check implements PacketReceiveListener, PostPr
                 .bool(digging);
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
-            if (new WrapperPlayClientInteractEntity(event).getAction() == WrapperPlayClientInteractEntity.InteractAction.ATTACK) {
-                onAttack(event);
-            } else if (player.packetOrderProcessor.isReleasing() || player.packetOrderProcessor.isDigging()) {
-                boolean releasing = player.packetOrderProcessor.isReleasing();
-                boolean digging = player.packetOrderProcessor.isDigging();
-                if (!player.canSkipTicks()) {
-                    if (flag(write(TYPE_INTERACT, false, false, false, releasing, digging)) && shouldModifyPackets()) {
-                        event.setCancelled(true);
-                        player.onPacketCancel();
-                    }
-                } else {
-                    flags.add(new FlagData(TYPE_INTERACT, false, false, false, releasing, digging));
+
+    @GrimPacketHandler
+    public void onInteract(PacketReceiveEvent event, GrimPlayer player, ServerboundInteractPacket packet) {
+        if (NmsPacketUtil.readInteract(packet).action() == NmsPacketUtil.InteractAction.ATTACK) {
+            onAttack(event, player);
+        } else if (player.packetOrderProcessor.isReleasing() || player.packetOrderProcessor.isDigging()) {
+            boolean releasing = player.packetOrderProcessor.isReleasing();
+            boolean digging = player.packetOrderProcessor.isDigging();
+            if (!player.canSkipTicks()) {
+                if (flag(write(TYPE_INTERACT, false, false, false, releasing, digging)) && shouldModifyPackets()) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
                 }
+            } else {
+                flags.add(new FlagData(TYPE_INTERACT, false, false, false, releasing, digging));
             }
         }
 
-        if (event.getPacketType() == PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT || event.getPacketType() == PacketType.Play.Client.USE_ITEM) {
-            digging |= cancelledDigging;
+        resetOnCameraSwitch(player);
+    }
 
-            if (startedDiggingBlock != null && !digging) {
-                // Check this here because we don't know for certain what slot they were using until now.
-                // This is because the client doesn't notify the server when changing slots with the number keys,
-                // and that the client doesn't sync the hotbar slot when starting to dig.
-                // The client does sync on placing and using though, so this is safe.
-                double damage = BlockBreakSpeed.getBlockDamage(player, startedDiggingBlock);
-                if (damage < 1 && (damage > 0 || player.gamemode != GameMode.CREATIVE)) {
-                    digging = true;
-                }
-            }
 
-            if (player.packetOrderProcessor.isReleasing() || digging) {
-                boolean releasing = player.packetOrderProcessor.isReleasing();
-                if (!player.canSkipTicks()) {
-                    if (flag(write(TYPE_PLACE_USE, false, false, false, releasing, digging)) && shouldModifyPackets()) {
-                        event.setCancelled(true);
-                        player.onPacketCancel();
-                    }
-                } else {
-                    flags.add(new FlagData(TYPE_PLACE_USE, false, false, false, releasing, digging));
-                }
+    @GrimPacketHandler
+    public void onUseItemOn(PacketReceiveEvent event, GrimPlayer player, ServerboundUseItemOnPacket packet) {
+        onPlaceUse(event, player);
+    }
+
+
+    @GrimPacketHandler
+    public void onUseItem(PacketReceiveEvent event, GrimPlayer player, ServerboundUseItemPacket packet) {
+        onPlaceUse(event, player);
+    }
+
+    private void onPlaceUse(PacketReceiveEvent event, GrimPlayer player) {
+        digging |= cancelledDigging;
+
+        if (startedDiggingPos != null && !digging) {
+            // Check this here because we don't know for certain what slot they were using until now.
+            // This is because the client doesn't notify the server when changing slots with the number keys,
+            // and that the client doesn't sync the hotbar slot when starting to dig.
+            // The client does sync on placing and using though, so this is safe.
+            double damage = BlockBreakSpeed.getBlockDamage(player, startedDiggingPos, startedDiggingState, false);
+            if (damage < 1 && (damage > 0 || player.gamemode != GameMode.CREATIVE)) {
+                digging = true;
             }
         }
 
-        if (event.getPacketType() == PacketType.Play.Client.ATTACK || event.getPacketType() == PacketType.Play.Client.SPECTATE_ENTITY) {
-            onAttack(event);
+        if (player.packetOrderProcessor.isReleasing() || digging) {
+            boolean releasing = player.packetOrderProcessor.isReleasing();
+            if (!player.canSkipTicks()) {
+                if (flag(write(TYPE_PLACE_USE, false, false, false, releasing, digging)) && shouldModifyPackets()) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
+                }
+            } else {
+                flags.add(new FlagData(TYPE_PLACE_USE, false, false, false, releasing, digging));
+            }
         }
 
-        if (event.getPacketType() == PacketType.Play.Client.PLAYER_DIGGING) {
-            WrapperPlayClientPlayerDigging packet = new WrapperPlayClientPlayerDigging(event);
+        resetOnCameraSwitch(player);
+    }
 
-            switch (packet.getAction()) {
-                case STAB -> onAttack(event);
-                case RELEASE_USE_ITEM -> {
-                    if (player.packetOrderProcessor.isAttackingOrStabbing() || player.packetOrderProcessor.isRightClicking() || player.packetOrderProcessor.isPicking() || player.packetOrderProcessor.isDigging()) {
-                        boolean attacking = player.packetOrderProcessor.isAttackingOrStabbing();
-                        boolean rightClicking = player.packetOrderProcessor.isRightClicking();
-                        boolean picking = player.packetOrderProcessor.isPicking();
-                        boolean digging = player.packetOrderProcessor.isDigging();
-                        if (!player.canSkipTicks()) {
-                            if (flag(write(TYPE_RELEASE, attacking, rightClicking, picking, false, digging))) {
-                                setback = true;
-                            }
-                        } else {
-                            flags.add(new FlagData(TYPE_RELEASE, attacking, rightClicking, picking, false, digging));
+
+    @GrimPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundAttackPacket")
+    public void onAttackPacket(PacketReceiveEvent event, GrimPlayer player, Packet<?> packet) {
+        onAttack(event, player);
+        resetOnCameraSwitch(player);
+    }
+
+
+    @GrimPacketHandler
+    public void onSpectatorAction(PacketReceiveEvent event, GrimPlayer player, ServerboundSpectatorActionPacket packet) {
+        onAttack(event, player);
+        resetOnCameraSwitch(player);
+    }
+
+
+    @GrimPacketHandler
+    public void onPlayerAction(PacketReceiveEvent event, GrimPlayer player, ServerboundPlayerActionPacket packet) {
+        switch (packet.getAction()) {
+            case STAB -> onAttack(event, player);
+            case RELEASE_USE_ITEM -> {
+                if (player.packetOrderProcessor.isAttackingOrStabbing() || player.packetOrderProcessor.isRightClicking() || player.packetOrderProcessor.isPicking() || player.packetOrderProcessor.isDigging()) {
+                    boolean attacking = player.packetOrderProcessor.isAttackingOrStabbing();
+                    boolean rightClicking = player.packetOrderProcessor.isRightClicking();
+                    boolean picking = player.packetOrderProcessor.isPicking();
+                    boolean digging = player.packetOrderProcessor.isDigging();
+                    if (!player.canSkipTicks()) {
+                        if (flag(write(TYPE_RELEASE, attacking, rightClicking, picking, false, digging))) {
                             setback = true;
                         }
+                    } else {
+                        flags.add(new FlagData(TYPE_RELEASE, attacking, rightClicking, picking, false, digging));
+                        setback = true;
                     }
                 }
-                case START_DIGGING -> {
-                    if (shouldCheckPlacingWhileDigging()) {
-                        cancelledDigging = false; // we don't care about any cancels before this
-                        startedDiggingBlock = player.compensatedWorld.getBlock(packet.getBlockPosition());
-                    }
+            }
+
+            case START_DESTROY_BLOCK -> {
+                if (shouldCheckPlacingWhileDigging()) {
+                    cancelledDigging = false; // we don't care about any cancels before this
+                    startedDiggingPos = packet.getPos();
+                    startedDiggingState = player.compensatedWorld.getBlockDataAt(startedDiggingPos);
                 }
-                case CANCELLED_DIGGING -> cancelledDigging = shouldCheckPlacingWhileDigging();
-                case FINISHED_DIGGING -> digging = shouldCheckPlacingWhileDigging();
+            }
+
+            case ABORT_DESTROY_BLOCK -> cancelledDigging = shouldCheckPlacingWhileDigging();
+
+            case STOP_DESTROY_BLOCK -> digging = shouldCheckPlacingWhileDigging();
+            default -> {
             }
         }
 
-        if (!player.cameraEntity.isSelf() || isTickPacket(event.getPacketType())) {
-            cancelledDigging = digging = false;
-            startedDiggingBlock = null;
+        resetOnCameraSwitch(player);
+    }
+
+    // isTickPacket: movement packets reset unless they answered a teleport
+    @GrimPacketHandler
+    @GrimPacketGroup(PacketGroup.SERVERBOUND_PLAYER_MOVEMENT)
+    public void onMovePlayer(PacketReceiveEvent event, GrimPlayer player, ServerboundMovePlayerPacket packet) {
+        if (!player.cameraEntity.isSelf() || !player.packetStateData.lastPacketWasTeleport) {
+            resetDiggingState();
         }
+    }
+
+    // isTickPacket: tick end resets for 1.21.2+ clients when no movement arrived this client tick
+    @GrimPacketHandler
+    public void onClientTickEnd(PacketReceiveEvent event, GrimPlayer player, ServerboundClientTickEndPacket packet) {
+        if (!player.cameraEntity.isSelf()
+                || (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && !player.packetStateData.receivedMovementThisClientTick)) {
+            resetDiggingState();
+        }
+    }
+
+    private void resetOnCameraSwitch(GrimPlayer player) {
+        if (!player.cameraEntity.isSelf()) {
+            resetDiggingState();
+        }
+    }
+
+    private void resetDiggingState() {
+        cancelledDigging = digging = false;
+        startedDiggingPos = null;
+        startedDiggingState = null;
     }
 
     private boolean shouldCheckPlacingWhileDigging() {
@@ -192,7 +262,7 @@ public class PacketOrderI extends Check implements PacketReceiveListener, PostPr
         setback = false;
     }
 
-    private void onAttack(PacketReceiveEvent event) {
+    private void onAttack(PacketReceiveEvent event, GrimPlayer player) {
         if (player.packetOrderProcessor.isRightClicking() || player.packetOrderProcessor.isPicking() || player.packetOrderProcessor.isReleasing() || player.packetOrderProcessor.isDigging()) {
             boolean rightClicking = player.packetOrderProcessor.isRightClicking();
             boolean picking = player.packetOrderProcessor.isPicking();

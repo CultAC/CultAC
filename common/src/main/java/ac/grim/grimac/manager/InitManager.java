@@ -3,12 +3,12 @@ package ac.grim.grimac.manager;
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.manager.init.Initable;
 import ac.grim.grimac.manager.init.load.LoadableInitable;
-import ac.grim.grimac.manager.init.load.PacketEventsInit;
+import ac.grim.grimac.manager.init.load.NetworkManagerInit;
 import ac.grim.grimac.manager.init.start.*;
 import ac.grim.grimac.manager.init.stop.StoppableInitable;
-import ac.grim.grimac.manager.init.stop.TerminatePacketEvents;
+import ac.grim.grimac.manager.init.stop.TerminateGeyserBedrockBridge;
+import ac.grim.grimac.manager.init.stop.TerminateNetworkManager;
 import ac.grim.grimac.utils.anticheat.LogUtil;
-import com.github.retrooper.packetevents.PacketEventsAPI;
 import com.google.common.collect.ImmutableList;
 import lombok.Getter;
 
@@ -27,7 +27,7 @@ public class InitManager {
     @Getter
     private boolean stopped = false;
 
-    public InitManager(PacketEventsAPI<?> packetEventsAPI, Initable... platformSpecificInitables) {
+    public InitManager(Initable... platformSpecificInitables) {
         ArrayList<LoadableInitable> extraLoadableInitables = new ArrayList<>();
         ArrayList<StartableInitable> extraStartableInitables = new ArrayList<>();
         ArrayList<StoppableInitable> extraStoppableInitables = new ArrayList<>();
@@ -38,7 +38,7 @@ public class InitManager {
         }
 
         initializersOnLoad = ImmutableList.<LoadableInitable>builder()
-                .add(new PacketEventsInit(packetEventsAPI))
+                .add(new NetworkManagerInit())
                 .add(() -> GrimAPI.INSTANCE.getExternalAPI().load())
                 .addAll(extraLoadableInitables)
                 .build();
@@ -48,7 +48,9 @@ public class InitManager {
                 .add(new PacketManager())
                 .add(new ViaBackwardsManager())
                 .add(new TickRunner())
+                .add(new TickEndEvent())
                 .add(new CommandRegister(GrimAPI.INSTANCE.getCommandService()))
+                .add(new ChannelManager())
                 .add(new UpdateChecker())
                 .add(new PacketLimiter())
                 .add(GrimAPI.INSTANCE.getAlertManager())
@@ -58,11 +60,18 @@ public class InitManager {
                 .add(new JavaVersion())
                 .add(new ViaVersion())
                 .add(new TAB())
+                .add(new NetworkManagerStart())
+                // Geyser Bedrock bridge starts late: it taps Geyser sessions and must run
+                // after networking is up. The initable itself loads no Geyser classes
+                // (soft-dep: gated on the Geyser-Spigot plugin, LinkageError-guarded).
+                .add(new GeyserBedrockBridgeInit())
                 .addAll(extraStartableInitables)
                 .build();
 
         initializersOnStop = ImmutableList.<StoppableInitable>builder()
-                .add(new TerminatePacketEvents())
+                // Detach the Geyser session taps before Grim's own networking tears down.
+                .add(new TerminateGeyserBedrockBridge())
+                .add(new TerminateNetworkManager())
                 .add(GrimAPI.INSTANCE.getDataStoreLifecycle())
                 .addAll(extraStoppableInitables)
                 .build();

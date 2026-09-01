@@ -3,9 +3,9 @@ package ac.grim.grimac.manager.datastore;
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.checks.impl.misc.ClientBrand;
+import ac.grim.grimac.network.protocol.player.User;
 import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.protocol.player.User;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -91,7 +91,9 @@ public interface LiveWriteHooks {
     static @NotNull SessionTracker.ClientMeta clientMetaFor(
             @NotNull User user, @Nullable GrimPlayer gp) {
         String grimVersion = GrimAPI.INSTANCE.getExternalAPI().getGrimVersion();
-        int clientVersionPvn = user.getClientVersion().getProtocolVersion();
+        int clientVersionPvn = gp != null
+                ? gp.getClientVersion().getProtocolVersion()
+                : ClientVersionResolver.resolveProtocolVersion(user);
         String serverVersion = GrimAPI.INSTANCE.getPlatformServer().getPlatformImplementationString();
         String brand = null;
         if (gp != null) {

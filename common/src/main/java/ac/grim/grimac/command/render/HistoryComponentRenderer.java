@@ -10,7 +10,7 @@ import ac.grim.grimac.api.storage.history.ViolationEntry;
 import ac.grim.grimac.api.storage.query.Page;
 import ac.grim.grimac.platform.api.sender.Sender;
 import ac.grim.grimac.utils.anticheat.MessageUtil;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import lombok.experimental.UtilityClass;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -458,14 +458,13 @@ public final class HistoryComponentRenderer {
 
     static @NotNull String clientVersionDisplay(int pvn) {
         if (pvn <= 0) return "unknown";
-        try {
-            ClientVersion cv = ClientVersion.getById(pvn);
-            if (cv == null || cv == ClientVersion.UNKNOWN) return "unknown";
-            String name = cv.getReleaseName();
-            return name == null ? ("pvn:" + pvn) : name;
-        } catch (RuntimeException ignore) {
-            return "pvn:" + pvn;
+
+        for (ClientVersion version : ClientVersion.values()) {
+            if (version.getProtocolVersion() == pvn) {
+                return version.getReleaseName();
+            }
         }
+        return "unknown";
     }
 
 }

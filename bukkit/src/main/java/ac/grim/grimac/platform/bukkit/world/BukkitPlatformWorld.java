@@ -1,22 +1,24 @@
 package ac.grim.grimac.platform.bukkit.world;
 
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.platform.api.world.PlatformChunk;
 import ac.grim.grimac.platform.api.world.PlatformWorld;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
-import io.github.retrooper.packetevents.util.SpigotConversionUtil;
+import ac.grim.grimac.utils.nmsutil.NmsBlockTags;
+import net.minecraft.SharedConstants;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
-import org.bukkit.block.Block;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.UUID;
 
 public record BukkitPlatformWorld(@NotNull World bukkitWorld) implements PlatformWorld {
 
-    private static final boolean LEGACY_SERVER_VERSION = PacketEvents.getAPI().getServerManager().getVersion().isOlderThanOrEquals(ServerVersion.V_1_12_2);
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+    private static final boolean LEGACY_SERVER_VERSION = SERVER_VERSION.isOlderThanOrEquals(ClientVersion.V_1_12_2);
 
     @Override
     public boolean isChunkLoaded(int chunkX, int chunkZ) {
@@ -24,15 +26,15 @@ public record BukkitPlatformWorld(@NotNull World bukkitWorld) implements Platfor
     }
 
     @Override
-    public WrappedBlockState getBlockAt(int x, int y, int z) {
+    public BlockState getBlockAt(int x, int y, int z) {
         if (LEGACY_SERVER_VERSION) {
-            Block block = bukkitWorld.getBlockAt(x, y, z);
+            org.bukkit.block.Block block = bukkitWorld.getBlockAt(x, y, z);
             @SuppressWarnings({"deprecation", "UnstableApiUsage"})
             int blockId = (block.getType().getId() << 4) | block.getData();
-            return WrappedBlockState.getByGlobalId(blockId);
+            return Block.stateById(blockId);
         } else {
-            if (BukkitPlatformChunk.isIllegalY(bukkitWorld, y)) return WrappedBlockState.getDefaultState(StateTypes.AIR);
-            return SpigotConversionUtil.fromBukkitBlockData(bukkitWorld.getBlockAt(x, y, z).getBlockData());
+            if (BukkitPlatformChunk.isIllegalY(bukkitWorld, y)) return Blocks.AIR.defaultBlockState();
+            return NmsBlockTags.toNmsState(bukkitWorld.getBlockAt(x, y, z).getBlockData());
         }
     }
 

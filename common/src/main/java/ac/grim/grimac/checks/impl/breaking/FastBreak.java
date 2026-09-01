@@ -2,25 +2,25 @@ package ac.grim.grimac.checks.impl.breaking;
 
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.impl.verbose.VerboseCodecs;
 import ac.grim.grimac.checks.type.BlockBreakListener;
-import ac.grim.grimac.checks.type.PreViaPacketReceiveListener;
+import ac.grim.grimac.checks.CheckData;
+import ac.grim.grimac.network.GrimPacketGroup;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.PacketGroup;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockBreak;
+import ac.grim.grimac.utils.collisions.ViaClientBlockShapeMappings;
 import ac.grim.grimac.utils.math.GrimMath;
 import ac.grim.grimac.utils.nmsutil.BlockBreakSpeed;
-import ac.grim.grimac.utils.viaversion.ViaVersionUtil;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.DiggingAction;
-import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
-import com.github.retrooper.packetevents.util.Vector3i;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.network.protocol.game.ServerboundSwingPacket;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.Set;
 
@@ -28,21 +28,20 @@ import java.util.Set;
 // Also based loosely off of NoCheatPlus FastBreak
 // Also based off minecraft wiki: https://minecraft.wiki/w/Breaking#Instant_breaking
 @CheckData(name = "FastBreak", stableKey = "grim.breaking.fast_break", description = "Breaking blocks too quickly")
-public class FastBreak extends Check implements BlockBreakListener, PreViaPacketReceiveListener {
+public class FastBreak extends Check implements BlockBreakListener {
     private static final Verbose V =
             Verbose.of("[delay={ulong}ms|diff={f64:%.1f}ms, balance={f64:%.1f}ms], type={block}");
 
     // For some reason these states flag and I don't know why.
     // Better to just exempt to not annoy legit players.
-    private static final Set<StateType> EXEMPT_STATES = Set.of();
-    private final boolean clientOlderThanServer = PacketEvents.getAPI().getServerManager().getVersion().getProtocolVersion() > player.getClientVersion().getProtocolVersion();
+    private static final Set<Block> EXEMPT_STATES = Set.of();
 
     public FastBreak(GrimPlayer player) {
         super(player);
     }
 
     // The block the player is currently breaking
-    Vector3i targetBlockPosition = null;
+    BlockPos targetBlockPosition = null;
     // The maximum amount of damage the player deals to the block
     //
     double maximumBlockDamage = 0;
@@ -55,28 +54,14 @@ public class FastBreak extends Check implements BlockBreakListener, PreViaPacket
     double blockBreakBalance = 0;
     double blockDelayBalance = 0;
 
-    @Override
     public void onBlockBreak(BlockBreak blockBreak) {
-        if (blockBreak.action == DiggingAction.START_DIGGING) {
-            if (!ViaVersionUtil.isAvailable) {
-                // Exempt all blocks that do not exist in the player version
-                final WrappedBlockState defaultState = WrappedBlockState.getDefaultState(player.getClientVersion(), blockBreak.block.getType());
-                if (defaultState.getType() == StateTypes.AIR || EXEMPT_STATES.contains(defaultState.getType())) {
-                    return;
-                }
-            }
-            // If client is older than the server, fetch block client actually sees from via
-            // otherwise just return the server-side block (since if client is >= server version the block is guaranteed to exist in client version)
-            // TODO this lazy loads PacketEvents mappings for older versions for clients on versions older than the servers, increasing memory usage
-            //  * its the only thing we use non-native mappings for behind ViaVersion
-            //  * can we translate back "up" to server version and run check against server version to avoid loading older registries?
-            WrappedBlockState block = clientOlderThanServer ? WrappedBlockState.getByGlobalId(player.getClientVersion(), player.getViaTranslatedClientBlockID(blockBreak.block.getGlobalId())) : blockBreak.block;
+        if (blockBreak.action == ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK) { // PE DiggingAction.START_DIGGING
 
             startBreak = System.currentTimeMillis() - (targetBlockPosition == null ? 50 : 0); // ???
             targetBlockPosition = blockBreak.position;
 
             // FIXME: getBlockDamage might not return the correct value if the player switched slots before this
-            maximumBlockDamage = BlockBreakSpeed.getBlockDamage(player, block);
+            maximumBlockDamage = getClientBlockDamage(blockBreak.block);
 
             double breakDelay = System.currentTimeMillis() - lastFinishBreak;
 
@@ -87,7 +72,7 @@ public class FastBreak extends Check implements BlockBreakListener, PreViaPacket
             }
 
             if (blockDelayBalance > 1000) { // If more than a second of advantage
-                int type = VerboseCodecs.block(blockBreak.block.getType(), player.getClientVersion());
+                int type = BuiltInRegistries.BLOCK.getId(blockBreak.block.getBlock());
                 if (flag(V.write(verbose()).bool(true).ulong((long) breakDelay).f64(0).f64(0).sint(type)) && shouldModifyPackets()) {
                     blockBreak.cancel();
                 }
@@ -96,7 +81,7 @@ public class FastBreak extends Check implements BlockBreakListener, PreViaPacket
             clampBalance();
         }
 
-        if (blockBreak.action == DiggingAction.FINISHED_DIGGING && targetBlockPosition != null) {
+        if (blockBreak.action == ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK && targetBlockPosition != null) { // PE DiggingAction.FINISHED_DIGGING
             double predictedTime = Math.ceil(1 / maximumBlockDamage) * 50;
             double realTime = System.currentTimeMillis() - startBreak;
             double diff = predictedTime - realTime;
@@ -110,7 +95,7 @@ public class FastBreak extends Check implements BlockBreakListener, PreViaPacket
             }
 
             if (blockBreakBalance > 1000) { // If more than a second of advantage
-                int type = VerboseCodecs.block(blockBreak.block.getType(), player.getClientVersion());
+                int type = BuiltInRegistries.BLOCK.getId(blockBreak.block.getBlock());
                 if (flag(V.write(verbose()).bool(false).ulong(0).f64(diff).f64(blockBreakBalance).sint(type)) && shouldModifyPackets()) {
                     blockBreak.cancel();
                 }
@@ -121,16 +106,34 @@ public class FastBreak extends Check implements BlockBreakListener, PreViaPacket
         }
     }
 
-    @Override
-    public void onPreViaPacketReceive(PacketReceiveEvent event) {
-        // Find the most optimal block damage using the animation packet, which is sent at least once a tick when breaking blocks
-        // On 1.8 clients, via screws with this packet meaning we must fall back to the 1.8 idle flying packet
-        //
-        // listen for flying packets because some block breaks can happen before the next animation (somehow???), causing onGround desync
-        boolean flying = WrapperPlayClientPlayerFlying.isFlying(event.getPacketType());
-        if ((flying || (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9) && event.getPacketType() == PacketType.Play.Client.ANIMATION)) && targetBlockPosition != null) {
-            maximumBlockDamage = Math.max(maximumBlockDamage, BlockBreakSpeed.getBlockDamage(player, player.compensatedWorld.getBlock(targetBlockPosition)));
+    // Find the most optimal block damage using the animation packet, which is sent at least once a tick when breaking blocks
+    // On 1.8 clients, via screws with this packet meaning we must fall back to the 1.8 idle flying packet
+    //
+    // listen for flying packets because some block breaks can happen before the next animation (somehow???), causing onGround desync
+    @GrimPacketHandler
+    @GrimPacketGroup(PacketGroup.SERVERBOUND_PLAYER_MOVEMENT)
+    public void onMovePlayer(PacketReceiveEvent event, GrimPlayer player, ServerboundMovePlayerPacket packet) {
+        updateMaximumBlockDamage();
+    }
+
+
+    @GrimPacketHandler
+    public void onSwing(PacketReceiveEvent event, GrimPlayer player, ServerboundSwingPacket packet) {
+        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) {
+            updateMaximumBlockDamage();
         }
+    }
+
+    private void updateMaximumBlockDamage() {
+        if (targetBlockPosition != null) {
+            maximumBlockDamage = Math.max(maximumBlockDamage,
+                    BlockBreakSpeed.getBlockDamage(player, targetBlockPosition));
+        }
+    }
+
+    private double getClientBlockDamage(BlockState serverState) {
+        BlockState clientState = ViaClientBlockShapeMappings.clientBlockState(player, serverState);
+        return BlockBreakSpeed.getBlockDamage(player, player.getInventory().getHeldItem(), clientState);
     }
 
     private void clampBalance() {

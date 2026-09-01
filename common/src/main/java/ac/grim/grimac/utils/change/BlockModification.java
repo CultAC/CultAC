@@ -1,13 +1,13 @@
 package ac.grim.grimac.utils.change;
 
-import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
-import com.github.retrooper.packetevents.util.Vector3i;
+import net.minecraft.core.BlockPos;
+import org.bukkit.block.data.BlockData;
 import org.jetbrains.annotations.NotNull;
 
 public record BlockModification(
-        WrappedBlockState oldBlockContents,
-        WrappedBlockState newBlockContents,
-        Vector3i location,
+        BlockData oldBlockContents,
+        BlockData newBlockContents,
+        BlockPos location,
         int tick,
         Cause cause
 ) {

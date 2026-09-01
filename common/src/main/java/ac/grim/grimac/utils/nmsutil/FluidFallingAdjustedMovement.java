@@ -1,22 +1,23 @@
 package ac.grim.grimac.utils.nmsutil;
 
 import ac.grim.grimac.player.GrimPlayer;
-import ac.grim.grimac.utils.math.Vector3dm;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import lombok.experimental.UtilityClass;
-import org.jetbrains.annotations.NotNull;
+import net.minecraft.world.phys.Vec3;
 
-import java.util.Objects;
+public final class FluidFallingAdjustedMovement {
+    private FluidFallingAdjustedMovement() {
+    }
 
-@UtilityClass
-public class FluidFallingAdjustedMovement {
-    public static @NotNull Vector3dm getFluidFallingAdjustedMovement(@NotNull GrimPlayer player, double gravity, boolean isFalling, @NotNull Vector3dm velocity) {
-        Objects.requireNonNull(player, "player");
-        Objects.requireNonNull(velocity, "velocity");
+    public static Vec3 getFluidFallingAdjustedMovement(GrimPlayer player, double gravity, boolean falling, Vec3 movement) {
+        if (gravity == 0 || player.isSprinting) {
+            return movement;
+        }
 
-        if (!player.hasGravity || player.isSprinting) return velocity;
-        isFalling = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14) ? isFalling : velocity.getY() < 0;
-        double newY = isFalling && Math.abs(velocity.getY() - 0.005) >= 0.003 && Math.abs(velocity.getY() - gravity / 16.0) < 0.003 ? -0.003 : velocity.getY() - gravity / 16.0;
-        return new Vector3dm(velocity.getX(), newY, velocity.getZ());
+        double y;
+        if (falling && Math.abs(movement.y - 0.005D) >= 0.003D && Math.abs(movement.y - gravity / 16.0D) < 0.003D) {
+            y = -0.003D;
+        } else {
+            y = movement.y - gravity / 16.0D;
+        }
+        return new Vec3(movement.x, y, movement.z);
     }
 }

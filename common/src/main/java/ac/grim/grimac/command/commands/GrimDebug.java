@@ -2,19 +2,28 @@ package ac.grim.grimac.command.commands;
 
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.command.BuildableCommand;
+import ac.grim.grimac.manager.player.SmoketestControlBridge;
+import ac.grim.grimac.network.protocol.player.User;
 import ac.grim.grimac.platform.api.command.PlayerSelector;
 import ac.grim.grimac.platform.api.manager.cloud.CloudPlatformCommandArguments;
+import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.platform.api.sender.Sender;
 import ac.grim.grimac.player.GrimPlayer;
+import ac.grim.grimac.utils.anticheat.LogUtil;
 import ac.grim.grimac.utils.anticheat.MessageUtil;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.protocol.player.User;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.minecraft.core.registries.BuiltInRegistries;
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.entity.Player;
 import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
 import org.incendo.cloud.description.Description;
+import org.incendo.cloud.parser.standard.StringParser;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,9 +46,132 @@ public class GrimDebug implements BuildableCommand {
                 .required("target", arguments.singlePlayerSelectorParser())
                 .handler(this::handleConsoleDebug);
 
+        // Register "debug poolstats <label>" — SectionPool dedup statistics dump on the
+        // console control channel the smoketest harness drives (label is echoed back in
+        // the log line so the harness can match request to stats). Built as a separate
+        // chain from the grim root: cloud forbids placing a literal after the optional
+        // target argument on the base debug command within one chain.
+        commandManager.command(grimCommand
+                .literal("debug")
+                .literal("poolstats", Description.of("Log SectionPool deduplication statistics"))
+                .permission("grim.debug")
+                .required("label", StringParser.stringParser())
+                .handler(this::handlePoolstats));
+
+        // Register "debug validationblock <player> <x> <y> <z> <block|*>" — server-world
+        // block mutation used as a controlled stimulus by the smoketest harness ('*'
+        // maps to air). The "Grim validation block" log line is the harness's marker.
+        // Arguments ride one greedy string (same shape as poolstats, which the harness
+        // console channel drives reliably) and are split manually.
+        commandManager.command(grimCommand
+                .literal("debug")
+                .literal("validationblock", Description.of("Set a world block for smoketest validation"))
+                .permission("grim.debug")
+                .required("args", StringParser.greedyStringParser())
+                .handler(this::handleValidationBlock));
+
+        // Register "debug validationpacketblock <player> <x> <y> <z> <block>" — ghost
+        // block update sent only to the target client (no world mutation).
+        commandManager.command(grimCommand
+                .literal("debug")
+                .literal("validationpacketblock", Description.of("Send a ghost block update for smoketest validation"))
+                .permission("grim.debug")
+                .required("args", StringParser.greedyStringParser())
+                .handler(this::handleValidationPacketBlock));
+
         // Register command
         commandManager.command(debugCommand);
         commandManager.command(consoleDebugCommand);
+    }
+
+    private void handlePoolstats(@NotNull CommandContext<Sender> context) {
+        SmoketestControlBridge.logSectionPoolStats(context.get("label"));
+    }
+
+    private void handleValidationBlock(@NotNull CommandContext<Sender> context) {
+        applyValidationBlock(context, false);
+    }
+
+    private void handleValidationPacketBlock(@NotNull CommandContext<Sender> context) {
+        applyValidationBlock(context, true);
+    }
+
+    private void applyValidationBlock(@NotNull CommandContext<Sender> context, boolean ghostOnly) {
+        Sender sender = context.sender();
+        String rawArgs = ((String) context.get("args")).trim();
+        String[] tokens = rawArgs.split("\\s+");
+        if (tokens.length != 5) {
+            sender.sendMessage(Component.text(
+                    "Usage: /grim debug " + (ghostOnly ? "validationpacketblock" : "validationblock")
+                            + " <player> <x> <y> <z> <block|*>",
+                    NamedTextColor.RED));
+            return;
+        }
+
+        Player bukkitPlayer = Bukkit.getPlayerExact(tokens[0]);
+        GrimPlayer target = bukkitPlayer == null
+                ? null
+                : GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(bukkitPlayer.getUniqueId());
+        if (target == null || target.bukkitPlayer == null) {
+            sender.sendMessage(Component.text("Player is not available for validation block control", NamedTextColor.RED));
+            return;
+        }
+
+        final int x;
+        final int y;
+        final int z;
+        try {
+            x = Integer.parseInt(tokens[1]);
+            y = Integer.parseInt(tokens[2]);
+            z = Integer.parseInt(tokens[3]);
+        } catch (NumberFormatException exception) {
+            sender.sendMessage(Component.text("Coordinates must be whole numbers", NamedTextColor.RED));
+            return;
+        }
+
+        String blockToken = tokens[4];
+        BlockData blockData;
+        try {
+            blockData = "*".equals(blockToken)
+                    ? Material.AIR.createBlockData()
+                    : Bukkit.createBlockData(blockToken);
+        } catch (IllegalArgumentException exception) {
+            sender.sendMessage(Component.text("Unknown block " + blockToken, NamedTextColor.RED));
+            return;
+        }
+
+        String expectedId = "*".equals(blockToken) ? "minecraft:air" : blockToken;
+        Location location = new Location(bukkitPlayer.getWorld(), x, y, z);
+        if (ghostOnly) {
+            bukkitPlayer.sendBlockChange(location, blockData);
+            // The compensated world only reflects the ghost once the outbound packet
+            // has been through Grim's send pipeline, so verify and log two ticks out.
+            GrimPlayer logTarget = target;
+            GrimAPI.INSTANCE.getScheduler().getGlobalRegionScheduler().runDelayed(
+                    GrimAPI.INSTANCE.getGrimPlugin(),
+                    () -> logValidationBlock(logTarget, x, y, z, expectedId, "packet"),
+                    2L
+            );
+            return;
+        }
+
+        location.getBlock().setBlockData(blockData, false);
+        logValidationBlock(target, x, y, z, expectedId, "world");
+    }
+
+    private static void logValidationBlock(GrimPlayer target, int x, int y, int z, String expectedId, String mode) {
+        String actualId = compensatedBlockId(target, x, y, z);
+        LogUtil.info("Grim validation block player=" + target.user.getProfile().getName()
+                + " x=" + x + " y=" + y + " z=" + z
+                + " expected=" + expectedId
+                + " actual=" + actualId
+                + " matches=" + (expectedId.equals(actualId) ? "yes" : "no")
+                + " mode=" + mode);
+    }
+
+    private static String compensatedBlockId(GrimPlayer target, int x, int y, int z) {
+        net.minecraft.world.level.block.state.BlockState state = target.compensatedWorld.getBlockStateAt(x, y, z);
+        return BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
     }
 
     private void handleDebug(@NotNull CommandContext<Sender> context) {
@@ -60,7 +192,7 @@ public class GrimDebug implements BuildableCommand {
                 sender.sendMessage(MessageUtil.getParsedComponent(sender, "sender-not-found", "%prefix% &cYou cannot be exempt to use this command!"));
                 return;
             }
-            targetGrimPlayer.checkManager.getDebugHandler().toggleListener(senderGrimPlayer);
+            targetGrimPlayer.checkManager.getDebugHandler().toggleListener(senderGrimPlayer.bukkitPlayer);
         } else {
             sender.sendMessage(MessageUtil.getParsedComponent(sender,
                     "run-as-player-or-console",
@@ -98,11 +230,12 @@ public class GrimDebug implements BuildableCommand {
 
         GrimPlayer grimPlayer = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(target.getUniqueId());
         if (grimPlayer == null) {
-            User user = PacketEvents.getAPI().getPlayerManager().getUser(sender.getPlatformPlayer().getNative());
+            PlatformPlayer platformPlayer = sender.getPlatformPlayer();
+            User user = platformPlayer == null ? null : GrimAPI.INSTANCE.getPlayerDataManager().getUser((Player) platformPlayer.getNative());
             sender.sendMessage(MessageUtil.getParsedComponent(sender, "player-not-found", "%prefix% &cPlayer is exempt or offline!"));
 
             if (user == null) {
-                sender.sendMessage(Component.text("Unknown PacketEvents user", NamedTextColor.RED));
+                sender.sendMessage(Component.text("Unknown user", NamedTextColor.RED));
             } else {
                 boolean isExempt = GrimAPI.INSTANCE.getPlayerDataManager().shouldCheck(user);
                 if (!isExempt) {

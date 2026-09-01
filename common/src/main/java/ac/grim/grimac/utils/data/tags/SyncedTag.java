@@ -1,33 +1,31 @@
 package ac.grim.grimac.utils.data.tags;
 
-import com.github.retrooper.packetevents.resources.ResourceLocation;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerTags;
+import net.minecraft.core.Holder;
+import net.minecraft.resources.Identifier;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
-import java.util.function.IntFunction;
 
 public final class SyncedTag<T> {
 
-    private final ResourceLocation location;
+    private final Identifier location;
     private final Set<T> values;
-    private final IntFunction<T> remapper;
     private final boolean supported;
 
-    private SyncedTag(ResourceLocation location, IntFunction<T> remapper, Set<T> defaultValues, boolean supported) {
+    private SyncedTag(Identifier location, Set<T> defaultValues, boolean supported) {
         this.location = location;
         this.supported = supported;
         this.values = Collections.newSetFromMap(new IdentityHashMap<>());
-        this.remapper = remapper;
         this.values.addAll(defaultValues);
     }
 
-    public static <T> Builder<T> builder(ResourceLocation location) {
+    public static <T> Builder<T> builder(Identifier location) {
         return new Builder<>(location);
     }
 
-    public ResourceLocation location() {
+    public Identifier location() {
         return location;
     }
 
@@ -35,29 +33,24 @@ public final class SyncedTag<T> {
         return values.contains(value);
     }
 
-    public void readTagValues(WrapperPlayServerTags.Tag tag) {
+
+    public void readTagValues(Collection<? extends Holder<T>> entries) {
         if (!supported) return;
 
         // Server is sending tag replacement, clear default values.
         values.clear();
-        for (int id : tag.getValues()) {
-            values.add(remapper.apply(id));
+        for (Holder<T> entry : entries) {
+            values.add(entry.value());
         }
     }
 
     public static final class Builder<T> {
-        private final ResourceLocation location;
-        private IntFunction<T> remapper;
+        private final Identifier location;
         private Set<T> defaultValues;
         private boolean supported = true;
 
-        private Builder(ResourceLocation location) {
+        private Builder(Identifier location) {
             this.location = location;
-        }
-
-        public Builder<T> remapper(IntFunction<T> remapper) {
-            this.remapper = remapper;
-            return this;
         }
 
         public Builder<T> supported(boolean supported) {
@@ -71,7 +64,7 @@ public final class SyncedTag<T> {
         }
 
         public SyncedTag<T> build() {
-            return new SyncedTag<>(location, remapper, defaultValues, supported);
+            return new SyncedTag<>(location, defaultValues, supported);
         }
     }
 }

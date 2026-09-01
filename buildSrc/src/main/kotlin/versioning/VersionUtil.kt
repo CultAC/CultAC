@@ -22,7 +22,6 @@ object VersionUtil {
         val branch = getGitBranch(project)
 
         val modifiers = buildList {
-            if (!BuildConfig.shadePE) add("lite")
             if (!BuildConfig.relocate) add("no_relocate")
         }.joinToString("-").takeIf { it.isNotEmpty() }
 

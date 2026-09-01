@@ -200,6 +200,18 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         AlertType.BRAND.players.remove(platformPlayer);
     }
 
+    /** Returns the online Bukkit players currently receiving alerts. */
+    public Set<Player> getEnabledAlerts() {
+        Set<Player> enabled = new HashSet<>();
+        for (PlatformPlayer platformPlayer : AlertType.NORMAL.players) {
+            Player bukkitPlayer = org.bukkit.Bukkit.getPlayer(platformPlayer.getUniqueId());
+            if (bukkitPlayer != null) {
+                enabled.add(bukkitPlayer);
+            }
+        }
+        return enabled;
+    }
+
     public boolean toggleConsoleAlerts() {
         return toggleConsoleAlerts(false);
     }

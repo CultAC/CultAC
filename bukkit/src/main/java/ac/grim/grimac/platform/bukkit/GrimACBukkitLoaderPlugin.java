@@ -23,10 +23,8 @@ import ac.grim.grimac.platform.api.player.PlatformPlayerFactory;
 import ac.grim.grimac.platform.api.scheduler.PlatformScheduler;
 import ac.grim.grimac.platform.api.sender.Sender;
 import ac.grim.grimac.platform.api.sender.SenderFactory;
-import ac.grim.grimac.platform.bukkit.initables.BukkitBStats;
 import ac.grim.grimac.platform.bukkit.initables.BukkitEventManager;
 import ac.grim.grimac.platform.bukkit.initables.BukkitLuckPermsInitable;
-import ac.grim.grimac.platform.bukkit.initables.BukkitTickEndEvent;
 import ac.grim.grimac.platform.bukkit.manager.BukkitItemResetHandler;
 import ac.grim.grimac.platform.bukkit.manager.BukkitMessagePlaceHolderManager;
 import ac.grim.grimac.platform.bukkit.manager.BukkitCloudPlatformCommandArguments;
@@ -39,8 +37,6 @@ import ac.grim.grimac.platform.bukkit.sender.BukkitSenderFactory;
 import ac.grim.grimac.platform.bukkit.utils.placeholder.PlaceholderAPIExpansion;
 import ac.grim.grimac.utils.anticheat.LogUtil;
 import ac.grim.grimac.utils.lazy.LazyHolder;
-import com.github.retrooper.packetevents.PacketEventsAPI;
-import io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
@@ -57,7 +53,6 @@ public final class GrimACBukkitLoaderPlugin extends JavaPlugin implements Platfo
     public static GrimACBukkitLoaderPlugin LOADER;
 
     private final LazyHolder<PlatformScheduler> scheduler = LazyHolder.simple(this::createScheduler);
-    private final LazyHolder<PacketEventsAPI<?>> packetEvents = LazyHolder.simple(() -> SpigotPacketEventsBuilder.build(this));
     private final LazyHolder<BukkitSenderFactory> senderFactory = LazyHolder.simple(BukkitSenderFactory::new);
     private final LazyHolder<ItemResetHandler> itemResetHandler = LazyHolder.simple(BukkitItemResetHandler::new);
     private final LazyHolder<CommandService> commandService = LazyHolder.simple(this::createCommandService);
@@ -86,8 +81,6 @@ public final class GrimACBukkitLoaderPlugin extends JavaPlugin implements Platfo
         return new Initable[] {
                 new ExemptOnlinePlayersOnReload(),
                 new BukkitEventManager(),
-                new BukkitTickEndEvent(),
-                new BukkitBStats(),
                 new BukkitLuckPermsInitable(),
                 (StartableInitable) () -> {
                     if (BukkitMessagePlaceHolderManager.hasPlaceholderAPI) {
@@ -110,11 +103,6 @@ public final class GrimACBukkitLoaderPlugin extends JavaPlugin implements Platfo
     @Override
     public PlatformScheduler getScheduler() {
         return scheduler.get();
-    }
-
-    @Override
-    public PacketEventsAPI<?> getPacketEvents() {
-        return packetEvents.get();
     }
 
     @Override

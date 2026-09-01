@@ -2,8 +2,8 @@ package ac.grim.grimac.manager.tick.impl;
 
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.manager.tick.Tickable;
+import ac.grim.grimac.network.netty.channel.ChannelHelper;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.netty.channel.ChannelHelper;
 
 public class ClientVersionSetter implements Tickable {
     @Override

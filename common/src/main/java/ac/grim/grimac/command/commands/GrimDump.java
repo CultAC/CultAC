@@ -2,6 +2,7 @@ package ac.grim.grimac.command.commands;
 
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.command.BuildableCommand;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.platform.api.PlatformPlugin;
 import ac.grim.grimac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.grim.grimac.platform.api.sender.Sender;
@@ -9,11 +10,11 @@ import ac.grim.grimac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.utils.common.PropertiesUtil;
 import ac.grim.grimac.utils.reflection.ReflectionUtils;
 import ac.grim.grimac.utils.viaversion.ViaVersionUtil;
-import com.github.retrooper.packetevents.PacketEvents;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import net.minecraft.SharedConstants;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
 import org.incendo.cloud.description.Description;
@@ -26,6 +27,8 @@ public class GrimDump implements BuildableCommand {
 
     private static final boolean PAPER = ReflectionUtils.hasClass("com.destroystokyo.paper.PaperConfig")
             || ReflectionUtils.hasClass("io.papermc.paper.configuration.Configuration");
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private String link = null; // these links should not expire for a while
 
@@ -60,8 +63,7 @@ public class GrimDump implements BuildableCommand {
         JsonObject versions = new JsonObject();
         base.add("versions", versions);
         versions.addProperty("grim", GrimAPI.INSTANCE.getExternalAPI().getGrimVersion());
-        versions.addProperty("packetevents", PacketEvents.getAPI().getVersion().toString());
-        versions.addProperty("server", PacketEvents.getAPI().getServerManager().getVersion().getReleaseName());
+        versions.addProperty("server", SERVER_VERSION.getReleaseName());
         versions.addProperty("implementation", GrimAPI.INSTANCE.getPlatformServer().getPlatformImplementationString());
         // state of different properties
         JsonObject states = new JsonObject();

@@ -1,5 +1,18 @@
 package ac.grim.grimac.utils.anticheat.update;
 
-import com.github.retrooper.packetevents.util.Vector3d;
+import ac.grim.grimac.utils.data.TeleportAcceptData;
+import net.minecraft.world.phys.Vec3;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.Setter;
 
-public record VehiclePositionUpdate(Vector3d from, Vector3d to, float xRot, float yRot, boolean onGround, boolean isTeleport) {}
+@AllArgsConstructor
+@Getter
+@Setter
+public class VehiclePositionUpdate {
+    private final Vec3 from, to;
+    private final float xRot, yRot;
+    private final boolean onGround;
+    private final boolean hasOnGround;
+    private final TeleportAcceptData teleportAcceptData;
+}

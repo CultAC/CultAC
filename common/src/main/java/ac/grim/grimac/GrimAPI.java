@@ -20,6 +20,7 @@ import ac.grim.grimac.manager.TickManager;
 import ac.grim.grimac.manager.config.BaseConfigManager;
 import ac.grim.grimac.manager.datastore.DataStoreLifecycle;
 import ac.grim.grimac.manager.init.Initable;
+import ac.grim.grimac.network.GrimNetworkManager;
 import ac.grim.grimac.platform.api.Platform;
 import ac.grim.grimac.platform.api.PlatformLoader;
 import ac.grim.grimac.platform.api.PlatformServer;
@@ -35,6 +36,7 @@ import ac.grim.grimac.utils.anticheat.PlayerDataManager;
 import ac.grim.grimac.utils.common.arguments.CommonGrimArguments;
 import ac.grim.grimac.utils.reflection.ReflectionUtils;
 import lombok.Getter;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 
 @Getter
@@ -48,12 +50,14 @@ public final class GrimAPI {
     private final DiscordManager discordManager;
     private final PlayerDataManager playerDataManager;
     private final TickManager tickManager;
+    private final GrimNetworkManager networkManager;
     private final GrimExtensionManager extensionManager;
     private final EventBus eventBus;
     private final GrimExternalAPI externalAPI;
     private DataStoreLifecycle dataStoreLifecycle;
     private final BackendRegistry backendRegistry = buildBackendRegistry();
     private PlatformLoader loader;
+    private JavaPlugin plugin;
     private InitManager initManager;
     private boolean initialized = false;
 
@@ -64,6 +68,7 @@ public final class GrimAPI {
         this.discordManager = new DiscordManager();
         this.playerDataManager = new PlayerDataManager();
         this.tickManager = new TickManager();
+        this.networkManager = new GrimNetworkManager();
         this.extensionManager = new GrimExtensionManager();
         this.eventBus = new OptimizedEventBus(extensionManager);
         this.externalAPI = new GrimExternalAPI(this);
@@ -81,8 +86,11 @@ public final class GrimAPI {
 
     public void load(PlatformLoader platformLoader, Initable... platformSpecificInitables) {
         this.loader = platformLoader;
+        if (platformLoader instanceof JavaPlugin javaPlugin) {
+            this.plugin = javaPlugin;
+        }
         this.dataStoreLifecycle = new DataStoreLifecycle(getGrimPlugin(), backendRegistry);
-        this.initManager = new InitManager(loader.getPacketEvents(), platformSpecificInitables);
+        this.initManager = new InitManager(platformSpecificInitables);
         this.initManager.load();
         this.initialized = true;
     }

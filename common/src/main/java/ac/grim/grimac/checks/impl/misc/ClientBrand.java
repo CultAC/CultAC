@@ -2,22 +2,24 @@ package ac.grim.grimac.checks.impl.misc;
 
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
+import ac.grim.grimac.checks.type.CheckListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.MessageUtil;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.wrapper.configuration.client.WrapperConfigClientPluginMessage;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPluginMessage;
 import lombok.Getter;
 import net.kyori.adventure.text.Component;
+import net.minecraft.SharedConstants;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 
-public class ClientBrand extends Check implements PacketReceiveListener {
+public class ClientBrand extends Check implements CheckListener {
 
-    private static final String CHANNEL = PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_13) ? "minecraft:brand" : "MC|Brand";
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+
+    private static final String CHANNEL = SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_13) ? "minecraft:brand" : "MC|Brand";
 
     @Getter
     private String brand = "vanilla";
@@ -28,18 +30,15 @@ public class ClientBrand extends Check implements PacketReceiveListener {
         super(player);
     }
 
-    @Override
-    public void onPacketReceive(final PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.PLUGIN_MESSAGE) {
-            WrapperPlayClientPluginMessage packet = new WrapperPlayClientPluginMessage(event);
-            handle(packet.getChannelName(), packet.getData());
-        } else if (event.getPacketType() == PacketType.Configuration.Client.PLUGIN_MESSAGE) {
-            WrapperConfigClientPluginMessage packet = new WrapperConfigClientPluginMessage(event);
-            handle(packet.getChannelName(), packet.getData());
-        }
+    @GrimPacketHandler
+    public void onCustomPayload(final PacketReceiveEvent event, GrimPlayer player, ServerboundCustomPayloadPacket packet) {
+        String channelName = NmsPacketUtil.payloadChannel(packet.payload());
+        if (channelName == null) return;
+        handle(channelName, NmsPacketUtil.payloadData(event));
     }
 
-    private void handle(String channel, byte[] data) {
+
+    public void handle(String channel, byte[] data) {
         if (!channel.equals(ClientBrand.CHANNEL)) return;
 
         if (data.length > 64 || data.length == 0) {

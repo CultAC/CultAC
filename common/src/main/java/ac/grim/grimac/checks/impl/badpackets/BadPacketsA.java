@@ -2,15 +2,15 @@ package ac.grim.grimac.checks.impl.badpackets;
 
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
+import ac.grim.grimac.checks.type.CheckListener;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PreViaPacketReceiveListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientHeldItemChange;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 
 @CheckData(name = "BadPacketsA", stableKey = "grim.badpackets.duplicate_slot", description = "Sent duplicate slot id")
-public class BadPacketsA extends Check implements PreViaPacketReceiveListener {
+public class BadPacketsA extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("slot={sint}");
 
     private int lastSlot = -1;
@@ -19,17 +19,15 @@ public class BadPacketsA extends Check implements PreViaPacketReceiveListener {
         super(player);
     }
 
-    @Override
-    public void onPreViaPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.HELD_ITEM_CHANGE) {
-            final int slot = new WrapperPlayClientHeldItemChange(event).getSlot();
+    @GrimPacketHandler
+    public void onSetCarriedItem(PacketReceiveEvent event, GrimPlayer player, ServerboundSetCarriedItemPacket packet) {
+        final int slot = packet.getSlot();
 
-            if (slot == lastSlot && flag(V.write(verbose()).sint(slot)) && shouldModifyPackets()) {
-                event.setCancelled(true);
-                player.onPacketCancel();
-            }
-
-            lastSlot = slot;
+        if (slot == lastSlot && flag(V.write(verbose()).sint(slot)) && shouldModifyPackets()) {
+            event.setCancelled(true);
+            player.onPacketCancel();
         }
+
+        lastSlot = slot;
     }
 }

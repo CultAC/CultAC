@@ -15,185 +15,120 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package ac.grim.grimac.checks.impl.combat;
 
-import ac.grim.grimac.api.config.ConfigManager;
-import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
+import ac.grim.grimac.checks.CheckInfo;
+import ac.grim.grimac.checks.type.CheckListener;
+import ac.grim.grimac.checks.type.ClientTickEndListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
-import ac.grim.grimac.utils.data.packetentity.PacketEntitySizeable;
-import ac.grim.grimac.utils.data.packetentity.dragon.PacketEntityEnderDragonPart;
-import ac.grim.grimac.utils.math.Vector3dm;
+import ac.grim.grimac.utils.nmsutil.BoundingBoxSize;
+import ac.grim.grimac.utils.nmsutil.EntityTypesCompat;
 import ac.grim.grimac.utils.nmsutil.ReachUtils;
-import ac.grim.grimac.utils.viaversion.ViaVersionUtil;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.attribute.Attributes;
-import com.github.retrooper.packetevents.protocol.component.ComponentTypes;
-import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemAttackRange;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
-import com.github.retrooper.packetevents.protocol.item.ItemStack;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
-import com.github.retrooper.packetevents.protocol.player.InteractionHand;
-import com.github.retrooper.packetevents.util.Vector3d;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientAttack;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
-import com.viaversion.viaversion.api.Via;
-import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
-import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import org.jetbrains.annotations.NotNull;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.utils.nmsutil.EntityTypeUtil;
+import org.bukkit.GameMode;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket;
+import net.minecraft.world.entity.EntityType;
+import org.bukkit.util.Vector;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 // You may not copy the check unless you are licensed under GPL
-@CheckData(name = "Reach", stableKey = "grim.combat.reach", description = "Attacked an entity from too far away")
-public class Reach extends Check implements PacketReceiveListener {
-    private static final Verbose V = Verbose.of("{f64:%.5f} blocks, type={entity}");
+//@CheckData(name = "Reach", configName = "Reach", setback = 10)
+public class Reach extends Check implements CheckListener, ClientTickEndListener {
+    private record QueuedAttack(int entityId, List<Vec3> fromCandidates, SimpleCollisionBox targetBox, EntityType type,
+                                boolean livingEntity, boolean exempt) {
+    }
 
-    private static final List<EntityType> blacklisted = Arrays.asList(
-            EntityTypes.BOAT,
-            EntityTypes.CHEST_BOAT,
-            EntityTypes.SHULKER);
-    private static final CheckResult NONE = new CheckResult(ResultType.NONE, 0, 0, false);
-    // Only one flag per reach attack, per entity, per tick.
-    // We store position because lastX isn't reliable on teleports.
-    private final Int2ObjectMap<InteractionData> playerAttackQueue = new Int2ObjectOpenHashMap<>();
+    private final List<QueuedAttack> playerAttackQueue = new ArrayList<>();
+    private static final List<EntityType> blacklisted = Arrays.asList(EntityTypesCompat.SHULKER);
+
     private boolean cancelImpossibleHits;
     private double threshold;
     private double cancelBuffer; // For the next 4 hits after using reach, we aggressively cancel reach
 
-    public Reach(GrimPlayer player) {
-        super(player);
-    }
+    public Reach(GrimPlayer player) { super(player, CheckInfo.builder()
+            .name("Reach")
+            .stableKey("grim.combat.reach")
+            .description("Attacked an entity from too far away")
+            .build()); }
 
-    @Override
-    public void onPacketReceive(final PacketReceiveEvent event) {
-        if (!player.disableGrim && event.getPacketType() == PacketType.Play.Client.ATTACK) {
-            WrapperPlayClientAttack packet = new WrapperPlayClientAttack(event);
-            onInteract(event, packet.getEntityId(), InteractionHand.MAIN_HAND);
-        }
+    private void handleInteract(final PacketReceiveEvent event, NmsPacketUtil.InteractData action) {
+        if (!player.isDisabled() && action != null && action.action() == NmsPacketUtil.InteractAction.ATTACK) {
 
-        if (!player.disableGrim && event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
-            WrapperPlayClientInteractEntity packet = new WrapperPlayClientInteractEntity(event);
-            onInteract(event, packet.getEntityId(), packet.getAction() == WrapperPlayClientInteractEntity.InteractAction.ATTACK ? InteractionHand.MAIN_HAND : packet.getHand());
-        }
+            // Don't let the player teleport to bypass reach
+            if (player.getSetbackTeleportUtil().shouldBlockMovement()) {
+                debug(() -> { return "cancelled = teleport"; });
+                event.setCancelled(true);
+                player.onPacketCancel();
+                return;
+            }
 
-        // If the player set their look, or we know they have a new tick
-        if (isUpdate(event.getPacketType())) {
-            tickBetterReachCheckWithAngle();
-        }
-    }
+            PacketEntity entity = player.compensatedEntities.entityMap.get(action.entityId());
 
-    private void onInteract(PacketReceiveEvent event, int entityId, InteractionHand hand) {
-        // Don't let the player teleport to bypass reach
-        if (player.getSetbackTeleportUtil().shouldBlockMovement()) {
-            event.setCancelled(true);
-            player.onPacketCancel();
-            return;
-        }
+            // Stop people from freezing transactions before an entity spawns to bypass reach
+            if (entity == null) {
+                // Only cancel if and only if we are tracking this entity
+                // This is because we don't track paintings.
+                if (shouldModifyPackets() && player.compensatedEntities.serverPositionsMap.containsKey(action.entityId())) {
+                    debug(() -> { return "cancelled = no entity"; });
+                    event.setCancelled(true);
+                    player.onPacketCancel();
+                }
+                return;
+            }
 
-        PacketEntity entity = player.compensatedEntities.entityMap.get(entityId);
-        // Stop people from freezing transactions before an entity spawns to bypass reach
-        // TODO: implement dragon parts?
-        if (entity == null || entity instanceof PacketEntityEnderDragonPart) {
-            // Only cancel if and only if we are tracking this entity
-            // This is because we don't track paintings.
-            if (shouldModifyPackets() && player.compensatedEntities.serverPositionsMap.containsKey(entityId)) {
+            // Dead entities cause false flags (https://github.com/GrimAnticheat/Grim/issues/546)
+            if (entity.isDead) return;
+
+            if (entity.type == EntityTypesCompat.ARMOR_STAND)
+                return;
+
+            if (player.gamemode == GameMode.SPECTATOR || player.gamemode == GameMode.CREATIVE) return;
+
+            boolean tooManyAttacks = playerAttackQueue.size() > 10;
+            if (!tooManyAttacks) {
+                // Queue for next tick for a precise post-rotation check. Vanilla computes
+                // the hit result before sending the attack packet; movement and tick-end
+                // packets from the same client tick must not change the target box used here.
+                playerAttackQueue.add(new QueuedAttack(
+                        action.entityId(),
+                        getAttackOrigins(),
+                        getReachBox(entity),
+                        entity.type,
+                        entity.isLivingEntity(),
+                        isReachExempt(entity)
+                ));
+            }
+
+            final boolean knownInvalid = isKnownInvalid(entity);
+
+            if ((shouldModifyPackets() && cancelImpossibleHits && knownInvalid) || tooManyAttacks) {
+                debug(() -> { return "cancelled, many=" + tooManyAttacks + ", invalid=" + knownInvalid; });
                 event.setCancelled(true);
                 player.onPacketCancel();
             }
-            return;
         }
+    }
 
-        // Dead entities cause false flags (https://github.com/GrimAnticheat/Grim/issues/546)
-        if (entity.isDead) return;
+    @GrimPacketHandler
+    public void onInteract(PacketReceiveEvent event, GrimPlayer player, ServerboundInteractPacket packet) {
+        handleInteract(event, NmsPacketUtil.readInteract(packet));
+    }
 
-        // TODO: Remove when in front of via
-        if (entity.getType() == EntityTypes.ARMOR_STAND && player.getClientVersion().isOlderThan(ClientVersion.V_1_8))
-            return;
-        // Prevents Happy Ghast Reach false on 1.21.6+ servers with ViaBackwards set up
-        if (entity.getType() == EntityTypes.HAPPY_GHAST && player.getClientVersion().isOlderThan(ClientVersion.V_1_21_6))
-            return;
-        if (player.gamemode == GameMode.CREATIVE || player.gamemode == GameMode.SPECTATOR)
-            return;
-        if (player.inVehicle()) return;
-        if (entity.riding != null) return;
+    @GrimPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundAttackPacket")
+    public void onAttack(PacketReceiveEvent event, GrimPlayer player, Packet<?> packet) {
+        handleInteract(event, NmsPacketUtil.readAttack(packet));
+    }
 
-        ItemStack currentStack = player.inventory.getItemInHand(hand);
-        ItemStack startStack = player.inventory.getStartOfTickStack();
-
-        boolean hasRange = false;
-        float maxReach = 0f;
-        float hitboxMargin = 0f;
-        Vector3dm attackRangeMovement = null;
-
-        boolean clientAttackRangeExists = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11);
-        boolean clientAndServerAgrees = clientAttackRangeExists && ATTACK_RANGE_COMPONENT_EXISTS;
-
-        boolean viaVersionAvailable = false;
-        if (USE_1_8_HITBOX_MARGIN && ViaVersionUtil.isAvailable) {
-            viaVersionAvailable = Via.getConfig().getValues().containsKey("use-1_8-hitbox-margin") && Via.getConfig().use1_8HitboxMargin();
-        }
-
-        boolean clientAndViaVersion = clientAttackRangeExists && viaVersionAvailable;
-        if (clientAndServerAgrees || clientAndViaVersion) {
-            ItemAttackRange startRange = startStack.getComponentOr(ComponentTypes.ATTACK_RANGE, null);
-            ItemAttackRange currentRange = currentStack.getComponentOr(ComponentTypes.ATTACK_RANGE, null);
-
-            if (clientAndViaVersion) {
-                if (startStack != ItemStack.EMPTY) {
-                    startRange = new ItemAttackRange(0F, 3F, 0F, 4F, 0.1F, 1F);
-                }
-
-                if (currentStack != ItemStack.EMPTY) {
-                    currentRange = new ItemAttackRange(0F, 3F, 0F, 4F, 0.1F, 1F);
-                }
-            }
-
-            // If the start stack has no range component, the client defaults to vanilla reach behavior,
-            // regardless of what the current stack is (No Range -> X = No Range used).
-            if (startRange != null) {
-                hasRange = true;
-                if (currentRange == null) {
-                    // Range (Start) -> No Range (Current)
-                    // Client logic uses Start Range, including the attack_range movement projection.
-                    if (!clientAndViaVersion) {
-                        attackRangeMovement = player.clientVelocity.clone();
-                    }
-                    maxReach = startRange.getMaxRange();
-                    hitboxMargin = startRange.getHitboxMargin();
-                } else {
-                    // Range (Start) -> Range (Current)
-                    // Client logic requires satisfying BOTH constraints
-                    maxReach = Math.min(startRange.getMaxRange(), currentRange.getMaxRange());
-                    hitboxMargin = Math.min(startRange.getHitboxMargin(), currentRange.getHitboxMargin());
-                }
-            }
-        }
-
-        boolean tooManyAttacks = playerAttackQueue.size() > 10;
-        if (!tooManyAttacks) {
-            playerAttackQueue.put(entityId, new InteractionData(
-                    player.x, player.y, player.z,
-                    hasRange, maxReach, hitboxMargin, attackRangeMovement
-            )); // Queue for next tick for very precise check
-        }
-
-        boolean knownInvalid = attackRangeMovement == null && isKnownInvalid(entity, hasRange, maxReach, hitboxMargin);
-
-        if ((shouldModifyPackets() && cancelImpossibleHits && knownInvalid) || tooManyAttacks) {
-            event.setCancelled(true);
-            player.onPacketCancel();
-        }
+    @Override
+    public void onPlayerTickEnd(final PacketReceiveEvent event) {
+        tickBetterReachCheckWithAngle();
     }
 
     // This method finds the most optimal point at which the user should be aiming at
@@ -204,50 +139,32 @@ public class Reach extends Check implements PacketReceiveListener {
     // than this method.  If this method flags, the other method WILL flag.
     //
     // Meaning that the other check should be the only one that flags.
-    private boolean isKnownInvalid(PacketEntity reachEntity, boolean hasAttackRange, float itemMaxReach, float itemHitboxMargin) {
+    private boolean isKnownInvalid(PacketEntity reachEntity) {
         // If the entity doesn't exist, or if it is exempt, or if it is dead
-        if ((blacklisted.contains(reachEntity.getType()) || !reachEntity.isLivingEntity) && reachEntity.getType() != EntityTypes.END_CRYSTAL)
+        if ((isReachExempt(reachEntity) || !reachEntity.isLivingEntity()) && reachEntity.type != EntityTypesCompat.END_CRYSTAL)
             return false; // exempt
 
-        if (player.gamemode == GameMode.CREATIVE || player.gamemode == GameMode.SPECTATOR)
-            return false;
-        if (player.inVehicle()) return false;
+        if (player.gamemode == GameMode.SPECTATOR || player.gamemode == GameMode.CREATIVE) return false;
 
         // Filter out what we assume to be cheats
         if (cancelBuffer != 0) {
-            CheckResult result = checkReach(reachEntity, player.x, player.y, player.z, hasAttackRange, itemMaxReach, itemHitboxMargin, null, true);
-            return result.isFlag();
+            return checkReach(reachEntity, getAttackOrigins(), true) != null; // If they flagged
         } else {
-            SimpleCollisionBox targetBox = getTargetBox(reachEntity);
-
-            double maxReach = applyReachModifiers(targetBox, hasAttackRange, itemMaxReach, itemHitboxMargin, !player.packetStateData.didLastMovementIncludePosition);
-            return ReachUtils.getMinReachToBox(player, targetBox) > maxReach;
+            SimpleCollisionBox targetBox = getReachBox(reachEntity);
+            return ReachUtils.getMinReachToBox(player, targetBox) > 3;
         }
     }
 
     private void tickBetterReachCheckWithAngle() {
-        for (Int2ObjectMap.Entry<InteractionData> attack : playerAttackQueue.int2ObjectEntrySet()) {
-            PacketEntity reachEntity = player.compensatedEntities.entityMap.get(attack.getIntKey());
-            if (reachEntity == null) continue;
-
-            InteractionData interactionData = attack.getValue();
-            CheckResult result = checkReach(reachEntity, interactionData.x, interactionData.y, interactionData.z, interactionData.hasAttackRange, interactionData.maxReach, interactionData.hitboxMargin, interactionData.attackRangeMovement, false);
-            switch (result.type()) {
-                case REACH -> flag(
-                        V.write(verbose()).f64(result.minDistance()).uint(Math.max(0, reachEntity.getType().getId(PacketEvents.getAPI().getServerManager().getVersion().toClientVersion()))),
-                        () -> {
-                            String added = ", type=" + reachEntity.getType().getName().getKey();
-                            if (reachEntity instanceof PacketEntitySizeable sizeable) {
-                                added += ", size=" + sizeable.size;
-                            }
-                            return result.verbose() + added;
-                        });
-                case HITBOX -> {
-                    String added = "type=" + reachEntity.getType().getName().getKey();
-                    if (reachEntity instanceof PacketEntitySizeable sizeable) {
-                        added += ", size=" + sizeable.size;
-                    }
-                    player.checkManager.getCheck(Hitboxes.class).flag(result.verbose() + added);
+        for (QueuedAttack attack : playerAttackQueue) {
+            String result = checkReach(attack.targetBox(), attack.type(), attack.livingEntity(), attack.exempt(), attack.fromCandidates(), false);
+            if (result != null) {
+                if ("Missed hitbox".equals(result)) {
+                    player.checkManager.getCheck(Hitboxes.class).flag(result);
+                } else if (attack.type() == EntityTypesCompat.PLAYER) {
+                    flag(result);
+                } else {
+                    flag(result + " type=" + EntityTypeUtil.getKey(attack.type()).getPath());
                 }
             }
         }
@@ -255,150 +172,129 @@ public class Reach extends Check implements PacketReceiveListener {
         playerAttackQueue.clear();
     }
 
-    @NotNull
-    private CheckResult checkReach(PacketEntity reachEntity, double x, double y, double z, boolean hasAttackRange, float itemMaxReach, float itemHitboxMargin, Vector3dm attackRangeMovement, boolean isPrediction) {
-        SimpleCollisionBox targetBox = getTargetBox(reachEntity);
+    private String checkReach(PacketEntity reachEntity, Vec3 from, boolean isPrediction) {
+        return checkReach(reachEntity, List.of(from), isPrediction);
+    }
 
-        double movementAllowance = attackRangeMovement == null ? 0 : getAttackRangeMovementAllowance(attackRangeMovement);
-        double maxReach = applyReachModifiers(targetBox, hasAttackRange, itemMaxReach, itemHitboxMargin, !player.packetStateData.didLastLastMovementIncludePosition) + movementAllowance;
+    private List<Vec3> getAttackOrigins() {
+        PacketEntity self = player.compensatedEntities.getSelf();
+        PacketEntity riding = self.getRiding();
+        if (riding == null) {
+            return List.of(new Vec3(player.x, player.y, player.z));
+        }
+
+        List<Vec3> packetDerivedOrigins = getMountedPacketDerivedOrigins(self, riding);
+
+        // Each mounted candidate comes from packet/transaction-proven vehicle
+        // interpolation state. Do not keep a separate vehicle-id latch for the
+        // local passenger body unless validation proves the server cannot derive
+        // the current origin from the mounted packet state.
+        return packetDerivedOrigins;
+    }
+
+    private List<Vec3> getMountedPacketDerivedOrigins(PacketEntity self, PacketEntity riding) {
+        List<Vec3> candidates = new ArrayList<>();
+        for (SimpleCollisionBox vehicleBox : riding.getPossibleMovementCollisionBoxCandidates()) {
+            candidates.add(BoundingBoxSize.getRidingOffsetFromVehicle(riding, self, player, vehicleBox));
+        }
+        if (candidates.isEmpty()) {
+            candidates.add(BoundingBoxSize.getRidingOffsetFromVehicle(riding, self, player));
+        }
+        return candidates;
+    }
+
+    private String checkReach(PacketEntity reachEntity, Collection<Vec3> fromCandidates, boolean isPrediction) {
+        return checkReach(getReachBox(reachEntity), reachEntity.type, reachEntity.isLivingEntity(), isReachExempt(reachEntity), fromCandidates, isPrediction);
+    }
+
+    private SimpleCollisionBox getReachBox(PacketEntity reachEntity) {
+        if (reachEntity.type == EntityTypesCompat.END_CRYSTAL) { // Hardcode end crystal box
+            return new SimpleCollisionBox(reachEntity.desyncClientPos.subtract(1, 0, 1), reachEntity.desyncClientPos.add(1, 2, 1));
+        }
+
+        SimpleCollisionBox movementBox = reachEntity.getPossibleCollisionBoxes();
+        float movementWidth = BoundingBoxSize.getWidth(player, reachEntity);
+        float movementHeight = BoundingBoxSize.getHeight(player, reachEntity);
+        float reachWidth = BoundingBoxSize.getReachWidth(player, reachEntity);
+        float reachHeight = BoundingBoxSize.getReachHeight(player, reachEntity);
+        SimpleCollisionBox reachBox = movementBox.copy();
+        reachBox.expand(
+                Math.max(0.0D, (reachWidth - movementWidth) / 2.0D),
+                Math.max(0.0D, reachHeight - movementHeight),
+                Math.max(0.0D, (reachWidth - movementWidth) / 2.0D)
+        );
+        return reachBox;
+    }
+
+    private String checkReach(SimpleCollisionBox targetBox, EntityType type, boolean livingEntity, boolean exempt,
+                              Collection<Vec3> fromCandidates, boolean isPrediction) {
+        targetBox = targetBox.copy();
+        targetBox.expand(threshold);
+        targetBox.expand(player.getMovementThreshold());
+
         double minDistance = Double.MAX_VALUE;
 
-        // https://bugs.mojang.com/browse/MC-67665
-        List<Vector3dm> possibleLookDirs = new ArrayList<>(Collections.singletonList(ReachUtils.getLook(player, player.yaw, player.pitch)));
+        List<Vector> possibleLookDirs = new ArrayList<>();
+        possibleLookDirs.add(ReachUtils.getLook(player, player.xRot, player.yRot));
 
         // If we are a tick behind, we don't know their next look so don't bother doing this
         if (!isPrediction) {
-            // 1.7 players do not have any of these issues! They are always on the latest look vector
-            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8)) {
-                possibleLookDirs.add(ReachUtils.getLook(player, player.lastYaw, player.pitch));
-
-                // 1.9+ players could be a tick behind because we don't get skipped ticks
-                if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) {
-                    possibleLookDirs.add(ReachUtils.getLook(player, player.lastYaw, player.lastPitch));
-                }
-            }
+            possibleLookDirs.add(ReachUtils.getLook(player, player.lastTickXRot, player.lastTickYRot));
         }
 
-        // +3 would be 3 + 3 = 6, which is the pre-1.20.5 behaviour, preventing "Missed Hitbox"
-        final double distance = maxReach + 3;
+        for (Vector lookVec : possibleLookDirs) {
+            for (Vec3 from : fromCandidates) {
+                if (from == null) {
+                    continue;
+                }
+                for (double eye : player.getPossibleEyeHeights()) {
+                    Vector eyePos = new Vector(from.x, from.y + eye, from.z);
+                    Vector endReachPos = eyePos.clone().add(new Vector(lookVec.getX() * 6, lookVec.getY() * 6, lookVec.getZ() * 6));
 
-        final double[] possibleEyeHeights = player.getPossibleEyeHeights();
-        for (Vector3dm lookVec : possibleLookDirs) {
-            lookVec.multiply(distance);
+                    Vector intercept = ReachUtils.calculateIntercept(targetBox, eyePos, endReachPos).getFirst();
 
-            for (double eye : possibleEyeHeights) {
-                final Vector3d eyePos = new Vector3d(x, y + eye, z);
-                Vector3d endReachPos = eyePos.add(lookVec.getX(), lookVec.getY(), lookVec.getZ());
+                    if (ReachUtils.isVecInside(targetBox, eyePos)) {
+                        minDistance = 0;
+                        break;
+                    }
 
-                Vector3d intercept = ReachUtils.calculateIntercept(targetBox, eyePos, endReachPos).first();
-
-                if (ReachUtils.isVecInside(targetBox, eyePos)) {
-                    minDistance = 0;
+                    if (intercept != null) {
+                        minDistance = Math.min(eyePos.distance(intercept), minDistance);
+                    }
+                }
+                if (minDistance == 0) {
                     break;
                 }
-
-                if (intercept != null) {
-                    minDistance = Math.min(eyePos.distance(intercept), minDistance);
-                }
+            }
+            if (minDistance == 0) {
+                break;
             }
         }
 
         // if the entity is not exempt and the entity is alive
-        if ((!blacklisted.contains(reachEntity.getType()) && reachEntity.isLivingEntity) || reachEntity.getType() == EntityTypes.END_CRYSTAL) {
+        if ((!exempt && livingEntity) || type == EntityTypesCompat.END_CRYSTAL) {
             if (minDistance == Double.MAX_VALUE) {
                 cancelBuffer = 1;
-                return new CheckResult(ResultType.HITBOX, 0, 0, false);
-            } else if (minDistance > maxReach) {
+                return "Missed hitbox";
+            } else if (minDistance > 3) {
                 cancelBuffer = 1;
-                return new CheckResult(ResultType.REACH, minDistance, movementAllowance, attackRangeMovement != null);
+                return String.format("%.5f", minDistance) + " blocks";
             } else {
                 cancelBuffer = Math.max(0, cancelBuffer - 0.25);
             }
         }
 
-        return NONE;
+        return null;
     }
 
-    private SimpleCollisionBox getTargetBox(PacketEntity reachEntity) {
-        if (reachEntity.getType() == EntityTypes.END_CRYSTAL) { // Hardcode end crystal box
-            return new SimpleCollisionBox(reachEntity.trackedServerPosition.getPos().subtract(1, 0, 1), reachEntity.trackedServerPosition.getPos().add(1, 2, 1));
-        }
-        return reachEntity.getPossibleCollisionBoxes();
-    }
-
-    private double getAttackRangeMovementAllowance(Vector3dm attackRangeMovement) {
-        if (attackRangeMovement.lengthSquared() == 0) {
-            return 0;
-        }
-
-        return getForwardMovement(attackRangeMovement, player.yaw, player.pitch);
-    }
-
-    private double getForwardMovement(Vector3dm movement, float yaw, float pitch) {
-        return Math.max(0, movement.dot(ReachUtils.getLook(player, yaw, pitch)));
-    }
-
-    private static final boolean ATTACK_RANGE_COMPONENT_EXISTS = PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_21_11);
-    private static final boolean USE_1_8_HITBOX_MARGIN = PacketEvents.getAPI().getServerManager().getVersion().isOlderThanOrEquals(ServerVersion.V_1_8_8);
-
-    private double applyReachModifiers(SimpleCollisionBox targetBox, boolean hasAttackRange, float itemMaxReach, float itemHitboxMargin, boolean giveMovementThreshold) {
-        double maxReach;
-        double hitboxMargin = threshold;
-
-        if (hasAttackRange) {
-            maxReach = itemMaxReach;
-            hitboxMargin += itemHitboxMargin;
-        } else {
-            maxReach = player.compensatedEntities.self.getAttributeValue(Attributes.ENTITY_INTERACTION_RANGE);
-            // 1.7 and 1.8 players get a bit of extra hitbox (this is why you should use 1.8 on cross version servers)
-            // Yes, this is vanilla and not uncertainty.  All reach checks have this or they are wrong.
-            if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) {
-                hitboxMargin += 0.1f;
-            }
-        }
-
-        // This is better than adding to the reach, as 0.03 can cause a player to miss their target
-        // Adds some more than 0.03 uncertainty in some cases, but a good trade off for simplicity
-        //
-        // Just give the uncertainty on 1.9+ clients as we have no way of knowing whether they had 0.03 movement
-        // However, on 1.21.2+ we do know if they had 0.03 movement
-        if (giveMovementThreshold || player.canSkipTicks()) {
-            hitboxMargin += player.getMovementThreshold();
-        }
-
-        targetBox.expand(hitboxMargin);
-
-        return maxReach;
+    private boolean isReachExempt(PacketEntity reachEntity) {
+        return blacklisted.contains(reachEntity.type) || EntityTypeUtil.isBoat(reachEntity.type);
     }
 
     @Override
-    public void onReload(@NotNull ConfigManager config) {
-        this.cancelImpossibleHits = config.getBooleanElse("Reach.block-impossible-hits", true);
-        this.threshold = config.getDoubleElse("Reach.threshold", 0.0005);
+    public void reload() {
+        super.reload();
+        this.cancelImpossibleHits = getConfig().getBooleanElse("Reach.block-impossible-hits", true);
+        this.threshold = getConfig().getDoubleElse("Reach.threshold", 0.0005);
     }
-
-    private enum ResultType {
-        REACH, HITBOX, NONE
-    }
-
-    private record CheckResult(ResultType type, double minDistance, double extraMovement, boolean hasExtraMovement) {
-        public boolean isFlag() {
-            return type != ResultType.NONE;
-        }
-
-        public String verbose() {
-            if (type != ResultType.REACH) {
-                return "";
-            }
-
-            String verbose = String.format("%.5f", minDistance) + " blocks";
-            if (hasExtraMovement) {
-                verbose += String.format(", extraMovement=%.5f", extraMovement);
-            }
-            return verbose;
-        }
-    }
-
-    private record InteractionData(double x, double y, double z, boolean hasAttackRange,
-                                   float maxReach, float hitboxMargin, Vector3dm attackRangeMovement) {}
 }

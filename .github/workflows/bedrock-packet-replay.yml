@@ -1,0 +1,189 @@
+name: Bedrock Packet Replay
+
+on:
+  push:
+    branches:
+      - "2.0"
+      - "3.0"
+  pull_request:
+    branches:
+      - "2.0"
+      - "3.0"
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Optional single small-scenario name for focused replay validation"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  BEDROCK_PACKET_REPLAY_REPOSITORY: CultAC/BedrockPacketReplay
+  MAPPINGS_GENERATOR_REPOSITORY: CultAC/mappings-generator
+  BEDROCK_SMOKETEST_SCENARIOS_REPOSITORY: CultAC/bedrock-smoketest-scenarios
+
+jobs:
+  small-scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out CultAC
+        if: env.ACT != 'true'
+        uses: actions/checkout@v4
+        with:
+          path: cultac
+          persist-credentials: false
+
+      - name: Use local CultAC checkout for act
+        if: env.ACT == 'true'
+        run: |
+          set -euo pipefail
+          cultac_source="${GITHUB_WORKSPACE}"
+          if [ -d /tmp/cultac-source ]; then
+            cultac_source=/tmp/cultac-source
+          fi
+          if [ ! -d "$cultac_source" ]; then
+            echo "act validation requires a CultAC checkout mounted at /tmp/cultac-source or as the workspace" >&2
+            exit 1
+          fi
+          mkdir -p cultac
+          git -C "$cultac_source" ls-files -z | tar -C "$cultac_source" --null -T - -cf - | tar -xf - -C cultac
+
+      - name: Check out BedrockPacketReplay
+        if: env.ACT != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BEDROCK_PACKET_REPLAY_REPOSITORY }}
+          path: bedrock-packet-replay
+          persist-credentials: false
+          token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
+          fetch-depth: 1
+
+      - name: Check out Bedrock smoketest scenarios
+        if: env.ACT != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BEDROCK_SMOKETEST_SCENARIOS_REPOSITORY }}
+          path: bedrock-smoketest-scenarios
+          persist-credentials: false
+          token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
+          fetch-depth: 1
+
+      - name: Check out mappings generator
+        if: env.ACT != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MAPPINGS_GENERATOR_REPOSITORY }}
+          path: mappings-generator
+          persist-credentials: false
+          token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
+          fetch-depth: 1
+
+      - name: Use local BedrockPacketReplay checkout for act
+        if: env.ACT == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -d /tmp/bedrock-packet-replay ]; then
+            echo "act validation requires mounting BedrockPacketReplay at /tmp/bedrock-packet-replay" >&2
+            exit 1
+          fi
+          mkdir -p bedrock-packet-replay
+          tar -C /tmp/bedrock-packet-replay \
+            --exclude=.git \
+            --exclude=.gradle \
+            --exclude=build \
+            -cf - . | tar -xf - -C bedrock-packet-replay
+
+      - name: Use local Bedrock smoketest scenarios checkout for act
+        if: env.ACT == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -d /tmp/bedrock-smoketest-scenarios ]; then
+            echo "act validation requires mounting bedrock-smoketest-scenarios at /tmp/bedrock-smoketest-scenarios" >&2
+            exit 1
+          fi
+          mkdir -p bedrock-smoketest-scenarios
+          tar -C /tmp/bedrock-smoketest-scenarios \
+            --exclude=.git \
+            -cf - . | tar -xf - -C bedrock-smoketest-scenarios
+
+      - name: Use local mappings generator checkout for act
+        if: env.ACT == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -d /tmp/mappings-generator ]; then
+            echo "act validation requires mounting mappings-generator at /tmp/mappings-generator" >&2
+            exit 1
+          fi
+          mkdir -p mappings-generator
+          tar -C /tmp/mappings-generator \
+            --exclude=.git \
+            --exclude=.gradle \
+            -cf - . | tar -xf - -C mappings-generator
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Generate Bedrock collision overrides
+        working-directory: mappings-generator
+        run: |
+          ./gradlew generateCultacBedrockCollisionOverrides --no-daemon --console=plain
+
+      - name: Build CultAC
+        working-directory: cultac
+        run: ./gradlew devShadowJar --no-daemon --console=plain
+
+      - name: Build BedrockPacketReplay
+        working-directory: bedrock-packet-replay
+        run: ./gradlew jar --no-daemon --console=plain
+
+      - name: Replay small Bedrock movement scenarios
+        env:
+          REPLAY_SCENARIO: ${{ github.event.inputs.scenario }}
+        run: |
+          set -euo pipefail
+
+          cultac_jar="$(find cultac/build/libs -name '*-dev.jar' -type f | sort | tail -n 1)"
+          if [ -z "$cultac_jar" ]; then
+            echo "CultAC dev jar was not produced" >&2
+            exit 1
+          fi
+
+          replay_jar="$(find bedrock-packet-replay/build/libs -name 'bedrock-packet-replay-*.jar' ! -name '*cli*' -type f | sort | tail -n 1)"
+          if [ -z "$replay_jar" ]; then
+            echo "BedrockPacketReplay plugin jar was not produced" >&2
+            exit 1
+          fi
+
+          args=(
+            --capture-root "$PWD/bedrock-smoketest-scenarios/small-scenarios"
+            --fixture-root "$PWD/bedrock-smoketest-scenarios/small-scenarios"
+            --server-dir "$RUNNER_TEMP/bedrock-packet-replay-server"
+            --cultac-jar "$cultac_jar"
+            --bedrock-packet-replay-jar "$replay_jar"
+            --max-position-offset 0.001
+            --port 19142
+            --java-port 25576
+            --continue-on-failure
+          )
+          if [ -n "${REPLAY_SCENARIO:-}" ]; then
+            args+=(--scenario "$REPLAY_SCENARIO")
+          fi
+
+          python3 bedrock-packet-replay/scripts/run-small-scenario-replays.py "${args[@]}"
+
+      - name: Upload replay server logs
+        if: always() && env.ACT != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bedrock-packet-replay-server
+          path: |
+            ${{ runner.temp }}/bedrock-packet-replay-server/logs
+            ${{ runner.temp }}/bedrock-packet-replay-server/plugins/BedrockPacketReplay/replay-debug
+          if-no-files-found: ignore

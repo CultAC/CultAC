@@ -1,106 +1,77 @@
 package ac.grim.grimac.utils.inventory.inventory;
 
-import ac.grim.grimac.player.GrimPlayer;
-import ac.grim.grimac.utils.inventory.Inventory;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
+import net.minecraft.core.registries.BuiltInRegistries;
+import ac.grim.grimac.utils.nmsutil.NmsIdentifierUtil;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 
-@RequiredArgsConstructor
+import java.util.Arrays;
+import java.util.Locale;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 @Getter
 public enum MenuType {
-    GENERIC_9x1(0),
-    GENERIC_9x2(1),
-    GENERIC_9x3(2),
-    GENERIC_9x4(3),
-    GENERIC_9x5(4),
-    GENERIC_9x6(5),
-    GENERIC_3x3(6),
-    CRAFTER_3x3(7), // only in versions 1.20.3 & greater
-    ANVIL(8),
-    BEACON(9),
-    BLAST_FURNACE(10),
-    BREWING_STAND(11),
-    CRAFTING(12),
-    ENCHANTMENT(13),
-    FURNACE(14),
-    GRINDSTONE(15),
-    HOPPER(16),
-    LECTERN(17),
-    LOOM(18),
-    MERCHANT(19),
-    SHULKER_BOX(20),
-    SMITHING(21),
-    SMOKER(22),
-    CARTOGRAPHY_TABLE(23),
-    STONECUTTER(24),
-    UNKNOWN(-1);
+    GENERIC_9x1,
+    GENERIC_9x2,
+    GENERIC_9x3,
+    GENERIC_9x4,
+    GENERIC_9x5,
+    GENERIC_9x6,
+    GENERIC_3x3,
+    CRAFTER_3x3,
+    ANVIL,
+    BEACON,
+    BLAST_FURNACE,
+    BREWING_STAND,
+    CRAFTING,
+    ENCHANTMENT,
+    FURNACE,
+    GRINDSTONE,
+    HOPPER,
+    LECTERN,
+    LOOM,
+    MERCHANT,
+    SHULKER_BOX,
+    SMITHING,
+    SMOKER,
+    CARTOGRAPHY_TABLE,
+    STONECUTTER,
+    UNKNOWN(null);
 
-    private static final MenuType[] MENU_BY_ID_ARRAY;
+    private static final Map<String, MenuType> BY_REGISTRY_KEY = Arrays.stream(values())
+            .filter(type -> type.registryKey != null)
+            .collect(Collectors.toUnmodifiableMap(MenuType::getRegistryKey, Function.identity()));
 
-    static {
-        ServerVersion version = PacketEvents.getAPI().getServerManager().getVersion();
-        MenuType[] menuTypes = MenuType.values();
+    private final String registryKey;
 
-        int menuIdLimit;
-
-        if (version.isOlderThan(ServerVersion.V_1_20_3)) {
-            // versions under 1.20.3
-            menuIdLimit = 23;
-        } else {
-            // 1.20.3 & greater
-            menuIdLimit = menuTypes.length - 1; // Don't iterate the UNKNOWN menu type
-        }
-
-        MENU_BY_ID_ARRAY = new MenuType[menuIdLimit];
-
-        System.arraycopy(menuTypes, 0, MENU_BY_ID_ARRAY, 0, menuIdLimit);
+    MenuType() {
+        this.registryKey = "minecraft:" + name().toLowerCase(Locale.ROOT);
     }
 
-    private final int id;
+    MenuType(String registryKey) {
+        this.registryKey = registryKey;
+    }
 
-    public static MenuType getMenuType(int id) {
-        if (id < 0) {
-            return UNKNOWN;
+    public int getId() {
+        if (registryKey == null) {
+            return -1;
         }
 
-        ServerVersion version = PacketEvents.getAPI().getServerManager().getVersion();
-        // versions under 1.20.3
-        if (version.isOlderThan(ServerVersion.V_1_20_3)) { // TODO: Can this be moved to the static block?
-            if (id >= 7) {
-                id++;
+        for (net.minecraft.world.inventory.MenuType<?> nmsType : BuiltInRegistries.MENU) {
+            if (registryKey.equals(NmsIdentifierUtil.registryKey(BuiltInRegistries.MENU, nmsType))) {
+                return BuiltInRegistries.MENU.getId(nmsType);
             }
         }
+        return -1;
+    }
 
-        if (id >= MENU_BY_ID_ARRAY.length) {
+    public static MenuType fromNms(net.minecraft.world.inventory.MenuType<?> type) {
+        if (type == null) {
             return UNKNOWN;
         }
 
-        return MENU_BY_ID_ARRAY[id];
+        String registryKey = NmsIdentifierUtil.registryKey(BuiltInRegistries.MENU, type);
+        return registryKey == null ? UNKNOWN : BY_REGISTRY_KEY.getOrDefault(registryKey, UNKNOWN);
     }
-
-    public static AbstractContainerMenu getMenuFromID(GrimPlayer player, Inventory playerInventory, MenuType type) {
-        return switch (type) {
-            case GENERIC_9x1, GENERIC_9x2, GENERIC_9x3, GENERIC_9x4, GENERIC_9x5, GENERIC_9x6 ->
-                    new BasicInventoryMenu(player, playerInventory, type.getId() + 1);
-            case SHULKER_BOX ->  new BasicInventoryMenu(player, playerInventory, 3);
-            case GENERIC_3x3 -> new DispenserMenu(player, playerInventory);
-            case HOPPER -> new HopperMenu(player, playerInventory);
-            default -> new NotImplementedMenu(player, playerInventory);
-        };
-    }
-
-    public static AbstractContainerMenu getMenuFromString(GrimPlayer player, Inventory inventory, String legacyType, int slots, int horse) {
-        return switch (legacyType) {
-            case "minecraft:chest", "minecraft:container" ->
-                    new BasicInventoryMenu(player, inventory, slots / 9);
-            case "minecraft:dispenser", "minecraft:dropper" -> new DispenserMenu(player, inventory);
-            case "minecraft:hopper" -> new HopperMenu(player, inventory);
-            case "minecraft:shulker_box" -> new BasicInventoryMenu(player, inventory, 3);
-            default -> // Villager menu
-                    new NotImplementedMenu(player, inventory);
-        };
-    }
-
 }

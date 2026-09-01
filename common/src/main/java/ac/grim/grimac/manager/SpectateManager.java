@@ -6,10 +6,10 @@ import ac.grim.grimac.manager.init.start.StartableInitable;
 import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.math.Location;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerInfo;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
+import org.bukkit.GameMode;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -43,16 +43,15 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
         return spectatingPlayers.containsKey(uuid);
     }
 
-    public boolean shouldHidePlayer(GrimPlayer receiver, WrapperPlayServerPlayerInfo.PlayerData playerData) {
-        return playerData.getUserProfile() != null
-                && playerData.getUserProfile().getUUID() != null
-                && shouldHidePlayer(receiver, playerData.getUserProfile().getUUID());
+    public boolean shouldHidePlayer(GrimPlayer receiver, ClientboundPlayerInfoUpdatePacket.Entry entry) {
+        return entry.profileId() != null
+                && shouldHidePlayer(receiver, entry.profileId());
     }
 
     public boolean shouldHidePlayer(GrimPlayer receiver, UUID uuid) {
-        return !Objects.equals(uuid, receiver.uuid) // don't hide to yourself
+        return !Objects.equals(uuid, receiver.playerUUID) // don't hide to yourself
                 && (spectatingPlayers.containsKey(uuid) || hiddenPlayers.contains(uuid)) //hide if you are a spectator
-                && !(receiver.uuid != null && (spectatingPlayers.containsKey(receiver.uuid) || hiddenPlayers.contains(receiver.uuid))) // don't hide to other spectators
+                && !(receiver.playerUUID != null && (spectatingPlayers.containsKey(receiver.playerUUID) || hiddenPlayers.contains(receiver.playerUUID))) // don't hide to other spectators
                 && (!checkWorld || (receiver.platformPlayer != null && allowedWorlds.contains(receiver.platformPlayer.getWorld().getName()))); // hide if you are in a specific world
     }
 

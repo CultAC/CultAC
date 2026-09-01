@@ -1,67 +1,50 @@
 package ac.grim.grimac.events.packets;
 
-import ac.grim.grimac.api.config.ConfigManager;
-import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
-import ac.grim.grimac.checks.type.PacketSendListener;
+import ac.grim.grimac.GrimAPI;
+import ac.grim.grimac.checks.GrimProcessor;
+import ac.grim.grimac.checks.type.CheckListener;
+import ac.grim.grimac.network.GrimPacketHandler;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.event.PacketSendEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerAbilities;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerAbilities;
-import org.jetbrains.annotations.NotNull;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.event.PacketSendEvent;
+import net.minecraft.network.protocol.game.ClientboundPlayerAbilitiesPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerAbilitiesPacket;
 
 // The client can send ability packets out of order due to Mojang's excellent netcode design.
 // We must delay the second ability packet until the tick after the first is received
 // Else the player will fly for a tick, and we won't know about it, which is bad.
-public class PacketPlayerAbilities extends Check implements PacketReceiveListener, PacketSendListener {
-
-    private boolean lastSentPlayerCanFly = false;
-    private int maxFlyingPing = 1000;
+public class PacketPlayerAbilities extends GrimProcessor implements CheckListener {
 
     public PacketPlayerAbilities(GrimPlayer player) {
         super(player);
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.PLAYER_ABILITIES) {
-            WrapperPlayClientPlayerAbilities abilities = new WrapperPlayClientPlayerAbilities(event);
-            player.isFlying = abilities.isFlying() && player.canFly;
+    boolean lastSentPlayerCanFly = false;
+
+    @GrimPacketHandler
+    public void onPlayerAbilities(PacketReceiveEvent event, GrimPlayer player, ServerboundPlayerAbilitiesPacket packet) {
+        player.isFlying = packet.isFlying() && player.canFly;
+    }
+
+    @GrimPacketHandler
+    public void onPlayerAbilities(PacketSendEvent event, GrimPlayer player, ClientboundPlayerAbilitiesPacket packet) {
+        player.sendTransaction();
+
+        if (lastSentPlayerCanFly && !packet.canFly()) {
+            int noFlying = player.lastTransactionSent.get();
+            int maxFlyingPing = GrimAPI.INSTANCE.getConfigManager().getConfig().getIntElse("max-ping-out-of-flying", 600);
+
+            player.nettyScheduler.runTaskInMs(() -> {
+                if (player.lastTransactionReceived.get() < noFlying) { player.getSetbackTeleportUtil().executeTooHighLatencySetback("flying"); }
+            }, maxFlyingPing);
         }
+
+        lastSentPlayerCanFly = packet.canFly();
+
+        player.latencyUtils.addRealTimeTaskNow(() -> { player.canFly = packet.canFly();
+            player.isFlying = packet.isFlying();
+            player.canInstabuild = packet.canInstabuild();
+            player.flySpeed = packet.getFlyingSpeed();
+        });
     }
-
-    @Override
-    public void onPacketSend(PacketSendEvent event) {
-        if (event.getPacketType() == PacketType.Play.Server.PLAYER_ABILITIES) {
-            WrapperPlayServerPlayerAbilities abilities = new WrapperPlayServerPlayerAbilities(event);
-            player.sendTransaction();
-
-            if (lastSentPlayerCanFly && !abilities.isFlightAllowed()) {
-                int noFlying = player.lastTransactionSent.get();
-                if (maxFlyingPing != -1) {
-                    player.runNettyTaskInMs(() -> {
-                        if (player.lastTransactionReceived.get() < noFlying) {
-                            player.getSetbackTeleportUtil().executeViolationSetback();
-                        }
-                    }, maxFlyingPing);
-                }
-            }
-
-            lastSentPlayerCanFly = abilities.isFlightAllowed();
-
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
-                player.canFly = abilities.isFlightAllowed();
-                player.isFlying = abilities.isFlying();
-            });
-
-        }
-    }
-
-    @Override
-    public void onReload(@NotNull ConfigManager config) {
-        maxFlyingPing = config.getIntElse("max-ping-out-of-flying", 1000);
-    }
-
 }

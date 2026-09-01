@@ -2,22 +2,40 @@ package ac.grim.grimac.checks.impl.scaffolding;
 
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.type.BlockPlaceCheck;
-import ac.grim.grimac.checks.type.BlockPlaceListener;
+import ac.grim.grimac.network.GrimPacketGroup;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.PacketGroup;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
+import net.minecraft.SharedConstants;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import org.bukkit.Material;
 
 @CheckData(name = "PositionPlace", stableKey = "grim.scaffolding.position_place", description = "Placed a block against a hidden face")
-public class PositionPlace extends BlockPlaceCheck implements BlockPlaceListener {
+public class PositionPlace extends BlockPlaceCheck {
+
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+
+
+    private boolean didLastMovementIncludePosition;
 
     public PositionPlace(GrimPlayer player) {
         super(player);
     }
 
+    @GrimPacketHandler
+    @GrimPacketGroup(PacketGroup.SERVERBOUND_PLAYER_MOVEMENT)
+    public void onMovePlayer(PacketReceiveEvent event, GrimPlayer player, ServerboundMovePlayerPacket packet) {
+        didLastMovementIncludePosition = packet.hasPosition();
+    }
+
     @Override
     public void onBlockPlace(final BlockPlace place) {
-        if (place.material == StateTypes.SCAFFOLDING || player.inVehicle()) return;
+        if (place.getMaterial() == Material.SCAFFOLDING || player.inVehicle()) return;
 
         SimpleCollisionBox combined = getCombinedBox(place);
 
@@ -26,16 +44,15 @@ public class PositionPlace extends BlockPlaceCheck implements BlockPlaceListener
         // Each position represents the best case scenario to have clicked
         //
         // We will now calculate the most optimal position for the player's head to be in
-        final double[] possibleEyeHeights = player.getPossibleEyeHeights();
         double minEyeHeight = Double.MAX_VALUE;
         double maxEyeHeight = Double.MIN_VALUE;
-        for (double height : possibleEyeHeights) {
+        for (double height : player.getPossibleEyeHeights()) {
             minEyeHeight = Math.min(minEyeHeight, height);
             maxEyeHeight = Math.max(maxEyeHeight, height);
         }
         // I love the idle packet, why did you remove it mojang :(
         // Don't give 0.03 lenience if the player is a 1.8 player and we know they couldn't have 0.03'd because idle packet
-        double movementThreshold = !player.packetStateData.didLastMovementIncludePosition || player.canSkipTicks() ? player.getMovementThreshold() : 0;
+        double movementThreshold = !didLastMovementIncludePosition || canSkipTicks() ? player.getMovementThreshold() : 0;
 
         SimpleCollisionBox eyePositions = new SimpleCollisionBox(player.x, player.y + minEyeHeight, player.z, player.x, player.y + maxEyeHeight, player.z);
         eyePositions.expand(movementThreshold);
@@ -47,7 +64,7 @@ public class PositionPlace extends BlockPlaceCheck implements BlockPlaceListener
 
         // So now we have the player's possible eye positions
         // So then look at the face that the player has clicked
-        boolean flag = switch (place.getFace()) {
+        boolean flag = switch (place.getDirection()) {
             case NORTH -> eyePositions.minZ > combined.minZ; // Z- face
             case SOUTH -> eyePositions.maxZ < combined.maxZ; // Z+ face
             case EAST -> eyePositions.maxX < combined.maxX; // X+ face
@@ -61,4 +78,12 @@ public class PositionPlace extends BlockPlaceCheck implements BlockPlaceListener
             place.resync();
         }
     }
+
+    // Only clients without reliable tick-end packets may skip movement ticks.
+    private boolean canSkipTicks() {
+        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
+                && !(player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21_2));
+    }
+
 }

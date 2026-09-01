@@ -3,17 +3,17 @@ package ac.grim.grimac.checks.impl.packetorder;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
 import ac.grim.grimac.checks.type.PostPredictionListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 
 import java.util.ArrayDeque;
 
 @CheckData(name = "PacketOrderE", stableKey = "grim.packetorder.slot_order", description = "Changed held item slot during another conflicting action", experimental = true)
-public class PacketOrderE extends Check implements PacketReceiveListener, PostPredictionListener {
+public class PacketOrderE extends Check implements PostPredictionListener {
     private static final Verbose V = Verbose.of(
             "attacking={bool}, rightClicking={bool}, openingInventory={bool}, releasing={bool}"
                     + ", sneaking={bool}, sprinting={bool}, bed={bool}, gliding={bool}, mountJumping={bool}");
@@ -49,15 +49,13 @@ public class PacketOrderE extends Check implements PacketReceiveListener, PostPr
                 .bool(has(flags, MOUNT_JUMPING));
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.HELD_ITEM_CHANGE) {
-            int currentFlags = currentFlags();
-            if (currentFlags != 0) {
-                if (player.canSkipTicks() && flags.add(currentFlags) || flag(write(currentFlags))) {
-                    if (player.packetOrderProcessor.isUsing()) {
-                        setback = true;
-                    }
+    @GrimPacketHandler
+    public void onSetCarriedItem(PacketReceiveEvent event, GrimPlayer player, ServerboundSetCarriedItemPacket packet) {
+        int currentFlags = currentFlags();
+        if (currentFlags != 0) {
+            if (player.canSkipTicks() && flags.add(currentFlags) || flag(write(currentFlags))) {
+                if (player.packetOrderProcessor.isUsing()) {
+                    setback = true;
                 }
             }
         }

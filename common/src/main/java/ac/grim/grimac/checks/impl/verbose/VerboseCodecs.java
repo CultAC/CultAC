@@ -2,21 +2,16 @@ package ac.grim.grimac.checks.impl.verbose;
 
 import ac.grim.grimac.api.storage.verbose.VerboseSchema;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
-import ac.grim.grimac.checks.impl.prediction.OffsetHandler;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
-import com.github.retrooper.packetevents.protocol.item.type.ItemType;
-import com.github.retrooper.packetevents.protocol.item.type.ItemTypes;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.DiggingAction;
-import com.github.retrooper.packetevents.protocol.player.InteractionHand;
-import com.github.retrooper.packetevents.protocol.world.BlockFace;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientClickWindow.WindowClickType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientEntityAction.Action;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
+import ac.grim.grimac.network.protocol.ClientVersion;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Block;
+import org.bukkit.block.BlockFace;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,22 +31,22 @@ public final class VerboseCodecs {
 
     static {
         VerboseTags.registerEnum("face", BlockFace.values());
-        VerboseTags.registerEnum("digging", DiggingAction.values());
-        VerboseTags.registerEnumLower("digging_lower", DiggingAction.values());
-        VerboseTags.registerEnum("clicktype", WindowClickType.values());
-        VerboseTags.registerEnumLower("clicktype_lower", WindowClickType.values());
-        VerboseTags.registerEnum("entityaction", Action.values());
+        VerboseTags.registerEnum("digging", ServerboundPlayerActionPacket.Action.values());
+        VerboseTags.registerEnumLower("digging_lower", ServerboundPlayerActionPacket.Action.values());
+        VerboseTags.registerEnum("clicktype", ac.grim.grimac.utils.inventory.inventory.WindowClickType.values());
+        VerboseTags.registerEnumLower("clicktype_lower", ac.grim.grimac.utils.inventory.inventory.WindowClickType.values());
+        VerboseTags.registerEnum("entityaction", NmsPacketUtil.PlayerCommandAction.values());
         VerboseTags.registerEnum("hand", InteractionHand.values());
         VerboseTags.register("block", List.of(VerboseSchema.TypeTag.ZZ),
-                (in, ctx, out, fmt) -> out.append(blockName(ctx.clientVersionPvn(), in.rzz())));
+                (in, ctx, out, fmt) -> out.append(blockName(in.rzz())));
         VerboseTags.register("item", List.of(VerboseSchema.TypeTag.ZZ),
-                (in, ctx, out, fmt) -> out.append(itemTypeName(ctx.clientVersionPvn(), in.rzz())));
-        VerboseTags.register("packet", List.of(VerboseSchema.TypeTag.ZZ),
-                (in, ctx, out, fmt) -> out.append(packetName(ctx.clientVersionPvn(), in.rzz())));
+                (in, ctx, out, fmt) -> out.append(itemTypeName(in.rzz())));
+        VerboseTags.register("packet", List.of(VerboseSchema.TypeTag.STR),
+                (in, ctx, out, fmt) -> out.append(in.rstr()));
         VerboseTags.register("entity", List.of(VerboseSchema.TypeTag.VI),
-                (in, ctx, out, fmt) -> out.append(entityTypeName(ctx.clientVersionPvn(), in.rvi())));
+                (in, ctx, out, fmt) -> out.append(entityTypeName(in.rvi())));
         VerboseTags.register("offset", List.of(VerboseSchema.TypeTag.F64),
-                (in, ctx, out, fmt) -> out.append(OffsetHandler.humanFormattedOffset(in.rf64())));
+                (in, ctx, out, fmt) -> out.append(humanFormattedOffset(in.rf64())));
         VerboseTags.register("stdnum", List.of(VerboseSchema.TypeTag.F64),
                 (in, ctx, out, fmt) -> out.append(formatNumberStandard(in.rf64())));
     }
@@ -78,52 +73,56 @@ public final class VerboseCodecs {
      * {@code -1} when the block has no id in the player's version
      * (server-only states render as {@code unknown}).
      */
-    public static int block(@NotNull StateType type, @NotNull ClientVersion version) {
-        try {
-            StateType.Mapped mapped = type.getMapped();
-            return mapped == null ? -1 : mapped.getId(version);
-        } catch (RuntimeException e) {
-            return -1;
-        }
+    public static int block(@NotNull Block type, @NotNull ClientVersion version) {
+        return BuiltInRegistries.BLOCK.getId(type);
     }
 
-    /** Encoder for {@code {item}}. */
-    public static int item(@NotNull ItemType type, @NotNull ClientVersion version) {
-        return type.getId(version);
+    /** Encoder for {@code {item}}: the server's built-in registry item id. */
+    public static int item(@NotNull Item type, @NotNull ClientVersion version) {
+        return BuiltInRegistries.ITEM.getId(type);
     }
 
-    /** Encoder for {@code {packet}}; see {@link #PACKET_NONE} / {@link #PACKET_TRANSACTION}. */
-    public static int packet(@NotNull PacketTypeCommon type, @NotNull ClientVersion version) {
-        return type.getId(version);
+    /** Encoder for {@code {packet}}: the 26.2 packet-type identifier (e.g. {@code minecraft:move_player_pos}). */
+    public static String packet(@NotNull Packet<?> packet) {
+        return packet.type().id().toString();
     }
 
-    /** Encoder for {@code {entity}}. */
-    public static int entity(@NotNull EntityType type, @NotNull ClientVersion version) {
-        return type.getId(version);
+    /** Encoder for {@code {entity}}: the server's built-in registry entity-type id. */
+    public static int entity(@NotNull EntityType<?> type, @NotNull ClientVersion version) {
+        return BuiltInRegistries.ENTITY_TYPE.getId(type);
     }
 
-    private static @NotNull String blockName(int clientVersionPvn, int id) {
+    private static @NotNull String blockName(int id) {
         if (id < 0) return "unknown";
-        StateType type = StateTypes.getById(ClientVersion.getById(clientVersionPvn), id);
-        return type == null ? "unknown(" + id + ")" : type.getName();
+        Block type = BuiltInRegistries.BLOCK.byId(id);
+        return type == null ? "unknown(" + id + ")" : BuiltInRegistries.BLOCK.getKey(type).toString();
     }
 
-    private static @NotNull String itemTypeName(int clientVersionPvn, int id) {
+    private static @NotNull String itemTypeName(int id) {
         if (id < 0) return "";
-        ItemType type = ItemTypes.getById(ClientVersion.getById(clientVersionPvn), id);
-        return type == null ? "unknown(" + id + ")" : type.getName().getKey();
+        Item type = BuiltInRegistries.ITEM.byId(id);
+        return type == null ? "unknown(" + id + ")" : BuiltInRegistries.ITEM.getKey(type).toString();
     }
 
-    private static @NotNull String packetName(int clientVersionPvn, int packetId) {
-        if (packetId == PACKET_NONE) return "";
-        if (packetId == PACKET_TRANSACTION) return "TRANSACTION";
-        PacketTypeCommon type = PacketType.Play.Client.getById(ClientVersion.getById(clientVersionPvn), packetId);
-        return type == null ? "unknown(" + packetId + ")" : type.getName();
+    private static @NotNull String entityTypeName(int entityId) {
+        EntityType<?> entityType = BuiltInRegistries.ENTITY_TYPE.byId(entityId);
+        return entityType == null ? "unknown" : BuiltInRegistries.ENTITY_TYPE.getKey(entityType).toString();
     }
 
-    private static @NotNull String entityTypeName(int clientVersionPvn, int entityId) {
-        EntityType entityType = EntityTypes.getById(ClientVersion.getById(clientVersionPvn), entityId);
-        return entityType == null ? "unknown" : entityType.getName().getKey();
+
+    private static @NotNull String humanFormattedOffset(double offset) {
+        String humanFormattedOffset;
+        if (offset < 0.001) { // 1.129E-3
+            humanFormattedOffset = String.format("%.4E", offset);
+            // Squeeze out an extra digit here by E-03 to E-3
+            humanFormattedOffset = humanFormattedOffset.replace("E-0", "E-");
+        } else {
+            // 0.00112945678 -> .001129
+            humanFormattedOffset = String.format("%6f", offset);
+            // I like the leading zero, but removing it lets us add another digit to the end
+            humanFormattedOffset = humanFormattedOffset.replace("0.", ".");
+        }
+        return humanFormattedOffset;
     }
 
     private static @NotNull String formatNumberStandard(double value) {

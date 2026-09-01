@@ -3,19 +3,24 @@ package ac.grim.grimac.checks.impl.packetorder;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
 import ac.grim.grimac.checks.type.PostPredictionListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientClientStatus;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerDigging;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
+import net.minecraft.network.protocol.game.ServerboundUseItemOnPacket;
+import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
 
 import java.util.ArrayDeque;
 
 @CheckData(name = "PacketOrderF", stableKey = "grim.packetorder.input_tick_to_sneak_sprint_order", description = "Sent action packets after sneak or sprint input in an invalid order", experimental = true)
-public class PacketOrderF extends Check implements PacketReceiveListener, PostPredictionListener {
+public class PacketOrderF extends Check implements PostPredictionListener {
     private static final Verbose V = Verbose.of("action={str}, sprinting={bool}, sneaking={bool}");
 
     static final int ACTION_INTERACT = 0;
@@ -47,37 +52,65 @@ public class PacketOrderF extends Check implements PacketReceiveListener, PostPr
         };
     }
 
-    private static int action(PacketReceiveEvent event) {
-        return event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY ? ACTION_INTERACT
-                : event.getPacketType() == PacketType.Play.Client.ATTACK ? ACTION_ATTACK
-                : event.getPacketType() == PacketType.Play.Client.SPECTATE_ENTITY ? ACTION_SPECTATE_ENTITY
-                : event.getPacketType() == PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT ? ACTION_PLACE
-                : event.getPacketType() == PacketType.Play.Client.USE_ITEM ? ACTION_USE
-                : event.getPacketType() == PacketType.Play.Client.PICK_ITEM ? ACTION_PICK
-                : event.getPacketType() == PacketType.Play.Client.PLAYER_DIGGING ? ACTION_DIG
-                : ACTION_OPEN_INVENTORY;
+    @GrimPacketHandler
+    public void onInteract(PacketReceiveEvent event, GrimPlayer player, ServerboundInteractPacket packet) {
+        onAction(event, player, ACTION_INTERACT, null);
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY
-                || event.getPacketType() == PacketType.Play.Client.ATTACK
-                || event.getPacketType() == PacketType.Play.Client.SPECTATE_ENTITY
-                || event.getPacketType() == PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT
-                || event.getPacketType() == PacketType.Play.Client.USE_ITEM
-                || event.getPacketType() == PacketType.Play.Client.PICK_ITEM
-                || event.getPacketType() == PacketType.Play.Client.PLAYER_DIGGING
-                || (event.getPacketType() == PacketType.Play.Client.CLIENT_STATUS
-                && new WrapperPlayClientClientStatus(event).getAction() == WrapperPlayClientClientStatus.Action.OPEN_INVENTORY_ACHIEVEMENT)
-        ) if (player.packetOrderProcessor.isSprinting() || player.packetOrderProcessor.isSneaking()) {
-            int action = action(event);
+
+    @GrimPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundAttackPacket")
+    public void onAttack(PacketReceiveEvent event, GrimPlayer player, Packet<?> packet) {
+        onAction(event, player, ACTION_ATTACK, null);
+    }
+
+
+    @GrimPacketHandler
+    public void onSpectatorAction(PacketReceiveEvent event, GrimPlayer player, ServerboundSpectatorActionPacket packet) {
+        onAction(event, player, ACTION_SPECTATE_ENTITY, null);
+    }
+
+
+    @GrimPacketHandler
+    public void onUseItemOn(PacketReceiveEvent event, GrimPlayer player, ServerboundUseItemOnPacket packet) {
+        onAction(event, player, ACTION_PLACE, null);
+    }
+
+
+    @GrimPacketHandler
+    public void onUseItem(PacketReceiveEvent event, GrimPlayer player, ServerboundUseItemPacket packet) {
+        onAction(event, player, ACTION_USE, null);
+    }
+
+
+    @GrimPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundPickItemPacket")
+    public void onPickItem(PacketReceiveEvent event, GrimPlayer player, Packet<?> packet) {
+        onAction(event, player, ACTION_PICK, null);
+    }
+
+
+    @GrimPacketHandler
+    public void onPlayerAction(PacketReceiveEvent event, GrimPlayer player, ServerboundPlayerActionPacket packet) {
+        onAction(event, player, ACTION_DIG, packet.getAction());
+    }
+
+
+    @GrimPacketHandler
+    public void onClientCommand(PacketReceiveEvent event, GrimPlayer player, ServerboundClientCommandPacket packet) {
+        // The 26.2 enum has no OPEN_INVENTORY_ACHIEVEMENT (removed in 1.12)
+        if (packet.getAction().name().equals("OPEN_INVENTORY_ACHIEVEMENT")) {
+            onAction(event, player, ACTION_OPEN_INVENTORY, null);
+        }
+    }
+
+    private void onAction(PacketReceiveEvent event, GrimPlayer player, int action, ServerboundPlayerActionPacket.Action digAction) {
+        if (player.packetOrderProcessor.isSprinting() || player.packetOrderProcessor.isSneaking()) {
             boolean sprinting = player.packetOrderProcessor.isSprinting();
             boolean sneaking = player.packetOrderProcessor.isSneaking();
             if (!player.canSkipTicks()) {
                 if (flag(V.write(verbose()).str(actionName(action)).bool(sprinting).bool(sneaking)) && shouldModifyPackets()) {
-                    if (event.getPacketType() == PacketType.Play.Client.PLAYER_DIGGING
-                            && !canCancel(new WrapperPlayClientPlayerDigging(event).getAction())
-                    ) return; // don't cause a noslow
+                    if (digAction != null && !canCancel(digAction)) {
+                        return; // don't cause a noslow
+                    }
 
                     event.setCancelled(true);
                     player.onPacketCancel();
@@ -86,6 +119,14 @@ public class PacketOrderF extends Check implements PacketReceiveListener, PostPr
                 flags.add(new FlagData(action, sprinting, sneaking));
             }
         }
+    }
+
+
+    private boolean canCancel(ServerboundPlayerActionPacket.Action action) {
+        return action != ServerboundPlayerActionPacket.Action.RELEASE_USE_ITEM
+                && ((action != ServerboundPlayerActionPacket.Action.DROP_ITEM
+                && action != ServerboundPlayerActionPacket.Action.DROP_ALL_ITEMS)
+                || player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8));
     }
 
     @Override

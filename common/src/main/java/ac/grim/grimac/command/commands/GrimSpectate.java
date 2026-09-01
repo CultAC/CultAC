@@ -9,7 +9,7 @@ import ac.grim.grimac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.platform.api.sender.Sender;
 import ac.grim.grimac.utils.anticheat.MessageUtil;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
+import org.bukkit.GameMode;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
 import org.jetbrains.annotations.NotNull;

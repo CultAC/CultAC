@@ -2,56 +2,51 @@ package ac.grim.grimac.checks.impl.badpackets;
 
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
+import ac.grim.grimac.checks.type.CheckListener;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
-import ac.grim.grimac.checks.type.PacketSendListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.event.PacketSendEvent;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.event.PacketSendEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientKeepAlive;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerKeepAlive;
+import net.minecraft.network.protocol.common.ClientboundKeepAlivePacket;
+import net.minecraft.network.protocol.common.ServerboundKeepAlivePacket;
 
 import java.util.LinkedList;
 
 @CheckData(name = "BadPacketsO", stableKey = "grim.badpackets.invalid_keepalive", description = "Responded with a keepalive ID that was not sent by the server")
-public class BadPacketsO extends Check implements PacketReceiveListener, PacketSendListener {
+public class BadPacketsO extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("id={slong}");
-
     private final LinkedList<Long> keepalives = new LinkedList<>();
 
     public BadPacketsO(GrimPlayer player) {
         super(player);
     }
 
-    @Override
-    public void onPacketSend(PacketSendEvent event) {
-        if (event.getPacketType() == PacketType.Play.Server.KEEP_ALIVE) {
-            keepalives.add(new WrapperPlayServerKeepAlive(event).getId());
-        }
+    @GrimPacketHandler
+    public void onKeepAlive(PacketSendEvent event, GrimPlayer player, ClientboundKeepAlivePacket packet) {
+        keepalives.add(packet.getId());
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.KEEP_ALIVE) {
-            final long id = new WrapperPlayClientKeepAlive(event).getId();
-
-            for (long keepalive : keepalives) {
-                if (keepalive == id) {
-                    // Found the ID, remove stuff until we get to it (to stop very slow memory leaks)
-                    Long data;
-                    do {
-                        data = keepalives.poll();
-                    } while (data != null && data != id);
-
-                    return;
-                }
+    @GrimPacketHandler
+    public void onKeepAlive(PacketReceiveEvent event, GrimPlayer player, ServerboundKeepAlivePacket packet) {
+        long id = packet.getId();
+        for (long keepalive : keepalives) {
+            if (keepalive == id) {
+                Long data;
+                do {
+                    data = keepalives.poll();
+                } while (data != null && data != id);
+                return;
             }
+        }
 
-            if (flag(V.write(verbose()).slong(id)) && shouldModifyPackets()) {
-                event.setCancelled(true);
-                player.onPacketCancel();
-            }
+        handleInvalidKeepAlive(event, id);
+    }
+
+    private void handleInvalidKeepAlive(PacketReceiveEvent event, long id) {
+        if (flag(V.write(verbose()).slong(id)) && shouldModifyPackets()) {
+            event.setCancelled(true);
+            player.onPacketCancel();
         }
     }
 }

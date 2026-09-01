@@ -9,10 +9,6 @@ import ac.grim.grimac.api.storage.verbose.VerboseBuf;
 import ac.grim.grimac.api.storage.verbose.VerboseRenderContext;
 import ac.grim.grimac.internal.storage.verbose.VerboseRegistry;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.DiggingAction;
 import lombok.Getter;
 import lombok.Setter;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
@@ -22,14 +18,10 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Objects;
 import java.util.function.Supplier;
 
-import static com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying.isFlying;
-
 // Class from https://github.com/Tecnio/AntiCheatBase/blob/master/src/main/java/me/tecnio/anticheat/check/Check.java
 @Getter
 public class Check extends GrimProcessor implements AbstractCheck {
     private static final FlagEvent.Channel FLAG_CHANNEL = GrimAPI.INSTANCE.getEventBus().get(FlagEvent.class);
-
-    protected final @NotNull GrimPlayer player;
 
     // violations
     public double violations;
@@ -60,7 +52,7 @@ public class Check extends GrimProcessor implements AbstractCheck {
     private boolean noModifyPacketPermission;
 
     public Check(final @NotNull GrimPlayer player) {
-        this.player = Objects.requireNonNull(player, "player");
+        super(Objects.requireNonNull(player, "player"));
 
         final CheckData checkData = this.getClass().getAnnotation(CheckData.class);
         if (checkData != null) {
@@ -89,9 +81,35 @@ public class Check extends GrimProcessor implements AbstractCheck {
         reload();
     }
 
+    /** Identity and defaults supplied at runtime instead of through {@link CheckData}. */
+    public Check(final @NotNull GrimPlayer player, final @NotNull CheckInfo checkInfo) {
+        super(Objects.requireNonNull(player, "player"));
+        Objects.requireNonNull(checkInfo, "checkInfo");
+
+        this.checkName = checkInfo.getName();
+        final String infoConfigName = checkInfo.getConfigName();
+        this.configName = infoConfigName == null || infoConfigName.equals("DEFAULT")
+                ? this.checkName
+                : infoConfigName;
+        this.defaultDecay = checkInfo.getDecay();
+        this.defaultSetbackVL = checkInfo.getSetback();
+        this.alternativeName = checkInfo.getAltName();
+        this.experimental = checkInfo.isExperimental();
+        this.defaultDescription = checkInfo.getDescription();
+        this.stableKey = Objects.requireNonNull(checkInfo.getStableKey(), "checkInfo.stableKey");
+        this.displayName = this.checkName;
+
+        reload();
+    }
+
+    /** Whether this check may run for Bedrock-platform players. */
+    public boolean isBedrockSupported() {
+        return getClass().isAnnotationPresent(BedrockSupported.class);
+    }
+
     public boolean shouldModifyPackets() {
         return isEnabled
-                && !player.disableGrim
+                && !player.isDisabled()
                 && !player.noModifyPacketPermission
                 && !noModifyPacketPermission
                 && !exemptPermission;
@@ -117,7 +135,8 @@ public class Check extends GrimProcessor implements AbstractCheck {
         return flag("");
     }
 
-    public final boolean flag(String verbose) {
+
+    public boolean flag(String verbose) {
         Supplier<String> alertText = constant(verbose);
         if (recordFlag(alertText)) {
             alert(alertText);
@@ -145,7 +164,7 @@ public class Check extends GrimProcessor implements AbstractCheck {
     }
 
     private boolean recordFlag(@NotNull Supplier<String> verbose) {
-        if (player.disableGrim || (experimental && !player.isExperimentalChecks()) || exemptPermission)
+        if (player.isDisabled() || (experimental && !player.isExperimentalChecks()) || exemptPermission)
             return false; // Avoid calling event if disabled
 
         if (FLAG_CHANNEL.fire(player, this, verbose)) return false;
@@ -161,7 +180,7 @@ public class Check extends GrimProcessor implements AbstractCheck {
         Supplier<String> rendered = verbose.rendered();
         byte[] verboseData = verbose.data();
 
-        if (player.disableGrim || (experimental && !player.isExperimentalChecks()) || exemptPermission)
+        if (player.isDisabled() || (experimental && !player.isExperimentalChecks()) || exemptPermission)
             return false; // Avoid calling event if disabled
 
         if (FLAG_CHANNEL.fire(player, this, rendered)) return false;
@@ -260,6 +279,15 @@ public class Check extends GrimProcessor implements AbstractCheck {
         return false;
     }
 
+
+    public boolean setbackIfAboveSetbackVLNonSimulating() {
+        if (shouldSetback()) {
+            player.getSetbackTeleportUtil().executeNonSimulatingSetback();
+            return true;
+        }
+        return false;
+    }
+
     public boolean shouldSetback() {
         return !noSetbackPermission && violations > setbackVL;
     }
@@ -270,53 +298,6 @@ public class Check extends GrimProcessor implements AbstractCheck {
 
     public String formatOffset(double offset) {
         return offset > 0.001 ? String.format("%.5f", offset) : String.format("%.2E", offset);
-    }
-
-    public static boolean isTransaction(PacketTypeCommon packetType) {
-        return packetType == PacketType.Play.Client.PONG ||
-                packetType == PacketType.Play.Client.WINDOW_CONFIRMATION;
-    }
-
-    public static boolean isAsync(PacketTypeCommon packetType) {
-        return packetType == PacketType.Play.Client.KEEP_ALIVE
-                || packetType == PacketType.Play.Client.CHUNK_BATCH_ACK
-                || packetType == PacketType.Play.Client.RESOURCE_PACK_STATUS;
-    }
-
-    public boolean isUpdate(PacketTypeCommon packetType) {
-        return isFlying(packetType)
-                || packetType == PacketType.Play.Client.CLIENT_TICK_END
-                || isTransaction(packetType);
-    }
-
-    public boolean isTickPacket(PacketTypeCommon packetType) {
-        if (isTickPacketIncludingNonMovement(packetType)) {
-            if (isFlying(packetType)) {
-                return !player.packetStateData.lastPacketWasTeleport && !player.packetStateData.lastPacketWasOnePointSeventeenDuplicate;
-            }
-            return true;
-        }
-        return false;
-    }
-
-    public boolean isTickPacketIncludingNonMovement(PacketTypeCommon packetType) {
-        // On 1.21.2+ fall back to the TICK_END packet IF the player did not send a movement packet for their tick
-        // TickTimer checks to see if player did not send a tick end packet before new flying packet is sent
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                && !player.packetStateData.didSendMovementBeforeTickEnd) {
-            if (packetType == PacketType.Play.Client.CLIENT_TICK_END) {
-                return true;
-            }
-        }
-
-        return isFlying(packetType);
-    }
-
-    // prevent causing exploits with packet cancelling (ie noslow)
-    public boolean canCancel(DiggingAction action) {
-        return action != DiggingAction.RELEASE_USE_ITEM
-                // we check client version here because 1.8- doesn't predict dropping items, so we can cancel them. (see CompensatedInventory)
-                && (action != DiggingAction.DROP_ITEM && action != DiggingAction.DROP_ITEM_STACK || player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8));
     }
 
     private static @NotNull Supplier<String> constant(String verbose) {

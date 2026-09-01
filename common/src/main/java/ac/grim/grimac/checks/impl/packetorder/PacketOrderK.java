@@ -3,18 +3,19 @@ package ac.grim.grimac.checks.impl.packetorder;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
 import ac.grim.grimac.checks.type.PostPredictionListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientClientStatus;
+import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
+import net.minecraft.network.protocol.game.ServerboundContainerClickPacket;
+import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 
 import java.util.ArrayDeque;
 
 @CheckData(name = "PacketOrderK", stableKey = "grim.packetorder.inventory_open_order", description = "Opened, clicked, or closed inventory in the wrong packet order", experimental = true)
-public class PacketOrderK extends Check implements PacketReceiveListener, PostPredictionListener {
+public class PacketOrderK extends Check implements PostPredictionListener {
     // Shape index == KIND_* constant value.
     private static final Verbose V = Verbose
             .of("open, clicking={bool}, closing={bool}")
@@ -37,34 +38,45 @@ public class PacketOrderK extends Check implements PacketReceiveListener, PostPr
         return writer;
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.CLIENT_STATUS) {
-            if (new WrapperPlayClientClientStatus(event).getAction() == WrapperPlayClientClientStatus.Action.OPEN_INVENTORY_ACHIEVEMENT) {
-                if (player.packetOrderProcessor.isClickingInInventory() || player.packetOrderProcessor.isClosingInventory()) {
-                    boolean clicking = player.packetOrderProcessor.isClickingInInventory();
-                    boolean closing = player.packetOrderProcessor.isClosingInventory();
-                    if (!player.canSkipTicks()) {
-                        flag(write(KIND_OPEN, clicking, closing));
-                    } else {
-                        flags.add(new FlagData(KIND_OPEN, clicking, closing));
-                    }
-                }
+
+    @GrimPacketHandler
+    public void onClientCommand(PacketReceiveEvent event, GrimPlayer player, ServerboundClientCommandPacket packet) {
+        // The 26.2 enum has no OPEN_INVENTORY_ACHIEVEMENT (removed in 1.12)
+        if (!packet.getAction().name().equals("OPEN_INVENTORY_ACHIEVEMENT")) return;
+
+        if (player.packetOrderProcessor.isClickingInInventory() || player.packetOrderProcessor.isClosingInventory()) {
+            boolean clicking = player.packetOrderProcessor.isClickingInInventory();
+            boolean closing = player.packetOrderProcessor.isClosingInventory();
+            if (!player.canSkipTicks()) {
+                flag(write(KIND_OPEN, clicking, closing));
+            } else {
+                flags.add(new FlagData(KIND_OPEN, clicking, closing));
             }
         }
+    }
 
-        if (event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW || event.getPacketType() == PacketType.Play.Client.CLOSE_WINDOW) {
-            if (player.packetOrderProcessor.isOpeningInventory()) {
-                int kind = event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW ? KIND_CLICK : KIND_CLOSE;
-                if (!player.canSkipTicks()) {
-                    if (flag(write(kind, false, false))
-                            && shouldModifyPackets() && event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW) {
-                        event.setCancelled(true);
-                        player.onPacketCancel();
-                    }
-                } else {
-                    flags.add(new FlagData(kind, false, false));
+
+    @GrimPacketHandler
+    public void onContainerClick(PacketReceiveEvent event, GrimPlayer player, ServerboundContainerClickPacket packet) {
+        onClickOrClose(event, player, KIND_CLICK);
+    }
+
+
+    @GrimPacketHandler
+    public void onContainerClose(PacketReceiveEvent event, GrimPlayer player, ServerboundContainerClosePacket packet) {
+        onClickOrClose(event, player, KIND_CLOSE);
+    }
+
+    private void onClickOrClose(PacketReceiveEvent event, GrimPlayer player, int kind) {
+        if (player.packetOrderProcessor.isOpeningInventory()) {
+            if (!player.canSkipTicks()) {
+                if (flag(write(kind, false, false))
+                        && shouldModifyPackets() && kind == KIND_CLICK) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
                 }
+            } else {
+                flags.add(new FlagData(kind, false, false));
             }
         }
     }

@@ -2,15 +2,17 @@ package ac.grim.grimac.checks.impl.badpackets;
 
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
+import ac.grim.grimac.checks.type.CheckListener;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PreViaPacketReceiveListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.packet.DecodedPacketReliability;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientEntityAction;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 
 @CheckData(name = "BadPacketsG", stableKey = "grim.badpackets.duplicate_sneak", description = "Sent duplicate sneaking status")
-public class BadPacketsG extends Check implements PreViaPacketReceiveListener {
+public class BadPacketsG extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("state={bool}");
 
     private boolean lastSneaking, respawn;
@@ -19,36 +21,41 @@ public class BadPacketsG extends Check implements PreViaPacketReceiveListener {
         super(player);
     }
 
-    @Override
-    public void onPreViaPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.ENTITY_ACTION) {
-            WrapperPlayClientEntityAction packet = new WrapperPlayClientEntityAction(event);
+    @GrimPacketHandler
+    public void onPlayerCommand(PacketReceiveEvent event, GrimPlayer player, ServerboundPlayerCommandPacket packet) {
 
-            if (packet.getAction() == WrapperPlayClientEntityAction.Action.START_SNEAKING) {
-                // The player may send two START_SNEAKING packets if they respawned
-                if (lastSneaking && !respawn) {
-                    boolean state = true;
-                    if (flag(V.write(verbose()).bool(state)) && shouldModifyPackets()) {
-                        event.setCancelled(true);
-                        player.onPacketCancel();
-                    }
-                } else {
-                    lastSneaking = true;
-                }
-                respawn = false;
-            } else if (packet.getAction() == WrapperPlayClientEntityAction.Action.STOP_SNEAKING) {
-                if (!lastSneaking && !respawn) {
-                    boolean state = false;
-                    if (flag(V.write(verbose()).bool(state)) && shouldModifyPackets()) {
-                        event.setCancelled(true);
-                        player.onPacketCancel();
-                    }
-                } else {
-                    lastSneaking = false;
-                }
-                respawn = false;
+        NmsPacketUtil.PlayerCommandAction action = NmsPacketUtil.readPlayerCommand(packet).action();
+
+        if ((action == NmsPacketUtil.PlayerCommandAction.PRESS_SHIFT_KEY
+                || action == NmsPacketUtil.PlayerCommandAction.RELEASE_SHIFT_KEY)
+                && !DecodedPacketReliability.nativeInputFamilyReliable(player.getClientVersion())) {
+            return;
+        }
+
+        if (action == NmsPacketUtil.PlayerCommandAction.PRESS_SHIFT_KEY) {
+            if (handleLegacySneak(true)) {
+                event.setCancelled(true);
+            }
+        } else if (action == NmsPacketUtil.PlayerCommandAction.RELEASE_SHIFT_KEY) {
+            if (handleLegacySneak(false)) {
+                event.setCancelled(true);
             }
         }
+    }
+
+    public boolean handleLegacySneak(boolean sneaking) {
+        boolean rejected = false;
+        // The player may send two START_SNEAKING packets if they respawned.
+        if (lastSneaking == sneaking && !respawn) {
+            if (flag(V.write(verbose()).bool(sneaking)) && shouldModifyPackets()) {
+                player.onPacketCancel();
+                rejected = true;
+            }
+        } else {
+            lastSneaking = sneaking;
+        }
+        respawn = false;
+        return rejected;
     }
 
     public void handleRespawn() {

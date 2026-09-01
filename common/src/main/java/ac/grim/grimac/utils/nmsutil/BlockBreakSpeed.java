@@ -1,317 +1,193 @@
 package ac.grim.grimac.utils.nmsutil;
 
 import ac.grim.grimac.player.GrimPlayer;
-import ac.grim.grimac.utils.data.tags.SyncedTag;
-import ac.grim.grimac.utils.data.tags.SyncedTags;
-import ac.grim.grimac.utils.enums.FluidTag;
-import ac.grim.grimac.utils.inventory.EnchantmentHelper;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.attribute.Attributes;
-import com.github.retrooper.packetevents.protocol.component.ComponentTypes;
-import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemTool;
-import com.github.retrooper.packetevents.protocol.item.ItemStack;
-import com.github.retrooper.packetevents.protocol.item.enchantment.type.EnchantmentTypes;
-import com.github.retrooper.packetevents.protocol.item.type.ItemType;
-import com.github.retrooper.packetevents.protocol.item.type.ItemTypes;
-import com.github.retrooper.packetevents.protocol.mapper.MappedEntitySet;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
-import com.github.retrooper.packetevents.protocol.potion.PotionTypes;
-import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
-import com.github.retrooper.packetevents.protocol.world.states.defaulttags.BlockTags;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
-import com.github.retrooper.packetevents.resources.ResourceLocation;
-import com.google.common.collect.Sets;
-import lombok.experimental.UtilityClass;
+import org.bukkit.inventory.ItemStack;
+import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.grim.grimac.network.protocol.util.SpigotConversionUtil;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.GameMode;
+import org.bukkit.craftbukkit.block.data.CraftBlockData;
+import org.bukkit.enchantments.Enchantment;
+import org.bukkit.potion.PotionEffectType;
+import net.minecraft.world.item.component.Tool;
+import net.minecraft.world.level.block.state.BlockState;
+import ac.grim.grimac.utils.inventory.ItemUtil;
 
-import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.Set;
-
-@UtilityClass
 public class BlockBreakSpeed {
-    // temporary hardcode to workaround PE bug https://github.com/retrooper/packetevents/issues/1217; see https://github.com/GrimAnticheat/Grim/issues/2117
-    private static final Set<StateType> HARVESTABLE_TYPES_1_21_4 = Sets.newHashSet(
-            StateTypes.BELL,
-            StateTypes.LANTERN,
-            StateTypes.SOUL_LANTERN,
-            StateTypes.COPPER_DOOR,
-            StateTypes.EXPOSED_COPPER_DOOR,
-            StateTypes.OXIDIZED_COPPER_DOOR,
-            StateTypes.WEATHERED_COPPER_DOOR,
-            StateTypes.WAXED_COPPER_DOOR,
-            StateTypes.WAXED_EXPOSED_COPPER_DOOR,
-            StateTypes.WAXED_OXIDIZED_COPPER_DOOR,
-            StateTypes.WAXED_WEATHERED_COPPER_DOOR,
-            StateTypes.IRON_DOOR,
-            StateTypes.HEAVY_WEIGHTED_PRESSURE_PLATE,
-            StateTypes.LIGHT_WEIGHTED_PRESSURE_PLATE,
-            StateTypes.POLISHED_BLACKSTONE_PRESSURE_PLATE,
-            StateTypes.STONE_PRESSURE_PLATE,
-            StateTypes.BREWING_STAND,
-            StateTypes.ENDER_CHEST
-    );
 
-    // another temporary hardcode for the same reasons as above; see https://github.com/GrimAnticheat/Grim/issues/2574
-    private static final Set<StateType> HARVESTABLE_TYPES_1_21 = Sets.newHashSet(
-            StateTypes.VAULT
-    );
+    public static double getBlockDamage(GrimPlayer player, BlockPos position) { return getBlockDamage(player, position, false); }
 
-    private static final boolean SERVER_USES_COMPONENTS_AND_RULES = PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_20_5);
+    public static double getBlockDamage(GrimPlayer player, BlockPos position, boolean debug) {
+        return getBlockDamage(player, position, player.compensatedWorld.getBlockDataAt(position), debug);
+    }
 
-    record ToolSpeedData(float speedMultiplier, boolean isCorrectToolForDrop) {}
+    public static double getBlockDamage(GrimPlayer player, BlockPos position, BlockData block, boolean debug) {
+        ItemStack tool = player.getInventory().getHeldItem();
+        BlockState nmsBlock = toNmsState(block);
+        // Bukkit hardness mirrors vanilla destroySpeed, including -1 for unbreakable blocks.
+        float blockHardness = block == null ? 0.0f : block.getMaterial().getHardness();
+        return getBlockDamage(player, tool, nmsBlock, blockHardness, debug);
+    }
 
-    public static boolean couldInstantlyBreakBlock(GrimPlayer player, StateType block) {
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = player.inventory.inventory.getHotbar(i);
-            if (getBlockDamage(player, stack, block) >= 1) return true;
+    public static boolean couldInstantlyBreakBlock(GrimPlayer player, BlockState block) {
+        for (int slot = 0; slot < 9; slot++) {
+            ItemStack stack = player.getInventory().inventory.getInventoryStorage()
+                    .getItem(ac.grim.grimac.utils.inventory.Inventory.HOTBAR_OFFSET + slot);
+            if (getBlockDamage(player, stack, block) >= 1.0D) return true;
         }
-
         return false;
     }
 
-    public static double getBlockDamage(GrimPlayer player, WrappedBlockState block) {
-        ItemStack tool = player.inventory.getHeldItem();
-        return getBlockDamage(player, tool, block.getType());
+    public static double getBlockDamage(GrimPlayer player, ItemStack tool, BlockState nmsBlock) {
+        return getBlockDamage(player, tool, nmsBlock, nmsBlock.getBlock().defaultDestroyTime(), false);
     }
 
-    public static double getBlockDamage(GrimPlayer player, ItemStack tool, StateType block) {
-        // GET destroy speed
-        // Starts with itemstack get destroy speed
-        ItemType toolType = tool.getType();
+    private static double getBlockDamage(
+            GrimPlayer player,
+            ItemStack tool,
+            BlockState nmsBlock,
+            float blockHardness,
+            boolean debug
+    ) {
+        net.minecraft.world.item.ItemStack nmsTool = SpigotConversionUtil.toNmsItemStack(tool);
 
         if (player.gamemode == GameMode.CREATIVE) {
-            if (SERVER_USES_COMPONENTS_AND_RULES && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
-                return tool.getComponent(ComponentTypes.TOOL)
-                        .map(ItemTool::isCanDestroyBlocksInCreative)
-                        .orElse(true) ? 1 : 0;
-            } else {
-                if (toolType.hasAttribute(ItemTypes.ItemAttribute.SWORD) || toolType == ItemTypes.TRIDENT
-                        || (toolType == ItemTypes.DEBUG_STICK && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13))
-                        || (toolType == ItemTypes.MACE && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5))) {
-                    return 0;
-                }
-                return 1;
+            if (tool != null && ItemUtil.isSword(tool.getType())) {
+                return 0;
             }
-        }
-
-        float blockHardness = block.getHardness();
-
-        // 1.15.2 and below need this hack
-        if ((block == StateTypes.PISTON || block == StateTypes.PISTON_HEAD || block == StateTypes.STICKY_PISTON) && player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_15_2)) {
-            blockHardness = 0.5f;
+            return 1;
         }
 
         if (blockHardness == -1) return 0; // Unbreakable block
 
-        final ToolSpeedData toolSpeedData;
-        if (SERVER_USES_COMPONENTS_AND_RULES && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5)) {
-            toolSpeedData = getModernToolSpeedData(player, tool, block);
-        } else {
-            toolSpeedData = getLegacyToolSpeedData(player, tool, block);
-        }
-
-        final float speedMultiplier = getSpeedMultiplierFromToolData(player, tool, toolSpeedData);
-
-        final boolean canHarvest = !block.isRequiresCorrectTool() || toolSpeedData.isCorrectToolForDrop
-                // temporary hardcode to workaround PE bug https://github.com/retrooper/packetevents/issues/1217; see https://github.com/GrimAnticheat/Grim/issues/2091
-                || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_4) && HARVESTABLE_TYPES_1_21_4.contains(block)
-                // same reason as above; see https://github.com/GrimAnticheat/Grim/issues/2574
-                || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21) && HARVESTABLE_TYPES_1_21.contains(block);
-
-        float damage = speedMultiplier / blockHardness;
-        damage /= canHarvest ? 30F : 100F;
-        return damage;
-    }
-
-    private static float getSpeedMultiplierFromToolData(GrimPlayer player, ItemStack tool, ToolSpeedData data) {
-        float speedMultiplier = data.speedMultiplier;
+        ModernToolData toolData = modernToolData(player, nmsTool.get(DataComponents.TOOL), nmsBlock);
+        float speedMultiplier = toolData.speed;
+        boolean isCorrectToolForDrop = toolData.correctForDrops;
 
         if (speedMultiplier > 1.0f) {
-            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21) && PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_21)) {
-                speedMultiplier += (float) player.compensatedEntities.self.getAttributeValue(Attributes.MINING_EFFICIENCY);
-            } else {
-                int digSpeed = tool.getEnchantmentLevel(EnchantmentTypes.BLOCK_EFFICIENCY);
-                if (digSpeed > 0) {
-                    speedMultiplier += digSpeed * digSpeed + 1;
-                }
+            int digSpeed = tool.getEnchantmentLevel(Enchantment.EFFICIENCY);
+            if (digSpeed > 0) {
+                speedMultiplier += digSpeed * digSpeed + 1;
             }
         }
 
-        OptionalInt digSpeed = player.compensatedEntities.getPotionLevelForSelfPlayer(PotionTypes.HASTE);
-        OptionalInt conduit = player.compensatedEntities.getPotionLevelForSelfPlayer(PotionTypes.CONDUIT_POWER);
+        Integer digSpeed = player.compensatedEntities.getPotionLevelForPlayer(PotionEffectType.HASTE);
+        Integer conduit = player.compensatedEntities.getPotionLevelForPlayer(PotionEffectType.CONDUIT_POWER);
 
-        if (digSpeed.isPresent() || conduit.isPresent()) {
-            int hasteLevel = Math.max(digSpeed.isEmpty() ? 0 : digSpeed.getAsInt(), conduit.isEmpty() ? 0 : conduit.getAsInt());
-            speedMultiplier *= (float) (1 + (0.2 * (hasteLevel + 1)));
+        if (digSpeed != null || conduit != null) {
+            int hasteLevel = Math.max(digSpeed == null ? 0 : digSpeed, conduit == null ? 0 : conduit);
+            speedMultiplier *= 1 + (0.2 * (hasteLevel + 1));
         }
 
-        OptionalInt miningFatigue = player.compensatedEntities.getPotionLevelForSelfPlayer(PotionTypes.MINING_FATIGUE);
+        Integer miningFatigue = player.compensatedEntities.getPotionLevelForPlayer(PotionEffectType.MINING_FATIGUE);
 
-        if (miningFatigue.isPresent()) {
-            switch (miningFatigue.getAsInt()) {
+        if (miningFatigue != null) {
+            switch (miningFatigue) {
                 case 0:
-                    speedMultiplier *= 0.3f;
+                    speedMultiplier *= 0.3;
                     break;
                 case 1:
-                    speedMultiplier *= 0.09f;
+                    speedMultiplier *= 0.09;
                     break;
                 case 2:
-                    speedMultiplier *= 0.0027f;
+                    speedMultiplier *= 0.0027;
                     break;
                 default:
-                    speedMultiplier *= 0.00081f;
+                    speedMultiplier *= 0.00081;
             }
         }
 
-        speedMultiplier *= (float) player.compensatedEntities.self.getAttributeValue(Attributes.BLOCK_BREAK_SPEED);
+        double eyeHeight = player.getEyeHeight();
+        double eye = player.y + eyeHeight - 0.1111111119389534D;
+        double d1 = (float) Math.floor(eye) + player.compensatedWorld.getWaterFluidLevelAt(player.x, eye, player.z);
+        boolean eyeInWater = eye < d1;
 
-        if (player.isEyeInFluid(FluidTag.WATER)) {
-            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21) && PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_21)) {
-                speedMultiplier *= (float) player.compensatedEntities.self.getAttributeValue(Attributes.SUBMERGED_MINING_SPEED);
-            } else {
-                if (EnchantmentHelper.getMaximumEnchantLevel(player.inventory, EnchantmentTypes.AQUA_AFFINITY) == 0) {
-                    speedMultiplier /= 5;
-                }
+        if (eyeInWater) {
+            ItemStack helmet = player.getInventory().getHelmet();
+            ItemStack chestplate = player.getInventory().getChestplate();
+            ItemStack leggings = player.getInventory().getLeggings();
+            ItemStack boots = player.getInventory().getBoots();
+
+            if ((helmet == null || helmet.getEnchantmentLevel(Enchantment.AQUA_AFFINITY) == 0) &&
+                    (chestplate == null || chestplate.getEnchantmentLevel(Enchantment.AQUA_AFFINITY) == 0) &&
+                    (leggings == null || leggings.getEnchantmentLevel(Enchantment.AQUA_AFFINITY) == 0) &&
+                    (boots == null || boots.getEnchantmentLevel(Enchantment.AQUA_AFFINITY) == 0)) {
+                speedMultiplier /= 5;
             }
         }
 
-        if (!player.packetStateData.packetPlayerOnGround) {
+        if (!canUseGroundedBreakSpeed(player)) {
             speedMultiplier /= 5;
         }
 
-        return speedMultiplier;
+        float damage = speedMultiplier / blockHardness;
+
+        boolean canHarvest = !nmsBlock.requiresCorrectToolForDrops() || isCorrectToolForDrop;
+        if (canHarvest) {
+            damage /= 30;
+        } else {
+            damage /= 100;
+        }
+
+        //if (debug) player.sendMessage("correctTool=" + isCorrectToolForDrop + " canHarvest=" + canHarvest);
+
+        return damage;
     }
 
-    // TODO technically its possible to use packet level manipulation to enforce Tool rules on newer clients on older servers
-    // But I've yet to hear of anyone even trying to do such a thing rather than just update the server
-    // And we can't support this because we don't see the tool components/data before Via
-    private static ToolSpeedData getModernToolSpeedData(GrimPlayer player, ItemStack tool, StateType block) {
-        Optional<ItemTool> toolComponentOpt = tool.getComponent(ComponentTypes.TOOL);
-        float speedMultiplier = 1.0f;
-        boolean isCorrectToolForDrop = false;
-        if (toolComponentOpt.isPresent()) {
-            ItemTool itemTool = toolComponentOpt.get();
+    private static ModernToolData modernToolData(GrimPlayer player, Tool tool, BlockState state) {
+        if (tool == null) {
+            return new ModernToolData(1.0F, false);
+        }
 
-            // Initialize with final default values. These will be used if the loop doesn't find a value.
-            // isCorrectToolForDrop is already set to false, no need to set again as default
-            speedMultiplier = itemTool.getDefaultMiningSpeed();
+        float speed = tool.defaultMiningSpeed();
+        boolean correctForDrops = false;
+        boolean foundSpeed = false;
+        boolean foundCorrectForDrops = false;
 
-            boolean speedFound = false;
-            boolean dropsFound = false;
+        // Vanilla resolves speed and correct-for-drops independently using the first
+        // matching rule which defines that property. Match named rule sets against the
+        // per-player tag payload rather than this server's registry bindings.
+        for (Tool.Rule rule : tool.rules()) {
+            if (!player.tagManager.containsBlock(rule.blocks(), state.getBlock())) {
+                continue;
+            }
 
-            for (ItemTool.Rule rule : itemTool.getRules()) {
-                MappedEntitySet<StateType.Mapped> predicate = rule.getBlocks();
-                ResourceLocation tagKey = predicate.getTagKey();
-                boolean isMatch;
-
-                // First, determine if the current rule even applies to this block.
-                if (tagKey != null) {
-                    SyncedTag<StateType> playerTag = player.tagManager.block(tagKey);
-                    isMatch = (playerTag != null && playerTag.contains(block))
-                            || BlockTags.getByName(tagKey.getKey()).contains(block);
-                } else {
-                    isMatch = predicate.getEntities().contains(block.getMapped());
-                }
-
-                // If the rule matches the block, check if we still need its properties.
-                if (isMatch) {
-                    // Check for speed if we haven't found it yet.
-                    if (!speedFound && rule.getSpeed() != null) {
-                        speedMultiplier = rule.getSpeed();
-                        speedFound = true;
-                    }
-
-                    // Check for drops if we haven't found it yet.
-                    if (!dropsFound && rule.getCorrectForDrops() != null) {
-                        isCorrectToolForDrop = rule.getCorrectForDrops();
-                        dropsFound = true;
-                    }
-                }
-
-                if (speedFound && dropsFound) {
-                    break;
-                }
+            if (!foundSpeed && rule.speed().isPresent()) {
+                speed = rule.speed().get();
+                foundSpeed = true;
+            }
+            if (!foundCorrectForDrops && rule.correctForDrops().isPresent()) {
+                correctForDrops = rule.correctForDrops().get();
+                foundCorrectForDrops = true;
+            }
+            if (foundSpeed && foundCorrectForDrops) {
+                break;
             }
         }
-        return new ToolSpeedData(speedMultiplier, isCorrectToolForDrop);
+
+        return new ModernToolData(speed, correctForDrops);
     }
 
-    private static ToolSpeedData getLegacyToolSpeedData(GrimPlayer player, ItemStack tool, StateType block) {
-        ItemType toolType = tool.getType();
-        float speedMultiplier = 1.0f;
-        boolean isCorrectToolForDrop = false;
-        // 1.13 and below need their own huge methods to support this...
-        if (toolType.hasAttribute(ItemTypes.ItemAttribute.AXE)) {
-            isCorrectToolForDrop = player.tagManager.block(SyncedTags.MINEABLE_AXE).contains(block);
-        } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.PICKAXE)) {
-            isCorrectToolForDrop = player.tagManager.block(SyncedTags.MINEABLE_PICKAXE).contains(block);
-        } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.SHOVEL)) {
-            isCorrectToolForDrop = player.tagManager.block(SyncedTags.MINEABLE_SHOVEL).contains(block);
-        } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.HOE)) {
-            isCorrectToolForDrop = player.tagManager.block(SyncedTags.MINEABLE_HOE).contains(block);
+    private static boolean canUseGroundedBreakSpeed(GrimPlayer player) {
+        if (player.packetStateData.packetPlayerOnGround) {
+            return true;
         }
 
-        if (isCorrectToolForDrop) {
-            int tier = 0;
-            if (toolType.hasAttribute(ItemTypes.ItemAttribute.WOOD_TIER)) { // Tier 0
-                speedMultiplier = 2.0f;
-            } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.STONE_TIER)) { // Tier 1
-                speedMultiplier = 4.0f;
-                tier = 1;
-            } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.IRON_TIER)) { // Tier 2
-                speedMultiplier = 6.0f;
-                tier = 2;
-            } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.DIAMOND_TIER)) { // Tier 3
-                speedMultiplier = 8.0f;
-                tier = 3;
-            } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.GOLD_TIER)) { // Tier 0
-                speedMultiplier = 12.0f;
-            } else if (toolType.hasAttribute(ItemTypes.ItemAttribute.NETHERITE_TIER)) { // Tier 4
-                speedMultiplier = 9.0f;
-                tier = 4;
-            }
+        // Vanilla uses Player#onGround for the mining penalty. If the latest
+        // movement packet has not refreshed it, only use the grounded branch
+        // when the compensated world proves the current pose is supported.
+        return player.boundingBox != null
+                && Collisions.collide(player, 0.0D, -SimpleCollisionBox.COLLISION_EPSILON, 0.0D).y == 0.0D;
+    }
 
-            if (tier < 3 && player.tagManager.block(SyncedTags.NEEDS_DIAMOND_TOOL).contains(block)) {
-                isCorrectToolForDrop = false;
-            } else if (tier < 2 && player.tagManager.block(SyncedTags.NEEDS_IRON_TOOL).contains(block)) {
-                isCorrectToolForDrop = false;
-            } else if (tier < 1 && player.tagManager.block(SyncedTags.NEEDS_STONE_TOOL).contains(block)) {
-                isCorrectToolForDrop = false;
-            }
+    private record ModernToolData(float speed, boolean correctForDrops) {}
+
+    private static BlockState toNmsState(BlockData data) {
+        if (data instanceof CraftBlockData craftBlockData) {
+            return craftBlockData.getState();
         }
-
-        // Shears can mine some blocks faster
-        if (toolType == ItemTypes.SHEARS) {
-            isCorrectToolForDrop = true;
-
-            if (block == StateTypes.COBWEB || Materials.isLeaves(block)) {
-                speedMultiplier = 15.0f;
-            } else if (BlockTags.WOOL.contains(block)) {
-                speedMultiplier = 5.0f;
-            } else if (block == StateTypes.VINE ||
-                    block == StateTypes.GLOW_LICHEN) {
-                speedMultiplier = 2.0f;
-            } else {
-                isCorrectToolForDrop = block == StateTypes.COBWEB ||
-                        block == StateTypes.REDSTONE_WIRE ||
-                        block == StateTypes.TRIPWIRE;
-            }
-        }
-
-        // Swords can also mine some blocks faster
-        if (toolType.hasAttribute(ItemTypes.ItemAttribute.SWORD)) {
-            if (block == StateTypes.COBWEB) {
-                speedMultiplier = 15.0f;
-            } else if (player.tagManager.block(SyncedTags.SWORD_EFFICIENT).contains(block)) {
-                speedMultiplier = 1.5f;
-            }
-
-            isCorrectToolForDrop = block == StateTypes.COBWEB;
-        }
-        //
-        return new ToolSpeedData(speedMultiplier, isCorrectToolForDrop);
+        return net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
     }
 }

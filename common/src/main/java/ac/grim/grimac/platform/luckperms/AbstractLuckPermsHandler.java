@@ -156,10 +156,10 @@ public abstract class AbstractLuckPermsHandler implements StoppableInitable {
         String groupName = normalizeGroupName(group);
         Set<UUID> refreshed = new LinkedHashSet<>();
         for (GrimPlayer player : GrimAPI.INSTANCE.getPlayerDataManager().getEntries()) {
-            if (player == null || player.uuid == null) continue;
-            User user = luckPerms.getUserManager().getUser(player.uuid);
+            if (player == null || player.playerUUID == null) continue;
+            User user = luckPerms.getUserManager().getUser(player.playerUUID);
             if (user == null || !userInheritsGroup(user, groupName)) continue;
-            if (!refreshed.add(player.uuid)) continue;
+            if (!refreshed.add(player.playerUUID)) continue;
             player.updatePermissions();
         }
     }
@@ -167,8 +167,8 @@ public abstract class AbstractLuckPermsHandler implements StoppableInitable {
     private static void refreshTrackedPlayers() {
         Set<UUID> refreshed = new LinkedHashSet<>();
         for (GrimPlayer player : GrimAPI.INSTANCE.getPlayerDataManager().getEntries()) {
-            if (player == null || player.uuid == null) continue;
-            if (!refreshed.add(player.uuid)) continue;
+            if (player == null || player.playerUUID == null) continue;
+            if (!refreshed.add(player.playerUUID)) continue;
             player.updatePermissions();
         }
     }

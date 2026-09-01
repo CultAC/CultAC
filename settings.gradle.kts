@@ -24,20 +24,8 @@ dependencyResolutionManagement {
 
 pluginManagement {
     repositories {
-        // For the Fabric Loom plugin
-        exclusiveContent {
-            forRepository {
-                maven {
-                    name = "FabricMC"
-                    url = uri("https://maven.fabricmc.net/")
-                }
-            }
-            filter {
-                includeModule("fabric-loom", "fabric-loom.gradle.plugin")
-                includeGroupByRegex("net.fabricmc.*")
-            }
-        }
-
+        // paperweight-userdev plugin marker
+        maven("https://repo.papermc.io/repository/maven-public/")
         gradlePluginPortal()
     }
 }
@@ -75,15 +63,7 @@ if (gradle.startParameter.isBuildScan) {
 rootProject.name = "grimac"
 include("common")
 include("bukkit")
-include("fabric")
-include(":fabric:shared")
-include(":fabric:intermediary")
-include(":fabric:intermediary:mc1161")
-include(":fabric:intermediary:mc1171")
-include(":fabric:intermediary:mc1194")
-include(":fabric:intermediary:mc1205")
-include(":fabric:intermediary:mc12111")
-include(":fabric:official")
-include(":fabric:official:mc261")
+include("legacy-placement-adapter")
+include("parity")
 
 if (file("workspace.gradle.kts").exists()) apply(from = "workspace.gradle.kts")

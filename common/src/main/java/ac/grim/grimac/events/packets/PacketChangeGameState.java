@@ -1,55 +1,39 @@
 package ac.grim.grimac.events.packets;
 
 import ac.grim.grimac.GrimAPI;
-import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.type.PacketSendListener;
+import ac.grim.grimac.checks.GrimProcessor;
+import ac.grim.grimac.checks.type.CheckListener;
+import ac.grim.grimac.network.GrimPacketHandler;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.event.PacketSendEvent;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerChangeGameState;
+import ac.grim.grimac.network.event.PacketSendEvent;
+import net.minecraft.network.protocol.game.ClientboundGameEventPacket;
+import org.bukkit.GameMode;
 
-public class PacketChangeGameState extends Check implements PacketSendListener {
-    public PacketChangeGameState(GrimPlayer player) {
-        super(player);
+public class PacketChangeGameState extends GrimProcessor implements CheckListener {
+    public PacketChangeGameState(GrimPlayer playerData) {
+        super(playerData);
     }
 
-    @Override
-    public void onPacketSend(final PacketSendEvent event) {
-        if (event.getPacketType() != PacketType.Play.Server.CHANGE_GAME_STATE) return;
-        WrapperPlayServerChangeGameState packet = new WrapperPlayServerChangeGameState(event);
-
-        switch (packet.getReason()) {
-            case CHANGE_GAME_MODE -> {
-                player.sendTransaction();
-
-                player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> {
-                    // Bukkit's gamemode order is unreliable, so go from int -> packetevents -> bukkit
-                    GameMode previous = player.gamemode;
-                    int gamemode = (int) packet.getValue();
-
-                    // Some plugins send invalid values such as -1, this is what the client does
-                    if (gamemode < 0 || gamemode >= GameMode.values().length) {
-                        player.gamemode = GameMode.SURVIVAL;
-                    } else {
-                        player.gamemode = GameMode.values()[gamemode];
-                    }
-
-                    if (previous == GameMode.SPECTATOR && player.gamemode != GameMode.SPECTATOR) {
-                        GrimAPI.INSTANCE.getSpectateManager().handlePlayerStopSpectating(player.uuid);
-                    }
-                });
-            }
-
-            case ENABLE_RESPAWN_SCREEN -> {
-                if (player.getClientVersion().isOlderThan(ClientVersion.V_1_15)
-                        || event.getServerVersion().isOlderThan(ServerVersion.V_1_15)) return;
-                player.sendTransaction();
-                final boolean enabled = packet.getValue() == 0f;
-                player.addRealTimeTaskNow(() -> player.packetStateData.showsDeathScreen = enabled);
-            }
+    @GrimPacketHandler
+    public void onGameEvent(PacketSendEvent event, GrimPlayer player, ClientboundGameEventPacket packet) {
+        if (packet.getEvent() != ClientboundGameEventPacket.CHANGE_GAME_MODE) {
+            return;
         }
+
+        player.sendTransaction();
+        player.latencyUtils.addRealTimeTaskNow(() -> { GameMode previous = player.gamemode;
+            int gamemode = (int) packet.getParam();
+            player.gamemode = switch (gamemode) {
+                case 1 -> GameMode.CREATIVE;
+                case 2 -> GameMode.ADVENTURE;
+                case 3 -> GameMode.SPECTATOR;
+                default -> GameMode.SURVIVAL;
+            };
+            player.compensatedEntities.getSelf().setDefaultBlockInteractionRange(player.gamemode == GameMode.CREATIVE);
+
+            if (previous == GameMode.SPECTATOR && player.gamemode != GameMode.SPECTATOR) {
+                GrimAPI.INSTANCE.getSpectateManager().handlePlayerStopSpectating(player.playerUUID);
+            }
+        });
     }
 }

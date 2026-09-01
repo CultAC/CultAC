@@ -16,18 +16,12 @@ tasks.named<ShadowJar>("shadowJar") {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
     if (BuildConfig.relocate) {
-        if (BuildConfig.shadePE) {
-            relocate("io.github.retrooper.packetevents", "ac.grim.grimac.shaded.io.github.retrooper.packetevents")
-            relocate("com.github.retrooper.packetevents", "ac.grim.grimac.shaded.com.github.retrooper.packetevents")
-            relocate("net.kyori", "ac.grim.grimac.shaded.kyori") // use PE's built-in adventure instead when not shading PE
-        }
         relocate("club.minnced", "ac.grim.grimac.shaded.discord-webhooks")
         relocate("org.slf4j", "ac.grim.grimac.shaded.slf4j") // Required by discord-webhooks
         relocate("github.scarsz.configuralize", "ac.grim.grimac.shaded.configuralize")
         relocate("com.github.puregero", "ac.grim.grimac.shaded.com.github.puregero")
         relocate("com.google.code.gson", "ac.grim.grimac.shaded.gson")
         relocate("alexh", "ac.grim.grimac.shaded.maps")
-        relocate("it.unimi.dsi.fastutil", "ac.grim.grimac.shaded.fastutil")
         relocate("okhttp3", "ac.grim.grimac.shaded.okhttp3")
         relocate("okio", "ac.grim.grimac.shaded.okio")
         relocate("org.yaml.snakeyaml", "ac.grim.grimac.shaded.snakeyaml")

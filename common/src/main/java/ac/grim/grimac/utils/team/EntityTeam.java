@@ -1,9 +1,10 @@
 package ac.grim.grimac.utils.team;
 
+import ac.grim.grimac.network.protocol.player.User;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.protocol.player.UserProfile;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerTeams;
 import lombok.Getter;
+import net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket;
+import net.minecraft.world.scores.Team;
 
 import java.util.HashSet;
 import java.util.Objects;
@@ -15,19 +16,19 @@ public final class EntityTeam {
     public final Set<String> entries = new HashSet<>();
     private final GrimPlayer player;
     @Getter
-    private WrapperPlayServerTeams.CollisionRule collisionRule;
+    private Team.CollisionRule collisionRule;
 
     public EntityTeam(GrimPlayer player, String name) {
         this.player = player;
         this.name = name;
     }
 
-    public void update(WrapperPlayServerTeams teams) {
-        teams.getTeamInfo().ifPresent(info -> this.collisionRule = info.getCollisionRule());
+    public void update(ClientboundSetPlayerTeamPacket teams) {
+        teams.getParameters().ifPresent(info -> this.collisionRule = info.collisionRule());
 
         final TeamHandler teamHandler = player.checkManager.getCheck(TeamHandler.class);
-        final WrapperPlayServerTeams.TeamMode mode = teams.getTeamMode();
-        if (mode == WrapperPlayServerTeams.TeamMode.ADD_ENTITIES || mode == WrapperPlayServerTeams.TeamMode.CREATE) {
+
+        if (teams.getPlayerAction() == ClientboundSetPlayerTeamPacket.Action.ADD) {
             label:
             for (String teamPlayer : teams.getPlayers()) {
                 if (teamPlayer.equals(player.user.getName())) {
@@ -35,7 +36,7 @@ public final class EntityTeam {
                     continue;
                 }
 
-                for (UserProfile profile : player.compensatedEntities.profiles.values()) {
+                for (User.Profile profile : player.compensatedEntities.profiles.values()) {
                     if (profile.getName() != null && profile.getName().equals(teamPlayer)) {
                         teamHandler.addEntityToTeam(profile.getUUID().toString(), this);
                         continue label;
@@ -44,7 +45,8 @@ public final class EntityTeam {
 
                 teamHandler.addEntityToTeam(teamPlayer, this);
             }
-        } else if (mode == WrapperPlayServerTeams.TeamMode.REMOVE_ENTITIES) {
+
+        } else if (teams.getPlayerAction() == ClientboundSetPlayerTeamPacket.Action.REMOVE) {
             label:
             for (String teamPlayer : teams.getPlayers()) {
                 if (teamPlayer.equals(player.user.getName())) {
@@ -53,7 +55,7 @@ public final class EntityTeam {
                     continue;
                 }
 
-                for (UserProfile profile : player.compensatedEntities.profiles.values()) {
+                for (User.Profile profile : player.compensatedEntities.profiles.values()) {
                     if (profile.getName() != null && profile.getName().equals(teamPlayer)) {
                         String uuid = profile.getUUID().toString();
                         entries.remove(uuid);
@@ -66,7 +68,8 @@ public final class EntityTeam {
                 teamHandler.removeEntityFromTeam(teamPlayer);
                 entries.remove(teamPlayer);
             }
-        } else if (mode == WrapperPlayServerTeams.TeamMode.REMOVE) {
+
+        } else if (teams.getTeamAction() == ClientboundSetPlayerTeamPacket.Action.REMOVE) {
 
             EntityTeam playersTeam = teamHandler.getPlayerTeam();
             // The player's team was deleted, so we must unset the player's team

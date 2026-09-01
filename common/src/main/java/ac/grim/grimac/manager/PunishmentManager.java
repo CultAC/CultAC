@@ -76,9 +76,10 @@ public class PunishmentManager implements ConfigReloadable {
                         command = command.substring(1);
                     }
                     for (AbstractCheck check : player.getChecks()) { // o(n) * o(n)?
+                        String alternativeName = check.getAlternativeName();
                         if (check.getCheckName() != null &&
                                 (check.getCheckName().toLowerCase(Locale.ROOT).contains(command)
-                                        || check.getAlternativeName().toLowerCase(Locale.ROOT).contains(command))) { // Some checks have equivalent names like AntiKB and AntiKnockback
+                                        || (alternativeName != null && alternativeName.toLowerCase(Locale.ROOT).contains(command)))) { // Some checks have equivalent names like AntiKB and AntiKnockback
                             if (exclude) {
                                 excluded.add(check);
                             } else {

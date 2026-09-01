@@ -3,12 +3,12 @@ package ac.grim.grimac.utils.inventory.slot;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.inventory.EquipmentType;
 import ac.grim.grimac.utils.inventory.InventoryStorage;
-import com.github.retrooper.packetevents.protocol.item.ItemStack;
-import com.github.retrooper.packetevents.protocol.item.enchantment.type.EnchantmentTypes;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.GameMode;
+import org.bukkit.enchantments.Enchantment;
 
 public class EquipmentSlot extends Slot {
-    private final EquipmentType type;
+    EquipmentType type;
 
     public EquipmentSlot(EquipmentType type, InventoryStorage menu, int slot) {
         super(menu, slot);
@@ -21,12 +21,12 @@ public class EquipmentSlot extends Slot {
     }
 
     @Override
-    public boolean mayPlace(ItemStack itemStack) {
-        return type == EquipmentType.getEquipmentSlotForItem(itemStack);
+    public boolean mayPlace(ItemStack p_39746_) {
+        return type == EquipmentType.getEquipmentSlotForItem(p_39746_);
     }
 
-    public boolean mayPickup(GrimPlayer player) {
+    public boolean mayPickup(GrimPlayer p_39744_) {
         ItemStack itemstack = this.getItem();
-        return (itemstack.isEmpty() || player.gamemode == GameMode.CREATIVE || itemstack.getEnchantmentLevel(EnchantmentTypes.BINDING_CURSE) == 0) && super.mayPickup(player);
+        return (itemstack.isEmpty() || p_39744_.gamemode == GameMode.CREATIVE || itemstack.getEnchantmentLevel(Enchantment.BINDING_CURSE) == 0) && super.mayPickup(p_39744_);
     }
 }

@@ -3,15 +3,14 @@ package ac.grim.grimac.checks.impl.scaffolding;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.type.BlockPlaceCheck;
-import ac.grim.grimac.checks.type.BlockPlaceListener;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
-import ac.grim.grimac.utils.nmsutil.Materials;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
-import com.github.retrooper.packetevents.util.Vector3f;
+import ac.grim.grimac.utils.nmsutil.NmsBlockTags;
+import net.minecraft.world.phys.Vec3;
+import org.bukkit.Material;
 
 @CheckData(name = "FabricatedPlace", stableKey = "grim.scaffolding.fabricated_place", description = "Sent out of bounds cursor position")
-public class FabricatedPlace extends BlockPlaceCheck implements BlockPlaceListener {
+public class FabricatedPlace extends BlockPlaceCheck {
     private static final Verbose V = Verbose.of("cursor={cursor} limit={f64:%.16f}");
 
     /**
@@ -42,12 +41,12 @@ public class FabricatedPlace extends BlockPlaceCheck implements BlockPlaceListen
 
     @Override
     public void onBlockPlace(final BlockPlace place) {
-        Vector3f cursor = place.cursor;
+        Vec3 cursor = place.getCursor();
         if (cursor == null) return;
 
         // Determine if we allow up to 1.5 (Lecterns, Scaffolding, etc)
-        boolean isExtended = Materials.isShapeExceedsCube(place.getPlacedAgainstMaterial())
-                || place.getPlacedAgainstMaterial() == StateTypes.LECTERN;
+        boolean isExtended = NmsBlockTags.isShapeExceedsCube(place.getPlacedAgainstMaterial())
+                || place.getPlacedAgainstMaterial() == Material.LECTERN;
 
         double maxBound = isExtended ? 1.5 : 1.0;
         double minBound = 1.0 - maxBound; // Usually 0.0
@@ -59,13 +58,13 @@ public class FabricatedPlace extends BlockPlaceCheck implements BlockPlaceListen
         // Near 0.0, 'float' has extremely high resolution (down to E-45).
         // It acts like a double. When the client has a tiny calculation error (e.g. -4.44E-16),
         // the float cast preserves it exactly. We only need to account for the arithmetic noise.
-        if (cursor.getX() < minBound - MAX_DOUBLE_ERROR ||
-                cursor.getY() < minBound - MAX_DOUBLE_ERROR ||
-                cursor.getZ() < minBound - MAX_DOUBLE_ERROR) {
+        if (cursor.x < minBound - MAX_DOUBLE_ERROR ||
+                cursor.y < minBound - MAX_DOUBLE_ERROR ||
+                cursor.z < minBound - MAX_DOUBLE_ERROR) {
 
             // Alert logic
             double limit = minBound - MAX_DOUBLE_ERROR;
-            var buf = V.write(verbose()).cursor(cursor.x, cursor.y, cursor.z).f64(limit);
+            var buf = V.write(verbose()).cursor((float) cursor.x, (float) cursor.y, (float) cursor.z).f64(limit);
             if (flag(buf) && shouldModifyPackets() && shouldCancel()) {
                 place.resync();
             }
@@ -83,16 +82,17 @@ public class FabricatedPlace extends BlockPlaceCheck implements BlockPlaceListen
         // Note: Effectively Math.max(MAX_DOUBLE_ERROR, FLOAT_STEP_AT_ONE)
         // but since FLOAT_STEP is always larger in MC coordinates, we just use it.
 
-        if (cursor.getX() > maxBound + upperTolerance ||
-                cursor.getY() > maxBound + upperTolerance ||
-                cursor.getZ() > maxBound + upperTolerance) {
+        if (cursor.x > maxBound + upperTolerance ||
+                cursor.y > maxBound + upperTolerance ||
+                cursor.z > maxBound + upperTolerance) {
 
             // Alert logic
             double limit = maxBound + upperTolerance;
-            var buf = V.write(verbose()).cursor(cursor.x, cursor.y, cursor.z).f64(limit);
+            var buf = V.write(verbose()).cursor((float) cursor.x, (float) cursor.y, (float) cursor.z).f64(limit);
             if (flag(buf) && shouldModifyPackets() && shouldCancel()) {
                 place.resync();
             }
         }
     }
+
 }

@@ -2,19 +2,21 @@ package ac.grim.grimac.checks.impl.breaking;
 
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.api.storage.verbose.Verbose;
+import ac.grim.grimac.api.storage.verbose.VerboseTags;
 import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.impl.verbose.VerboseCodecs;
 import ac.grim.grimac.checks.type.BlockBreakListener;
+import ac.grim.grimac.checks.CheckData;
+import ac.grim.grimac.network.protocol.ClientVersion;
+import ac.grim.grimac.network.protocol.util.SpigotConversionUtil;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockBreak;
-import com.github.retrooper.packetevents.protocol.component.ComponentTypes;
-import com.github.retrooper.packetevents.protocol.item.type.ItemTypes;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.DiggingAction;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
-import com.github.retrooper.packetevents.util.Vector3i;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import org.bukkit.Material;
 import org.jetbrains.annotations.NotNull;
 
 @CheckData(name = "AirLiquidBreak", stableKey = "grim.breaking.air_liquid_break", description = "Breaking a block that cannot be broken")
@@ -25,19 +27,18 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
     private int lastTick;
     private boolean didLastFlag;
     // Initialize to non-null values to prevent NPE when checking for blockType properties and if position equals old position
-    private @NotNull Vector3i lastBreakLoc = new Vector3i();
-    private @NotNull StateType lastBlockType = StateTypes.AIR;
+    private @NotNull BlockPos lastBreakLoc = BlockPos.ZERO;
+    private @NotNull Block lastBlockType = Blocks.AIR;
 
     public AirLiquidBreak(GrimPlayer player) {
         super(player);
     }
 
-    @Override
     public void onBlockBreak(BlockBreak blockBreak) {
-        if (blockBreak.action != DiggingAction.START_DIGGING && blockBreak.action != DiggingAction.FINISHED_DIGGING)
+        if (blockBreak.action != ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK && blockBreak.action != ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK) // PE DiggingAction.START_DIGGING / FINISHED_DIGGING
             return;
 
-        final StateType block = blockBreak.block.getType();
+        final Block block = blockBreak.block.getBlock();
 
         // Fixes false from breaking kelp underwater
         // The client sends two start digging packets to the server both in the same tick. AirLiquidBreak gets called twice, doesn't false the first time, but falses the second
@@ -47,30 +48,30 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
         if (lastTick == newTick
                 && lastBreakLoc.equals(blockBreak.position)
                 && !didLastFlag
-                && lastBlockType.getHardness() == 0.0F
-                && lastBlockType.getBlastResistance() == 0.0F
-                && block == StateTypes.WATER
+                && lastBlockType.defaultDestroyTime() == 0.0F
+                && lastBlockType.getExplosionResistance() == 0.0F
+                && block == Blocks.WATER
         ) return;
         lastTick = newTick;
         lastBreakLoc = blockBreak.position;
         lastBlockType = block;
 
         // the block does not have a hitbox
-        boolean invalid = (block == StateTypes.LIGHT && !(player.inventory.getHeldItem().is(ItemTypes.LIGHT) || player.inventory.getOffHand().is(ItemTypes.LIGHT)))
-                || block.isAir()
-                || block == StateTypes.WATER
-                || block == StateTypes.LAVA
-                || block == StateTypes.BUBBLE_COLUMN
-                || block == StateTypes.MOVING_PISTON
-                || block == StateTypes.FIRE && noFireHitbox
+        boolean invalid = (block == Blocks.LIGHT && !(player.getInventory().getHeldItem().getType() == Material.LIGHT || player.getInventory().getOffHand().getType() == Material.LIGHT))
+                || blockBreak.block.isAir()
+                || block == Blocks.WATER
+                || block == Blocks.LAVA
+                || block == Blocks.BUBBLE_COLUMN
+                || block == Blocks.MOVING_PISTON
+                || block == Blocks.FIRE && noFireHitbox
                 // or the client claims to have broken an unbreakable block
-                || block.getHardness() == -1.0f && blockBreak.action == DiggingAction.FINISHED_DIGGING
+                || block.defaultDestroyTime() == -1.0f && blockBreak.action == ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK
                 // or the player is holding a spear
-                || player.inventory.getHeldItem().hasComponent(ComponentTypes.PIERCING_WEAPON) && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11);
+                || SpigotConversionUtil.toNmsItemStack(player.getInventory().getHeldItem()).has(DataComponents.PIERCING_WEAPON) && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11);
 
         if (invalid && flag(V.write(verbose())
-                .sint(VerboseCodecs.block(block, player.getClientVersion()))
-                .uint(VerboseCodecs.enumId(blockBreak.action))) && shouldModifyPackets()) {
+                .sint(BuiltInRegistries.BLOCK.getId(block))
+                .uint(VerboseTags.enumId(blockBreak.action))) && shouldModifyPackets()) {
             didLastFlag = true;
             blockBreak.cancel();
         } else {

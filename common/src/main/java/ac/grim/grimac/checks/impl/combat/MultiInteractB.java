@@ -3,62 +3,87 @@ package ac.grim.grimac.checks.impl.combat;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
 import ac.grim.grimac.checks.type.PostPredictionListener;
+import ac.grim.grimac.network.GrimPacketGroup;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.PacketGroup;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.util.Vector3d;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
+import net.minecraft.SharedConstants;
+import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 
 @CheckData(name = "MultiInteractB", stableKey = "grim.multiinteract.interact_at_position_changed", description = "Sent multiple entity interaction packets with different hit positions in one tick", experimental = true)
-public class MultiInteractB extends Check implements PacketReceiveListener, PostPredictionListener {
+public class MultiInteractB extends Check implements PostPredictionListener {
     private static final Verbose V = Verbose.of("pos={f64}, {f64}, {f64}, lastPos={f64}, {f64}, {f64}");
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
 
     private final ArrayList<FlagData> flags = new ArrayList<>();
-    private Vector3d lastPos;
+    private Vec3 lastPos;
     private boolean hasInteracted;
 
     public MultiInteractB(final GrimPlayer player) {
         super(player);
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
-            WrapperPlayClientInteractEntity packet = new WrapperPlayClientInteractEntity(event);
-            if (packet.getAction() != WrapperPlayClientInteractEntity.InteractAction.INTERACT_AT) return;
+    @GrimPacketHandler
+    public void onInteractEntity(PacketReceiveEvent event, GrimPlayer player, ServerboundInteractPacket packet) {
+        NmsPacketUtil.InteractData data = NmsPacketUtil.readInteract(packet);
+        if (data.action() != NmsPacketUtil.InteractAction.INTERACT_AT) return;
 
-            Vector3d pos = packet.getLocation();
-            if (pos == null) return; // shouldn't ever happen, but whatever
+        Vec3 pos = data.target().orElse(null);
+        if (pos == null) return; // shouldn't ever happen, but whatever
 
-            if (hasInteracted && !pos.equals(lastPos)) {
-                if (!player.canSkipTicks()) {
-                    if (flag(V.write(verbose()).f64(pos.x).f64(pos.y).f64(pos.z).f64(lastPos.x).f64(lastPos.y).f64(lastPos.z))
-                            && shouldModifyPackets()) {
-                        event.setCancelled(true);
-                        player.onPacketCancel();
-                    }
-                } else {
-                    flags.add(new FlagData(pos.x, pos.y, pos.z, lastPos.x, lastPos.y, lastPos.z));
-                }
-            }
-
-            lastPos = pos;
-            hasInteracted = true;
+        if (!player.cameraEntity.isSelf()) {
+            hasInteracted = false;
         }
 
-        if (!player.cameraEntity.isSelf() || isTickPacket(event.getPacketType())) {
+        if (hasInteracted && !pos.equals(lastPos)) {
+            if (!canSkipTicks()) {
+                if (flag(V.write(verbose()).f64(pos.x).f64(pos.y).f64(pos.z).f64(lastPos.x).f64(lastPos.y).f64(lastPos.z))
+                        && shouldModifyPackets()) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
+                }
+            } else {
+                flags.add(new FlagData(pos.x, pos.y, pos.z, lastPos.x, lastPos.y, lastPos.z));
+            }
+        }
+
+        lastPos = pos;
+        hasInteracted = true;
+    }
+
+    // isTickPacket: movement packets reset unless they answered a teleport
+    @GrimPacketHandler
+    @GrimPacketGroup(PacketGroup.SERVERBOUND_PLAYER_MOVEMENT)
+    public void onMovePlayer(PacketReceiveEvent event, GrimPlayer player, ServerboundMovePlayerPacket packet) {
+        if (!player.cameraEntity.isSelf() || !player.packetStateData.lastPacketWasTeleport) {
+            hasInteracted = false;
+        }
+    }
+
+    // isTickPacket: tick end resets for 1.21.2+ clients when no movement arrived this client tick
+    @GrimPacketHandler
+    public void onClientTickEnd(PacketReceiveEvent event, GrimPlayer player, ServerboundClientTickEndPacket packet) {
+        if (!player.cameraEntity.isSelf()
+                || (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && !player.packetStateData.receivedMovementThisClientTick)) {
             hasInteracted = false;
         }
     }
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) return;
+        if (!canSkipTicks()) return;
 
         if (player.isTickingReliablyFor(3)) {
             for (FlagData data : flags) {
@@ -69,6 +94,12 @@ public class MultiInteractB extends Check implements PacketReceiveListener, Post
         }
 
         flags.clear();
+    }
+
+    private boolean canSkipTicks() {
+        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
+                && !(player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21_2));
     }
 
     private record FlagData(

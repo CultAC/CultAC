@@ -1,11 +1,8 @@
 package ac.grim.grimac.utils.data;
 
-import ac.grim.grimac.utils.data.packetentity.JumpableEntity;
 import ac.grim.grimac.utils.enums.BoatEntityStatus;
-import com.github.retrooper.packetevents.util.Vector3d;
+import net.minecraft.world.phys.Vec3;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class VehicleData {
@@ -25,7 +22,6 @@ public class VehicleData {
     public boolean wasVehicleSwitch = false;
     public float playerPitch = 0f;
     public float playerYaw = 0f;
-    public final Deque<IntToObjectPair<JumpableEntity>> pendingJumps = new ArrayDeque<>();
-    public final ConcurrentLinkedQueue<IntToObjectPair<Vector3d>> vehicleTeleports = new ConcurrentLinkedQueue<>();
+    public final ConcurrentLinkedQueue<IntToObjectPair<Vec3>> vehicleTeleports = new ConcurrentLinkedQueue<>();
     public SprintingState camelSprintingState = SprintingState.STOPPED;
 }

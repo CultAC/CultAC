@@ -1,147 +1,65 @@
 package ac.grim.grimac.utils.data.packetentity;
 
-import ac.grim.grimac.checks.impl.sprint.SprintD;
 import ac.grim.grimac.player.GrimPlayer;
+import ac.grim.grimac.checks.impl.sprint.SprintD;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.grim.grimac.utils.data.attribute.ValuedAttribute;
-import ac.grim.grimac.utils.inventory.EnchantmentHelper;
-import ac.grim.grimac.utils.math.GrimMath;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.attribute.Attributes;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
-import com.github.retrooper.packetevents.protocol.item.enchantment.type.EnchantmentTypes;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
-import com.github.retrooper.packetevents.protocol.potion.PotionType;
-import com.github.retrooper.packetevents.protocol.potion.PotionTypes;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerUpdateAttributes;
+import ac.grim.grimac.utils.nmsutil.EntityTypesCompat;
+import lombok.Getter;
+import lombok.Setter;
+import org.bukkit.potion.PotionEffectType;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class PacketEntitySelf extends PacketEntity {
+    public double playerSpeed = 0.1f;
+    // 26.2 movement attributes (Attributes#BOUNCINESS / FRICTION_MODIFIER /
+    // AIR_DRAG_MODIFIER), tracked from server attribute packets. Defaults are
+    // the vanilla values and leave movement unchanged.
+    public double bounciness = 0.0D;
+    public double frictionModifier = 1.0D;
+    public double airDragModifier = 1.0D;
+    public double blockBreakSpeed = 1.0D;
+    public double miningEfficiency = 0.0D;
+    public double submergedMiningSpeed = 0.2D;
 
     private final GrimPlayer player;
-    public int opLevel;
+    @Getter
+    @Setter
+    int opLevel;
+
+    @Getter
+    @Setter
+    double health;
+
+    @Getter
+    private double blockInteractionRange = 4.5D;
 
     public PacketEntitySelf(GrimPlayer player) {
-        super(player, EntityTypes.PLAYER);
-        this.player = player;
+        this(player, null);
     }
 
     public PacketEntitySelf(GrimPlayer player, PacketEntitySelf old) {
-        super(player, EntityTypes.PLAYER);
+        super(EntityTypesCompat.PLAYER, player.entityID);
         this.player = player;
-        this.opLevel = old.opLevel;
-        this.attributeMap.putAll(old.attributeMap);
+        if (old != null) {
+            carryStateFrom(old);
+        }
     }
 
-    @Override
-    protected void initAttributes(GrimPlayer player) {
-        super.initAttributes(player);
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_8)) {
-            setAttribute(Attributes.STEP_HEIGHT, 0.5f);
-        }
-
-        getAttribute(Attributes.SCALE).orElseThrow().withSetRewriter((oldValue, newValue) -> {
-            if (player.getClientVersion().isOlderThan(ClientVersion.V_1_20_5) || newValue == oldValue) {
-                return oldValue;
-            } else {
-                // Elytra, standing, sneaking (1.14)
-                player.possibleEyeHeights[2][0] = 0.4 * newValue;
-                player.possibleEyeHeights[2][1] = 1.62 * newValue;
-                player.possibleEyeHeights[2][2] = 1.27 * newValue;
-
-                // sneaking (1.14), standing, Elytra
-                player.possibleEyeHeights[1][0] = 1.27 * newValue;
-                player.possibleEyeHeights[1][1] = 1.62 * newValue;
-                player.possibleEyeHeights[1][2] = 0.4 * newValue;
-
-                // standing, sneaking (1.14), Elytra
-                player.possibleEyeHeights[0][0] = 1.62 * newValue;
-                player.possibleEyeHeights[0][1] = 1.27 * newValue;
-                player.possibleEyeHeights[0][2] = 0.4 * newValue;
-                return newValue;
-            }
-        });
-
-        final ValuedAttribute movementSpeed = ValuedAttribute.ranged(Attributes.MOVEMENT_SPEED, 0.1f, 0, 1024);
-        movementSpeed.with(new WrapperPlayServerUpdateAttributes.Property(Attributes.MOVEMENT_SPEED, 0.1f, new ArrayList<>()));
-        trackAttribute(movementSpeed);
-        trackAttribute(ValuedAttribute.ranged(Attributes.ATTACK_DAMAGE, 2, 0, 2048)); // NOTE: Not synced to client currently.
-        trackAttribute(ValuedAttribute.ranged(Attributes.ATTACK_SPEED, 4, 0, 1024)
-                .requiredVersion(player, ClientVersion.V_1_9)
-                .withGetRewriter(value -> PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_9) ? 20 : value));
-        trackAttribute(ValuedAttribute.ranged(Attributes.JUMP_STRENGTH, 0.42f, 0, 32)
-                .requiredVersion(player, ClientVersion.V_1_20_5));
-        trackAttribute(ValuedAttribute.ranged(Attributes.BLOCK_BREAK_SPEED, 1.0, 0, 1024)
-                .requiredVersion(player, ClientVersion.V_1_20_5));
-        trackAttribute(ValuedAttribute.ranged(Attributes.MINING_EFFICIENCY, 0, 0, 1024)
-                .requiredVersion(player, ClientVersion.V_1_21));
-        trackAttribute(ValuedAttribute.ranged(Attributes.SUBMERGED_MINING_SPEED, 0.2, 0, 20)
-                .requiredVersion(player, ClientVersion.V_1_21));
-        trackAttribute(ValuedAttribute.ranged(Attributes.ENTITY_INTERACTION_RANGE, 3, 0, 64)
-                .requiredVersion(player, ClientVersion.V_1_20_5));
-        trackAttribute(ValuedAttribute.ranged(Attributes.BLOCK_INTERACTION_RANGE, 4.5, 0, 64)
-                .withGetRewriter(value -> {
-                    // Server versions older than 1.20.5 don't send the attribute, if the player is in creative then assume legacy max reach distance.
-                    if (player.gamemode == GameMode.CREATIVE
-                            && (PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_20_5)
-                                // Clients below 1.20.5 also don't have the attribute.
-                                || player.getClientVersion().isOlderThan(ClientVersion.V_1_20_5))) {
-                        return 5.0;
-                    }
-                    // < 1.20.5 is unchanged due to requiredVersion, otherwise controlled by the server
-                    return value;
-                })
-                .requiredVersion(player, ClientVersion.V_1_20_5));
-        trackAttribute(ValuedAttribute.ranged(Attributes.WATER_MOVEMENT_EFFICIENCY, 0, 0, 1)
-                .withGetRewriter(value -> {
-                    // Depth strider was added in 1.8
-                    if (player.getClientVersion().isOlderThan(ClientVersion.V_1_8)) {
-                        return 0d;
-                    }
-
-                    // On clients < 1.21, use depth strider enchant level always
-                    final double depthStrider = EnchantmentHelper.getMaximumEnchantLevel(player.inventory, EnchantmentTypes.DEPTH_STRIDER);
-                    if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21)) {
-                        return depthStrider;
-                    }
-
-                    // Server is older than 1.21, but player is on 1.21+ so return depth strider value / 3 to simulate via
-                    // https://github.com/ViaVersion/ViaVersion/blob/dc503cd613f5cf00a6f11b78e52b1a76a42acf91/common/src/main/java/com/viaversion/viaversion/protocols/v1_20_5to1_21/storage/EfficiencyAttributeStorage.java#L34
-                    if (PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_21)) {
-                        return depthStrider / 3;
-                    }
-
-                    // We are on a version that fully supports this value!
-                    return value;
-                })
-                .requiredVersion(player, ClientVersion.V_1_21));
-        trackAttribute(ValuedAttribute.ranged(Attributes.MOVEMENT_EFFICIENCY, 0, 0, 1)
-                .requiredVersion(player, ClientVersion.V_1_21));
-        trackAttribute(ValuedAttribute.ranged(Attributes.SNEAKING_SPEED, 0.3, 0, 1)
-                .withGetRewriter(value -> {
-                    if (player.getClientVersion().isOlderThan(ClientVersion.V_1_19)) {
-                        return 0.3f;
-                    }
-
-                    final int swiftSneak = player.inventory.getLeggings().getEnchantmentLevel(EnchantmentTypes.SWIFT_SNEAK);
-                    final double clamped = GrimMath.clamp(0.3f + swiftSneak * 0.15f, 0f, 1f);
-                    if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21)) {
-                        return clamped;
-                    }
-
-                    // https://github.com/ViaVersion/ViaVersion/blob/dc503cd613f5cf00a6f11b78e52b1a76a42acf91/common/src/main/java/com/viaversion/viaversion/protocols/v1_20_5to1_21/storage/EfficiencyAttributeStorage.java#L32
-                    if (PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_21)) {
-                        return clamped;
-                    }
-
-                    // We are on a version that fully supports this value!
-                    return value;
-                })
-                .requiredVersion(player, ClientVersion.V_1_21));
+    private void carryStateFrom(PacketEntitySelf old) {
+        this.opLevel = old.getOpLevel();
+        this.scale = old.scale;
+        this.gravity = old.gravity;
+        this.playerSpeed = old.playerSpeed;
+        this.bounciness = old.bounciness;
+        this.frictionModifier = old.frictionModifier;
+        this.airDragModifier = old.airDragModifier;
+        this.blockBreakSpeed = old.blockBreakSpeed;
+        this.miningEfficiency = old.miningEfficiency;
+        this.submergedMiningSpeed = old.submergedMiningSpeed;
+        this.blockInteractionRange = old.blockInteractionRange;
     }
 
     public boolean inVehicle() {
@@ -149,24 +67,67 @@ public class PacketEntitySelf extends PacketEntity {
     }
 
     @Override
-    public void addPotionEffect(PotionType effect, int amplifier) {
-        if (effect == PotionTypes.BLINDNESS && !hasPotionEffect(PotionTypes.BLINDNESS)) {
-            player.checkManager.getCheck(SprintD.class).startedSprintingBeforeBlind = player.isSprinting;
+    public void addPotionEffect(PotionEffectType effect, int amplifier) {
+        // Blindness does not cancel sprinting that began before the effect.
+        if (effect == PotionEffectType.BLINDNESS && (potionsMap == null || !potionsMap.containsKey(PotionEffectType.BLINDNESS))) {
+            SprintD check = player.checkManager.getCheck(SprintD.class);
+            if (check != null) {
+                check.startedSprintingBeforeBlind = player.isSprinting;
+            }
         }
-
-        player.pointThreeEstimator.updatePlayerPotions(effect, amplifier);
         super.addPotionEffect(effect, amplifier);
     }
 
+    public void setBlockInteractionRange(double blockInteractionRange) {
+        this.blockInteractionRange = blockInteractionRange;
+    }
+
+    public void setDefaultBlockInteractionRange(boolean creative) {
+        this.blockInteractionRange = creative ? 5.0D : 4.5D;
+    }
+
     @Override
-    public void removePotionEffect(PotionType effect) {
-        player.pointThreeEstimator.updatePlayerPotions(effect, null);
-        super.removePotionEffect(effect);
+    public void onFirstTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ, GrimPlayer player) {
+        // Player ignores this
     }
 
     @Override
     public void onFirstTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ,
-                                   @Nullable Float packetXRot, @Nullable Float packetYRot, GrimPlayer player) {
+                                   @Nullable Float yaw, @Nullable Float pitch, GrimPlayer player) {
+        // Player ignores this
+    }
+
+    @Override
+    public void onBundleTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ, GrimPlayer player) {
+        // Player ignores this
+    }
+
+    @Override
+    public void onBundleTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ,
+                                    @Nullable Float yaw, @Nullable Float pitch, GrimPlayer player) {
+        // Player ignores this
+    }
+
+    @Override
+    public void onBundleFirstTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ, GrimPlayer player) {
+        // Player ignores this
+    }
+
+    @Override
+    public void onBundleFirstTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ,
+                                         @Nullable Float yaw, @Nullable Float pitch, GrimPlayer player) {
+        // Player ignores this
+    }
+
+    @Override
+    public void onBundledPositionSyncTransaction(double x, double y, double z, GrimPlayer player) {
+        // Player ignores this
+    }
+
+    @Override
+    public void onBundledPositionSyncTransaction(double x, double y, double z,
+                                                 @Nullable Float yaw, @Nullable Float pitch,
+                                                 GrimPlayer player) {
         // Player ignores this
     }
 
@@ -178,5 +139,15 @@ public class PacketEntitySelf extends PacketEntity {
     @Override
     public SimpleCollisionBox getPossibleCollisionBoxes() {
         return player.boundingBox.copy(); // Copy to retain behavior of PacketEntity
+    }
+
+    @Override
+    public SimpleCollisionBox getPossibleMovementCollisionBoxes() {
+        return player.boundingBox.copy();
+    }
+
+    @Override
+    public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidates() {
+        return Collections.singletonList(player.boundingBox.copy());
     }
 }

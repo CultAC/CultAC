@@ -1,25 +1,23 @@
 package ac.grim.grimac.platform.bukkit.player;
 
+import ac.grim.grimac.GrimAPI;
+import ac.grim.grimac.network.protocol.player.User;
 import ac.grim.grimac.platform.api.entity.GrimEntity;
-import ac.grim.grimac.platform.api.player.BlockTranslator;
 import ac.grim.grimac.platform.api.player.PlatformInventory;
 import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.platform.api.sender.Sender;
 import ac.grim.grimac.platform.bukkit.GrimACBukkitLoaderPlugin;
 import ac.grim.grimac.platform.bukkit.entity.BukkitGrimEntity;
-import ac.grim.grimac.platform.bukkit.utils.anticheat.MultiLibUtil;
+import ac.grim.grimac.platform.bukkit.sender.BukkitComponentSender;
 import ac.grim.grimac.platform.bukkit.utils.convert.BukkitConversionUtils;
 import ac.grim.grimac.platform.bukkit.utils.reflection.PaperUtils;
+import ac.grim.grimac.utils.anticheat.MultiLibUtil;
 import ac.grim.grimac.utils.common.arguments.CommonGrimArguments;
 import ac.grim.grimac.utils.math.Location;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
-import com.github.retrooper.packetevents.protocol.player.User;
-import com.github.retrooper.packetevents.util.Vector3d;
-import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import lombok.Getter;
-import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.kyori.adventure.text.Component;
+import net.minecraft.world.phys.Vec3;
+import org.bukkit.GameMode;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.permissions.Permission;
@@ -31,9 +29,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public class BukkitPlatformPlayer extends BukkitGrimEntity implements PlatformPlayer {
-
-    private static final BukkitAudiences audiences = BukkitAudiences.create(GrimACBukkitLoaderPlugin.LOADER);
-
     @Getter
     private final Player bukkitPlayer;
     @Getter
@@ -46,7 +41,7 @@ public class BukkitPlatformPlayer extends BukkitGrimEntity implements PlatformPl
         this.bukkitPlayer = bukkitPlayer;
         this.inventory = new BukkitPlatformInventory(bukkitPlayer);
         if (CommonGrimArguments.USE_CHAT_FAST_BYPASS.value()) {
-            this.user = PacketEvents.getAPI().getPlayerManager().getUser(bukkitPlayer);
+            this.user = GrimAPI.INSTANCE.getPlayerDataManager().getUser(bukkitPlayer);
         } else {
             this.user = null;
         }
@@ -80,7 +75,7 @@ public class BukkitPlatformPlayer extends BukkitGrimEntity implements PlatformPl
     @Override
     public void sendMessage(String message) {
         if (CommonGrimArguments.USE_CHAT_FAST_BYPASS.value() && user != null) {
-            user.sendMessage(message);
+            user.sendMessage(Component.text(message));
         } else {
             bukkitPlayer.sendMessage(message);
         }
@@ -91,7 +86,7 @@ public class BukkitPlatformPlayer extends BukkitGrimEntity implements PlatformPl
         if (CommonGrimArguments.USE_CHAT_FAST_BYPASS.value() && user != null) {
             user.sendMessage(message);
         } else {
-            audiences.player(bukkitPlayer).sendMessage(message);
+            BukkitComponentSender.sendMessage(bukkitPlayer, message);
         }
     }
 
@@ -111,12 +106,12 @@ public class BukkitPlatformPlayer extends BukkitGrimEntity implements PlatformPl
     }
 
     @Override
-    public Vector3d getPosition() {
+    public Vec3 getPosition() {
         if (CAN_USE_DIRECT_GETTERS) {
-            return new Vector3d(this.bukkitPlayer.getX(), this.bukkitPlayer.getY(), this.bukkitPlayer.getZ());
+            return new Vec3(this.bukkitPlayer.getX(), this.bukkitPlayer.getY(), this.bukkitPlayer.getZ());
         } else {
             org.bukkit.Location location = this.bukkitPlayer.getLocation();
-            return new Vector3d(location.getX(), location.getY(), location.getZ());
+            return new Vec3(location.getX(), location.getY(), location.getZ());
         }
     }
 
@@ -127,12 +122,12 @@ public class BukkitPlatformPlayer extends BukkitGrimEntity implements PlatformPl
 
     @Override
     public GameMode getGameMode() {
-        return SpigotConversionUtil.fromBukkitGameMode(bukkitPlayer.getGameMode());
+        return bukkitPlayer.getGameMode();
     }
 
     @Override
     public void setGameMode(GameMode gameMode) {
-        bukkitPlayer.setGameMode(SpigotConversionUtil.toBukkitGameMode(gameMode));
+        bukkitPlayer.setGameMode(gameMode);
     }
 
     public World getBukkitWorld() {
@@ -168,11 +163,6 @@ public class BukkitPlatformPlayer extends BukkitGrimEntity implements PlatformPl
     @Override
     public Sender getSender() {
         return GrimACBukkitLoaderPlugin.LOADER.getBukkitSenderFactory().map(this.bukkitPlayer);
-    }
-
-    @Override
-    public BlockTranslator getBlockTranslator() {
-        return BlockTranslator.IDENTITY;
     }
 
     @Override

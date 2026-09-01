@@ -1,17 +1,22 @@
 package ac.grim.grimac.utils.math;
 
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.util.Vector3d;
 import lombok.experimental.UtilityClass;
+import net.minecraft.world.phys.Vec3;
+import org.bukkit.util.Vector;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
 @UtilityClass
 public class VectorUtils {
+    // Sentinel velocity magnitude used when probing the extreme corners of the valid
+    // starting-velocity envelope; large enough to exceed any legitimate movement.
+    public static final double LARGE_MOVEMENT = 1000;
+
     public static @NotNull Vector3dm cutBoxToVector(@NotNull Vector3dm vectorToCutTo, @NotNull Vector3dm min, @NotNull Vector3dm max) {
-        SimpleCollisionBox box = new SimpleCollisionBox(min, max).sort();
+        SimpleCollisionBox box = new SimpleCollisionBox(min.getX(), min.getY(), min.getZ(), max.getX(), max.getY(), max.getZ()).sort();
         return cutBoxToVector(vectorToCutTo, box);
     }
 
@@ -26,19 +31,28 @@ public class VectorUtils {
                 GrimMath.clamp(z, box.minZ, box.maxZ));
     }
 
-    @Contract("_ -> new")
-    public static @NotNull Vector3dm fromVec3d(@NotNull Vector3d vector3d) {
-        return new Vector3dm(vector3d.getX(), vector3d.getY(), vector3d.getZ());
+    @Contract("_, _ -> new")
+    public static @NotNull Vec3 cutBoxToVector(@NotNull Vec3 vectorCutTo, @NotNull SimpleCollisionBox box) {
+        return new Vec3(GrimMath.clamp(vectorCutTo.x, box.minX, box.maxX),
+                GrimMath.clamp(vectorCutTo.y, box.minY, box.maxY),
+                GrimMath.clamp(vectorCutTo.z, box.minZ, box.maxZ));
+    }
+
+    @Contract("_, _ -> new")
+    public static @NotNull Vector cutBoxToVector(@NotNull Vector vectorCutTo, @NotNull SimpleCollisionBox box) {
+        return new Vector(GrimMath.clamp(vectorCutTo.getX(), box.minX, box.maxX),
+                GrimMath.clamp(vectorCutTo.getY(), box.minY, box.maxY),
+                GrimMath.clamp(vectorCutTo.getZ(), box.minZ, box.maxZ));
     }
 
     // Clamping stops the player from causing an integer overflow and crashing the netty thread
     @Contract("_ -> new")
-    public static @NotNull Vector3d clampVector(@NotNull Vector3d toClamp) {
-        double x = GrimMath.clamp(toClamp.getX(), -3.0E7D, 3.0E7D);
-        double y = GrimMath.clamp(toClamp.getY(), -2.0E7D, 2.0E7D);
-        double z = GrimMath.clamp(toClamp.getZ(), -3.0E7D, 3.0E7D);
+    public static @NotNull Vec3 clampVector(@NotNull Vec3 toClamp) {
+        double x = GrimMath.clamp(toClamp.x, -3.0E7D, 3.0E7D);
+        double y = GrimMath.clamp(toClamp.y, -2.0E7D, 2.0E7D);
+        double z = GrimMath.clamp(toClamp.z, -3.0E7D, 3.0E7D);
 
-        return new Vector3d(x, y, z);
+        return new Vec3(x, y, z);
     }
 
     public static Vector3dm normalize(GrimPlayer player, Vector3dm vec) {
@@ -56,7 +70,7 @@ public class VectorUtils {
 
     public static double getVanillaLength(ClientVersion version, double x, double y, double z) {
         double lengthSquared = x * x + y * y + z * z;
-        return version.isOlderThan(ClientVersion.V_1_17) ? (float) Math.sqrt(lengthSquared) : Math.sqrt(lengthSquared);
+        return version.getProtocolVersion() < 755 ? (float) Math.sqrt(lengthSquared) : Math.sqrt(lengthSquared); // PE ClientVersion.V_1_17
     }
 
     private static Vector3dm legacy$normalize(Vector3dm vec, double d0) {

@@ -2,17 +2,23 @@ package ac.grim.grimac.checks.impl.badpackets;
 
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
+import ac.grim.grimac.checks.type.DecodedPacketReceiveListener;
+import ac.grim.grimac.network.GrimPacketGroup;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.PacketGroup;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientUseItem;
+import net.minecraft.SharedConstants;
+import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
 
 @CheckData(name = "BadPacketsJ", stableKey = "grim.badpackets.use_item_rotation_mismatch", description = "Rotation in use item packet did not match tick rotation")
-public class BadPacketsJ extends Check implements PacketReceiveListener {
+public class BadPacketsJ extends Check implements DecodedPacketReceiveListener {
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
 
     private float yaw;
     private float pitch;
@@ -25,46 +31,81 @@ public class BadPacketsJ extends Check implements PacketReceiveListener {
     @Override
     public boolean isApplicable() {
         return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21)
-                && PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_21);
+                && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21); // PE ServerVersion.V_1_21
     }
 
     @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
+    public void onDecodedPacketReceive(PacketReceiveEvent event) {
+        if (!player.cameraEntity.isSelf()) {
+            this.rotations = 0;
+        }
+    }
+
+    @GrimPacketHandler
+    public void onUseItem(PacketReceiveEvent event, GrimPlayer player, ServerboundUseItemPacket packet) {
+        if (!isApplicable()) return;
         if (!player.cameraEntity.isSelf()) {
             this.rotations = 0;
             return;
         }
 
-        if (event.getPacketType() == PacketType.Play.Client.USE_ITEM) {
-            WrapperPlayClientUseItem packet = new WrapperPlayClientUseItem(event);
+        final NmsPacketUtil.UseItemData data = NmsPacketUtil.readUseItem(packet);
+        final float yaw = data.yaw();
+        final float pitch = data.pitch();
 
-            float yaw = packet.getYaw();
-            float pitch = packet.getPitch();
-
-            if (this.rotations > 0 && (this.yaw != yaw || this.pitch != pitch)) {
-                if (!player.canSkipTicks() || this.yaw != player.yaw || this.pitch != player.pitch) {
-                    while (this.rotations-- > 0) flag();
-                }
-                this.rotations = 0;
-            }
-
-            if (this.rotations != Integer.MAX_VALUE)
-                this.rotations++;
-            this.yaw = yaw;
-            this.pitch = pitch;
-        }
-
-        if (this.rotations > 0 && isTickPacket(event.getPacketType())) {
-            if (this.yaw != player.yaw || this.pitch != player.pitch) {
-                // due to tick skipping, the rotations sent could be last tick's
-                boolean allowLast = player.canSkipTicks()
-                        && (event.getPacketType() == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION
-                        || event.getPacketType() == PacketType.Play.Client.PLAYER_ROTATION);
-                if (!allowLast || this.yaw != player.lastYaw || this.pitch != player.lastPitch) {
-                    while (this.rotations-- > 0) flag();
-                }
+        if (this.rotations > 0 && (this.yaw != yaw || this.pitch != pitch)) {
+            if (!player.canSkipTicks() || this.yaw != player.xRot || this.pitch != player.yRot) {
+                while (this.rotations-- > 0) flag();
             }
             this.rotations = 0;
         }
+
+        if (this.rotations != Integer.MAX_VALUE)
+            this.rotations++;
+        this.yaw = yaw;
+        this.pitch = pitch;
+    }
+
+    // isTickPacket: movement packets count unless they answered a teleport
+    @GrimPacketHandler
+    @GrimPacketGroup(PacketGroup.SERVERBOUND_PLAYER_MOVEMENT)
+    public void onMovePlayer(PacketReceiveEvent event, GrimPlayer player, ServerboundMovePlayerPacket packet) {
+        if (!isApplicable()) return;
+        if (!player.cameraEntity.isSelf()) {
+            this.rotations = 0;
+            return;
+        }
+
+        if (this.rotations > 0 && !player.packetStateData.lastPacketWasTeleport) {
+            onTickPacket(player, packet instanceof ServerboundMovePlayerPacket.PosRot
+                    || packet instanceof ServerboundMovePlayerPacket.Rot);
+        }
+    }
+
+    // isTickPacket: tick end counts for 1.21.2+ clients when no movement arrived this client tick
+    @GrimPacketHandler
+    public void onClientTickEnd(PacketReceiveEvent event, GrimPlayer player, ServerboundClientTickEndPacket packet) {
+        if (!isApplicable()) return;
+        if (!player.cameraEntity.isSelf()) {
+            this.rotations = 0;
+            return;
+        }
+
+        if (this.rotations > 0
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && !player.packetStateData.receivedMovementThisClientTick) {
+            onTickPacket(player, false);
+        }
+    }
+
+    private void onTickPacket(GrimPlayer player, boolean rotationPacket) {
+        if (this.yaw != player.xRot || this.pitch != player.yRot) {
+
+            boolean allowLast = player.canSkipTicks() && rotationPacket;
+            if (!allowLast || this.yaw != player.lastTickXRot || this.pitch != player.lastTickYRot) {
+                while (this.rotations-- > 0) flag();
+            }
+        }
+        this.rotations = 0;
     }
 }

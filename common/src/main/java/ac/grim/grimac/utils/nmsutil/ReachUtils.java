@@ -3,38 +3,49 @@ package ac.grim.grimac.utils.nmsutil;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.Pair;
-import ac.grim.grimac.utils.math.GrimMath;
-import ac.grim.grimac.utils.math.Vector3dm;
 import ac.grim.grimac.utils.math.VectorUtils;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.world.BlockFace;
-import com.github.retrooper.packetevents.util.Vector3d;
-import lombok.experimental.UtilityClass;
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.bukkit.block.BlockFace;
+import org.bukkit.util.Vector;
 
-@UtilityClass
 public class ReachUtils {
     // Copied from 1.8... I couldn't figure out 1.14+. "Enterprise" java code is unreadable!
-    @Contract("_, _, _ -> new")
-    public static @NotNull Pair<@Nullable Vector3d, @Nullable BlockFace> calculateIntercept(@NotNull SimpleCollisionBox self, @NotNull Vector3d origin, @NotNull Vector3d end) {
-        Vector3d minX = getIntermediateWithXValue(origin, end, self.minX);
-        Vector3d maxX = getIntermediateWithXValue(origin, end, self.maxX);
-        Vector3d minY = getIntermediateWithYValue(origin, end, self.minY);
-        Vector3d maxY = getIntermediateWithYValue(origin, end, self.maxY);
-        Vector3d minZ = getIntermediateWithZValue(origin, end, self.minZ);
-        Vector3d maxZ = getIntermediateWithZValue(origin, end, self.maxZ);
+    // yes, i do see the irony of that statement considering i'm an enterprise java dev
+    // maybe that's why i write unreadable code
+    public static Pair<Vector, BlockFace> calculateIntercept(SimpleCollisionBox self, Vector origin, Vector end) {
+        Vector minX = getIntermediateWithXValue(origin, end, self.minX);
+        Vector maxX = getIntermediateWithXValue(origin, end, self.maxX);
+        Vector minY = getIntermediateWithYValue(origin, end, self.minY);
+        Vector maxY = getIntermediateWithYValue(origin, end, self.maxY);
+        Vector minZ = getIntermediateWithZValue(origin, end, self.minZ);
+        Vector maxZ = getIntermediateWithZValue(origin, end, self.maxZ);
 
-        if (!isVecInYZ(self, minX)) minX = null;
-        if (!isVecInYZ(self, maxX)) maxX = null;
-        if (!isVecInXZ(self, minY)) minY = null;
-        if (!isVecInXZ(self, maxY)) maxY = null;
-        if (!isVecInXY(self, minZ)) minZ = null;
-        if (!isVecInXY(self, maxZ)) maxZ = null;
-
-        Vector3d best = null;
         BlockFace bestFace = null;
+
+        if (!isVecInYZ(self, minX)) {
+            minX = null;
+        }
+
+        if (!isVecInYZ(self, maxX)) {
+            maxX = null;
+        }
+
+        if (!isVecInXZ(self, minY)) {
+            minY = null;
+        }
+
+        if (!isVecInXZ(self, maxY)) {
+            maxY = null;
+        }
+
+        if (!isVecInXY(self, minZ)) {
+            minZ = null;
+        }
+
+        if (!isVecInXY(self, maxZ)) {
+            maxZ = null;
+        }
+
+        Vector best = null;
 
         if (minX != null) {
             best = minX;
@@ -73,16 +84,16 @@ public class ReachUtils {
      * Returns a new vector with x value equal to the second parameter, along the line between this vector and the
      * passed in vector, or null if not possible.
      */
-    public static @Nullable Vector3d getIntermediateWithXValue(@NotNull Vector3d self, @NotNull Vector3d other, double x) {
-        double deltaX = other.getX() - self.getX();
-        double deltaY = other.getY() - self.getY();
-        double deltaZ = other.getZ() - self.getZ();
+    public static Vector getIntermediateWithXValue(Vector self, Vector other, double x) {
+        double d0 = other.getX() - self.getX();
+        double d1 = other.getY() - self.getY();
+        double d2 = other.getZ() - self.getZ();
 
-        if (deltaX * deltaX < 1.0000000116860974E-7D) {
+        if (d0 * d0 < 1.0000000116860974E-7D) {
             return null;
         } else {
-            double d3 = (x - self.getX()) / deltaX;
-            return d3 >= 0.0D && d3 <= 1.0D ? self.add(deltaX * d3, deltaY * d3, deltaZ * d3) : null;
+            double d3 = (x - self.getX()) / d0;
+            return d3 >= 0.0D && d3 <= 1.0D ? new Vector(self.getX() + d0 * d3, self.getY() + d1 * d3, self.getZ() + d2 * d3) : null;
         }
     }
 
@@ -90,16 +101,16 @@ public class ReachUtils {
      * Returns a new vector with y value equal to the second parameter, along the line between this vector and the
      * passed in vector, or null if not possible.
      */
-    public static @Nullable Vector3d getIntermediateWithYValue(@NotNull Vector3d self, @NotNull Vector3d other, double y) {
-        double deltaX = other.getX() - self.getX();
-        double deltaY = other.getY() - self.getY();
-        double deltaZ = other.getZ() - self.getZ();
+    public static Vector getIntermediateWithYValue(Vector self, Vector other, double y) {
+        double d0 = other.getX() - self.getX();
+        double d1 = other.getY() - self.getY();
+        double d2 = other.getZ() - self.getZ();
 
-        if (deltaY * deltaY < 1.0000000116860974E-7D) {
+        if (d1 * d1 < 1.0000000116860974E-7D) {
             return null;
         } else {
-            double d3 = (y - self.getY()) / deltaY;
-            return d3 >= 0.0D && d3 <= 1.0D ? self.add(deltaX * d3, deltaY * d3, deltaZ * d3) : null;
+            double d3 = (y - self.getY()) / d1;
+            return d3 >= 0.0D && d3 <= 1.0D ? new Vector(self.getX() + d0 * d3, self.getY() + d1 * d3, self.getZ() + d2 * d3) : null;
         }
     }
 
@@ -107,76 +118,65 @@ public class ReachUtils {
      * Returns a new vector with z value equal to the second parameter, along the line between this vector and the
      * passed in vector, or null if not possible.
      */
-    public static @Nullable Vector3d getIntermediateWithZValue(@NotNull Vector3d self, @NotNull Vector3d other, double z) {
-        double deltaX = other.getX() - self.getX();
-        double deltaY = other.getY() - self.getY();
-        double deltaZ = other.getZ() - self.getZ();
+    public static Vector getIntermediateWithZValue(Vector self, Vector other, double z) {
+        double d0 = other.getX() - self.getX();
+        double d1 = other.getY() - self.getY();
+        double d2 = other.getZ() - self.getZ();
 
-        if (deltaZ * deltaZ < 1.0000000116860974E-7D) {
+        if (d2 * d2 < 1.0000000116860974E-7D) {
             return null;
         } else {
-            double d3 = (z - self.getZ()) / deltaZ;
-            return d3 >= 0.0D && d3 <= 1.0D ? self.add(deltaX * d3, deltaY * d3, deltaZ * d3) : null;
+            double d3 = (z - self.getZ()) / d2;
+            return d3 >= 0.0D && d3 <= 1.0D ? new Vector(self.getX() + d0 * d3, self.getY() + d1 * d3, self.getZ() + d2 * d3) : null;
         }
     }
 
     /**
      * Checks if the specified vector is within the YZ dimensions of the bounding box. Args: Vec3D
      */
-    @Contract("_, null -> false")
-    private static boolean isVecInYZ(@NotNull SimpleCollisionBox self, @Nullable Vector3d vec) {
+    private static boolean isVecInYZ(SimpleCollisionBox self, Vector vec) {
         return vec != null && vec.getY() >= self.minY && vec.getY() <= self.maxY && vec.getZ() >= self.minZ && vec.getZ() <= self.maxZ;
     }
 
     /**
      * Checks if the specified vector is within the XZ dimensions of the bounding box. Args: Vec3D
      */
-    @Contract("_, null -> false")
-    private static boolean isVecInXZ(@NotNull SimpleCollisionBox self, @Nullable Vector3d vec) {
+    private static boolean isVecInXZ(SimpleCollisionBox self, Vector vec) {
         return vec != null && vec.getX() >= self.minX && vec.getX() <= self.maxX && vec.getZ() >= self.minZ && vec.getZ() <= self.maxZ;
     }
 
     /**
      * Checks if the specified vector is within the XY dimensions of the bounding box. Args: Vec3D
      */
-    @Contract("_, null -> false")
-    private static boolean isVecInXY(@NotNull SimpleCollisionBox self, @Nullable Vector3d vec) {
+    private static boolean isVecInXY(SimpleCollisionBox self, Vector vec) {
         return vec != null && vec.getX() >= self.minX && vec.getX() <= self.maxX && vec.getY() >= self.minY && vec.getY() <= self.maxY;
     }
 
-    // Look vector accounting for optifine FastMath, and client version differences
-    @Contract("_, _, _ -> new")
-    public static @NotNull Vector3dm getLook(@NotNull GrimPlayer player, float yaw, float pitch) {
-        if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_12_2)) {
-            float yawRadians = GrimMath.radians(-yaw) - (float) Math.PI;
-            float pitchRadians = GrimMath.radians(-pitch);
-            float pitchCos = -player.trigHandler.cos(pitchRadians);
-            float x = player.trigHandler.sin(yawRadians);
-            float y = player.trigHandler.sin(pitchRadians);
-            float z = player.trigHandler.cos(yawRadians);
-            return new Vector3dm(x * pitchCos, y, z * pitchCos);
-        } else {
-            float pitchRadians = GrimMath.radians(pitch);
-            float yawRadians = GrimMath.radians(-yaw);
-            float pitchCos = player.trigHandler.cos(pitchRadians);
-            float x = player.trigHandler.sin(yawRadians);
-            float y = player.trigHandler.sin(pitchRadians);
-            float z = player.trigHandler.cos(yawRadians);
-            return new Vector3dm(x * pitchCos, -y, z * pitchCos);
-        }
+    // Look vector accounting for optifine FastMath.
+    public static Vector getLook(GrimPlayer player, float yaw, float pitch) {
+        float f = pitch * ((float) Math.PI / 180F);
+        float f1 = -yaw * ((float) Math.PI / 180F);
+        float f2 = player.trigHandler.cos(f1);
+        float f3 = player.trigHandler.sin(f1);
+        float f4 = player.trigHandler.cos(f);
+        float f5 = player.trigHandler.sin(f);
+        return new Vector(f3 * f4, -f5, (double) (f2 * f4));
     }
 
-    public static boolean isVecInside(@NotNull SimpleCollisionBox self, @NotNull Vector3d vec) {
+    public static boolean isVecInside(SimpleCollisionBox self, Vector vec) {
         return vec.getX() > self.minX && vec.getX() < self.maxX && (vec.getY() > self.minY && vec.getY() < self.maxY && vec.getZ() > self.minZ && vec.getZ() < self.maxZ);
     }
 
-    public static double getMinReachToBox(@NotNull GrimPlayer player, @NotNull SimpleCollisionBox targetBox) {
+    public static double getMinReachToBox(GrimPlayer player, SimpleCollisionBox targetBox) {
+        boolean giveMovementThresholdLenience = true;
+
         double lowest = Double.MAX_VALUE;
 
-        final double[] possibleEyeHeights = player.getPossibleEyeHeights();
-        for (double eyes : possibleEyeHeights) {
-            Vector3dm closestPoint = VectorUtils.cutBoxToVector(player.x, player.y + eyes, player.z, targetBox);
-            lowest = Math.min(lowest, closestPoint.distance(player.x, player.y + eyes, player.z));
+        for (double eyes : player.getPossibleEyeHeights()) {
+            if (giveMovementThresholdLenience) targetBox.expand(player.getMovementThreshold());
+            Vector from = new Vector(player.x, player.y + eyes, player.z);
+            Vector closestPoint = VectorUtils.cutBoxToVector(from, targetBox);
+            lowest = Math.min(lowest, closestPoint.distance(from));
         }
 
         return lowest;

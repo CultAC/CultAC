@@ -19,24 +19,30 @@
 </div>
 
 GrimAC is an open source Minecraft anticheat designed to support the latest versions of Minecraft.
-It currently supports Minecraft versions 1.8–26.2. Geyser players are fully exempt from the anticheat to prevent false positives.
-This project is considered feature-complete for the 2.0 (open-source) branch. If you would like a bug fix or enhancement and cannot sponsor the work, pull requests are welcome.
-A premium version is planned, which will offer additional subscription-based paid checks, such as heuristics.
+
+**This repository is a fork of upstream Grim.** It keeps the GPLv3 Grim 2.0-modern base
+(checks, commands, config system, platform SPI) but replaces the PacketEvents dependency
+with a raw-NMS (non-PacketEvents) networking pipeline, replaces the 2.0 prediction engine
+with the 3.0 simulation engine, and adds a dedicated Bedrock simulation engine bridged
+through Geyser. See [NOTICE.port](NOTICE.port) for the port's licensing and attribution
+statement and [PORTING.md](PORTING.md) for the provenance index.
+
+- Bukkit/Paper only; the Fabric modules were removed in this fork.
+- Server support: 1.21.2+ (primary target Paper 26.2).
+- Java client support: 1.21.2+ via ViaVersion.
+- Bedrock client support: via Geyser/Floodgate. Bedrock players are simulated by the
+  Bedrock engine; they are no longer exempt from the anticheat.
 
 ## Downloads
 
-- Latest updates:
-  - **[Modrinth](https://modrinth.com/plugin/grimac)** *(recommended)*
-  - GitHub
-  artifacts: [Bukkit](https://nightly.link/GrimAnticheat/Grim/workflows/gradle-publish/2.0/grimac-bukkit.zip), [Fabric](https://nightly.link/GrimAnticheat/Grim/workflows/gradle-publish/2.0/grimac-fabric.zip) *(bleeding edge)*
-- Major releases only:
-  - ~~[Hangar](https://hangar.papermc.io/GrimAnticheat/GrimAnticheat)~~
-  - ~~[SpigotMC](https://www.spigotmc.org/resources/grim-anticheat.99923/)~~
+This fork is not published to Modrinth or Hangar; build it from source (see below).
+Upstream Grim releases are on [Modrinth](https://modrinth.com/plugin/grimac).
 
 ## Requirements & Installation
 
-- Java 17 or higher. *For more details, see [Updating-to-Java-17](https://github.com/GrimAnticheat/Grim/wiki/Updating-to-Java-17).*
-- A Spigot, Paper, Folia, or Fabric server environment. *For more details, see [Supported-environments](https://github.com/GrimAnticheat/Grim/wiki/Supported-environments).*
+- Java 21 or higher.
+- A Bukkit-platform server (Spigot, Paper, or Folia) running 1.21.2+. Paper 26.2 is the
+  primary and tested target.
 
 If you use a proxy such as Velocity or BungeeCord:
 - If you use Geyser, Floodgate must be installed on the backend server (where Grim is) so Grim can access the Floodgate API.
@@ -62,10 +68,10 @@ information.
 
 ## Compiling From Source
 
-1. `git clone https://github.com/GrimAnticheat/Grim.git`
-2. `cd Grim`
+1. `git clone <this repository>`
+2. `cd` into the cloned directory
 3. `./gradlew build`
-4. The final jars will compile into the `<platform>/build/libs` folders
+4. The final jar is at `bukkit/build/libs/`
 
 ## Grim Supremacy
 
@@ -77,18 +83,13 @@ What makes Grim stand out against other anticheats?
     * This covers everything from basic walking, swimming, knockback, cobwebs, to bubble columns
     * It even covers riding entities from boats to pigs to striders
 * Built upon covering edge cases to confirm accuracy
-* 1.13+ clients on 1.13+ servers, 1.12- clients on 1.13+ servers, 1.13+ clients on 1.12- servers,
-  and 1.12- clients on 1.12- servers are all supported regardless of the large technical changes
-  between these versions.
 * The order of collisions depends on the client version and is correct
-* Accounts for minor bounding box differences between versions, for example:
-    * Single glass panes will be a + shape for 1.7-1.8 players and * for 1.9+ players
-    * 1.13+ clients on 1.8 servers see the + glass pane hitbox due to ViaVersion
-    * Many other blocks have this extreme attention to detail.
-    * Waterlogged blocks do not exist for 1.12 or below players
+* Accounts for minor bounding box differences between client versions, for example:
     * Blocks that do not exist in the client's version use ViaVersion's replacement block
     * Block data that cannot be translated to previous versions is replaced correctly
     * All vanilla collision boxes have been implemented
+* Bedrock players are simulated by a dedicated Bedrock engine validated against
+  vanilla Bedrock client/server behavior, not exempted
 
 ### Fully asynchronous and multithreaded design
 

@@ -1,16 +1,21 @@
 package ac.grim.grimac.command.commands;
 
 import ac.grim.grimac.GrimAPI;
+import ac.grim.grimac.checks.impl.prediction.SuperDebug;
 import ac.grim.grimac.command.BuildableCommand;
-import ac.grim.grimac.manager.init.start.SuperDebug;
 import ac.grim.grimac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.grim.grimac.platform.api.sender.Sender;
 import ac.grim.grimac.utils.anticheat.LogUtil;
 import ac.grim.grimac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.utils.common.arguments.CommonGrimArguments;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
+import org.incendo.cloud.description.Description;
 import org.incendo.cloud.parser.standard.IntegerParser;
 import org.jetbrains.annotations.NotNull;
 
@@ -19,6 +24,9 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
 import java.util.function.Consumer;
 
 public class GrimLog implements BuildableCommand {
@@ -76,6 +84,9 @@ public class GrimLog implements BuildableCommand {
                 .literal("log", "logs")
                 .permission("grim.log")
                 .required("flagId", IntegerParser.integerParser())
+                .flag(commandManager.flagBuilder("save-to-file")
+                        .withAliases("l")
+                        .withDescription(Description.of("Write the debug log to the local debug-logs directory instead of uploading it")))
                 .handler(this::handleLog)
                 .manager(commandManager)
                 .build();
@@ -88,11 +99,41 @@ public class GrimLog implements BuildableCommand {
         Sender sender = context.sender();
         int flagId = context.get("flagId");
 
-        StringBuilder builder = SuperDebug.getFlag(flagId);
-        if (builder == null) {
+        String log = SuperDebug.getFlag(flagId);
+        if (log == null) {
             sender.sendMessage(MessageUtil.getParsedComponent(sender, "upload-log-not-found", "%prefix% &cUnable to find that log"));
             return;
         }
-        sendLogAsync(sender, builder.toString(), string -> {}, "text/yaml");
+
+        if (context.flags().hasFlag("save-to-file")) {
+            saveLogLocally(sender, flagId, log);
+            return;
+        }
+        sendLogAsync(sender, log, string -> {}, "text/yaml");
+    }
+
+    private static void saveLogLocally(Sender sender, int flagId, String log) {
+        sender.sendMessage(Component.text("Writing debug log locally...", NamedTextColor.GRAY));
+        GrimAPI.INSTANCE.getScheduler().getAsyncScheduler().runNow(GrimAPI.INSTANCE.getGrimPlugin(), () -> {
+            try {
+                Path directory = GrimAPI.INSTANCE.getGrimPlugin().getDataFolder().toPath().resolve("debug-logs");
+                Files.createDirectories(directory);
+
+                String fileName = "flag-" + flagId + "-" + Instant.now().toString().replace(':', '-') + ".txt";
+                Path path = directory.resolve(fileName).toAbsolutePath().normalize();
+                Files.writeString(path, log, StandardCharsets.UTF_8);
+
+                String pathString = path.toString();
+                sender.sendMessage(Component.text()
+                        .append(Component.text("Wrote debug log to: ", NamedTextColor.GRAY))
+                        .append(Component.text(pathString, NamedTextColor.AQUA)
+                                .clickEvent(ClickEvent.copyToClipboard(pathString))
+                                .hoverEvent(HoverEvent.showText(Component.text("Click to copy", NamedTextColor.GRAY))))
+                        .build());
+            } catch (IOException e) {
+                sender.sendMessage(Component.text("Failed to write debug log locally; see console for more information.", NamedTextColor.RED));
+                LogUtil.error("Failed to write debug log " + flagId + " locally", e);
+            }
+        });
     }
 }

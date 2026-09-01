@@ -15,239 +15,267 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package ac.grim.grimac.utils.data.packetentity;
 
+import ac.grim.grimac.network.packet.PacketCodecUtil;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.grim.grimac.utils.data.BoatData;
 import ac.grim.grimac.utils.data.ReachInterpolationData;
-import ac.grim.grimac.utils.data.TrackedPosition;
-import ac.grim.grimac.utils.data.attribute.ValuedAttribute;
-import ac.grim.grimac.utils.enums.Pose;
-import com.github.retrooper.packetevents.protocol.attribute.Attribute;
-import com.github.retrooper.packetevents.protocol.attribute.Attributes;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
-import com.github.retrooper.packetevents.protocol.item.ItemStack;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.EquipmentSlot;
-import com.github.retrooper.packetevents.protocol.potion.PotionType;
-import com.github.retrooper.packetevents.util.Vector3d;
-import it.unimi.dsi.fastutil.objects.Object2IntMap;
-import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import ac.grim.grimac.utils.enums.BoatEntityStatus;
+import ac.grim.grimac.utils.nmsutil.EntityTypesCompat;
+import ac.grim.grimac.utils.nmsutil.GetBoundingBox;
+import ac.grim.grimac.utils.nmsutil.EntityTypeUtil;
+import net.minecraft.world.phys.Vec3;
 import lombok.Getter;
+import net.minecraft.world.entity.EntityType;
+import org.bukkit.potion.PotionEffectType;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.IdentityHashMap;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.UUID;
 
 // You may not copy this check unless your anticheat is licensed under GPL
-public class PacketEntity extends TypedPacketEntity {
+public class PacketEntity {
+    public Vec3 desyncClientPos;
 
-    public final TrackedPosition trackedServerPosition;
-    protected final Map<Attribute, ValuedAttribute> attributeMap = new IdentityHashMap<>();
-    // TODO in what cases is UUID null in 1.9+?
-    @Getter
-    private final UUID uuid; // NULL ON VERSIONS BELOW 1.9 (or for some entities, apparently??)
-    @Getter
+    public EntityType type;
+
     public PacketEntity riding;
-    public final List<PacketEntity> passengers = new ArrayList<>(0);
+    public List<PacketEntity> passengers = new ArrayList<>(0);
     public boolean isDead = false;
     public boolean isBaby = false;
     public boolean hasGravity = true;
-    private ReachInterpolationData oldPacketLocation;
-    private ReachInterpolationData newPacketLocation;
-    /**
-     * Rotation the current interpolation is heading towards, mirroring vanilla
-     * {@code InterpolationHandler}'s target yRot/xRot. Only used to decide whether an
-     * incoming packet restates the running interpolation; the hitbox itself is
-     * position-only. Grim convention: xRot is yaw, yRot is pitch.
-     */
-    private float interpolationTargetXRot, interpolationTargetYRot;
-    private Object2IntMap<PotionType> potionsMap = null;
-    public boolean trackEntityEquipment = false;
-    private EnumMap<EquipmentSlot, ItemStack> equipment = null;
-    public Pose currentPose = Pose.STANDING;
-    public Pose transitionalPose = null;
+    public double gravity = 0.08D;
+    public boolean noAI = false;
+    public float scale = 1.0f;
+    public boolean onGround = false;
+    public Vec3 deltaMovement = Vec3.ZERO;
+    public Vec3 clientPhysicalPosition;
+    public boolean clientPhysicalPositionExact = true;
+    public float clientPhysicalYaw = 0.0F;
+    public float clientPhysicalPitch = 0.0F;
 
-    public PacketEntity(GrimPlayer player, EntityType type) {
-        super(type);
-        this.uuid = null;
-        initAttributes(player);
-        this.trackedServerPosition = new TrackedPosition();
+    public ReachInterpolationData oldPacketLocation;
+    public ReachInterpolationData newPacketLocation;
+    private long clientTickOrder = Long.MAX_VALUE;
+
+    public HashMap<PotionEffectType, Integer> potionsMap = null;
+    public BoatEntityStatus boatStatus = null;
+
+    @Getter private final int entityId;
+
+    public PacketEntity(EntityType type, int entityId) { this.entityId = entityId;
+        this.type = type;
     }
 
-    public PacketEntity(GrimPlayer player, UUID uuid, EntityType type, double x, double y, double z) {
-        super(type);
-        this.uuid = uuid;
-        initAttributes(player);
-        this.trackedServerPosition = new TrackedPosition();
-        this.trackedServerPosition.setPos(new Vector3d(x, y, z));
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) { // Thanks ViaVersion
-            trackedServerPosition.setPos(new Vector3d(((int) (x * 32)) / 32d, ((int) (y * 32)) / 32d, ((int) (z * 32)) / 32d));
-        }
-        final Vector3d pos = trackedServerPosition.getPos();
-        this.newPacketLocation = new ReachInterpolationData(player, new SimpleCollisionBox(pos.x, pos.y, pos.z, pos.x, pos.y, pos.z, false), trackedServerPosition, this);
+    public PacketEntity(GrimPlayer grimPlayer, int entityId, EntityType type, double x, double y, double z) {
+        this(type, entityId);
+        Vec3 spawnPosition = new Vec3(x, y, z);
+        this.desyncClientPos = spawnPosition;
+        this.clientPhysicalPosition = spawnPosition;
+        SimpleCollisionBox spawnBox = GetBoundingBox.getPacketEntityBoundingBox(grimPlayer, x, y, z, this);
+        boolean ridingInVehicle = grimPlayer.compensatedEntities.getSelf().inVehicle();
+        this.newPacketLocation = new ReachInterpolationData(grimPlayer, spawnBox, x, y, z, !ridingInVehicle, this, false);
     }
 
-    protected void trackAttribute(ValuedAttribute valuedAttribute) {
-        if (attributeMap.containsKey(valuedAttribute.attribute())) {
-            throw new IllegalArgumentException("Attribute already exists on entity!");
-        }
-        attributeMap.put(valuedAttribute.attribute(), valuedAttribute);
+    public EntityType getType() {
+        return type;
     }
 
-    protected void initAttributes(GrimPlayer player) {
-        trackAttribute(ValuedAttribute.ranged(Attributes.SCALE, 1.0, 0.0625, 16)
-                .requiredVersion(player, ClientVersion.V_1_20_5)
-                .withGetRewriter(this::clampScale));
-        trackAttribute(ValuedAttribute.ranged(Attributes.STEP_HEIGHT, 0.6f, 0, 10)
-                .requiredVersion(player, ClientVersion.V_1_20_5));
-        trackAttribute(ValuedAttribute.ranged(Attributes.GRAVITY, 0.08, -1, 1)
-                .requiredVersion(player, ClientVersion.V_1_20_5));
-        trackAttribute(ValuedAttribute.ranged(Attributes.AIR_DRAG_MODIFIER, 1.0, 0, 2048)
-                .requiredVersion(player, ClientVersion.V_26_2));
-        trackAttribute(ValuedAttribute.ranged(Attributes.BOUNCINESS, 0.0, 0, 1)
-                .requiredVersion(player, ClientVersion.V_26_2));
-        trackAttribute(ValuedAttribute.ranged(Attributes.FRICTION_MODIFIER, 1.0, 0, 2048)
-                .requiredVersion(player, ClientVersion.V_26_2));
+    public boolean isLivingEntity() {
+        return EntityTypeUtil.isLiving(type);
     }
 
-    public double clampScale(double scale) {
-        return scale;
+    public boolean isMinecart() {
+        return EntityTypeUtil.isMinecart(type);
     }
 
-    public Optional<ValuedAttribute> getAttribute(Attribute attribute) {
-        if (attribute == null) return Optional.empty();
-        return Optional.ofNullable(attributeMap.get(attribute));
+    public boolean isHorse() {
+        return EntityTypeUtil.isHorseFamily(type);
     }
 
-    public void setAttribute(Attribute attribute, double value) {
-        ValuedAttribute property = attributeMap.get(attribute);
-        if (property == null) {
-            throw new IllegalArgumentException("Cannot set attribute " + attribute.getName() + " for entity " + getType().getName() + "!");
-        }
-        property.override(value);
+    public boolean isAgeable() {
+        return EntityTypeUtil.isAgeable(type);
     }
 
-    public void beginPoseTransition(Pose targetPose) {
-        this.transitionalPose = targetPose;
+    public boolean isBoat() {
+        return EntityTypeUtil.isBoat(type);
     }
 
-    public void completePoseTransition(Pose finalPose) {
-        this.currentPose = finalPose;
-        this.transitionalPose = null;
+    public boolean isAnimal() {
+        return EntityTypeUtil.isAnimal(type);
     }
 
-    public double getAttributeValue(Attribute attribute) {
-        final ValuedAttribute property = attributeMap.get(attribute);
-        if (property == null) {
-            throw new IllegalArgumentException("Cannot get attribute " + attribute.getName() + " for entity " + getType().getName() + "!");
-        }
-        return property.get();
+    public boolean isSize() {
+        return type == EntityTypesCompat.PHANTOM || type == EntityTypesCompat.SLIME || type == EntityTypesCompat.MAGMA_CUBE;
     }
 
-    public void resetAttributes() {
-        attributeMap.values().forEach(ValuedAttribute::reset);
-    }
+    public boolean isStrider() { return type == EntityTypesCompat.STRIDER; }
 
     // Set the old packet location to the new one
     // Set the new packet location to the updated packet location
-    public void onFirstTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ,
-                                   @Nullable Float packetXRot, @Nullable Float packetYRot, GrimPlayer player) {
-        if (hasPos) {
-            if (relative) {
-                // This only matters for 1.9+ clients, but it won't hurt 1.8 clients either... align for imprecision
-                final double scale = trackedServerPosition.getScale();
-                Vector3d vec3d;
-                if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_16)) {
-                    vec3d = trackedServerPosition.withDelta(TrackedPosition.pack(relX, scale), TrackedPosition.pack(relY, scale), TrackedPosition.pack(relZ, scale));
-                } else {
-                    vec3d = trackedServerPosition.withDeltaLegacy(TrackedPosition.packLegacy(relX, scale), TrackedPosition.packLegacy(relY, scale), TrackedPosition.packLegacy(relZ, scale));
-                }
-                trackedServerPosition.setPos(vec3d);
-            } else {
-                trackedServerPosition.setPos(new Vector3d(relX, relY, relZ));
-                // ViaVersion desync's here for teleports
-                // It simply teleports the entity with its position divided by 32... ignoring the offset this causes.
-                // Thanks a lot ViaVersion!  Please don't fix this, or it will be a pain to support.
-                if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) {
-                    trackedServerPosition.setPos(new Vector3d(((int) (relX * 32)) / 32d, ((int) (relY * 32)) / 32d, ((int) (relZ * 32)) / 32d));
-                }
-            }
-        }
+    public void onFirstTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ, GrimPlayer player) {
+        onFirstTransaction(relative, hasPos, relX, relY, relZ, null, null, player, true);
+    }
 
-        // Vanilla's InterpolationHandler (1.21.5+) in 1.21.9+ only restarts the lerp when the
-        // incoming target differs from the one it is already heading towards, so a
-        // packet that merely restates the current target is a no-op client side.
-        // Restarting it here instead leaves our interpolation permanently trailing
-        // the client whenever a server re-sends the same position, which reads as
-        // the entity hitbox sitting slightly off and false flags Hitboxes/Reach.
-        //
-        // Strictly 1.21.9+. InterpolationHandler exists from 1.21.5 but without this
-        // equality guard, so 1.21.5 -> 1.21.8 really does restart on every packet
-        // (the same absence that reintroduced MC-255263 for those builds), as does
-        // the pre-1.21.5 Entity#lerpTo path. Restarting unconditionally is correct
-        // there, which is why the freeze modelling below stays untouched: its
-        // version range ends at 1.21.9, exactly where this begins.
-        //
-        // This covers rotation-only packets too. Vanilla routes them through
-        // Entity#moveOrInterpolateTo(yRot, xRot), whose absent position defaults to
-        // InterpolationHandler#position() - the current interpolation target while
-        // steps > 0 - so the position term compares equal and an unchanged rotation
-        // makes the whole packet a no-op.
-        //
-        // Skipping is safe for transaction splitting. We leave oldPacketLocation
-        // untouched, so an in-flight uncertainty window from an earlier packet is
-        // preserved rather than collapsed, and the redundant packet's own
-        // onSecondTransaction only clears a window that its transaction already
-        // proves the client has passed.
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_9)
-                && newPacketLocation.restatesTarget(trackedServerPosition.getPos(),
-                        packetXRot, packetYRot, interpolationTargetXRot, interpolationTargetYRot)) {
+    public void onFirstTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ,
+                                   @Nullable Float yaw, @Nullable Float pitch, GrimPlayer player) {
+        onFirstTransaction(relative, hasPos, relX, relY, relZ, yaw, pitch, player, true);
+    }
+
+    public void onBundleFirstTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ, GrimPlayer player) {
+        onBundleFirstTransaction(relative, hasPos, relX, relY, relZ, null, null, player);
+    }
+
+    public void onBundleFirstTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ,
+                                         @Nullable Float yaw, @Nullable Float pitch, GrimPlayer player) {
+        // MCP-Reborn ClientPacketListener#handleBundlePacket handles bundled
+        // sub-packets in order. The first bundled ClientboundPingPacket proves
+        // that any later client movement was produced after the packet handler
+        // reached this entity movement, but an external delimiter can still cut
+        // the bundle short. Keep old and new packet boxes possible until the
+        // post-entity ping closes that protocol-valid ambiguity.
+        onFirstTransaction(relative, hasPos, relX, relY, relZ, yaw, pitch, player, false);
+    }
+
+    private void onFirstTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ,
+                                    @Nullable Float yaw, @Nullable Float pitch,
+                                    GrimPlayer player, boolean uncertainInitialSteps) {
+        applyEntityPositionUpdate(relative, hasPos, relX, relY, relZ);
+        if (desyncClientPos == null) {
             return;
         }
 
-        if (packetXRot != null && packetYRot != null) {
-            this.interpolationTargetXRot = packetXRot;
-            this.interpolationTargetYRot = packetYRot;
+        float targetYaw = interpolationTargetYaw(yaw);
+        float targetPitch = interpolationTargetPitch(pitch);
+        if (matchesActiveInterpolationTarget(desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, targetYaw, targetPitch)) {
+            return;
         }
 
+        SimpleCollisionBox startingLocation = interpolationStartingLocation(player);
+        boolean ridingInVehicle = player.compensatedEntities.getSelf().inVehicle();
         this.oldPacketLocation = newPacketLocation;
-        // BUG FIX LOGIC for https://bugs.mojang.com/browse/MC-255263
-        // 1. We MUST check !hasPos. If hasPos is true, we must let standard interpolation (4-arg) run.
-        // 2. The 3-arg constructor is for versions where the client FREEZES (targets current pos) when rot only packets come in
-        if (!hasPos &&
-                // Logic for versions that FREEZE (Target = Current)
-                // 1.21.5 -> 1.21.8 (regression)
-                ((player.getClientVersion().isOlderThan(ClientVersion.V_1_21_9) && player.getClientVersion().isNewerThan(ClientVersion.V_1_21_4)) ||
-                        // 1.15 -> 1.20.1 (Old bug)
-                        (player.getClientVersion().isOlderThan(ClientVersion.V_1_20_2) && player.getClientVersion().isNewerThan(ClientVersion.V_1_14_4)))
-        ) {
-            // Apply Freeze Fix (Start = Box, Target = Box)
-            this.newPacketLocation = new ReachInterpolationData(
-                    player,
-                    oldPacketLocation.getPossibleLocationCombined(),
-                    this
-            );
-        } else {
-            // Standard Interpolation (Start = Box, Target = ServerPos)
-            // This naturally fixes the "Slowdown"/Interpolation Reset in 1.20.2-1.21.4 and 1.21.9+ resetting the lerp timer
-            this.newPacketLocation = new ReachInterpolationData(player, oldPacketLocation.getPossibleLocationCombined(), trackedServerPosition, this);
-        }
+        this.newPacketLocation = new ReachInterpolationData(player, startingLocation,
+                desyncClientPos.x, desyncClientPos.y, desyncClientPos.z,
+                clientPhysicalYaw, clientPhysicalPitch, targetYaw, targetPitch,
+                !ridingInVehicle, this, uncertainInitialSteps);
+    }
 
-        // In versions < 1.16.2 when the client receives non-relative teleport for an entity
-        // And they move less by the thresholds given, the entity does not move client side
-        if (hasPos && !relative && player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_16_1)) {
-            SimpleCollisionBox clientArea = newPacketLocation.getPossibleLocationCombined();
-            if (clientArea.distanceX(relX) < 0.03125D
-                    && clientArea.distanceY(relY) < 0.015625D
-                    && clientArea.distanceZ(relZ) < 0.03125D) {
-                newPacketLocation.expandNonRelative();
+    private void applyEntityPositionUpdate(boolean relative, boolean hasPos, double relX, double relY, double relZ) {
+        if (!hasPos) {
+            return;
+        }
+        desyncClientPos = relative
+                ? PacketCodecUtil.decodeRelativeEntityPosition(desyncClientPos, relX, relY, relZ)
+                : new Vec3(relX, relY, relZ);
+    }
+
+    public void onBundleTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ, GrimPlayer player) {
+        onBundleTransaction(relative, hasPos, relX, relY, relZ, null, null, player);
+    }
+
+    public void onBundleTransaction(boolean relative, boolean hasPos, double relX, double relY, double relZ,
+                                    @Nullable Float yaw, @Nullable Float pitch, GrimPlayer player) {
+        if (hasPos) {
+            if (relative) {
+                desyncClientPos = PacketCodecUtil.decodeRelativeEntityPosition(desyncClientPos, relX, relY, relZ);
+            } else {
+                desyncClientPos = new Vec3(relX, relY, relZ);
             }
         }
+
+        if (desyncClientPos == null) {
+            return;
+        }
+
+        SimpleCollisionBox startingLocation = interpolationStartingLocation(player);
+        float targetYaw = interpolationTargetYaw(yaw);
+        float targetPitch = interpolationTargetPitch(pitch);
+        if (matchesActiveInterpolationTarget(desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, targetYaw, targetPitch)) {
+            return;
+        }
+        this.oldPacketLocation = null;
+        this.newPacketLocation = new ReachInterpolationData(player, startingLocation,
+                desyncClientPos.x, desyncClientPos.y, desyncClientPos.z,
+                clientPhysicalYaw, clientPhysicalPitch, targetYaw, targetPitch,
+                !player.compensatedEntities.getSelf().inVehicle(), this, false);
+    }
+
+    private float interpolationTargetYaw(@Nullable Float yaw) {
+        if (yaw != null) {
+            return yaw;
+        }
+        return newPacketLocation != null && newPacketLocation.hasActiveInterpolationTarget()
+                ? newPacketLocation.getTargetYaw()
+                : clientPhysicalYaw;
+    }
+
+    private float interpolationTargetPitch(@Nullable Float pitch) {
+        if (pitch != null) {
+            return pitch;
+        }
+        return newPacketLocation != null && newPacketLocation.hasActiveInterpolationTarget()
+                ? newPacketLocation.getTargetPitch()
+                : clientPhysicalPitch;
+    }
+
+    public boolean matchesActiveInterpolationTarget(double x, double y, double z,
+                                                    @Nullable Float yaw, @Nullable Float pitch) {
+        return matchesActiveInterpolationTarget(x, y, z, interpolationTargetYaw(yaw), interpolationTargetPitch(pitch));
+    }
+
+    private boolean matchesActiveInterpolationTarget(double x, double y, double z, float yaw, float pitch) {
+        if (!hasExactActiveInterpolationTarget()) {
+            return false;
+        }
+
+        Vec3 target = positionFromCollisionBox(newPacketLocation.getTargetLocation());
+        return matchesPosition(target, x, y, z)
+                && Float.compare(newPacketLocation.getTargetYaw(), yaw) == 0
+                && Float.compare(newPacketLocation.getTargetPitch(), pitch) == 0;
+    }
+
+    private boolean matchesPosition(Vec3 position, double x, double y, double z) {
+        return matchesCoordinate(position.x, x)
+                && matchesCoordinate(position.y, y)
+                && matchesCoordinate(position.z, z);
+    }
+
+    private boolean matchesCoordinate(double expected, double actual) {
+        double tolerance = Math.max(Math.ulp(expected), Math.ulp(actual)) * 8.0D;
+        return Math.abs(expected - actual) <= tolerance;
+    }
+
+    private boolean hasExactActiveInterpolationTarget() {
+        return newPacketLocation != null
+                && newPacketLocation.hasActiveInterpolationTarget()
+                && newPacketLocation.getExactInterpolationStep() >= 0;
+    }
+
+    private SimpleCollisionBox interpolationStartingLocation(GrimPlayer player) {
+        if (hasUsableMountedPhysicalPosition(player)) {
+            return GetBoundingBox.getPacketEntityBoundingBox(player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
+        }
+
+        return newPacketLocation == null
+                ? GetBoundingBox.getPacketEntityBoundingBox(player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this)
+                : newPacketLocation.getPossibleMovementLocationCombined();
+    }
+
+    public void onBundledPositionSyncTransaction(double x, double y, double z, GrimPlayer player) {
+        onBundledPositionSyncTransaction(x, y, z, null, null, player);
+    }
+
+    public void onBundledPositionSyncTransaction(double x, double y, double z,
+                                                 @Nullable Float yaw, @Nullable Float pitch,
+                                                 GrimPlayer player) {
+        // MCP-Reborn ClientPacketListener#handleEntityPositionSync calls
+        // moveOrInterpolateTo for normal active entities. ClientLevel#isTickingEntity
+        // is membership in EntityTickList, not "currently inside this entity's
+        // tick", so nearby tracked entities keep their current box until their
+        // interpolation tick runs. The post-packet bundle ping proves the handler
+        // ran, not that interpolation has advanced.
+        onBundleTransaction(false, true, x, y, z, yaw, pitch, player);
     }
 
     // Remove the possibility of the old packet location
@@ -256,13 +284,170 @@ public class PacketEntity extends TypedPacketEntity {
     }
 
     // If the old and new packet location are split, we need to combine bounding boxes
-    public void onMovement(boolean tickingReliably) {
+    public void onMovement(GrimPlayer player, boolean tickingReliably) {
+        carryInterpolationTargetByLocalPhysics(player);
+        SimpleCollisionBox exactAfterClientTick = exactInterpolatedLocationAfterClientTick(player);
+        float exactYawAfterClientTick = exactYawAfterClientTick();
+        float exactPitchAfterClientTick = exactPitchAfterClientTick();
+        boolean exactRotationAfterClientTick = exactRotationAfterClientTick();
         newPacketLocation.tickMovement(oldPacketLocation == null, tickingReliably);
+        alignExactInterpolatedLocation(exactAfterClientTick);
+        if (exactRotationAfterClientTick) {
+            newPacketLocation.setExactRotation(exactYawAfterClientTick, exactPitchAfterClientTick);
+            clientPhysicalYaw = exactYawAfterClientTick;
+            clientPhysicalPitch = exactPitchAfterClientTick;
+        }
+        if (exactAfterClientTick != null) {
+            clientPhysicalPosition = positionFromCollisionBox(exactAfterClientTick);
+            clientPhysicalPositionExact = true;
+        } else {
+            clientPhysicalPositionExact = false;
+        }
 
         // Handle uncertainty of second transaction spanning over multiple ticks
         if (oldPacketLocation != null) {
             oldPacketLocation.tickMovement(true, tickingReliably);
-            newPacketLocation.updatePossibleStartingLocation(oldPacketLocation.getPossibleLocationCombined());
+            newPacketLocation.updatePossibleStartingLocation(oldPacketLocation.getPossibleMovementLocationCombined());
+        }
+
+    }
+
+    public void tickPacketInterpolationPreservingPhysical(GrimPlayer player, Vec3 physicalPosition) {
+        tickPacketInterpolationPreservingPhysical(player, physicalPosition, clientPhysicalYaw, clientPhysicalPitch);
+    }
+
+    public void tickPacketInterpolationPreservingPhysical(GrimPlayer player, Vec3 physicalPosition, float physicalYaw, float physicalPitch) {
+        tickPacketInterpolationPreservingPhysical(player, physicalPosition, physicalYaw, physicalPitch, true);
+    }
+
+    private void tickPacketInterpolationPreservingPhysical(GrimPlayer player,
+                                                           Vec3 physicalPosition,
+                                                           float physicalYaw,
+                                                           float physicalPitch,
+                                                           boolean carryTarget) {
+        if (carryTarget) {
+            carryInterpolationTargetByLocalPhysics(player);
+        }
+        SimpleCollisionBox exactAfterInterpolation = exactInterpolatedLocationAfterClientTick(player);
+        float exactYawAfterInterpolation = exactYawAfterClientTick();
+        float exactPitchAfterInterpolation = exactPitchAfterClientTick();
+        boolean exactRotationAfterInterpolation = exactRotationAfterClientTick();
+        if (newPacketLocation != null) {
+            newPacketLocation.tickMovement(oldPacketLocation == null, true);
+        }
+        alignExactInterpolatedLocation(exactAfterInterpolation);
+        if (newPacketLocation != null && exactRotationAfterInterpolation) {
+            newPacketLocation.setExactRotation(exactYawAfterInterpolation, exactPitchAfterInterpolation);
+        }
+
+        if (oldPacketLocation != null) {
+            oldPacketLocation.tickMovement(true, true);
+            newPacketLocation.updatePossibleStartingLocation(oldPacketLocation.getPossibleMovementLocationCombined());
+        }
+
+        this.clientPhysicalPosition = physicalPosition;
+        this.clientPhysicalPositionExact = true;
+        this.clientPhysicalYaw = physicalYaw;
+        this.clientPhysicalPitch = physicalPitch;
+    }
+
+    public void tickPacketInterpolationPreservingPhysical(GrimPlayer player, Vec3 physicalPosition, ReachInterpolationData interpolationData) {
+        tickPacketInterpolationPreservingPhysical(player, physicalPosition, interpolationData, clientPhysicalYaw, clientPhysicalPitch);
+    }
+
+    public void tickPacketInterpolationPreservingPhysical(GrimPlayer player,
+                                                          Vec3 physicalPosition,
+                                                          ReachInterpolationData interpolationData,
+                                                          float physicalYaw,
+                                                          float physicalPitch) {
+        this.oldPacketLocation = null;
+        this.newPacketLocation = interpolationData.copy();
+        tickPacketInterpolationPreservingPhysical(player, physicalPosition, physicalYaw, physicalPitch);
+    }
+
+    private void carryInterpolationTargetByLocalPhysics(GrimPlayer player) {
+        carryInterpolationTargetByLocalPhysics(player, newPacketLocation);
+    }
+
+    private void carryInterpolationTargetByLocalPhysics(GrimPlayer player, ReachInterpolationData interpolationData) {
+        if (interpolationData == null
+                || !interpolationData.hasActiveInterpolationTarget()
+                || !hasUsableMountedPhysicalPosition(player)) {
+            return;
+        }
+
+        SimpleCollisionBox currentInterpolationLocation = interpolationData.getExactMovementLocation();
+        if (currentInterpolationLocation == null) {
+            return;
+        }
+        Vec3 previousInterpolationPosition = positionFromCollisionBox(currentInterpolationLocation);
+        Vec3 physicalDelta = clientPhysicalPosition.subtract(previousInterpolationPosition);
+        interpolationData.shiftRootVehicleTargetIfCollisionFree(player, this, physicalDelta);
+        interpolationData.shiftTargetRotationByPhysical(clientPhysicalYaw, clientPhysicalPitch);
+        syncDesyncClientPosToInterpolationTarget(interpolationData);
+    }
+
+    private void syncDesyncClientPosToInterpolationTarget(ReachInterpolationData interpolationData) {
+        if (interpolationData == newPacketLocation && interpolationData.hasActiveInterpolationTarget()) {
+            this.desyncClientPos = positionFromCollisionBox(interpolationData.getTargetLocation());
+        }
+    }
+
+    private SimpleCollisionBox exactInterpolatedLocationAfterClientTick(GrimPlayer player) {
+        if (newPacketLocation == null
+                || !hasUsableMountedPhysicalPosition(player)
+                || oldPacketLocation != null) {
+            return newPacketLocation == null ? null : newPacketLocation.getExactMovementLocationAfterClientTick();
+        }
+
+        SimpleCollisionBox physicalLocation = GetBoundingBox.getPacketEntityBoundingBox(
+                player,
+                clientPhysicalPosition.x,
+                clientPhysicalPosition.y,
+                clientPhysicalPosition.z,
+                this
+        );
+        SimpleCollisionBox exactFromPhysical = newPacketLocation.getExactMovementLocationAfterClientTickFromPhysical(physicalLocation);
+        return exactFromPhysical == null
+                ? newPacketLocation.getExactMovementLocationAfterClientTick()
+                : exactFromPhysical;
+    }
+
+    private boolean exactRotationAfterClientTick() {
+        return newPacketLocation != null
+                && oldPacketLocation == null
+                && newPacketLocation.hasActiveInterpolationTarget()
+                && newPacketLocation.getExactInterpolationStep() >= 0;
+    }
+
+    private boolean hasUsableMountedPhysicalPosition(GrimPlayer player) {
+        return clientPhysicalPosition != null
+                && (clientPhysicalPositionExact || this == player.compensatedEntities.vehicles.getVelocityMovementVehicle());
+    }
+
+    private float exactYawAfterClientTick() {
+        return exactRotationAfterClientTick()
+                ? newPacketLocation.getExactYawAfterClientTickFromPhysical(clientPhysicalYaw)
+                : clientPhysicalYaw;
+    }
+
+    private float exactPitchAfterClientTick() {
+        return exactRotationAfterClientTick()
+                ? newPacketLocation.getExactPitchAfterClientTickFromPhysical(clientPhysicalPitch)
+                : clientPhysicalPitch;
+    }
+
+    private void alignExactInterpolatedLocation(SimpleCollisionBox exactLocation) {
+        if (newPacketLocation != null && exactLocation != null) {
+            newPacketLocation.setExactMovementLocation(exactLocation);
+        }
+    }
+
+    public void updateBoatStatus(GrimPlayer player) {
+        if (isBoat() && newPacketLocation != null) {
+            // MCP-Reborn AbstractBoat#tick updates status even for client-side
+            // non-controlled boats before deciding whether local physics runs.
+            boatStatus = BoatData.sampleStatus(player, getPossibleMovementCollisionBoxes()).status();
         }
     }
 
@@ -284,15 +469,44 @@ public class PacketEntity extends TypedPacketEntity {
     }
 
     // This is for handling riding and entities attached to one another.
-    public void setPositionRaw(GrimPlayer player, SimpleCollisionBox box) {
-        // I'm disappointed in you mojang.  Please don't set the packet position as it desyncs it...
-        // But let's follow this flawed client-sided logic!
-        this.trackedServerPosition.setPos(new Vector3d((box.maxX - box.minX) / 2 + box.minX, box.minY, (box.maxZ - box.minZ) / 2 + box.minZ));
-        // This disables interpolation
-        this.newPacketLocation = new ReachInterpolationData(player, box, this);
+    public void setPositionRaw(SimpleCollisionBox box) {
+        // The client snaps ridden/attached entities straight onto the packet
+        // position, desync be damned — mirror that flawed client-sided logic.
+        Vec3 snappedPosition = positionFromCollisionBox(box);
+        this.desyncClientPos = snappedPosition;
+        this.clientPhysicalPosition = snappedPosition;
+        this.clientPhysicalPositionExact = true;
+        // Snapping to an exact position means interpolation is disabled
+        this.newPacketLocation = new ReachInterpolationData(box);
     }
 
-    public SimpleCollisionBox getPossibleLocationBoxes() {
+    public void setPositionRaw(SimpleCollisionBox box, float yaw, float pitch) {
+        setPositionRaw(box);
+        setClientPhysicalRotation(yaw, pitch);
+        this.newPacketLocation.setCurrentAndTargetRotation(yaw, pitch);
+    }
+
+    public void setClientPhysicalRotation(float yaw, float pitch) {
+        this.clientPhysicalYaw = yaw;
+        this.clientPhysicalPitch = pitch;
+    }
+
+    private Vec3 positionFromCollisionBox(SimpleCollisionBox box) {
+        return new Vec3(
+                (box.maxX - box.minX) / 2 + box.minX,
+                box.minY,
+                (box.maxZ - box.minZ) / 2 + box.minZ
+        );
+    }
+
+    public void refreshDimensions(GrimPlayer player) {
+        if (desyncClientPos == null) {
+            return;
+        }
+        setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this));
+    }
+
+    public SimpleCollisionBox getPossibleCollisionBoxes() {
         if (oldPacketLocation == null) {
             return newPacketLocation.getPossibleLocationCombined();
         }
@@ -300,80 +514,61 @@ public class PacketEntity extends TypedPacketEntity {
         return ReachInterpolationData.combineCollisionBox(oldPacketLocation.getPossibleLocationCombined(), newPacketLocation.getPossibleLocationCombined());
     }
 
-    public SimpleCollisionBox getPossibleCollisionBoxes() {
+    public SimpleCollisionBox getPossibleMovementCollisionBoxes() {
         if (oldPacketLocation == null) {
-            return newPacketLocation.getPossibleHitboxCombined();
+            return newPacketLocation.getPossibleMovementLocationCombined();
         }
 
-        return ReachInterpolationData.combineCollisionBox(oldPacketLocation.getPossibleHitboxCombined(), newPacketLocation.getPossibleHitboxCombined());
+        return ReachInterpolationData.combineCollisionBox(oldPacketLocation.getPossibleMovementLocationCombined(), newPacketLocation.getPossibleMovementLocationCombined());
     }
 
-    public OptionalInt getPotionEffectLevel(PotionType effect) {
-        final int amplifier = potionsMap == null ? -1 : potionsMap.getInt(effect);
-        return amplifier == -1 ? OptionalInt.empty() : OptionalInt.of(amplifier);
+    public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidates() {
+        List<SimpleCollisionBox> candidates = new ArrayList<>();
+        if (oldPacketLocation != null) {
+            candidates.addAll(oldPacketLocation.getPossibleMovementLocations());
+        }
+        candidates.addAll(newPacketLocation.getPossibleMovementLocations());
+        return candidates;
     }
 
-    public boolean hasPotionEffect(PotionType effect) {
-        return potionsMap != null && potionsMap.containsKey(effect);
+    public SimpleCollisionBox getExactMovementCollisionBox() {
+        if (newPacketLocation == null || oldPacketLocation != null) {
+            return null;
+        }
+
+        List<SimpleCollisionBox> locations = newPacketLocation.getPossibleMovementLocations();
+        return locations.size() == 1 ? locations.getFirst() : null;
     }
 
-    public void addPotionEffect(PotionType effect, int amplifier) {
+    public long getClientTickOrder() {
+        return clientTickOrder;
+    }
+
+    public void setClientTickOrder(long clientTickOrder) {
+        this.clientTickOrder = clientTickOrder;
+    }
+
+    public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidatesAfterClientTick(boolean tickingReliably) {
+        return getPossibleMovementCollisionBoxCandidates();
+    }
+
+    public List<SimpleCollisionBox> getProcessedMovementCollisionBoxCandidatesAfterClientTick(boolean tickingReliably) {
+        return getPossibleMovementCollisionBoxCandidates();
+    }
+
+    public PacketEntity getRiding() {
+        return riding;
+    }
+
+    public void addPotionEffect(PotionEffectType effect, int amplifier) {
         if (potionsMap == null) {
-            potionsMap = new Object2IntOpenHashMap<>();
-            potionsMap.defaultReturnValue(-1);
+            potionsMap = new HashMap<>();
         }
         potionsMap.put(effect, amplifier);
     }
 
-    public void removePotionEffect(PotionType effect) {
+    public void removePotionEffect(PotionEffectType effect) {
         if (potionsMap == null) return;
-        potionsMap.removeInt(effect);
+        potionsMap.remove(effect);
     }
-
-    // Mojang makes this default to true and overrides it for everything where it isn't
-    // That's too much work for us to replicate...
-    // This is temporary hack and technically wrong
-    /* By Default every entity in the game cannot be hit by player crosshair. This is overwritten as follows as of 1.21.1:
-      Most Boats, Minecart's, TNT, Falling Blocks, and LivingEntities can only be hit if they're not removed
-      Every single BlockAttachedEntity can be hit (Leashes and other decorations)
-      End Crystals and IntersecetionEntities can be hit
-      Ender Dragon entity itself cannot be hit but its parts can be
-      ArmorStands can only be hit if they're not removed AND they're not markers.
-      Of all Projectiles, only redirectable ones (Fireballs - not blaze fireballs, Wind Charge, and Breeze Wind charges) can be hit
-      Persistent Projectiles can only be hit if they're not on the ground and redirectable
-    */
-    // TLDR If we want to get 90% of the way there everything can be hit except for fishing rod bobbers, arrows, and marker armor stands
-    public boolean canHit() {
-        return !this.isDead;
-    }
-
-    public void setItemBySlot(EquipmentSlot slot, ItemStack item) {
-        if (item == ItemStack.EMPTY && getItemBySlot(slot) == ItemStack.EMPTY) {
-            return;
-        }
-
-        if (equipment == null) {
-            equipment = new EnumMap<>(EquipmentSlot.class);
-        }
-
-        equipment.put(slot, item);
-    }
-
-    public ItemStack getItemBySlot(EquipmentSlot slot) {
-        if (equipment == null) {
-            return ItemStack.EMPTY;
-        }
-
-        return equipment.getOrDefault(slot, ItemStack.EMPTY);
-    }
-
-    public boolean hasItemInSlot(EquipmentSlot slot) {
-        if (equipment == null) {
-            return false;
-        }
-
-        ItemStack item = equipment.get(slot);
-        return item != null && !item.isEmpty();
-    }
-
 }

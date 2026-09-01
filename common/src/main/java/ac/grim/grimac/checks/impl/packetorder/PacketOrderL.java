@@ -3,20 +3,18 @@ package ac.grim.grimac.checks.impl.packetorder;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
 import ac.grim.grimac.checks.type.PostPredictionListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.DiggingAction;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientClientStatus;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerDigging;
+import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 
 import java.util.ArrayDeque;
 
 @CheckData(name = "PacketOrderL", stableKey = "grim.packetorder.drop_item_order", description = "Sent drop, inventory open, or offhand swap packets in an invalid order", experimental = true)
-public class PacketOrderL extends Check implements PacketReceiveListener, PostPredictionListener {
+public class PacketOrderL extends Check implements PostPredictionListener {
     private static final Verbose V = Verbose.of("[inventory|swap]");
 
     static final int ACTION_INVENTORY = 0;
@@ -28,35 +26,37 @@ public class PacketOrderL extends Check implements PacketReceiveListener, PostPr
 
     private final ArrayDeque<Integer> flags = new ArrayDeque<>();
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.CLIENT_STATUS) {
-            if (new WrapperPlayClientClientStatus(event).getAction() == WrapperPlayClientClientStatus.Action.OPEN_INVENTORY_ACHIEVEMENT) {
-                if (player.packetOrderProcessor.isDropping()) {
-                    if (!player.canSkipTicks()) {
-                        if (flag(V.write(verbose()).bool(true)) && shouldModifyPackets()) {
-                            event.setCancelled(true);
-                            player.onPacketCancel();
-                        }
-                    } else {
-                        flags.add(ACTION_INVENTORY);
-                    }
+
+    @GrimPacketHandler
+    public void onClientCommand(PacketReceiveEvent event, GrimPlayer player, ServerboundClientCommandPacket packet) {
+        // The 26.2 enum has no OPEN_INVENTORY_ACHIEVEMENT (removed in 1.12)
+        if (!packet.getAction().name().equals("OPEN_INVENTORY_ACHIEVEMENT")) return;
+
+        if (player.packetOrderProcessor.isDropping()) {
+            if (!player.canSkipTicks()) {
+                if (flag(V.write(verbose()).bool(true)) && shouldModifyPackets()) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
                 }
+            } else {
+                flags.add(ACTION_INVENTORY);
             }
         }
+    }
 
-        if (event.getPacketType() == PacketType.Play.Client.PLAYER_DIGGING) {
-            if (new WrapperPlayClientPlayerDigging(event).getAction() == DiggingAction.SWAP_ITEM_WITH_OFFHAND) {
-                if (player.packetOrderProcessor.isDropping()) {
-                    if (!player.canSkipTicks()) {
-                        if (flag(V.write(verbose()).bool(false)) && shouldModifyPackets()) {
-                            event.setCancelled(true);
-                            player.onPacketCancel();
-                        }
-                    } else {
-                        flags.add(ACTION_SWAP);
-                    }
+
+    @GrimPacketHandler
+    public void onPlayerAction(PacketReceiveEvent event, GrimPlayer player, ServerboundPlayerActionPacket packet) {
+        if (packet.getAction() != ServerboundPlayerActionPacket.Action.SWAP_ITEM_WITH_OFFHAND) return;
+
+        if (player.packetOrderProcessor.isDropping()) {
+            if (!player.canSkipTicks()) {
+                if (flag(V.write(verbose()).bool(false)) && shouldModifyPackets()) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
                 }
+            } else {
+                flags.add(ACTION_SWAP);
             }
         }
     }

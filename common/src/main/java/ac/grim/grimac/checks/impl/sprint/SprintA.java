@@ -6,7 +6,8 @@ import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.type.PostPredictionListener;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
+import ac.grim.grimac.utils.data.packetentity.PacketEntity;
+import ac.grim.grimac.utils.nmsutil.EntityTypesCompat;
 
 @CheckData(name = "SprintA", stableKey = "grim.sprint.hunger", description = "Sprinting with too low hunger", setback = 0)
 public class SprintA extends Check implements PostPredictionListener {
@@ -18,11 +19,13 @@ public class SprintA extends Check implements PostPredictionListener {
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!predictionComplete.isChecked()) return;
+
+        if (predictionComplete.isTeleport() || predictionComplete.isExempt()) return;
 
         // Players can sprint if they're able to fly
         // Players can also sprint if they are on a camel, regardless of their hunger level
-        if (player.canFly || EntityTypes.isTypeInstanceOf(player.getVehicleType(), EntityTypes.CAMEL)) return;
+        PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
+        if (player.canFly || (riding != null && riding.type == EntityTypesCompat.CAMEL)) return;
 
         if (player.food <= 6.0F) {
             if (player.isSprinting) {

@@ -2,15 +2,14 @@ package ac.grim.grimac.checks.impl.misc;
 
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.checks.type.BlockPlaceCheck;
-import ac.grim.grimac.checks.type.BlockPlaceListener;
 import ac.grim.grimac.platform.api.world.PlatformWorld;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
-import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
-import com.github.retrooper.packetevents.util.Vector3i;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.NotNull;
 
-public class GhostBlockMitigation extends BlockPlaceCheck implements BlockPlaceListener {
+public class GhostBlockMitigation extends BlockPlaceCheck {
 
     private boolean allow;
     private int distance;
@@ -24,7 +23,7 @@ public class GhostBlockMitigation extends BlockPlaceCheck implements BlockPlaceL
         if (allow || player.platformPlayer == null) return;
 
         PlatformWorld world = player.platformPlayer.getWorld();
-        Vector3i pos = place.getPlacedBlockPos();
+        BlockPos pos = place.getPlacedBlockPos();
 
         int x = pos.getX();
         int y = pos.getY();
@@ -42,9 +41,9 @@ public class GhostBlockMitigation extends BlockPlaceCheck implements BlockPlaceL
                             continue;
                         }
 
-                        WrappedBlockState type = world.getBlockAt(i, j, k);
+                        BlockState type = world.getBlockAt(i, j, k);
 
-                        if (!type.getType().isAir()) {
+                        if (!type.isAir()) {
                             return;
                         }
                     }

@@ -1,101 +1,91 @@
 package ac.grim.grimac.utils.latency;
 
-import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.player.GrimPlayer;
-import ac.grim.grimac.utils.anticheat.LogUtil;
-import ac.grim.grimac.utils.anticheat.MessageUtil;
-import ac.grim.grimac.utils.common.arguments.CommonGrimArguments;
-import ac.grim.grimac.utils.data.IntToObjectPair;
-
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.ListIterator;
+import ac.grim.grimac.network.netty.channel.ChannelHelper;
 
 public class LatencyUtils {
-    private final LinkedList<IntToObjectPair<Runnable>> transactionMap = new LinkedList<>();
+    private final LatencyTaskQueue transactionMap = new LatencyTaskQueue();
     private final GrimPlayer player;
-
-    // Built from transactionMap and cleared at start of every handleNettySyncTransaction() call
-    // The actual usage scope of this variable's use is limited to within the synchronized block of handleNettySyncTransaction
-    private final ArrayList<Runnable> tasksToRun = new ArrayList<>();
 
     public LatencyUtils(GrimPlayer player) {
         this.player = player;
+    }
+
+    // run when not on the player's netty thread
+    public void addRealTimeTaskNowAsync(Runnable task) {
+        addRealTimeTask(player.lastTransactionSent.get(), true, task);
+    }
+
+    public void addRealTimeTaskNextAsync(Runnable task) {
+        addRealTimeTask(player.lastTransactionSent.get() + 1, true, task);
+    }
+
+    public void addRealTimeTaskNow(Runnable task) {
+        addRealTimeTask(player.lastTransactionSent.get(), task);
+    }
+
+    public void addRealTimeTaskNext(Runnable task) {
+        addRealTimeTask(player.lastTransactionSent.get() + 1, task);
     }
 
     public void addRealTimeTask(int transaction, Runnable runnable) {
         addRealTimeTask(transaction, false, runnable);
     }
 
-    public void addRealTimeTaskAsync(int transaction, Runnable runnable) {
-        addRealTimeTask(transaction, true, runnable);
+    private Thread nettyThread = null;
+
+    public boolean isThreadDebugEnabled() { return this.nettyThread != null; }
+
+    public void disableThreadDebug() { this.nettyThread = null; }
+
+    public void enableThreadDebug() { this.nettyThread = Thread.currentThread(); }
+
+    private void assertNettyThread() {
+        if (this.nettyThread != null && Thread.currentThread() != this.nettyThread) throw new RuntimeException("Task ran on incorrect thread!");
     }
 
-    public void addRealTimeTask(int transaction, boolean async, Runnable runnable) {
+    public void addRealTimeTask(int transaction, boolean async, Runnable task) {
+        assertNettyThread();
         if (player.lastTransactionReceived.get() >= transaction) { // If the player already responded to this transaction
             if (async) {
-                player.runSafely(runnable);
+                ChannelHelper.runInEventLoop(player.user.getChannel(), task);
             } else {
-                runnable.run();
+                task.run();
             }
             return;
         }
-        synchronized (this) {
-            transactionMap.add(new IntToObjectPair<>(transaction, runnable));
+        transactionMap.add(transaction, task);
+    }
+
+    public void addRealTimeTaskWithNextTransaction(int transaction, Runnable runnable, Runnable nextTransactionRunnable) {
+        assertNettyThread();
+        if (player.lastTransactionReceived.get() >= transaction) { // If the player already responded to this transaction
+            runnable.run();
+            addRealTimeTask(transaction + 1, nextTransactionRunnable);
+            return;
         }
+        transactionMap.addWithNextTransaction(transaction, runnable, nextTransactionRunnable);
     }
 
     public void handleNettySyncTransaction(int transaction) {
-        /*
-         * This code uses a two-pass approach within the synchronized block to prevent CMEs.
-         * First we collect and remove tasks using the iterator, then execute all collected tasks.
-         *
-         * The issue:
-         *     We cannot execute tasks during iteration because if a runnable modifies transactionMap
-         *     or calls addRealTimeTask, it will cause a ConcurrentModificationException.
-         *     While only seen on Folia servers, this is theoretically possible everywhere.
-         *
-         * Why this solution:
-         *     Rather than documenting "don't modify transactionMap in runnables" and risking subtle
-         *     bugs from future contributions or Check API usage, we prevent the issue entirely
-         *     at a small performance cost.
-         *
-         * Future considerations:
-         *     If this becomes a performance bottleneck, we may revisit using a single-pass approach
-         *     on non-Folia servers. We could also explore concurrent data structures or parallel
-         *     execution, but this would lose the guarantee that transactions are processed in order.
-         */
-        synchronized (this) {
-            tasksToRun.clear();
+        LatencyTaskQueue.TaskNode drained = transactionMap.drainReady(transaction);
+        while (drained != null) {
+            // Capture the link before clearing/running: the queued task may
+            // enqueue further work and mutate node links.
+            LatencyTaskQueue.TaskNode following = drained.next();
+            Runnable queuedTask = drained.runnable();
+            drained.clear();
+            runQueuedTask(queuedTask);
+            drained = following;
+        }
+    }
 
-            // First pass: collect tasks and mark them for removal
-            ListIterator<IntToObjectPair<Runnable>> iterator = transactionMap.listIterator();
-            while (iterator.hasNext()) {
-                IntToObjectPair<Runnable> pair = iterator.next();
-
-                // We are at most a tick ahead when running tasks based on transactions, meaning this is too far
-                if (transaction + 1 < pair.first())
-                    break;
-
-                // This is at most tick ahead of what we want
-                if (transaction == pair.first() - 1)
-                    continue;
-
-                tasksToRun.add(pair.second());
-                iterator.remove();
-            }
-
-            for (Runnable runnable : tasksToRun) {
-                try {
-                    runnable.run();
-                } catch (Exception e) {
-                    LogUtil.error("An error has occurred when running transactions for player: " + player.user.getName(), e);
-                    // Kick the player SO PEOPLE ACTUALLY REPORT PROBLEMS AND KNOW WHEN THEY HAPPEN
-                    if (CommonGrimArguments.KICK_ON_TRANSACTION_ERRORS.value()) {
-                        player.disconnect(MessageUtil.miniMessage(MessageUtil.replacePlaceholders(player, GrimAPI.INSTANCE.getConfigManager().getDisconnectPacketError())));
-                    }
-                }
-            }
+    private void runQueuedTask(Runnable queuedTask) {
+        try {
+            queuedTask.run();
+        } catch (Exception e) {
+            System.out.println("An error has occurred when running transactions for player: " + player.user.getName());
+            e.printStackTrace();
         }
     }
 }

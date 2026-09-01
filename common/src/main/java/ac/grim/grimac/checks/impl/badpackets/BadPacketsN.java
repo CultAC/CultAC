@@ -1,11 +1,12 @@
 package ac.grim.grimac.checks.impl.badpackets;
 
 import ac.grim.grimac.checks.Check;
+import ac.grim.grimac.checks.type.CheckListener;
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.player.GrimPlayer;
 
 @CheckData(name = "BadPacketsN", stableKey = "grim.badpackets.invalid_teleport", description = "Ignored or failed to accept a required server teleport")
-public class BadPacketsN extends Check {
+public class BadPacketsN extends Check implements CheckListener {
     public BadPacketsN(final GrimPlayer player) {
         super(player);
     }

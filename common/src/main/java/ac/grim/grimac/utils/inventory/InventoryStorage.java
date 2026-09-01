@@ -1,24 +1,26 @@
 package ac.grim.grimac.utils.inventory;
 
-import com.github.retrooper.packetevents.protocol.item.ItemStack;
-import lombok.Getter;
+import org.bukkit.inventory.ItemStack;
 
 public class InventoryStorage {
-    private final ItemStack[] items;
-    @Getter
-    private final int size;
+    protected ItemStack[] items;
+    int size;
 
     public InventoryStorage(int size) {
         this.items = new ItemStack[size];
         this.size = size;
 
         for (int i = 0; i < size; i++) {
-            items[i] = ItemStack.EMPTY;
+            items[i] = ItemStack.empty();
         }
     }
 
+    public int getSize() {
+        return size;
+    }
+
     public void setItem(int item, ItemStack stack) {
-        items[item] = stack == null ? ItemStack.EMPTY : stack;
+        items[item] = stack == null ? ItemStack.empty() : stack;
     }
 
     public ItemStack getItem(int index) {
@@ -26,7 +28,9 @@ public class InventoryStorage {
     }
 
     public ItemStack removeItem(int slot, int amount) {
-        return slot >= 0 && slot < size && !items[slot].isEmpty() && amount > 0 ? items[slot].split(amount) : ItemStack.EMPTY;
+        return slot >= 0 && slot < items.length && !items[slot].isEmpty() && amount > 0
+                ? ItemUtil.split(items[slot], amount)
+                : ItemStack.empty();
     }
 
     public int getMaxStackSize() {

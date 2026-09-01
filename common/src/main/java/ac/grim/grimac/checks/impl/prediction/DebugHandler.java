@@ -1,35 +1,47 @@
+
 package ac.grim.grimac.checks.impl.prediction;
 
-import ac.grim.grimac.GrimAPI;
-import ac.grim.grimac.checks.debug.AbstractDebugHandler;
+import ac.grim.grimac.bedrock.prediction.BedrockPredictionDebug;
+import ac.grim.grimac.checks.GrimProcessor;
+import ac.grim.grimac.checks.impl.prediction.profile.MovementProfiles;
+import ac.grim.grimac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
+import ac.grim.grimac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty;
 import ac.grim.grimac.checks.type.PostPredictionListener;
-import ac.grim.grimac.platform.api.sender.Sender;
 import ac.grim.grimac.player.GrimPlayer;
+import ac.grim.grimac.utils.anticheat.LogUtil;
+import ac.grim.grimac.utils.anticheat.NumFormatter;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import ac.grim.grimac.utils.lists.EvictingQueue;
-import ac.grim.grimac.utils.math.Vector3dm;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.minimessage.MiniMessage;
-
+import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
+import com.google.common.collect.ImmutableSet;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArraySet;
+import net.minecraft.world.phys.Vec3;
+import org.bukkit.ChatColor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 
-public class DebugHandler extends AbstractDebugHandler implements PostPredictionListener {
-    private static final Component GRAY_ARROW = MiniMessage.miniMessage().deserialize("<gray>→0.03→</gray>");
-    private static final Component P_PREFIX = MiniMessage.miniMessage().deserialize("<reset>P: </reset>");
-    private static final Component A_PREFIX = MiniMessage.miniMessage().deserialize("<reset>A: </reset>");
-    private static final Component O_PREFIX = MiniMessage.miniMessage().deserialize("<reset>O: </reset>");
+//@CheckData(name = "Prediction (Debug)")
+public class DebugHandler extends GrimProcessor implements PostPredictionListener {
 
-    private final Set<GrimPlayer> listeners = new CopyOnWriteArraySet<>(new HashSet<>());
-    private boolean outputToConsole = false;
-    private boolean enabledFlags = false;
-    private boolean lastMovementIsFlag = false;
+    final static Set<UUID> DEVELOPERS = ImmutableSet.of(
+            UUID.fromString("aadd63d0-e545-4cc2-8449-734a6dba0b85"),
+            UUID.fromString("12f4db7a-8b9c-48d9-8571-533ca27170f0")
+    );
 
-    private final EvictingQueue<Component> predicted = new EvictingQueue<>(5);
-    private final EvictingQueue<Component> actually = new EvictingQueue<>(5);
-    private final EvictingQueue<Component> offset = new EvictingQueue<>(5);
+    public static boolean isDeveloper(CommandSender commandSender) {
+        if (!(commandSender instanceof Player bukkitPlayer)) return false;
+        return DEVELOPERS.contains(bukkitPlayer.getUniqueId());
+    }
+
+    public static boolean isDeveloper(UUID uuid) { return DEVELOPERS.contains(uuid); }
+
+    Set<Player> listeners = new CopyOnWriteArraySet<>(new HashSet<>());
+    boolean outputToConsole = false;
+
+    boolean enabledFlags = false;
+    boolean lastMovementIsFlag = false;
 
     public DebugHandler(GrimPlayer player) {
         super(player);
@@ -37,109 +49,207 @@ public class DebugHandler extends AbstractDebugHandler implements PostPrediction
 
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
-        if (!predictionComplete.isChecked()) return;
+        if (predictionComplete.isTeleport()) return;
 
-        double offset = predictionComplete.getOffset();
+        PredictionResult result = predictionComplete.getPredictionResult();
+        PredictionResult lastResult = player.checkManager.getSimulationProcessor().getLastPrediction();
+        BedrockPredictionDebug.MovementDebugView debugView = BedrockPredictionDebug.movementDebugView(
+                player,
+                result,
+                getDebugPredictionVector(result));
+        double offset = debugView.offset();
+        Vec3 predictedWithInputs = debugView.predictedWithInputs();
+        Vec3 target = debugView.target();
 
         if (listeners.isEmpty() && !outputToConsole) return;
-        if (player.predictedVelocity.vector.lengthSquared() == 0 && offset == 0) return;
 
-        String color = pickColor(offset, offset);
+        boolean inVehicle = isVehiclePrediction(result);
+        boolean positionsTooUncertain = positionsTooUncertainToCheck(inVehicle);
+        boolean fullyExempt = predictionComplete.isExempt() && !positionsTooUncertain;
+        ChatColor color = debugView.missingObservation() ? ChatColor.GRAY : pickColor(offset, positionsTooUncertain, fullyExempt);
+        ChatColor labelColor = positionsTooUncertain ? ChatColor.GRAY : fullyExempt ? ChatColor.BLUE : ChatColor.WHITE;
+        String external = formatExternalMovementDebug(result, lastResult, externalUncertaintyColor(positionsTooUncertain, fullyExempt));
 
-        Vector3dm predicted = player.predictedVelocity.vector;
-        Vector3dm actually = player.actualMovement;
+        // This is pointless debug unless an external movement uncertainty is active.
+        if (!debugView.missingObservation() && target.lengthSqr() == 0 && offset == 0 && external == null) return;
 
-        String xColor = pickColor(Math.abs(predicted.getX() - actually.getX()), offset);
-        String yColor = pickColor(Math.abs(predicted.getY() - actually.getY()), offset);
-        String zColor = pickColor(Math.abs(predicted.getZ() - actually.getZ()), offset);
+        String p = labelColor + "P: " + color + NumFormatter.formatVectorDebug(predictedWithInputs);
+        String a = labelColor + "A: " + color + NumFormatter.formatVector(target);
+        String o = labelColor + "O: " + color + (debugView.missingObservation()
+                ? "engine-missing"
+                : formatOffsetDebug(offset));
+        String b = outputToConsole ? BedrockPredictionDebug.formatConsoleDebug(player, predictionComplete, labelColor, color) : null;
 
-        Component p = Component.empty()
-                .append(P_PREFIX.color(NamedTextColor.NAMES.value(color)))
-                .append(Component.text(predicted.getX()).color(NamedTextColor.NAMES.value(xColor)))
-                .append(Component.space())
-                .append(Component.text(predicted.getY()).color(NamedTextColor.NAMES.value(yColor)))
-                .append(Component.space())
-                .append(Component.text(predicted.getZ()).color(NamedTextColor.NAMES.value(zColor)));
+        String prefix = player.bukkitPlayer == null ? "null" : player.bukkitPlayer.getName() + " ";
 
-        Component a = Component.empty()
-                .append(A_PREFIX.color(NamedTextColor.NAMES.value(color)))
-                .append(Component.text(actually.getX()).color(NamedTextColor.NAMES.value(xColor)))
-                .append(Component.space())
-                .append(Component.text(actually.getY()).color(NamedTextColor.NAMES.value(yColor)))
-                .append(Component.space())
-                .append(Component.text(actually.getZ()).color(NamedTextColor.NAMES.value(zColor)));
+        // Don't memory leak player references
+        listeners.removeIf(player -> !player.isOnline());
 
-        String canSkipTick = (player.couldSkipTick + " ").substring(0, 1);
-        String actualMovementSkip = (player.skippedTickInActualMovement + "").charAt(0) + " ";
-        Component o = Component.empty()
-                .append(Component.text(canSkipTick).color(NamedTextColor.GRAY))
-                .append(GRAY_ARROW)
-                .append(Component.text(actualMovementSkip).color(NamedTextColor.GRAY))
-                .append(O_PREFIX.color(NamedTextColor.NAMES.value(color)))
-                .append(Component.text(offset));
-
-        String prefix = player.platformPlayer == null ? "null" : player.platformPlayer.getName() + " ";
-        Component prefixComponent = Component.text(prefix);
-
-        boolean thisFlag = !color.equals("gray") && !color.equals("green");
-        if (enabledFlags) {
-            if (lastMovementIsFlag) {
-                this.predicted.clear();
-                this.actually.clear();
-                this.offset.clear();
+        for (Player player : listeners) {
+            // Don't add prefix if the player is listening to oneself
+            player.sendMessage((player == getPlayer().bukkitPlayer ? "" : prefix) + p);
+            player.sendMessage((player == getPlayer().bukkitPlayer ? "" : prefix) + a);
+            if (inVehicle) {
+                player.sendMessage((player == getPlayer().bukkitPlayer ? "" : prefix) + o);
+            } else {
+                player.sendMessage((player == getPlayer().bukkitPlayer ? "" : prefix) + o);
+                if (external != null) {
+                    player.sendMessage((player == getPlayer().bukkitPlayer ? "" : prefix) + external);
+                }
             }
-            this.predicted.add(p);
-            this.actually.add(a);
-            this.offset.add(o);
-            lastMovementIsFlag = thisFlag;
-        }
 
-        if (thisFlag) {
-            for (int i = 0; i < this.predicted.size(); i++) {
-                player.user.sendMessage(this.predicted.get(i));
-                player.user.sendMessage(this.actually.get(i));
-                player.user.sendMessage(this.offset.get(i));
+            // Java valid-movement envelopes are not authoritative for Bedrock authored-input prediction.
+            if (player == getPlayer().bukkitPlayer && getPlayer().bedrockState == null) {
+                ChatColor uncertaintyColor = positionsTooUncertain ? ChatColor.GRAY : fullyExempt ? ChatColor.BLUE : ChatColor.LIGHT_PURPLE;
+                SimpleCollisionBox validStarting = result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents().copy();
+
+                for (PredictionResult reality : result.getRealities()) {
+                    validStarting.union(reality.getValidMovements().getCollisionIgnoredMaxStartingVelExtents());
+                }
+
+                Vec3 max = validStarting.max();
+                Vec3 min = validStarting.min();
+
+                max = CollisionModifier.transformWithCollisions(result.getSimulationContext(), result.getCollideAxisData(), new PredVector(max), target);
+                min = CollisionModifier.transformWithCollisions(result.getSimulationContext(), result.getCollideAxisData(), new PredVector(min), target);
+
+                if (!max.equals(min)) {
+                    player.sendMessage(uncertaintyColor + NumFormatter.formatVector(min));
+                    player.sendMessage(uncertaintyColor + NumFormatter.formatVector(max));
+                }
             }
         }
-
-        for (GrimPlayer listener : listeners) {
-            Component listenerPrefix = listener == getPlayer() ? Component.empty() : prefixComponent;
-            listener.sendMessage(listenerPrefix.append(p));
-            listener.sendMessage(listenerPrefix.append(a));
-            listener.sendMessage(listenerPrefix.append(o));
-        }
-
-        listeners.removeIf(player -> player.platformPlayer != null && !player.platformPlayer.isOnline());
 
         if (outputToConsole) {
-            Sender consoleSender = GrimAPI.INSTANCE.getPlatformServer().getConsoleSender();
-            consoleSender.sendMessage(p);
-            consoleSender.sendMessage(a);
-            consoleSender.sendMessage(o);
+            LogUtil.info(prefix + p);
+            LogUtil.info(prefix + a);
+            if (inVehicle) {
+                LogUtil.info(prefix + o);
+            } else {
+                if (b != null) {
+                    LogUtil.info(prefix + b);
+                }
+                if (external != null) {
+                    LogUtil.info(prefix + external);
+                }
+            }
+            if (!inVehicle) {
+                LogUtil.info("FROM: " + player.lastX + " " + player.lastY + " " + player.lastZ);
+                LogUtil.info("TO: " + player.x + " " + player.y + " " + player.z);
+            }
         }
     }
 
-    private String pickColor(double offset, double totalOffset) {
-        if (player.getSetbackTeleportUtil().blockOffsets) return "gray";
-        if (offset <= 0 || totalOffset <= 0) {
-            return "gray";
+    private static String formatOffsetDebug(double offset) {
+        return Double.toString(offset);
+    }
+
+    private String formatExternalMovementDebug(PredictionResult result, PredictionResult lastResult, ChatColor color) {
+        ExternalMovementUncertainty.Snapshot snapshot = ExternalMovementUncertainty.capture(result, lastResult);
+        Vec3 positionOnlyDelta = result.getPositionOnlyDelta();
+        if (!snapshot.hasAnyUncertainty() && positionOnlyDelta.lengthSqr() <= 1.0E-14) {
+            return null;
+        }
+
+        StringBuilder builder = new StringBuilder(color + "ext:");
+        boolean appended = false;
+        if (snapshot.hasExternalMove()) {
+            appended = appendPart(builder, appended, "t  " + formatBracketedVector(snapshot.maxAbsTargetDelta()));
+            appended = appendPart(builder, appended, "r " + formatBracketedVector(snapshot.maxAbsClientPositionOnlyDelta()));
+        }
+        if (positionOnlyDelta.lengthSqr() > 1.0E-14) {
+            appended = appendPart(builder, appended, "c " + formatBracketedVector(positionOnlyDelta));
+        }
+        return builder.toString();
+    }
+
+    private boolean appendPart(StringBuilder builder, boolean appended, String part) {
+        if (appended) {
+            builder.append(" |");
+        }
+        builder.append(' ').append(part);
+        return true;
+    }
+
+    private String formatBracketedVector(Vec3 vector) {
+        return "[" + ExternalMovementUncertainty.formatVector(vector) + "]";
+    }
+
+    private ChatColor getUnknownColor(double offset) {
+        if (offset == 0) {
+            return ChatColor.GRAY;
+        }
+        return ChatColor.LIGHT_PURPLE;
+    }
+
+    private boolean positionsTooUncertainToCheck(boolean inVehicle) {
+        return inVehicle
+                ? player.getSetbackTeleportUtil().shouldBlockVehicleMovement()
+                : player.getSetbackTeleportUtil().shouldBlockMovement()
+                || player.getSetbackTeleportUtil().insideUnloadedChunk();
+    }
+
+    private boolean isVehiclePrediction(PredictionResult result) {
+        return result.getSimulationContext() != null && result.getSimulationContext().getVehicle() != null;
+    }
+
+    private ChatColor externalUncertaintyColor(boolean positionsTooUncertain, boolean fullyExempt) {
+        if (positionsTooUncertain) return ChatColor.GRAY;
+        if (fullyExempt) return ChatColor.BLUE;
+        return ChatColor.AQUA;
+    }
+
+    private ChatColor pickColor(double offset, boolean positionsTooUncertain, boolean fullyExempt) {
+        if (positionsTooUncertain) return ChatColor.GRAY;
+        if (fullyExempt) return ChatColor.BLUE;
+        if (offset == 0) {
+            return ChatColor.WHITE;
         } else if (offset < 0.0001) {
-            return "green";
+            return ChatColor.GREEN;
         } else if (offset < 0.01) {
-            return "yellow";
+            return ChatColor.YELLOW;
         } else {
-            return "red";
+            return ChatColor.RED;
         }
     }
 
-    @Override
-    public void toggleListener(GrimPlayer player) {
-        if (!listeners.remove(player)) listeners.add(player);
+    private Vec3 getDebugPredictionVector(PredictionResult result) {
+        return MovementProfiles.forPlayer(player).debugPredictionVector(result);
     }
 
-    @Override
+    public void toggleListener(Player player) {
+        // Toggle, if already added, remove.  If not added, then add
+        final boolean wasListening = listeners.remove(player);
+        if (wasListening) {
+            final String disableMessage = ChatColor.GRAY + "Disabled debugging of predictions";
+            player.sendMessage(disableMessage);
+        } else {
+            final String enableMessage = ChatColor.GREEN + "Debugging predictions";
+            player.sendMessage(enableMessage);
+            final boolean nowListening = listeners.add(player);
+        }
+    }
+
     public boolean toggleConsoleOutput() {
         this.outputToConsole = !outputToConsole;
         return this.outputToConsole;
+    }
+
+    /**
+     * Generic diagnostic sink for non-prediction debug lines (checks and processors route
+     * their {@code debug(...)} calls here). The supplier is only evaluated when at least
+     * one listener or the console output is active, and rendering happens on the caller.
+     */
+    public void relayDebug(String source, ac.grim.grimac.utils.anticheat.StringReturner details) {
+        if (listeners.isEmpty() && !outputToConsole) return;
+
+        String message = ChatColor.AQUA + "[" + source + "] " + ChatColor.WHITE + details.getString();
+        listeners.removeIf(listener -> !listener.isOnline());
+        for (Player listener : listeners) {
+            listener.sendMessage(message);
+        }
+        if (outputToConsole) {
+            LogUtil.info(message);
+        }
     }
 }

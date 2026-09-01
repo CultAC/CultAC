@@ -1,18 +1,29 @@
 package ac.grim.grimac.utils.data;
 
-import ac.grim.grimac.utils.math.Vector3dm;
-import com.github.retrooper.packetevents.protocol.world.BlockFace;
-import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
-import com.github.retrooper.packetevents.util.Vector3d;
-import com.github.retrooper.packetevents.util.Vector3i;
+import net.minecraft.core.BlockPos;
+import org.bukkit.block.BlockFace;
+import org.bukkit.block.data.BlockData;
+import net.minecraft.world.phys.Vec3;
+import lombok.Getter;
+import lombok.ToString;
+import org.bukkit.util.Vector;
 
-public record HitData(
-        Vector3i position,
-        Vector3dm blockHitLocation,
-        BlockFace closestDirection,
-        WrappedBlockState state
-) {
-    public Vector3d getRelativeBlockHitLocation() {
-        return new Vector3d(blockHitLocation.getX() - position.getX(), blockHitLocation.getY() - position.getY(), blockHitLocation.getZ() - position.getZ());
+@Getter
+@ToString
+public class HitData {
+    BlockPos position;
+    Vector blockHitLocation;
+    BlockData state;
+    BlockFace closestDirection;
+
+    public HitData(BlockPos position, Vector blockHitLocation, BlockFace closestDirection, BlockData state) {
+        this.position = position;
+        this.blockHitLocation = blockHitLocation;
+        this.closestDirection = closestDirection;
+        this.state = state;
+    }
+
+    public Vec3 getRelativeBlockHitLocation() {
+        return new Vec3(blockHitLocation.getX() - position.getX(), blockHitLocation.getY() - position.getY(), blockHitLocation.getZ() - position.getZ());
     }
 }

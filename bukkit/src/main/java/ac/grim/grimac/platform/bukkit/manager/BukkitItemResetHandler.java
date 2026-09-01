@@ -1,12 +1,12 @@
 package ac.grim.grimac.platform.bukkit.manager;
 
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.platform.api.manager.ItemResetHandler;
 import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.platform.bukkit.utils.reflection.PaperUtils;
 import ac.grim.grimac.utils.reflection.ReflectionUtils;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.player.InteractionHand;
+import net.minecraft.SharedConstants;
+import net.minecraft.world.InteractionHand;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -41,9 +41,12 @@ public class BukkitItemResetHandler implements ItemResetHandler {
     }
 
     static {
-        final ServerVersion version = PacketEvents.getAPI().getServerManager().getVersion();
+        final ClientVersion version =
+                ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+        final int serverProtocol = version.getProtocolVersion();
 
-        final boolean legacy = version.isOlderThanOrEquals(ServerVersion.V_1_8_8);
+
+        final boolean legacy = version.isOlderThanOrEquals(ClientVersion.V_1_8);
 
         try {
             final Method getHandle;
@@ -62,7 +65,7 @@ public class BukkitItemResetHandler implements ItemResetHandler {
             final boolean obfuscated = nmsPackage != null;
             final Class<?> clazz = getHandle.getReturnType();
 
-            if (version.isNewerThanOrEquals(ServerVersion.V_1_10)) {
+            if (serverProtocol >= 210) {
                 isUsingItem = Player::isHandRaised;
             } else {
                 Method method = clazz.getMethod(switch (Objects.requireNonNull(nmsPackage, "nmsPackage")) {
@@ -82,7 +85,7 @@ public class BukkitItemResetHandler implements ItemResetHandler {
 
             if (legacy) {
                 getItemUsageHand = player -> isUsingItem.test(player) ? InteractionHand.MAIN_HAND : null;
-            } else if (PaperUtils.PAPER && version.isNewerThanOrEquals(ServerVersion.V_1_16_5)) {
+            } else if (PaperUtils.PAPER && serverProtocol >= 754) {
                 getItemUsageHand = player -> player.isHandRaised()
                         ? player.getHandRaised() == EquipmentSlot.OFF_HAND
                           ? InteractionHand.OFF_HAND
@@ -129,7 +132,7 @@ public class BukkitItemResetHandler implements ItemResetHandler {
 
             Method setLivingEntityFlag;
 
-            if (version.isNewerThanOrEquals(ServerVersion.V_1_19)) {
+            if (version.isNewerThanOrEquals(ClientVersion.V_1_19)) {
                 String name = obfuscated ? "c" : "setLivingEntityFlag";
                 setLivingEntityFlag = clazz.getDeclaredMethod(name, int.class, boolean.class);
                 setLivingEntityFlag.setAccessible(true);
@@ -137,7 +140,7 @@ public class BukkitItemResetHandler implements ItemResetHandler {
                 setLivingEntityFlag = null;
             }
 
-            if (PaperUtils.PAPER && version.isNewerThan(ServerVersion.V_1_17)) {
+            if (PaperUtils.PAPER && serverProtocol > 755) {
                 resetItemUsage = setLivingEntityFlag == null ? LivingEntity::clearActiveItem : player -> {
                     try {
                         setLivingEntityFlag.invoke(getHandle.invoke(player), 1, false);

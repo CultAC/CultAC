@@ -1,24 +1,26 @@
 package ac.grim.grimac.checks.impl.crash;
 
 import ac.grim.grimac.api.storage.verbose.Verbose;
+import ac.grim.grimac.api.storage.verbose.VerboseTags;
 import ac.grim.grimac.checks.Check;
+import ac.grim.grimac.checks.type.CheckListener;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.impl.verbose.VerboseCodecs;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
-import ac.grim.grimac.checks.type.PacketSendListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.event.PacketSendEvent;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.inventory.inventory.MenuType;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.event.PacketSendEvent;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientClickWindow;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerOpenWindow;
+import net.minecraft.SharedConstants;
+import net.minecraft.network.protocol.game.ClientboundOpenScreenPacket;
+import net.minecraft.network.protocol.game.ServerboundContainerClickPacket;
 
 @CheckData(name = "CrashD", stableKey = "grim.crash.lectern", description = "Clicking slots in lectern window")
-public class CrashD extends Check implements PacketReceiveListener, PacketSendListener {
+public class CrashD extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("clickType={clicktype}, button={sint}");
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
 
     private MenuType type = MenuType.UNKNOWN;
     private int lecternId = -1;
@@ -29,31 +31,28 @@ public class CrashD extends Check implements PacketReceiveListener, PacketSendLi
 
     @Override
     public boolean isApplicable() {
-        return PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_14);
+        return SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_14);
     }
 
-    @Override
-    public void onPacketSend(final PacketSendEvent event) {
-        if (event.getPacketType() == PacketType.Play.Server.OPEN_WINDOW) {
-            WrapperPlayServerOpenWindow window = new WrapperPlayServerOpenWindow(event);
-            this.type = MenuType.getMenuType(window.getType());
-            if (type == MenuType.LECTERN) lecternId = window.getContainerId();
-        }
+    @GrimPacketHandler
+    public void onOpenScreen(PacketSendEvent event, GrimPlayer player, ClientboundOpenScreenPacket packet) {
+        if (!isApplicable()) return;
+        this.type = MenuType.fromNms(packet.getType());
+        if (type == MenuType.LECTERN) lecternId = packet.getContainerId();
     }
 
-    @Override
-    public void onPacketReceive(final PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW) {
-            WrapperPlayClientClickWindow click = new WrapperPlayClientClickWindow(event);
-            int clickType = VerboseCodecs.enumId(click.getWindowClickType());
-            int button = click.getButton();
-            int windowId = click.getWindowId();
+    @GrimPacketHandler
+    public void onContainerClick(PacketReceiveEvent event, GrimPlayer player, ServerboundContainerClickPacket packet) {
+        if (!isApplicable()) return;
+        NmsPacketUtil.ContainerClickData click = NmsPacketUtil.readContainerClick(packet);
+        int clickType = VerboseTags.enumId(click.clickType());
+        int button = click.button();
+        int windowId = click.windowId();
 
-            if (type == MenuType.LECTERN && windowId > 0 && windowId == lecternId) {
-                if (flag(V.write(verbose()).uint(clickType).sint(button))) {
-                    event.setCancelled(true);
-                    player.onPacketCancel();
-                }
+        if (type == MenuType.LECTERN && windowId > 0 && windowId == lecternId) {
+            if (flag(V.write(verbose()).uint(clickType).sint(button))) {
+                event.setCancelled(true);
+                player.onPacketCancel();
             }
         }
     }

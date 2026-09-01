@@ -1,0 +1,82 @@
+package ac.grim.grimac.bedrock.prediction.simulation.reconciliation;
+
+import ac.grim.grimac.bedrock.prediction.api.BedrockMovementResult;
+import ac.grim.grimac.bedrock.prediction.geometry.Vec3d;
+import ac.grim.grimac.bedrock.prediction.state.BedrockMovementState;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+public final class BedrockNextTickStateDeriver {
+    private BedrockNextTickStateDeriver() {
+    }
+
+    public static List<DerivedState> withAcceptedDiff(
+            BedrockMovementResult movementResult,
+            List<BedrockMovementState> sourceStates,
+            Vec3d acceptedDiff
+    ) {
+        return withAcceptedDiff(movementResult, sourceStates, acceptedDiff, false, false);
+    }
+
+    public static List<DerivedState> withAcceptedDiff(
+            BedrockMovementResult movementResult,
+            List<BedrockMovementState> sourceStates,
+            Vec3d acceptedDiff,
+            boolean selectedXCollision,
+            boolean selectedZCollision
+    ) {
+        return withAcceptedDiff(
+                movementResult, sourceStates, acceptedDiff, selectedXCollision, selectedZCollision, false);
+    }
+
+    public static List<DerivedState> withAcceptedDiff(
+            BedrockMovementResult movementResult,
+            List<BedrockMovementState> sourceStates,
+            Vec3d acceptedDiff,
+            boolean selectedXCollision,
+            boolean selectedZCollision,
+            boolean canStep
+    ) {
+        Objects.requireNonNull(movementResult, "movementResult");
+        Objects.requireNonNull(sourceStates, "sourceStates");
+        Objects.requireNonNull(acceptedDiff, "acceptedDiff");
+
+        ArrayList<DerivedState> states = new ArrayList<>();
+        for (BedrockMovementState sourceState : sourceStates) {
+            List<BedrockAcceptedDiffVelocity.AcceptedState> acceptedDiffStates = BedrockAcceptedDiffVelocity.apply(
+                    movementResult,
+                    sourceState,
+                    acceptedDiff,
+                    selectedXCollision,
+                    selectedZCollision,
+                    canStep);
+            for (BedrockAcceptedDiffVelocity.AcceptedState accepted : acceptedDiffStates) {
+                BedrockMovementState acceptedDiffState = accepted.state();
+                if (movementResult.selectedGlidingTravel() && acceptedDiffState.gliding()) {
+                    states.add(new DerivedState(acceptedDiffState, sourceState));
+                    continue;
+                }
+                states.addAll(BedrockEndTickVelocityBranches.fromAcceptedDiff(
+                    accepted.evidence(),
+                    acceptedDiffState,
+                    sourceState));
+            }
+        }
+        return List.copyOf(states);
+    }
+
+    public static double airDraggedVelocityWithGravity(double verticalVelocity) {
+        return BedrockAcceptedDiffVelocity.airDraggedVelocityWithGravity(verticalVelocity);
+    }
+
+    public record DerivedState(
+            BedrockMovementState state,
+            BedrockMovementState lineageState
+    ) {
+        public DerivedState {
+            state = Objects.requireNonNull(state, "state");
+            lineageState = Objects.requireNonNull(lineageState, "lineageState");
+        }
+    }
+}

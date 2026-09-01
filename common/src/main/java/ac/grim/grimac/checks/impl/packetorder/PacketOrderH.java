@@ -2,45 +2,46 @@ package ac.grim.grimac.checks.impl.packetorder;
 
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
 import ac.grim.grimac.checks.type.PostPredictionListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientEntityAction;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 
 @CheckData(name = "PacketOrderH", stableKey = "grim.packetorder.sneak_sprint_order", description = "Sent sprinting and sneaking state changes in an invalid packet order", experimental = true)
-public class PacketOrderH extends Check implements PacketReceiveListener, PostPredictionListener {
+public class PacketOrderH extends Check implements PostPredictionListener {
     public PacketOrderH(final GrimPlayer player) {
         super(player);
     }
 
     private int invalid;
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.ENTITY_ACTION) {
-            switch (new WrapperPlayClientEntityAction(event).getAction()) {
-                case START_SPRINTING, STOP_SPRINTING -> {
-                    if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2) && player.packetOrderProcessor.isSneaking()) {
-                        if (!player.canSkipTicks()) {
-                            flag();
-                        } else {
-                            invalid++;
-                        }
+    @GrimPacketHandler
+    public void onPlayerCommand(PacketReceiveEvent event, GrimPlayer player, ServerboundPlayerCommandPacket packet) {
+        switch (NmsPacketUtil.readPlayerCommand(packet).action()) {
+            case START_SPRINTING, STOP_SPRINTING -> {
+                if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2) && player.packetOrderProcessor.isSneaking()) {
+                    if (!player.canSkipTicks()) {
+                        flag();
+                    } else {
+                        invalid++;
                     }
                 }
-                case START_SNEAKING, STOP_SNEAKING -> {
-                    if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2) && player.packetOrderProcessor.isSprinting()) {
-                        if (!player.canSkipTicks()) {
-                            flag();
-                        } else {
-                            invalid++;
-                        }
+            }
+
+            case PRESS_SHIFT_KEY, RELEASE_SHIFT_KEY -> {
+                if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2) && player.packetOrderProcessor.isSprinting()) {
+                    if (!player.canSkipTicks()) {
+                        flag();
+                    } else {
+                        invalid++;
                     }
                 }
+            }
+            default -> {
             }
         }
     }

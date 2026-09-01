@@ -6,17 +6,17 @@ import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.platform.api.sender.Sender;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.webhook.discord.CompiledDiscordTemplate;
-import com.github.retrooper.packetevents.util.Vector3d;
-import com.github.retrooper.packetevents.util.Vector3f;
-import com.github.retrooper.packetevents.util.Vector3i;
 import lombok.experimental.UtilityClass;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextReplacementConfig;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Vector3f;
 
 import java.util.Map;
 import java.util.function.Function;
@@ -29,7 +29,7 @@ public class MessageUtil {
     private final Pattern HEX_PATTERN = Pattern.compile("([&§]#[A-Fa-f0-9]{6})|([&§]x([&§][A-Fa-f0-9]){6})");
     private final char PLACEHOLDER_ESCAPE_CHAR = '\uFFFF'; // this specific character holds no significance
 
-    public @NotNull String toUnlabledString(@Nullable Vector3d vec) {
+    public @NotNull String toUnlabledString(@Nullable Vec3 vec) {
         return vec == null ? "null" : vec.x + ", " + vec.y + ", " + vec.z;
     }
 
@@ -37,8 +37,8 @@ public class MessageUtil {
         return vec == null ? "null" : vec.x + ", " + vec.y + ", " + vec.z;
     }
 
-    public @NotNull String toUnlabledString(@Nullable Vector3i vec) {
-        return vec == null ? "null" : vec.x + ", " + vec.y + ", " + vec.z;
+    public @NotNull String toUnlabledString(@Nullable BlockPos vec) {
+        return vec == null ? "null" : vec.getX() + ", " + vec.getY() + ", " + vec.getZ();
     }
 
     @Contract("_, null, _ -> null; _, !null, _ -> !null")

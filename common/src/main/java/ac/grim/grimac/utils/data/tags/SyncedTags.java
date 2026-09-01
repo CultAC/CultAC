@@ -1,77 +1,138 @@
 package ac.grim.grimac.utils.data.tags;
 
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.world.states.defaulttags.BlockTags;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
-import com.github.retrooper.packetevents.resources.ResourceLocation;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerTags;
+import net.minecraft.SharedConstants;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderSet;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.protocol.common.ClientboundUpdateTagsPacket;
+import net.minecraft.resources.Identifier;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.TagKey;
+import net.minecraft.tags.TagLoader;
+import net.minecraft.world.level.block.Block;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.function.IntFunction;
+import java.util.Set;
 
 /**
  * This class stores tags that the client is aware of.
  */
 public final class SyncedTags {
 
-    public static final ResourceLocation CLIMBABLE = ResourceLocation.minecraft("climbable");
-    public static final ResourceLocation MINEABLE_AXE = ResourceLocation.minecraft("mineable/axe");
-    public static final ResourceLocation MINEABLE_PICKAXE = ResourceLocation.minecraft("mineable/pickaxe");
-    public static final ResourceLocation MINEABLE_SHOVEL = ResourceLocation.minecraft("mineable/shovel");
-    public static final ResourceLocation MINEABLE_HOE = ResourceLocation.minecraft("mineable/hoe");
-    public static final ResourceLocation NEEDS_DIAMOND_TOOL = ResourceLocation.minecraft("needs_diamond_tool");
-    public static final ResourceLocation NEEDS_IRON_TOOL = ResourceLocation.minecraft("needs_iron_tool");
-    public static final ResourceLocation NEEDS_STONE_TOOL = ResourceLocation.minecraft("needs_stone_tool");
-    public static final ResourceLocation SWORD_EFFICIENT = ResourceLocation.minecraft("sword_efficient");
-    private static final ServerVersion VERSION = PacketEvents.getAPI().getServerManager().getVersion();
-    private static final ResourceLocation BLOCK = VERSION.isNewerThanOrEquals(ServerVersion.V_1_21) ? ResourceLocation.minecraft("block") : ResourceLocation.minecraft("blocks");
+    public static final Identifier CLIMBABLE = Identifier.withDefaultNamespace("climbable");
+    public static final Identifier MINEABLE_AXE = Identifier.withDefaultNamespace("mineable/axe");
+    public static final Identifier MINEABLE_PICKAXE = Identifier.withDefaultNamespace("mineable/pickaxe");
+    public static final Identifier MINEABLE_SHOVEL = Identifier.withDefaultNamespace("mineable/shovel");
+    public static final Identifier MINEABLE_HOE = Identifier.withDefaultNamespace("mineable/hoe");
+    public static final Identifier NEEDS_DIAMOND_TOOL = Identifier.withDefaultNamespace("needs_diamond_tool");
+    public static final Identifier NEEDS_IRON_TOOL = Identifier.withDefaultNamespace("needs_iron_tool");
+    public static final Identifier NEEDS_STONE_TOOL = Identifier.withDefaultNamespace("needs_stone_tool");
+    public static final Identifier SWORD_EFFICIENT = Identifier.withDefaultNamespace("sword_efficient");
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+    private static final Identifier BLOCK = SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21)
+            ? Identifier.withDefaultNamespace("block") : Identifier.withDefaultNamespace("blocks");
     private final GrimPlayer player;
-    private final Map<ResourceLocation, Map<ResourceLocation, SyncedTag<?>>> synced = new HashMap<>();
+    private final Map<Identifier, Map<Identifier, SyncedTag<?>>> synced = new HashMap<>();
+    private boolean receivedBlockTagSync;
 
     public SyncedTags(GrimPlayer player) {
         this.player = player;
         ClientVersion version = player.getClientVersion();
-        trackTags(BLOCK, id -> StateTypes.getById(VERSION.toClientVersion(), id),
-                SyncedTag.<StateType>builder(CLIMBABLE).defaults(BlockTags.CLIMBABLE.getStates()).supported(version.isNewerThanOrEquals(ClientVersion.V_1_16)),
-                SyncedTag.<StateType>builder(MINEABLE_AXE).defaults(BlockTags.MINEABLE_AXE.getStates()).supported(version.isNewerThanOrEquals(ClientVersion.V_1_17)),
-                SyncedTag.<StateType>builder(MINEABLE_PICKAXE).defaults(BlockTags.MINEABLE_PICKAXE.getStates()).supported(version.isNewerThanOrEquals(ClientVersion.V_1_17)),
-                SyncedTag.<StateType>builder(MINEABLE_SHOVEL).defaults(BlockTags.MINEABLE_SHOVEL.getStates()).supported(version.isNewerThanOrEquals(ClientVersion.V_1_17)),
-                SyncedTag.<StateType>builder(MINEABLE_HOE).defaults(BlockTags.MINEABLE_HOE.getStates()).supported(version.isNewerThanOrEquals(ClientVersion.V_1_17)),
-                SyncedTag.<StateType>builder(NEEDS_DIAMOND_TOOL).defaults(BlockTags.NEEDS_DIAMOND_TOOL.getStates()).supported(version.isNewerThanOrEquals(ClientVersion.V_1_17)),
-                SyncedTag.<StateType>builder(NEEDS_IRON_TOOL).defaults(BlockTags.NEEDS_IRON_TOOL.getStates()).supported(version.isNewerThanOrEquals(ClientVersion.V_1_17)),
-                SyncedTag.<StateType>builder(NEEDS_STONE_TOOL).defaults(BlockTags.NEEDS_STONE_TOOL.getStates()).supported(version.isNewerThanOrEquals(ClientVersion.V_1_17)),
-                SyncedTag.<StateType>builder(SWORD_EFFICIENT).defaults(BlockTags.SWORD_EFFICIENT.getStates()).supported(version.isNewerThanOrEquals(ClientVersion.V_1_20))
+        trackTags(BLOCK,
+                SyncedTag.<Block>builder(CLIMBABLE).defaults(defaultBlockTagValues(BlockTags.CLIMBABLE)).supported(version.getProtocolVersion() >= 735), // PE ClientVersion.V_1_16
+                SyncedTag.<Block>builder(MINEABLE_AXE).defaults(defaultBlockTagValues(BlockTags.MINEABLE_WITH_AXE)).supported(version.getProtocolVersion() >= 755), // PE ClientVersion.V_1_17
+                SyncedTag.<Block>builder(MINEABLE_PICKAXE).defaults(defaultBlockTagValues(BlockTags.MINEABLE_WITH_PICKAXE)).supported(version.getProtocolVersion() >= 755), // PE ClientVersion.V_1_17
+                SyncedTag.<Block>builder(MINEABLE_SHOVEL).defaults(defaultBlockTagValues(BlockTags.MINEABLE_WITH_SHOVEL)).supported(version.getProtocolVersion() >= 755), // PE ClientVersion.V_1_17
+                SyncedTag.<Block>builder(MINEABLE_HOE).defaults(defaultBlockTagValues(BlockTags.MINEABLE_WITH_HOE)).supported(version.getProtocolVersion() >= 755), // PE ClientVersion.V_1_17
+                SyncedTag.<Block>builder(NEEDS_DIAMOND_TOOL).defaults(defaultBlockTagValues(BlockTags.NEEDS_DIAMOND_TOOL)).supported(version.getProtocolVersion() >= 755), // PE ClientVersion.V_1_17
+                SyncedTag.<Block>builder(NEEDS_IRON_TOOL).defaults(defaultBlockTagValues(BlockTags.NEEDS_IRON_TOOL)).supported(version.getProtocolVersion() >= 755), // PE ClientVersion.V_1_17
+                SyncedTag.<Block>builder(NEEDS_STONE_TOOL).defaults(defaultBlockTagValues(BlockTags.NEEDS_STONE_TOOL)).supported(version.getProtocolVersion() >= 755), // PE ClientVersion.V_1_17
+                SyncedTag.<Block>builder(SWORD_EFFICIENT).defaults(defaultBlockTagValues(BlockTags.SWORD_EFFICIENT)).supported(version.isNewerThanOrEquals(ClientVersion.V_1_20))
         );
     }
 
+    // Vanilla's default tag contents as known by this server's block registry
+    private static Set<Block> defaultBlockTagValues(TagKey<Block> tag) {
+        Set<Block> values = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Holder<Block> holder : BuiltInRegistries.BLOCK.getTagOrEmpty(tag)) {
+            values.add(holder.value());
+        }
+        return values;
+    }
+
     @SafeVarargs
-    private <T> void trackTags(ResourceLocation location, IntFunction<T> remapper, SyncedTag.Builder<T>... syncedTags) {
-        final Map<ResourceLocation, SyncedTag<?>> tags = new HashMap<>(syncedTags.length);
+    private <T> void trackTags(Identifier location, SyncedTag.Builder<T>... syncedTags) {
+        final Map<Identifier, SyncedTag<?>> tags = new HashMap<>(syncedTags.length);
         for (SyncedTag.Builder<T> syncedTag : syncedTags) {
-            final SyncedTag<T> built = syncedTag.remapper(remapper).build();
+            final SyncedTag<T> built = syncedTag.build();
             tags.put(built.location(), built);
         }
         synced.put(location, tags);
     }
 
-    public SyncedTag<StateType> block(ResourceLocation tag) {
-        final Map<ResourceLocation, SyncedTag<?>> blockTags = synced.get(BLOCK);
-        return (SyncedTag<StateType>) blockTags.get(tag);
+    public SyncedTag<Block> block(Identifier tag) {
+        final Map<Identifier, SyncedTag<?>> blockTags = synced.get(BLOCK);
+        return (SyncedTag<Block>) blockTags.get(tag);
     }
 
-    public void handleTagSync(WrapperPlayServerTags tags) {
+    /**
+     * Evaluates a tool-component block holder set against the tags visible to this client.
+     * Named holder sets use the compensated tag payload when one has been received; direct
+     * holder sets retain their packet/registry values.
+     */
+    public boolean containsBlock(HolderSet<Block> blocks, Block block) {
+        var tagKey = blocks.unwrapKey();
+        if (tagKey.isPresent()) {
+            SyncedTag<Block> syncedTag = block(tagKey.get().location());
+            if (syncedTag != null) {
+                return syncedTag.contains(block);
+            }
+            // Once the client has replaced its block-tag registry, a named set
+            // omitted from that payload is empty on the client. Falling back to
+            // this server's holder binding would reintroduce state the client no
+            // longer has.
+            if (receivedBlockTagSync) {
+                return false;
+            }
+        }
+
+        for (Holder<Block> holder : blocks) {
+            if (holder.value() == block) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void handleTagSync(ClientboundUpdateTagsPacket tags) {
         if (player.getClientVersion().isOlderThan(ClientVersion.V_1_13)) return;
-        tags.getTagMap().forEach((location, tagList) -> {
-            if (!synced.containsKey(location)) return;
-            final Map<ResourceLocation, SyncedTag<?>> syncedTags = synced.get(location);
-            tagList.forEach(tag -> {
-                if (!syncedTags.containsKey(tag.getKey())) return;
-                syncedTags.get(tag.getKey()).readTagValues(tag);
+        tags.getTags().forEach((registryKey, payload) -> {
+            if (!synced.containsKey(registryKey.identifier())) return;
+            final Map<Identifier, SyncedTag<?>> syncedTags = synced.get(registryKey.identifier());
+            // Only block tags are tracked, so resolve against the block registry
+            if (!registryKey.identifier().equals(BLOCK)) return;
+            TagLoader.LoadResult<Block> result = payload.resolve(BuiltInRegistries.BLOCK);
+            receivedBlockTagSync = true;
+
+            // The client replaces this registry's complete tag binding set for each payload.
+            // Clear previously received dynamic tags which disappeared from the replacement.
+            for (SyncedTag<?> syncedTag : syncedTags.values()) {
+                ((SyncedTag<Block>) syncedTag).readTagValues(List.of());
+            }
+
+            result.tags().forEach((tagKey, holders) -> {
+                final SyncedTag<?> syncedTag = syncedTags.computeIfAbsent(tagKey.location(), location ->
+                        SyncedTag.<Block>builder(location)
+                                .defaults(Collections.newSetFromMap(new IdentityHashMap<>()))
+                                .build());
+                ((SyncedTag<Block>) syncedTag).readTagValues(holders);
             });
         });
     }

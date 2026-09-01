@@ -1,19 +1,15 @@
 package ac.grim.grimac.utils.lists;
 
 import ac.grim.grimac.GrimAPI;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.inventory.Inventory;
 import ac.grim.grimac.utils.inventory.InventoryStorage;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.item.ItemStack;
+import net.minecraft.SharedConstants;
+import org.bukkit.inventory.ItemStack;
 
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Iterator;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -43,10 +39,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class CorrectingPlayerInventoryStorage extends InventoryStorage {
 
-    // TODO: How the hell does creative mode work?
-    private static final Set<String> SUPPORTED_INVENTORIES = new HashSet<>(
-            Arrays.asList("CHEST", "DISPENSER", "DROPPER", "PLAYER", "ENDER_CHEST", "SHULKER_BOX", "BARREL", "CRAFTING", "CREATIVE")
-    );
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
     private final GrimPlayer player;
     // The key for this map is the inventory slot ID
     // The value for this map is the transaction that we care about
@@ -92,9 +86,7 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
 
         super.setItem(item, stack);
 
-        if (item == player.inventory.inventory.getSelected() + Inventory.HOTBAR_OFFSET) {
-            player.attackCooldown.updateHeldItem();
-        }
+
     }
 
     /**
@@ -104,8 +96,7 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
     private void checkThatBukkitIsSynced(int slot) {
         // The player isn't fully logged in yet, don't bother checking
         if (player.platformPlayer == null) return;
-        // We aren't tracking the player's inventory, so don't bother
-        if (!player.inventory.isPacketInventoryActive) return;
+
 
         // Bukkit uses different slot ID's to vanilla
         int bukkitSlot = getBukkitSlot(slot); // 8 -> 39, should be 36
@@ -143,7 +134,7 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
             return packetSlot - 36;
         }
         // 45 is offhand in packet, it is 40 in bukkit
-        if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9) && packetSlot == 45) {
+        if (SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_9) && packetSlot == 45) {
             return 40;
         }
         return -1;
@@ -163,19 +154,7 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
             }
         }
 
-        // If the player's inventory needs to be resent so that Grim can enable the player's packet inventory again
-        // Then resend once the player has a supported inventory to activate that.
-        if (player.inventory.needResend) {
-            GrimAPI.INSTANCE.getScheduler().getEntityScheduler().execute(player.platformPlayer, GrimAPI.INSTANCE.getGrimPlugin(), () -> {
-                // Potential race condition doing this multiple times
-                if (!player.inventory.needResend) return;
 
-                if (SUPPORTED_INVENTORIES.contains(player.platformPlayer.getInventory().getOpenInventoryKey().toUpperCase(Locale.ROOT))) {
-                    player.inventory.needResend = false;
-                    player.platformPlayer.updateInventory();
-                }
-            }, null, 0);
-        }
 
         // Every five ticks, we pull a new item for the player
         // This means no desync will last longer than 10 seconds

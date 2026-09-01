@@ -1,18 +1,19 @@
 package ac.grim.grimac.utils.latency;
 
 import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.type.PreViaPacketSendListener;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
-import com.github.retrooper.packetevents.event.PacketSendEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerCamera;
+import net.minecraft.network.protocol.game.ClientboundSetCameraPacket;
 
+import java.lang.reflect.Field;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CompensatedCameraEntity extends Check implements PreViaPacketSendListener {
+public class CompensatedCameraEntity extends Check {
+    // 26.2 keeps cameraId private with no accessor (only getEntity(Level)); resolve it once.
+    private static final Field CAMERA_ID = resolveCameraIdField();
+
     private final ArrayDeque<PacketEntity> entities = new ArrayDeque<>(1);
 
     public CompensatedCameraEntity(GrimPlayer player) {
@@ -20,32 +21,31 @@ public class CompensatedCameraEntity extends Check implements PreViaPacketSendLi
         reset();
     }
 
-    @Override
-    public void onPreViaPacketSend(PacketSendEvent event) {
-        if (event.getPacketType() != PacketType.Play.Server.CAMERA) return;
-        int camera = new WrapperPlayServerCamera(event).getCameraId();
+
+    public void onSetCamera(ClientboundSetCameraPacket packet) {
+        final int camera = readCameraId(packet);
         player.sendTransaction();
 
-        player.addRealTimeTaskNow(() -> {
+        player.latencyUtils.addRealTimeTaskNow(() -> {
             PacketEntity entity = player.compensatedEntities.getEntity(camera);
             if (entity != null) {
                 entities.add(entity);
             }
         });
 
-        player.addRealTimeTaskNext(() -> {
+        player.latencyUtils.addRealTimeTaskNext(() -> {
             while (entities.size() > 1) {
                 entities.poll();
             }
 
             if (entities.isEmpty()) {
-                entities.add(player.compensatedEntities.self);
+                entities.add(player.compensatedEntities.getSelf());
             }
         });
     }
 
     public boolean isSelf() {
-        PacketEntity self = player.compensatedEntities.self;
+        PacketEntity self = player.compensatedEntities.getSelf();
         for (PacketEntity entity : entities) {
             if (entity != self) {
                 return false;
@@ -61,6 +61,24 @@ public class CompensatedCameraEntity extends Check implements PreViaPacketSendLi
 
     public void reset() {
         entities.clear();
-        entities.add(player.compensatedEntities.self);
+        entities.add(player.compensatedEntities.getSelf());
+    }
+
+    private static Field resolveCameraIdField() {
+        try {
+            Field field = ClientboundSetCameraPacket.class.getDeclaredField("cameraId");
+            field.setAccessible(true);
+            return field;
+        } catch (NoSuchFieldException exception) {
+            throw new IllegalStateException("Unable to find ClientboundSetCameraPacket#cameraId", exception);
+        }
+    }
+
+    private static int readCameraId(ClientboundSetCameraPacket packet) {
+        try {
+            return CAMERA_ID.getInt(packet);
+        } catch (IllegalAccessException exception) {
+            throw new IllegalStateException("Unable to read ClientboundSetCameraPacket#cameraId", exception);
+        }
     }
 }

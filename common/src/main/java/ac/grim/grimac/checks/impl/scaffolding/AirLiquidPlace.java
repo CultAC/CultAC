@@ -3,17 +3,16 @@ package ac.grim.grimac.checks.impl.scaffolding;
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.type.BlockPlaceCheck;
-import ac.grim.grimac.checks.type.BlockPlaceListener;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.utils.change.BlockModification;
-import ac.grim.grimac.utils.nmsutil.Materials;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
-import com.github.retrooper.packetevents.util.Vector3i;
+import ac.grim.grimac.utils.nmsutil.NmsBlockTags;
+import net.minecraft.core.BlockPos;
+import org.bukkit.GameMode;
+import org.bukkit.Material;
 
 @CheckData(name = "AirLiquidPlace", stableKey = "grim.scaffolding.air_liquid_place", description = "Placed a block against an invalid support")
-public class AirLiquidPlace extends BlockPlaceCheck implements BlockPlaceListener {
+public class AirLiquidPlace extends BlockPlaceCheck {
     public AirLiquidPlace(GrimPlayer player) {
         super(player);
     }
@@ -58,8 +57,8 @@ public class AirLiquidPlace extends BlockPlaceCheck implements BlockPlaceListene
     public void onBlockPlace(final BlockPlace place) {
         if (player.gamemode == GameMode.CREATIVE) return;
 
-        Vector3i blockPos = place.position;
-        StateType placeAgainst = player.compensatedWorld.getBlockType(blockPos.getX(), blockPos.getY(), blockPos.getZ());
+        BlockPos blockPos = place.getPlacedAgainstBlockLocation();
+        Material placeAgainst = player.compensatedWorld.getMaterialAt(blockPos.getX(), blockPos.getY(), blockPos.getZ());
 
         int currentTick = GrimAPI.INSTANCE.getTickManager().currentTick;
         // this is actual more lenient than we need to be, We can check up to 1 ticks for all changes at location sand up to 0 ticks for first change
@@ -71,21 +70,32 @@ public class AirLiquidPlace extends BlockPlaceCheck implements BlockPlaceListene
         // Check if old block from instant breaking in same tick as the current placement was valid
         // There should only be one block here for legit clients
         for (BlockModification blockModification : blockModifications) {
-            StateType stateType = blockModification.oldBlockContents().getType();
-            if (!stateType.isAir() && !Materials.isNoPlaceLiquid(stateType)) {
+            Material oldType = blockModification.oldBlockContents().getMaterial();
+            if (!oldType.isAir() && !NmsBlockTags.isNoPlaceLiquid(oldType)) {
                 return;
             }
         }
 
-        if (placeAgainst.isAir() || Materials.isNoPlaceLiquid(placeAgainst)) { // fail
+        if (placeAgainst.isAir() || NmsBlockTags.isNoPlaceLiquid(placeAgainst)) { // fail
             if (flag() && shouldModifyPackets() && shouldCancel()) {
                 place.resync();
             }
         }
     }
 
+
+    public void handleBlockBreak(BlockPos pos) {
+        player.blockHistory.add(new BlockModification(
+                player.compensatedWorld.getBlockDataAt(pos.getX(), pos.getY(), pos.getZ()),
+                Material.AIR.createBlockData(),
+                pos,
+                GrimAPI.INSTANCE.getTickManager().currentTick,
+                BlockModification.Cause.START_DIGGING));
+    }
+
     @Override
     protected int getDefaultCancelVL() {
         return 0;
     }
+
 }

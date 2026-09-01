@@ -1,13 +1,13 @@
 package ac.grim.grimac.platform.bukkit.entity;
 
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.platform.api.entity.GrimEntity;
 import ac.grim.grimac.platform.api.world.PlatformWorld;
 import ac.grim.grimac.platform.bukkit.utils.convert.BukkitConversionUtils;
 import ac.grim.grimac.platform.bukkit.utils.reflection.PaperUtils;
 import ac.grim.grimac.platform.bukkit.world.BukkitPlatformWorld;
 import ac.grim.grimac.utils.math.Location;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
+import net.minecraft.SharedConstants;
 import org.bukkit.entity.Entity;
 import org.jetbrains.annotations.NotNull;
 
@@ -17,7 +17,11 @@ import java.util.concurrent.CompletableFuture;
 
 public class BukkitGrimEntity implements GrimEntity {
 
-    protected static final boolean CAN_USE_DIRECT_GETTERS = PacketEvents.getAPI().getServerManager().getVersion().isNewerThan(ServerVersion.V_1_20_1) && PaperUtils.PAPER;
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+
+
+    protected static final boolean CAN_USE_DIRECT_GETTERS = SERVER_VERSION.isNewerThan(ClientVersion.V_1_20) && PaperUtils.PAPER;
 
     private final Entity entity;
     private BukkitPlatformWorld bukkitPlatformWorld;

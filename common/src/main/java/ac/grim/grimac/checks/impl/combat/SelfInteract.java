@@ -1,37 +1,42 @@
 package ac.grim.grimac.checks.impl.combat;
 
 import ac.grim.grimac.checks.Check;
+import ac.grim.grimac.checks.type.CheckListener;
 import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.type.PreViaPacketReceiveListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.packet.DecodedPacketReliability;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientAttack;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientSpectateEntity;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket;
+import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
 
 @CheckData(name = "SelfInteract", stableKey = "grim.badpackets.self_hit", description = "Interacted with self")
-public class SelfInteract extends Check implements PreViaPacketReceiveListener {
+public class SelfInteract extends Check implements CheckListener {
     public SelfInteract(GrimPlayer player) {
         super(player);
     }
 
-    @Override
-    public void onPreViaPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
-            WrapperPlayClientInteractEntity packet = new WrapperPlayClientInteractEntity(event);
-            onInteract(event, packet.getEntityId());
-        }
+    @GrimPacketHandler
+    public void onInteractEntity(PacketReceiveEvent event, GrimPlayer player, ServerboundInteractPacket packet) {
+        if (!DecodedPacketReliability.interactionFamilyReliable(player.getClientVersion())) return;
+        NmsPacketUtil.InteractData data = NmsPacketUtil.readInteract(packet);
+        onInteract(event, data.entityId());
+    }
 
-        if (event.getPacketType() == PacketType.Play.Client.ATTACK) {
-            WrapperPlayClientAttack packet = new WrapperPlayClientAttack(event);
-            onInteract(event, packet.getEntityId());
-        }
+    @GrimPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundAttackPacket")
+    public void onAttack(PacketReceiveEvent event, GrimPlayer player, Packet<?> packet) {
+        if (!DecodedPacketReliability.interactionFamilyReliable(player.getClientVersion())) return;
+        NmsPacketUtil.InteractData data = NmsPacketUtil.readAttack(packet);
+        onInteract(event, data.entityId());
+    }
 
-        if (event.getPacketType() == PacketType.Play.Client.SPECTATE_ENTITY) {
-            WrapperPlayClientSpectateEntity packet = new WrapperPlayClientSpectateEntity(event);
-            onInteract(event, packet.getEntityId());
-        }
+
+    @GrimPacketHandler
+    public void onSpectatorAction(PacketReceiveEvent event, GrimPlayer player, ServerboundSpectatorActionPacket packet) {
+        if (!DecodedPacketReliability.interactionFamilyReliable(player.getClientVersion())) return;
+        packet.spectateEntityId().ifPresent(entityId -> onInteract(event, entityId));
     }
 
     // TODO: should check for camera entity id instead of player entity id?

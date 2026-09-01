@@ -3,18 +3,20 @@ package ac.grim.grimac.checks.impl.multiactions;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.type.BlockPlaceCheck;
-import ac.grim.grimac.checks.type.BlockPlaceListener;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.world.BlockFace;
+import ac.grim.grimac.utils.data.packetentity.PacketEntity;
+import ac.grim.grimac.utils.nmsutil.EntityTypeUtil;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket;
+import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
+import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
 
 @CheckData(name = "MultiActionsG", stableKey = "grim.multiactions.action_while_rowing", description = "Attacking or using items while rowing a boat", experimental = true)
-public class MultiActionsG extends BlockPlaceCheck implements PacketReceiveListener, BlockPlaceListener {
+public class MultiActionsG extends BlockPlaceCheck {
     private static final Verbose V = Verbose
             .of("action=interact")
             .or("action=attack")
@@ -36,27 +38,37 @@ public class MultiActionsG extends BlockPlaceCheck implements PacketReceiveListe
         return V.write(verbose(), action);
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY && isCheckActive()
+    @GrimPacketHandler
+    public void onInteractEntity(PacketReceiveEvent event, GrimPlayer player, ServerboundInteractPacket packet) {
+        if (isCheckActive()
                 && flag(writeAction(ACTION_INTERACT)) && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
         }
+    }
 
-        if (event.getPacketType() == PacketType.Play.Client.ATTACK && isCheckActive()
+    @GrimPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundAttackPacket")
+    public void onAttack(PacketReceiveEvent event, GrimPlayer player, Packet<?> packet) {
+        if (isCheckActive()
                 && flag(writeAction(ACTION_ATTACK)) && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
         }
+    }
 
-        if (event.getPacketType() == PacketType.Play.Client.SPECTATE_ENTITY && isCheckActive()
+
+    @GrimPacketHandler
+    public void onSpectatorAction(PacketReceiveEvent event, GrimPlayer player, ServerboundSpectatorActionPacket packet) {
+        if (isCheckActive()
                 && flag(writeAction(ACTION_SPECTATE_ENTITY)) && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
         }
+    }
 
-        if (event.getPacketType() == PacketType.Play.Client.USE_ITEM && isCheckActive()
+    @GrimPacketHandler
+    public void onUseItem(PacketReceiveEvent event, GrimPlayer player, ServerboundUseItemPacket packet) {
+        if (isCheckActive()
                 && flag(writeAction(ACTION_USE)) && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();
@@ -65,15 +77,18 @@ public class MultiActionsG extends BlockPlaceCheck implements PacketReceiveListe
 
     @Override
     public void onBlockPlace(BlockPlace place) {
-        int action = place.getFace() == BlockFace.OTHER ? ACTION_USE : ACTION_PLACE;
+
+        int action = place.isUseItem() ? ACTION_USE : ACTION_PLACE;
         if (isCheckActive() && flag(writeAction(action)) && shouldModifyPackets() && shouldCancel()) {
             place.resync();
         }
     }
 
     public boolean isCheckActive() {
+        PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
         return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9) && !player.vehicleData.wasVehicleSwitch // one tick off?
-                && player.inVehicle() && player.compensatedEntities.self.getRiding().getType().isInstanceOf(EntityTypes.BOAT)
-                && (player.vehicleData.nextVehicleForward != 0 || player.vehicleData.nextVehicleHorizontal != 0);
+                && player.inVehicle() && riding != null && EntityTypeUtil.isBoat(riding.type)
+                && (player.boatData.nextVehicleForward != 0 || player.boatData.nextVehicleHoriz != 0);
     }
+
 }

@@ -1,9 +1,14 @@
 package ac.grim.grimac.manager.datastore;
 
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
+import ac.grim.grimac.network.protocol.ClientVersion;
+import ac.grim.grimac.network.protocol.player.User;
+import ac.grim.grimac.network.protocol.util.viaversion.ViaVersionUtil;
+import com.viaversion.viaversion.api.Via;
+import net.minecraft.SharedConstants;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * Maps legacy client-version release-name strings (e.g. {@code "1.21.1"}) to
@@ -23,14 +28,36 @@ public final class ClientVersionResolver {
         if (versionString == null) return -1;
         String trimmed = versionString.trim();
         if (trimmed.isEmpty()) return -1;
-        // Reverse the PE release-name algorithm: enum is V_<major>_<minor>[_<patch>]
-        // where dots become underscores. "1.21.1" → "V_1_21_1".
-        String enumName = "V_" + trimmed.replace('.', '_').toUpperCase(Locale.ROOT);
-        try {
-            ClientVersion cv = ClientVersion.valueOf(enumName);
-            return cv.getProtocolVersion();
-        } catch (IllegalArgumentException notFound) {
-            return -1;
+        // Multi-version aliases are slash-separated.
+        String wanted = trimmed.toUpperCase(Locale.ROOT);
+        for (ClientVersion version : ClientVersion.values()) {
+            if (version == ClientVersion.HIGHER_THAN_SUPPORTED_VERSIONS) continue;
+            for (String alias : version.getReleaseName().split("/")) {
+                if (alias.toUpperCase(Locale.ROOT).equals(wanted)) {
+                    return version.getProtocolVersion();
+                }
+            }
         }
+        return -1;
+    }
+
+    /**
+     * Resolves the protocol version of the connection behind {@code user}.
+     * Mirrors GrimPlayer.getClientVersion(): ViaVersion when installed, else
+     * the server's native protocol version.
+     */
+    public static int resolveProtocolVersion(User user) {
+        UUID uuid = user.getUUID();
+        if (uuid != null && ViaVersionUtil.isAvailable()) {
+            try {
+                int protocolVersion = Via.getAPI().getPlayerVersion(uuid);
+                if (protocolVersion > 0) {
+                    return protocolVersion;
+                }
+            } catch (RuntimeException ignored) {
+                // Fall through to the server's native protocol version
+            }
+        }
+        return SharedConstants.getProtocolVersion();
     }
 }

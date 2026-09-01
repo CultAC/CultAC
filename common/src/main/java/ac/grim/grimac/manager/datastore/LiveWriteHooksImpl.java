@@ -8,10 +8,10 @@ import ac.grim.grimac.api.storage.model.VerboseFormat;
 import ac.grim.grimac.internal.storage.checks.CheckRegistry;
 import ac.grim.grimac.internal.storage.checks.StableKeyMapping;
 import ac.grim.grimac.internal.storage.identity.PlayerIdentityService;
+import ac.grim.grimac.network.protocol.player.User;
 import ac.grim.grimac.platform.api.player.PlatformPlayer;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.LogUtil;
-import com.github.retrooper.packetevents.protocol.player.User;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -149,7 +149,7 @@ public final class LiveWriteHooksImpl implements LiveWriteHooks {
             double vl,
             @Nullable String verbose) {
         try {
-            recordFlag(player.uuid, check, vl, verbose, System.currentTimeMillis(), SessionTracker.ClientMeta.empty());
+            recordFlag(player.playerUUID, check, vl, verbose, System.currentTimeMillis(), SessionTracker.ClientMeta.empty());
         } catch (RuntimeException e) {
             // Don't let a datastore issue break the alert path; the legacy
             // write already ran when we got here. One warn, then swallow.
@@ -164,7 +164,7 @@ public final class LiveWriteHooksImpl implements LiveWriteHooks {
             double vl,
             byte @Nullable [] verboseData) {
         try {
-            recordFlagData(player.uuid, check, vl, verboseData, System.currentTimeMillis(), SessionTracker.ClientMeta.empty());
+            recordFlagData(player.playerUUID, check, vl, verboseData, System.currentTimeMillis(), SessionTracker.ClientMeta.empty());
         } catch (RuntimeException e) {
             // Don't let a datastore issue break the check path.
             LogUtil.warn("v1 datastore recordFlag failed: " + e.getMessage());

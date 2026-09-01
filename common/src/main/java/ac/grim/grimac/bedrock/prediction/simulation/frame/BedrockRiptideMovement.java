@@ -1,0 +1,120 @@
+package ac.grim.grimac.bedrock.prediction.simulation.frame;
+
+import ac.grim.grimac.bedrock.prediction.geometry.Vec3d;
+import ac.grim.grimac.bedrock.prediction.input.BedrockInputFrame;
+import ac.grim.grimac.bedrock.prediction.input.BedrockInputIntent;
+import ac.grim.grimac.bedrock.prediction.state.BedrockMovementState;
+import ac.grim.grimac.bedrock.prediction.world.BedrockMovementContext;
+
+public final class BedrockRiptideMovement {
+    private static final long RELEASE_CHARGE_THRESHOLD_TICKS = 9L;
+    private static final long GROUNDED_SPIN_TICKS = 5L;
+    private static final long MAX_SPIN_TICKS = 19L;
+
+    private BedrockRiptideMovement() {
+    }
+
+    static ActorNormalTick tickActorNormal(
+        BedrockMovementState current,
+        BedrockInputFrame frame,
+        BedrockInputIntent intent,
+        BedrockMovementContext context,
+        Vec3d startingVelocity
+    ) {
+        int level = context.equipmentState().riptideLevel();
+        boolean usable = context.riptideAvailable() && level > 0;
+
+        boolean wet = current.wasInWaterFlag() || context.rainContact();
+
+        boolean releaseRequested = usable && intent.itemUse().release();
+        boolean releaseStartsSpinAttack = releaseRequested
+            && wet
+            && (intent.riptide().validatedRelease()
+                || current.riptideChargeTicks() > RELEASE_CHARGE_THRESHOLD_TICKS);
+        SpinState spin = nextSpinState(current, intent, releaseStartsSpinAttack);
+        Vec3d nextVelocity = startingVelocity;
+        if (releaseStartsSpinAttack) {
+            BedrockActorDimensions.Resolved dimensions = BedrockActorDimensions.resolve(
+                current,
+                context.playerDimensionsState(),
+                frame
+            );
+            boolean headInWater = BedrockLiquidSensing.waterHeadInWater(
+                context,
+                current.physicalFeetPosition(),
+                dimensions.dimensions()
+            );
+            nextVelocity = nextVelocity.add(BedrockAerialMovement.riptideImpulse(
+                frame,
+                level,
+                current.collisionFlags().onGround(),
+                current.wasInWaterFlag(),
+                headInWater
+            ));
+        }
+
+        return new ActorNormalTick(
+            new Step(
+                nextChargeTicks(current, intent, usable, wet, releaseRequested),
+                spin.active(),
+                spin.ticks()
+            ),
+            nextVelocity
+        );
+    }
+
+    private static long nextChargeTicks(
+        BedrockMovementState current,
+        BedrockInputIntent intent,
+        boolean usable,
+        boolean wet,
+        boolean releaseRequested
+    ) {
+        if (releaseRequested || intent.itemUse().stop()) {
+            return 0L;
+        }
+        if (usable && current.riptideChargeTicks() > 0L) {
+            return current.riptideChargeTicks() + 1L;
+        }
+        if (usable && wet && intent.riptide().chargeStart()) {
+            return 1L;
+        }
+        return 0L;
+    }
+
+    private static SpinState nextSpinState(
+        BedrockMovementState current,
+        BedrockInputIntent intent,
+        boolean releaseStartsSpinAttack
+    ) {
+        // A spin request cannot create an impulse without a valid charged, wet release.
+        if (releaseStartsSpinAttack) {
+
+            return new SpinState(true, 1L);
+        }
+        if (!current.riptideSpinActive() || intent.riptide().stopSpinAttack()) {
+            return SpinState.INACTIVE;
+        }
+        if (current.collisionFlags().horizontalCollision()
+            || current.riptideSpinTicks() >= MAX_SPIN_TICKS
+            || current.riptideSpinTicks() >= GROUNDED_SPIN_TICKS
+                && current.collisionFlags().onGround()) {
+            return SpinState.INACTIVE;
+        }
+        return new SpinState(true, current.riptideSpinTicks() + 1L);
+    }
+
+    record ActorNormalTick(Step step, Vec3d velocity) {
+    }
+
+    public record Step(
+        long nextChargeTicks,
+        boolean spinActive,
+        long spinTicks
+    ) {
+    }
+
+    private record SpinState(boolean active, long ticks) {
+        private static final SpinState INACTIVE = new SpinState(false, 0L);
+    }
+}

@@ -1,10 +1,10 @@
 package ac.grim.grimac.utils.math;
 
-import com.github.retrooper.packetevents.util.Vector3d;
-import com.github.retrooper.packetevents.util.Vector3f;
 import lombok.Getter;
+import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
+import org.joml.Vector3f;
 
 import java.io.Serial;
 import java.io.Serializable;
@@ -51,7 +51,7 @@ public class Vector3dm implements Cloneable, Serializable {
     }
 
     @Contract(value = "null -> null; !null -> new", pure = true)
-    public static Vector3dm from(Vector3d vec) {
+    public static Vector3dm from(Vec3 vec) {
         return vec == null ? null : new Vector3dm(vec.x, vec.y, vec.z);
     }
 
@@ -96,7 +96,7 @@ public class Vector3dm implements Cloneable, Serializable {
         return multiply(vec.x, vec.y, vec.z);
     }
 
-    public @NotNull Vector3dm multiply(@NotNull Vector3d vec) {
+    public @NotNull Vector3dm multiply(@NotNull Vec3 vec) {
         return multiply(vec.x, vec.y, vec.z);
     }
 
@@ -121,7 +121,7 @@ public class Vector3dm implements Cloneable, Serializable {
         return this;
     }
 
-    public @NotNull Vector3dm copy(@NotNull Vector3d vec) {
+    public @NotNull Vector3dm copy(@NotNull Vec3 vec) {
         this.x = vec.x;
         this.y = vec.y;
         this.z = vec.z;
@@ -140,7 +140,7 @@ public class Vector3dm implements Cloneable, Serializable {
         return Math.sqrt(distanceSquared(o));
     }
 
-    public double distance(@NotNull Vector3d o) {
+    public double distance(@NotNull Vec3 o) {
         return Math.sqrt(distanceSquared(o));
     }
 
@@ -148,7 +148,7 @@ public class Vector3dm implements Cloneable, Serializable {
         return distanceSquared(o.x, o.y, o.z);
     }
 
-    public double distanceSquared(@NotNull Vector3d o) {
+    public double distanceSquared(@NotNull Vec3 o) {
         return distanceSquared(o.x, o.y, o.z);
     }
 
@@ -376,7 +376,7 @@ public class Vector3dm implements Cloneable, Serializable {
         return new Vector3f((float) this.x, (float) this.y, (float) this.z);
     }
 
-    public @NotNull Vector3d toVector3d() {
-        return new Vector3d(this.x, this.y, this.z);
+    public @NotNull Vec3 toVec3() {
+        return new Vec3(this.x, this.y, this.z);
     }
 }

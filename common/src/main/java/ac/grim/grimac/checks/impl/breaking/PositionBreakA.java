@@ -1,43 +1,59 @@
 package ac.grim.grimac.checks.impl.breaking;
 
 import ac.grim.grimac.api.storage.verbose.Verbose;
+import ac.grim.grimac.api.storage.verbose.VerboseTags;
 import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.CheckData;
-import ac.grim.grimac.checks.impl.verbose.VerboseCodecs;
 import ac.grim.grimac.checks.type.BlockBreakListener;
+import ac.grim.grimac.checks.CheckData;
+import ac.grim.grimac.network.GrimPacketGroup;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.PacketGroup;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockBreak;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
-import com.github.retrooper.packetevents.protocol.player.DiggingAction;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
+import net.minecraft.SharedConstants;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.world.level.block.Blocks;
 
 @CheckData(name = "PositionBreakA", stableKey = "grim.breaking.position_break_a", description = "Tried to break a block face from an impossible eye position")
 public class PositionBreakA extends Check implements BlockBreakListener {
     private static final Verbose V = Verbose.of("action={digging}, face={face}");
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+
+
+    private boolean didLastMovementIncludePosition;
 
     public PositionBreakA(GrimPlayer player) {
         super(player);
     }
 
-    @Override
+    @GrimPacketHandler
+    @GrimPacketGroup(PacketGroup.SERVERBOUND_PLAYER_MOVEMENT)
+    public void onMovePlayer(PacketReceiveEvent event, GrimPlayer player, ServerboundMovePlayerPacket packet) {
+        didLastMovementIncludePosition = packet.hasPosition();
+    }
+
     public void onBlockBreak(BlockBreak blockBreak) {
         if (player.inVehicle()
-                || blockBreak.action == DiggingAction.CANCELLED_DIGGING
-                || blockBreak.block.getType() == StateTypes.REDSTONE_WIRE
+                || blockBreak.action == ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK // PE DiggingAction.CANCELLED_DIGGING
+                || blockBreak.block.is(Blocks.REDSTONE_WIRE)
         ) return;
 
         SimpleCollisionBox combined = blockBreak.getCombinedBox();
 
-        final double[] possibleEyeHeights = player.getPossibleEyeHeights();
         double minEyeHeight = Double.MAX_VALUE;
         double maxEyeHeight = Double.MIN_VALUE;
-        for (double height : possibleEyeHeights) {
+        for (double height : player.getPossibleEyeHeights()) {
             minEyeHeight = Math.min(minEyeHeight, height);
             maxEyeHeight = Math.max(maxEyeHeight, height);
         }
 
         SimpleCollisionBox eyePositions = new SimpleCollisionBox(player.x, player.y + minEyeHeight, player.z, player.x, player.y + maxEyeHeight, player.z);
-        if (!player.packetStateData.didLastMovementIncludePosition || player.canSkipTicks()) {
+        if (!didLastMovementIncludePosition || canSkipTicks()) {
             eyePositions.expand(player.getMovementThreshold());
         }
 
@@ -59,10 +75,16 @@ public class PositionBreakA extends Check implements BlockBreakListener {
         };
 
         if (flag && flag(V.write(verbose())
-                .uint(VerboseCodecs.enumId(blockBreak.action))
-                .uint(VerboseCodecs.enumId(blockBreak.face)))
+                .uint(VerboseTags.enumId(blockBreak.action))
+                .uint(VerboseTags.enumId(blockBreak.face)))
                 && shouldModifyPackets()) {
             blockBreak.cancel();
         }
+    }
+
+    private boolean canSkipTicks() {
+        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
+                && !(player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21_2));
     }
 }

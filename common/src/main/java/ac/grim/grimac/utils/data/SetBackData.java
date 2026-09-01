@@ -1,6 +1,7 @@
 package ac.grim.grimac.utils.data;
 
-import ac.grim.grimac.utils.math.Vector3dm;
+import ac.grim.grimac.checks.impl.prediction.PredictionSetbackState;
+import net.minecraft.world.phys.Vec3;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
@@ -9,22 +10,35 @@ import lombok.ToString;
 @Setter
 @ToString
 public class SetBackData {
-    private final TeleportData teleportData;
-    private final float xRot, yRot;
-    private final Vector3dm velocity;
-    private final boolean vehicle;
-    private boolean isComplete = false;
+    TeleportData teleportData;
+    float xRot, yRot;
+    Vec3 velocity;
+    boolean vehicle;
+    boolean expectedOnGround;
+    PredictionSetbackState profileState;
+    boolean isComplete = false;
     // TODO: Rethink when we block movements for teleports, perhaps after 10 ticks or 5 blocks?
-    private boolean isPlugin;
-    private int ticksComplete = 0;
+    boolean isPlugin = false;
+    int ticksComplete = 0;
 
-    public SetBackData(TeleportData teleportData, float xRot, float yRot, Vector3dm velocity, boolean vehicle, boolean isPlugin) {
+    public SetBackData(TeleportData teleportData, float xRot, float yRot, Vec3 velocity, boolean vehicle, boolean isPlugin) {
+        this(teleportData, xRot, yRot, velocity, vehicle, isPlugin, false);
+    }
+
+    public SetBackData(TeleportData teleportData, float xRot, float yRot, Vec3 velocity, boolean vehicle, boolean isPlugin, boolean expectedOnGround) {
+        this(teleportData, xRot, yRot, velocity, vehicle, isPlugin, expectedOnGround, null);
+    }
+
+    public SetBackData(TeleportData teleportData, float xRot, float yRot, Vec3 velocity, boolean vehicle,
+                       boolean isPlugin, boolean expectedOnGround, PredictionSetbackState profileState) {
         this.teleportData = teleportData;
         this.xRot = xRot;
         this.yRot = yRot;
         this.velocity = velocity;
         this.vehicle = vehicle;
         this.isPlugin = isPlugin;
+        this.expectedOnGround = expectedOnGround;
+        this.profileState = profileState;
     }
 
     public void tick() {

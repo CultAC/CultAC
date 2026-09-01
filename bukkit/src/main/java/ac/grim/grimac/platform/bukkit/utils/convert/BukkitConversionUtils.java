@@ -3,7 +3,6 @@ package ac.grim.grimac.platform.bukkit.utils.convert;
 import ac.grim.grimac.platform.api.permissions.PermissionDefaultValue;
 import ac.grim.grimac.platform.bukkit.world.BukkitPlatformWorld;
 import ac.grim.grimac.utils.math.Location;
-import com.github.retrooper.packetevents.protocol.world.BlockFace;
 import org.bukkit.permissions.PermissionDefault;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.Nullable;
@@ -28,18 +27,6 @@ public class BukkitConversionUtils {
             case FALSE -> PermissionDefault.FALSE;
             case OP -> PermissionDefault.OP;
             case NOT_OP -> PermissionDefault.NOT_OP;
-        };
-    }
-
-    public static BlockFace fromBukkitFace(org.bukkit.block.BlockFace face) {
-        return switch (face) {
-            case NORTH -> BlockFace.NORTH;
-            case SOUTH -> BlockFace.SOUTH;
-            case WEST -> BlockFace.WEST;
-            case EAST -> BlockFace.EAST;
-            case UP -> BlockFace.UP;
-            case DOWN -> BlockFace.DOWN;
-            default -> BlockFace.OTHER;
         };
     }
 }

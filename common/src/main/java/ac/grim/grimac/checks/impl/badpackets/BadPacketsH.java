@@ -4,21 +4,21 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.type.BlockBreakListener;
 import ac.grim.grimac.checks.type.BlockPlaceCheck;
-import ac.grim.grimac.checks.type.BlockPlaceListener;
-import ac.grim.grimac.checks.type.PacketReceiveListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
+import ac.grim.grimac.network.packet.NmsPacketUtil;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockBreak;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientUseItem;
+import net.minecraft.SharedConstants;
+import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
 
 @CheckData(name = "BadPacketsH", stableKey = "grim.badpackets.unexpected_sequence", description = "Sent unexpected sequence id", experimental = true)
-public class BadPacketsH extends BlockPlaceCheck implements PacketReceiveListener, BlockPlaceListener, BlockBreakListener {
+public class BadPacketsH extends BlockPlaceCheck implements BlockBreakListener {
     private static final Verbose V = Verbose.of("expected={sint}, id={sint}");
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
 
     private int lastSequence;
 
@@ -29,13 +29,14 @@ public class BadPacketsH extends BlockPlaceCheck implements PacketReceiveListene
     @Override
     public boolean isApplicable() {
         return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19)
-                && PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_19);
+                && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_19); // PE ServerVersion.V_1_19
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.USE_ITEM
-                && shouldCancel(new WrapperPlayClientUseItem(event).getSequence())) {
+
+    @GrimPacketHandler
+    public void onUseItem(PacketReceiveEvent event, GrimPlayer player, ServerboundUseItemPacket packet) {
+        if (!isApplicable()) return;
+        if (shouldCancel(NmsPacketUtil.readUseItem(packet).sequence())) {
             event.setCancelled(true);
             player.onPacketCancel();
         }
@@ -51,15 +52,20 @@ public class BadPacketsH extends BlockPlaceCheck implements PacketReceiveListene
     @Override
     public void onBlockBreak(BlockBreak blockBreak) {
         switch (blockBreak.action) {
-            case START_DIGGING, FINISHED_DIGGING -> {
+            case START_DESTROY_BLOCK, STOP_DESTROY_BLOCK -> {
                 if (shouldCancel(blockBreak.sequence)) {
                     blockBreak.cancel();
                 }
             }
-            case CANCELLED_DIGGING -> { // other actions will be checked by BadPacketsL
-                if (blockBreak.sequence != 0 && flagSequence(0, blockBreak.sequence) && shouldModifyPackets()) {
+            case ABORT_DESTROY_BLOCK -> {
+                if (blockBreak.sequence != 0
+                        && flagSequence(0, blockBreak.sequence)
+                        && shouldModifyPackets()) {
                     blockBreak.cancel();
                 }
+            }
+            default -> {
+                // Other player-action packets are checked by BadPacketsL.
             }
         }
     }
@@ -79,4 +85,5 @@ public class BadPacketsH extends BlockPlaceCheck implements PacketReceiveListene
     public void onWorldChange() {
         lastSequence = 0;
     }
+
 }

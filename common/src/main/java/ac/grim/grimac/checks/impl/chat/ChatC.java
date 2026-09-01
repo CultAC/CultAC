@@ -5,13 +5,13 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.impl.multiactions.MultiActionsC;
-import ac.grim.grimac.checks.type.PreViaPacketReceiveListener;
+import ac.grim.grimac.checks.type.CheckListener;
+import ac.grim.grimac.network.GrimPacketHandler;
+import ac.grim.grimac.network.event.PacketReceiveEvent;
 import ac.grim.grimac.player.GrimPlayer;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientChatCommand;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientChatCommandUnsigned;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientChatMessage;
+import net.minecraft.network.protocol.game.ServerboundChatCommandPacket;
+import net.minecraft.network.protocol.game.ServerboundChatCommandSignedPacket;
+import net.minecraft.network.protocol.game.ServerboundChatPacket;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -19,7 +19,7 @@ import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 @CheckData(name = "ChatC", stableKey = "grim.chat.moving_while_chatting", description = "Moving while chatting", experimental = true)
-public class ChatC extends Check implements PreViaPacketReceiveListener {
+public class ChatC extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("sprinting={bool}, sneaking={bool}, input={bool}");
 
     public ChatC(GrimPlayer player) {
@@ -29,19 +29,20 @@ public class ChatC extends Check implements PreViaPacketReceiveListener {
     // optionally allow cheats like autogg
     private @Nullable Predicate<String> exemptRegex;
 
-    @Override
-    public void onPreViaPacketReceive(PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.CHAT_MESSAGE) {
-            check(new WrapperPlayClientChatMessage(event).getMessage(), event);
-        }
 
-        if (event.getPacketType() == PacketType.Play.Client.CHAT_COMMAND_UNSIGNED) {
-            check("/" + new WrapperPlayClientChatCommandUnsigned(event).getCommand(), event);
-        }
+    @GrimPacketHandler
+    public void onChatMessage(PacketReceiveEvent event, GrimPlayer player, ServerboundChatPacket packet) {
+        check(packet.message(), event);
+    }
 
-        if (event.getPacketType() == PacketType.Play.Client.CHAT_COMMAND) {
-            check("/" + new WrapperPlayClientChatCommand(event).getCommand(), event);
-        }
+    @GrimPacketHandler
+    public void onChatCommandUnsigned(PacketReceiveEvent event, GrimPlayer player, ServerboundChatCommandSignedPacket packet) {
+        check("/" + packet.command(), event);
+    }
+
+    @GrimPacketHandler
+    public void onChatCommand(PacketReceiveEvent event, GrimPlayer player, ServerboundChatCommandPacket packet) {
+        check("/" + packet.command(), event);
     }
 
     private void check(String message, PacketReceiveEvent event) {

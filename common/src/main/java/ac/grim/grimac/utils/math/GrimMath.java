@@ -1,10 +1,11 @@
 package ac.grim.grimac.utils.math;
 
-import com.github.retrooper.packetevents.util.Vector3i;
 import lombok.experimental.UtilityClass;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 @UtilityClass
@@ -76,6 +77,12 @@ public class GrimMath {
 
     @Contract(pure = true)
     public static double clamp(double num, double min, double max) {
+        // The 3.0 simulation engine's collision-trace clamping reaches this with
+        // inverted bounds when the probed collision result lies behind the
+        // candidate's start (CollisionModifier.transformWithCollisions); swap so
+        // the candidate is clamped to the nearer of the two endpoints instead of
+        // being dragged behind its start.
+        if (min > max) return clamp(num, max, min);
         if (num < min) {
             return min;
         }
@@ -96,6 +103,29 @@ public class GrimMath {
             return min;
         }
         return Math.min(num, max);
+    }
+
+    @Contract(pure = true)
+    public static float clampFloat(float num, float min, float max) {
+        if (num < min) {
+            return min;
+        }
+        return Math.min(num, max);
+    }
+
+    /**
+     * Nearest-rank percentile over a copy of {@code values}; the input list is not modified.
+     * {@code p} is a percentage in [0, 100].
+     */
+    @Contract(pure = true)
+    public static <T extends Comparable<? super T>> T percentile(double p, @NotNull List<T> values) {
+        if (values.isEmpty()) {
+            throw new IllegalArgumentException("Cannot take a percentile of an empty list");
+        }
+        List<T> sorted = new ArrayList<>(values);
+        Collections.sort(sorted);
+        int rank = (int) Math.round(p / 100.0 * (sorted.size() - 1));
+        return sorted.get(rank);
     }
 
     @Contract(pure = true)
@@ -188,11 +218,6 @@ public class GrimMath {
     private static final int X_OFFSET = PACKED_Y_LENGTH + PACKED_HORIZONTAL_LENGTH;
 
     @Contract(pure = true)
-    public static long asLong(Vector3i vector) {
-        return asLong(vector.getX(), vector.getY(), vector.getZ());
-    }
-
-    @Contract(pure = true)
     public static long asLong(int x, int y, int z) {
         return (x & PACKED_X_MASK) << X_OFFSET
                 | y & PACKED_Y_MASK
@@ -232,5 +257,18 @@ public class GrimMath {
     @Contract(pure = true)
     public static double square(double num) {
         return num * num;
+    }
+
+    @Contract(pure = true)
+    public static double magnitude(double x, double z) {
+        return Math.sqrt(x * x + z * z);
+    }
+
+    /** Calculates clicks per second without undercounting same-millisecond samples. */
+    @Contract(pure = true)
+    public static double getCps(List<Long> samples) {
+        if (samples == null || samples.size() < 2) return 0;
+        long spanMillis = Math.max(1, samples.get(samples.size() - 1) - samples.get(0));
+        return samples.size() / (spanMillis / 1000.0);
     }
 }
