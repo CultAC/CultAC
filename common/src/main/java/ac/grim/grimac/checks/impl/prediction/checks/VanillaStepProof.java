@@ -30,10 +30,13 @@ final class VanillaStepProof {
         return !hasSourceProvenStepCandidate(player, result);
     }
 
-    // Unknown destination collisions cannot disprove the ground claim.
+    // Modern stepping can move beyond the shape that grounded the player.
     boolean canStandAtDestination(GrimPlayer player, PredictionResult result) {
         return hasUnknownCollisionAtDestination(result)
-                || hasCollisionDirectlyBelowDestination(player, result);
+                || hasCollisionDirectlyBelowDestination(player, result)
+                || (result.getValidMovements().isCanStep()
+                    && player.getClientVersion().usesModernEntityStepCollision()
+                    && hasSourceProvenStepCandidate(player, result));
     }
 
     private boolean needsStepProof(GrimPlayer player, PredictionResult result) {
@@ -66,9 +69,12 @@ final class VanillaStepProof {
     }
 
     private boolean hasSourceProvenStepCandidate(GrimPlayer player, PredictionResult result) {
+        boolean requireSelectedStep = player.getClientVersion().usesModernEntityStepCollision()
+                && !hasUnknownCollisionAtDestination(result)
+                && !hasCollisionDirectlyBelowDestination(player, result);
         Vec3 target = result.getTarget();
         double desiredY = result.getInitialStartingVel().y;
-        if (collidesToAcceptedY(player, result, target.x, desiredY, target.z)) {
+        if (collidesToAcceptedY(player, result, target.x, desiredY, target.z, requireSelectedStep)) {
             return true;
         }
 
@@ -83,7 +89,8 @@ final class VanillaStepProof {
         for (double desiredX : candidateX) {
             for (double stepDesiredY : candidateY) {
                 for (double desiredZ : candidateZ) {
-                    if (collidesToAcceptedY(player, result, desiredX, stepDesiredY, desiredZ)) {
+                    if (collidesToAcceptedY(player, result, desiredX, stepDesiredY, desiredZ,
+                            requireSelectedStep)) {
                         return true;
                     }
                 }
@@ -93,7 +100,14 @@ final class VanillaStepProof {
         return false;
     }
 
-    private boolean collidesToAcceptedY(GrimPlayer player, PredictionResult result, double desiredX, double desiredY, double desiredZ) {
+    private boolean collidesToAcceptedY(GrimPlayer player, PredictionResult result,
+                                        double desiredX, double desiredY, double desiredZ,
+                                        boolean requireSelectedStep) {
+        List<Collisions.Axis> order = requireSelectedStep
+                ? (Math.abs(desiredX) < Math.abs(desiredZ)
+                ? List.of(Collisions.Axis.Y, Collisions.Axis.Z, Collisions.Axis.X)
+                : List.of(Collisions.Axis.Y, Collisions.Axis.X, Collisions.Axis.Z))
+                : null;
         Vec3 collidedMovement = collideLikeClient(
                 player,
                 result,
@@ -101,10 +115,32 @@ final class VanillaStepProof {
                 desiredX,
                 desiredY,
                 desiredZ,
-                null,
+                order,
                 true
         );
-        return Math.abs(collidedMovement.y - result.getTarget().y) <= STEP_Y_MATCH_EPSILON;
+        if (Math.abs(collidedMovement.y - result.getTarget().y) > STEP_Y_MATCH_EPSILON) {
+            return false;
+        }
+        if (!requireSelectedStep) {
+            return true;
+        }
+        if (result.getSimulationContext().isOnGround()
+                && (desiredY >= 0.0D || collidedMovement.y == desiredY)) {
+            return false;
+        }
+
+        Vec3 collisionWithoutStep = collideLikeClient(
+                player,
+                result,
+                result.getSimulationContext().getFromMaximumExtent(),
+                desiredX,
+                desiredY,
+                desiredZ,
+                order,
+                false
+        );
+        return Collisions.getHorizontalDistanceSqr(collidedMovement)
+                > Collisions.getHorizontalDistanceSqr(collisionWithoutStep);
     }
 
     private double[] axisSamples(double packetDelta, double minAttemptedDelta, double maxAttemptedDelta) {
