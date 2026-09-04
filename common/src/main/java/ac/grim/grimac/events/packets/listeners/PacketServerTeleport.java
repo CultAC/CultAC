@@ -30,6 +30,8 @@ public class PacketServerTeleport {
             // Geyser's Java acknowledgement does not prove Bedrock processed the teleport.
             return;
         }
+        // A second acknowledgement replaces, rather than extends, the previous pair.
+        player.packetStateData.clearMountedTeleportPosRotPending();
         handleMountedTeleportConfirmation(player, packet.getId());
     }
 
@@ -283,7 +285,7 @@ public class PacketServerTeleport {
                 null
         );
         player.getSetbackTeleportUtil().onPredictionComplete(new PredictionComplete(update));
-        player.packetStateData.markMountedTeleportPosRotPending(currentPosition);
+        player.packetStateData.markMountedTeleportPosRotPending();
     }
 
     private static boolean hasPendingClientVisibleDismount(GrimPlayer player) {

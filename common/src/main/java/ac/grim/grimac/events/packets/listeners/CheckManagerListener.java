@@ -111,7 +111,12 @@ public class CheckManagerListener {
 
     @GrimPacketHandler
     public void onAcceptTeleportation(PacketReceiveEvent event, GrimPlayer player, ServerboundAcceptTeleportationPacket packet) {
-        processInterveningReceive(event, player);
+        if (event.getConnectionState() != ConnectionProtocol.PLAY) return;
+        // PacketServerTeleport already consumed the real ID and armed its paired
+        // PosRot. This packet interrupts Rot -> MoveVehicle, but not its own echo.
+        player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
+        player.checkManager.dispatchDecodedReceiveObservers(event);
+        player.checkManager.dispatchOrderedReceive(event);
     }
 
     @GrimPacketHandler
@@ -525,7 +530,7 @@ public class CheckManagerListener {
         }
 
         boolean mountedTeleportPosRot = !player.isBedrockMovement()
-                && consumeMountedTeleportPosRot(player, position, packet);
+                && consumeMountedTeleportPosRot(player, packet);
 
         if (shouldIgnoreTranslatedBedrockMovement(player, false)) {
             // Auth input owns movement; this projection still passes through the setback gate.
@@ -644,12 +649,11 @@ public class CheckManagerListener {
         clearTransientPacketState(player);
     }
 
-    private boolean consumeMountedTeleportPosRot(GrimPlayer player, Vec3 position, ServerboundMovePlayerPacket packet) {
-        if (!(packet instanceof ServerboundMovePlayerPacket.PosRot)) {
-            return false;
-        }
-
-        return player.packetStateData.consumeMountedTeleportPosRotPending(position);
+    private boolean consumeMountedTeleportPosRot(GrimPlayer player, ServerboundMovePlayerPacket packet) {
+        boolean pending = player.packetStateData.consumeMountedTeleportPosRotPending();
+        // ClientPacketListener#handleMovePlayer sends AcceptTeleportation then
+        // PosRot consecutively, even while mounting and before transaction pongs.
+        return pending && packet instanceof ServerboundMovePlayerPacket.PosRot;
     }
 
     private boolean hasBufferedServerVehiclePassengerRotation(GrimPlayer player) {
@@ -669,8 +673,8 @@ public class CheckManagerListener {
     }
 
     private void recordMountedTeleportPosRot(GrimPlayer player, Vec3 position, ServerboundMovePlayerPacket packet) {
-        player.packetStateData.clientSidePosition = position;
-        player.getMovementData().handle(position.x, position.y, position.z);
+        // A mounted position echo does not move the client or its root vehicle.
+        // Never use its coordinates to seed prediction, reach, or fall distance.
         if (packet.hasRotation()) {
             float yaw = packet.getYRot(player.xRot);
             float pitch = packet.getXRot(player.yRot);

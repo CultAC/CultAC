@@ -808,7 +808,8 @@ public class SetbackTeleportUtil extends GrimProcessor implements PostPrediction
     }
 
     private TeleportData matchingMountedTeleport(int teleportId) {
-        return matchingVehicleTeleport(teleportId);
+        TeleportData teleport = matchingVehicleTeleport(teleportId);
+        return teleport != null && teleport.isSentWhileVehicle() && !teleport.isSentDuringVehicleDismount() ? teleport : null;
     }
 
     public boolean hasPendingVehicleDismountTeleport(int teleportId) {

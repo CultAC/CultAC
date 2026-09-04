@@ -47,7 +47,7 @@ public class PacketStateData {
     private boolean awaitingVehicleMoveAfterPassengerRotation = false;
     private boolean mountedPassengerRotationSeenThisClientTick = false;
     private boolean vehicleMovementFromClientTick = false;
-    private Vec3 mountedTeleportPosRotPosition = null;
+    private boolean mountedTeleportPosRotPending;
     public int vehicleMovePacketsThisClientTick = 0;
     public int clientTickVehicleMovePacketsThisClientTick = 0;
     public int localAuthoritativeVehicleMovePacketsThisClientTick = 0;
@@ -194,21 +194,19 @@ public class PacketStateData {
         clearMountedTeleportPosRotPending();
     }
 
-    public void markMountedTeleportPosRotPending(Vec3 position) {
-        mountedTeleportPosRotPosition = position;
+    /** Armed only by consuming a real pending mounted teleport ID. */
+    public void markMountedTeleportPosRotPending() {
+        mountedTeleportPosRotPending = true;
     }
 
-    public boolean consumeMountedTeleportPosRotPending(Vec3 position) {
-        Vec3 expected = mountedTeleportPosRotPosition;
-        mountedTeleportPosRotPosition = null;
-        return expected != null
-                && expected.x == position.x
-                && expected.y == position.y
-                && expected.z == position.z;
+    public boolean consumeMountedTeleportPosRotPending() {
+        boolean pending = mountedTeleportPosRotPending;
+        mountedTeleportPosRotPending = false;
+        return pending;
     }
 
     public void clearMountedTeleportPosRotPending() {
-        mountedTeleportPosRotPosition = null;
+        mountedTeleportPosRotPending = false;
     }
 
     // For future checks
