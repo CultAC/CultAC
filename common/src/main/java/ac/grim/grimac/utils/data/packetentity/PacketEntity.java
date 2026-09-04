@@ -46,6 +46,12 @@ public class PacketEntity {
     public boolean isBaby = false;
     public boolean hasGravity = true;
     public double gravity = 0.08D;
+    public double bounciness = 0.0D;
+    public double frictionModifier = 1.0D;
+    public double airDragModifier = 1.0D;
+    // Null means no client-visible update has overridden the entity type's
+    // vanilla step height. GrimPlayer#getMaxUpStep retains those type defaults.
+    public Double stepHeightAttribute;
     public boolean noAI = false;
     public float scale = 1.0f;
     public boolean onGround = false;

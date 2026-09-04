@@ -5,6 +5,7 @@ import ac.grim.grimac.checks.impl.prediction.SimulationContext;
 import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.grim.grimac.utils.math.GrimMath;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
@@ -49,6 +50,11 @@ public final class VelocityCandidates {
             diff = diff.subtract(positionOnlyDelta);
         }
 
+        GrimPlayer player = result.getPlayer();
+        if (player != null) {
+            diff = applyPostMoveLivingFluidCurrent(player, result, diff);
+        }
+
         boolean isX = result.getCollideAxisData().getX().isLikelyCollide();
         boolean isY = result.getCollideAxisData().getYPos() != null && result.getCollideAxisData().getYPos().isLikelyCollide() ||
                 result.getCollideAxisData().getYNeg() != null && result.getCollideAxisData().getYNeg().isLikelyCollide()
@@ -81,6 +87,30 @@ public final class VelocityCandidates {
         }
 
         return new Candidates(validPlayerStartingVels);
+    }
+
+    private static Vec3 applyPostMoveLivingFluidCurrent(GrimPlayer player, PredictionResult result, Vec3 postMoveDelta) {
+        SimulationContext context = result.getSimulationContext();
+        PacketEntity vehicle = context == null ? null : context.getVehicle();
+        if (context == null
+                || vehicle != null && (EntityTypeUtil.isBoat(vehicle.type) || vehicle instanceof PacketEntityHappyGhast)
+                || player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_15_2)
+                || player.getClientVersion() == ClientVersion.V_1_21_4
+                || context.getWorldData().getInWater().determineOptimistically()
+                || !context.getWorldData().getInLava().determinePessimistically()) {
+            return postMoveDelta;
+        }
+
+        // Modern 2.0 PlayerBaseTick/MovementTicker already modeled this exact
+        // LivingEntity#checkFallDamage path. Entity#move updates the position,
+        // then LivingEntity#checkFallDamage calls updateFluidInteraction again
+        // when the entity is not in water. That second lava current does not
+        // affect the packet-visible move which just completed; it does affect
+        // deltaMovement before block speed and travel drag derive the next tick.
+        Vec3 current = WaterCurrent.calculateLavaCurrent(player, context, context.getEnd(), postMoveDelta);
+        return current != null && Double.isFinite(current.x) && Double.isFinite(current.y) && Double.isFinite(current.z)
+                ? postMoveDelta.add(current)
+                : postMoveDelta;
     }
 
     private static OptionalDouble requiredPacketVisibleSlimeBounceY(PredictionResult result, double clippedY) {
@@ -143,9 +173,9 @@ public final class VelocityCandidates {
     }
 
     private static double restitutedBounceY(GrimPlayer player, double deltaY, double clippedY, double gravity, double blockRestitution) {
-        double restitution = Math.max(player.compensatedEntities.getSelf().bounciness, blockRestitution);
+        double restitution = Math.max(player.compensatedEntities.getEntityInControl().bounciness, blockRestitution);
         double portion = deltaY != 0.0D ? GrimMath.clamp(clippedY / deltaY, 0.0D, 1.0D) : 0.0D;
-        double airDrag = Friction.computeModifiedFriction(0.98F, (float) player.compensatedEntities.getSelf().airDragModifier);
+        double airDrag = Friction.computeModifiedFriction(0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier);
         double effectiveDrag = Mth.lerp(portion, 1.0D, airDrag);
         return (portion * gravity - deltaY) * effectiveDrag * restitution;
     }
@@ -232,7 +262,7 @@ public final class VelocityCandidates {
             // (zero at the default bounciness attribute of 0.0).
             SimulationContext context = result.getSimulationContext();
             boolean suppressingBounce = context.getVehicle() == null && context.isSneaking();
-            double bounciness = suppressingBounce ? 0.0D : player.compensatedEntities.getSelf().bounciness;
+            double bounciness = suppressingBounce ? 0.0D : player.compensatedEntities.getEntityInControl().bounciness;
             if (canZeroX) {
                 postMoveDelta = new Vec3(-postMoveDelta.x * bounciness, postMoveDelta.y, postMoveDelta.z);
             }
@@ -264,7 +294,7 @@ public final class VelocityCandidates {
             }
 
             double gravity = effectiveGravity(player);
-            double bounciness = player.compensatedEntities.getSelf().bounciness;
+            double bounciness = player.compensatedEntities.getEntityInControl().bounciness;
             double restitution = bounciness;
             if (deltaY < 0.0D) {
                 // #suppresses_bounce (vanilla: honey block) and the impact-speed

@@ -266,14 +266,14 @@ public class SimulationContext {
 
     public float getMaxWidth() {
         if (getVehicle() != null) {
-            return BoundingBoxSize.getWidth(getVehicle());
+            return BoundingBoxSize.getWidth(getVehicle(), version);
         }
         return 0.6f;
     }
 
     public float getMaxHeight() {
         if (getVehicle() != null) {
-            return BoundingBoxSize.getHeight(getVehicle());
+            return BoundingBoxSize.getHeight(getVehicle(), version);
         }
         return 1.8f;
     }
@@ -292,6 +292,14 @@ public class SimulationContext {
 
     private float getFrictionInfluencedSpeed(float friction, GrimPlayer player, boolean isOnGround, boolean water, boolean lava) {
         final double normalSpeed = getPlayerMovementSpeed(player);
+
+        if (vehicle instanceof PacketEntityNautilus && water) {
+            // AbstractNautilus#travelInWater bypasses LivingEntity's generic
+            // 0.02 fluid acceleration and calls moveRelative(getSpeed(), input).
+            // travelRidden sets getSpeed() to getRiddenSpeed immediately before
+            // travel, which is 0.0325 * MOVEMENT_SPEED while in water.
+            return (float) normalSpeed;
+        }
 
         if (water) {
             float speed = 0.02f;
@@ -312,7 +320,7 @@ public class SimulationContext {
             // friction_modifier-adjusted block friction and only boosts movement
             // speed on slippery blocks (friction > 0.6).
             if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)) {
-                float modifiedFriction = Friction.computeModifiedFriction(friction, (float) player.compensatedEntities.getSelf().frictionModifier);
+                float modifiedFriction = Friction.computeModifiedFriction(friction, (float) player.compensatedEntities.getEntityInControl().frictionModifier);
                 if (modifiedFriction > 0.6f) {
                     return (float) (normalSpeed * (0.21600002f / (modifiedFriction * modifiedFriction * modifiedFriction)));
                 }
@@ -325,7 +333,8 @@ public class SimulationContext {
         if (vehicle != null) {
             if (vehicle.type == EntityTypesCompat.PIG
                     || vehicle instanceof PacketEntityHorse
-                    || vehicle instanceof PacketEntityStrider) {
+                    || vehicle instanceof PacketEntityStrider
+                    || vehicle instanceof PacketEntityNautilus) {
                 // MCP-Reborn LivingEntity#getFlyingSpeed uses this.getSpeed() * 0.1F for
                 // player-controlled ridden living entities. normalSpeed already mirrors
                 // getRiddenSpeed(...) for pigs, horses, and striders below.
@@ -351,12 +360,17 @@ public class SimulationContext {
             return entities.getPlayerMovementSpeed();
         }
         if (vehicle instanceof PacketEntityCamel camel) {
-            final double sprintBonus = player.isSprinting ? 0.1 : 0;
+            final double sprintBonus = player.vehicleData.camelSprintingState != ac.grim.grimac.utils.data.SprintingState.STOPPED
+                    && camel.dashCooldown == 0 && !camel.dashing ? 0.1 : 0;
             return camel.movementSpeedAttribute + sprintBonus;
         }
 
         if (vehicle instanceof PacketEntityHorse) {
             return ((PacketEntityHorse) vehicle).movementSpeedAttribute;
+        }
+        if (vehicle instanceof PacketEntityNautilus nautilus) {
+            boolean water = worldData != null && worldData.getInWater().determineOptimistically();
+            return (water ? 0.0325F : 0.02F) * nautilus.movementSpeedAttribute;
         }
         // Must be rideable?
         if (vehicle instanceof PacketEntityRideable) {

@@ -461,10 +461,17 @@ public class GrimPlayer implements GrimUser {
 
     public float getMaxUpStep() {
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        if (riding == null) return 0.6f;
+        if (riding == null) {
+            Double stepHeight = compensatedEntities.getSelf().stepHeightAttribute;
+            return stepHeight == null ? 0.6f : stepHeight.floatValue();
+        }
 
         if (EntityTypeUtil.isBoat(riding.type)) {
             return 0f;
+        }
+
+        if (riding.stepHeightAttribute != null) {
+            return riding.stepHeightAttribute.floatValue();
         }
 
         // Pigs, horses, striders, and other vehicles all have 1 stepping height

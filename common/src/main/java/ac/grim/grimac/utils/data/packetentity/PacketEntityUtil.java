@@ -11,7 +11,8 @@ public class PacketEntityUtil {
                 || EntityTypeUtil.isHorseFamily(type)
                 || type == EntityTypesCompat.PIG
                 || type == EntityTypesCompat.STRIDER
-                || EntityTypeUtil.isHappyGhast(type);
+                || EntityTypeUtil.isHappyGhast(type)
+                || EntityTypeUtil.isNautilusFamily(type);
     }
 
 }

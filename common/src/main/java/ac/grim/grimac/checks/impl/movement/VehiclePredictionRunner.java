@@ -14,6 +14,9 @@ import ac.grim.grimac.utils.data.CollideAxisData;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHorse;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityCamel;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityNautilus;
+import ac.grim.grimac.utils.data.SprintingState;
 import ac.grim.grimac.network.event.PacketReceiveEvent;
 import ac.grim.grimac.utils.nmsutil.EntityTypeUtil;
 import ac.grim.grimac.utils.nmsutil.EntityTypesCompat;
@@ -29,6 +32,18 @@ public class VehiclePredictionRunner extends GrimProcessor implements VehicleLis
 
     @Override
     public void onPlayerTickEnd(final PacketReceiveEvent event) {
+        if (player.vehicleData.camelSprintingState == SprintingState.STOPPING) {
+            player.vehicleData.camelSprintingState = SprintingState.STOPPED;
+        } else if (player.vehicleData.camelSprintingState == SprintingState.STOPPED && player.isSprinting) {
+            player.vehicleData.camelSprintingState = SprintingState.STARTED;
+        }
+        PacketEntity root = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
+        if (root instanceof PacketEntityNautilus nautilus) {
+            nautilus.tickClientState();
+        }
+        if (root instanceof PacketEntityCamel camel) {
+            camel.tickDashCooldown();
+        }
         PacketEntityHorse horse = player.compensatedEntities.vehicles.getClientVisibleHorseRoot();
         if (horse != null) {
             // MCP-Reborn ClientLevel#tickPassenger runs LocalPlayer#rideTick
@@ -63,6 +78,10 @@ public class VehiclePredictionRunner extends GrimProcessor implements VehicleLis
         }
         boolean vehicleMovementFromClientTick = player.packetStateData.isVehicleMovementFromClientTick();
         PacketEntity riding = result.getSimulationContext().getVehicle();
+        if (riding instanceof PacketEntityCamel camel) {
+            camel.lastPredictedInLiquid = result.getSimulationContext().getWorldData().getInWater().determineOptimistically()
+                    || result.getSimulationContext().getWorldData().getInLava().determineOptimistically();
+        }
 
         if (vehicleUpdate.getTeleportAcceptData().isTeleport()) {
             player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.UNKNOWN);
@@ -128,6 +147,16 @@ public class VehiclePredictionRunner extends GrimProcessor implements VehicleLis
             if (velocity != null) {
                 riding.deltaMovement = velocity;
             }
+        } else if (riding instanceof PacketEntityNautilus nautilus) {
+            Vec3 velocity = uniqueVelocity(player.checkManager.getSimulationProcessor().getValidPlayerStartingVels());
+            if (velocity != null) {
+                riding.deltaMovement = velocity;
+            }
+            if (nautilus.pendingJumpScale > 0.0D) {
+                nautilus.pendingJumpScale = 0.0D;
+                nautilus.dashCooldown = 40;
+                nautilus.dashing = true;
+            }
         }
 
         // For performance reasons - and to make debugging less painful - don't try spamming jumps
@@ -142,6 +171,10 @@ public class VehiclePredictionRunner extends GrimProcessor implements VehicleLis
                 // already jumping. So a client-grounded tick provably consumes
                 // the currently active pending jump scale.
                 horse.horseJump = 0.0D;
+                if (horse instanceof PacketEntityCamel camel) {
+                    camel.dashCooldown = 55;
+                    camel.dashing = true;
+                }
             }
         }
     }
@@ -191,7 +224,8 @@ public class VehiclePredictionRunner extends GrimProcessor implements VehicleLis
                 || EntityTypeUtil.isHorseFamily(root.type)
                 || root.type == EntityTypesCompat.PIG
                 || root.type == EntityTypesCompat.STRIDER
-                || root instanceof PacketEntityHappyGhast);
+                || root instanceof PacketEntityHappyGhast
+                || root instanceof PacketEntityNautilus);
     }
 
     private Vec3 uniqueVelocity(Set<Vec3> velocities) {

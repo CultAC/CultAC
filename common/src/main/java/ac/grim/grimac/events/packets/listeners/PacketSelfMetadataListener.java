@@ -7,6 +7,7 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.TrackerData;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityUtil;
 import ac.grim.grimac.utils.nmsutil.WatchableIndexUtil;
+import ac.grim.grimac.utils.data.SprintingState;
 import ac.grim.grimac.network.event.PacketSendEvent;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.core.BlockPos;
@@ -82,6 +83,11 @@ public class PacketSelfMetadataListener {
                         final Runnable applySharedFlags = () -> {
                             player.isSwimming = isSwimming;
                             player.lastSprinting = isSprinting;
+                            if (!isSprinting) {
+                                // The local client can retain its Camel sprint input for
+                                // the movement tick in which the replicated flag stops.
+                                player.vehicleData.camelSprintingState = SprintingState.STOPPING;
+                            }
                             // Protect this due to players being able to get the server to spam this packet a lot
                             if (player.isGliding != isGliding) {
                                 // no-op

@@ -51,7 +51,15 @@ public class PointThree implements UncertaintyHandler {
         } else if (canVerticalTickSkip && end.y < start.y) { // we want to go down
             SimpleCollisionBox box = new SimpleCollisionBox(start, start);
             // Maximum amount skipped when falling
-            box.unionY((-0.08 - threshold * 2) * 0.98);
+            double gravity = player.compensatedEntities.getEntityInControl().gravity;
+            if (start.y <= 0.0D && context.getEntities().getSlowFallingAmplifier() != null) {
+                gravity = Math.min(gravity, 0.01D);
+            }
+            double verticalDrag = player.getClientVersion().isNewerThanOrEquals(ac.grim.grimac.network.protocol.ClientVersion.V_26_2)
+                    ? ac.grim.grimac.utils.nmsutil.Friction.computeModifiedFriction(0.98F,
+                    (float) player.compensatedEntities.getEntityInControl().airDragModifier)
+                    : 0.98F;
+            box.unionY((-gravity - threshold * 2) * verticalDrag);
             start = start.with(VectorUtils.cutBoxToVector(end, box), "gravity missing");
 
             if (!valid.isTestingMaxStartingVelExtents(end)) {

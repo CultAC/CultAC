@@ -49,15 +49,15 @@ public class BouncyBlock implements UncertaintyHandler{
         // MCP-Reborn 26.2 Entity#restituteMovementAfterCollisions only bounces when
         // the impact speed reaches the entity's effective gravity; below it the
         // restitution is forced to zero.
+        double gravity = player.compensatedEntities.getEntityInControl().gravity;
         if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)) {
-            double gravity = player.compensatedEntities.getEntityInControl().gravity;
             if (player.compensatedEntities.getSlowFallingAmplifier() != null) {
                 gravity = Math.min(gravity, 0.01D);
             }
             if (-minYAmount < gravity) return start;
         }
         // account for gravity
-        minYAmount = minYAmount - 0.08;
+        minYAmount = minYAmount - gravity;
 
         if (minYAmount > 0) return start;
 
@@ -68,7 +68,7 @@ public class BouncyBlock implements UncertaintyHandler{
         // MCP-Reborn 26.2 applies the entity's air drag to the restituted velocity
         // (lerp(portion, 1, airDrag), maximized at portion 1).
         double airDrag = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)
-                ? Friction.computeModifiedFriction(0.98F, (float) player.compensatedEntities.getSelf().airDragModifier)
+                ? Friction.computeModifiedFriction(0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier)
                 : 1.0D;
 
         // The player can bounce this high

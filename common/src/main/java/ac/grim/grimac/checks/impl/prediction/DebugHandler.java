@@ -129,6 +129,7 @@ public class DebugHandler extends GrimProcessor implements PostPredictionListene
                 if (b != null) {
                     LogUtil.info(prefix + b);
                 }
+                LogUtil.info(prefix + o);
                 if (external != null) {
                     LogUtil.info(prefix + external);
                 }
@@ -232,6 +233,11 @@ public class DebugHandler extends GrimProcessor implements PostPredictionListene
 
     public boolean toggleConsoleOutput() {
         this.outputToConsole = !outputToConsole;
+        return this.outputToConsole;
+    }
+
+    public boolean setConsoleOutput(boolean outputToConsole) {
+        this.outputToConsole = outputToConsole;
         return this.outputToConsole;
     }
 

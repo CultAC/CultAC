@@ -5,8 +5,11 @@ import ac.grim.grimac.manager.player.SetbackTeleportUtil;
 import ac.grim.grimac.network.GrimPacketHandler;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHorse;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityCamel;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityNautilus;
 import ac.grim.grimac.network.event.PacketReceiveEvent;
 import ac.grim.grimac.network.protocol.util.SpigotConversionUtil;
+import ac.grim.grimac.utils.data.SprintingState;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import org.bukkit.inventory.ItemStack;
@@ -20,6 +23,7 @@ public class PacketEntityAction {
         switch (packet.getAction()) {
                 case START_SPRINTING:
                     player.isSprinting = true;
+                    player.vehicleData.camelSprintingState = SprintingState.STARTED;
                     // MCP-Reborn LocalPlayer#tick sends START_SPRINTING before the
                     // movement packet, and ServerGamePacketListenerImpl#handlePlayerCommand
                     // immediately calls LivingEntity#setSprinting, which adds the
@@ -28,6 +32,7 @@ public class PacketEntityAction {
                     break;
                 case STOP_SPRINTING:
                     player.isSprinting = false;
+                    player.vehicleData.camelSprintingState = SprintingState.STOPPED;
                     // STOP_SPRINTING removes the same transient modifier immediately
                     // on the server before any following movement packet is handled.
                     player.compensatedEntities.hasSprintingAttributeEnabled = false;
@@ -54,7 +59,19 @@ public class PacketEntityAction {
                     }
                     break;
                 case START_RIDING_JUMP:
+                    PacketEntityNautilus nautilus = player.compensatedEntities.vehicles.getVelocityMovementVehicle() instanceof PacketEntityNautilus value
+                            ? value : null;
+                    if (nautilus != null && nautilus.hasSaddle && nautilus.dashCooldown <= 0) {
+                        nautilus.nextPendingJumpScale = packet.getData() >= 90
+                                ? 1.0F
+                                : 0.4F + 0.4F * packet.getData() / 90.0F;
+                        break;
+                    }
                     PacketEntityHorse horse = player.compensatedEntities.vehicles.getClientVisibleHorseRoot();
+                    if (horse instanceof PacketEntityCamel camel
+                            && (!camel.hasSaddle || camel.dashCooldown > 0 || !camel.onGround)) {
+                        break;
+                    }
                     if (horse != null && horse.hasSaddle) {
                         double jumpScale = packet.getData() >= 90
                                 ? 1.0F

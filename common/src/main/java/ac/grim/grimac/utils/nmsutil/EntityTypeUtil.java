@@ -148,6 +148,14 @@ public final class EntityTypeUtil {
                 || isType(type, "camel_husk");
     }
 
+    public static boolean isCamelFamily(EntityType<?> type) {
+        return type == EntityTypesCompat.CAMEL || isType(type, "camel_husk");
+    }
+
+    public static boolean isNautilusFamily(EntityType<?> type) {
+        return isType(type, "nautilus") || isType(type, "zombie_nautilus");
+    }
+
     public static boolean isMinecart(EntityType<?> type) {
         Class<? extends Entity> nmsClass = nmsEntityClass(type);
         if (isSubclassNamed(nmsClass,

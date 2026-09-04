@@ -87,6 +87,10 @@ public class BasePacketWorldReader {
     }
 
     public void addChunkToCache(PacketSendEvent event, GrimPlayer player, CachedSection[] chunks, boolean isGroundUp, String dimension, int chunkX, int chunkZ) {
+        addChunkToCache(event, player, chunks, isGroundUp, dimension, chunkX, chunkZ, List.of());
+    }
+
+    public void addChunkToCache(PacketSendEvent event, GrimPlayer player, CachedSection[] chunks, boolean isGroundUp, String dimension, int chunkX, int chunkZ, List<BlockPos> geyserTickers) {
         double chunkCenterX = (chunkX << 4) + 8;
         double chunkCenterZ = (chunkZ << 4) + 8;
         boolean playerLoadingIntoChunk = Math.abs(player.x - chunkCenterX) < 16 && Math.abs(player.z - chunkCenterZ) < 16;
@@ -106,7 +110,7 @@ public class BasePacketWorldReader {
         if (isGroundUp) {
             if (player.chunkDebug) { player.sendMessage("Chunk " + chunkX + " " + chunkZ + " was added."); }
             CachedChunk column = new CachedChunk(chunks, applyTransaction);
-            player.compensatedWorld.addToCache(column, dimension, applyTransaction, chunkX, chunkZ);
+            player.compensatedWorld.addToCache(column, dimension, applyTransaction, chunkX, chunkZ, geyserTickers);
         } else {
             if (player.chunkDebug) { player.sendMessage("Chunk " + chunkX + " " + chunkZ + " was merged."); }
             player.latencyUtils.addRealTimeTask(applyTransaction, () -> {

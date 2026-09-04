@@ -31,6 +31,7 @@ public final class WatchableIndexUtil {
     public static final MetadataAccessor<Byte> HORSE_FLAGS = accessor("DATA_ID_FLAGS", 18, "net.minecraft.world.entity.animal.equine.AbstractHorse", "net.minecraft.world.entity.animal.horse.AbstractHorse");
     public static final MetadataAccessor<Boolean> CAMEL_DASH = accessor("DASH", 19, "net.minecraft.world.entity.animal.camel.Camel", "net.minecraft.world.entity.animal.camel.Camel");
     public static final MetadataAccessor<Boolean> HAPPY_GHAST_STAYS_STILL = accessor("STAYS_STILL", 18, "net.minecraft.world.entity.animal.happyghast.HappyGhast", "net.minecraft.world.entity.animal.HappyGhast");
+    public static final MetadataAccessor<Boolean> NAUTILUS_DASH = accessor("DASH", 19, "net.minecraft.world.entity.animal.nautilus.AbstractNautilus");
     public static final MetadataAccessor<?> FIREWORK_ATTACHED_TO_TARGET = accessor("DATA_ATTACHED_TO_TARGET", 9, "net.minecraft.world.entity.projectile.FireworkRocketEntity");
     public static final MetadataAccessor<Integer> FISHING_HOOKED_ENTITY = accessor("DATA_HOOKED_ENTITY", 8, "net.minecraft.world.entity.projectile.FishingHook");
 
@@ -56,6 +57,7 @@ public final class WatchableIndexUtil {
             HORSE_FLAGS,
             CAMEL_DASH,
             HAPPY_GHAST_STAYS_STILL,
+            NAUTILUS_DASH,
             FIREWORK_ATTACHED_TO_TARGET,
             FISHING_HOOKED_ENTITY
     );

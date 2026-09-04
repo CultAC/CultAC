@@ -11,6 +11,7 @@ import ac.grim.grimac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.LogUtil;
 import ac.grim.grimac.utils.data.TrackerData;
+import ac.grim.grimac.utils.data.SprintingState;
 import ac.grim.grimac.utils.data.packetentity.PacketEntitySelf;
 import ac.grim.grimac.utils.nmsutil.EntityTypesCompat;
 import ac.grim.grimac.utils.nmsutil.NmsIdentifierUtil;
@@ -176,6 +177,7 @@ public class PacketPlayerRespawn {
             player.compensatedEntities.selfTrackedEntity = new TrackerData(0, 0, 0, 0, 0, EntityTypesCompat.PLAYER, player.lastTransactionSent.get());
 
             player.isSprinting = false;
+            player.vehicleData.camelSprintingState = SprintingState.STOPPED;
             badPacketsF.lastSprinting = false;
             player.compensatedEntities.hasSprintingAttributeEnabled = false;
             player.compensatedEntities.resetBedrockMovementSpeedAttribute();

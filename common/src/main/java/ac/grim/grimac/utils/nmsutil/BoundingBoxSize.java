@@ -1,6 +1,7 @@
 package ac.grim.grimac.utils.nmsutil;
 
 import ac.grim.grimac.player.GrimPlayer;
+import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHorse;
@@ -21,13 +22,11 @@ import net.minecraft.world.phys.Vec3;
 public class BoundingBoxSize {
 
     public static float getWidth(PacketEntity packetEntity) {
-        // Turtles are the only baby animal that don't follow the * 0.5 rule
-        if (packetEntity.type == EntityTypesCompat.TURTLE && packetEntity.isBaby) return 0.36f;
-        return getWidthMinusBaby(packetEntity) * (packetEntity.isBaby ? 0.5f : 1f) * packetEntity.scale;
+        return getWidth(packetEntity, ClientVersion.V_26_2);
     }
 
     public static float getWidth(GrimPlayer player, PacketEntity packetEntity) {
-        return getWidth(packetEntity);
+        return getWidth(packetEntity, player.getClientVersion());
     }
 
     public static float getReachWidth(GrimPlayer player, PacketEntity packetEntity) {
@@ -35,7 +34,7 @@ public class BoundingBoxSize {
     }
 
 
-    private static float getWidthMinusBaby(PacketEntity packetEntity) {
+    private static float getWidthMinusBaby(PacketEntity packetEntity, ClientVersion version) {
         if (packetEntity instanceof PacketEntitySizeable sizeable) {
             if (EntityTypesCompat.MAGMA_CUBE.equals(packetEntity.type) || EntityTypesCompat.SLIME.equals(packetEntity.type)) {
                 return 2.04f * (0.255f * (float) sizeable.size);
@@ -45,8 +44,21 @@ public class BoundingBoxSize {
             }
         }
 
+        String path = EntityTypeUtil.getKey(packetEntity.type).getPath();
+        if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
+            return version.isNewerThanOrEquals(ClientVersion.V_1_9) ? 0.4F : 0.6F;
+        }
         float exactWidth = baseDimensions(packetEntity).width();
         return Float.isNaN(exactWidth) ? 0.6f : exactWidth;
+    }
+
+    public static float getWidth(PacketEntity entity, ClientVersion version) {
+        float width = getWidthMinusBaby(entity, version);
+        if (entity.isBaby) {
+            Float independent = independentBabyWidth(entity, version);
+            width = independent == null ? width * getBabyScale(entity, version) : independent;
+        }
+        return width * entity.scale;
     }
 
     public static Vec3 getRidingOffsetFromVehicle(PacketEntity entity, GrimPlayer player) {
@@ -131,7 +143,7 @@ public class BoundingBoxSize {
     }
 
     public static float getHeight(GrimPlayer player, PacketEntity packetEntity) {
-        return getHeight(packetEntity);
+        return getHeight(packetEntity, player.getClientVersion());
     }
 
     public static float getReachHeight(GrimPlayer player, PacketEntity packetEntity) {
@@ -139,9 +151,7 @@ public class BoundingBoxSize {
     }
 
     public static float getHeight(PacketEntity packetEntity) {
-        // Turtles are the only baby animal that don't follow the * 0.5 rule
-        if (packetEntity.type == EntityTypesCompat.TURTLE && packetEntity.isBaby) return 0.12f;
-        return getHeightMinusBaby(packetEntity) * (packetEntity.isBaby ? 0.5f : 1f) * packetEntity.scale;
+        return getHeight(packetEntity, ClientVersion.V_26_2);
     }
 
     public static double getMyRidingOffset(PacketEntity packetEntity) {
@@ -191,15 +201,85 @@ public class BoundingBoxSize {
         return getHeight(player, packetEntity) * 0.75;
     }
 
-    private static float getHeightMinusBaby(PacketEntity packetEntity) {
+    private static float getHeightMinusBaby(PacketEntity packetEntity, ClientVersion version) {
         if (packetEntity instanceof PacketEntitySizeable sizeable) {
             if (EntityTypesCompat.MAGMA_CUBE.equals(packetEntity.type) || EntityTypesCompat.SLIME.equals(packetEntity.type)) {
                 return 2.04f * (0.255f * (float) sizeable.size);
             }
         }
 
+        String path = EntityTypeUtil.getKey(packetEntity.type).getPath();
+        if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
+            return version.isNewerThanOrEquals(ClientVersion.V_1_9) ? 0.5F : 0.7F;
+        }
         float exactHeight = baseDimensions(packetEntity).height();
         return Float.isNaN(exactHeight) ? 1.95f : exactHeight;
+    }
+
+    public static float getHeight(PacketEntity entity, ClientVersion version) {
+        float height = getHeightMinusBaby(entity, version);
+        if (entity.isBaby) {
+            Float independent = independentBabyHeight(entity, version);
+            height = independent == null ? height * getBabyScale(entity, version) : independent;
+        }
+        return height * entity.scale;
+    }
+
+    private static float getBabyScale(PacketEntity entity, ClientVersion version) {
+        String path = EntityTypeUtil.getKey(entity.type).getPath();
+        if (path.equals("turtle")) return 0.3F;
+        if (path.equals("happy_ghast")) return 0.2375F;
+        if (path.equals("dolphin")) return 0.65F;
+        if (path.equals("armadillo")) return 0.6F;
+        if (EntityTypeUtil.isCamelFamily(entity.type)) return version.isNewerThanOrEquals(ClientVersion.V_26_1) ? 0.6F : 0.45F;
+        if (version.isNewerThanOrEquals(ClientVersion.V_26_1)) {
+            if (path.equals("goat")) return 0.55F;
+            if (EntityTypeUtil.isHorseFamily(entity.type)) return 0.7F;
+        }
+        return 0.5F;
+    }
+
+    private static Float independentBabyWidth(PacketEntity entity, ClientVersion version) {
+        if (version.isOlderThan(ClientVersion.V_26_1)) return null;
+        String path = EntityTypeUtil.getKey(entity.type).getPath();
+        if (version.isNewerThanOrEquals(ClientVersion.V_26_2)) {
+            switch (path) {
+                case "axolotl": return 0.375F;
+                case "hoglin", "zoglin": return 0.75F;
+                case "fox": return 0.36F;
+                case "goat": return 0.45F;
+                case "camel", "camel_husk": return 0.95F;
+            }
+        }
+        return switch (path) {
+            case "axolotl", "squid", "glow_squid" -> 0.5F;
+            case "chicken" -> 0.3F;
+            case "rabbit" -> 0.24F;
+            case "zombie", "drowned", "husk", "zombie_villager", "zombified_piglin", "villager", "piglin", "piglin_brute" -> 0.49F;
+            default -> null;
+        };
+    }
+
+    private static Float independentBabyHeight(PacketEntity entity, ClientVersion version) {
+        if (version.isOlderThan(ClientVersion.V_26_1)) return null;
+        String path = EntityTypeUtil.getKey(entity.type).getPath();
+        if (version.isNewerThanOrEquals(ClientVersion.V_26_2)) {
+            switch (path) {
+                case "axolotl": return 0.21F;
+                case "hoglin", "zoglin": return 0.85F;
+                case "fox": return 0.42F;
+                case "goat": return 0.65F;
+                case "camel", "camel_husk": return 1.4F;
+                case "zombie", "drowned", "husk", "zombie_villager", "zombified_piglin", "villager", "piglin", "piglin_brute": return 0.98F;
+            }
+        }
+        return switch (path) {
+            case "axolotl" -> 0.25F;
+            case "chicken", "rabbit" -> 0.4F;
+            case "squid", "glow_squid" -> 0.63F;
+            case "zombie", "drowned", "husk", "zombie_villager", "zombified_piglin", "villager", "piglin", "piglin_brute" -> 0.99F;
+            default -> null;
+        };
     }
 
     private static EntityDimensions baseDimensions(PacketEntity packetEntity) {

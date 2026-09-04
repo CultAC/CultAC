@@ -17,9 +17,6 @@ public class PacketEntitySelf extends PacketEntity {
     // 26.2 movement attributes (Attributes#BOUNCINESS / FRICTION_MODIFIER /
     // AIR_DRAG_MODIFIER), tracked from server attribute packets. Defaults are
     // the vanilla values and leave movement unchanged.
-    public double bounciness = 0.0D;
-    public double frictionModifier = 1.0D;
-    public double airDragModifier = 1.0D;
     public double blockBreakSpeed = 1.0D;
     public double miningEfficiency = 0.0D;
     public double submergedMiningSpeed = 0.2D;
@@ -52,6 +49,7 @@ public class PacketEntitySelf extends PacketEntity {
         this.opLevel = old.getOpLevel();
         this.scale = old.scale;
         this.gravity = old.gravity;
+        this.stepHeightAttribute = old.stepHeightAttribute;
         this.playerSpeed = old.playerSpeed;
         this.bounciness = old.bounciness;
         this.frictionModifier = old.frictionModifier;

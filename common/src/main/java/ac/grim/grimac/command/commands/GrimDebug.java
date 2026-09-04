@@ -44,6 +44,7 @@ public class GrimDebug implements BuildableCommand {
                 .literal("consoledebug", Description.of("Toggle console debug output for a player"))
                 .permission("grim.consoledebug")
                 .required("target", arguments.singlePlayerSelectorParser())
+                .optional("state", StringParser.stringParser())
                 .handler(this::handleConsoleDebug);
 
         // Register "debug poolstats <label>" — SectionPool dedup statistics dump on the
@@ -208,7 +209,12 @@ public class GrimDebug implements BuildableCommand {
         GrimPlayer grimPlayer = parseTarget(sender, targetName.getSinglePlayer());
         if (grimPlayer == null) return;
 
-        boolean isOutput = grimPlayer.checkManager.getDebugHandler().toggleConsoleOutput();
+        String requestedState = context.getOrDefault("state", "toggle");
+        boolean isOutput = switch (requestedState.toLowerCase(java.util.Locale.ROOT)) {
+            case "on", "true", "enable", "enabled" -> grimPlayer.checkManager.getDebugHandler().setConsoleOutput(true);
+            case "off", "false", "disable", "disabled" -> grimPlayer.checkManager.getDebugHandler().setConsoleOutput(false);
+            default -> grimPlayer.checkManager.getDebugHandler().toggleConsoleOutput();
+        };
         String playerName = grimPlayer.user.getProfile().getName(); // Use user profile for name
 
         Component message = Component.text()

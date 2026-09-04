@@ -198,12 +198,13 @@ public class PredictionResult {
         DesyncStatus falling = getIsFalling();
         boolean hasSlowFalling = getSimulationContext().getEntities().getSlowFallingAmplifier() != null;
 
+        double gravity = getSimulationContext().getEntities().getEntityInControl().gravity;
         if (!hasSlowFalling || falling == DesyncStatus.FALSE) { // No slow falling, or not falling
-            return Collections.singletonList(0.08);
+            return Collections.singletonList(gravity);
         } else if (falling == DesyncStatus.UNKNOWN) { // We don't know
-            return Arrays.asList(0.01, 0.08);
+            return Arrays.asList(Math.min(gravity, 0.01D), gravity);
         } else { // Slow falling
-            return Collections.singletonList(0.01);
+            return Collections.singletonList(Math.min(gravity, 0.01D));
         }
     }
 

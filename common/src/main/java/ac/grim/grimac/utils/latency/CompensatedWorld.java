@@ -29,6 +29,7 @@ import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundUseItemOnPacket;
 import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
 import net.minecraft.network.protocol.game.CommonPlayerSpawnInfo;
+import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket.Action;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.PalettedContainer;
@@ -58,6 +59,7 @@ public class CompensatedWorld implements BlockGetter {
     // Packet locations for blocks
     public Set<ShulkerData> openShulkerBoxes = new HashSet<>();
     public final CompensatedWorldPistons pistons;
+    private final CompensatedGeysers geysers = new CompensatedGeysers();
     private final Long2IntOpenHashMap recentClientCollisionChanges = new Long2IntOpenHashMap();
     private final Long2IntOpenHashMap recentClientFluidChanges = new Long2IntOpenHashMap();
     private final Long2ByteOpenHashMap recentClientFluidChangeKinds = new Long2ByteOpenHashMap();
@@ -67,6 +69,7 @@ public class CompensatedWorld implements BlockGetter {
     private int minHeight = 0;
     private int maxHeight = 256;
     private String visibleDimension = "minecraft:overworld";
+    private boolean fastLava;
     private ClientboundDimensionData lastClientboundDimension = new ClientboundDimensionData(
             "minecraft:overworld",
             0,
@@ -90,6 +93,10 @@ public class CompensatedWorld implements BlockGetter {
         this.player = player;
         this.pistons = new CompensatedWorldPistons(player, this);
         chunks = new Long2ObjectOpenHashMap<>(81, 0.5f);
+    }
+
+    public CompensatedGeysers getGeysers() {
+        return geysers;
     }
 
     public static final class CachedChunk {
@@ -727,6 +734,7 @@ public class CompensatedWorld implements BlockGetter {
         markRecentClientFluidChange(asVector, toNmsState(original), newState);
 
         applyBlockChangeRawDANGER(x, y, z, newState);
+        geysers.updateBlock(asVector, toNmsState(original), newState);
         return original;
     }
 
@@ -1013,6 +1021,10 @@ public class CompensatedWorld implements BlockGetter {
     }
 
     public void addToCache(CachedChunk chunk, String dimension, int transaction, int chunkX, int chunkZ) {
+        addToCache(chunk, dimension, transaction, chunkX, chunkZ, List.of());
+    }
+
+    public void addToCache(CachedChunk chunk, String dimension, int transaction, int chunkX, int chunkZ, List<BlockPos> geyserTickers) {
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
         player.latencyUtils.addRealTimeTask(transaction, () -> {
             CachedChunk previous = chunks.get(chunkPosition);
@@ -1034,6 +1046,9 @@ public class CompensatedWorld implements BlockGetter {
                 }
             }
             preservePendingPredictions(chunk, chunkX, chunkZ);
+            if (dimension.equals(visibleDimension)) {
+                geysers.replaceChunk(chunkX, chunkZ, geyserTickers);
+            }
         });
     }
 
@@ -1234,6 +1249,9 @@ public class CompensatedWorld implements BlockGetter {
             } else {
                 sectionPoolLeases.release(dimension, chunkX, chunkZ);
             }
+            if (dimension.equals(visibleDimension)) {
+                geysers.removeChunk(chunkX, chunkZ);
+            }
         });
     }
 
@@ -1266,6 +1284,15 @@ public class CompensatedWorld implements BlockGetter {
         visibleDimension = NmsIdentifierUtil.resourceKey(spawnInfo.dimension());
         minHeight = spawnInfo.dimensionType().value().minY();
         maxHeight = minHeight + spawnInfo.dimensionType().value().height();
+        // 1.21.11 replaced DimensionType#ultraWarm for lava flow/push behavior
+        // with the syncable gameplay/fast_lava environment attribute. The
+        // dimension type in CommonPlayerSpawnInfo is exactly what the client receives.
+        fastLava = spawnInfo.dimensionType().value().attributes()
+                .applyModifier(EnvironmentAttributes.FAST_LAVA, false);
+    }
+
+    public boolean hasFastLava() {
+        return fastLava;
     }
 
     public void clearChunksForDimension(String dimension) {
@@ -1285,6 +1312,9 @@ public class CompensatedWorld implements BlockGetter {
             releaseChunkSections(entry.getValue(), chunkDimension, chunkX, chunkZ);
             sectionPoolLeases.release(chunkDimension, chunkX, chunkZ, entry.getValue().sectionCount());
             removePendingReinternSections(chunkX, chunkZ);
+            if (dimension.equals(visibleDimension)) {
+                geysers.removeChunk(chunkX, chunkZ);
+            }
             iterator.remove();
         }
     }
@@ -1299,6 +1329,7 @@ public class CompensatedWorld implements BlockGetter {
         chunks.clear();
         chunkDimensions.clear();
         pendingReinternSections.clear();
+        geysers.clear();
     }
 
     public boolean hasRetainedSectionPoolChunk(int chunkX, int chunkZ) {

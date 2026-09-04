@@ -5,6 +5,7 @@ import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.MainSupportingBlockData;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHappyGhast;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityNautilus;
 import ac.grim.grimac.utils.math.GrimMath;
 import net.minecraft.world.phys.Vec3;
 import org.bukkit.potion.PotionEffectType;
@@ -29,6 +30,12 @@ public final class Friction {
                 return Collections.singletonList(playerVelocity.scale(0.5D));
             }
             return Collections.singletonList(playerVelocity.scale(0.91F));
+        }
+
+        // AbstractNautilus#travelInWater moves first and then scales the complete
+        // stored velocity by 0.9. It does not apply the generic fluid gravity path.
+        if (context.getVehicle() instanceof PacketEntityNautilus && inWater) {
+            return Collections.singletonList(playerVelocity.scale(0.9D));
         }
 
         // Water friction - has highest priority
@@ -76,7 +83,7 @@ public final class Friction {
         // MCP-Reborn 26.2 LivingEntity#travelInAir applies the vertical air drag
         // through the air_drag_modifier attribute instead of the raw 0.98 constant.
         double verticalDrag = use26Dot2
-                ? computeModifiedFriction(0.98F, (float) player.compensatedEntities.getSelf().airDragModifier)
+                ? computeModifiedFriction(0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier)
                 : 0.98F;
         playerVelocity = playerVelocity.multiply(1, verticalDrag, 1);
         return Collections.singletonList(playerVelocity);
@@ -136,11 +143,11 @@ public final class Friction {
         // MCP-Reborn 26.2 LivingEntity#travelInAir passes the block friction and the
         // 0.91 air drag through the friction_modifier / air_drag_modifier attributes.
         if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)) {
-            float airDrag = computeModifiedFriction(0.91F, (float) player.compensatedEntities.getSelf().airDragModifier);
+            float airDrag = computeModifiedFriction(0.91F, (float) player.compensatedEntities.getEntityInControl().airDragModifier);
             if (!onGround) return airDrag;
             float blockFriction = computeModifiedFriction(
                     BlockProperties.getFriction(player, mainSupportingBlockData, from),
-                    (float) player.compensatedEntities.getSelf().frictionModifier);
+                    (float) player.compensatedEntities.getEntityInControl().frictionModifier);
             return blockFriction * airDrag;
         }
 

@@ -6,7 +6,11 @@ import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.network.protocol.util.SpigotConversionUtil;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.grim.grimac.utils.data.packetentity.PacketEntity;
+import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.tags.EntityTypeTags;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.Fluids;
@@ -28,7 +32,10 @@ import java.util.Set;
  * the carried deltaMovement and becomes next-tick starting velocity.
  */
 public final class GeyserVelocity {
-    private static final double LAUNCH_FORCE = 0.2D;
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+    // Vanilla's literal is 0.2F, promoted to double by Vec3#add.
+    private static final double LAUNCH_FORCE = 0.2F;
     private static final float BASE_LAUNCH_SPEED = 0.3F;
     private static final float LAUNCH_SPEED_PER_WATER_BLOCK = 0.1F;
     private static final int MAX_WATER_SCAN = 5;
@@ -40,14 +47,23 @@ public final class GeyserVelocity {
 
     public static Set<Vec3> applyToResult(GrimPlayer player, PredictionResult result, Set<Vec3> velocities) {
         if (player == null
+                || SERVER_VERSION.isOlderThan(ClientVersion.V_26_2)
                 || player.getClientVersion().isOlderThan(ClientVersion.V_26_2)
                 || player.bedrockState != null) {
             return velocities;
         }
 
         SimulationContext context = result.getSimulationContext();
-        // The ticker skips passengers, flying players, and spectators.
-        if (context == null || context.getVehicle() != null || player.isFlying || player.gamemode == GameMode.SPECTATOR) {
+        if (context == null) {
+            return velocities;
+        }
+
+        // Entity#getRootVehicle is launched, unless that root is itself riding
+        // something. That exactly matches the client ticker's isPassenger test.
+        PacketEntity launchedEntity = context.getVehicle() == null
+                ? context.getEntities().getSelf()
+                : context.getVehicle();
+        if (!canLaunch(launchedEntity, context.getVehicle() == null, player.isFlying, player.gamemode)) {
             return velocities;
         }
 
@@ -57,6 +73,55 @@ public final class GeyserVelocity {
             return velocities;
         }
 
+        return applyLaunchCaps(velocities, caps);
+    }
+
+    private static List<Float> findIntersectingColumnCaps(GrimPlayer player, SimpleCollisionBox box) {
+        List<Float> caps = new ArrayList<>();
+        int minX = (int) Math.floor(box.minX);
+        int maxX = (int) Math.floor(box.maxX);
+        int minZ = (int) Math.floor(box.minZ);
+        int maxZ = (int) Math.floor(box.maxZ);
+        int minY = (int) Math.floor(box.minY);
+        int maxY = (int) Math.floor(box.maxY);
+
+        int lowestY = Math.max(minY - MAX_COLUMN_HEIGHT - 1, player.compensatedWorld.getMinHeight());
+        for (BlockPos ticker : player.compensatedWorld.getGeysers()
+                .getTickersInOrder(minX, lowestY, minZ, maxX, maxY, maxZ)) {
+            int x = ticker.getX();
+            int y = ticker.getY();
+            int z = ticker.getZ();
+            BlockState state = player.compensatedWorld.getBlockStateAt(ticker);
+            if (!isEruptingPotentSulfur(state)) {
+                continue;
+            }
+
+            int waterBlocks = waterBlocksAbove(player, x, y, z);
+            if (waterBlocks < 0) {
+                continue;
+            }
+
+            int forceHeight = unobstructedCount(player, x, y + 1, z, FORCE_HEIGHT_PER_WATER_BLOCK * waterBlocks);
+            if (intersectsPlume(box, x, y, z, forceHeight)) {
+                caps.add(launchCap(waterBlocks));
+            }
+        }
+        return caps;
+    }
+
+    static SimpleCollisionBox plumeBox(int x, int y, int z, int forceHeight) {
+        return new SimpleCollisionBox(x, y + 1, z, x + 1, y + 1 + forceHeight, z + 1);
+    }
+
+    static boolean intersectsPlume(SimpleCollisionBox box, int x, int y, int z, int forceHeight) {
+        return forceHeight > 0 && box.isIntersected(plumeBox(x, y, z, forceHeight));
+    }
+
+    static float launchCap(int waterBlocks) {
+        return BASE_LAUNCH_SPEED + LAUNCH_SPEED_PER_WATER_BLOCK * waterBlocks;
+    }
+
+    static Set<Vec3> applyLaunchCaps(Set<Vec3> velocities, List<Float> caps) {
         Set<Vec3> adjusted = new HashSet<>();
         for (Vec3 velocity : velocities) {
             Vec3 current = velocity;
@@ -70,37 +135,11 @@ public final class GeyserVelocity {
         return adjusted;
     }
 
-    private static List<Float> findIntersectingColumnCaps(GrimPlayer player, SimpleCollisionBox box) {
-        List<Float> caps = new ArrayList<>();
-        int minX = (int) Math.floor(box.minX);
-        int maxX = (int) Math.floor(box.maxX);
-        int minZ = (int) Math.floor(box.minZ);
-        int maxZ = (int) Math.floor(box.maxZ);
-        int minY = (int) Math.floor(box.minY);
-        int maxY = (int) Math.floor(box.maxY);
-
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                for (int y = Math.max(minY - MAX_COLUMN_HEIGHT - 1, player.compensatedWorld.getMinHeight()); y <= maxY; y++) {
-                    BlockState state = player.compensatedWorld.getBlockStateAt(x, y, z);
-                    if (!isEruptingPotentSulfur(state)) {
-                        continue;
-                    }
-
-                    int waterBlocks = waterBlocksAbove(player, x, y, z);
-                    if (waterBlocks < 0) {
-                        continue;
-                    }
-
-                    int forceHeight = unobstructedCount(player, x, y + 1, z, FORCE_HEIGHT_PER_WATER_BLOCK * waterBlocks);
-                    SimpleCollisionBox column = new SimpleCollisionBox(x, y + 1, z, x + 1, y + 1 + forceHeight, z);
-                    if (box.isIntersected(column)) {
-                        caps.add(BASE_LAUNCH_SPEED + LAUNCH_SPEED_PER_WATER_BLOCK * waterBlocks);
-                    }
-                }
-            }
-        }
-        return caps;
+    static boolean canLaunch(PacketEntity entity, boolean rootIsPlayer, boolean playerFlying, GameMode gameMode) {
+        return entity != null && !entity.isDead && entity.riding == null
+                && !BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(entity.type).is(EntityTypeTags.NOT_AFFECTED_BY_GEYSERS)
+                && gameMode != GameMode.SPECTATOR
+                && (!rootIsPlayer || !playerFlying);
     }
 
     private static boolean isEruptingPotentSulfur(BlockState state) {

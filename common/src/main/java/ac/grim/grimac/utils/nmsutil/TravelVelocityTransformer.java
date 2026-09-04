@@ -1,10 +1,7 @@
 package ac.grim.grimac.utils.nmsutil;
 
-import ac.grim.grimac.checks.impl.prediction.DesyncStatus;
 import ac.grim.grimac.checks.impl.prediction.PredictionResult;
-import ac.grim.grimac.checks.impl.prediction.SimulationContext;
 import ac.grim.grimac.player.GrimPlayer;
-import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -41,15 +38,16 @@ public final class TravelVelocityTransformer {
                         continue;
                     }
 
-                    DesyncStatus isFalling = result.getIsFalling();
-                    for (boolean falling : isFalling.getStates()) {
-                        double grav = 0.08;
-                        // Gravity is 0.01 when a player has slow falling and is moving downwards
-                        if (falling && result.getSimulationContext().getEntities().getSlowFallingAmplifier() != null)
-                            grav = 0.01;
-                        if (!player.compensatedEntities.getEntityInControl().hasGravity) grav = 0;
-                        frictions.addAll(Friction.applyTravelDrag(player, onGround, from, movedVelocity, result.getSimulationContext(), falling, grav, inWater, inLava));
+                    // LivingEntity#getEffectiveGravity uses stored deltaMovement,
+                    // not the collision-clipped packet displacement. This matters
+                    // when a slow-falling player hits a ceiling.
+                    boolean falling = movedVelocity.y <= 0.0D;
+                    double grav = player.compensatedEntities.getEntityInControl().gravity;
+                    if (falling && result.getSimulationContext().getEntities().getSlowFallingAmplifier() != null) {
+                        grav = Math.min(grav, 0.01D);
                     }
+                    if (!player.compensatedEntities.getEntityInControl().hasGravity) grav = 0;
+                    frictions.addAll(Friction.applyTravelDrag(player, onGround, from, movedVelocity, result.getSimulationContext(), falling, grav, inWater, inLava));
                 }
             }
         }
@@ -71,60 +69,10 @@ public final class TravelVelocityTransformer {
     }
 
     static List<Vec3> preTravelRootVelocities(GrimPlayer player, PredictionResult result, Vec3 playerVelocity) {
-        SimulationContext context = result.getSimulationContext();
-        PacketEntity vehicle = context == null ? null : context.getVehicle();
-        if (vehicle == null
-                || EntityTypeUtil.isBoat(vehicle.type)
-                || !player.packetStateData.isVehicleMovementFromClientTick()) {
-            return Collections.singletonList(playerVelocity);
-        }
-
-        List<Vec3> currents = mountedRootWaterCurrents(player, result);
-        if (currents.isEmpty()) {
-            return Collections.singletonList(playerVelocity);
-        }
-
-        // Entity#baseTick applies fluid current before LivingEntity#travel chooses
-        // water, lava, or air travel. A mounted root can be pushed by flowing
-        // water even when its block-position fluid state makes travelInAir run.
-        List<Vec3> velocities = new ArrayList<>();
-        velocities.add(playerVelocity);
-        for (Vec3 current : currents) {
-            Vec3 withCurrent = playerVelocity.add(current);
-            if (!velocities.contains(withCurrent)) {
-                velocities.add(withCurrent);
-            }
-        }
-        return velocities;
+        // Entity#baseTick current was already applied to the starting velocity
+        // before collision/prediction. This method runs after the accepted move
+        // to derive travel drag; applying current here would add it twice.
+        return Collections.singletonList(playerVelocity);
     }
 
-    private static List<Vec3> mountedRootWaterCurrents(GrimPlayer player, PredictionResult result) {
-        SimulationContext context = result.getSimulationContext();
-        PacketEntity vehicle = context == null ? null : context.getVehicle();
-        if (vehicle == null || EntityTypeUtil.isBoat(vehicle.type)) {
-            return Collections.emptyList();
-        }
-
-        List<Vec3> currents = new ArrayList<>(2);
-        addMountedRootWaterCurrent(player, context, currents, context.getStart());
-        if (context.getEnd().distanceToSqr(context.getStart()) > 1.0E-14D) {
-            addMountedRootWaterCurrent(player, context, currents, context.getEnd());
-        }
-        return currents;
-    }
-
-    private static void addMountedRootWaterCurrent(GrimPlayer player, SimulationContext context, List<Vec3> currents, Vec3 position) {
-        Vec3 current = WaterCurrent.calculateWaterCurrent(player, context, position, Vec3.ZERO);
-        if (current == null) {
-            current = WaterCurrent.calculateTouchedNonPlayerWaterCurrent(player, WaterCurrent.getWaterCurrentInteractionBox(player, context, position));
-        }
-        if (current == null || !isFinite(current) || currents.contains(current)) {
-            return;
-        }
-        currents.add(current);
-    }
-
-    private static boolean isFinite(Vec3 vector) {
-        return Double.isFinite(vector.x) && Double.isFinite(vector.y) && Double.isFinite(vector.z);
-    }
 }

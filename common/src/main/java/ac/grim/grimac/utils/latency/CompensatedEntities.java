@@ -210,6 +210,10 @@ public class CompensatedEntities {
                     player.compensatedEntities.getSelf().gravity = calculateAttribute(snapshot, 0.0, 1024.0);
                 }
 
+                if (matchesAttributeName(snapshot, "step_height")) {
+                    player.compensatedEntities.getSelf().stepHeightAttribute = calculateAttribute(snapshot, 0.0, 10.0);
+                }
+
                 // 26.2 attributes (Attributes#BOUNCINESS / FRICTION_MODIFIER /
                 // AIR_DRAG_MODIFIER). Matched by registry path because the static
                 // constants do not exist on pre-26.2 servers.
@@ -260,6 +264,22 @@ public class CompensatedEntities {
                 if (matchesAttribute(snapshot, "gravity")) {
                     entity.gravity = calculateAttribute(snapshot, 0.0, 1024.0);
                 }
+
+                if (matchesAttributeName(snapshot, "step_height")) {
+                    entity.stepHeightAttribute = calculateAttribute(snapshot, 0.0, 10.0);
+                }
+
+                if (matchesAttributeName(snapshot, "bounciness")) {
+                    entity.bounciness = calculateAttribute(snapshot, 0.0, 1.0);
+                }
+
+                if (matchesAttributeName(snapshot, "friction_modifier")) {
+                    entity.frictionModifier = calculateAttribute(snapshot, 0.0, 2048.0);
+                }
+
+                if (matchesAttributeName(snapshot, "air_drag_modifier")) {
+                    entity.airDragModifier = calculateAttribute(snapshot, 0.0, 2048.0);
+                }
             }
         }
 
@@ -295,6 +315,14 @@ public class CompensatedEntities {
 
                 if (matchesAttribute(snapshot, "flying_speed")) {
                     happyGhast.flyingSpeedAttribute = (float) calculateAttribute(snapshot, 0.0, 1024.0);
+                }
+            }
+        }
+
+        if (entity instanceof PacketEntityNautilus nautilus) {
+            for (ClientboundUpdateAttributesPacket.AttributeSnapshot snapshot : objects) {
+                if (matchesAttribute(snapshot, "movement_speed")) {
+                    nautilus.movementSpeedAttribute = calculateAttribute(snapshot, 0.0, 1024.0);
                 }
             }
         }
@@ -450,7 +478,7 @@ public class CompensatedEntities {
     }
 
     private PacketEntity createTrackedEntity(int entityID, EntityType entityType, Vec3 position, float xRot, int data) {
-        if (EntityTypesCompat.CAMEL.equals(entityType)) {
+        if (EntityTypeUtil.isCamelFamily(entityType)) {
             return new PacketEntityCamel(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
         if (EntityTypeUtil.isHorseFamily(entityType)) {
@@ -464,6 +492,9 @@ public class CompensatedEntities {
         }
         if (EntityTypeUtil.isHappyGhast(entityType)) {
             return new PacketEntityHappyGhast(player, entityID, entityType, position.x, position.y, position.z, xRot);
+        }
+        if (EntityTypeUtil.isNautilusFamily(entityType)) {
+            return new PacketEntityNautilus(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
         if (EntityTypesCompat.SHULKER.equals(entityType)) {
             return new PacketEntityShulker(player, entityID, entityType, position.x, position.y, position.z);
@@ -537,6 +568,9 @@ public class CompensatedEntities {
                 if (entity instanceof PacketEntityHorse horse) {
                     horse.hasSaddle = hasSaddle;
                 }
+                if (entity instanceof PacketEntityNautilus nautilus) {
+                    nautilus.hasSaddle = hasSaddle;
+                }
             } else if (slot.getFirst() == EquipmentSlot.BODY && entity instanceof PacketEntityHappyGhast happyGhast) {
                 happyGhast.hasBodyArmor = !slot.getSecond().isEmpty();
             }
@@ -606,6 +640,12 @@ public class CompensatedEntities {
         }
         if (entity instanceof PacketEntityHappyGhast happyGhast) {
             applyHappyGhastMetadata(happyGhast, watchableObjects);
+        }
+        if (entity instanceof PacketEntityNautilus nautilus) {
+            SynchedEntityData.DataValue<?> dashData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.NAUTILUS_DASH);
+            if (dashData != null && dashData.value() instanceof Boolean dashing) {
+                nautilus.setDashingFromMetadata(dashing);
+            }
         }
         applyGravityMetadata(entity, watchableObjects);
 
@@ -732,7 +772,7 @@ public class CompensatedEntities {
         if (entity instanceof PacketEntityCamel camel) {
             SynchedEntityData.DataValue<?> dashData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.CAMEL_DASH);
             if (dashData != null) {
-                camel.dashing = (boolean) dashData.value();
+                camel.setDashingFromMetadata((boolean) dashData.value());
             }
         }
     }

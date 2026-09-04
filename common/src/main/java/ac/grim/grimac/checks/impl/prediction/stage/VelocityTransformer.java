@@ -7,6 +7,8 @@ import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityCamel;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHorse;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityNautilus;
+import ac.grim.grimac.utils.nmsutil.BlockProperties;
 import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.utils.nmsutil.EntityTypeUtil;
 import ac.grim.grimac.utils.nmsutil.EntityTypesCompat;
@@ -31,9 +33,9 @@ public class VelocityTransformer {
             return input;
         }
 
+        input = applyBaseTickFluidCurrents(player, input);
         input = applyAttackSlow(input);
         if (simulationContext.getVehicle() instanceof PacketEntityHappyGhast) {
-            input = applyMountedRootWaterCurrent(player, input);
             input = applyMovementThreshold(input, simulationContext.getVersion(), false);
             return applyRideableInput(player, input);
         }
@@ -43,12 +45,10 @@ public class VelocityTransformer {
             // deltaMovement threshold before the later travelRidden path adds
             // pig/strider ridden input.
             input = applyMovementThreshold(input, simulationContext.getVersion(), false);
-            input = applyMountedRootWaterCurrent(player, input);
             input = applyRideableInput(player, input);
-            return applyJumps(input);
+            return applyJumps(player, input);
         }
 
-        input = applyMountedRootWaterCurrent(player, input);
         input = applyRideableInput(player, input);
 
         // MCP-Reborn LivingEntity#handleRelativeFrictionAndCalculateMovement moves
@@ -65,12 +65,12 @@ public class VelocityTransformer {
 
         // Horse jumping is done before movement threshold
         if (simulationContext.getVehicle() instanceof PacketEntityHorse) {
-            input = applyJumps(input);
+            input = applyJumps(player, input);
             return applyMovementThreshold(input, simulationContext.getVersion(), false);
         }
 
         input = applyMovementThreshold(input, simulationContext.getVersion(), simulationContext.getVehicle() == null);
-        return applyJumps(input);
+        return applyJumps(player, input);
     }
 
     private boolean shouldThresholdBeforeItemControlledRiddenInput(GrimPlayer player) {
@@ -81,25 +81,30 @@ public class VelocityTransformer {
                 && canUseItemControlledMovement(player, vehicle);
     }
 
-    private List<PredVector> applyMountedRootWaterCurrent(GrimPlayer player, List<PredVector> input) {
+    private List<PredVector> applyBaseTickFluidCurrents(GrimPlayer player, List<PredVector> input) {
         PacketEntity vehicle = simulationContext.getVehicle();
-        if (vehicle == null
-                || EntityTypeUtil.isBoat(vehicle.type)
-                || input.isEmpty()
-                || !player.packetStateData.isVehicleMovementFromClientTick()
-                || !canUseItemControlledMovement(player, vehicle)) {
+        // Preserve CultAC's on-foot fluid contract: FluidPush only projects the
+        // packet displacement, and the accepted displacement is carried through
+        // the normal end-of-tick velocity derivation. Exact base-tick currents
+        // here are solely for client-controlled mounted roots.
+        if (input.isEmpty() || vehicle == null || EntityTypeUtil.isBoat(vehicle.type)
+                || vehicle instanceof PacketEntityNautilus
+                || !player.packetStateData.isVehicleMovementFromClientTick()) {
             return input;
         }
 
-        Vec3 current = WaterCurrent.calculateWaterCurrent(player, simulationContext, simulationContext.getStart(), Vec3.ZERO);
-        if (current == null || !isFinite(current)) {
-            return input;
-        }
-
-        List<PredVector> transformed = new ArrayList<>(input.size() * 2);
-        transformed.addAll(input);
+        List<PredVector> transformed = new ArrayList<>(input.size());
         for (PredVector vector : input) {
-            addDistinctPredVector(transformed, vector.add(current, "mounted root water current"));
+            PredVector current = vector;
+            Vec3 water = WaterCurrent.calculateWaterCurrent(player, simulationContext, simulationContext.getStart(), current);
+            if (water != null && isFinite(water)) {
+                current = current.add(water, "water current");
+            }
+            Vec3 lava = WaterCurrent.calculateLavaCurrent(player, simulationContext, simulationContext.getStart(), current);
+            if (lava != null && isFinite(lava)) {
+                current = current.add(lava, "lava current");
+            }
+            transformed.add(current);
         }
         return transformed;
     }
@@ -182,6 +187,10 @@ public class VelocityTransformer {
             );
         }
 
+        if (vehicle instanceof PacketEntityNautilus) {
+            return getExactNautilusRiddenInput(simulationContext.getHorseInputs(), player.yRot);
+        }
+
         return null;
     }
 
@@ -191,6 +200,30 @@ public class VelocityTransformer {
             // HappyGhast#tickRidden turns the root 8% toward the controller before LivingEntity#travel.
             float travelYaw = happyGhast.getRiddenTickYaw(simulationContext.getXRot());
             addDistinctInputVector(vectors, happyGhast.getTravelInputVector(player, riddenInput, travelYaw));
+            return vectors;
+        }
+
+        if (simulationContext.getVehicle() instanceof PacketEntityNautilus) {
+            for (boolean water : simulationContext.getWorldData().getInWater().getStates()) {
+                if (water) {
+                    addDistinctInputVector(vectors, inputVectorForSpeed(player, riddenInput,
+                            simulationContext.getMoveRelativeSpeed(player, false, true, false)));
+                }
+            }
+            for (boolean lava : simulationContext.getWorldData().getInLava().getStates()) {
+                if (lava) {
+                    addDistinctInputVector(vectors, inputVectorForSpeed(player, riddenInput,
+                            simulationContext.getMoveRelativeSpeed(player, false, false, true)));
+                }
+            }
+            boolean canBeNonFluid = simulationContext.getWorldData().getInWater().getStates().contains(false)
+                    && simulationContext.getWorldData().getInLava().getStates().contains(false);
+            if (canBeNonFluid) {
+                for (boolean onGround : simulationContext.getWorldData().getLastOnGround().getStates()) {
+                    addDistinctInputVector(vectors, inputVectorForSpeed(player, riddenInput,
+                            simulationContext.getMoveRelativeSpeed(player, onGround, false, false)));
+                }
+            }
             return vectors;
         }
 
@@ -233,6 +266,23 @@ public class VelocityTransformer {
 
     private Vec3 getExactHappyGhastRiddenInput(Vec3 rawInputState, boolean jumping, float controllerPitch, PacketEntityHappyGhast happyGhast) {
         return happyGhast.getRiddenInput(rawInputState, jumping, controllerPitch);
+    }
+
+    static Vec3 getExactNautilusRiddenInput(Vec3 rawInputState, float controllerPitch) {
+        Vec3 modified = getExactControllerModifiedInputStatic(rawInputState);
+        float sideways = (float) modified.x;
+        float forwardKey = (float) modified.z;
+        float forward = 0.0F;
+        float vertical = 0.0F;
+        if (forwardKey != 0.0F) {
+            forward = Mth.cos(controllerPitch * ((float) Math.PI / 180.0F));
+            vertical = -Mth.sin(controllerPitch * ((float) Math.PI / 180.0F));
+            if (forwardKey < 0.0F) {
+                forward *= -0.5F;
+                vertical *= -0.5F;
+            }
+        }
+        return new Vec3(sideways, vertical, forward);
     }
 
     private boolean standingHorseCanZeroInput(PacketEntityHorse horse) {
@@ -281,6 +331,10 @@ public class VelocityTransformer {
     }
 
     private Vec3 getExactControllerModifiedInput(Vec3 rawInputState) {
+        return getExactControllerModifiedInputStatic(rawInputState);
+    }
+
+    private static Vec3 getExactControllerModifiedInputStatic(Vec3 rawInputState) {
         float xxa = (float) rawInputState.x;
         float zza = (float) rawInputState.z;
         float rawLengthSqr = xxa * xxa + zza * zza;
@@ -388,18 +442,31 @@ public class VelocityTransformer {
         return outputs;
     }
 
-    private List<PredVector> applyJumps(List<PredVector> velocities) {
+    private List<PredVector> applyJumps(GrimPlayer player, List<PredVector> velocities) {
         boolean canPlayerJump = simulationContext.getWorldData().isCanJump();
         boolean canHorseJump = simulationContext.getVehicle() instanceof PacketEntityHorse horse
                 && horse.horseJump > 0.0F
                 && simulationContext.getLastOnGround().determineOptimistically();
-        if (!canPlayerJump && !canHorseJump) return velocities;
+        boolean canNautilusDash = simulationContext.getVehicle() instanceof PacketEntityNautilus nautilus
+                && nautilus.pendingJumpScale > 0.0D;
+        if (!canPlayerJump && !canHorseJump && !canNautilusDash) return velocities;
+
+        if (canNautilusDash) {
+            PacketEntityNautilus nautilus = (PacketEntityNautilus) simulationContext.getVehicle();
+            List<PredVector> dashed = new ArrayList<>(velocities.size() * 2);
+            for (PredVector velocity : velocities) {
+                for (boolean inWater : simulationContext.getWorldData().getInWater().getStates()) {
+                    addDistinctPredVector(dashed, applyNautilusDash(player, velocity, nautilus, inWater));
+                }
+            }
+            return dashed;
+        }
 
         List<PredVector> outputs = new ArrayList<>(velocities);
 
         for (PredVector vectorData : velocities) {
             // TODO: Restrict this for not being in shallow water (above some level submerged)
-            outputs.addAll(applyPossibleJumpStates(vectorData));
+            outputs.addAll(applyPossibleJumpStates(player, vectorData));
         }
 
         return outputs;
@@ -435,7 +502,7 @@ public class VelocityTransformer {
     }
 
     //TODO: fix camel dashing
-    private PredVector applyCamelDash(PredVector baseVel, double dashFactor) {
+    private PredVector applyCamelDash(GrimPlayer player, PredVector baseVel, double dashFactor) {
         final PacketEntityHorse horse = (PacketEntityHorse) simulationContext.getVehicle();
         if (simulationContext.getLastOnGround().determineOptimistically() && horse.horseJump > 0.0F) {
             double d = horse.jumpStrength * dashFactor;
@@ -448,10 +515,11 @@ public class VelocityTransformer {
             final float f2 = simulationContext.getTrig().sin(xRotRadians);
             final float f3 = simulationContext.getTrig().cos(xRotRadians);
 
-            final double blockSpeedFactor = 1.0F;
+            final double blockSpeedFactor = BlockProperties.getBlockSpeedFactor(
+                    player, simulationContext.getLastTickMainSupportingBlockData(), simulationContext.getStart());
 
             final double scale = 22.2222F * f * horse.movementSpeedAttribute * blockSpeedFactor;
-            Vec3 dashVec = new Vec3(f2, 0.0, f3).multiply(1.0, 0.0, 1.0).normalize().multiply(scale, scale, scale).add(0, 1.4285F * f * d, 0.0);
+            Vec3 dashVec = new Vec3(-f2, 0.0, f3).multiply(1.0, 0.0, 1.0).normalize().multiply(scale, scale, scale).add(0, 1.4285F * f * d, 0.0);
 
             /*
                   this.addDeltaMovement(this.getLookAngle().multiply(1.0, 0.0, 1.0)
@@ -466,7 +534,7 @@ public class VelocityTransformer {
 
     }
 
-    private List<PredVector> applyPossibleJumpStates(PredVector vector) {
+    private List<PredVector> applyPossibleJumpStates(GrimPlayer player, PredVector vector) {
         List<PredVector> outputs = new ArrayList<>();
 
         for (boolean onHoney : simulationContext.getWorldData().getOnHoneyBlock().getStates()) {
@@ -474,7 +542,7 @@ public class VelocityTransformer {
                 // To keep shit clean, we'll just do horse jumping separately
                 final PacketEntity vehicle = simulationContext.getVehicle();
                 if (vehicle instanceof PacketEntityCamel) {
-                    final PredVector dashed = applyCamelDash(vector, onHoney ? 0.5 : 1);
+                    final PredVector dashed = applyCamelDash(player, vector, onHoney ? 0.5 : 1);
                     if (dashed != vector) outputs.add(dashed);
                     continue;
                 }
@@ -483,7 +551,6 @@ public class VelocityTransformer {
                     if (jumped != vector) outputs.add(jumped);
                     continue;
                 }
-
                 PredVector modified;
 
                 float jumpPower = 0.42f * (onHoney ? 0.5f : 1.0f);
@@ -514,6 +581,30 @@ public class VelocityTransformer {
         }
 
         return outputs;
+    }
+
+    private PredVector applyNautilusDash(GrimPlayer player, PredVector input, PacketEntityNautilus nautilus, boolean inWater) {
+        // The passenger Rot packet immediately preceding MoveVehicle retains the
+        // controller look in GrimPlayer; the vehicle packet carries the root's
+        // separately smoothed rotation in SimulationContext.
+        Vec3 look = getExactNautilusDashLook(player.xRot, player.yRot);
+        float blockSpeedFactor = BlockProperties.getBlockSpeedFactor(player,
+                simulationContext.getLastTickMainSupportingBlockData(), simulationContext.getStart());
+        double waterMultiplier = inWater ? 1.2F : 0.5F;
+        double magnitude = waterMultiplier * nautilus.pendingJumpScale * nautilus.movementSpeedAttribute * blockSpeedFactor;
+        return input.add(look.scale(magnitude), "Nautilus dash");
+    }
+
+    static Vec3 getExactNautilusDashLook(float controllerYaw, float controllerPitch) {
+        // MCP-Reborn 26.1/26.2 Entity#calculateViewVector(xRot, yRot).
+        float pitchRadians = controllerPitch * ((float) Math.PI / 180.0F);
+        float yawRadians = -controllerYaw * ((float) Math.PI / 180.0F);
+        float cosPitch = Mth.cos(pitchRadians);
+        return new Vec3(
+                Mth.sin(yawRadians) * cosPitch,
+                -Mth.sin(pitchRadians),
+                Mth.cos(yawRadians) * cosPitch
+        );
     }
 
     static double groundJumpVelocityY(ClientVersion version, double currentVelocityY, double jumpPower) {

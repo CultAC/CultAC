@@ -4,6 +4,7 @@ import ac.grim.grimac.network.GrimPacketHandler;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHappyGhast;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityNautilus;
 import ac.grim.grimac.network.event.PacketReceiveEvent;
 import ac.grim.grimac.utils.nmsutil.EntityTypeUtil;
 import ac.grim.grimac.utils.nmsutil.EntityTypesCompat;
@@ -59,7 +60,8 @@ public class PacketPlayerSteer {
                 || EntityTypeUtil.isHorseFamily(vehicle.type)
                 || vehicle.type == EntityTypesCompat.PIG
                 || vehicle.type == EntityTypesCompat.STRIDER
-                || vehicle instanceof PacketEntityHappyGhast;
+                || vehicle instanceof PacketEntityHappyGhast
+                || vehicle instanceof PacketEntityNautilus;
     }
 
 }

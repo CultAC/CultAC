@@ -8,6 +8,7 @@ import ac.grim.grimac.utils.data.TrackerData;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHorse;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityNautilus;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityRideable;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.grim.grimac.utils.debug.Debuggable;
@@ -555,6 +556,7 @@ public final class CompensatedVehicleState implements Debuggable {
             return hasSaddle(vehicle) && player.getInventory().hasClientSelectedHandItem(Material.WARPED_FUNGUS_ON_A_STICK);
         }
         if (vehicle instanceof PacketEntityHorse horse) return horse.hasSaddle;
+        if (vehicle instanceof PacketEntityNautilus nautilus) return nautilus.hasSaddle;
         if (vehicle instanceof PacketEntityHappyGhast happyGhast) return happyGhast.hasBodyArmor && !happyGhast.staysStill;
         return passengerIndex(vehicle) == 0;
     }

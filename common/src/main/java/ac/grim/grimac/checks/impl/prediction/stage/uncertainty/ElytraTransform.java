@@ -66,7 +66,9 @@ public class ElytraTransform implements UncertaintyHandler {
 
         // Mojang changed from using their math to using regular java math in 1.18.2 elytra movement
         double vertCosRotation = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_18_2) ? Math.cos(yRotRadians) : player.trigHandler.cos(yRotRadians);
-        vertCosRotation = (float) (vertCosRotation * vertCosRotation * Math.min(1.0D, length / 0.4D));
+        // Modern clients retain this intermediate as a double. Casting it back
+        // to float here produces measurable 1.20.2+ glide drift.
+        vertCosRotation = vertCosRotation * vertCosRotation * Math.min(1.0D, length / 0.4D);
 
         vector = vector.add(new Vec3(0.0D, gravity * (-1.0D + vertCosRotation * 0.75D), 0.0D));
 
