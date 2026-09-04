@@ -6,7 +6,6 @@ import ac.grim.grimac.network.protocol.ClientVersion;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHappyGhast;
-import ac.grim.grimac.utils.math.GrimMath;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.bukkit.Material;
@@ -49,6 +48,10 @@ public final class VelocityCandidates {
             // next-tick velocity.
             diff = diff.subtract(positionOnlyDelta);
         }
+        // Entity#restituteMovementAfterCollisions receives the movement which
+        // survived collision resolution. Keep it separate from subsequent
+        // transformations of deltaMovement and from the restitution result.
+        double collisionMovementY = diff.y;
 
         GrimPlayer player = result.getPlayer();
         if (player != null) {
@@ -61,14 +64,14 @@ public final class VelocityCandidates {
                 || result.getValidMovements().isCanStep();
         boolean isZ = result.getCollideAxisData().getZ().isLikelyCollide();
 
-        OptionalDouble requiredPostCollisionY = requiredPacketVisibleSlimeBounceY(result, diff.y);
+        OptionalDouble requiredPostCollisionY = requiredPacketVisibleSlimeBounceY(result, collisionMovementY);
         if (requiredPostCollisionY.isPresent()) {
             diff = new Vec3(diff.x, requiredPostCollisionY.getAsDouble(), diff.z);
             isY = false;
         }
 
         addVelocityCandidates(validPlayerStartingVels, diff, isX, isY, isZ);
-        addPostMoveDeltaMovementCandidates(validPlayerStartingVels, result, isX, isY, isZ, diff.y);
+        addPostMoveDeltaMovementCandidates(validPlayerStartingVels, result, isX, isY, isZ, collisionMovementY);
 
         if (lastPrediction != null && lastPrediction.getSimulationContext().getWorldData().getStuckSpeed().getUnknownStuckSpeedMultiplier() != null) {
             validPlayerStartingVels.add(Vec3.ZERO);
@@ -174,10 +177,17 @@ public final class VelocityCandidates {
 
     private static double restitutedBounceY(GrimPlayer player, double deltaY, double clippedY, double gravity, double blockRestitution) {
         double restitution = Math.max(player.compensatedEntities.getEntityInControl().bounciness, blockRestitution);
-        double portion = deltaY != 0.0D ? GrimMath.clamp(clippedY / deltaY, 0.0D, 1.0D) : 0.0D;
         double airDrag = Friction.computeModifiedFriction(0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier);
-        double effectiveDrag = Mth.lerp(portion, 1.0D, airDrag);
-        return (portion * gravity - deltaY) * effectiveDrag * restitution;
+        return restitutedBounceY(deltaY, clippedY, gravity, airDrag, restitution);
+    }
+
+    static double restitutedBounceY(double deltaY, double clippedY, double gravity, double airDrag, double restitution) {
+        // MCP-Reborn 26.2 Entity#restituteMovementAfterCollisions uses this raw
+        // ratio. It deliberately does not clamp it: collision resolution can
+        // return movement opposite to deltaMovement when resolving an overlap.
+        double portionWithMovement = deltaY == 0.0D ? 0.0D : clippedY / deltaY;
+        double effectiveDrag = Mth.lerp(portionWithMovement, 1.0D, airDrag);
+        return (portionWithMovement * gravity - deltaY) * effectiveDrag * restitution;
     }
 
     private static double effectiveGravity(GrimPlayer player) {

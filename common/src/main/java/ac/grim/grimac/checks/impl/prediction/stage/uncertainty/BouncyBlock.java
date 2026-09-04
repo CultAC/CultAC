@@ -8,7 +8,6 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.math.GrimMath;
 import ac.grim.grimac.utils.math.VectorUtils;
-import ac.grim.grimac.utils.nmsutil.Friction;
 import ac.grim.grimac.utils.nmsutil.NmsBlockTags;
 import org.bukkit.Material;
 import net.minecraft.world.phys.Vec3;
@@ -32,10 +31,16 @@ public class BouncyBlock implements UncertaintyHandler{
             start = start.withXYZ(cut.x, cut.y, cut.z, "Slime block reduction");
         }
 
+        // 26.2 vertical restitution is calculated once from Entity#move
+        // collision state when deriving end-of-tick velocity in
+        // VelocityCandidates. SlimeBlock#stepOn horizontal reduction above is
+        // a separate mechanic and still applies in 26.2.
+        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)) return start;
+
         // restrict bouncing upwards
         if (start.isJump()) return start;
 
-        float bounceLevel = getBouncyBlockLevel(player, onBlock);
+        float bounceLevel = getBouncyBlockLevel(onBlock);
 
         if (bounceLevel == 0) return start;
 
@@ -46,16 +51,7 @@ public class BouncyBlock implements UncertaintyHandler{
         }
 
         double minYAmount = aabb.minY;
-        // MCP-Reborn 26.2 Entity#restituteMovementAfterCollisions only bounces when
-        // the impact speed reaches the entity's effective gravity; below it the
-        // restitution is forced to zero.
         double gravity = player.compensatedEntities.getEntityInControl().gravity;
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)) {
-            if (player.compensatedEntities.getSlowFallingAmplifier() != null) {
-                gravity = Math.min(gravity, 0.01D);
-            }
-            if (-minYAmount < gravity) return start;
-        }
         // account for gravity
         minYAmount = minYAmount - gravity;
 
@@ -65,24 +61,17 @@ public class BouncyBlock implements UncertaintyHandler{
         // 0.66F for beds, times this multiplier again specified above.
         double bounceMultiplier = player.compensatedEntities.getEntityInControl().isLivingEntity() ? 1.0 : 0.8;
 
-        // MCP-Reborn 26.2 applies the entity's air drag to the restituted velocity
-        // (lerp(portion, 1, airDrag), maximized at portion 1).
-        double airDrag = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)
-                ? Friction.computeModifiedFriction(0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier)
-                : 1.0D;
-
         // The player can bounce this high
-        double bounceAmount = minYAmount * -1 * bounceMultiplier * bounceLevel * airDrag;
+        double bounceAmount = minYAmount * -1 * bounceMultiplier * bounceLevel;
         double bounceY = GrimMath.clamp(end.y, start.y, bounceAmount);
         return start.withY(bounceY, "bounce");
     }
 
-    private float getBouncyBlockLevel(GrimPlayer player, Material onBlock) {
+    private float getBouncyBlockLevel(Material onBlock) {
         if (onBlock == Material.SLIME_BLOCK) {
             return 1;
         } else if (NmsBlockTags.isBed(onBlock)) {
-            // MCP-Reborn 26.2 Blocks.java registers beds with bounceRestitution 0.75
-            return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2) ? 0.75F : 0.66F;
+            return 0.66F;
         }
         return 0;
     }
