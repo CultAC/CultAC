@@ -22,12 +22,16 @@ import net.minecraft.world.level.block.WebBlock;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import org.bukkit.util.Vector;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 public class Collisions {
@@ -582,6 +586,202 @@ public class Collisions {
         }
 
         return stuckSpeed;
+    }
+
+    /**
+     * Replays the 26.2 {@code Entity#checkInsideBlocks} traversal used after a
+     * movement. Unlike the legacy approximation above, the visited-block set is
+     * shared by every axis and block effects retain vanilla's visit order. This
+     * matters because {@code Entity#makeStuckInBlock} overwrites, rather than
+     * combines, the multiplier when (for example) a web and berry bush are both
+     * crossed in one movement.
+     */
+    public static Vec3 checkStuckSpeedAlongMovement26Dot2(GrimPlayer player, SimpleCollisionBox fromAabb,
+                                                           SimpleCollisionBox toAabb, Vec3 axisOrderMovement,
+                                                           boolean powderSnowCanApply) {
+        SimpleCollisionBox sweptCandidates = fromAabb.copy().union(toAabb);
+        int minX = GrimMath.floor(sweptCandidates.minX + COLLISION_EPSILON);
+        int minY = GrimMath.floor(sweptCandidates.minY + COLLISION_EPSILON);
+        int minZ = GrimMath.floor(sweptCandidates.minZ + COLLISION_EPSILON);
+        int maxX = GrimMath.floor(sweptCandidates.maxX - COLLISION_EPSILON);
+        int maxY = GrimMath.floor(sweptCandidates.maxY - COLLISION_EPSILON);
+        int maxZ = GrimMath.floor(sweptCandidates.maxZ - COLLISION_EPSILON);
+        if (CheckIfChunksLoaded.isChunksUnloadedAt(player, minX, minY, minZ, maxX, maxY, maxZ)) {
+            return null;
+        }
+
+        return resolveOrderedStuckSpeed26Dot2(fromAabb, toAabb, axisOrderMovement,
+                (x, y, z) -> getStuckSpeedForBlock(
+                        player,
+                        player.compensatedWorld.getBlockDataAt(x, y, z),
+                        powderSnowCanApply));
+    }
+
+    static Vec3 resolveOrderedStuckSpeed26Dot2(SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb,
+                                                Vec3 axisOrderMovement, StuckSpeedLookup lookup) {
+        LongSet visitedBlocks = new LongOpenHashSet();
+        Vec3[] result = new Vec3[1];
+        int remainingIterations = 16;
+        Vec3 clippedMovement = boxCenter(toAabb).subtract(boxCenter(fromAabb));
+
+        if (axisOrderMovement != null && clippedMovement.lengthSqr() > 0.0D) {
+            SimpleCollisionBox stepFrom = fromAabb.copy();
+            for (Axis axis : getAxisStepOrder(axisOrderMovement)) {
+                double movementOnAxis = getAxisValue(clippedMovement, axis);
+                if (movementOnAxis == 0.0D) {
+                    continue;
+                }
+
+                SimpleCollisionBox stepTo = stepFrom.copy();
+                offsetAlongAxis(stepTo, axis, movementOnAxis);
+                remainingIterations -= visitStuckSpeedSegment26Dot2(
+                        stepFrom, stepTo, visitedBlocks, remainingIterations, lookup, result);
+                stepFrom = stepTo;
+                if (remainingIterations <= 0) {
+                    visitStuckSpeedSegment26Dot2(toAabb, toAabb, visitedBlocks, 1, lookup, result);
+                    break;
+                }
+            }
+        } else {
+            visitStuckSpeedSegment26Dot2(fromAabb, toAabb, visitedBlocks, 16, lookup, result);
+        }
+
+        return result[0];
+    }
+
+    private static int visitStuckSpeedSegment26Dot2(SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb,
+                                                     LongSet visitedBlocks, int maxIterations,
+                                                     StuckSpeedLookup lookup, Vec3[] result) {
+        Vec3 from = boxCenter(fromAabb);
+        Vec3 to = boxCenter(toAabb);
+        int[] lastIteration = {0};
+        forEachBlockIntersectedBetween26Dot2(from, to, toAabb, (pos, iteration) -> {
+            if (iteration >= maxIterations) {
+                return false;
+            }
+            lastIteration[0] = iteration;
+            long packed = pos.asLong();
+            Vec3 stuckSpeed = lookup.get(pos.getX(), pos.getY(), pos.getZ());
+            if (stuckSpeed != null
+                    && sweptFullBlockEntityInside(fromAabb, toAabb, pos.getX(), pos.getY(), pos.getZ())
+                    && visitedBlocks.add(packed)) {
+                result[0] = stuckSpeed;
+            }
+            return true;
+        });
+        return lastIteration[0] + 1;
+    }
+
+    private static boolean forEachBlockIntersectedBetween26Dot2(Vec3 from, Vec3 to,
+                                                                 SimpleCollisionBox boxAtTarget,
+                                                                 OrderedBlockVisitor visitor) {
+        Vec3 travel = to.subtract(from);
+        AABB target = new AABB(boxAtTarget.minX, boxAtTarget.minY, boxAtTarget.minZ,
+                boxAtTarget.maxX, boxAtTarget.maxY, boxAtTarget.maxZ).deflate(1.0E-5F);
+        if (travel.lengthSqr() < GrimMath.square(1.0E-5F)) {
+            for (BlockPos pos : BlockPos.betweenClosed(target)) {
+                if (!visitor.visit(pos, 0)) return false;
+            }
+            return true;
+        }
+
+        LongSet visited = new LongOpenHashSet();
+        for (BlockPos pos : BlockPos.betweenCornersInDirection(target.move(travel.scale(-1.0D)), travel)) {
+            if (!visitor.visit(pos, 0)) return false;
+            visited.add(pos.asLong());
+        }
+
+        int iterations = addBlocksAlongTravel26Dot2(visited, travel, target, visitor);
+        if (iterations < 0) return false;
+        for (BlockPos pos : BlockPos.betweenCornersInDirection(target, travel)) {
+            if (visited.add(pos.asLong()) && !visitor.visit(pos, iterations + 1)) return false;
+        }
+        return true;
+    }
+
+    private static int addBlocksAlongTravel26Dot2(LongSet visited, Vec3 travel, AABB target,
+                                                   OrderedBlockVisitor visitor) {
+        int[] corner = furthestCorner26Dot2(travel);
+        Vec3 center = target.getCenter();
+        Vec3 toCorner = new Vec3(
+                center.x + target.getXsize() * 0.5D * corner[0],
+                center.y + target.getYsize() * 0.5D * corner[1],
+                center.z + target.getZsize() * 0.5D * corner[2]);
+        Vec3 fromCorner = toCorner.subtract(travel);
+        int x = GrimMath.floor(fromCorner.x);
+        int y = GrimMath.floor(fromCorner.y);
+        int z = GrimMath.floor(fromCorner.z);
+        int signX = (int) Math.signum(travel.x);
+        int signY = (int) Math.signum(travel.y);
+        int signZ = (int) Math.signum(travel.z);
+        double deltaX = signX == 0 ? Double.MAX_VALUE : signX / travel.x;
+        double deltaY = signY == 0 ? Double.MAX_VALUE : signY / travel.y;
+        double deltaZ = signZ == 0 ? Double.MAX_VALUE : signZ / travel.z;
+        double nextX = deltaX * (signX > 0 ? 1.0D - GrimMath.frac(fromCorner.x) : GrimMath.frac(fromCorner.x));
+        double nextY = deltaY * (signY > 0 ? 1.0D - GrimMath.frac(fromCorner.y) : GrimMath.frac(fromCorner.y));
+        double nextZ = deltaZ * (signZ > 0 ? 1.0D - GrimMath.frac(fromCorner.z) : GrimMath.frac(fromCorner.z));
+        int iterations = 0;
+
+        while (nextX <= 1.0D || nextY <= 1.0D || nextZ <= 1.0D) {
+            if (nextX < nextY) {
+                if (nextX < nextZ) {
+                    x += signX;
+                    nextX += deltaX;
+                } else {
+                    z += signZ;
+                    nextZ += deltaZ;
+                }
+            } else if (nextY < nextZ) {
+                y += signY;
+                nextY += deltaY;
+            } else {
+                z += signZ;
+                nextZ += deltaZ;
+            }
+
+            Optional<Vec3> hit = AABB.clip(x, y, z, x + 1.0D, y + 1.0D, z + 1.0D, fromCorner, toCorner);
+            if (hit.isEmpty()) continue;
+            iterations++;
+            Vec3 point = hit.get();
+            double hitX = clamp(point.x, x + 1.0E-5F, x + 1.0D - 1.0E-5F);
+            double hitY = clamp(point.y, y + 1.0E-5F, y + 1.0D - 1.0E-5F);
+            double hitZ = clamp(point.z, z + 1.0E-5F, z + 1.0D - 1.0E-5F);
+            int oppositeX = GrimMath.floor(hitX - target.getXsize() * corner[0]);
+            int oppositeY = GrimMath.floor(hitY - target.getYsize() * corner[1]);
+            int oppositeZ = GrimMath.floor(hitZ - target.getZsize() * corner[2]);
+
+            for (BlockPos pos : BlockPos.betweenCornersInDirection(
+                    new BlockPos(x, y, z), new BlockPos(oppositeX, oppositeY, oppositeZ), travel)) {
+                if (visited.add(pos.asLong()) && !visitor.visit(pos, iterations)) return -1;
+            }
+        }
+        return iterations;
+    }
+
+    private static int[] furthestCorner26Dot2(Vec3 movement) {
+        double x = Math.abs(movement.x);
+        double y = Math.abs(movement.y);
+        double z = Math.abs(movement.z);
+        int xSign = movement.x >= 0.0D ? 1 : -1;
+        int ySign = movement.y >= 0.0D ? 1 : -1;
+        int zSign = movement.z >= 0.0D ? 1 : -1;
+        if (x <= y && x <= z) return new int[]{-xSign, -zSign, ySign};
+        if (y <= z) return new int[]{zSign, -ySign, -xSign};
+        return new int[]{-ySign, xSign, -zSign};
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    @FunctionalInterface
+    interface StuckSpeedLookup {
+        Vec3 get(int x, int y, int z);
+    }
+
+    @FunctionalInterface
+    private interface OrderedBlockVisitor {
+        boolean visit(BlockPos pos, int iteration);
     }
 
     public static boolean canFullBlockAffectInsideBlockMovement(SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb, Vec3 axisOrderMovement, BlockPos pos) {

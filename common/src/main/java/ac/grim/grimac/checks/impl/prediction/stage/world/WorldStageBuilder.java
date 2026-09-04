@@ -659,23 +659,17 @@ public class WorldStageBuilder {
     }
 
     public StuckSpeedData calculateStuckSpeed(GrimPlayer player, SimulationContext context, PistonPushes push) {
-        // MCP-Reborn Entity#checkInsideBlocks uses Entity#makeBoundingBox(to)
-        // for the entity itself. The min/max split models player pose and 0.03
-        // movement-threshold uncertainty; vehicle roots do not have a shorter
-        // player-like minimum body, so their required stuck speed must use the
-        // real vehicle AABB.
-        SimpleCollisionBox primaryTo = context.getVehicle() != null ? context.getToMaximumExtent() : context.getToMinimumExtent();
-        SimpleCollisionBox primaryFrom = context.getVehicle() != null ? context.getFromMaximumExtent() : context.getFromMinimumExtent();
+        // Preserve the existing extent approximation. A vehicle uses its full body;
+        // player minimum/maximum extents account for pose and movement-threshold uncertainty.
+        boolean inVehicle = context.getVehicle() != null;
+        SimpleCollisionBox primaryFrom = inVehicle ? context.getFromMaximumExtent() : context.getFromMinimumExtent();
+        SimpleCollisionBox primaryTo = inVehicle ? context.getToMaximumExtent() : context.getToMinimumExtent();
         boolean powderSnowCanApply = powderSnowCanApplyToRootEntity(player, context);
-        Vec3 minPrimary = Collisions.checkStuckSpeed(player, primaryTo, powderSnowCanApply);
-        Vec3 minSwept = Collisions.checkStuckSpeedAlongMovement(player, primaryFrom, primaryTo, context.getTarget(), powderSnowCanApply);
-        Vec3 maxPrimary = context.getVehicle() != null ? null : Collisions.checkStuckSpeed(player, context.getToMaximumExtent(), powderSnowCanApply);
-        Vec3 maxSwept = context.getVehicle() != null ? null : Collisions.checkStuckSpeedAlongMovement(player, context.getFromMaximumExtent(), context.getToMaximumExtent(), context.getTarget(), powderSnowCanApply);
+        Vec3 required = resolveStuckSpeedForExtent(player, context, primaryFrom, primaryTo, powderSnowCanApply);
+        Vec3 optional = inVehicle ? null : resolveStuckSpeedForExtent(player, context,
+                context.getFromMaximumExtent(), context.getToMaximumExtent(), powderSnowCanApply);
 
         boolean hasPistonPush = push != null && push.getPistonPush() != null && !push.getPistonPush().isEmpty();
-        Vec3 required = minPrimary;
-        Vec3 optional = firstKnownStuckSpeed(maxPrimary, maxSwept);
-
         if (hasPistonPush) {
             // MCP-Reborn LocalPlayer#tick sends movement during ClientLevel#tickEntities,
             // before Minecraft#tick runs piston block entities. A later
@@ -683,20 +677,25 @@ public class WorldStageBuilder {
             // Entity#move(MoverType.PISTON), which clears Entity#stuckSpeedMultiplier
             // without applying it to the piston shove, so piston-overlapped stuck
             // speed is optional rather than required for the next packet.
-            Vec3 pistonOptional = firstKnownStuckSpeed(
-                    firstKnownStuckSpeed(required, minSwept),
-                    optional);
-            return new StuckSpeedData(null, pistonOptional);
+            return new StuckSpeedData(null, firstKnownStuckSpeed(required, optional));
         }
 
-        if (required == null) {
-            required = minSwept;
-        }
-
-        // This is technically incorrect to simply disregard sub-possibilities of bounding boxes
-        // I don't care enough to fix it though, this will never happen outside a test server
+        // This two-result representation does not cover every intermediate-box outcome.
         if (optional != null && optional.equals(required)) optional = null;
         return new StuckSpeedData(required, optional);
+    }
+
+    private Vec3 resolveStuckSpeedForExtent(GrimPlayer player, SimulationContext context,
+                                           SimpleCollisionBox from, SimpleCollisionBox to,
+                                           boolean powderSnowCanApply) {
+        Vec3 endpoint = Collisions.checkStuckSpeed(player, to, powderSnowCanApply);
+        boolean ordered = player.bedrockState == null
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
+        Vec3 path = ordered
+                ? Collisions.checkStuckSpeedAlongMovement26Dot2(player, from, to, context.getTarget(), powderSnowCanApply)
+                : Collisions.checkStuckSpeedAlongMovement(player, from, to, context.getTarget(), powderSnowCanApply);
+        // Keep the existing priorities: modern path order can override an endpoint effect.
+        return ordered ? firstKnownStuckSpeed(path, endpoint) : firstKnownStuckSpeed(endpoint, path);
     }
 
     private boolean powderSnowCanApplyToRootEntity(GrimPlayer player, SimulationContext context) {
