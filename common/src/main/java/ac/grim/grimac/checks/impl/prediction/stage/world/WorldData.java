@@ -27,6 +27,7 @@ public class WorldData {
     boolean canFluidHop;
     boolean canFloatWhileRidden;
     boolean couldFloatWhileRidden;
+    DesyncStatus climbingAtStart;
     @Setter
     DesyncStatus climbing;
     int numColliding;

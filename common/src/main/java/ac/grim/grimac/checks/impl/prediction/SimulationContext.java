@@ -180,11 +180,14 @@ public class SimulationContext {
     }
 
     public boolean usesFallFlyingMovement() {
-        return usesFallFlyingMovement(gliding, worldData == null ? DesyncStatus.FALSE : worldData.getClimbing());
+        return usesFallFlyingMovement(version, gliding, worldData == null ? DesyncStatus.FALSE : worldData.getClimbingAtStart());
     }
 
-    public static boolean usesFallFlyingMovement(boolean gliding, DesyncStatus climbing) {
-        return gliding && !climbing.determinePessimistically();
+    public static boolean usesFallFlyingMovement(ClientVersion version, boolean gliding, DesyncStatus climbingAtStart) {
+        // Added in 25w02a / 1.21.5: travelFallFlying calls travelInAir and then
+        // stopFallFlying when already on a climbable, before performing the move.
+        return gliding && (version.isOlderThan(ClientVersion.V_1_21_5)
+                || !climbingAtStart.determinePessimistically());
     }
 
     private double getMovementThreshold(ClientVersion version) {

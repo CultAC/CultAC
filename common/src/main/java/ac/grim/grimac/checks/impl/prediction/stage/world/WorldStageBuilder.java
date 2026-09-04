@@ -132,6 +132,9 @@ public class WorldStageBuilder {
                 && minFluidState.getMaxWaterHeight() > 0.4D
                 && (minFluidState.isInWater() || minFluidState.isWaterTimingUncertain());
 
+        // LivingEntity#travelFallFlying samples the starting block, before movement.
+        DesyncStatus climbingAtStart = sampleClimbingAtStart(player, simulationContext);
+
         AtomicReference<DesyncStatus> climbing = new AtomicReference<>(DesyncStatus.fromBoolean(Collisions.onClimbable(player, to.x, to.y, to.z)));
 
         BlockData toState = player.compensatedWorld.getBlockDataAt(to.x, to.y, to.z);
@@ -162,6 +165,7 @@ public class WorldStageBuilder {
 
         // Pigs and striders are the only vehicle that can climb
         if (simulationContext.getVehicle() != null && !(simulationContext.getVehicle() instanceof PacketEntityStrider || simulationContext.getVehicle().type == EntityTypesCompat.PIG)) {
+            climbingAtStart = DesyncStatus.FALSE;
             climbing.set(DesyncStatus.FALSE);
         }
 
@@ -226,7 +230,31 @@ public class WorldStageBuilder {
 
         int soulSandCount = getSoulSandCount(player, simulationContext);
 
-        return new WorldData(desyncLastOnGround, isInWater, isInLava, touchingLava, isInFlowingFluid, isSuffocating, canJump, canFluidHop, canFloatWhileRidden, couldFloatWhileRidden, climbing.get(), numColliding, soulSandCount, weirdFourteenFifteenLava, onBlock, stuckEdgeData, bubble, push, stuckSpeedData, honeySlide, onHoney, mainSupportingBlockData, fishingRodPulls);
+        return new WorldData(desyncLastOnGround, isInWater, isInLava, touchingLava, isInFlowingFluid, isSuffocating, canJump, canFluidHop, canFloatWhileRidden, couldFloatWhileRidden, climbingAtStart, climbing.get(), numColliding, soulSandCount, weirdFourteenFifteenLava, onBlock, stuckEdgeData, bubble, push, stuckSpeedData, honeySlide, onHoney, mainSupportingBlockData, fishingRodPulls);
+    }
+
+    private DesyncStatus sampleClimbingAtStart(GrimPlayer player, SimulationContext context) {
+        Vec3 position = context.getStart();
+        AtomicReference<DesyncStatus> climbing = new AtomicReference<>(DesyncStatus.fromBoolean(
+                Collisions.onClimbable(player, position.x, position.y, position.z, context.isGliding())));
+        if (player.isPointThree()) {
+            float feetBoxSize = (float) (player.getMovementThreshold() * 2);
+            SimpleCollisionBox feetBB = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                    position.x, position.y, position.z, feetBoxSize, feetBoxSize);
+            Collisions.hasMaterial(player, feetBB, mat -> {
+                BlockData state = mat.getFirst();
+                BlockPos blockPos = mat.getSecond();
+                boolean onClimbable = Collisions.onClimbable(player,
+                        blockPos.getX(), blockPos.getY(), blockPos.getZ(), context.isGliding());
+                CollisionBox blockCollision = CollisionData.getData(state.getMaterial())
+                        .getMovementCollisionBox(player, player.getClientVersion(), state);
+                if (onClimbable || !blockCollision.isFullBlock()) {
+                    climbing.set(climbing.get().addBoolean(onClimbable));
+                }
+                return false;
+            });
+        }
+        return climbing.get();
     }
 
     private boolean canGroundJumpInShallowFluid(SimulationContext simulationContext, FluidState minFluidState, FluidState maxFluidState) {

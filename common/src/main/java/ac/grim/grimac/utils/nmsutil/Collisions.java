@@ -1111,11 +1111,15 @@ public class Collisions {
     }
 
     public static boolean onClimbable(GrimPlayer player, double x, double y, double z) {
+        return onClimbable(player, x, y, z, player.isGliding);
+    }
+
+    public static boolean onClimbable(GrimPlayer player, double x, double y, double z, boolean gliding) {
         int blockX = (int) Math.floor(x);
         int blockY = (int) Math.floor(y);
         int blockZ = (int) Math.floor(z);
         BlockState nmsState = player.compensatedWorld.getBlockStateAt(blockX, blockY, blockZ);
-        if (player.isGliding
+        if (gliding
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)
                 && canGlideThrough(nmsState)) {
             return false;
