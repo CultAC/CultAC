@@ -29,20 +29,28 @@ public class ElytraTransform implements UncertaintyHandler {
         double uncertainty = startingHorizontalUncertainty == null ? 0 : Math.hypot(startingHorizontalUncertainty.maxX - startingHorizontalUncertainty.minX, startingHorizontalUncertainty.maxZ - startingHorizontalUncertainty.minZ);
         double yUncertainty = uncertainty * 0.04 * 3.2; // Exact values, we could also look at Y
 
+        // LivingEntity#aiStep applies bubble callbacks after travel. Their existing
+        // Y range is therefore input to the next tick's elytra transform, including X/Z.
+        PredVector minStart = start, maxStart = start;
+        if (BubbleColumn.beforeElytra(context) && !start.hasReason("Velocity")) {
+            minStart = BubbleColumn.apply(context, lastResult, start, Double.NEGATIVE_INFINITY);
+            maxStart = BubbleColumn.apply(context, lastResult, start, Double.POSITIVE_INFINITY);
+        }
         SimpleCollisionBox allowed = null;
 
         // Don't require the player to have elytra if they MIGHT be in water
         if (context.getWorldData().maybeInLiquid()) {
-            allowed = new SimpleCollisionBox(start, start);
+            allowed = new SimpleCollisionBox(minStart, maxStart);
         }
 
         for (int loopFastmath = 0; loopFastmath < 2; loopFastmath++) {
             for (double gravity : result.getPossibleGravity()) {
-                Vec3 elytraResult = transformElytra(player, context, start, gravity);
+                Vec3 elytraResult = transformElytra(player, context, minStart, gravity);
+                Vec3 maxElytraResult = minStart.y == maxStart.y ? elytraResult : transformElytra(player, context, maxStart, gravity);
                 if (allowed == null) {
-                    allowed = new SimpleCollisionBox(elytraResult, elytraResult);
+                    allowed = new SimpleCollisionBox(elytraResult, maxElytraResult).sort();
                 } else {
-                    allowed = allowed.union(new SimpleCollisionBox(elytraResult, elytraResult));
+                    allowed = allowed.union(new SimpleCollisionBox(elytraResult, maxElytraResult).sort());
                 }
             }
             player.trigHandler.toggleShitMath();

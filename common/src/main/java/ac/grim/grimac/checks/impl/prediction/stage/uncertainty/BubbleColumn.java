@@ -15,6 +15,17 @@ public class BubbleColumn implements UncertaintyHandler {
     @Override
     public PredVector handleUncertainty(GrimPlayer player, ValidMovements valid, PredictionResult result, SimulationContext context, PredictionResult lastResult, PredVector start, Vec3 end) {
         if (context.getVehicle() != null && !player.isBedrockMovement() && ac.grim.grimac.checks.impl.prediction.pipeline.java.JavaMovementEngine.contextUsesExactEffects(context)) return start;
+        if (beforeElytra(context)) return start;
+        return apply(context, lastResult, start, end.y);
+    }
+
+    static boolean beforeElytra(SimulationContext context) {
+        return context.getVehicle() == null && context.usesFallFlyingMovement()
+                && !context.getWorldData().mustBeInLiquid()
+                && context.getVersion().isNewerThanOrEquals(ac.grim.grimac.network.protocol.ClientVersion.V_26_1);
+    }
+
+    static PredVector apply(SimulationContext context, PredictionResult lastResult, PredVector start, double targetY) {
         if (lastResult == null) return start;
 
         WorldData lastWorldData = lastResult.getSimulationContext().getWorldData();
@@ -39,18 +50,18 @@ public class BubbleColumn implements UncertaintyHandler {
 
         // Downwards velocity can be applied when in an upwards bubble column above 0.7 blocks/tick
         if ((increaseUp != 0 || increaseAirUp != 0) && start.y > 0.7 * 0.8) {
-            bestY = GrimMath.clamp(end.y, bestY, 0.7 * 0.8);
+            bestY = GrimMath.clamp(targetY, bestY, 0.7 * 0.8);
         }
         // Upwards velocity can be applied when in a downwards bubble column below -0.3 blocks/tick
         if ((decreaseDown != 0 || decreaseAirDown != 0) && start.y < -0.3 * 0.8) {
-            bestY = GrimMath.clamp(end.y, bestY, -0.3 * 0.8);
+            bestY = GrimMath.clamp(targetY, bestY, -0.3 * 0.8);
         }
         // Upwards velocity is applied when in an upwards bubble column up to a certain limit
         double totalUp = Math.min(start.y + increaseUp + increaseAirUp, increaseAirUp > 0 ? 1.8 : 0.7);
-        bestY = GrimMath.clamp(end.y, bestY, totalUp);
+        bestY = GrimMath.clamp(targetY, bestY, totalUp);
         // Downwards velocity is applied when in a downwards bubble column up to a certain limit
         double totalDown = Math.max(start.y + decreaseDown + decreaseAirDown, decreaseAirDown < 0 ? -0.9 : -0.3);
-        bestY = GrimMath.clamp(end.y, bestY, totalDown);
+        bestY = GrimMath.clamp(targetY, bestY, totalDown);
 
         return start.withY(bestY, "bubble column");
     }

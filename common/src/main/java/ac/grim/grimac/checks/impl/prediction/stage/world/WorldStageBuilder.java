@@ -592,8 +592,8 @@ public class WorldStageBuilder {
     }
 
     private void accumulateBubbleColumns(GrimPlayer player, SimulationContext context, Vec3 from, Vec3 to, Set<Long> visitedBlocks, int[] pushUpwards, int[] pushDownwards, int[] airUpwards, int[] airDownwards) {
-        SimpleCollisionBox fromBox = bubbleColumnBoxAt(context, from);
-        SimpleCollisionBox toBox = bubbleColumnBoxAt(context, to);
+        SimpleCollisionBox fromBox = bubbleColumnBoxAt(player, context, from);
+        SimpleCollisionBox toBox = bubbleColumnBoxAt(player, context, to);
         SimpleCollisionBox preciseToBox = toBox.copy().expand(-1.0E-5F);
         SimpleCollisionBox sweptBox = fromBox.copy().union(toBox);
         boolean longMove = from.distanceToSqr(to) > 0.9999900000002526D * 0.9999900000002526D;
@@ -627,8 +627,13 @@ public class WorldStageBuilder {
         });
     }
 
-    static SimpleCollisionBox bubbleColumnBoxAt(SimulationContext context, Vec3 position) {
+    static SimpleCollisionBox bubbleColumnBoxAt(GrimPlayer player, SimulationContext context, Vec3 position) {
         if (context.getVehicle() == null) {
+            if (!player.isBedrockMovement()) {
+                // These counts bound possible callbacks; the estimated pose cannot bound all client boxes.
+                return GetBoundingBox.getBoundingBoxFromPosAndSize(position.x, position.y, position.z,
+                        context.getMaxWidth() * context.getScale(), context.getMaxHeight() * context.getScale());
+            }
             return GetBoundingBox.getBoundingBoxFromPosAndSize(position.x, position.y, position.z, context.getPose().width * context.getScale(), context.getPose().height * context.getScale());
         }
 
