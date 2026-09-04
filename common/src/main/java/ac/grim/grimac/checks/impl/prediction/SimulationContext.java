@@ -24,7 +24,6 @@ import lombok.Setter;
 import lombok.ToString;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.BlockTags;
-import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.bukkit.Material;
 
@@ -378,20 +377,13 @@ public class SimulationContext {
         // Must be rideable?
         if (vehicle instanceof PacketEntityRideable) {
             PacketEntityRideable rideable = (PacketEntityRideable) vehicle;
-            float speed = rideable.movementSpeedAttribute;
+            double speed = rideable.movementSpeedAttribute;
             if (vehicle.type == EntityTypesCompat.PIG) {
-                speed *= 0.225f; // Mojang magic value
+                speed *= 0.225D;
             } else if (vehicle.type == EntityTypesCompat.STRIDER) {
                 speed *= isMountedStriderSuffocating(player) ? 0.35F : 0.55F;
             }
-            if (rideable.currentBoostTime < rideable.boostTimeMax) {
-                // Pig#tickRidden / Strider#tickRidden call ItemBasedSteering#tickBoost
-                // before getRiddenSpeed. tickBoost post-increments boostTime, and
-                // ItemBasedSteering#boostFactor then reads that incremented value.
-                int boostTime = rideable.currentBoostTime + 1;
-                speed *= 1.0F + 1.15F * Mth.sin((float) boostTime / (float) rideable.boostTimeMax * (float) Math.PI);
-            }
-            return speed;
+            return (float) (speed * rideable.boost.factor());
         }
         return 0; // ??? I guess riding a weird vehicle?
     }

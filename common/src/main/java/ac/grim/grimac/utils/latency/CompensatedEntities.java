@@ -298,7 +298,7 @@ public class CompensatedEntities {
         if (entity instanceof PacketEntityRideable) {
             for (ClientboundUpdateAttributesPacket.AttributeSnapshot snapshot : objects) {
                 if (matchesAttribute(snapshot, "movement_speed")) {
-                    ((PacketEntityRideable) entity).movementSpeedAttribute = (float) calculateAttribute(snapshot, 0.0, 1024.0);
+                    ((PacketEntityRideable) entity).movementSpeedAttribute = calculateAttribute(snapshot, 0.0, 1024.0);
                 }
 
                 if (matchesAttribute(snapshot, "flying_speed")) {
@@ -733,8 +733,7 @@ public class CompensatedEntities {
 
             SynchedEntityData.DataValue<?> boostData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.PIG_BOOST_TIME);
             if (boostData != null) {
-                ((PacketEntityRideable) entity).boostTimeMax = (int) boostData.value();
-                ((PacketEntityRideable) entity).currentBoostTime = 0;
+                ((PacketEntityRideable) entity).boost.onSynced((int) boostData.value());
             }
             return;
         }
@@ -749,8 +748,7 @@ public class CompensatedEntities {
 
             SynchedEntityData.DataValue<?> boostData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.STRIDER_BOOST_TIME);
             if (boostData != null) {
-                ((PacketEntityRideable) entity).boostTimeMax = (int) boostData.value();
-                ((PacketEntityRideable) entity).currentBoostTime = 0;
+                ((PacketEntityRideable) entity).boost.onSynced((int) boostData.value());
             }
         }
     }

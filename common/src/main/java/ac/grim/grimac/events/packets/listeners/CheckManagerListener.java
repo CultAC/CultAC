@@ -27,6 +27,7 @@ import ac.grim.grimac.utils.data.TeleportAcceptData;
 import ac.grim.grimac.utils.data.HeadRotation;
 import ac.grim.grimac.utils.data.VehicleTeleportData;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
+import ac.grim.grimac.utils.data.packetentity.PacketEntityRideable;
 import ac.grim.grimac.utils.inventory.ItemUtil;
 import ac.grim.grimac.utils.math.VectorUtils;
 import ac.grim.grimac.utils.nmsutil.BlockBreakSpeed;
@@ -592,7 +593,7 @@ public class CheckManagerListener {
             // LocalPlayer#tick sends the mounted Rot and vehicle move consecutively.
             player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
         }
-        if (passengerRotationTickPacket) {
+        if (passengerRotationTickPacket && !player.packetStateData.lastPacketWasTeleport) {
             player.packetStateData.markPassengerRotation();
         } else if (player.compensatedEntities.vehicles.serverPlayerVehicle != null || player.compensatedEntities.getSelf().inVehicle()) {
             // A position packet breaks the mounted Rot/MoveVehicle pair.
@@ -730,10 +731,25 @@ public class CheckManagerListener {
             return;
         }
 
-        boolean fromClientTick = player.packetStateData.isAwaitingVehicleMoveAfterPassengerRotation()
+        boolean pairedRiddenTick = player.packetStateData.isAwaitingVehicleMoveAfterPassengerRotation();
+        boolean fromClientTick = pairedRiddenTick
                 || (player.packetStateData.hasPassengerRotationThisClientTick()
                 && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0);
         PacketEntity packetRoot = currentVehicleRoot(player, fromClientTick);
+        // LocalPlayer#tick sends Rot -> MoveVehicle only while this client
+        // controls the root. For pigs/striders that observes the REAL held item,
+        // unlike our carried-slot state, which can lag behind handleKeybinds.
+        // A packet-handler correction echo has no preceding tick Rot. Do not
+        // use the buffered packet fallback below as evidence of a ridden tick.
+        PacketEntity riddenRoot = packetRoot == null
+                ? player.compensatedEntities.vehicles.getVelocityMovementVehicle() : packetRoot;
+        if (pairedRiddenTick && riddenRoot instanceof PacketEntityRideable rideable
+                && !rideable.isDead && rideable.hasSaddle
+                && player.compensatedEntities.vehicles.passengerIndex(rideable) == 0) {
+            // Count even if a real tick happens to match a pending teleport's
+            // position, or its prediction subsequently requires a correction.
+            rideable.boost.tick(player.packetStateData.acceptedClientTick);
+        }
         if (!fromClientTick && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
             PacketEntity bufferedRoot = bufferedLocalAuthoritativeRoot(player, packetRoot);
             if (bufferedRoot != null) {

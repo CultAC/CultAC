@@ -388,7 +388,7 @@ public class PacketEntityReplication extends GrimProcessor implements CheckListe
 
     @GrimPacketHandler
     public void onSetEntityData(PacketSendEvent event, GrimPlayer player, ClientboundSetEntityDataPacket packet) {
-        handleSetEntityData(packet);
+        handleSetEntityData(event, packet);
     }
 
     @GrimPacketHandler
@@ -732,8 +732,29 @@ public class PacketEntityReplication extends GrimProcessor implements CheckListe
         ));
     }
 
-    private void handleSetEntityData(ClientboundSetEntityDataPacket packet) {
+    private void handleSetEntityData(PacketSendEvent event, ClientboundSetEntityDataPacket packet) {
         List<SynchedEntityData.DataValue<?>> metadata = packet.packedItems();
+        PacketEntity entity = player.compensatedEntities.getEntity(packet.id());
+        TrackerData tracked = player.compensatedEntities.getTrackedEntity(packet.id());
+        EntityType<?> type = entity == null ? (tracked == null ? null : tracked.getEntityType()) : entity.type;
+        boolean updatesBoost = (type == EntityTypesCompat.PIG
+                && WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.PIG_BOOST_TIME) != null)
+                || (type == EntityTypesCompat.STRIDER
+                && WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.STRIDER_BOOST_TIME) != null);
+        if (updatesBoost) {
+            GrimPlayer.TrackedTransaction proof = player.createTrackedTransactionPacketForDeferredSend();
+            if (proof != null) {
+                player.latencyUtils.addRealTimeTask(proof.transaction(),
+                        () -> player.compensatedEntities.updateEntityMetadata(packet.id(), metadata));
+                // A preceding ping cannot prove receipt of the boost. Match the
+                // inventory path: send the proof after the complete outbound group.
+                event.getTasksAfterSend().add(() -> {
+                    player.user.writePacket(proof.packet());
+                    player.markTrackedTransactionPacketSent(proof);
+                });
+                return;
+            }
+        }
         boolean updatesHorseFlags = player.compensatedEntities.getEntity(packet.id()) instanceof PacketEntityHorse
                 && WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.HORSE_FLAGS) != null;
         if (WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.ENTITY_NO_GRAVITY) != null) {
