@@ -15,7 +15,7 @@ import ac.grim.grimac.checks.DeadCheck;
 import ac.grim.grimac.checks.impl.movement.timer.TickTimer;
 import ac.grim.grimac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.grim.grimac.checks.impl.movement.timer.TimerCheck;
-import ac.grim.grimac.checks.impl.movement.timer.TimerLimit;
+import ac.grim.grimac.checks.impl.movement.timer.DumbTimer;
 import ac.grim.grimac.checks.impl.movement.timer.VehicleTimer;
 import ac.grim.grimac.checks.impl.sprint.SprintB;
 import ac.grim.grimac.checks.impl.sprint.SprintE;
@@ -206,10 +206,10 @@ public final class OrderedLegacyCheckDispatchTest {
         player.setDisabled(true);
         try {
             TickTimer tickTimer = player.checkManager.getListener(TickTimer.class);
-            assertTrue(player.checkManager.getListener(TimerLimit.class) != null);
+            assertTrue(player.checkManager.getListener(DumbTimer.class) != null);
             assertTrue(player.checkManager.getListener(NegativeTimerCheck.class) != null);
             assertTrue(NegativeTimerCheck.class.isAnnotationPresent(DeadCheck.class));
-            assertTrue(PacketHandlerScanner.hasReceiveHandlerDeclaration(TimerLimit.class));
+            assertTrue(PacketHandlerScanner.hasReceiveHandlerDeclaration(DumbTimer.class));
             assertTrue(PacketHandlerScanner.hasReceiveHandlerDeclaration(NegativeTimerCheck.class));
 
             ServerboundMovePlayerPacket movement =

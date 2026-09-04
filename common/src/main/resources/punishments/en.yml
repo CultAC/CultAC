@@ -18,7 +18,6 @@ Punishments:
       - "Simulation"
       - "GroundSpoof"
       - "Timer"
-      - "TimerLimit"
       - "NoFall"
     # Threshold:Interval Command
     #

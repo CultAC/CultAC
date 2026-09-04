@@ -144,11 +144,6 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
         return rejected;
     }
 
-    /** Extension point for current-only timer variants; the base check keeps its existing clamp. */
-    protected void limitFallBehind() {
-        timerBalanceRealTime = Math.max(timerBalanceRealTime, knownPlayerClockTime - clockDrift);
-    }
-
     protected boolean shouldCountMovePlayerForTimer() {
         if (player.isBedrockMovement()) {
             return false;

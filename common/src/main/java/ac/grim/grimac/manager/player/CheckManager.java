@@ -32,7 +32,6 @@ import ac.grim.grimac.checks.impl.movement.timer.DumbTimer;
 import ac.grim.grimac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.grim.grimac.checks.impl.movement.timer.TickTimer;
 import ac.grim.grimac.checks.impl.movement.timer.TimerCheck;
-import ac.grim.grimac.checks.impl.movement.timer.TimerLimit;
 import ac.grim.grimac.checks.impl.movement.timer.VehicleTimer;
 import ac.grim.grimac.checks.impl.multiactions.*;
 import ac.grim.grimac.checks.impl.packetorder.*;
@@ -431,7 +430,6 @@ public class CheckManager {
         return listenerMap(List.<CheckListener>of(
                 new TimerCheck(player),
                 new TickTimer(player),
-                new TimerLimit(player),
                 new DumbTimer(player),
                 new CrashA(player),
                 new CrashB(player),
@@ -500,7 +498,6 @@ public class CheckManager {
 
         registerPreReceive(prePredictionChecks.get(TimerCheck.class));
         registerPreReceive(prePredictionChecks.get(TickTimer.class));
-        registerPreReceive(prePredictionChecks.get(TimerLimit.class));
         registerPreReceive(prePredictionChecks.get(DumbTimer.class));
         registerPreReceive(prePredictionChecks.get(CrashA.class));
         registerPreReceive(prePredictionChecks.get(CrashC.class));

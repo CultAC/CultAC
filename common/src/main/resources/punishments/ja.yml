@@ -17,7 +17,6 @@ Punishments:
       - "Simulation"
       - "GroundSpoof"
       - "Timer"
-      - "TimerLimit"
       - "NoFall"
     # しきい値:間隔 コマンド
     #

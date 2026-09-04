@@ -10,15 +10,15 @@ import ac.grim.grimac.utils.anticheat.update.PositionUpdate;
 import ac.grim.grimac.network.event.PacketReceiveEvent;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 
-// TODO: Put behind real timer, register check, test check
+/** Caps movement backlog alongside the precise TimerA check. */
 public class DumbTimer extends GrimProcessor implements PositionListener {
-    private static final double TIMER_HEADROOM = 750e6;
+    private static final long DEFAULT_BACKLOG_LIMIT = 1_000_000_000L;
 
     public DumbTimer(GrimPlayer grimPlayer) { super(grimPlayer); }
 
-    double balance = System.nanoTime() - TIMER_HEADROOM;
+    double balance = System.nanoTime() - DEFAULT_BACKLOG_LIMIT;
     double lastLongTeleport = System.nanoTime();
-    double scalar = 1;
+    long limitAbuseOverPing = DEFAULT_BACKLOG_LIMIT;
 
     private boolean isServerTickingNormally() {
         return Math.abs(player.packetStateData.serverTickRate - 20.0F) < 1.0E-3F
@@ -27,7 +27,7 @@ public class DumbTimer extends GrimProcessor implements PositionListener {
     }
 
     public void resetTimerWindow() {
-        this.balance = System.nanoTime() - TIMER_HEADROOM;
+        this.balance = System.nanoTime() - (limitAbuseOverPing == -1 ? DEFAULT_BACKLOG_LIMIT : limitAbuseOverPing);
         this.lastLongTeleport = System.nanoTime();
     }
 
@@ -38,7 +38,7 @@ public class DumbTimer extends GrimProcessor implements PositionListener {
             final double teleportDistance = positionUpdate.getFrom().distanceTo(positionUpdate.getTo());
             final boolean spawnTeleport = teleportData.isInitialSpawnTeleport();
 
-            // When teleport to a new chunk, allow 20 extra ticks to account for respawning and such
+            // Preserve the existing two-second spawn/long-teleport allowance.
             if (spawnTeleport || teleportDistance > 32) {
                 this.lastLongTeleport = System.nanoTime();
                 this.balance = System.nanoTime() - 2000e6;
@@ -56,13 +56,13 @@ public class DumbTimer extends GrimProcessor implements PositionListener {
         if (!player.packetStateData.lastPacketWasTeleport) {
             final long curTime = System.nanoTime();
 
-            // Be strict if the player used an item recently
-            final double strictness = TIMER_HEADROOM * this.scalar;
-
-            // Don't let the player fall behind real time by more than strictness
+            // Don't let the player fall behind real time by more than the configured limit.
             // However, if the player long teleported within the last two seconds, allow it
-            if (System.nanoTime() - this.lastLongTeleport > 2000e6) {
-                this.balance = Math.max(this.balance, curTime - strictness);
+            //
+            // Be strict if the player used an item recently
+            // TODO: the above comment was never implemented? this really is a dumb timer check.
+            if (limitAbuseOverPing != -1 && curTime - this.lastLongTeleport > 2000e6) {
+                this.balance = Math.max(this.balance, curTime - limitAbuseOverPing);
             }
 
             this.balance += 45e6;
@@ -85,5 +85,11 @@ public class DumbTimer extends GrimProcessor implements PositionListener {
     }
 
     @Override
-    public void reload() { this.scalar = getConfig().getDoubleElse("blink-ping-threshold", 1); }
+    public void reload() {
+        // Keep the former TimerLimit setting so existing server configurations still apply.
+        limitAbuseOverPing = getConfig().getLongElse("TimerLimit.ping-abuse-limit-threshold", 1000L);
+        if (limitAbuseOverPing != -1) {
+            limitAbuseOverPing *= 1_000_000L;
+        }
+    }
 }

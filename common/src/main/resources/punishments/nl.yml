@@ -17,7 +17,6 @@ Punishments:
       - "Simulation"
       - "GroundSpoof"
       - "Timer"
-      - "TimerLimit"
       - "NoFall"
     # Drempel: Interval-commando
     #
