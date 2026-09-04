@@ -12,6 +12,7 @@ import ac.grim.grimac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.grim.grimac.utils.latency.CompensatedWorld.CachedSection;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.Material;
+import org.bukkit.potion.PotionEffectType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.Block;
@@ -37,6 +38,7 @@ import java.util.function.Predicate;
 public class Collisions {
     private static final double COLLISION_EPSILON = 1.0E-7;
     private static final Vec3 COBWEB_STUCK_SPEED = new Vec3(0.25, 0.05000000074505806, 0.25);
+    private static final Vec3 WEAVING_COBWEB_STUCK_SPEED = new Vec3(0.5, 0.25, 0.5);
     private static final Vec3 SWEET_BERRY_BUSH_STUCK_SPEED = new Vec3(0.800000011920929, 0.75, 0.800000011920929);
     private static final Vec3 POWDER_SNOW_STUCK_SPEED = new Vec3(0.8999999761581421, 1.5, 0.8999999761581421);
 
@@ -1004,7 +1006,7 @@ public class Collisions {
         // that path would mutate a live/detached entity, so Grim mirrors the NMS constants
         // after identifying the affected block by its NMS behavior class.
         if (block instanceof WebBlock) {
-            return COBWEB_STUCK_SPEED;
+            return getCobwebStuckSpeed(player);
         }
 
         if (block instanceof SweetBerryBushBlock) {
@@ -1015,6 +1017,17 @@ public class Collisions {
             return powderSnowCanApply ? POWDER_SNOW_STUCK_SPEED : null;
         }
         return null;
+    }
+
+    public static Vec3 getCobwebStuckSpeed(GrimPlayer player) {
+        return getCobwebStuckSpeed(player.getClientVersion(),
+                player.compensatedEntities.getEntityInControl().isLivingEntity(),
+                player.compensatedEntities.getPotionLevelForPlayer(PotionEffectType.WEAVING) != null);
+    }
+
+    static Vec3 getCobwebStuckSpeed(ClientVersion version, boolean living, boolean weaving) {
+        return version.isNewerThanOrEquals(ClientVersion.V_1_20_5) && living && weaving
+                ? WEAVING_COBWEB_STUCK_SPEED : COBWEB_STUCK_SPEED;
     }
 
     public static boolean suffocatesAt(GrimPlayer player, SimpleCollisionBox playerBB) {

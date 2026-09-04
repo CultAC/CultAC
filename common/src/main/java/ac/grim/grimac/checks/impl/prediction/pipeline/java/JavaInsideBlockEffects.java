@@ -13,7 +13,6 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.bukkit.GameMode;
-import org.bukkit.potion.PotionEffectType;
 
 /** 26.1/26.2 Entity#checkInsideBlocks and the movement-affecting block callbacks. */
 public final class JavaInsideBlockEffects {
@@ -56,8 +55,7 @@ public final class JavaInsideBlockEffects {
                 Vec3 speed = null;
                 if (stuckAllowed) {
                     if (powder && powderAllowed) speed = new Vec3(0.9F, 1.5, 0.9F);
-                    if (web) speed = living && player.compensatedEntities.getPotionLevelForPlayer(PotionEffectType.WEAVING) != null
-                            ? new Vec3(0.5, 0.25, 0.5) : new Vec3(0.25, 0.05F, 0.25);
+                    if (web) speed = Collisions.getCobwebStuckSpeed(player);
                     if (berry && living && !actor.type.equals(ac.grim.grimac.utils.nmsutil.EntityTypesCompat.FOX)
                             && !actor.type.equals(ac.grim.grimac.utils.nmsutil.EntityTypesCompat.BEE)) speed = new Vec3(0.8F, 0.75, 0.8F);
                 }
