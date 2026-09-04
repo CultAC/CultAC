@@ -138,7 +138,7 @@ public final class VelocityCandidates {
             return OptionalDouble.empty();
         }
 
-        double deltaY = result.getInitialStartingVel().y;
+        double deltaY = preCollisionVelocity(result).y;
         if (deltaY >= 0.0D) {
             return OptionalDouble.empty();
         }
@@ -158,6 +158,14 @@ public final class VelocityCandidates {
         }
         double packetVisibleThreshold = player == null ? 2.0E-4D : player.getMovementThreshold();
         return bounceY > packetVisibleThreshold ? OptionalDouble.of(bounceY) : OptionalDouble.empty();
+    }
+
+    private static Vec3 preCollisionVelocity(PredictionResult result) {
+        GrimPlayer player = result.getPlayer();
+        if (player == null || player.getClientVersion().isOlderThan(ClientVersion.V_26_1)) {
+            return result.getInitialStartingVel();
+        }
+        return result.getValidMovements().getClosestTrace().preCollisionVelocity();
     }
 
     private static boolean isBouncyBlock(Material onBlock) {
@@ -263,7 +271,10 @@ public final class VelocityCandidates {
         // drag/gravity to that stored deltaMovement for the next tick. A fully
         // collided or movement-thresholded packet can therefore have a zero
         // displacement while still carrying a non-zero next-tick root velocity.
-        Vec3 postMoveDelta = result.getInitialStartingVel();
+        // LivingEntity#travelFallFlying has already replaced deltaMovement
+        // before Entity#move. Carry that velocity on uncollided axes as well;
+        // carrying the initial vector would retain a stale pre-elytra candidate.
+        Vec3 postMoveDelta = preCollisionVelocity(result);
         GrimPlayer player = result.getPlayer();
         boolean use26Dot2 = player != null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
         if (use26Dot2) {

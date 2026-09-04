@@ -168,6 +168,12 @@ public class CollisionModifier implements UncertaintyHandler {
 
     public CollideAxisData probeCollisions(GrimPlayer player, SimulationContext context, double minY, Vec3 target,
             Vec3 playerPos, SimpleCollisionBox attemptedMovementExtents, ProbeDimensions dimensions, JavaCollisionState actor) {
+        return probeCollisions(player, context, minY, target, playerPos, attemptedMovementExtents, dimensions, actor, false);
+    }
+
+    public CollideAxisData probeCollisions(GrimPlayer player, SimulationContext context, double minY, Vec3 target,
+            Vec3 playerPos, SimpleCollisionBox attemptedMovementExtents, ProbeDimensions dimensions, JavaCollisionState actor,
+            boolean followCandidateVerticalMovement) {
         CollideAxisData result = new CollideAxisData();
 
         // Start with player bounding box
@@ -175,6 +181,7 @@ public class CollisionModifier implements UncertaintyHandler {
 
         Vec3 stuckSpeed = context.getLastStuckSpeed();
 
+        double candidateY = target.y * stuckSpeed.y;
         target = context.getEnd().subtract(context.getStart());
         minY *= stuckSpeed.y;
 
@@ -243,14 +250,25 @@ public class CollisionModifier implements UncertaintyHandler {
                 double multiplier = 1 / getAxisOfVector(stuckSpeed, axis); // TODO: How do we stuck speed collision?
 
                 AxisResult pos = testInAxisAndDirection(context, collisions, unknown, iterPos, axis, positiveMovement, true, dimensions);
-                // We don't know Y negative because of stepping, we must check to see if the player could land
+                // Keep the downward reach for landing/step discovery separate
+                // from the position used for the following horizontal axes.
                 if (axis == Collisions.Axis.Y) {
-                    movement = minY;
-                    negativeMovement = getAttemptedAxisMovement(axis, movement, attemptedMovementExtents, stuckSpeed, false);
+                    negativeMovement = getAttemptedAxisMovement(axis, minY, attemptedMovementExtents, stuckSpeed, false);
+                    movement = followCandidateVerticalMovement ? candidateY : minY;
                 }
                 AxisResult neg = testInAxisAndDirection(context, collisions, unknown, iterPos, axis, negativeMovement, false, dimensions);
 
-                // Move the bounding box in the direction of the movement, not allowing people to go through walls
+                if (axis == Collisions.Axis.Y && followCandidateVerticalMovement && movement != 0.0D) {
+                    AxisResult vertical = movement < 0 ? neg : pos;
+                    if (vertical != null && vertical.isCollide()) {
+                        movement = movement < 0 ? Math.max(movement, vertical.getResult())
+                                : Math.min(movement, vertical.getResult());
+                    }
+                }
+
+                // Entity#collideWithShapes advances by the resolved candidate
+                // before the next axis. Neither the envelope's minY nor an
+                // unvalidated packet Y proves the height of an X/Z contact.
                 iterPos = moveBoundingBoxForAxis(context, collisionsMinusUnknown, axis, movement, iterPos, dimensions);
 
                 switch (axis) {

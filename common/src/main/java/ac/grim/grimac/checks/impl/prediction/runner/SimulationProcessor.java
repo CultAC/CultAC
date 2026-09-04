@@ -977,33 +977,20 @@ public class SimulationProcessor extends GrimProcessor implements PositionListen
          do {
             PredictionResult thisResult = validMovements.getResult();
             SimpleCollisionBox attemptedExtents = validMovements.getCollisionIgnoredMaxStartingVelExtents();
-            CollisionProbeKey collisionProbeKey = new CollisionProbeKey(
-               thisResult.getSimulationContext(),
-               attemptedExtents.minY,
-               thisResult.getSimulationContext().getTarget(),
-               thisResult.getSimulationContext().getStart(),
-               thisResult.getInitialStartingVel(),
-               attemptedExtents,
-               validMovements.isCanStep()
+            boolean useSelectedMovement = engine == JavaMovementEngine.INSTANCE && !validMovements.isCanStep();
+            Vec3 collisionTarget = useSelectedMovement
+               ? validMovements.computeCollisionIgnoredMovement(lastPrediction)
+               : thisResult.getSimulationContext().getTarget();
+            CollideAxisData collisionData = probeCollisionsCached(
+               player, engine, thisResult, attemptedExtents, collisionTarget, validMovements.isCanStep(), collisionProbeCache
             );
-            CollideAxisData collisionData = collisionProbeCache.get(collisionProbeKey);
-            if (collisionData == null) {
-               collisionData = engine.probeCollisions(
-                  new CollisionModifier(),
-                  player,
-                  thisResult.getSimulationContext(),
-                  attemptedExtents.minY,
-                  thisResult.getSimulationContext().getTarget(),
-                  thisResult.getSimulationContext().getStart(),
-                  thisResult.getInitialStartingVel(),
-                  attemptedExtents,
-                  validMovements.isCanStep()
-               );
-               collisionProbeCache.put(collisionProbeKey, collisionData);
-            }
 
             thisResult.setCollideAxisData(collisionData);
-            validMovements.computeClosest(lastPrediction);
+            if (useSelectedMovement) {
+               validMovements.applyCollisionsToSelectedMovement(lastPrediction);
+            } else {
+               validMovements.computeClosest(lastPrediction);
+            }
             engine.evaluateCandidate(player, thisResult);
             this.flagger.handleResult(thisResult, lastPrediction);
             bestResult = engine.isBetterCandidate(thisResult, bestResult) ? thisResult : bestResult;
@@ -1017,15 +1004,25 @@ public class SimulationProcessor extends GrimProcessor implements PositionListen
             }
 
             CollideAxisData probedCollisions = thisResult.getCollideAxisData();
-            boolean couldHorizCollision = probedCollisions.getX().isLikelyCollide() || probedCollisions.getZ().isLikelyCollide();
             allowStep = thisResult.getInitialStartingVel().maxUpStep(player) > 0.0
                && (
                   thisResult.getSimulationContext().getLastOnGround().determineOptimistically()
                      || probedCollisions.getYNeg() != null
                         && probedCollisions.getYNeg().isLikelyCollide()
                         && probedCollisions.getYNeg().getResult() + 0.001 > thisResult.getValidMovements().getCollisionIgnoredMaxStartingVelExtents().minY
-               )
-               && couldHorizCollision;
+               );
+            if (allowStep) {
+               // Entity#collide tests horizontal obstruction on the move before
+               // stepping. A landing-to-step packet can end above that obstacle.
+               // Preserve the lower probe for step discovery only; its contacts
+               // must not replace the ordinary move's collision/velocity state.
+               CollideAxisData stepEligibility = probedCollisions;
+               if (engine == JavaMovementEngine.INSTANCE && !stepEligibility.couldCollideHorizontally()) {
+                  stepEligibility = probeCollisionsCached(player, engine, thisResult, attemptedExtents,
+                     thisResult.getSimulationContext().getTarget(), true, collisionProbeCache);
+               }
+               allowStep = stepEligibility.couldCollideHorizontally();
+            }
             if (allowStep) {
                thisResult = new PredictionResult(
                   player,
@@ -1049,6 +1046,25 @@ public class SimulationProcessor extends GrimProcessor implements PositionListen
       assert bestResult != null;
       movementProfile.evaluatePredictionResult(player, bestResult);
       return bestResult;
+   }
+
+   private CollideAxisData probeCollisionsCached(
+      GrimPlayer player, MovementEngine engine, PredictionResult result, SimpleCollisionBox attemptedExtents,
+      Vec3 collisionTarget, boolean canStep, Map<CollisionProbeKey, CollideAxisData> cache
+   ) {
+      SimulationContext context = result.getSimulationContext();
+      CollisionProbeKey key = new CollisionProbeKey(
+         context, attemptedExtents.minY, collisionTarget, context.getStart(), result.getInitialStartingVel(), attemptedExtents, canStep
+      );
+      CollideAxisData collisions = cache.get(key);
+      if (collisions == null) {
+         collisions = engine.probeCollisions(
+            new CollisionModifier(), player, context, attemptedExtents.minY, collisionTarget, context.getStart(),
+            result.getInitialStartingVel(), attemptedExtents, canStep
+         );
+         cache.put(key, collisions);
+      }
+      return collisions;
    }
 
    private List<SimulationContext> createSimulationContexts(

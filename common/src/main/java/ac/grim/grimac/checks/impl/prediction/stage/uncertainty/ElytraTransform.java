@@ -13,6 +13,14 @@ import org.bukkit.util.Vector;
 
 public class ElytraTransform implements UncertaintyHandler {
     @Override
+    public MovementTrace handleMovementTrace(GrimPlayer player, ValidMovements valid, PredictionResult result, SimulationContext context, PredictionResult lastResult, MovementTrace trace, Vec3 end) {
+        PredVector velocity = handleUncertainty(player, valid, result, context, lastResult, trace.position(), end);
+        // LivingEntity#travelFallFlying stores this velocity before Entity#move.
+        // Collision clipping changes displacement; restitution reads the stored velocity.
+        return trace.withPosition(velocity).withPreCollisionVelocity(velocity);
+    }
+
+    @Override
     public PredVector handleUncertainty(GrimPlayer player, ValidMovements valid, PredictionResult result, SimulationContext context, PredictionResult lastResult, PredVector start, Vec3 end) {
         if (!result.getSimulationContext().usesFallFlyingMovement()) return start;
         if (result.getSimulationContext().getWorldData().mustBeInLiquid()) return start;

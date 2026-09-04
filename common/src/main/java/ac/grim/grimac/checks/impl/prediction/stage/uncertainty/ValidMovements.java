@@ -5,6 +5,7 @@ import ac.grim.grimac.checks.impl.prediction.PredictionResult;
 import ac.grim.grimac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.grim.grimac.utils.data.CollideAxisData;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
@@ -82,6 +83,29 @@ public class ValidMovements {
         this.closestTrace = transformTraceTowards(result.getTarget(), lastResult);
         this.closestToTarget = closestTrace.position();
         return this;
+    }
+
+    public Vec3 computeCollisionIgnoredMovement(PredictionResult lastResult) {
+        // Select one complete movement with the existing uncertainty handlers.
+        // In particular, Fireworks must share its radius between Y and X/Z.
+        result.setCollideAxisData(new CollideAxisData(
+                new CollideAxisData.CollideResult(false, 0), null, null,
+                new CollideAxisData.CollideResult(false, 0), new java.util.ArrayList<>()));
+        computeClosest(lastResult);
+        return closestToTarget;
+    }
+
+    public void applyCollisionsToSelectedMovement(PredictionResult lastResult) {
+        // Reuse the selected movement: running the uncertainty handlers again
+        // after clipping would grant their allowance a second time.
+        MovementTrace movement = closestTrace;
+        Vec3 base = movement.collisionBaseOffset();
+        if (base.lengthSqr() > 1.0E-14) {
+            movement = movement.withPosition(movement.position().with(
+                    movement.position().subtract(base), "external movement collision base removed"));
+        }
+        setClosestTrace(new CollisionModifier().handleMovementTrace(
+                player, this, result, result.getSimulationContext(), lastResult, movement, result.getTarget()));
     }
 
     public Vec3 getPositionOnlyDelta() {

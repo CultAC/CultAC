@@ -93,7 +93,7 @@ public final class JavaMovementEngine implements MovementEngine {
     ) {
         return modifier.probeCollisions(player, context, minY, target, playerPos, attemptedMovementExtents,
                 new CollisionModifier.ProbeDimensions(0.6F, 0.6F, 1.8F, SimpleCollisionBox.AxisEpsilon.JAVA),
-                JavaFallDistance.beforeMove(player, context, initialStartingVelocity));
+                JavaFallDistance.beforeMove(player, context, initialStartingVelocity), !canStep);
     }
 
     @Override
