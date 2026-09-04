@@ -169,7 +169,7 @@ public final class VelocityCandidates {
     private static double blockBounciness(PredictionResult result, Material onBlock) {
         // MCP-Reborn 26.2 Entity#getBlockBounciness: non-living entities (such as
         // boats and minecarts) only receive 80% of the block's restitution.
-        double restitution = onBlock == Material.SLIME_BLOCK ? 1.0D : 0.75D;
+        double restitution = onBlock == Material.SLIME_BLOCK ? 1.0D : NmsBlockTags.isBed(onBlock) ? 0.75D : 0.0D;
         PacketEntity vehicle = result.getSimulationContext().getVehicle();
         boolean living = vehicle == null || vehicle.isLivingEntity();
         return living ? restitution : restitution * 0.8D;
