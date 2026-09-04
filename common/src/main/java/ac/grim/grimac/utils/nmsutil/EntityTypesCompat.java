@@ -16,6 +16,8 @@ public final class EntityTypesCompat {
 
     public static final EntityType ARMOR_STAND = constant("ARMOR_STAND");
     public static final EntityType AXOLOTL = constant("AXOLOTL");
+    public static final EntityType BEE = constant("BEE");
+    public static final EntityType FOX = constant("FOX");
     public static final EntityType BAT = constant("BAT");
     public static final EntityType CAMEL = constant("CAMEL");
     public static final EntityType CHICKEN = constant("CHICKEN");
@@ -26,6 +28,7 @@ public final class EntityTypesCompat {
     public static final EntityType ENDERMITE = constant("ENDERMITE");
     public static final EntityType END_CRYSTAL = constant("END_CRYSTAL");
     public static final EntityType EVOKER = constant("EVOKER");
+    public static final EntityType FALLING_BLOCK = constant("FALLING_BLOCK");
     public static final EntityType FIREWORK_ROCKET = constant("FIREWORK_ROCKET");
     public static final EntityType FISHING_BOBBER = constant("FISHING_BOBBER");
     public static final EntityType GOAT = constant("GOAT");

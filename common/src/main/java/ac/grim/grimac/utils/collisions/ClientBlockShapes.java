@@ -4,6 +4,7 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.collisions.datatypes.CollisionBox;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.nmsutil.NativeBlockCollisionHelper;
+import ac.grim.grimac.utils.nmsutil.JavaCollisionState;
 import net.minecraft.world.level.block.state.BlockState;
 import org.bukkit.block.data.BlockData;
 
@@ -58,7 +59,12 @@ public final class ClientBlockShapes {
             int z,
             double entityBottom
     ) {
-        CollisionBox latestJava = NativeBlockCollisionHelper.getCollisionBox(player, state, x, y, z, entityBottom);
+        return movement(player, state, x, y, z, entityBottom, JavaCollisionState.current(player));
+    }
+
+    public static CollisionBox movement(GrimPlayer player, BlockState state, int x, int y, int z,
+                                        double entityBottom, JavaCollisionState actor) {
+        CollisionBox latestJava = NativeBlockCollisionHelper.getCollisionBox(player, state, x, y, z, entityBottom, actor);
         return selectIfDifferent(latestJava, movementAlternative(player, state == null ? null : ac.grim.grimac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(state), x, y, z, entityBottom));
     }
 

@@ -54,7 +54,8 @@ public final class TravelVelocityTransformer {
 
         // MCP-Reborn Strider#floatStrider only rewrites deltaMovement from the
         // post-travel Strider#tick path while the strider is actually in lava.
-        if (result.getSimulationContext().getVehicle() != null
+        if (!ac.grim.grimac.checks.impl.prediction.pipeline.java.JavaMovementEngine.contextUsesExactEffects(result.getSimulationContext())
+                && result.getSimulationContext().getVehicle() != null
                 && result.getSimulationContext().getVehicle().type == EntityTypesCompat.STRIDER
                 && result.getSimulationContext().getWorldData().getInLava().getStates().contains(true)
                 && !(Above.isAbove(player.y) && player.compensatedWorld.getLavaFluidLevelAt((int) Math.floor(player.x), (int) Math.floor(player.y + 1), (int) Math.floor(player.z)) == 0)) {

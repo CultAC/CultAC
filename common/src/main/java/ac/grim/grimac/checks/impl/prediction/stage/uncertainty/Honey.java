@@ -11,6 +11,7 @@ import net.minecraft.world.phys.Vec3;
 public class Honey implements UncertaintyHandler {
     @Override
     public PredVector handleUncertainty(GrimPlayer player, ValidMovements valid, PredictionResult result, SimulationContext context, PredictionResult lastResult, PredVector start, Vec3 end) {
+        if (!player.isBedrockMovement() && ac.grim.grimac.checks.impl.prediction.pipeline.java.JavaMovementEngine.contextUsesExactEffects(context)) return start;
         // Based on last tick
         if (lastResult == null || !lastResult.getSimulationContext().getWorldData().getHoneySlide().determineOptimistically()) return start;
         // Only possible when vector.y >= -0.08D

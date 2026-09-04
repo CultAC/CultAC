@@ -4,6 +4,7 @@ import ac.grim.grimac.checks.impl.prediction.PredVector;
 import ac.grim.grimac.checks.impl.prediction.PredictionResult;
 import ac.grim.grimac.checks.impl.prediction.SimulationContext;
 import ac.grim.grimac.player.GrimPlayer;
+import ac.grim.grimac.utils.nmsutil.JavaCollisionState;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.CollideAxisData;
 import ac.grim.grimac.utils.math.GrimMath;
@@ -25,6 +26,11 @@ public class CollisionModifier implements UncertaintyHandler {
             return trace;
         }
 
+        // Entity#move records its attempted delta, after stuck scaling, for
+        // checkInsideBlocks' axis order. Clipping can reverse the X/Z ordering.
+        Vec3 stuckSpeed = trace.position().collisionStuckSpeedMultiplier(context);
+        trace = trace.withPreCollisionMovement(stuckSpeed == null
+                ? trace.position() : trace.position().multiply(stuckSpeed));
         Vec3 collisionBaseOffset = trace.collisionBaseOffset();
         if (collisionBaseOffset.lengthSqr() <= 1.0E-14) {
             return trace.withPosition(transformWithCollisions(context, result.getCollideAxisData(), trace.position(), end));
@@ -156,6 +162,12 @@ public class CollisionModifier implements UncertaintyHandler {
             SimpleCollisionBox attemptedMovementExtents,
             ProbeDimensions dimensions
     ) {
+        return probeCollisions(player, context, minY, target, playerPos, attemptedMovementExtents, dimensions,
+                JavaCollisionState.current(player));
+    }
+
+    public CollideAxisData probeCollisions(GrimPlayer player, SimulationContext context, double minY, Vec3 target,
+            Vec3 playerPos, SimpleCollisionBox attemptedMovementExtents, ProbeDimensions dimensions, JavaCollisionState actor) {
         CollideAxisData result = new CollideAxisData();
 
         // Start with player bounding box
@@ -177,7 +189,7 @@ public class CollisionModifier implements UncertaintyHandler {
         grabBoxesBB.expand(maxEpsilon(dimensions.epsilon()));
 
         List<SimpleCollisionBox> collisions = new ArrayList<>();
-        Collisions.getCollisionBoxes(player, grabBoxesBB, collisions, false, playerPos.y);
+        Collisions.getCollisionBoxes(player, grabBoxesBB, collisions, false, playerPos.y, actor);
 
         List<SimpleCollisionBox> unknown = UnknownCollisionProvider.movementUnknownCollisions(
                 player,

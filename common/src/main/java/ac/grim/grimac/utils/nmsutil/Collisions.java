@@ -267,6 +267,11 @@ public class Collisions {
     }
 
     public static boolean getCollisionBoxes(GrimPlayer player, SimpleCollisionBox wantedBB, List<SimpleCollisionBox> listOfBlocks, boolean onlyCheckCollide, double entityBottom) {
+        return getCollisionBoxes(player, wantedBB, listOfBlocks, onlyCheckCollide, entityBottom, JavaCollisionState.current(player));
+    }
+
+    public static boolean getCollisionBoxes(GrimPlayer player, SimpleCollisionBox wantedBB, List<SimpleCollisionBox> listOfBlocks,
+                                            boolean onlyCheckCollide, double entityBottom, JavaCollisionState actor) {
         SimpleCollisionBox expandedBB = wantedBB.copy();
 
         boolean collided = addWorldBorder(player, wantedBB, listOfBlocks, onlyCheckCollide);
@@ -327,7 +332,7 @@ public class Collisions {
 
                             if (data.isAir()) continue;
                             Material material = data.getBukkitMaterial();
-                            CollisionBox collisionBox = ClientBlockShapes.movement(player, data, x, y, z, entityBottom);
+                            CollisionBox collisionBox = ClientBlockShapes.movement(player, data, x, y, z, entityBottom, actor);
                             if (collisionBox.isNull()) continue;
                             // Thanks SpottedLeaf for this optimization, I took edgeCount from Tuinity
                             int edgeCount = ((x == minBlockX || x == maxBlockX) ? 1 : 0) +
@@ -497,13 +502,8 @@ public class Collisions {
                     BlockData block = player.compensatedWorld.getBlockDataAt(i, j, k);
                     Vec3 blockStuckSpeed = getStuckSpeedForBlock(player, block, powderSnowCanApply);
                     if (blockStuckSpeed != null) {
-                        // MCP-Reborn Entity#checkInsideBlocks tests every block
-                        // intersected by makeBoundingBox(to) along the recorded
-                        // movement path. PowderSnowBlock#getEntityInsideCollisionShape
-                        // returns a full-block probe even when the boat/player
-                        // cannot stand on it, so a body-only overlap can still
-                        // set Entity#stuckSpeedMultiplier; do not collapse that
-                        // to the floored entity position.
+                        // Legacy/provisional contact summary. Java 26.2 commits actual
+                        // inside shapes and effects through JavaInsideBlockEffects.
                         stuckSpeed = blockStuckSpeed;
                     }
                 }
@@ -619,57 +619,57 @@ public class Collisions {
 
     static Vec3 resolveOrderedStuckSpeed26Dot2(SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb,
                                                 Vec3 axisOrderMovement, StuckSpeedLookup lookup) {
-        LongSet visitedBlocks = new LongOpenHashSet();
         Vec3[] result = new Vec3[1];
-        int remainingIterations = 16;
-        Vec3 clippedMovement = boxCenter(toAabb).subtract(boxCenter(fromAabb));
-
-        if (axisOrderMovement != null && clippedMovement.lengthSqr() > 0.0D) {
-            SimpleCollisionBox stepFrom = fromAabb.copy();
-            for (Axis axis : getAxisStepOrder(axisOrderMovement)) {
-                double movementOnAxis = getAxisValue(clippedMovement, axis);
-                if (movementOnAxis == 0.0D) {
-                    continue;
-                }
-
-                SimpleCollisionBox stepTo = stepFrom.copy();
-                offsetAlongAxis(stepTo, axis, movementOnAxis);
-                remainingIterations -= visitStuckSpeedSegment26Dot2(
-                        stepFrom, stepTo, visitedBlocks, remainingIterations, lookup, result);
-                stepFrom = stepTo;
-                if (remainingIterations <= 0) {
-                    visitStuckSpeedSegment26Dot2(toAabb, toAabb, visitedBlocks, 1, lookup, result);
-                    break;
-                }
-            }
-        } else {
-            visitStuckSpeedSegment26Dot2(fromAabb, toAabb, visitedBlocks, 16, lookup, result);
-        }
-
+        visitInsideBlocks26Dot2(fromAabb, toAabb, axisOrderMovement, (from, to, pos, precise) -> {
+            Vec3 speed = lookup.get(pos.getX(), pos.getY(), pos.getZ());
+            if (speed == null || !sweptFullBlockEntityInside(from, to, pos.getX(), pos.getY(), pos.getZ())) return false;
+            result[0] = speed;
+            return true;
+        });
         return result[0];
     }
 
-    private static int visitStuckSpeedSegment26Dot2(SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb,
-                                                     LongSet visitedBlocks, int maxIterations,
-                                                     StuckSpeedLookup lookup, Vec3[] result) {
-        Vec3 from = boxCenter(fromAabb);
-        Vec3 to = boxCenter(toAabb);
-        int[] lastIteration = {0};
-        forEachBlockIntersectedBetween26Dot2(from, to, toAabb, (pos, iteration) -> {
-            if (iteration >= maxIterations) {
-                return false;
+    /** Entity#checkInsideBlocks: one visited set and iteration budget across the axis segments. */
+    public static void visitInsideBlocks26Dot2(SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb,
+                                               Vec3 originalMovement, InsideBlockVisitor visitor) {
+        LongSet visited = new LongOpenHashSet();
+        int remaining = 16;
+        Vec3 delta = boxCenter(toAabb).subtract(boxCenter(fromAabb));
+        if (originalMovement != null && delta.lengthSqr() > 0.0) {
+            SimpleCollisionBox from = fromAabb.copy();
+            for (Axis axis : getAxisStepOrder(originalMovement)) {
+                double amount = getAxisValue(delta, axis);
+                if (amount == 0.0) continue;
+                SimpleCollisionBox to = from.copy();
+                offsetAlongAxis(to, axis, amount);
+                remaining -= visitInsideSegment26Dot2(from, to, visited, remaining, visitor);
+                from = to;
             }
-            lastIteration[0] = iteration;
-            long packed = pos.asLong();
-            Vec3 stuckSpeed = lookup.get(pos.getX(), pos.getY(), pos.getZ());
-            if (stuckSpeed != null
-                    && sweptFullBlockEntityInside(fromAabb, toAabb, pos.getX(), pos.getY(), pos.getZ())
-                    && visitedBlocks.add(packed)) {
-                result[0] = stuckSpeed;
-            }
+        } else {
+            remaining -= visitInsideSegment26Dot2(fromAabb, toAabb, visited, remaining, visitor);
+        }
+        if (remaining <= 0) visitInsideSegment26Dot2(toAabb, toAabb, visited, 1, visitor);
+    }
+
+    private static int visitInsideSegment26Dot2(SimpleCollisionBox from, SimpleCollisionBox to,
+                                                LongSet visited, int budget, InsideBlockVisitor visitor) {
+        int[] iteration = {0};
+        AABB deflated = new AABB(to.minX, to.minY, to.minZ, to.maxX, to.maxY, to.maxZ).deflate(1.0E-5F);
+        boolean movedFar = boxCenter(from).distanceToSqr(boxCenter(to)) > GrimMath.square(0.9999900000002526);
+        forEachBlockIntersectedBetween26Dot2(boxCenter(from), boxCenter(to), to, (pos, step) -> {
+            if (step >= budget) return false;
+            iteration[0] = step;
+            if (!visited.contains(pos.asLong())
+                    && visitor.visit(from, to, pos, movedFar || deflated.intersects(pos))) visited.add(pos.asLong());
             return true;
         });
-        return lastIteration[0] + 1;
+        return iteration[0] + 1;
+    }
+
+    @FunctionalInterface
+    public interface InsideBlockVisitor {
+        /** Return true only when the block or its fluid was actually contacted. */
+        boolean visit(SimpleCollisionBox from, SimpleCollisionBox to, BlockPos pos, boolean precise);
     }
 
     private static boolean forEachBlockIntersectedBetween26Dot2(Vec3 from, Vec3 to,

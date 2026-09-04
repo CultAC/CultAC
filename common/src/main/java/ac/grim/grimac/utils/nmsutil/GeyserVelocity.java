@@ -76,6 +76,28 @@ public final class GeyserVelocity {
         return applyLaunchCaps(velocities, caps);
     }
 
+    /** The client caps fall distance before testing whether this ticker can launch the actor. */
+    public static ac.grim.grimac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects.State applyToState(
+            GrimPlayer player, PredictionResult result, Vec3 end,
+            ac.grim.grimac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects.State state) {
+        if (SERVER_VERSION.isOlderThan(ClientVersion.V_26_2) || player.getClientVersion().isOlderThan(ClientVersion.V_26_2)) return state;
+        SimulationContext context = result.getSimulationContext();
+        PacketEntity actor = context.getVehicle() == null ? context.getEntities().getSelf() : context.getVehicle();
+        if (actor.isDead || player.gamemode == GameMode.SPECTATOR) return state;
+        SimpleCollisionBox box = context.getToActualPose().copy().offset(end.subtract(context.getEnd()));
+        boolean launch = canLaunch(actor, context.getVehicle() == null, player.isFlying, player.gamemode);
+        for (float cap : findIntersectingColumnCaps(player, box)) {
+            double distance = capFallDistance(state.fallDistance(), state.velocity().y);
+            Vec3 velocity = launch && state.velocity().y < cap ? state.velocity().add(0, LAUNCH_FORCE, 0) : state.velocity();
+            state = new ac.grim.grimac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects.State(distance, velocity, state.stuckSpeed());
+        }
+        return state;
+    }
+
+    public static double capFallDistance(double distance, double velocityY) {
+        return distance > 1 && velocityY > -0.5 ? 1 : distance;
+    }
+
     private static List<Float> findIntersectingColumnCaps(GrimPlayer player, SimpleCollisionBox box) {
         List<Float> caps = new ArrayList<>();
         int minX = (int) Math.floor(box.minX);

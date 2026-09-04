@@ -23,6 +23,7 @@ import ac.grim.grimac.checks.impl.prediction.checks.PredCheckRunner;
 import ac.grim.grimac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.grim.grimac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.grim.grimac.checks.impl.prediction.pipeline.MovementEngines;
+import ac.grim.grimac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.grim.grimac.checks.impl.prediction.profile.MovementProfile;
 import ac.grim.grimac.checks.impl.prediction.profile.MovementProfiles;
 import ac.grim.grimac.checks.impl.prediction.stage.MovementModifiers;
@@ -322,8 +323,6 @@ public class SimulationProcessor extends GrimProcessor implements PositionListen
          } else {
             this.profileCarry = null;
          }
-      } else {
-         this.profileCarry = null;
       }
 
       if (this.player.bedrockState != null) {
@@ -1065,6 +1064,23 @@ public class SimulationProcessor extends GrimProcessor implements PositionListen
       AuthoredMovementFrame authoredMovementFrame,
       MovementProfile movementProfile
    ) {
+      if (!player.isBedrockMovement() && JavaMovementEngine.supportsExactEffects(player.getClientVersion())
+            && this.profileCarry instanceof ac.grim.grimac.checks.impl.prediction.pipeline.java.JavaPredictionCarry carry
+            && !carry.states().isEmpty()
+            && carry.actor() == (currentPredictionVehicle() == null ? player.compensatedEntities.getSelf() : currentPredictionVehicle())) {
+         List<SimulationContext> contexts = new ArrayList<>();
+         for (var state : carry.states()) {
+            SimulationContext context = this.createSimulationContext(player, lastPrediction, target, start, end,
+                  lastTickSkip, testing, xRot, yRot, authoredMovementFrame, movementProfile, false);
+            context.setProfileCarry(new ac.grim.grimac.checks.impl.prediction.pipeline.java.JavaPredictionCarry(
+                  carry.actor(), state.fallDistance(), List.of(state)));
+            Vec3 stuck = player.boatData.adjustStuckSpeedMultiplierForCurrentTick(player, context, state.stuckSpeed());
+            context.setRequiredCurrentMoveStuckSpeed(stuck);
+            context.handleLastRequiredStuckSpeed(stuck);
+            contexts.add(context);
+         }
+         return contexts;
+      }
       boolean carryLastRequiredStuckSpeed = movementProfile.usesJavaEntityMoveStuckSpeed(player) && this.shouldCarryLastRequiredStuckSpeed(lastPrediction);
       SimulationContext primary = this.createSimulationContext(
          player, lastPrediction, target, start, end, lastTickSkip, testing, xRot, yRot, authoredMovementFrame, movementProfile, carryLastRequiredStuckSpeed

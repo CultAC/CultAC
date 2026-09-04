@@ -30,11 +30,15 @@ public final class NativeBlockCollisionHelper {
     }
 
     public static CollisionBox getCollisionBox(GrimPlayer player, BlockState state, int x, int y, int z, double entityBottom) {
+        return getCollisionBox(player, state, x, y, z, entityBottom, JavaCollisionState.current(player));
+    }
+
+    public static CollisionBox getCollisionBox(GrimPlayer player, BlockState state, int x, int y, int z, double entityBottom, JavaCollisionState actor) {
         if (player == null || player.compensatedWorld == null || state == null || state.isAir()) {
             return NoCollisionBox.INSTANCE;
         }
 
-        return fromShape(getCollisionShape(player, state, x, y, z, entityBottom), x, y, z);
+        return fromShape(getCollisionShape(player, state, x, y, z, entityBottom, actor), x, y, z);
     }
 
     public static CollisionBox getSelectionBox(GrimPlayer player, BlockState state, int x, int y, int z) {
@@ -50,13 +54,17 @@ public final class NativeBlockCollisionHelper {
     }
 
     public static CollisionBox getCollisionBox(GrimPlayer player, BlockData data, int x, int y, int z, double entityBottom) {
+        return getCollisionBox(player, data, x, y, z, entityBottom, JavaCollisionState.current(player));
+    }
+
+    public static CollisionBox getCollisionBox(GrimPlayer player, BlockData data, int x, int y, int z, double entityBottom, JavaCollisionState actor) {
         if (player == null || data == null) {
             return NoCollisionBox.INSTANCE;
         }
         if (data instanceof CraftBlockData craftBlockData) {
-            return getCollisionBox(player, craftBlockData.getState(), x, y, z, entityBottom);
+            return getCollisionBox(player, craftBlockData.getState(), x, y, z, entityBottom, actor);
         }
-        return getCollisionBox(player, player.compensatedWorld.getBlockStateAt(x, y, z), x, y, z, entityBottom);
+        return getCollisionBox(player, player.compensatedWorld.getBlockStateAt(x, y, z), x, y, z, entityBottom, actor);
     }
 
     public static VoxelShape getCollisionShape(GrimPlayer player, BlockState state, int x, int y, int z) {
@@ -64,8 +72,16 @@ public final class NativeBlockCollisionHelper {
     }
 
     public static VoxelShape getCollisionShape(GrimPlayer player, BlockState state, int x, int y, int z, double entityBottom) {
+        return getCollisionShape(player, state, x, y, z, entityBottom, JavaCollisionState.current(player));
+    }
+
+    public static VoxelShape getCollisionShape(GrimPlayer player, BlockState state, int x, int y, int z, double entityBottom, JavaCollisionState actor) {
         if (player == null || player.compensatedWorld == null || state == null || state.isAir()) {
             return net.minecraft.world.phys.shapes.Shapes.empty();
+        }
+
+        if (state.getBlock() == Blocks.POWDER_SNOW && actor != null) {
+            return actor.powderSnowShape(y, entityBottom);
         }
 
         if (state.getBlock() == Blocks.MOVING_PISTON) {

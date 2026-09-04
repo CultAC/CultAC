@@ -14,6 +14,7 @@ import net.minecraft.world.phys.Vec3;
 public class BubbleColumn implements UncertaintyHandler {
     @Override
     public PredVector handleUncertainty(GrimPlayer player, ValidMovements valid, PredictionResult result, SimulationContext context, PredictionResult lastResult, PredVector start, Vec3 end) {
+        if (context.getVehicle() != null && !player.isBedrockMovement() && ac.grim.grimac.checks.impl.prediction.pipeline.java.JavaMovementEngine.contextUsesExactEffects(context)) return start;
         if (lastResult == null) return start;
 
         WorldData lastWorldData = lastResult.getSimulationContext().getWorldData();
