@@ -1,7 +1,7 @@
-# Configuration principale de GrimAC
-# Code source : https://github.com/MWHunter/Grim
+# Configuration principale de CultAC
+# Code source : https://github.com/CultAC/CultAC
 # Copyright 2025 DefineOutside et contributeurs, sous licence GPLv3.
-# Les binaires modifiés, ou les plugins contenant du code grim copié, doivent être privés,
+# Les binaires modifiés, ou les plugins contenant du code cult copié, doivent être privés,
 # ou avec le code source complet disponible pour les acheteurs sans frais supplémentaires.
 
 alerts:
@@ -29,12 +29,12 @@ client-brand:
         - "^lunarclient:v\\d+\\.\\d+\\.\\d+-\\d{4},(?:fabric|forge)$"
         - "^Feather Fabric$"
         - "^labymod$"
-    # Grim will blacklist specific Forge versions which include built-in Reach hacks (Forge 1.18.2 to 1.19.3).
+    # Cult will blacklist specific Forge versions which include built-in Reach hacks (Forge 1.18.2 to 1.19.3).
     # Setting this option to false will allow said clients to connect to the server. Disable this at your own risk.
     disconnect-blacklisted-forge-versions: true
 
 spectators:
-    # Masquer tout les spectateurs ayant la permission grim.spectator, peu importe s'ils sont actuellement en train d'observer.
+    # Masquer tout les spectateurs ayant la permission cult.spectator, peu importe s'ils sont actuellement en train d'observer.
     hide-regardless: false
     # Les spectateurs seront cachés uniquement dans ces mondes, laissez vide pour les afficher dans tous les mondes.
     allowed-worlds:
@@ -43,15 +43,15 @@ spectators:
 # Au bout de combien de temps les joueurs doivent-ils être expulsés en cas de perte de connexion ? Défault = 60 secondes
 max-transaction-time: 60
 
-# Enable this to stop Grim cancelling pongs received from players.
+# Enable this to stop Cult cancelling pongs received from players.
 # This may improve compatibility with other anticheats. It may cause issues with packet limiters.
 # Do not enable this if you are not sure what you are doing.
 disable-pong-cancelling: false
 
 # Le gestionnaire de resynchronisation des blocs par défaut doit-il être désactivé ?
-# Par défaut, Grim lit les blocs du monde serveur et les envoie au client pour corriger la désynchronisation.
+# Par défaut, Cult lit les blocs du monde serveur et les envoie au client pour corriger la désynchronisation.
 # Si vous utilisez des plugins créant de faux blocs via paquets (qui n'existent pas dans le monde serveur),
-# vous devez régler ceci sur true pour empêcher Grim de les écraser avec de l'air ou des blocs réels.
+# vous devez régler ceci sur true pour empêcher Cult de les écraser avec de l'air ou des blocs réels.
 # Cela force l'utilisation d'un gestionnaire "NoOp" (Aucune Opération) sauf si un personnalisé est fourni via l'API.
 disable-default-resync-handler: false
 
@@ -88,7 +88,7 @@ Simulation:
 
 # Vérifications pour voir si un joueur est entré dans un bloc pendant un mouvement.
 Phase:
-    setbackvl: 1 # Rentrer dans des blocs peut permettre de grimper sur les murs, et cette vérification est relativement stable.
+    setbackvl: 1 # Rentrer dans des blocs peut permettre de cultper sur les murs, et cette vérification est relativement stable.
     decay: 0.005
 
 AirLiquidPlace:
@@ -107,7 +107,7 @@ RotationPlace:
     cancelvl: 5
 
 # Vérification de no-slow basée sur la prédiction.
-# Grim tient compte des problèmes de netcode ici... difficile à tromper même en spamant le clic droit et le bouton de la main secondaire.
+# Cult tient compte des problèmes de netcode ici... difficile à tromper même en spamant le clic droit et le bouton de la main secondaire.
 # Bien plus stable que les autres anti-triche, mais veuillez signaler toute fausse détection... J'ai corrigé de nombreux problèmes de netcode ici.
 NoSlow:
     # Quel est le niveau d'écart considéré comme "triche"
@@ -200,15 +200,15 @@ reset-item-usage-on-attack: true
 reset-item-usage-on-slot-change: true
 reset-item-usage-on-item-use: true
 
-# Grim annule parfois des paquets illégaux, comme ceux liés au chronomètre, après avoir annulé X paquets en une seconde,
+# Cult annule parfois des paquets illégaux, comme ceux liés au chronomètre, après avoir annulé X paquets en une seconde,
 # à partir de combien de paquets annulés devrions-nous simplement expulser le joueur ?
-# Cela est nécessaire car certains limiteurs de paquets ne comptent pas les paquets annulés par Grim.
+# Cela est nécessaire car certains limiteurs de paquets ne comptent pas les paquets annulés par Cult.
 packet-spam-threshold: 100
 # Activez ceci pour afficher une trace de pile lorsqu’un joueur est expulsé à cause du packet-spam-threshold
 debug-packet-cancel: false
 
-# Grim peut faire en sorte qu’un joueur sorti de l’état de vol n’ait pas plus de X ms de ping
-# Cela est dû au fait que Grim ne vérifie pas encore les joueurs en vol
+# Cult peut faire en sorte qu’un joueur sorti de l’état de vol n’ait pas plus de X ms de ping
+# Cela est dû au fait que Cult ne vérifie pas encore les joueurs en vol
 # Pour désactiver, utilisez -1
 max-ping-out-of-flying: 1000
 
@@ -217,7 +217,7 @@ max-ping-out-of-flying: 1000
 max-ping-firework-boost: 1000
 
 # Marqueurs de schéma — ne modifier qu'en sachant ce que l'on fait.
-#   config-flavor:  V2 = build Grim 2.x, V3 = Grim 3.x. Le plugin refuse de
+#   config-flavor:  V2 = build Cult 2.x, V3 = Cult 3.x. Le plugin refuse de
 #                   charger une config dont le flavor ne correspond pas à son
 #                   propre build : une config V3 ouverte par un jar V2 échoue
 #                   immédiatement au lieu de fusionner silencieusement dans
@@ -225,10 +225,10 @@ max-ping-firework-boost: 1000
 #   config-version: incrémenté à chaque changement de forme incompatible. Les
 #                   anciennes configs sont migrées automatiquement par
 #                   l'updater intégré au prochain démarrage.
-# Grim actualise toujours les permissions mises en cache quand un joueur rejoint
-# le serveur et quand Grim est rechargé, que LuckPerms soit installé ou non.
+# Cult actualise toujours les permissions mises en cache quand un joueur rejoint
+# le serveur et quand Cult est rechargé, que LuckPerms soit installé ou non.
 # Les hooks d'événements LuckPerms actualisent aussi immédiatement les permissions
-# Grim mises en cache dans les configurations normales.
+# Cult mises en cache dans les configurations normales.
 # Ce repli périodique n'est nécessaire que pour les changements de permissions en
 # ligne non couverts par ces événements, comme un contexte LuckPerms personnalisé
 # qui n'appelle pas signalContextUpdate, des lacunes de contexte sur Fabric ou un

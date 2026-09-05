@@ -1,0 +1,5 @@
+name: GrimApiProbe
+version: '1.0'
+main: probe.GrimApiProbe
+api-version: '1.13'
+depend: [GrimAC]

@@ -1,0 +1,18 @@
+mode=combat-reach-validation
+total=2
+passed=2
+failed=0
+reachMode=bundled bundleDelimiter=true vehicles=off pistons=off port=25580 passed=true failure=null artifacts=/home/hunter/Downloads/cultac-rebrand-validation/harness-after-source/.real-validation/runs/combat-reach-cult-dev-20260904-224935/bundled/off/off
+total=1
+passed=1
+failed=0
+totalEliminations=7
+totalDamageEvents=34
+segment=1 seed=424242 passed=true winner=ChaosBot05 eliminations=7 damageEvents=34 elapsedTicks=202 violations=[] artifacts=/home/hunter/Downloads/cultac-rebrand-validation/harness-after-source/.real-validation/runs/combat-reach-cult-dev-20260904-224935/bundled/off/off/segment-001/combat-chaos-swarm-segment-1
+reachMode=unbundled bundleDelimiter=false vehicles=off pistons=off port=25590 passed=true failure=null artifacts=/home/hunter/Downloads/cultac-rebrand-validation/harness-after-source/.real-validation/runs/combat-reach-cult-dev-20260904-224935/unbundled/off/off
+total=1
+passed=1
+failed=0
+totalEliminations=7
+totalDamageEvents=33
+segment=1 seed=424242 passed=true winner=ChaosBot07 eliminations=7 damageEvents=33 elapsedTicks=206 violations=[] artifacts=/home/hunter/Downloads/cultac-rebrand-validation/harness-after-source/.real-validation/runs/combat-reach-cult-dev-20260904-224935/unbundled/off/off/segment-001/combat-chaos-swarm-segment-1

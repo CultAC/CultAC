@@ -1,7 +1,7 @@
-# Configurația principală GrimAC
-# Cod sursă: https://github.com/MWHunter/Grim
+# Configurația principală CultAC
+# Cod sursă: https://github.com/CultAC/CultAC
 # Drepturi de autor 2025 DefineOutside și colaboratorii, licențiat sub GPLv3.
-# Binarele modificate sau pluginurile cu cod Grim copiat trebuie să fie private,
+# Binarele modificate sau pluginurile cu cod Cult copiat trebuie să fie private,
 # sau cu întregul cod sursă disponibil cumpărătorilor fără costuri suplimentare.
 
 alerts:
@@ -29,12 +29,12 @@ client-brand:
         - "^lunarclient:v\\d+\\.\\d+\\.\\d+-\\d{4},(?:fabric|forge)$"
         - "^Feather Fabric$"
         - "^labymod$"
-    # Grim va bloca anumite versiuni Forge care includ hackuri Reach integrate (Forge 1.18.2 până la 1.19.3).
+    # Cult va bloca anumite versiuni Forge care includ hackuri Reach integrate (Forge 1.18.2 până la 1.19.3).
     # Setarea acestei opțiuni la false va permite acestor clienți să se conecteze la server. Dezactivează pe propriul risc.
     disconnect-blacklisted-forge-versions: true
 
 spectators:
-    # Ascunde toți spectatorii cu permisiunea grim.spectator indiferent dacă spectează activ sau nu
+    # Ascunde toți spectatorii cu permisiunea cult.spectator indiferent dacă spectează activ sau nu
     hide-regardless: false
     # Va face spectatorii invizibili doar în aceste lumi, lasă gol pentru a permite în toate lumile
     allowed-worlds:
@@ -43,15 +43,15 @@ spectators:
 # Cât timp au jucătorii până să fie deconectați pentru timeout? Implicit = 60 secunde
 max-transaction-time: 60
 
-# Activează pentru a opri Grim din a anula pongs primite de la jucători.
+# Activează pentru a opri Cult din a anula pongs primite de la jucători.
 # Poate îmbunătăți compatibilitatea cu alte anticheaturi. Poate cauza probleme cu limitatoarele de pachete.
 # Nu activa dacă nu ești sigur ce faci.
 disable-pong-cancelling: false
 
 # Ar trebui dezactivat handler-ul implicit de resincronizare a blocurilor?
-# Implicit, Grim citește blocurile din lumea serverului și le trimite clientului pentru a repara desincronizarea.
+# Implicit, Cult citește blocurile din lumea serverului și le trimite clientului pentru a repara desincronizarea.
 # Dacă utilizați plugin-uri care creează blocuri false bazate pe pachete (care nu există în lumea serverului),
-# ar trebui să setați acest lucru pe true pentru a preveni ca Grim să le suprascrie cu aer/blocuri reale.
+# ar trebui să setați acest lucru pe true pentru a preveni ca Cult să le suprascrie cu aer/blocuri reale.
 # Acest lucru forțează utilizarea unui handler "NoOp" (Fără Operațiune), cu excepția cazului în care unul personalizat este furnizat prin API.
 disable-default-resync-handler: false
 
@@ -107,7 +107,7 @@ RotationPlace:
     cancelvl: 5
 
 # Verificare NoSlow bazată pe predicție
-# Grim ține cont de netcode-ul buguit aici... greu de fals chiar și când spamezi click dreapta și butonul offhand
+# Cult ține cont de netcode-ul buguit aici... greu de fals chiar și când spamezi click dreapta și butonul offhand
 # Mult mai stabil decât alte anticheaturi, dar raportează orice falsuri... am reparat multe probleme de netcode aici.
 NoSlow:
     # Cât de mare abatere e considerată „cheating”
@@ -203,14 +203,14 @@ reset-item-usage-on-item-update: true
 reset-item-usage-on-attack: true
 reset-item-usage-on-slot-change: true
 
-# Grim uneori anulează pachete ilegale precum timer, după X pachete anulate într-o secundă, când să
-# deconectăm jucătorul? Este necesar deoarece unele limitatoare de pachete nu numără pachetele anulate de Grim.
+# Cult uneori anulează pachete ilegale precum timer, după X pachete anulate într-o secundă, când să
+# deconectăm jucătorul? Este necesar deoarece unele limitatoare de pachete nu numără pachetele anulate de Cult.
 packet-spam-threshold: 100
 # Activează pentru a afișa stacktrace când un jucător e deconectat din cauza packet-spam-threshold
 debug-packet-cancel: false
 
-# Grim poate aplica ca un jucător scos din starea de zbor să nu aibă mai mult de X ms ping
-# Deoarece Grim nu verifică în prezent jucătorii care zboară
+# Cult poate aplica ca un jucător scos din starea de zbor să nu aibă mai mult de X ms ping
+# Deoarece Cult nu verifică în prezent jucătorii care zboară
 # Pentru dezactivare, folosește -1
 max-ping-out-of-flying: 1000
 
@@ -219,7 +219,7 @@ max-ping-out-of-flying: 1000
 max-ping-firework-boost: 1000
 
 # Markeri de schemă — modifică-i doar dacă știi ce faci.
-#   config-flavor:  V2 = build Grim 2.x, V3 = Grim 3.x. Plugin-ul refuză să
+#   config-flavor:  V2 = build Cult 2.x, V3 = Cult 3.x. Plugin-ul refuză să
 #                   încarce o configurație al cărei flavor nu se potrivește cu
 #                   build-ul propriu — o config V3 deschisă de un jar V2
 #                   eșuează imediat în loc să fuzioneze în tăcere în chei
@@ -227,9 +227,9 @@ max-ping-firework-boost: 1000
 #   config-version: incrementat la fiecare schimbare de formă incompatibilă.
 #                   Configurațiile vechi sunt migrate automat de updater-ul
 #                   inclus la următoarea pornire.
-# Grim reîmprospătează întotdeauna permisiunile memorate în cache când un jucător
-# intră și când Grim este reîncărcat, indiferent dacă LuckPerms este instalat.
-# Hook-urile de evenimente LuckPerms reîmprospătează imediat și permisiunile Grim
+# Cult reîmprospătează întotdeauna permisiunile memorate în cache când un jucător
+# intră și când Cult este reîncărcat, indiferent dacă LuckPerms este instalat.
+# Hook-urile de evenimente LuckPerms reîmprospătează imediat și permisiunile Cult
 # din cache în configurațiile obișnuite.
 # Acest fallback periodic este necesar doar pentru schimbări online de permisiuni
 # neacoperite de acele evenimente, cum ar fi un context LuckPerms personalizat care

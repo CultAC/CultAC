@@ -4,7 +4,7 @@ webhook: ""
 # Defina como `true` para ignorar a validação de formato de URL do Discord.
 # Isso permite qualquer URL HTTPS válida (útil para proxies ou encaminhadores do Matrix).
 disable-webhook-validation: false
-embed-title: "**Grim Alerta**"
+embed-title: "**Cult Alerta**"
 embed-color: "#00FFFF"
 include-timestamp: true
 # Substitui as aspas invertidas (`) nos valores (como marcas de clientes) para evitar a quebra de formatação de texto do Discord.

@@ -15,7 +15,7 @@ mongo:
 
   # Yazılacak veritabanı. İçindeki koleksiyonlar aşağıdaki `tables:`
   # bloğuyla isimlendirilir.
-  database: "grim"
+  database: "cult"
 
   # Handler başına bulkWrite() boyutu. Mongo sürücüsü bağlantıları
   # dahili olarak havuzlar — bu commit batching'i kontrol eder, bağlantı
@@ -24,12 +24,12 @@ mongo:
 
   # Koleksiyon adı geçersiz kılmaları. Varsayılanlar aşağıda.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Şema işaretçileri — bkz. config.yml'deki başlık yorumu.
 config-flavor: V2

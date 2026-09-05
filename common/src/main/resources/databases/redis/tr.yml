@@ -43,12 +43,12 @@ redis:
   # olarak yorumlanır (Redis'in yerel tablo kavramı yoktur).
   # Varsayılanlar aşağıda.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Şema işaretçileri — bkz. config.yml'deki başlık yorumu.
 config-flavor: V2

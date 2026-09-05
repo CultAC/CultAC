@@ -107,7 +107,7 @@ Punishments:
     commands:
       - "20:40 [alert]"
       - "1:1 [log]"
-  # Vanaf 2.2.10 zijn er geen AutoClicker-controles en is dit een placeholder. Grim zal in de toekomst AutoClicker-controles toevoegen.
+  # Vanaf 2.2.10 zijn er geen AutoClicker-controles en is dit een placeholder. Cult zal in de toekomst AutoClicker-controles toevoegen.
   Autoclicker:
     remove-violations-after: 300
     checks:

@@ -1,0 +1,40 @@
+package ac.cult.cultac.checks.impl.aim;
+
+import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.type.RotationListener;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.anticheat.update.RotationUpdate;
+
+// Based on Kauri AimA,
+// I also discovered this flaw before open source Kauri, but did not want to open source its detection.
+// It works on clients who % 360 their rotation.
+@CheckData(name = "AimModulo360", stableKey = "cult.aim.modulo_360", description = "Sent a large yaw snap", decay = 0.005)
+public class AimModulo360 extends Check implements RotationListener {
+
+    private float lastDeltaYaw;
+
+    public AimModulo360(CultPlayer player) {
+        super(player);
+    }
+
+    @Override
+    public void process(final RotationUpdate rotationUpdate) {
+        // Exempt for teleport, entering a vehicle due to rotation reset or
+        // after forced, client-sided rotation change after interacting with a horse (not necessarily mounting it)
+        if (player.packetStateData.lastPacketWasTeleport || player.vehicleData.wasVehicleSwitch
+                || player.packetStateData.horseInteractCausedForcedRotation) {
+            lastDeltaYaw = rotationUpdate.getDeltaXRot();
+            return;
+        }
+
+        if (rotationUpdate.getTo().yaw() < 360 && rotationUpdate.getTo().yaw() > -360
+                && Math.abs(rotationUpdate.getDeltaXRot()) > 320 && Math.abs(lastDeltaYaw) < 30) {
+            flag();
+        } else {
+            reward();
+        }
+
+        lastDeltaYaw = rotationUpdate.getDeltaXRot();
+    }
+}

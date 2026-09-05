@@ -4,7 +4,7 @@ webhook: ""
 # Stel in op `true` om de URL-formaatcontrole van Discord te omzeilen.
 # Dit staat elke geldige HTTPS-URL toe (handig voor proxy's of Matrix-forwarders).
 disable-webhook-validation: false
-embed-title: "**Grim Waarschuwing**"
+embed-title: "**Cult Waarschuwing**"
 embed-color: "#00FFFF"
 include-timestamp: true
 # Vervangt backticks (`) in waarden (zoals clientmerken) om te voorkomen dat de tekstopmaak van Discord breekt.

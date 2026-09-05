@@ -1,7 +1,7 @@
 # ===========================================================================
 #  MySQL バックエンド設定
 #
-#  MySQL はマルチサーバー構成（複数の Grim インスタンスから 1 つの中央 DB
+#  MySQL はマルチサーバー構成（複数の Cult インスタンスから 1 つの中央 DB
 #  への書き込み）に対応します。実行時に MySQL Connector/J ドライバが
 #  必要で、ドライバが見つからない場合は起動時にバックエンドを自己無効化し、
 #  明確なエラーを記録します。これを参照していたルーティングは、他に
@@ -15,14 +15,14 @@ mysql:
   # 接続先。
   host: "localhost"
   port: 3306
-  database: "grim"
+  database: "cult"
   user: "root"
   password: ""
 
   # HikariCP connection pool settings. These only apply to SQL backends
   # that use Hikari internally.
   pool-settings:
-    # Maximum physical database connections this Grim instance can keep open.
+    # Maximum physical database connections this Cult instance can keep open.
     maximum-pool-size: 10
     # Minimum idle connections kept warm. Keep equal to maximum-pool-size
     # for a fixed-size pool, or lower it if your database has tight limits.
@@ -48,15 +48,15 @@ mysql:
   batch-flush-cap: 256
 
   # テーブル名の上書き。6 つの論理ストアの名前をリネームすることで、
-  # 複数の Grim インスタンスで 1 つの MySQL データベースを共有したり、
+  # 複数の Cult インスタンスで 1 つの MySQL データベースを共有したり、
   # 既存の組織命名規則に揃えたりできます。デフォルト値は以下の通り。
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # スキーマ用マーカー — config.yml のヘッダーコメントを参照。
 config-flavor: V2

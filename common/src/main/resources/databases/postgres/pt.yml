@@ -1,7 +1,7 @@
 # ===========================================================================
 #  Configurações do backend Postgres.
 #
-#  Postgres suporta deploys multi-servidor (várias instâncias do Grim
+#  Postgres suporta deploys multi-servidor (várias instâncias do Cult
 #  escrevendo num BD central). Requer o driver JDBC do Postgres em
 #  runtime; se ele faltar, o backend se desativa no startup e o routing
 #  que apontava para ele cai no seu fallback.
@@ -13,14 +13,14 @@
 postgres:
   host: "localhost"
   port: 5432
-  database: "grim"
+  database: "cult"
   user: "postgres"
   password: ""
 
   # HikariCP connection pool settings. These only apply to SQL backends
   # that use Hikari internally.
   pool-settings:
-    # Maximum physical database connections this Grim instance can keep open.
+    # Maximum physical database connections this Cult instance can keep open.
     maximum-pool-size: 5
     # Minimum idle connections kept warm. Keep equal to maximum-pool-size
     # for a fixed-size pool, or lower it if your database has tight limits.
@@ -41,12 +41,12 @@ postgres:
 
   # Overrides de nome de tabela. Defaults abaixo.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Marcadores de esquema — ver o comentário do cabeçalho em config.yml.
 config-flavor: V2

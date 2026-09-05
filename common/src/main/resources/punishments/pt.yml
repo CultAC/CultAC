@@ -107,7 +107,7 @@ Punishments:
     commands:
       - "20:40 [alert]"
       - "1:1 [log]"
-  # Dês da 2.2.10, não temos verificações de AutoClicker, isso é somente um placeholder. Grim vai verificar por AutoClicker no futuro.
+  # Dês da 2.2.10, não temos verificações de AutoClicker, isso é somente um placeholder. Cult vai verificar por AutoClicker no futuro.
   Autoclicker:
     remove-violations-after: 300
     checks:

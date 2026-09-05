@@ -1,5 +1,5 @@
 # ===========================================================================
-#  Grim 数据存储
+#  Cult 数据存储
 #
 #  将 DataStore 分类（violation / session / player-identity / setting / blob）
 #  路由到具体的后端实例。`routing:` 中列出的每个后端在
@@ -14,7 +14,7 @@
 # discord.yml 中同名的顶层键（`enabled`、`history` 等）冲突。
 database:
 
-  # 主开关。设为 false 将完全禁用违规历史与 /grim history。实时 AC 检查
+  # 主开关。设为 false 将完全禁用违规历史与 /cult history。实时 AC 检查
   # 仍会运行，只是不再持久化 flag。
   enabled: true
 
@@ -83,7 +83,7 @@ database:
     entries-per-page: 15
     group-interval-ms: 30000
 
-  # 仅用于显示的标签，会刻在新建的会话记录上。在 `/grim history` 的会话
+  # 仅用于显示的标签，会刻在新建的会话记录上。在 `/cult history` 的会话
   # 头部行中显示。运行中修改是安全的。
   server-name: "ChangeMe"
 

@@ -41,12 +41,12 @@ redis:
   # Overrides de namespace de chaves. Interpretados como segmentos de
   # prefixo de chave (Redis não tem tabelas nativas). Defaults abaixo.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Marcadores de esquema — ver o comentário do cabeçalho em config.yml.
 config-flavor: V2

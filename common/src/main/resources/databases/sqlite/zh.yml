@@ -14,7 +14,7 @@ sqlite:
   # 绝不会对旧版执行 ALTER。
   path: "data/history.v1.db"
 
-  # WAL 模式允许写入时并行读取 — 对于一边读取 /grim history、一边写入
+  # WAL 模式允许写入时并行读取 — 对于一边读取 /cult history、一边写入
   # 违规的服务器插件来说非常关键。
   journal-mode: WAL
 

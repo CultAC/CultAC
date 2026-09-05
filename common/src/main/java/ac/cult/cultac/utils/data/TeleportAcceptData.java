@@ -1,0 +1,15 @@
+package ac.cult.cultac.utils.data;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class TeleportAcceptData {
+    boolean isTeleport;
+    boolean isInitialSpawnTeleport;
+    boolean matchedTeleportPosition;
+    SetBackData setback;
+    TeleportData teleportData;
+    VehicleTeleportData vehicleTeleportData;
+}

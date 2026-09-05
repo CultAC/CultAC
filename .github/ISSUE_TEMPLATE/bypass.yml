@@ -15,9 +15,9 @@ body:
 
   - type: textarea
     attributes:
-      label: Grim version
+      label: Cult version
       description: |
-        Provide the version of Grim running on the server. You can run `/grim version` to check.
+        Provide the version of Cult running on the server. You can run `/cult version` to check.
       placeholder: Examples include 2.3.73-8ddd7f1, 2.3.72, etc.
     validations:
       required: true

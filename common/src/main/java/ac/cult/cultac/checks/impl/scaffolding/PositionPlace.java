@@ -1,0 +1,89 @@
+package ac.cult.cultac.checks.impl.scaffolding;
+
+import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.type.BlockPlaceCheck;
+import ac.cult.cultac.network.CultPacketGroup;
+import ac.cult.cultac.network.CultPacketHandler;
+import ac.cult.cultac.network.PacketGroup;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.anticheat.update.BlockPlace;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import net.minecraft.SharedConstants;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import org.bukkit.Material;
+
+@CheckData(name = "PositionPlace", stableKey = "cult.scaffolding.position_place", description = "Placed a block against a hidden face")
+public class PositionPlace extends BlockPlaceCheck {
+
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+
+
+    private boolean didLastMovementIncludePosition;
+
+    public PositionPlace(CultPlayer player) {
+        super(player);
+    }
+
+    @CultPacketHandler
+    @CultPacketGroup(PacketGroup.SERVERBOUND_PLAYER_MOVEMENT)
+    public void onMovePlayer(PacketReceiveEvent event, CultPlayer player, ServerboundMovePlayerPacket packet) {
+        didLastMovementIncludePosition = packet.hasPosition();
+    }
+
+    @Override
+    public void onBlockPlace(final BlockPlace place) {
+        if (place.getMaterial() == Material.SCAFFOLDING || player.inVehicle()) return;
+
+        SimpleCollisionBox combined = getCombinedBox(place);
+
+        // Alright, now that we have the most optimal positions for each place
+        // Please note that minY may be lower than maxY, this is INTENTIONAL!
+        // Each position represents the best case scenario to have clicked
+        //
+        // We will now calculate the most optimal position for the player's head to be in
+        double minEyeHeight = Double.MAX_VALUE;
+        double maxEyeHeight = Double.MIN_VALUE;
+        for (double height : player.getPossibleEyeHeights()) {
+            minEyeHeight = Math.min(minEyeHeight, height);
+            maxEyeHeight = Math.max(maxEyeHeight, height);
+        }
+        // I love the idle packet, why did you remove it mojang :(
+        // Don't give 0.03 lenience if the player is a 1.8 player and we know they couldn't have 0.03'd because idle packet
+        double movementThreshold = !didLastMovementIncludePosition || canSkipTicks() ? player.getMovementThreshold() : 0;
+
+        SimpleCollisionBox eyePositions = new SimpleCollisionBox(player.x, player.y + minEyeHeight, player.z, player.x, player.y + maxEyeHeight, player.z);
+        eyePositions.expand(movementThreshold);
+
+        // If the player is inside a block, then they can ray trace through the block and hit the other side of the block
+        if (eyePositions.isIntersected(combined)) {
+            return;
+        }
+
+        // So now we have the player's possible eye positions
+        // So then look at the face that the player has clicked
+        boolean flag = switch (place.getDirection()) {
+            case NORTH -> eyePositions.minZ > combined.minZ; // Z- face
+            case SOUTH -> eyePositions.maxZ < combined.maxZ; // Z+ face
+            case EAST -> eyePositions.maxX < combined.maxX; // X+ face
+            case WEST -> eyePositions.minX > combined.minX; // X- face
+            case UP -> eyePositions.maxY < combined.maxY; // Y+ face
+            case DOWN -> eyePositions.minY > combined.minY; // Y- face
+            default -> false;
+        };
+
+        if (flag && flag() && shouldModifyPackets() && shouldCancel()) {
+            place.resync();
+        }
+    }
+
+    // Only clients without reliable tick-end packets may skip movement ticks.
+    private boolean canSkipTicks() {
+        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
+                && !(player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21_2));
+    }
+
+}

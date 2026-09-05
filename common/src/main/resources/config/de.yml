@@ -1,7 +1,7 @@
-# GrimAC Hauptkonfiguration
-# Quellcode: https://github.com/MWHunter/Grim
+# CultAC Hauptkonfiguration
+# Quellcode: https://github.com/CultAC/CultAC
 # Copyright 2025 DefineOutside und Mitwirkende, lizenziert unter GPLv3.
-# Modifizierte Binärdateien, oder Plugins mit kopiertem Grim-Code, müssen privat sein,
+# Modifizierte Binärdateien, oder Plugins mit kopiertem Cult-Code, müssen privat sein,
 # oder mit vollständigem Quellcode für Käufer ohne zusätzliche Kosten verfügbar sein.
 
 alerts:
@@ -29,12 +29,12 @@ client-brand:
         - "^lunarclient:v\\d+\\.\\d+\\.\\d+-\\d{4},(?:fabric|forge)$"
         - "^Feather Fabric$"
         - "^labymod$"
-    # Grim will blacklist specific Forge versions which include built-in Reach hacks (Forge 1.18.2 to 1.19.3).
+    # Cult will blacklist specific Forge versions which include built-in Reach hacks (Forge 1.18.2 to 1.19.3).
     # Setting this option to false will allow said clients to connect to the server. Disable this at your own risk.
     disconnect-blacklisted-forge-versions: true
 
 spectators:
-    # Alle Zuschauer mit der Berechtigung grim.spectator ausblenden, unabhängig davon, ob sie tatsächlich aktiv zuschauen
+    # Alle Zuschauer mit der Berechtigung cult.spectator ausblenden, unabhängig davon, ob sie tatsächlich aktiv zuschauen
     hide-regardless: false
     # Die Zuschauer werden nur in diesen Welten versteckt, um alle Welten zuzulassen, bleiben sie leer.
     allowed-worlds:
@@ -43,15 +43,15 @@ spectators:
 # Wie lange sollen Spieler Zeit haben, bis wir sie wegen Zeitüberschreitung rauswerfen? Standard = 60 Sekunden
 max-transaction-time: 60
 
-# Enable this to stop Grim cancelling pongs received from players.
+# Enable this to stop Cult cancelling pongs received from players.
 # This may improve compatibility with other anticheats. It may cause issues with packet limiters.
 # Do not enable this if you are not sure what you are doing.
 disable-pong-cancelling: false
 
 # Sollte der Standard-Handler für die Block-Resynchronisierung deaktiviert werden?
-# Standardmäßig liest Grim Blöcke aus der Serverwelt und sendet sie an den Client, um Desyncs zu beheben.
+# Standardmäßig liest Cult Blöcke aus der Serverwelt und sendet sie an den Client, um Desyncs zu beheben.
 # Wenn Sie Plugins verwenden, die gefälschte paketbasierte Blöcke erstellen (die in der Serverwelt nicht existieren),
-# sollten Sie dies auf true setzen, um zu verhindern, dass Grim sie mit Luft/echten Blöcken überschreibt.
+# sollten Sie dies auf true setzen, um zu verhindern, dass Cult sie mit Luft/echten Blöcken überschreibt.
 # Dies erzwingt die Verwendung eines "NoOp" (No Operation) Handlers, es sei denn, über die API wird ein eigener bereitgestellt.
 disable-default-resync-handler: false
 
@@ -107,7 +107,7 @@ RotationPlace:
     cancelvl: 5
 
 # Prediction-based no slow check
-# Grim ist verantwortlich für den fehlerhaften Netcode hier... schwer zu falsen, selbst wenn man Rechtsklick und Offhand-Taste spammt.
+# Cult ist verantwortlich für den fehlerhaften Netcode hier... schwer zu falsen, selbst wenn man Rechtsklick und Offhand-Taste spammt.
 # Viel stabiler als andere Anticheats, aber bitte melde alle Falses... Ich habe hier eine Menge Netcode-Probleme behoben.
 NoSlow:
     # Wie viel von einem Offset ist "schummeln"
@@ -204,14 +204,14 @@ reset-item-usage-on-attack: true
 reset-item-usage-on-slot-change: true
 reset-item-usage-on-item-use: true
 
-# Grim bricht manchmal illegale Pakete ab, z.B. mit Timer, nachdem X Pakete in einer Sekunde abgebrochen wurden, wann sollte
-# wir den Spieler einfach kicken? Dies ist erforderlich, da einige Paketbegrenzer die von Grim abgebrochenen Pakete nicht zählen.
+# Cult bricht manchmal illegale Pakete ab, z.B. mit Timer, nachdem X Pakete in einer Sekunde abgebrochen wurden, wann sollte
+# wir den Spieler einfach kicken? Dies ist erforderlich, da einige Paketbegrenzer die von Cult abgebrochenen Pakete nicht zählen.
 packet-spam-threshold: 100
 # Aktiviere dies, um einen Stacktrace auszugeben, wenn ein Spieler wegen packet-spam-threshold gekickt wird
 debug-packet-cancel: false
 
-# Grim kann erzwingen, dass ein Spieler, der aus dem Flugzustand gesetzt wurde, nicht mehr als X ms Ping haben darf
-# Dies liegt daran, dass Grim derzeit fliegende Spieler nicht überprüft
+# Cult kann erzwingen, dass ein Spieler, der aus dem Flugzustand gesetzt wurde, nicht mehr als X ms Ping haben darf
+# Dies liegt daran, dass Cult derzeit fliegende Spieler nicht überprüft
 # Zum Deaktivieren -1 verwenden
 max-ping-out-of-flying: 1000
 
@@ -220,16 +220,16 @@ max-ping-out-of-flying: 1000
 max-ping-firework-boost: 1000
 
 # Schema-Marker — nur ändern, wenn du weißt, was du tust.
-#   config-flavor:  V2 = Grim-2.x-Build, V3 = Grim-3.x. Das Plugin lehnt eine
+#   config-flavor:  V2 = Cult-2.x-Build, V3 = Cult-3.x. Das Plugin lehnt eine
 #                   Config ab, deren Flavor nicht zum eigenen Build passt —
 #                   eine V3-Config, die von einer V2-Jar geladen wird, scheitert
 #                   sofort, statt stillschweigend in falsche Schlüssel zu mergen.
 #   config-version: wird bei jeder inkompatiblen Schemaänderung erhöht. Alte
 #                   Configs werden beim nächsten Start automatisch vom
 #                   mitgelieferten Updater migriert.
-# Grim aktualisiert zwischengespeicherte Berechtigungen immer, wenn ein Spieler beitritt
-# und wenn Grim neu geladen wird, unabhängig davon, ob LuckPerms installiert ist.
-# LuckPerms-Event-Hooks aktualisieren zwischengespeicherte Grim-Berechtigungen
+# Cult aktualisiert zwischengespeicherte Berechtigungen immer, wenn ein Spieler beitritt
+# und wenn Cult neu geladen wird, unabhängig davon, ob LuckPerms installiert ist.
+# LuckPerms-Event-Hooks aktualisieren zwischengespeicherte Cult-Berechtigungen
 # in normalen Setups ebenfalls sofort.
 # Dieser periodische Fallback wird nur für Online-Berechtigungsänderungen benötigt,
 # die nicht von diesen Events abgedeckt werden, z. B. ein benutzerdefinierter

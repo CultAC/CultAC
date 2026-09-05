@@ -1,0 +1,18 @@
+mode=combat-reach-validation
+total=2
+passed=1
+failed=1
+reachMode=bundled bundleDelimiter=true vehicles=off pistons=off port=25580 passed=false failure=null artifacts=/home/hunter/Downloads/CultAC/mcp-client-smoketest/.real-validation/runs/combat-reach-grim-dev-20260904-222206/bundled/off/off
+total=1
+passed=0
+failed=1
+totalEliminations=7
+totalDamageEvents=33
+segment=1 seed=424242 passed=false winner=ChaosBot05 eliminations=7 damageEvents=33 elapsedTicks=210 violations=[grim flags seen: [[22:22:33] [Netty NIO IO #3/INFO]: Grim » ChaosBot05 failed Simulation (x1) 0.02940 1, [22:22:33] [Netty NIO IO #3/INFO]: Grim » ChaosBot05 failed Simulation (x2) 0.01496 2, [22:22:34] [Netty NIO IO #3/INFO]: Grim » ChaosBot05 failed Simulation (x3) 0.00675 3, [22:22:34] [Netty NIO IO #3/INFO]: Grim » ChaosBot05 failed Simulation (x4) 0.00227 4, [22:22:34] [Netty NIO IO #3/INFO]: Grim » ChaosBot05 failed Simulation (x5) 0.00159 5]] artifacts=/home/hunter/Downloads/CultAC/mcp-client-smoketest/.real-validation/runs/combat-reach-grim-dev-20260904-222206/bundled/off/off/segment-001/combat-chaos-swarm-segment-1
+reachMode=unbundled bundleDelimiter=false vehicles=off pistons=off port=25590 passed=true failure=null artifacts=/home/hunter/Downloads/CultAC/mcp-client-smoketest/.real-validation/runs/combat-reach-grim-dev-20260904-222206/unbundled/off/off
+total=1
+passed=1
+failed=0
+totalEliminations=7
+totalDamageEvents=34
+segment=1 seed=424242 passed=true winner=ChaosBot07 eliminations=7 damageEvents=34 elapsedTicks=206 violations=[] artifacts=/home/hunter/Downloads/CultAC/mcp-client-smoketest/.real-validation/runs/combat-reach-grim-dev-20260904-222206/unbundled/off/off/segment-001/combat-chaos-swarm-segment-1

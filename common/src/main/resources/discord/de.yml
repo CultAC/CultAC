@@ -4,7 +4,7 @@ webhook: ""
 # Auf `true` setzen, um die Discord-URL-Formatprüfung zu umgehen.
 # Dies erlaubt jede gültige HTTPS-URL (nützlich für Proxys oder Matrix-Forwarder).
 disable-webhook-validation: false
-embed-title: "**Grim Warnung**"
+embed-title: "**Cult Warnung**"
 embed-color: "#00FFFF"
 include-timestamp: true
 # Ersetzt Backticks (`) in Werten (z. B. Client-Marken), um Fehler in der Discord-Textformatierung zu vermeiden.

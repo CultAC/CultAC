@@ -1,6 +1,6 @@
 package com.noxcrew.packet;
 
-import ac.grim.grimac.bedrock.replay.offline.OfflineGrimTestBootstrap;
+import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import net.minecraft.network.Connection;
@@ -180,7 +180,7 @@ public final class ChannelPacketHandlerTest {
     }
 
     private static void initializeConnectionConfiguration() {
-        OfflineGrimTestBootstrap.installConfig();
+        OfflineCultTestBootstrap.installConfig();
         try {
             Class<?> globalType = Class.forName("io.papermc.paper.configuration.GlobalConfiguration");
             Object global = globalType.getDeclaredMethod("get").invoke(null);

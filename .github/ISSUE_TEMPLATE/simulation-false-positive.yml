@@ -7,7 +7,7 @@ body:
       label: Describe the false positive and how to replicate it
       description: |
         Video is always useful.
-        Use /grim verbose and /grim debug to get the simulation debug information.
+        Use /cult verbose and /cult debug to get the simulation debug information.
         A minimally reproducible description is best.
       placeholder: |
         Step 1. Do this
@@ -18,15 +18,15 @@ body:
 
   - type: input
     attributes:
-      label: Grim Log
-      description: Provide the generated /grim log link.
+      label: Cult Log
+      description: Provide the generated /cult log link.
     validations:
       required: true
 
   - type: textarea
     attributes:
-      label: Grim version
-      description: Provide the version of Grim running on the server. You can run `/grim version` to check.
+      label: Cult version
+      description: Provide the version of Cult running on the server. You can run `/cult version` to check.
       placeholder: Examples include 2.3.73-8ddd7f1, 2.3.72, etc.
     validations:
       required: true

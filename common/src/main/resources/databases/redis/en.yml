@@ -39,12 +39,12 @@ redis:
   # Key-namespace overrides. Interpreted as key-prefix segments (Redis has
   # no native tables). Default names below.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Schema markers — see header comment in config.yml.
 config-flavor: V2

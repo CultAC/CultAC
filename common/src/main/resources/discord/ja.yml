@@ -6,7 +6,7 @@ webhook: ""
 # DiscordのURLフォーマット検証をバイパスするには `true` に設定します。
 # これにより、任意の有効なHTTPS URLが許可されます（プロキシやMatrixフォワーダーに便利です）。
 disable-webhook-validation: false
-embed-title: "**Grim 警告**"
+embed-title: "**Cult 警告**"
 embed-color: "#00FFFF"
 include-timestamp: true
 # 値（クライアントのブランド名など）に含まれるバッククォート (`) を置換し、Discordのテキスト書式が崩れるのを防ぎます。

@@ -1,7 +1,7 @@
-# GrimAC główna konfiguracja
-# Kod źródłowy: https://github.com/MWHunter/Grim
+# CultAC główna konfiguracja
+# Kod źródłowy: https://github.com/CultAC/CultAC
 # Prawa autorskie 2025 DefineOutside i współautorzy, licencjonowane na podstawie GPLv3.
-# Zmodyfikowane pliki binarne, albo pluginy z skopiowanym kodem grim, muszą być prywatne,
+# Zmodyfikowane pliki binarne, albo pluginy z skopiowanym kodem cult, muszą być prywatne,
 # lub z pełnym kodem źródłowym dostępnym dla kupujących bez dodatkowych kosztów.
 
 alerts:
@@ -29,12 +29,12 @@ client-brand:
         - "^lunarclient:v\\d+\\.\\d+\\.\\d+-\\d{4},(?:fabric|forge)$"
         - "^Feather Fabric$"
         - "^labymod$"
-    # Grim umieści na czarnej liście konkretne wersje Forge, które zawierają wbudowane modyfikacje Reach (Forge 1.18.2 do 1.19.3).
+    # Cult umieści na czarnej liście konkretne wersje Forge, które zawierają wbudowane modyfikacje Reach (Forge 1.18.2 do 1.19.3).
     # Ustawienie tej opcji na fałsz umożliwi tym klientom połączenie się z serwerem. Wyłączasz tę opcję na własne ryzyko.
     disconnect-blacklisted-forge-versions: true
 
 spectators:
-    # Ukryj wszystkich widzów z uprawnieniem grim.spectator, niezależnie od tego, czy są oni faktycznie aktywnymi widzami
+    # Ukryj wszystkich widzów z uprawnieniem cult.spectator, niezależnie od tego, czy są oni faktycznie aktywnymi widzami
     hide-regardless: false
     # Spowoduje, że widzowie będą ukryci tylko w tych światach, a pozostawienie pustego pola umożliwi dostęp do wszystkich światów
     allowed-worlds:
@@ -43,15 +43,15 @@ spectators:
 # Ile czasu powinni mieć gracze, zanim ich wyrzucimy za przekroczenie limitu czasu? Domyślnie = 60 sekund
 max-transaction-time: 60
 
-# Włącz tę opcję, aby uniemożliwić Grimowi anulowanie komunikatów Pong otrzymanych od graczy.
+# Włącz tę opcję, aby uniemożliwić Cultowi anulowanie komunikatów Pong otrzymanych od graczy.
 # Może to poprawić kompatybilność z innymi programami antycheatowymi. Może to powodować problemy z limiterami pakietów.
 # Nie włączaj tej opcji, jeśli nie masz pewności, co robisz.
 disable-pong-cancelling: false
 
 # Czy domyślna procedura obsługi resynchronizacji bloków powinna zostać wyłączona?
-# Domyślnie Grim odczytuje bloki ze świata serwera i wysyła je do klienta w celu naprawy desynchronizacji.
+# Domyślnie Cult odczytuje bloki ze świata serwera i wysyła je do klienta w celu naprawy desynchronizacji.
 # Jeśli używasz wtyczek, które tworzą fałszywe bloki oparte na pakietach (które nie istnieją w świecie serwera),
-# powinieneś ustawić tę opcję na true, aby uniemożliwić Grimowi nadpisywanie ich blokami air/real.
+# powinieneś ustawić tę opcję na true, aby uniemożliwić Cultowi nadpisywanie ich blokami air/real.
 # Wymusza to użycie procedury obsługi „NoOp” (No Operation), chyba że zostanie ona udostępniona za pośrednictwem API.
 disable-default-resync-handler: false
 
@@ -107,7 +107,7 @@ RotationPlace:
     cancelvl: 5
 
 # Oparta na predykcji kontrola NoSlow.
-# Grim uwzględnia tutaj problematyczny kod sieciowy... trudno o fałszywe alarmy nawet przy spamowaniu prawym przyciskiem i przyciskiem offhand.
+# Cult uwzględnia tutaj problematyczny kod sieciowy... trudno o fałszywe alarmy nawet przy spamowaniu prawym przyciskiem i przyciskiem offhand.
 # Znacznie stabilniejsza niż w innych antycheatach, ale prosimy zgłaszać wszelkie fałszywe alarmy... Naprawiłem tu mnóstwo problemów z kodem sieciowym.
 NoSlow:
     # Jakie odchylenie jest uznawane za "oszukiwanie"?
@@ -204,14 +204,14 @@ reset-item-usage-on-attack: true
 reset-item-usage-on-slot-change: true
 reset-item-usage-on-item-use: true
 
-# Grim czasami anuluje nielegalne pakiety, np. przy użyciu timera. Po anulowaniu X pakietów na sekundę, kiedy powinniśmy
-# po prostu wyrzucić gracza? Jest to wymagane, ponieważ niektóre limitery pakietów nie liczą pakietów anulowanych przez Grima.
+# Cult czasami anuluje nielegalne pakiety, np. przy użyciu timera. Po anulowaniu X pakietów na sekundę, kiedy powinniśmy
+# po prostu wyrzucić gracza? Jest to wymagane, ponieważ niektóre limitery pakietów nie liczą pakietów anulowanych przez Culta.
 packet-spam-threshold: 100
 # Włącz to, aby wydrukować stack trace, gdy gracz zostanie wyrzucony z powodu przekroczenia packet-spam-threshold.
 debug-packet-cancel: false
 
-# Grim jest w stanie egzekwować, że gracz, który nie jest w stanie lotu, nie może mieć więcej niż X milisekund pingu.
-# Wynika to z faktu, że Grim obecnie nie sprawdza latających graczy.
+# Cult jest w stanie egzekwować, że gracz, który nie jest w stanie lotu, nie może mieć więcej niż X milisekund pingu.
+# Wynika to z faktu, że Cult obecnie nie sprawdza latających graczy.
 # Aby wyłączyć, użyj -1.
 max-ping-out-of-flying: 1000
 
@@ -220,7 +220,7 @@ max-ping-out-of-flying: 1000
 max-ping-firework-boost: 1000
 
 # Znaczniki schematu — zmieniaj tylko jeśli wiesz, co robisz.
-#   config-flavor:  V2 = build Grim 2.x, V3 = Grim 3.x. Wtyczka odmawia
+#   config-flavor:  V2 = build Cult 2.x, V3 = Cult 3.x. Wtyczka odmawia
 #                   wczytania konfiguracji, której flavor nie zgadza się z jej
 #                   buildem; config V3 otwarty przez jar V2 natychmiast się
 #                   nie powiedzie, zamiast po cichu scalać się w niewłaściwe
@@ -228,10 +228,10 @@ max-ping-firework-boost: 1000
 #   config-version: zwiększany przy każdej niekompatybilnej zmianie formatu.
 #                   Stare configi są automatycznie migrowane przez wbudowany
 #                   updater przy następnym starcie.
-# Grim zawsze odświeża uprawnienia w pamięci podręcznej, gdy gracz dołącza i gdy
-# Grim jest przeładowywany, niezależnie od tego, czy LuckPerms jest zainstalowany.
+# Cult zawsze odświeża uprawnienia w pamięci podręcznej, gdy gracz dołącza i gdy
+# Cult jest przeładowywany, niezależnie od tego, czy LuckPerms jest zainstalowany.
 # Hooki zdarzeń LuckPerms w typowych konfiguracjach również natychmiast odświeżają
-# uprawnienia Grim w pamięci podręcznej.
+# uprawnienia Cult w pamięci podręcznej.
 # Ten okresowy fallback jest potrzebny tylko dla zmian uprawnień online, których
 # nie obejmują te zdarzenia, np. niestandardowego kontekstu LuckPerms, który nie
 # wywołuje signalContextUpdate, luk w kontekstach Fabric albo dostawcy uprawnień

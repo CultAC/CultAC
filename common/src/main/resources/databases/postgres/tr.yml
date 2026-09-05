@@ -1,7 +1,7 @@
 # ===========================================================================
 #  Postgres backend ayarları.
 #
-#  Postgres çoklu sunuculu kurulumları destekler (birden çok Grim
+#  Postgres çoklu sunuculu kurulumları destekler (birden çok Cult
 #  instance'ı tek bir merkezi DB'ye yazar). Çalışma zamanında Postgres
 #  JDBC sürücüsünü gerektirir; sürücü yoksa backend başlangıçta kendini
 #  devre dışı bırakır ve buraya yönlenen routing fallback'ine düşer.
@@ -13,14 +13,14 @@
 postgres:
   host: "localhost"
   port: 5432
-  database: "grim"
+  database: "cult"
   user: "postgres"
   password: ""
 
   # HikariCP connection pool settings. These only apply to SQL backends
   # that use Hikari internally.
   pool-settings:
-    # Maximum physical database connections this Grim instance can keep open.
+    # Maximum physical database connections this Cult instance can keep open.
     maximum-pool-size: 5
     # Minimum idle connections kept warm. Keep equal to maximum-pool-size
     # for a fixed-size pool, or lower it if your database has tight limits.
@@ -41,12 +41,12 @@ postgres:
 
   # Tablo adı geçersiz kılmaları. Varsayılanlar aşağıda.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Şema işaretçileri — bkz. config.yml'deki başlık yorumu.
 config-flavor: V2

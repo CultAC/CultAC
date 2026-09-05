@@ -44,7 +44,7 @@ import java.util.logging.Level;
 public final class PacketApi {
     public static final int DEFAULT_HANDLER_PRIORITY = 100;
 
-    private static final Key CHANNEL_INITIALIZE_KEY = Key.key("grimac", "injector");
+    private static final Key CHANNEL_INITIALIZE_KEY = Key.key("cultac", "injector");
     private static final String CHANNEL_INITIALIZE_LISTENER_CLASS = "io.papermc.paper.network.ChannelInitializeListener";
     private static final String CHANNEL_INITIALIZE_LISTENER_HOLDER_CLASS = "io.papermc.paper.network.ChannelInitializeListenerHolder";
 

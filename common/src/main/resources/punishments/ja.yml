@@ -107,7 +107,7 @@ Punishments:
     commands:
       - "20:40 [alert]"
       - "1:1 [log]"
-  # バージョン2.2.10時点では、AutoClickerのチェックはまだなく、これはプレースホルダーです。Grimは将来的にAutoClickerのチェックを追加予定です。
+  # バージョン2.2.10時点では、AutoClickerのチェックはまだなく、これはプレースホルダーです。Cultは将来的にAutoClickerのチェックを追加予定です。
   Autoclicker:
     remove-violations-after: 300
     checks:

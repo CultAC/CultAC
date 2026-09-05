@@ -1,5 +1,5 @@
 # \u00BB es » (doble >>), ANSI y UTF-8 interpreta esto diferente... puede que incluso veas "?" debido a esto.
-prefix: "&bGrim &8\u00BB"
+prefix: "&bCult &8\u00BB"
 
 alerts-enabled: "%prefix% &fAlertas habilitadas"
 alerts-disabled: "%prefix% &fAlertas deshabilitadas"
@@ -15,7 +15,7 @@ reload-failed: "%prefix% &cFailed to reload config."
 player-not-found: "%prefix% &c¡El jugador esta excluido o fuera de linea!"
 player-not-this-server: "%prefix% &c¡El jugador no esta en este servidor!"
 sender-not-found: "%prefix% &c¡No puedes usar este comando si estás exento!"
-spectate-return: "<click:run_command:/grim stopspectating><hover:show_text:\"/grim stopspectating\">\n%prefix% &fClick aquí para volver a la localización previa\n</hover></click>"
+spectate-return: "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &fClick aquí para volver a la localización previa\n</hover></click>"
 cannot-spectate-return: "%prefix% &cSolo puedes hacer esto despues de espectar a un jugador"
 cannot-run-on-self: "%prefix% &cNo puedes usar este comando en ti mismo!"
 upload-log: "%prefix% &fSubido el registro de depuración a: %url%"
@@ -58,78 +58,78 @@ profile:
     - "&7======================"
 help:
     - "&7======================"
-    - "/grim alerts &f- &7Alternar alertas"
-    - "/grim brands &f- &7Toggle brands"
-    - "/grim profile <player> &f- &7Mostrar informacion del jugador"
-    - "/grim help &f- &7Mostrar este mensaje de ayuda"
-    - "/grim debug <player> &f- &7Salida de predicciones para desarrolladores"
-    - "/grim perf &f- &7ms/predicción para los desarrolladores"
-    - "/grim reload &f- &7Recarga la configuración"
-    - "/grim spectate <player> &f- &7Espectar a un jugador"
-    - "/grim verbose &f- &7Te muestra todo aviso, sin buffers"
-    - "/grim log [0-255] &f- &7Sube un registro de depuración para avisos de predicciones"
-    - "/grim history <player> &f- &7Lista de sesiones (más nuevas primero)"
-    - "/grim history <player> page <N> &f- &7Saltar a la página N de la lista de sesiones"
-    - "/grim history <player> session <N|latest> [-d] [-v] &f- &7Detalle de la sesión (violaciones más recientes primero)"
-    - "/grim history <player> session <N|latest> page <N> [-d] [-v] &f- &7Detalle de la sesión, página N de violaciones"
+    - "/cult alerts &f- &7Alternar alertas"
+    - "/cult brands &f- &7Toggle brands"
+    - "/cult profile <player> &f- &7Mostrar informacion del jugador"
+    - "/cult help &f- &7Mostrar este mensaje de ayuda"
+    - "/cult debug <player> &f- &7Salida de predicciones para desarrolladores"
+    - "/cult perf &f- &7ms/predicción para los desarrolladores"
+    - "/cult reload &f- &7Recarga la configuración"
+    - "/cult spectate <player> &f- &7Espectar a un jugador"
+    - "/cult verbose &f- &7Te muestra todo aviso, sin buffers"
+    - "/cult log [0-255] &f- &7Sube un registro de depuración para avisos de predicciones"
+    - "/cult history <player> &f- &7Lista de sesiones (más nuevas primero)"
+    - "/cult history <player> page <N> &f- &7Saltar a la página N de la lista de sesiones"
+    - "/cult history <player> session <N|latest> [-d] [-v] &f- &7Detalle de la sesión (violaciones más recientes primero)"
+    - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7Detalle de la sesión, página N de violaciones"
     - "&7======================"
 
-# === /grim history ===
+# === /cult history ===
 # UI de historial basada en sesiones. Todas las líneas siguientes son plantillas
 # MiniMessage configurables. Los hovers predeterminados viven en etiquetas inline
 # <hover:show_text:'...'> y en las claves de fragmentos de hover de abajo; quita
 # el hover inline para usar el fallback del renderer.
 
-grim-history-load-failure: "%prefix% &c¡El subsistema de historial no se pudo cargar! Revisa la consola del servidor en busca de errores."
-grim-history-disabled: "%prefix% &c¡El subsistema de historial está deshabilitado!"
-grim-history-failed: "%prefix% &cError al cargar el historial: &7%error%"
-grim-history-unknown-player: "%prefix% &cJugador desconocido: &f%player%"
-grim-history-no-sessions: "%prefix% &7Sin historial de sesiones para &f%player%&7."
-grim-history-session-not-found: "%prefix% &cSesión &f%ordinal%&c no encontrada para &f%player%&c."
+cult-history-load-failure: "%prefix% &c¡El subsistema de historial no se pudo cargar! Revisa la consola del servidor en busca de errores."
+cult-history-disabled: "%prefix% &c¡El subsistema de historial está deshabilitado!"
+cult-history-failed: "%prefix% &cError al cargar el historial: &7%error%"
+cult-history-unknown-player: "%prefix% &cJugador desconocido: &f%player%"
+cult-history-no-sessions: "%prefix% &7Sin historial de sesiones para &f%player%&7."
+cult-history-session-not-found: "%prefix% &cSesión &f%ordinal%&c no encontrada para &f%player%&c."
 
 # Lista de sesiones — placeholders válidos: %prefix% %player% %page% %max_pages%
-grim-history-header: "%prefix% &bMostrando historial de sesiones de &f%player% &8[&f%page%&7/&f%max_pages%&8]"
+cult-history-header: "%prefix% &bMostrando historial de sesiones de &f%player% &8[&f%page%&7/&f%max_pages%&8]"
 # Línea de resumen de una sesión — placeholders válidos:
-#   %prefix% %player% %ordinal% %grim_version% %server_name%
+#   %prefix% %player% %ordinal% %cult_version% %server_name%
 #   %client_version% %client_brand% %duration% %timeago%
 #   %violations% %unique_checks% %crashed_marker% %session_uuid% %detail_command%
-# %crashed_marker% se expande a grim-history-crashed-marker para sesiones cuya
+# %crashed_marker% se expande a cult-history-crashed-marker para sesiones cuya
 # conexión cayó sin cierre limpio (caída del servidor, kill -9, RST de canal
 # que no disparó UserDisconnectEvent). Cadena vacía para sesiones en curso o
 # cerradas correctamente.
-grim-history-session: "<hover:show_text:'&bSesión &7%session_uuid%<newline>&7Haz clic o ejecuta &e%detail_command%<newline>&7para ver los detalles de la sesión.'>%prefix% &8[&b%grim_version%&8] &8[&b%server_name%&8] &8[&b%client_version%&8] &bSesión &f%ordinal%&b, duración &f%duration%&b, con &c%violations%&b violaciones &8[&c%unique_checks%&8]%crashed_marker% &8(&7hace %timeago%&8)</hover>"
+cult-history-session: "<hover:show_text:'&bSesión &7%session_uuid%<newline>&7Haz clic o ejecuta &e%detail_command%<newline>&7para ver los detalles de la sesión.'>%prefix% &8[&b%cult_version%&8] &8[&b%server_name%&8] &8[&b%client_version%&8] &bSesión &f%ordinal%&b, duración &f%duration%&b, con &c%violations%&b violaciones &8[&c%unique_checks%&8]%crashed_marker% &8(&7hace %timeago%&8)</hover>"
 
 # Marcador en línea sustituido en %crashed_marker% para sesiones cuyo
 # closed_at == last_activity (es decir, marcadas por el barrido de cierre del
 # siguiente arranque, no por la ruta de desconexión). Incluye un espacio
 # inicial para que el marcador se lea natural cuando aparece y desaparezca
 # limpiamente cuando está vacío.
-grim-history-crashed-marker: " &8(&ccaída&8)"
+cult-history-crashed-marker: " &8(&ccaída&8)"
 
 # Detalle de sesión — placeholders válidos:
-#   %prefix% %player% %ordinal% %grim_version% %server_name%
+#   %prefix% %player% %ordinal% %cult_version% %server_name%
 #   %client_version% %client_brand% %duration% %timeago%
 #   %violations% %unique_checks% %bucket_size%
-grim-history-detail-header: "%prefix% &bMostrando detalle de la sesión &f%ordinal% &bde &f%player%&b:"
-grim-history-detail-meta1: "%prefix% &bGrim: &f%grim_version%&b, Servidor: &f%server_name%&b, Duración: &f%duration%&b, Fecha: &7hace %timeago%"
-grim-history-detail-meta2: "%prefix% &bCliente: &f%client_version%&b, Marca: &f%client_brand%"
-grim-history-detail-violations-header: "%prefix% &bViolaciones: &8(%violations% en total, %unique_checks% únicas)"
-grim-history-detail-empty: "%prefix% &7- (ninguna)"
+cult-history-detail-header: "%prefix% &bMostrando detalle de la sesión &f%ordinal% &bde &f%player%&b:"
+cult-history-detail-meta1: "%prefix% &bCult: &f%cult_version%&b, Servidor: &f%server_name%&b, Duración: &f%duration%&b, Fecha: &7hace %timeago%"
+cult-history-detail-meta2: "%prefix% &bCliente: &f%client_version%&b, Marca: &f%client_brand%"
+cult-history-detail-violations-header: "%prefix% &bViolaciones: &8(%violations% en total, %unique_checks% únicas)"
+cult-history-detail-empty: "%prefix% &7- (ninguna)"
 # Fila agrupada (predeterminado) — placeholders válidos: %prefix% %offset% %checks_list%
 #   %bucket_start% %bucket_end% %bucket_hover_entries%
-#   %checks_list% se construye uniendo entradas grim-history-check-count con ", "
-grim-history-detail-group: "<hover:show_text:'&bViolaciones en &f%bucket_start%–%bucket_end%&b:%bucket_hover_entries%'>%prefix% &7- %checks_list% &8(&b%offset%&8)</hover>"
-grim-history-detail-group-hover: "&bViolaciones en &f%bucket_start%–%bucket_end%&b:%bucket_hover_entries%"
-grim-history-detail-group-hover-entry: "<newline>&8  %offset% &b%check%%description%%verbose%"
-grim-history-hover-description: " — &f%description%"
-grim-history-detail-group-hover-verbose: " — &7%verbose%"
+#   %checks_list% se construye uniendo entradas cult-history-check-count con ", "
+cult-history-detail-group: "<hover:show_text:'&bViolaciones en &f%bucket_start%–%bucket_end%&b:%bucket_hover_entries%'>%prefix% &7- %checks_list% &8(&b%offset%&8)</hover>"
+cult-history-detail-group-hover: "&bViolaciones en &f%bucket_start%–%bucket_end%&b:%bucket_hover_entries%"
+cult-history-detail-group-hover-entry: "<newline>&8  %offset% &b%check%%description%%verbose%"
+cult-history-hover-description: " — &f%description%"
+cult-history-detail-group-hover-verbose: " — &7%verbose%"
 # Fila de violación bruta (--detailed) — placeholders válidos:
 #   %prefix% %offset% %check% %description% %vl% %verbose%
-grim-history-detail-entry: "%prefix% &7- &f%check% &8(&b%offset%&8)&7 %verbose%"
-grim-history-detail-entry-hover: "&b%check%%description%<newline>&8@ %offset% — vl %vl%%verbose%"
-grim-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
+cult-history-detail-entry: "%prefix% &7- &f%check% &8(&b%offset%&8)&7 %verbose%"
+cult-history-detail-entry-hover: "&b%check%%description%<newline>&8@ %offset% — vl %vl%%verbose%"
+cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
 # Formato interno por check dentro de %checks_list% — placeholders válidos: %check_name% %count%
-grim-history-check-count: "&f%check_name%&7 x&c%count%"
+cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
 # Marcadores de esquema — ver el comentario de cabecera en config.yml.
 config-flavor: V2

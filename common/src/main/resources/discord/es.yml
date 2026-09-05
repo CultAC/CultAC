@@ -11,7 +11,7 @@ webhook: ""
 # Esto permite cualquier URL HTTPS válida (útil para proxies o reenviadores de Matrix).
 disable-webhook-validation: false
 
-embed-title: "**Grim Alerta**"
+embed-title: "**Cult Alerta**"
 
 # El color del embed que se mandara por este webhook.
 embed-color: "#00FFFF"

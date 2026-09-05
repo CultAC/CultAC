@@ -1,10 +1,10 @@
-# GrimACのメイン設定
-# ソースコード: https://github.com/MWHunter/Grim
+# CultACのメイン設定
+# ソースコード: https://github.com/CultAC/CultAC
 # Copyright 2025 DefineOutside and contributors, Licensed under GPLv3.
-# 改変されたバイナリやGrimのコードをコピーしたプラグインは、私的なものとするか、
+# 改変されたバイナリやCultのコードをコピーしたプラグインは、私的なものとするか、
 # 購入者に追加料金なしで完全なソースコードを公開する必要があります
 
-# "セットバック"は、Grimによってプレイヤーの違反が検知された際、プレイヤーを元の位置/状態に戻すことを意味します。
+# "セットバック"は、Cultによってプレイヤーの違反が検知された際、プレイヤーを元の位置/状態に戻すことを意味します。
 
 alerts:
     # アラートを、プレイヤーに送信するだけでなくコンソールにも送信するかどうか。
@@ -31,12 +31,12 @@ client-brand:
         - "^lunarclient:v\\d+\\.\\d+\\.\\d+-\\d{4},(?:fabric|forge)$"
         - "^Feather Fabric$"
         - "^labymod$"
-    # Grim will blacklist specific Forge versions which include built-in Reach hacks (Forge 1.18.2 to 1.19.3).
+    # Cult will blacklist specific Forge versions which include built-in Reach hacks (Forge 1.18.2 to 1.19.3).
     # Setting this option to false will allow said clients to connect to the server. Disable this at your own risk.
     disconnect-blacklisted-forge-versions: true
 
 spectators:
-    # 'grim.spectator' パーミッションを持つプレイヤーを、実際にスペクテイター状態でなくても非表示にするかどうか。
+    # 'cult.spectator' パーミッションを持つプレイヤーを、実際にスペクテイター状態でなくても非表示にするかどうか。
     hide-regardless: false
     # スペクテイター状態のプレイヤーを指定したワールドでのみ非表示にする。（空欄にするとすべてのワールドで有効）
     allowed-worlds:
@@ -45,15 +45,15 @@ spectators:
 # プレイヤーがタイムアウトでKickされるまでの時間を設定します。 | デフォルト= 60(秒)
 max-transaction-time: 60
 
-# Enable this to stop Grim cancelling pongs received from players.
+# Enable this to stop Cult cancelling pongs received from players.
 # This may improve compatibility with other anticheats. It may cause issues with packet limiters.
 # Do not enable this if you are not sure what you are doing.
 disable-pong-cancelling: false
 
 # デフォルトのブロック再同期ハンドラーを無効にしますか？
-# デフォルトでは、Grimはサーバーワールドからブロックを読み取り、非同期（Desync）を修正するためにクライアントに送信します。
+# デフォルトでは、Cultはサーバーワールドからブロックを読み取り、非同期（Desync）を修正するためにクライアントに送信します。
 # パケットベースの偽のブロック（サーバーワールドには存在しない）を作成するプラグインを使用している場合、
-# Grimがそれらを空気や実際のブロックで上書きしないように、これを true に設定する必要があります。
+# Cultがそれらを空気や実際のブロックで上書きしないように、これを true に設定する必要があります。
 # これにより、API経由でカスタムハンドラーが提供されない限り、"NoOp"（何もしない）ハンドラーの使用が強制されます。
 disable-default-resync-handler: false
 
@@ -72,7 +72,7 @@ Simulation:
     # プレイヤーの動きが、シミュレーションからどれだけズレた場合に違反とみなすか。
     # シミュレーションされた動きからのズレをブロック単位で設定します。
     # OptifineのFastMath(計算の最適化)に対応するために計算テーブルを切り替え、0.001に下げるとFastMathによる誤検知を軽減します。
-    # ただし、この補正がうまく機能しない場合、Grimがプレイヤーを不正と判断する可能性があります...
+    # ただし、この補正がうまく機能しない場合、Cultがプレイヤーを不正と判断する可能性があります...
     threshold: 0.001
     # プレイヤーを即座にセットバックする前に、シミュレーションされた動きとプレイヤーの実際の動きの間にどれだけの違反が必要かを指定します。
     # -1で無効化できます。
@@ -109,7 +109,7 @@ RotationPlace:
     cancelvl: 5
 
 # 予測に基づく「NoSlow」チェック
-# Grimは、バグのあるネットコードを考慮しており、右クリックやオフハンドボタンを連打しても誤検知が起こりにくくなっています。
+# Cultは、バグのあるネットコードを考慮しており、右クリックやオフハンドボタンを連打しても誤検知が起こりにくくなっています。
 # 他のアンチチートよりも安定していますが、もし誤検知があれば報告してください。ネットコードの問題を多数修正しています。
 NoSlow:
     # どれだけのズレが「チート」として扱われるか
@@ -213,14 +213,14 @@ reset-item-usage-on-attack: true
 reset-item-usage-on-slot-change: true
 reset-item-usage-on-item-use: true
 
-# Grimは "Timer" のような違反パケットをキャンセルすることがありますが、1秒間にキャンセルされたパケット数がXを超えた場合、
-# プレイヤーを強制的にキックしますか？これは、いくつかのパケットリミッターがGrimによってキャンセルされたパケットをカウントしないためです。
+# Cultは "Timer" のような違反パケットをキャンセルすることがありますが、1秒間にキャンセルされたパケット数がXを超えた場合、
+# プレイヤーを強制的にキックしますか？これは、いくつかのパケットリミッターがCultによってキャンセルされたパケットをカウントしないためです。
 packet-spam-threshold: 100
 # packet-spam-threshold によりプレイヤーがキックされたときにスタックトレースを出力する場合は有効にする
 debug-packet-cancel: false
 
-# Grimは、飛行状態を解除されたプレイヤーがXミリ秒以上のPingを持つことを許可しません
-# これは、現在Grimが飛行中のプレイヤーをチェックしていないためです
+# Cultは、飛行状態を解除されたプレイヤーがXミリ秒以上のPingを持つことを許可しません
+# これは、現在Cultが飛行中のプレイヤーをチェックしていないためです
 # 無効にするには、-1を設定してください
 max-ping-out-of-flying: 1000
 
@@ -229,15 +229,15 @@ max-ping-out-of-flying: 1000
 max-ping-firework-boost: 1000
 
 # スキーマ用マーカー — 内容を理解した上でのみ変更してください。
-#   config-flavor:  V2 = Grim 2.x ビルド、V3 = Grim 3.x。プラグインは自身の
+#   config-flavor:  V2 = Cult 2.x ビルド、V3 = Cult 3.x。プラグインは自身の
 #                   ビルドと flavor が一致しない設定の読み込みを拒否します。
 #                   V3 用設定を V2 jar で開いた場合は、誤ったキーへ静かに
 #                   マージされず、即座に失敗します。
 #   config-version: 互換性のない形式変更があるたびに増加します。古い設定は
 #                   次回起動時、同梱の updater が自動で移行します。
 # LuckPerms がインストールされているかどうかに関係なく、プレイヤー参加時と
-# Grim のリロード時には、Grim は常にキャッシュ済み権限を更新します。
-# 通常の構成では、LuckPerms のイベントフックもキャッシュ済みの Grim 権限を
+# Cult のリロード時には、Cult は常にキャッシュ済み権限を更新します。
+# 通常の構成では、LuckPerms のイベントフックもキャッシュ済みの Cult 権限を
 # 即座に更新します。
 # この定期的なフォールバックは、それらのイベントで扱われないオンライン中の
 # 権限変更にのみ必要です。例: signalContextUpdate を呼ばないカスタム LuckPerms

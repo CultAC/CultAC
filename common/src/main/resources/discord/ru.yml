@@ -4,7 +4,7 @@ webhook: ""
 # Установите значение `true`, чтобы обойти проверку формата URL Discord.
 # Это разрешает любой действительный HTTPS URL (полезно для прокси или Matrix forwarder).
 disable-webhook-validation: false
-embed-title: "**Grim Оповещение**"
+embed-title: "**Cult Оповещение**"
 embed-color: "#00FFFF"
 include-timestamp: true
 # Заменяет обратные кавычки (`) в значениях (например, в названиях клиентов), чтобы не нарушать форматирование текста в Discord.

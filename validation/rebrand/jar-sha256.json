@@ -1,0 +1,22 @@
+{
+  "baseline_dev": {
+    "file": "GrimAC-before.jar",
+    "sha256": "f3bcbd65dde3d6a739dc4df24199832b4b627bf74a406027849b7ef69781adc6"
+  },
+  "baseline_production": {
+    "file": "GrimAC-before-production.jar",
+    "sha256": "4b64823d6389891ef77577a5c49cde4685a3f22bbbf17ff15231b14be4160624"
+  },
+  "probe": {
+    "file": "GrimApiProbe.jar",
+    "sha256": "8bade2ae0eefc3361429dd6fdfe3b74fde6cc76fe42e428fb5265f18401fdb74"
+  },
+  "cultac_production": {
+    "file": "cultac-bukkit-2.3.74-9f98991.jar",
+    "sha256": "cb63535283d41773f4e36705c84297cd37c9d3f4f486feea081823203670a632"
+  },
+  "cultac_dev": {
+    "file": "CultAC-dev.jar",
+    "sha256": "ab7fd6661ee4efc7fbd81491a039768de78a1e522beb21905577c19b062cc140"
+  }
+}

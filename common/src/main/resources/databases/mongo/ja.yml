@@ -17,7 +17,7 @@ mongo:
 
   # 書き込み先のデータベース。内部のコレクション名は下の `tables:`
   # ブロックで指定します。
-  database: "grim"
+  database: "cult"
 
   # ハンドラごとの bulkWrite() サイズ。Mongo ドライバは内部で接続を
   # プールするため、ここで制御するのはコミットのバッチング量であり、
@@ -26,12 +26,12 @@ mongo:
 
   # コレクション名の上書き。デフォルト値は以下の通り。
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # スキーマ用マーカー — config.yml のヘッダーコメントを参照。
 config-flavor: V2

@@ -15,7 +15,7 @@ mongo:
 
   # Ziel-Datenbank. Die Collections darin werden über den `tables:`-Block
   # unten benannt.
-  database: "grim"
+  database: "cult"
 
   # bulkWrite()-Größe pro Handler. Der Mongo-Treiber poolt Verbindungen
   # intern, dieser Wert steuert das Commit-Batching, nicht die
@@ -24,12 +24,12 @@ mongo:
 
   # Collection-Namen-Overrides. Defaults unten.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Schema-Marker — siehe Kopf-Kommentar in config.yml.
 config-flavor: V2

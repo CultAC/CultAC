@@ -17,7 +17,7 @@ sqlite:
   path: "data/history.v1.db"
 
   # WAL-modus laat gelijktijdige lezers naast de writer draaien — essentieel
-  # voor een server-plugin die /grim history leest terwijl er overtredingen
+  # voor een server-plugin die /cult history leest terwijl er overtredingen
   # worden geschreven.
   journal-mode: WAL
 

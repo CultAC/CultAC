@@ -2,7 +2,7 @@
 #  Настройки бекенда Postgres.
 #
 #  Postgres поддерживает мультисерверные развёртывания (несколько
-#  экземпляров Grim пишут в одну центральную БД). Требует драйвер JDBC
+#  экземпляров Cult пишут в одну центральную БД). Требует драйвер JDBC
 #  Postgres в рантайме; если драйвера нет, бекенд сам отключается на
 #  старте, а маршрут, ссылавшийся сюда, переключается на запасной.
 # ===========================================================================
@@ -13,14 +13,14 @@
 postgres:
   host: "localhost"
   port: 5432
-  database: "grim"
+  database: "cult"
   user: "postgres"
   password: ""
 
   # HikariCP connection pool settings. These only apply to SQL backends
   # that use Hikari internally.
   pool-settings:
-    # Maximum physical database connections this Grim instance can keep open.
+    # Maximum physical database connections this Cult instance can keep open.
     maximum-pool-size: 5
     # Minimum idle connections kept warm. Keep equal to maximum-pool-size
     # for a fixed-size pool, or lower it if your database has tight limits.
@@ -41,12 +41,12 @@ postgres:
 
   # Переопределения имён таблиц. Значения по умолчанию ниже.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Маркеры схемы — см. шапку config.yml.
 config-flavor: V2

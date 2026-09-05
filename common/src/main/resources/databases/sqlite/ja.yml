@@ -15,7 +15,7 @@ sqlite:
   # これは常に新しいファイルで、レガシー側の ALTER ではありません。
   path: "data/history.v1.db"
 
-  # WAL モードは、ライターと並行して読み取り側を動かせます — /grim history
+  # WAL モードは、ライターと並行して読み取り側を動かせます — /cult history
   # を読みながら違反を書き込むサーバープラグインには必須です。
   journal-mode: WAL
 

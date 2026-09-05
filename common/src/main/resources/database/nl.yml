@@ -1,5 +1,5 @@
 # ===========================================================================
-#  Grim datastore
+#  Cult datastore
 #
 #  Routet de DataStore-categorieën (violation / session / player-identity /
 #  setting / blob) naar specifieke backend-instanties. Elke backend in
@@ -19,7 +19,7 @@
 database:
 
   # Hoofdschakelaar. Op false zetten om geschiedenis van overtredingen +
-  # /grim history volledig uit te schakelen. Live AC-checks blijven draaien;
+  # /cult history volledig uit te schakelen. Live AC-checks blijven draaien;
   # alleen de flags worden niet meer opgeslagen.
   enabled: true
 
@@ -96,7 +96,7 @@ database:
     group-interval-ms: 30000
 
   # Alleen-tonen tag die op nieuwe sessierecords wordt gestempeld. Wordt
-  # getoond in de sessie-header van `/grim history`. Veilig om mid-operatie
+  # getoond in de sessie-header van `/cult history`. Veilig om mid-operatie
   # te wijzigen.
   server-name: "ChangeMe"
 

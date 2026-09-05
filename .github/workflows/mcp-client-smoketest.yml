@@ -379,16 +379,16 @@ jobs:
 
       - name: Locate CultAC dev jar
         if: steps.decision.outputs.allowed == 'true'
-        id: grim-jar
+        id: cult-jar
         run: |
           set -euo pipefail
-          GRIM_JAR="$(find "$GITHUB_WORKSPACE/cultac/build/libs" -maxdepth 1 -name '*-dev.jar' -print -quit)"
-          if [ -z "$GRIM_JAR" ]; then
+          CULT_JAR="$(find "$GITHUB_WORKSPACE/cultac/build/libs" -maxdepth 1 -name '*-dev.jar' -print -quit)"
+          if [ -z "$CULT_JAR" ]; then
             echo "No CultAC dev jar found under $GITHUB_WORKSPACE/cultac/build/libs" >&2
             exit 1
           fi
-          echo "path=$GRIM_JAR" >> "$GITHUB_OUTPUT"
-          echo "Using CultAC dev jar: $GRIM_JAR"
+          echo "path=$CULT_JAR" >> "$GITHUB_OUTPUT"
+          echo "Using CultAC dev jar: $CULT_JAR"
 
       - name: Prepare smoketest server workspace
         if: steps.decision.outputs.allowed == 'true'
@@ -396,13 +396,13 @@ jobs:
         working-directory: mcp-client-smoketest
         env:
           GRADLE_OPTS: ${{ env.SMOKETEST_GRADLE_OPTS }}
-          GRIM_JAR: ${{ steps.grim-jar.outputs.path }}
+          CULT_JAR: ${{ steps.cult-jar.outputs.path }}
         run: |
           set -euo pipefail
           ./gradlew setupSmoketestServer writeSmoketestWorkspaceManifest \
             --no-daemon --console=plain --stacktrace \
             --max-workers="$SMOKETEST_MAX_WORKERS" \
-            -Psmoketest.grim.devJar="$GRIM_JAR" \
+            -Psmoketest.cult.devJar="$CULT_JAR" \
             -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac"
 
       - name: Compile smoketest harness
@@ -410,20 +410,20 @@ jobs:
         working-directory: mcp-client-smoketest
         env:
           GRADLE_OPTS: ${{ env.SMOKETEST_GRADLE_OPTS }}
-          GRIM_JAR: ${{ steps.grim-jar.outputs.path }}
+          CULT_JAR: ${{ steps.cult-jar.outputs.path }}
         run: |
           set -euo pipefail
           ./gradlew classes packetControlPluginJar \
             --no-daemon --console=plain --stacktrace \
             --max-workers="$SMOKETEST_MAX_WORKERS" \
-            -Psmoketest.grim.devJar="$GRIM_JAR" \
+            -Psmoketest.cult.devJar="$CULT_JAR" \
             -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac"
 
       - name: Run smoketest sections
         if: steps.decision.outputs.allowed == 'true'
         working-directory: mcp-client-smoketest
         env:
-          GRIM_JAR: ${{ steps.grim-jar.outputs.path }}
+          CULT_JAR: ${{ steps.cult-jar.outputs.path }}
           RUN_ROOT: ${{ github.workspace }}/mcp-client-smoketest/.real-validation/runs/github-ci-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
@@ -464,7 +464,7 @@ jobs:
           java_common=(
             "-Xmx${SMOKETEST_JVM_HEAP}"
             "-Dsmoketest.workspace.manifest=$PWD/.real-validation/smoketest-workspace.properties"
-            "-Dsmoketest.grim.devJar=$GRIM_JAR"
+            "-Dsmoketest.cult.devJar=$CULT_JAR"
             "-Dsmoketest.cultac.repoRoot=$GITHUB_WORKSPACE/cultac"
             "-Dsmoketest.packetControlPluginJar=$PWD/build/libs/smoketest-packet-control-plugin.jar"
             "-Dorg.lwjgl.librarypath=$PWD/.real-validation/lwjgl-natives/linux-x64"
@@ -526,11 +526,11 @@ jobs:
             ./gradlew test verifyVanillaMovementSources verifyVanillaHarnessSources verifyNoHardcodedSmoketestAbsolutePaths \
             --no-daemon --console=plain --stacktrace \
             --max-workers="$SMOKETEST_MAX_WORKERS" \
-            -Psmoketest.grim.devJar="$GRIM_JAR" \
+            -Psmoketest.cult.devJar="$CULT_JAR" \
             -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac" || section_status=1
 
           scenario_catalog_classpath="build/classes/java/main:build/resources/main"
-          scenario_count="$(java -cp "$scenario_catalog_classpath" ac.grim.movementvalidation.ScenarioCatalogListMain --suite ci-full --count)"
+          scenario_count="$(java -cp "$scenario_catalog_classpath" ac.cult.movementvalidation.ScenarioCatalogListMain --suite ci-full --count)"
           case "$scenario_count" in
             ''|*[!0-9]*) echo "could not read ci-full scenario count: $scenario_count" >&2; exit 1 ;;
           esac
@@ -547,9 +547,9 @@ jobs:
                 REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
               xvfb-run -a -s "-screen 0 1280x720x24" \
               java "${java_common[@]}" \
-                ac.grim.movementvalidation.RealServerValidationMain \
+                ac.cult.movementvalidation.RealServerValidationMain \
                 "$RUN_ROOT/$key" "$base_port" \
-                --target grim-dev \
+                --target cult-dev \
                 --suite "$suite_selector"
           }
 
@@ -564,9 +564,9 @@ jobs:
                 REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
               xvfb-run -a -s "-screen 0 1280x720x24" \
               java "${java_common[@]}" \
-                ac.grim.movementvalidation.RealServerValidationMain \
+                ac.cult.movementvalidation.RealServerValidationMain \
                 "$RUN_ROOT/$key" "$base_port" \
-                --target grim-dev \
+                --target cult-dev \
                 --scenario "$scenario_selector"
           }
 
@@ -601,20 +601,20 @@ jobs:
               REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
             xvfb-run -a -s "-screen 0 1280x720x24" \
             java "${java_common[@]}" \
-              -Dgrim.dedupVerification.port=25580 \
-              ac.grim.movementvalidation.DeduplicationVerificationMain
+              -Dcult.dedupVerification.port=25580 \
+              ac.cult.movementvalidation.DeduplicationVerificationMain
 
           run_background "combat-reach" "Combat reach smoketest" 8 \
             env REAL_VALIDATION_SERVER_JVM_XMS="$SMOKETEST_SERVER_JVM_XMS" \
               REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
             xvfb-run -a -s "-screen 0 1280x720x24" \
             java "${java_common[@]}" \
-              -Dgrim.validation.reach.minSamples=24 \
-              -Dgrim.validation.reach.bundled.maxReachExcess=0.005 \
-              -Dgrim.validation.reach.unbundled.meanTrackingError=0.25 \
-              ac.grim.movementvalidation.RealServerCombatReachValidationMain \
+              -Dcult.validation.reach.minSamples=24 \
+              -Dcult.validation.reach.bundled.maxReachExcess=0.005 \
+              -Dcult.validation.reach.unbundled.meanTrackingError=0.25 \
+              ac.cult.movementvalidation.RealServerCombatReachValidationMain \
               "$RUN_ROOT/combat-reach" 25620 \
-              --target grim-dev \
+              --target cult-dev \
               --bot-count 8 \
               --segments 1 \
               --ticks-per-segment 1000 \

@@ -2,23 +2,23 @@ import versioning.BuildConfig
 
 plugins {
     `maven-publish`
-    grim.`base-conventions`
+    cult.`base-conventions`
     id("io.papermc.paperweight.userdev")
 }
 
 repositories {
     val localOverride = if (BuildConfig.mavenLocalOverride) mavenLocal() else null
 
-    // Grim API
-    val grimPublicReleases = maven("https://maven.grim.ac/public/releases") {
+    // Cult API
+    val cultPublicReleases = maven("https://maven.grim.ac/public/releases") {
         mavenContent { releasesOnly() }
     }
-    val grimPublicSnapshots = maven("https://maven.grim.ac/public/snapshots") {
+    val cultPublicSnapshots = maven("https://maven.grim.ac/public/snapshots") {
         mavenContent { snapshotsOnly() }
     }
-    val grimLegacySnapshots = maven("https://repo.grim.ac/snapshots")
+    val cultLegacySnapshots = maven("https://repo.grim.ac/snapshots")
     exclusiveContent {
-        forRepositories(*listOfNotNull(localOverride, grimPublicReleases, grimPublicSnapshots, grimLegacySnapshots).toTypedArray())
+        forRepositories(*listOfNotNull(localOverride, cultPublicReleases, cultPublicSnapshots, cultLegacySnapshots).toTypedArray())
         filter {
             includeGroup("ac.grim.grimac")
         }
@@ -43,9 +43,9 @@ repositories {
     mavenCentral()
 }
 
-// The current Paper API is built for Java 25, but Grim's classes target Java 21 so
+// The current Paper API is built for Java 25, but Cult's classes target Java 21 so
 // final Paper releases across the declared 1.21+ server range can parse the jar. Resolve the
-// compile classpath using the API's runtime level without raising Grim's emitted bytecode.
+// compile classpath using the API's runtime level without raising Cult's emitted bytecode.
 configurations.configureEach {
     attributes.attribute(
         org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE,
@@ -121,9 +121,9 @@ dependencies {
     api(libs.adventure.text.minimessage)
     api(libs.jetbrains.annotations)
     api(libs.hikaricp)
-    api(libs.grim.api)
-    api(libs.grim.internal)
-    compileOnly(libs.grim.internal.shims)
+    api(libs.cult.api)
+    api(libs.cult.internal)
+    compileOnly(libs.cult.internal.shims)
     compileOnly(libs.mongoDriverSync)
 
     compileOnly(libs.geyser.base.api) {
@@ -150,11 +150,11 @@ dependencies {
     testImplementation("com.google.code.gson:gson:2.13.2")
     testImplementation("com.google.guava:guava:31.1-jre")
     testImplementation(libs.netty)
-    testImplementation(libs.grim.api)
+    testImplementation(libs.cult.api)
     testCompileOnly(libs.geyser.core)
     testRuntimeOnly(libs.geyser.core)
-    // GrimPlayer declares a ViaVersion PacketTracker field (compileOnly in main); tests
-    // reflect over GrimPlayer's declared fields, which loads every field type.
+    // CultPlayer declares a ViaVersion PacketTracker field (compileOnly in main); tests
+    // reflect over CultPlayer's declared fields, which loads every field type.
     testCompileOnly(libs.viaversion)
     testRuntimeOnly(libs.viaversion)
 }

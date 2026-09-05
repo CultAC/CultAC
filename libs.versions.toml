@@ -10,7 +10,7 @@ cloud-processors-requirements = "1.0.0-rc.1"
 floodgate-api = "2.0-SNAPSHOT"
 geyser-base-api = "1.0.2"
 geyser-core = "2.10.0-SNAPSHOT"
-grim-api = "1.6.0.9"
+cult-api = "1.6.0.9"
 placeholderapi = "2.11.6"
 viaversion = "5.9.0"
 luckperms = "5.5"
@@ -46,10 +46,10 @@ configuralize = { group = "github.scarsz", name = "configuralize", version.ref =
 floodgate-api = { group = "org.geysermc.floodgate", name = "api", version.ref = "floodgate-api"}
 geyser-base-api = { group = "org.geysermc.api", name = "base-api", version.ref = "geyser-base-api" }
 geyser-core = { group = "org.geysermc.geyser", name = "core", version.ref = "geyser-core" }
-grim-api = { group = "ac.grim.grimac", name = "GrimAPI", version.ref = "grim-api" }
-grim-internal = { group = "ac.grim.grimac", name = "grim-internal", version.ref = "grim-api" }
-grim-internal-shims = { group = "ac.grim.grimac", name = "grim-internal-shims", version.ref = "grim-api" }
-grim-bukkit-internal = { group = "ac.grim.grimac", name = "grim-bukkit-internal", version.ref = "grim-api" }
+cult-api = { group = "ac.grim.grimac", name = "GrimAPI", version.ref = "cult-api" }
+cult-internal = { group = "ac.grim.grimac", name = "grim-internal", version.ref = "cult-api" }
+cult-internal-shims = { group = "ac.grim.grimac", name = "grim-internal-shims", version.ref = "cult-api" }
+cult-bukkit-internal = { group = "ac.grim.grimac", name = "grim-bukkit-internal", version.ref = "cult-api" }
 viaversion = { group = "com.viaversion", name = "viaversion", version.ref = "viaversion" }
 viabackwards = { group = "com.viaversion", name = "viabackwards", version.ref = "viaversion" }
 

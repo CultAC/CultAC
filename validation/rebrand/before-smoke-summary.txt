@@ -1,0 +1,13 @@
+totalElapsedSeconds=546
+artifactRoot=/home/hunter/Downloads/cultac-rebrand-validation/before
+grimDevJar=/home/hunter/Downloads/CultACModern/build/libs/GrimAC-dev.jar
+maxWorkers=2
+smoketestJvmHeap=3g
+serverJvmHeap=1536m
+--- phases ---
+setup MCP-Reborn client workspace: SKIP
+build CultAC dev jar: SKIP
+prepare smoketest server workspace: PASS (3s)
+harness guardrails: FAIL exit=1 (135s)
+deduplication verification: PASS (346s)
+combat reach smoketest: FAIL exit=1 (62s)

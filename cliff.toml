@@ -21,7 +21,7 @@ trim = true
 # Your previous settings here are perfect, no changes needed
 filter_unconventional = false
 skip_unconventional = false
-remote = "https://github.com/GrimAnticheat/Grim"
+remote = "https://github.com/CultAC/CultAC"
 commit_parsers = [
     { message = "^feat", group = "🚀 Features" },
     { message = "^fix", group = "🐛 Fixes" },
@@ -34,11 +34,11 @@ commit_parsers = [
     { message = ".*", group = "Miscellaneous" } # CHANGED THIS LINE
 ]
 commit_preprocessors = [
-    { pattern = 'src/main/java/ac/grim/grimac/checks/.*', group = "✔️ Checks" },
-    { pattern = 'src/main/java/ac/grim/grimac/api/.*', group = "🔌 API" },
-    { pattern = 'src/main/java/ac/grim/grimac/platform/.*', group = "🏗️ Platform" },
-    { pattern = 'src/main/java/ac/grim/grimac/engine/.*', group = "⚙️ Core Engine" },
-    { pattern = 'src/main/java/ac/grim/grimac/config/.*', group = "⚙️ Configuration" },
+    { pattern = 'src/main/java/ac/cult/cultac/checks/.*', group = "✔️ Checks" },
+    { pattern = 'src/main/java/ac/cult/cultac/api/.*', group = "🔌 API" },
+    { pattern = 'src/main/java/ac/cult/cultac/platform/.*', group = "🏗️ Platform" },
+    { pattern = 'src/main/java/ac/cult/cultac/engine/.*', group = "⚙️ Core Engine" },
+    { pattern = 'src/main/java/ac/cult/cultac/config/.*', group = "⚙️ Configuration" },
     { pattern = 'pom.xml', group = "🤖 Maintenance & CI" },
     { pattern = '.github/.*', group = "🤖 Maintenance & CI" },
     { pattern = 'build.gradle.kts', group = "🤖 Maintenance & CI" },

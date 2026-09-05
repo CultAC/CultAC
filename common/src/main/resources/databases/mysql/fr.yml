@@ -1,7 +1,7 @@
 # ===========================================================================
 #  Paramètres du backend MySQL.
 #
-#  MySQL supporte les déploiements multi-serveurs (plusieurs instances Grim
+#  MySQL supporte les déploiements multi-serveurs (plusieurs instances Cult
 #  écrivent dans une BD centrale). Nécessite le driver MySQL Connector/J au
 #  runtime ; s'il manque, le backend se désactive au démarrage, logue une
 #  erreur claire, et le routing qui le visait retombe sur ce qui est
@@ -16,14 +16,14 @@ mysql:
   # Cible de connexion.
   host: "localhost"
   port: 3306
-  database: "grim"
+  database: "cult"
   user: "root"
   password: ""
 
   # HikariCP connection pool settings. These only apply to SQL backends
   # that use Hikari internally.
   pool-settings:
-    # Maximum physical database connections this Grim instance can keep open.
+    # Maximum physical database connections this Cult instance can keep open.
     maximum-pool-size: 10
     # Minimum idle connections kept warm. Keep equal to maximum-pool-size
     # for a fixed-size pool, or lower it if your database has tight limits.
@@ -50,15 +50,15 @@ mysql:
   batch-flush-cap: 256
 
   # Overrides de noms de table. Renommez l'un des six stores logiques pour
-  # que plusieurs instances Grim partagent une seule BD MySQL, ou pour
+  # que plusieurs instances Cult partagent une seule BD MySQL, ou pour
   # coller à une convention d'entreprise. Défauts ci-dessous.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Marqueurs de schéma — voir le commentaire d'en-tête dans config.yml.
 config-flavor: V2

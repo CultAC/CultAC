@@ -16,7 +16,7 @@ mongo:
 
   # Base de datos donde escribir. Las colecciones dentro se nombran en el
   # bloque `tables:` de abajo.
-  database: "grim"
+  database: "cult"
 
   # Tamaño de bulkWrite() por handler. El driver de Mongo pulsa pools de
   # conexiones internamente; esto controla el batching de commits, no el
@@ -25,12 +25,12 @@ mongo:
 
   # Overrides de nombres de colección. Defaults abajo.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Marcadores de esquema — ver el comentario de cabecera en config.yml.
 config-flavor: V2

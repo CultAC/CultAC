@@ -1,0 +1,18 @@
+package ac.cult.cultac.utils.data.packetentity;
+
+import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
+import net.minecraft.world.entity.EntityType;
+
+public class PacketEntityUtil {
+
+    public static boolean isRideable(EntityType type) {
+       return EntityTypeUtil.isBoat(type)
+                || EntityTypeUtil.isHorseFamily(type)
+                || type == EntityTypesCompat.PIG
+                || type == EntityTypesCompat.STRIDER
+                || EntityTypeUtil.isHappyGhast(type)
+                || EntityTypeUtil.isNautilusFamily(type);
+    }
+
+}

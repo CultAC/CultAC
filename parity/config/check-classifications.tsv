@@ -1,44 +1,44 @@
 # runtimeClass<TAB>classification<TAB>reason
 # These are runtime listeners/processors, not independently addressable checks.
-ac.grim.grimac.checks.impl.aim.processor.AimProcessor	disabled	shared aim state processor; no independent check identity
-ac.grim.grimac.checks.impl.misc.ClientBrand	disabled	client-brand processor; no violation identity
-ac.grim.grimac.checks.impl.misc.GhostBlockMitigation	disabled	ghost-block mitigation processor; no violation identity
-ac.grim.grimac.checks.impl.movement.PredictionRunner	disabled	movement prediction processor; no independent check identity
-ac.grim.grimac.checks.impl.movement.SetbackBlocker	disabled	setback policy processor; no independent check identity
-ac.grim.grimac.checks.impl.movement.VehiclePredictionRunner	disabled	vehicle prediction processor; no independent check identity
-ac.grim.grimac.checks.impl.packetorder.PacketOrderProcessor	disabled	packet-order state processor; no independent check identity
-ac.grim.grimac.checks.impl.prediction.DebugHandler	disabled	prediction diagnostics processor; no violation identity
-ac.grim.grimac.events.packets.PacketChangeGameState	disabled	packet state listener; no independent check identity
-ac.grim.grimac.events.packets.PacketEntityReplication	disabled	entity replication processor; no independent check identity
-ac.grim.grimac.events.packets.PacketPlayerAbilities	disabled	player-abilities processor; no independent check identity
-ac.grim.grimac.events.packets.PacketWorldBorder	disabled	world-border processor; no independent check identity
-ac.grim.grimac.manager.AttackCooldownHandler	disabled	attack cooldown processor; no independent check identity
-ac.grim.grimac.manager.LastInstanceManager	disabled	last-instance lifecycle manager; no independent check identity
-ac.grim.grimac.manager.SetbackTeleportUtil	disabled	setback transport utility; no independent check identity
-ac.grim.grimac.manager.init.start.SuperDebug	disabled	startup diagnostics processor; no violation identity
-ac.grim.grimac.predictionengine.GhostBlockDetector	disabled	ghost-block prediction processor; no independent check identity
-ac.grim.grimac.predictionengine.SneakingEstimator	disabled	sneaking prediction processor; no independent check identity
-ac.grim.grimac.utils.latency.CompensatedCameraEntity	disabled	compensated entity processor; no independent check identity
-ac.grim.grimac.utils.latency.CompensatedCooldown	disabled	compensated cooldown processor; no independent check identity
-ac.grim.grimac.utils.latency.CompensatedFireworks	disabled	compensated fireworks processor; no independent check identity
-ac.grim.grimac.utils.latency.CompensatedInventory	disabled	compensated inventory processor; no independent check identity
-ac.grim.grimac.utils.team.TeamHandler	disabled	team state processor; no independent check identity
-ac.grim.grimac.checks.impl.baritone.Baritone	disabled	source-retained check is disabled by the baseline manager registration
-ac.grim.grimac.checks.impl.packetorder.PacketOrderP	disabled	commented-out baseline registration; retained source lineage only
-ac.grim.grimac.checks.impl.timer.NegativeTimer	disabled	current source does not register the baseline-only negative-timer implementation
-ac.grim.grimac.checks.impl.movement.timer.NegativeTimerCheck	disabled	dead replacement retained only for source lineage
-ac.grim.grimac.checks.impl.misc.TransactionOrder	disabled	old PacketEvents implementation; raw-NMS ping/TransactionOrder is the live check
-ac.grim.grimac.checks.impl.movement.NoSlow	disabled	old offset-feed implementation; prediction/checks/NoSlow is the live check
-ac.grim.grimac.checks.impl.movement.EntityControl	disabled	DEAD_BY_CONSTRUCTION: registered listener is a deliberate no-op
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.Angle	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.BoatPseudo	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.ElytraPseudo	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.HappyGhastPseudo	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.InvalidStep	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.NoSneakSlow	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.OmniSprint	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.RiptideOffset	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.Speed	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.Strafe	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.VehicleOffset	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
-ac.grim.grimac.checks.impl.prediction.checks.psuedo.VerticalOffset	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.aim.processor.AimProcessor	disabled	shared aim state processor; no independent check identity
+ac.cult.cultac.checks.impl.misc.ClientBrand	disabled	client-brand processor; no violation identity
+ac.cult.cultac.checks.impl.misc.GhostBlockMitigation	disabled	ghost-block mitigation processor; no violation identity
+ac.cult.cultac.checks.impl.movement.PredictionRunner	disabled	movement prediction processor; no independent check identity
+ac.cult.cultac.checks.impl.movement.SetbackBlocker	disabled	setback policy processor; no independent check identity
+ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner	disabled	vehicle prediction processor; no independent check identity
+ac.cult.cultac.checks.impl.packetorder.PacketOrderProcessor	disabled	packet-order state processor; no independent check identity
+ac.cult.cultac.checks.impl.prediction.DebugHandler	disabled	prediction diagnostics processor; no violation identity
+ac.cult.cultac.events.packets.PacketChangeGameState	disabled	packet state listener; no independent check identity
+ac.cult.cultac.events.packets.PacketEntityReplication	disabled	entity replication processor; no independent check identity
+ac.cult.cultac.events.packets.PacketPlayerAbilities	disabled	player-abilities processor; no independent check identity
+ac.cult.cultac.events.packets.PacketWorldBorder	disabled	world-border processor; no independent check identity
+ac.cult.cultac.manager.AttackCooldownHandler	disabled	attack cooldown processor; no independent check identity
+ac.cult.cultac.manager.LastInstanceManager	disabled	last-instance lifecycle manager; no independent check identity
+ac.cult.cultac.manager.SetbackTeleportUtil	disabled	setback transport utility; no independent check identity
+ac.cult.cultac.manager.init.start.SuperDebug	disabled	startup diagnostics processor; no violation identity
+ac.cult.cultac.predictionengine.GhostBlockDetector	disabled	ghost-block prediction processor; no independent check identity
+ac.cult.cultac.predictionengine.SneakingEstimator	disabled	sneaking prediction processor; no independent check identity
+ac.cult.cultac.utils.latency.CompensatedCameraEntity	disabled	compensated entity processor; no independent check identity
+ac.cult.cultac.utils.latency.CompensatedCooldown	disabled	compensated cooldown processor; no independent check identity
+ac.cult.cultac.utils.latency.CompensatedFireworks	disabled	compensated fireworks processor; no independent check identity
+ac.cult.cultac.utils.latency.CompensatedInventory	disabled	compensated inventory processor; no independent check identity
+ac.cult.cultac.utils.team.TeamHandler	disabled	team state processor; no independent check identity
+ac.cult.cultac.checks.impl.baritone.Baritone	disabled	source-retained check is disabled by the baseline manager registration
+ac.cult.cultac.checks.impl.packetorder.PacketOrderP	disabled	commented-out baseline registration; retained source lineage only
+ac.cult.cultac.checks.impl.timer.NegativeTimer	disabled	current source does not register the baseline-only negative-timer implementation
+ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck	disabled	dead replacement retained only for source lineage
+ac.cult.cultac.checks.impl.misc.TransactionOrder	disabled	old PacketEvents implementation; raw-NMS ping/TransactionOrder is the live check
+ac.cult.cultac.checks.impl.movement.NoSlow	disabled	old offset-feed implementation; prediction/checks/NoSlow is the live check
+ac.cult.cultac.checks.impl.movement.EntityControl	disabled	DEAD_BY_CONSTRUCTION: registered listener is a deliberate no-op
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.Angle	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.BoatPseudo	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.ElytraPseudo	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.HappyGhastPseudo	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.InvalidStep	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.RiptideOffset	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.VehicleOffset	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity
+ac.cult.cultac.checks.impl.prediction.checks.psuedo.VerticalOffset	disabled	prediction pseudo-check; internal post-prediction signal, not a standalone violation identity

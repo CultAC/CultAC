@@ -1,24 +1,6 @@
-<div align="center">
- <h1>GrimAC</h1>
+# CultAC
 
- <div>
-  <a href="https://github.com/GrimAnticheat/Grim/actions/workflows/gradle-publish.yml">
-   <img alt="Workflow" src="https://img.shields.io/github/actions/workflow/status/GrimAnticheat/Grim/gradle-publish.yml?style=flat&logo=github"/>
-  </a>&nbsp;&nbsp;
-  <a href="https://modrinth.com/plugin/grimac">
-   <img alt="Modrinth" src="https://img.shields.io/modrinth/v/LJNGWSvH?style=flat&label=version&logo=modrinth">
-  </a>&nbsp;&nbsp;
-  <a href="https://modrinth.com/plugin/grimac#download">
-   <img alt="Downloads" src="https://img.shields.io/modrinth/dt/LJNGWSvH?style=flat&logo=modrinth&label=downloads&link=https%3A%2F%2Fmodrinth.com%2Fplugin%2Fgrimac%23download">
-  </a>&nbsp;&nbsp;
-  <a href="https://discord.grim.ac">
-   <img alt="Discord" src="https://img.shields.io/discord/811396969670901800?style=flat&label=discord&logo=discord">
-  </a>
- </div>
- <br>
-</div>
-
-GrimAC is an open source Minecraft anticheat designed to support the latest versions of Minecraft.
+CultAC is an open source Minecraft anticheat designed to support the latest versions of Minecraft.
 
 **This repository is a fork of upstream Grim.** It keeps the GPLv3 Grim 2.0-modern base
 (checks, commands, config system, platform SPI) but replaces the PacketEvents dependency
@@ -45,15 +27,15 @@ Upstream Grim releases are on [Modrinth](https://modrinth.com/plugin/grimac).
   primary and tested target.
 
 If you use a proxy such as Velocity or BungeeCord:
-- If you use Geyser, Floodgate must be installed on the backend server (where Grim is) so Grim can access the Floodgate API.
-- If you use ViaVersion, it must be installed on the backend server (where Grim is) ONLY.
-  Grim does not support having ViaVersion installed on the proxy, even if it is also installed on the backend.
+- If you use Geyser, Floodgate must be installed on the backend server (where Cult is) so Cult can access the Floodgate API.
+- If you use ViaVersion, it must be installed on the backend server (where Cult is) ONLY.
+  Cult does not support having ViaVersion installed on the proxy, even if it is also installed on the backend.
 
 ## Resources
 
-- For documentation and examples visit the [Wiki](https://github.com/GrimAnticheat/Grim/wiki).
-- For answers to commonly asked questions visit the [FAQ](https://github.com/GrimAnticheat/Grim/wiki/FAQ).
-- For community support and project discussion join our [Discord](https://discord.grim.ac).
+- For upstream documentation and examples visit the [Wiki](https://github.com/GrimAnticheat/Grim/wiki).
+- For upstream answers to commonly asked questions visit the [FAQ](https://github.com/GrimAnticheat/Grim/wiki/FAQ).
+- For community support and project discussion join upstream Grim’s [Discord](https://discord.grim.ac).
 
 ## Pull Requests
 
@@ -62,9 +44,25 @@ are.
 
 ## Developer Plugin API
 
-Grim's plugin API allows you to integrate Grim into your own plugins. Visit
-the [plugin API repository](https://github.com/GrimAnticheat/GrimAPI) for the source code and more
-information.
+CultAC preserves the published [GrimAPI](https://github.com/GrimAnticheat/GrimAPI)
+packages, types, methods, Bukkit services, and events. Plugins compiled against
+GrimAPI can keep their dependency on `GrimAC`; CultAC provides that plugin alias.
+The implementation lives under `ac.cult.cultac`, while the external API stays under
+`ac.grim.grimac.api`.
+
+The [compatibility probe](validation/grimapi-compat/README.md) verifies this using
+an independently compiled Bukkit plugin.
+
+## Commands and configuration
+
+`/cult` is the primary command. `/cultac`, `/grim`, and `/grimac` are aliases.
+Permissions and placeholders use `cult` (for example, `cult.alerts` and `%cult_ping%`).
+CultAC loads configuration from `plugins/CultAC/`. When upgrading an existing
+installation, move your configuration/data directory from `plugins/GrimAC/` to
+`plugins/CultAC/`, update `grim.*` permissions and `%grim_*%` placeholders, and
+retain your configured database names and table mappings to keep existing data.
+New defaults use CultAC branding. GrimAPI's logical storage IDs and legacy
+migration schema names remain unchanged for compatibility.
 
 ## Compiling From Source
 
@@ -73,9 +71,9 @@ information.
 3. `./gradlew build`
 4. The final jar is at `bukkit/build/libs/`
 
-## Grim Supremacy
+## Cult Supremacy
 
-What makes Grim stand out against other anticheats?
+What makes Cult stand out against other anticheats?
 
 ### Movement Simulation Engine
 

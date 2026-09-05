@@ -1,7 +1,7 @@
 # ===========================================================================
 #  Postgres 后端设置
 #
-#  Postgres 支持多服务器部署（多个 Grim 实例写入同一个中央数据库）。
+#  Postgres 支持多服务器部署（多个 Cult 实例写入同一个中央数据库）。
 #  运行时需要 Postgres JDBC 驱动；若驱动缺失，后端会在启动时自我禁用，
 #  指向此后端的路由会回退到其他已配置的后端。
 # ===========================================================================
@@ -11,14 +11,14 @@
 postgres:
   host: "localhost"
   port: 5432
-  database: "grim"
+  database: "cult"
   user: "postgres"
   password: ""
 
   # HikariCP connection pool settings. These only apply to SQL backends
   # that use Hikari internally.
   pool-settings:
-    # Maximum physical database connections this Grim instance can keep open.
+    # Maximum physical database connections this Cult instance can keep open.
     maximum-pool-size: 5
     # Minimum idle connections kept warm. Keep equal to maximum-pool-size
     # for a fixed-size pool, or lower it if your database has tight limits.
@@ -38,12 +38,12 @@ postgres:
 
   # 表名覆盖。默认值见下方。
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # 模式标记 — 参见 config.yml 顶部的注释。
 config-flavor: V2

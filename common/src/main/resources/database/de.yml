@@ -1,5 +1,5 @@
 # ===========================================================================
-#  Grim-Datenspeicher
+#  Cult-Datenspeicher
 #
 #  Routet die DataStore-Kategorien (violation / session / player-identity /
 #  setting / blob) an konkrete Backend-Instanzen. Jedes in `routing:`
@@ -18,7 +18,7 @@
 # (`enabled`, `history`, …).
 database:
 
-  # Hauptschalter. Auf false setzen, um Verstoßhistorie + /grim history
+  # Hauptschalter. Auf false setzen, um Verstoßhistorie + /cult history
   # komplett zu deaktivieren. Live-AC-Checks laufen weiter; Flags werden
   # nur nicht mehr persistiert.
   enabled: true
@@ -96,7 +96,7 @@ database:
     group-interval-ms: 30000
 
   # Anzeige-Tag, der auf neue Session-Datensätze gestempelt wird. Wird in der
-  # Sitzungs-Header-Zeile von `/grim history` angezeigt. Im laufenden Betrieb
+  # Sitzungs-Header-Zeile von `/cult history` angezeigt. Im laufenden Betrieb
   # gefahrlos änderbar.
   server-name: "ChangeMe"
 

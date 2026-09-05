@@ -1,0 +1,355 @@
+package ac.cult.cultac.bedrock.prediction.simulation;
+
+import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
+import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
+import ac.cult.cultac.bedrock.prediction.model.AttributeState;
+import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
+import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
+import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
+import ac.cult.cultac.bedrock.prediction.model.Medium;
+import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
+import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementUpdate;
+import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
+import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
+import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
+import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
+import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
+import ac.cult.cultac.bedrock.prediction.world.FluidState;
+import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
+import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+public final class BedrockSimulationStructureTest {
+    @Test
+    public void idleInputBruteForcesWalkAndSprintTravelSpeed() {
+        BedrockInputFrame frame = BedrockInputFrame.idle(1L);
+        BedrockMovementState state = BedrockMovementState.fromPhysicalFeet(
+            new Vec3d(1.0D, 2.0D, 3.0D), Vec3d.ZERO, frame, BedrockCollisionFlags.AIR
+        );
+        BedrockWorldSnapshot snapshot = BedrockSnapshotResolver.forState(
+            BedrockWorldSnapshot.fromContext(airContext()), state, frame
+        );
+
+        var candidates = BedrockSimulation.candidates(new BedrockSimulation.Input(
+            state,
+            frame,
+            frame.intent(),
+            snapshot,
+            false,
+            BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+            BedrockMobJumpComponentState.DEFAULT
+        ));
+
+        assertEquals(2, candidates.size());
+        var inputLimits = candidates.stream()
+            .map(candidate -> candidate.movementResult().horizontalInputLimit())
+            .sorted()
+            .toList();
+        assertEquals(0.02D, inputLimits.get(0), 1.0E-8D);
+        assertEquals(0.026D, inputLimits.get(1), 1.0E-8D);
+        assertTrue(candidates.stream().allMatch(candidate ->
+            candidate.movementResult().previousState().equals(state)));
+    }
+
+    @Test
+    public void unloadedCompensatedChunkSkipsActorMovementSystemsButConsumesAuthFrame() {
+        BedrockInputFrame previousFrame = BedrockInputFrame.idle(2L);
+        BedrockInputFrame currentFrame = BedrockInputFrame.idle(3L);
+        Vec3d position = new Vec3d(298.6525D, 84.0D, -100.63724D);
+        BedrockMovementState state = BedrockMovementState.fromPhysicalFeet(
+            position, Vec3d.ZERO, previousFrame, BedrockCollisionFlags.ON_GROUND);
+        BedrockWorldSnapshot snapshot = BedrockSnapshotResolver.forState(
+            BedrockWorldSnapshot.fromContext(airContext()), state, currentFrame);
+
+        var candidates = BedrockSimulation.candidates(new BedrockSimulation.Input(
+            state,
+            currentFrame,
+            currentFrame.intent(),
+            snapshot,
+            true,
+            BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+            BedrockMobJumpComponentState.DEFAULT,
+            false));
+
+        assertEquals(1, candidates.size());
+        BedrockMovementState predicted = candidates.get(0).movementResult().predictedState();
+        assertEquals(state.physicalFeetPosition(), predicted.physicalFeetPosition());
+        assertEquals(Vec3d.ZERO, predicted.velocity());
+        assertEquals(BedrockCollisionFlags.ON_GROUND, predicted.collisionFlags());
+        assertEquals(currentFrame, predicted.inputFrame());
+        assertEquals(state.simulationTick(), predicted.simulationTick());
+    }
+
+    @Test
+    public void snapshotEnrichmentIsIdempotentForTheSameState() {
+        BedrockInputFrame frame = BedrockInputFrame.idle(1L);
+        BedrockMovementState state = BedrockMovementState.fromPhysicalFeet(
+            Vec3d.ZERO, Vec3d.ZERO, frame, BedrockCollisionFlags.AIR
+        );
+        BedrockWorldSnapshot once = BedrockSnapshotResolver.forState(
+            BedrockWorldSnapshot.fromContext(airContext()), state, frame
+        );
+
+        assertEquals(once, BedrockSnapshotResolver.forState(once, state, frame));
+    }
+
+    @Test
+    public void groundedRiptideClientDeltaExcludesServerSideItemMove() {
+        BedrockInputFrame previousFrame = BedrockInputFrame.idle(214L);
+        BedrockMovementState initial = BedrockMovementState.fromPhysicalFeet(
+            new Vec3d(255.5189208984375D, 82.0D, -91.70471954345703D),
+            new Vec3d(-0.00684814453125D, -0.005D, 0.0021240234375D),
+            previousFrame,
+            BedrockCollisionFlags.ON_GROUND,
+            Medium.WATER
+        );
+        BedrockMovementState charged = initial.advance(new BedrockMovementUpdate(
+            initial.physicalFeetPosition(),
+            initial.velocity(),
+            previousFrame,
+            initial.collisionFlags(),
+            initial.boundingBoxMode(),
+            initial.playerDimensions(),
+            0.0F,
+            0L,
+            new BedrockMovementUpdate.Glide(false, false),
+            false,
+            0.0D,
+            new BedrockMovementUpdate.Riptide(10L, false, 0L),
+            new BedrockMovementUpdate.ItemUse(false, 0L)
+        )).withMovementBranch(Medium.WATER);
+        BedrockInputFrame release = new BedrockInputFrame(
+            215L, -113.34771F, -5.7219696F, false, false, false,
+            Set.of("RELEASE_USING_ITEM")
+        );
+        BlockCollisionWorld world = new BlockCollisionWorld(List.of(
+            PlacedBlockCollision.manual(
+                new BlockPosition(255, 82, -92),
+                "minecraft:water[level=0]",
+                "minecraft:water",
+                Map.of("liquid_depth", 0),
+                List.of()),
+            PlacedBlockCollision.manual(
+                new BlockPosition(255, 83, -92),
+                "minecraft:water[level=0]",
+                "minecraft:water",
+                Map.of("liquid_depth", 0),
+                List.of())
+        ));
+        BedrockMovementContext context = new BedrockMovementContext(
+            BedrockEffectState.NONE,
+            AttributeState.DEFAULT,
+            new WorldContactState(Medium.WATER, FluidState.NONE, world),
+            new EquipmentState(0, 0, 0, 1, false, false),
+            EntityContactState.NONE,
+            new MovementModifierState(
+                true, true, false, 0.05D, false, true, false, false, 0.35D, 0L),
+            PlayerDimensionsState.DEFAULT
+        );
+        BedrockWorldSnapshot snapshot = BedrockSnapshotResolver.forState(
+            BedrockWorldSnapshot.fromContext(context), charged, release
+        );
+
+        var candidates = BedrockSimulation.candidates(new BedrockSimulation.Input(
+            charged,
+            release,
+            release.intent(),
+            snapshot,
+            false,
+            BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+            BedrockMobJumpComponentState.DEFAULT
+        ));
+
+        assertFalse(candidates.isEmpty());
+        var deltas = candidates.stream().map(candidate -> {
+            var result = candidate.movementResult();
+            return result.predictedState().physicalFeetPosition()
+                .subtract(result.previousState().physicalFeetPosition());
+        }).toList();
+        assertTrue(deltas.toString(), deltas.stream().allMatch(delta -> {
+            return Math.abs(delta.x() - 1.363494873046875D) < 0.001D
+                && Math.abs(delta.y() - 0.224456787109375D) < 0.001D
+                && Math.abs(delta.z() + 0.5893402099609375D) < 0.001D;
+        }));
+    }
+
+    @Test
+    public void airborneSurfaceReleaseConsumesPreUpdateWaterComponent() {
+        BedrockInputFrame previousFrame = new BedrockInputFrame(
+            570L, 169.65863F, -1.5891876F, true, false, false,
+            Set.of("JUMPING", "JUMP_CURRENT_RAW", "WANT_UP"));
+        BedrockMovementState initial = BedrockMovementState.fromPhysicalFeet(
+            new Vec3d(255.63169860839844D, 82.67180633544922D, -90.35993957519531D),
+            new Vec3d(-2.8839111328125003E-4D, 0.105638427734375D, -0.001654815673828125D),
+            previousFrame,
+            BedrockCollisionFlags.VERTICAL_COLLISION,
+            Medium.AIR);
+        BedrockMovementState charged = initial.advance(new BedrockMovementUpdate(
+            initial.physicalFeetPosition(),
+            initial.velocity(),
+            previousFrame,
+            initial.collisionFlags(),
+            initial.boundingBoxMode(),
+            initial.playerDimensions(),
+            0.0F,
+            0L,
+            new BedrockMovementUpdate.Glide(false, false),
+            false,
+            0.0D,
+            new BedrockMovementUpdate.Riptide(10L, false, 0L),
+            new BedrockMovementUpdate.ItemUse(false, 0L)
+        )).withWasInWaterFlag(true).withMovementBranch(Medium.AIR);
+        BedrockInputFrame release = new BedrockInputFrame(
+            571L, 169.65863F, -1.5891876F, true, false, false,
+            Set.of("WANT_UP", "JUMP_CURRENT_RAW", "RELEASE_USING_ITEM", "JUMPING"));
+        BedrockMovementContext context = new BedrockMovementContext(
+            BedrockEffectState.NONE,
+            AttributeState.DEFAULT,
+            new WorldContactState(Medium.AIR, FluidState.NONE, BlockCollisionWorld.EMPTY),
+            new EquipmentState(0, 0, 0, 1, false, false),
+            EntityContactState.NONE,
+            new MovementModifierState(
+                false, true, false, 0.05D, false, true, false, false, 0.35D, 0L),
+            PlayerDimensionsState.DEFAULT);
+        BedrockWorldSnapshot snapshot = BedrockSnapshotResolver.forState(
+            BedrockWorldSnapshot.fromContext(context), charged, release);
+
+        var candidates = BedrockSimulation.candidates(new BedrockSimulation.Input(
+            charged,
+            release,
+            release.intent(),
+            snapshot,
+            false,
+            BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+            BedrockMobJumpComponentState.DEFAULT));
+
+        assertFalse(candidates.isEmpty());
+        assertTrue(candidates.stream().anyMatch(candidate -> {
+            Vec3d delta = candidate.movementResult().predictedState().physicalFeetPosition()
+                .subtract(candidate.movementResult().previousState().physicalFeetPosition());
+            return Math.abs(delta.x() + 0.2694854736328125D) < 0.001D
+                && Math.abs(delta.y() - 0.14719390869140625D) < 0.001D
+                && Math.abs(delta.z() + 1.4765243530273438D) < 0.001D;
+        }));
+    }
+
+    @Test
+    public void powderSnowDescendBranchPassesThroughItsCollisionShape() {
+        BedrockInputFrame frame = new BedrockInputFrame(
+            1L, 0.0F, 0.0F, false, true, false,
+            Set.of("WANT_DOWN", "START_SNEAKING")
+        );
+        BedrockMovementState state = BedrockMovementState.fromPhysicalFeet(
+            new Vec3d(0.5D, 1.0D, 0.5D), new Vec3d(0.18D, -0.0784D, -0.18D), frame,
+            BedrockCollisionFlags.ON_GROUND
+        ).withClimbableContact(new BedrockClimbableContact(false, false, true, false));
+        BlockPosition position = new BlockPosition(0, 0, 0);
+        WorldCollisionBox fullBlock = new WorldCollisionBox(0.0D, 0.0D, 0.0D, 1.0D, 1.0D, 1.0D);
+        BlockCollisionWorld world = new BlockCollisionWorld(List.of(
+            PlacedBlockCollision.manual(
+                position,
+                "minecraft:powder_snow",
+                "minecraft:powder_snow",
+                List.of(fullBlock),
+                List.of(fullBlock),
+                List.of(fullBlock),
+                Set.of(PlacedBlockCollision.BlockContactBehavior.POWDER_SNOW)
+            )
+        ));
+        BedrockWorldSnapshot snapshot = BedrockSnapshotResolver.forState(
+            BedrockWorldSnapshot.fromContext(airContext(world, true)), state, frame
+        );
+
+        var candidates = BedrockSimulation.candidates(new BedrockSimulation.Input(
+            state,
+            frame,
+            frame.intent(),
+            snapshot,
+            false,
+            BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+            BedrockMobJumpComponentState.DEFAULT
+        ));
+
+        assertTrue(candidates.stream().anyMatch(candidate -> {
+            var result = candidate.movementResult();
+            double deltaY = result.predictedState().physicalFeetPosition().y()
+                - result.previousState().physicalFeetPosition().y();
+            double deltaX = result.predictedState().physicalFeetPosition().x()
+                - result.previousState().physicalFeetPosition().x();
+            double deltaZ = result.predictedState().physicalFeetPosition().z()
+                - result.previousState().physicalFeetPosition().z();
+            return Math.abs(deltaY + 0.15000000596046448D) < 1.0E-7D
+                && Math.abs(deltaX) < 1.0E-12D
+                && Math.abs(deltaZ) < 1.0E-12D
+                && !result.predictedState().collisionFlags().verticalCollision();
+        }));
+    }
+
+    @Test
+    public void groupedUpdateAdvancesEveryOwnedComponent() {
+        BedrockMovementState state = BedrockMovementState.fromPhysicalFeet(
+            Vec3d.ZERO,
+            Vec3d.ZERO,
+            BedrockInputFrame.idle(0L),
+            BedrockCollisionFlags.ON_GROUND
+        );
+        BedrockInputFrame frame = BedrockInputFrame.idle(1L);
+        BedrockMovementState next = state.advance(new BedrockMovementUpdate(
+            new Vec3d(0.25D, 0.5D, -0.25D),
+            new Vec3d(0.1D, 0.2D, 0.3D),
+            frame,
+            BedrockCollisionFlags.AIR,
+            state.boundingBoxMode(),
+            state.playerDimensions(),
+            2.5F,
+            3L,
+            new BedrockMovementUpdate.Glide(true, true),
+            true,
+            0.4D,
+            new BedrockMovementUpdate.Riptide(4L, true, 5L),
+            new BedrockMovementUpdate.ItemUse(true, 6L)
+        ));
+
+        assertEquals(1L, next.simulationTick());
+        assertEquals(3L, next.powderSnowTicks());
+        assertEquals(2.5F, next.fallDistance(), 0.0F);
+        assertEquals(4L, next.riptideChargeTicks());
+        assertTrue(next.riptideSpinActive());
+        assertEquals(5L, next.riptideSpinTicks());
+        assertEquals(6L, next.itemUseSlowdownTicks());
+        assertTrue(next.gliding());
+        assertTrue(next.glidingRequest());
+        assertTrue(next.swimming());
+        assertEquals(0.4D, next.swimAmount(), 0.0D);
+        assertTrue(next.itemUseSlowdownActive());
+        assertFalse(next.autoClimbTravel());
+    }
+
+    private static BedrockMovementContext airContext() {
+        return airContext(new BlockCollisionWorld(List.of()), false);
+    }
+
+    private static BedrockMovementContext airContext(BlockCollisionWorld world, boolean leatherBoots) {
+        return new BedrockMovementContext(
+            BedrockEffectState.NONE,
+            AttributeState.DEFAULT,
+            new WorldContactState(Medium.AIR, FluidState.NONE, world),
+            new EquipmentState(0, 0, 0, leatherBoots, false),
+            EntityContactState.NONE,
+            MovementModifierState.NONE,
+            PlayerDimensionsState.DEFAULT
+        );
+    }
+}

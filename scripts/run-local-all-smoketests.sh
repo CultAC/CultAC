@@ -201,8 +201,8 @@ elapsed_seconds() {
   printf '%s\n' "$((now - start_epoch))"
 }
 
-find_grim_dev_jar() {
-  find "$cultac_root/build/libs" -maxdepth 1 -name '*-dev.jar' -print -quit 2>/dev/null || true
+find_cult_dev_jar() {
+  find "$cultac_root/build/libs" -maxdepth 1 -name 'CultAC-dev.jar' -print -quit 2>/dev/null || true
 }
 
 use_xvfb_for_real_client() {
@@ -308,20 +308,20 @@ else
 fi
 
 if [[ "$skip_cultac_build" == "true" ]]; then
-  grim_dev_jar="$(find_grim_dev_jar)"
-  [[ -n "$grim_dev_jar" ]] || fail "--skip-cultac-build was set but no *-dev.jar exists under $cultac_root/build/libs"
+  cult_dev_jar="$(find_cult_dev_jar)"
+  [[ -n "$cult_dev_jar" ]] || fail "--skip-cultac-build was set but no *-dev.jar exists under $cultac_root/build/libs"
   echo
   echo "== build CultAC dev jar =="
-  echo "skipped; using $grim_dev_jar"
+  echo "skipped; using $cult_dev_jar"
   phase_summaries+=("build CultAC dev jar: SKIP")
 else
   run_phase "build CultAC dev jar" \
     "${cultac_gradle_env_cmd[@]}" \
     "$cultac_root/gradlew" -p "$cultac_root" devShadowJar --rerun-tasks --no-daemon --console=plain --stacktrace --max-workers="$max_workers"
-  grim_dev_jar="$(find_grim_dev_jar)"
+  cult_dev_jar="$(find_cult_dev_jar)"
 fi
 
-[[ -n "${grim_dev_jar:-}" ]] || fail "no CultAC dev jar found under $cultac_root/build/libs"
+[[ -n "${cult_dev_jar:-}" ]] || fail "no CultAC dev jar found under $cultac_root/build/libs"
 
 common_gradle_args=(
   --no-daemon
@@ -329,7 +329,7 @@ common_gradle_args=(
   --stacktrace
   --max-workers="$max_workers"
   -Psmoketest.jvmHeap="$smoketest_jvm_heap"
-  -Psmoketest.grim.devJar="$grim_dev_jar"
+  -Psmoketest.grim.devJar="$cult_dev_jar"
   -Psmoketest.cultac.repoRoot="$cultac_root"
 )
 
@@ -355,7 +355,7 @@ run_real_client_gradle_phase "combat reach smoketest" \
 {
   echo "totalElapsedSeconds=$(elapsed_seconds)"
   echo "artifactRoot=$artifact_root"
-  echo "grimDevJar=$grim_dev_jar"
+  echo "cultDevJar=$cult_dev_jar"
   echo "maxWorkers=$max_workers"
   echo "smoketestJvmHeap=$smoketest_jvm_heap"
   echo "serverJvmHeap=$server_jvm_heap"

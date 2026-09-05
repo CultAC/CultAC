@@ -1,0 +1,90 @@
+package ac.cult.cultac.utils.anticheat;
+
+import ac.cult.cultac.CultAPI;
+import lombok.experimental.UtilityClass;
+import net.kyori.adventure.text.Component;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.logging.Logger;
+
+@UtilityClass
+public class LogUtil {
+    public void info(final String info) {
+        getLogger().info(info);
+    }
+
+    /**
+     * Diagnostic detail that is hidden at the default log level; for high-volume
+     * registration/pipeline dumps that operators only need while troubleshooting.
+     */
+    public void debug(final String message) {
+        Logger logger = getLogger();
+        if (logger != null) {
+            logger.fine(message);
+        }
+    }
+
+    public void warn(final String warn) {
+        getLogger().warning(warn);
+    }
+
+    @SuppressWarnings("CallToPrintStackTrace")
+    public void warn(final String description, final Throwable throwable) {
+        Logger logger = getLogger();
+        if (logger != null) {
+            logger.warning(description + ": " + getStackTrace(throwable));
+        } else {
+            throwable.printStackTrace();
+        }
+    }
+
+    public void error(final String error) {
+        getLogger().severe(error);
+    }
+
+    @SuppressWarnings("CallToPrintStackTrace")
+    public void error(final String description, final Throwable throwable) {
+        Logger logger = getLogger();
+        if (logger != null) {
+            logger.severe(description + ": " + getStackTrace(throwable));
+        } else {
+            throwable.printStackTrace();
+        }
+    }
+
+    @SuppressWarnings("CallToPrintStackTrace")
+    public void error(final Throwable throwable) {
+        Logger logger = getLogger();
+        if (logger != null) {
+            logger.severe(getStackTrace(throwable));
+        } else {
+            throwable.printStackTrace();
+        }
+    }
+
+    public Logger getLogger() {
+        return CultAPI.INSTANCE.getGrimPlugin().getLogger();
+    }
+
+    public void console(final String info) {
+        CultAPI.INSTANCE.getPlatformServer().getConsoleSender().sendMessage(MessageUtil.translateAlternateColorCodes('&', info));
+    }
+
+    public void console(final Component info) {
+        CultAPI.INSTANCE.getPlatformServer().getConsoleSender().sendMessage(info);
+    }
+
+    private static String getStackTrace(Throwable throwable) {
+        String message = throwable.getMessage();
+        try (StringWriter sw = new StringWriter()) {
+            try (PrintWriter pw = new PrintWriter(sw)) {
+                throwable.printStackTrace(pw);
+                message = sw.toString();
+            }
+        } catch (Exception ignored) {
+        }
+        return message;
+    }
+
+}

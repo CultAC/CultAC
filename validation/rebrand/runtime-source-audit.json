@@ -1,0 +1,25 @@
+{
+  "java_files_compared": 945,
+  "files_with_changes_beyond_rebrand": [
+    "common/src/main/java/ac/cult/cultac/command/CloudCommandService.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultAlerts.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultBrands.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultDebug.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultDump.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultHelp.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultHistory.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultHistoryCopy.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultHistoryMigrate.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultList.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultLog.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultProfile.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultReload.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultSendAlert.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultSpectate.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultStopSpectating.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultTestWebhook.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultVerbose.java",
+    "common/src/main/java/ac/cult/cultac/command/commands/CultVersion.java"
+  ],
+  "additional_changes": "Existing command builders retain grim/grimac aliases; history syntax helper recognizes those aliases."
+}

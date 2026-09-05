@@ -1,5 +1,5 @@
 # ===========================================================================
-#  Grim データストア
+#  Cult データストア
 #
 #  DataStore のカテゴリ（violation / session / player-identity / setting /
 #  blob）を具体的なバックエンドインスタンスにルーティングします。`routing:`
@@ -17,7 +17,7 @@
 # トップレベルキー（`enabled`、`history` など）と衝突します。
 database:
 
-  # マスタートグル。false にすると違反履歴と /grim history が完全に無効に
+  # マスタートグル。false にすると違反履歴と /cult history が完全に無効に
   # なります。ライブの AC チェックはそのまま動きますが、フラグが永続化
   # されなくなります。
   enabled: true
@@ -94,7 +94,7 @@ database:
     entries-per-page: 15
     group-interval-ms: 30000
 
-  # 新しいセッションレコードに刻印される、表示用のタグです。`/grim history`
+  # 新しいセッションレコードに刻印される、表示用のタグです。`/cult history`
   # のセッションヘッダー行に表示されます。運用中の変更も安全です。
   server-name: "ChangeMe"
 

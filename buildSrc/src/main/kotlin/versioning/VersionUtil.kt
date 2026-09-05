@@ -3,7 +3,7 @@ package versioning
 import org.gradle.api.Project
 
 /**
- * Utility for computing the version string of GrimAC artifacts.
+ * Utility for computing the version string of CultAC artifacts.
  *
  * Uses Gradle's providers.exec for git invocations so that
  * org.gradle.configuration-cache=true can serialize the task graph.
@@ -68,7 +68,7 @@ object VersionUtil {
             .trim(' ', '.', '_', '-')
             .removePrefix("heads_")
 
-        val mainBranch = System.getenv("GRIM_MAIN_BRANCH") ?: "2.0"
+        val mainBranch = System.getenv("CULT_MAIN_BRANCH") ?: "2.0"
 
         return when (branch) {
             "main", mainBranch -> null

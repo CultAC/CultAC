@@ -23,7 +23,7 @@ layout and the build/test commands are adapted to this tree.
 
 ## Rules applicable to both the Java and Bedrock simulation engine
 
-- For broader Grim compensation, packet timing, transaction, bundle, threading, and check-writing guidance, consult `GRIM_ANTICHEAT_DEVELOPMENT_GUIDE.md`. If it conflicts with the Bedrock-specific uncertainty limits in this file, `AGENTS.md` wins.
+- For broader Grim compensation, packet timing, transaction, bundle, threading, and check-writing guidance, consult `CULT_ANTICHEAT_DEVELOPMENT_GUIDE.md`. If it conflicts with the Bedrock-specific uncertainty limits in this file, `AGENTS.md` wins.
 - Assume cheaters will read Grim source code and look for bypasses, so exemptions and adding new lenience are not acceptable solutions.
 - Temporary diagnostics may be added while investigating, but they must be removed before final validation or handoff.
 - Applying changes to the check level is almost certainly wrong. The post prediction checks should be stupidly simple. No giving uncertainties due to being near certain blocks or otherwise working around simulation engine bugs. Instead, almost all changes should be made to the simulation engine itself, not post prediction checks.

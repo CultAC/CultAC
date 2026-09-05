@@ -1,6 +1,6 @@
-# Contributing to GrimAC
+# Contributing to CultAC
 
-Thank you for your interest in contributing to GrimAC. This document outlines the guidelines for
+Thank you for your interest in contributing to CultAC. This document outlines the guidelines for
 making pull
 requests to the project. *We're usually pretty lenient with pull requests, but this guide will help
 make the process go more smoothly.*
@@ -31,10 +31,10 @@ make the process go more smoothly.*
 
 ### Development Notes
 
-- GrimAC is built using [Gradle](https://gradle.org/) kotlin scripts.
+- CultAC is built using [Gradle](https://gradle.org/) kotlin scripts.
 - Java 21 is currently required to build the project. A minimum of Java 17 is required to run it.
 
 ### Questions & Support
 
-- Join our [Discord](https://discord.grim.ac) if you have questions or need assistance.
-- Refer to the [Wiki](https://github.com/GrimAnticheat/Grim/wiki) for project documentation.
+- Join upstream Grim’s [Discord](https://discord.grim.ac) if you have questions or need assistance.
+- Refer to the [Wiki](https://github.com/GrimAnticheat/Grim/wiki) for upstream documentation.

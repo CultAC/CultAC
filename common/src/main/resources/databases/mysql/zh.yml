@@ -1,7 +1,7 @@
 # ===========================================================================
 #  MySQL 后端设置
 #
-#  MySQL 支持多服务器部署（多个 Grim 实例写入同一个中央数据库）。运行时
+#  MySQL 支持多服务器部署（多个 Cult 实例写入同一个中央数据库）。运行时
 #  需要 MySQL Connector/J 驱动；若驱动缺失，后端会在启动时自我禁用并打印
 #  清晰的错误日志，指向此后端的路由会回退到其他已配置的后端。
 # ===========================================================================
@@ -13,14 +13,14 @@ mysql:
   # 连接目标。
   host: "localhost"
   port: 3306
-  database: "grim"
+  database: "cult"
   user: "root"
   password: ""
 
   # HikariCP connection pool settings. These only apply to SQL backends
   # that use Hikari internally.
   pool-settings:
-    # Maximum physical database connections this Grim instance can keep open.
+    # Maximum physical database connections this Cult instance can keep open.
     maximum-pool-size: 10
     # Minimum idle connections kept warm. Keep equal to maximum-pool-size
     # for a fixed-size pool, or lower it if your database has tight limits.
@@ -44,15 +44,15 @@ mysql:
   # 者）提交。较高的值在持续突发下用延迟换取吞吐量。
   batch-flush-cap: 256
 
-  # 表名覆盖。可以重命名六个逻辑存储中的任意一个，从而让多个 Grim 实例
+  # 表名覆盖。可以重命名六个逻辑存储中的任意一个，从而让多个 Cult 实例
   # 共用同一个 MySQL 数据库，或对齐已有的企业命名规范。默认值见下方。
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # 模式标记 — 参见 config.yml 顶部的注释。
 config-flavor: V2

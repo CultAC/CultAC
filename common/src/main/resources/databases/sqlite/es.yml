@@ -17,7 +17,7 @@ sqlite:
   path: "data/history.v1.db"
 
   # El modo WAL permite que los lectores concurrentes operen junto al
-  # writer — esencial para un plugin que lee /grim history mientras escribe
+  # writer — esencial para un plugin que lee /cult history mientras escribe
   # violaciones.
   journal-mode: WAL
 

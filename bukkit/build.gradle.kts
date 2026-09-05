@@ -8,8 +8,8 @@ import versioning.BuildConfig
 
 plugins {
     `maven-publish`
-    grim.`base-conventions`
-    grim.`shadow-conventions`
+    cult.`base-conventions`
+    cult.`shadow-conventions`
     id("de.eldoria.plugin-yml.bukkit") version "0.8.0"
     id("xyz.jpenilla.run-paper") version "3.0.0-beta.1"
     id("io.papermc.paperweight.userdev")
@@ -32,15 +32,15 @@ repositories {
         includeGroup("me.clip")
     }
 
-    val grimPublicReleases = maven("https://maven.grim.ac/public/releases") {
+    val cultPublicReleases = maven("https://maven.grim.ac/public/releases") {
         mavenContent { releasesOnly() }
     }
-    val grimPublicSnapshots = maven("https://maven.grim.ac/public/snapshots") {
+    val cultPublicSnapshots = maven("https://maven.grim.ac/public/snapshots") {
         mavenContent { snapshotsOnly() }
     }
-    val grimLegacySnapshots = maven("https://repo.grim.ac/snapshots")
+    val cultLegacySnapshots = maven("https://repo.grim.ac/snapshots")
     exclusiveContent {
-        forRepositories(*listOfNotNull(localOverride, grimPublicReleases, grimPublicSnapshots, grimLegacySnapshots).toTypedArray())
+        forRepositories(*listOfNotNull(localOverride, cultPublicReleases, cultPublicSnapshots, cultLegacySnapshots).toTypedArray())
         filter {
             includeGroup("ac.grim.grimac")
         }
@@ -90,17 +90,18 @@ dependencies {
 
     implementation(libs.cloud.paper)
     implementation(libs.adventure.platform.bukkit)
-    implementation(libs.grim.bukkit.internal)
+    implementation(libs.cult.bukkit.internal)
 
     implementation(project(":common"))
     shadow(project(":common"))
 }
 
 bukkit {
-    name = "GrimAC"
-    author = "GrimAC"
-    main = "ac.grim.grimac.platform.bukkit.GrimACBukkitLoaderPlugin"
-    website = "https://grim.ac/"
+    name = "CultAC"
+    provides = listOf("GrimAC")
+    author = "CultAC"
+    main = "ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin"
+    website = "https://github.com/CultAC/CultAC"
     apiVersion = "1.13"
     foliaSupported = true
 
@@ -126,73 +127,73 @@ bukkit {
     )
 
     permissions {
-        register("grim.alerts") {
+        register("cult.alerts") {
             description = "Receive alerts for violations"
             default = Permission.Default.OP
         }
 
-        register("grim.alerts.enable-on-join") {
+        register("cult.alerts.enable-on-join") {
             description = "Enable alerts on join"
             default = Permission.Default.OP
         }
 
-        register("grim.performance") {
+        register("cult.performance") {
             description = "Check performance metrics"
             default = Permission.Default.OP
         }
 
-        register("grim.profile") {
+        register("cult.profile") {
             description = "Check user profile"
             default = Permission.Default.OP
         }
 
-        register("grim.brand") {
+        register("cult.brand") {
             description = "Show client brands on join"
             default = Permission.Default.OP
         }
 
-        register("grim.brand.enable-on-join") {
+        register("cult.brand.enable-on-join") {
             description = "Enable showing client brands on join"
             default = Permission.Default.OP
         }
 
-        register("grim.sendalert") {
+        register("cult.sendalert") {
             description = "Send cheater alert"
             default = Permission.Default.OP
         }
 
-        register("grim.nosetback") {
+        register("cult.nosetback") {
             description = "Disable setback"
             default = Permission.Default.FALSE
         }
 
-        register("grim.nomodifypacket") {
+        register("cult.nomodifypacket") {
             description = "Disable modifying packets"
             default = Permission.Default.FALSE
         }
 
-        register("grim.disabled") {
-            description = "Disable Grim checks while keeping player state tracked"
+        register("cult.disabled") {
+            description = "Disable Cult checks while keeping player state tracked"
             default = Permission.Default.FALSE
         }
 
-        register("grim.exempt") {
+        register("cult.exempt") {
             description = "Exempt from all checks"
             default = Permission.Default.FALSE
         }
 
-        register("grim.verbose") {
+        register("cult.verbose") {
             description = "Receive verbose alerts for violations"
             default = Permission.Default.OP
         }
 
-        register("grim.verbose.enable-on-join") {
+        register("cult.verbose.enable-on-join") {
             description =
                 "Enable verbose alerts on join"
             default = Permission.Default.FALSE
         }
 
-        register("grim.list") {
+        register("cult.list") {
             description =
                 "Shows lists of specific data"
             default = Permission.Default.FALSE
@@ -259,7 +260,7 @@ tasks.register<ShadowJar>("devShadowJar") {
     from(project(":legacy-placement-adapter").layout.buildDirectory.dir("classes/java/main"))
     configurations = listOf(project.configurations["runtimeClasspath"])
 
-    archiveFileName.set("GrimAC-dev.jar")
+    archiveFileName.set("CultAC-dev.jar")
     destinationDirectory.set(rootProject.layout.buildDirectory.dir("libs"))
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     exclude("META-INF/services/javax.annotation.processing.Processor")

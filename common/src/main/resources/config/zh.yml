@@ -1,7 +1,7 @@
-# config.yml - GrimAC 主要配置
-# 源代码链接: https://github.com/MWHunter/Grim
+# config.yml - CultAC 主要配置
+# 源代码链接: https://github.com/CultAC/CultAC
 # 版权所有 © 2025 DefineOutside 及贡献者 / 遵循 GPLv3 开源协议
-# 修改过的二进制文件，或带有复制的Grim代码的插件，必须是私有仓库，不得公开售卖此插件。
+# 修改过的二进制文件，或带有复制的Cult代码的插件，必须是私有仓库，不得公开售卖此插件。
 # 中文翻译提供 Regotly / nuym / Dg32z_ / tjshtqwq , 如有错误请提交 Issues 并@我们
 
 alerts:
@@ -30,31 +30,31 @@ client-brand:
         - "^lunarclient:v\\d+\\.\\d+\\.\\d+-\\d{4},(?:fabric|forge)$"
         - "^Feather Fabric$"
         - "^labymod$"
-    # Grim 将把包含内置攻击距离修改功能的特定 Forge 版本列入黑名单（Forge 1.18.2 至 1.19.3） 可能会导致1.18.2-1.19.3的Forge版本玩家无法进入服务器。
+    # Cult 将把包含内置攻击距离修改功能的特定 Forge 版本列入黑名单（Forge 1.18.2 至 1.19.3） 可能会导致1.18.2-1.19.3的Forge版本玩家无法进入服务器。
     # 将此选项设置为 false 将允许上述客户端连接服务器。禁用此选项需自行承担风险（建议打开）。
     disconnect-blacklisted-forge-versions: true
 
 spectators:
-    # 将拥有 grim.spectator 权限的人进行隐藏,不管他是否在观察玩家
+    # 将拥有 cult.spectator 权限的人进行隐藏,不管他是否在观察玩家
     hide-regardless: false
     # 观察者在这些世界不会隐藏
     allowed-worlds:
         - ""
 
-# 在玩家无法接收 GrimAC 的 transaction 数据包后,多少秒对玩家进行踢出
+# 在玩家无法接收 CultAC 的 transaction 数据包后,多少秒对玩家进行踢出
 # 默认踢出原因为: disconnect.timeout
 # 玩家超时踢出时间（单位：秒）（默认 = 60）
 max-transaction-time: 60
 
-# 启用此选项可禁止Grim取消接收到的Pong包。
+# 启用此选项可禁止Cult取消接收到的Pong包。
 # 可能会优化和其他反作弊的兼容性，但可能会与数据包限制器冲突
 # 在你不知道你在干什么的情况下，不要启用。
 disable-pong-cancelling: false
 
 # 是否应禁用默认的方块重新同步处理程序？
-# 默认情况下，Grim 会从服务器世界读取方块并将它们发送给客户端以修复不同步问题。
+# 默认情况下，Cult 会从服务器世界读取方块并将它们发送给客户端以修复不同步问题。
 # 如果您使用通过数据包创建虚假方块（在服务器世界中不存在）的插件，
-# 您应将其设置为 true，以防止 Grim用空气/真实方块覆盖它们。
+# 您应将其设置为 true，以防止 Cult用空气/真实方块覆盖它们。
 # 除非通过 API 提供了自定义处理程序，否则这将强制使用 "NoOp"（无操作）处理程序。
 disable-default-resync-handler: false
 
@@ -225,30 +225,30 @@ reset-item-usage-on-attack: true
 reset-item-usage-on-slot-change: true
 reset-item-usage-on-item-use: true
 
-# Grim有时会取消非法的数据包，比如Timer。
+# Cult有时会取消非法的数据包，比如Timer。
 # 在一秒钟内取消了多少个数据包后，我们应该踢掉这个玩家？
-# 我们认为你应该启用此项，因为有些数据包限制器并不记录被Grim取消的数据包。
+# 我们认为你应该启用此项，因为有些数据包限制器并不记录被Cult取消的数据包。
 packet-spam-threshold: 100
 # 启用此项可在玩家因 packet-spam-threshold 被踢时打印堆栈追踪
 debug-packet-cancel: false
 
-# 在玩家处于非飞行状态，且ping（延迟）大于多少毫秒后，Grim会踢出这个玩家？
+# 在玩家处于非飞行状态，且ping（延迟）大于多少毫秒后，Cult会踢出这个玩家？
 # 填写-1则关闭
 max-ping-out-of-flying: 1000
 
-# 当玩家使用鞘翅飞行，且ping（延迟）大于多少毫秒后，Grim会取消这个玩家正在使用的烟花火箭？
+# 当玩家使用鞘翅飞行，且ping（延迟）大于多少毫秒后，Cult会取消这个玩家正在使用的烟花火箭？
 # 可以避免高延迟玩家使用一个烟花火箭就可以一直飞行
 # 填写-1则关闭
 max-ping-firework-boost: 1000
 
 # 模式标记 — 除非你清楚自己在做什么，否则不要修改。
-#   config-flavor:  V2 = Grim 2.x 构建，V3 = Grim 3.x。如果配置的 flavor
+#   config-flavor:  V2 = Cult 2.x 构建，V3 = Cult 3.x。如果配置的 flavor
 #                   与插件构建不一致（例如用 V2 jar 打开 V3 配置），插件会
 #                   拒绝加载并立即报错，而不是悄悄合并到错误的键。
 #   config-version: 每次发生破坏性结构变更都会递增。下次启动时，旧配置会由
 #                   内置 updater 自动迁移。
-# 无论是否安装 LuckPerms，玩家加入服务器以及 Grim 重载时，Grim 都会刷新缓存的权限。
-# 在常规配置中，LuckPerms 的事件钩子也会立即刷新缓存的 Grim 权限。
+# 无论是否安装 LuckPerms，玩家加入服务器以及 Cult 重载时，Cult 都会刷新缓存的权限。
+# 在常规配置中，LuckPerms 的事件钩子也会立即刷新缓存的 Cult 权限。
 # 只有当在线权限变化没有被这些事件覆盖时，才需要这个定期兜底刷新，
 # 例如自定义 LuckPerms context 没有调用 signalContextUpdate、Fabric context
 # 存在缺口，或非 LuckPerms 权限提供器会在运行中改变权限。

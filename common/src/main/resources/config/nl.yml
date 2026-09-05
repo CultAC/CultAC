@@ -1,7 +1,7 @@
-# GrimAC configuratie
-# Broncode: https://github.com/MWHunter/Grim
+# CultAC configuratie
+# Broncode: https://github.com/CultAC/CultAC
 # Copyright 2025 DefineOutside en bijdragers, gelicentieerd onder GPLv3.
-# Gewijzigde binaire bestanden, of plugins met gekopieerde Grim code, moeten privé zijn,
+# Gewijzigde binaire bestanden, of plugins met gekopieerde Cult code, moeten privé zijn,
 # of met volledige broncode beschikbaar voor kopers zonder extra kosten.
 
 alerts:
@@ -29,12 +29,12 @@ client-brand:
         - "^lunarclient:v\\d+\\.\\d+\\.\\d+-\\d{4},(?:fabric|forge)$"
         - "^Feather Fabric$"
         - "^labymod$"
-    # Grim will blacklist specific Forge versions which include built-in Reach hacks (Forge 1.18.2 to 1.19.3).
+    # Cult will blacklist specific Forge versions which include built-in Reach hacks (Forge 1.18.2 to 1.19.3).
     # Setting this option to false will allow said clients to connect to the server. Disable this at your own risk.
     disconnect-blacklisted-forge-versions: true
 
 spectators:
-    # Verberg alle toeschouwers met de grim.spectator-toestemming, ongeacht of ze daadwerkelijk actief toeschouwer zijn
+    # Verberg alle toeschouwers met de cult.spectator-toestemming, ongeacht of ze daadwerkelijk actief toeschouwer zijn
     hide-regardless: false
     # Maakt toeschouwers alleen verborgen in deze werelden, houdt leeg om alle werelden toe te laten
     allowed-worlds:
@@ -43,15 +43,15 @@ spectators:
 # Hoe lang moeten spelers hebben voordat we ze schoppen voor timing-out? Standaard = 60 seconden
 max-transaction-time: 60
 
-# Enable this to stop Grim cancelling pongs received from players.
+# Enable this to stop Cult cancelling pongs received from players.
 # This may improve compatibility with other anticheats. It may cause issues with packet limiters.
 # Do not enable this if you are not sure what you are doing.
 disable-pong-cancelling: false
 
 # Moet de standaard block resynchronization handler worden uitgeschakeld?
-# Standaard leest Grim blokken van de serverwereld en stuurt ze naar de client om desync op te lossen.
+# Standaard leest Cult blokken van de serverwereld en stuurt ze naar de client om desync op te lossen.
 # Als je plugins gebruikt die neppe packet-based blokken maken (die niet in de serverwereld bestaan),
-# moet je dit op true zetten om te voorkomen dat Grim ze overschrijft met lucht/echte blokken.
+# moet je dit op true zetten om te voorkomen dat Cult ze overschrijft met lucht/echte blokken.
 # Dit forceert het gebruik van een "NoOp" (No Operation) handler tenzij er een aangepaste via de API wordt geleverd.
 disable-default-resync-handler: false
 
@@ -70,7 +70,7 @@ Simulation:
     # Hoe groot moet de afwijking van de beweging van de speler zijn?
     # Gemeten in blokken van de mogelijke beweging
     # We houden rekening met Optifine door trig-tabellen te verwisselen, maar door dit te verlagen naar 0,001 zal FastMath
-    # zal ervoor zorgen dat Grim wordt gemarkeerd als deze compensatie niet werkt...
+    # zal ervoor zorgen dat Cult wordt gemarkeerd als deze compensatie niet werkt...
     threshold: 0.001
     # Hoe groot is de overtreding in een tick voordat de speler onmiddellijk een terugslag krijgt?
     # -1 om uit te schakelen
@@ -107,7 +107,7 @@ RotationPlace:
     cancelvl: 5
 
 # Op voorspelling gebaseerde NoSlow-controle
-# Grim is verantwoordelijk voor buggy netcode hier... moeilijk om vals te spelen, zelfs als je met rechts klikt en de offhand-knop spamt
+# Cult is verantwoordelijk voor buggy netcode hier... moeilijk om vals te spelen, zelfs als je met rechts klikt en de offhand-knop spamt
 # Veel stabieler dan andere anticheats, maar rapporteer alsjeblieft alle falses... Ik heb hier een heleboel netcode-problemen opgelost.
 NoSlow:
     # Hoeveel van een offset is "valsspelen"?
@@ -204,14 +204,14 @@ reset-item-usage-on-attack: true
 reset-item-usage-on-slot-change: true
 reset-item-usage-on-item-use: true
 
-# Grim annuleert soms illegale pakketten zoals met timer, na X pakketten in een seconde geannuleerd, wanneer moeten
-# we de speler gewoon schoppen? Dit is nodig omdat sommige pakket-begrenzers pakketten die door grim worden geannuleerd niet tellen
+# Cult annuleert soms illegale pakketten zoals met timer, na X pakketten in een seconde geannuleerd, wanneer moeten
+# we de speler gewoon schoppen? Dit is nodig omdat sommige pakket-begrenzers pakketten die door cult worden geannuleerd niet tellen
 packet-spam-threshold: 100
 # Schakel dit in om een stacktrace af te drukken wanneer een speler wordt gekickt wegens packet-spam-threshold
 debug-packet-cancel: false
 
-# Grim kan afdwingen dat een speler die uit de vliegmodus is gezet niet meer dan X ms ping heeft
-# Dit komt doordat Grim momenteel vliegende spelers niet controleert
+# Cult kan afdwingen dat een speler die uit de vliegmodus is gezet niet meer dan X ms ping heeft
+# Dit komt doordat Cult momenteel vliegende spelers niet controleert
 # Om uit te schakelen, gebruik -1
 max-ping-out-of-flying: 1000
 
@@ -220,7 +220,7 @@ max-ping-out-of-flying: 1000
 max-ping-firework-boost: 1000
 
 # Schemamarkers — alleen aanpassen als je weet wat je doet.
-#   config-flavor:  V2 = Grim 2.x-build, V3 = Grim 3.x. De plugin weigert een
+#   config-flavor:  V2 = Cult 2.x-build, V3 = Cult 3.x. De plugin weigert een
 #                   config te laden waarvan de flavor niet overeenkomt met de
 #                   eigen build: een V3-config die door een V2-jar wordt
 #                   geopend, faalt direct in plaats van stilletjes te mergen
@@ -228,9 +228,9 @@ max-ping-firework-boost: 1000
 #   config-version: wordt verhoogd bij elke incompatibele vormwijziging. Oude
 #                   configs worden bij de volgende start automatisch
 #                   gemigreerd door de meegeleverde updater.
-# Grim vernieuwt gecachete permissies altijd wanneer een speler joint en wanneer
-# Grim wordt herladen, ongeacht of LuckPerms is geïnstalleerd.
-# LuckPerms-eventhooks vernieuwen gecachete Grim-permissies in normale setups ook meteen.
+# Cult vernieuwt gecachete permissies altijd wanneer een speler joint en wanneer
+# Cult wordt herladen, ongeacht of LuckPerms is geïnstalleerd.
+# LuckPerms-eventhooks vernieuwen gecachete Cult-permissies in normale setups ook meteen.
 # Deze periodieke fallback is alleen nodig voor online permissiewijzigingen die niet
 # door die events worden gedekt, zoals een aangepaste LuckPerms-context die
 # signalContextUpdate niet aanroept, ontbrekende Fabric-contextupdates of een

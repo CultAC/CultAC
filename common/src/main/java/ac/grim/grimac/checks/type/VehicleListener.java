@@ -1,8 +1,0 @@
-package ac.grim.grimac.checks.type;
-
-import ac.grim.grimac.utils.anticheat.update.VehiclePositionUpdate;
-
-public interface VehicleListener extends CheckListener {
-
-    void process(final VehiclePositionUpdate vehicleUpdate);
-}

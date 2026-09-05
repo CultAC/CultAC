@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+live_root="${CULT_PARITY_LIVE_ROOT:-"$repo_root/../CultAC/mcp-client-smoketest"}"
+artifact_dir="${CULT_PARITY_ARTIFACT_DIR:?CULT_PARITY_ARTIFACT_DIR is required}"
+agent="${CULT_PARITY_AGENT:-"$repo_root/parity/build/libs/cult-parity-agent.jar"}"
+
+# Paper changes its working directory to a per-trial server directory.  The
+# agent and the live runner must therefore receive the same absolute artifact
+# path; a relative path would leave the agent's JSONL beside the temporary
+# server instead of beside result.json.
+artifact_dir="$(realpath -m -- "$artifact_dir")"
+
+if [[ ! -x "$live_root/gradlew" ]]; then
+    echo "MCP/Paper live workspace is missing: $live_root" >&2
+    exit 2
+fi
+if [[ ! -f "$agent" ]]; then
+    echo "parity agent jar is missing: $agent" >&2
+    exit 2
+fi
+
+export CULT_PARITY_AGENT="$agent"
+export CULT_PARITY_AGENT_ARGUMENTS="inventory=$artifact_dir/inventory.jsonl;trace=$artifact_dir/semantic-trace.jsonl;methodTrace=full"
+export CULT_PARITY_OPTIONAL_STUBS="${CULT_PARITY_OPTIONAL_STUBS:-true}"
+export CULT_PARITY_DISABLE_SAFETY_AGENT="${CULT_PARITY_DISABLE_SAFETY_AGENT:-true}"
+
+heap="${REAL_VALIDATION_SERVER_JVM_HEAP:-4g}"
+cd "$live_root"
+exec ./gradlew cultParityLive --no-daemon --console=plain "-Psmoketest.jvmHeap=$heap"

@@ -1,5 +1,5 @@
 # ===========================================================================
-#  Datastore de Grim
+#  Datastore de Cult
 #
 #  Route les catégories du DataStore (violation / session / player-identity /
 #  setting / blob) vers des instances de backend concrètes. Chaque backend
@@ -19,7 +19,7 @@
 database:
 
   # Interrupteur principal. Mettre à false pour désactiver complètement
-  # l'historique des violations + /grim history. Les checks AC en direct
+  # l'historique des violations + /cult history. Les checks AC en direct
   # continuent de tourner ; les flags ne sont simplement pas persistés.
   enabled: true
 
@@ -96,7 +96,7 @@ database:
     group-interval-ms: 30000
 
   # Tag d'affichage estampillé sur les nouveaux enregistrements de session.
-  # Affiché dans la ligne d'en-tête de session de `/grim history`. Modifiable
+  # Affiché dans la ligne d'en-tête de session de `/cult history`. Modifiable
   # sans danger en cours d'opération.
   server-name: "ChangeMe"
 

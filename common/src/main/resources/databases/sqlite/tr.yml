@@ -18,7 +18,7 @@ sqlite:
   path: "data/history.v1.db"
 
   # WAL modu, yazıcı çalışırken eş zamanlı okuyucuların da çalışmasına
-  # izin verir — ihlalleri yazarken /grim history'i okuyan bir sunucu
+  # izin verir — ihlalleri yazarken /cult history'i okuyan bir sunucu
   # eklentisi için kritik.
   journal-mode: WAL
 

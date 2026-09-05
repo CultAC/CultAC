@@ -54,7 +54,7 @@ jobs:
         env:
             MODRINTH_ID: ${{ secrets.MODRINTH_ID }}
             MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
-            GRIM_MAIN_BRANCH: ${{ github.event.repository.default_branch }}
+            CULT_MAIN_BRANCH: ${{ github.event.repository.default_branch }}
             BUILD_UPDATE_TOKEN: ${{ secrets.BUILD_UPDATE_TOKEN }}
 
         steps:
@@ -87,8 +87,8 @@ jobs:
 
             - name: Set Git Environment Variables
               run: |
-                  echo "GRIM_GIT_REPO=${{ github.event.repository.name }}" >> $GITHUB_ENV
-                  echo "GRIM_GIT_ORG=${{ github.repository_owner }}" >> $GITHUB_ENV
+                  echo "CULT_GIT_REPO=${{ github.event.repository.name }}" >> $GITHUB_ENV
+                  echo "CULT_GIT_ORG=${{ github.repository_owner }}" >> $GITHUB_ENV
 
             - name: Compute version and Build with Gradle
               id: build_with_version
@@ -135,15 +135,15 @@ jobs:
             - name: Upload Bukkit Artifact
               uses: actions/upload-artifact@v6
               with:
-                  name: grimac-bukkit
-                  path: ${{ github.workspace }}/bukkit/build/libs/grimac-bukkit-${{ env.BUILD_VERSION }}.jar
+                  name: cultac-bukkit
+                  path: ${{ github.workspace }}/bukkit/build/libs/cultac-bukkit-${{ env.BUILD_VERSION }}.jar
                   if-no-files-found: error
 
             - name: Upload Fabric Artifact
               uses: actions/upload-artifact@v6
               with:
-                  name: grimac-fabric
-                  path: ${{ github.workspace }}/fabric/build/libs/grimac-fabric-${{ env.BUILD_VERSION }}.jar
+                  name: cultac-fabric
+                  path: ${{ github.workspace }}/fabric/build/libs/cultac-fabric-${{ env.BUILD_VERSION }}.jar
                   if-no-files-found: error
 
             #------------------------------------------------------------------
@@ -259,8 +259,8 @@ jobs:
                   modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
                   modrinth-featured: ${{ inputs.is-release-build }} # Only feature release builds
 
-                  files: fabric/build/libs/grimac-fabric-${{ env.BUILD_VERSION }}.jar
-                  name: Grim Anticheat (Fabric) ${{ env.BUILD_VERSION }}
+                  files: fabric/build/libs/cultac-fabric-${{ env.BUILD_VERSION }}.jar
+                  name: Cult Anticheat (Fabric) ${{ env.BUILD_VERSION }}
                   version: ${{ env.BUILD_VERSION }}
                   version-type: ${{ inputs.release-version-type }}
                   changelog: ${{ steps.changelog.outputs.notes }}
@@ -283,8 +283,8 @@ jobs:
                   modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
                   modrinth-featured: ${{ inputs.is-release-build }} # Only feature release builds
 
-                  files: bukkit/build/libs/grimac-bukkit-${{ env.BUILD_VERSION }}.jar
-                  name: Grim Anticheat (Bukkit) ${{ env.BUILD_VERSION }}
+                  files: bukkit/build/libs/cultac-bukkit-${{ env.BUILD_VERSION }}.jar
+                  name: Cult Anticheat (Bukkit) ${{ env.BUILD_VERSION }}
                   version: ${{ env.BUILD_VERSION }}
                   version-type: ${{ inputs.release-version-type }}
                   changelog: ${{ steps.changelog.outputs.notes }}
@@ -301,7 +301,7 @@ jobs:
               run: |
                   curl -X POST \
                     -H "Content-Type: application/json" \
-                    -H "User-Agent: GrimACBuilder/v1" \
+                    -H "User-Agent: CultACBuilder/v1" \
                     -H "Authorization: Bearer ${{ secrets.BUILD_UPDATE_TOKEN }}" \
                     -d '{"org": "${{ github.repository_owner }}", "repository": "${{ github.event.repository.name }}", "branch": "${{ github.ref_name }}", "version": "${{ env.BUILD_VERSION }}"}' \
                     "${{ secrets.BUILD_UPDATE_URL }}"
@@ -311,7 +311,7 @@ jobs:
               run: |
                   curl -X POST \
                     -H "Content-Type: application/json" \
-                    -H "User-Agent: GrimACBuilder/v1" \
+                    -H "User-Agent: CultACBuilder/v1" \
                     -H "Authorization: Bearer ${{ secrets.BUILD_UPDATE_TOKEN }}" \
                     -d '{"org": "${{ github.repository_owner }}", "repository": "${{ github.event.repository.name }}", "branch": "release", "version": "${{ env.BUILD_VERSION }}"}' \
                     "${{ secrets.BUILD_UPDATE_URL }}"

@@ -40,12 +40,12 @@ redis:
   # Schlüssel-Namespace-Overrides. Werden als Schlüssel-Präfix-Segmente
   # interpretiert (Redis hat keine nativen Tabellen). Defaults unten.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Schema-Marker — siehe Kopf-Kommentar in config.yml.
 config-flavor: V2

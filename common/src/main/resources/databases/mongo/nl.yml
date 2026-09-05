@@ -17,7 +17,7 @@ mongo:
 
   # Database om naar te schrijven. Collecties daarbinnen worden benoemd
   # via het `tables:`-blok hieronder.
-  database: "grim"
+  database: "cult"
 
   # bulkWrite()-grootte per handler. De Mongo-driver pooled verbindingen
   # intern, dus dit stuurt commit-batching, niet het aantal verbindingen.
@@ -25,12 +25,12 @@ mongo:
 
   # Overrides voor collectienamen. Defaults hieronder.
   tables:
-    meta: grim_meta
-    checks: grim_checks
-    players: grim_players
-    sessions: grim_sessions
-    violations: grim_violations
-    settings: grim_settings
+    meta: cult_meta
+    checks: cult_checks
+    players: cult_players
+    sessions: cult_sessions
+    violations: cult_violations
+    settings: cult_settings
 
 # Schemamarkers — zie de header-comment in config.yml.
 config-flavor: V2

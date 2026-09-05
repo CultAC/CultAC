@@ -1,5 +1,5 @@
 # \u00BB 表示 » (相当于缩小版的 >>), ANSI和UTF-8的显示方式有所不同,有时你甚至可以看到乱码.
-prefix: "&bGrim &8\u00BB"
+prefix: "&bCult &8\u00BB"
 
 alerts-enabled: "%prefix% &f警报 已开启"
 alerts-disabled: "%prefix% &f警报 已禁用"
@@ -15,7 +15,7 @@ reload-failed: "%prefix% &c重载配置失败."
 player-not-found: "%prefix% &c指定玩家不存在或离线!"
 player-not-this-server: "%prefix% &c指定玩家不在此服务器上！"
 sender-not-found: "%prefix% &c如果你被豁免，则无法使用此命令！"
-spectate-return: "<click:run_command:/grim stopspectating><hover:show_text:\"/grim stopspectating\">\n%prefix% &f点击这里返回之前的位置\n</hover></click>"
+spectate-return: "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &f点击这里返回之前的位置\n</hover></click>"
 cannot-spectate-return: "%prefix% &c您只能在观看玩家后执行此操作"
 cannot-run-on-self: "%prefix% &c你不能对自己使用此命令!"
 upload-log: "%prefix% &f已经将日志文件上传至: %url%"
@@ -58,73 +58,73 @@ profile:
     - "&7======================"
 help:
     - "&7======================"
-    - "/grim alerts &f- &7显示/隐藏 警报"
-    - "/grim brands &f- &7显示/隐藏 客户端名牌"
-    - "/grim profile <player> &f- &7查看玩家信息"
-    - "/grim help &f- &7查看此帮助消息"
-    - "/grim debug <player> &f- &7开发者预测输出"
-    - "/grim perf &f- &7开发者毫秒预测"
-    - "/grim reload &f- &7重新加载配置"
-    - "/grim spectate <player> &f- &7观看玩家"
-    - "/grim verbose &f- &7显示无缓冲区的每个拉回"
-    - "/grim log [1-999] &f- &7预测标志的调试日志"
-    - "/grim history <player> &f- &7查看会话列表（最新优先）"
-    - "/grim history <player> page <N> &f- &7跳转到会话列表的第 N 页"
-    - "/grim history <player> session <N|latest> [-d] [-v] &f- &7查看某次会话详情（最新违规优先）"
-    - "/grim history <player> session <N|latest> page <N> [-d] [-v] &f- &7查看会话详情的第 N 页违规"
+    - "/cult alerts &f- &7显示/隐藏 警报"
+    - "/cult brands &f- &7显示/隐藏 客户端名牌"
+    - "/cult profile <player> &f- &7查看玩家信息"
+    - "/cult help &f- &7查看此帮助消息"
+    - "/cult debug <player> &f- &7开发者预测输出"
+    - "/cult perf &f- &7开发者毫秒预测"
+    - "/cult reload &f- &7重新加载配置"
+    - "/cult spectate <player> &f- &7观看玩家"
+    - "/cult verbose &f- &7显示无缓冲区的每个拉回"
+    - "/cult log [1-999] &f- &7预测标志的调试日志"
+    - "/cult history <player> &f- &7查看会话列表（最新优先）"
+    - "/cult history <player> page <N> &f- &7跳转到会话列表的第 N 页"
+    - "/cult history <player> session <N|latest> [-d] [-v] &f- &7查看某次会话详情（最新违规优先）"
+    - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7查看会话详情的第 N 页违规"
     - "&7======================"
 
-# === /grim history ===
+# === /cult history ===
 # 基于会话的历史界面。下方所有行都是可配置的 MiniMessage 模板。
 # 默认悬停文本位于内联 <hover:show_text:'...'> 标签和下方的悬停片段键中；
 # 移除内联悬停即可使用渲染器 fallback。
 
-grim-history-load-failure: "%prefix% &c历史子系统加载失败！请检查服务器控制台中的错误。"
-grim-history-disabled: "%prefix% &c历史子系统已禁用！"
-grim-history-failed: "%prefix% &c历史加载失败：&7%error%"
-grim-history-unknown-player: "%prefix% &c未知玩家：&f%player%"
-grim-history-no-sessions: "%prefix% &7没有 &f%player% &7的会话历史。"
-grim-history-session-not-found: "%prefix% &c未找到 &f%player% &c的第 &f%ordinal% &c次会话。"
+cult-history-load-failure: "%prefix% &c历史子系统加载失败！请检查服务器控制台中的错误。"
+cult-history-disabled: "%prefix% &c历史子系统已禁用！"
+cult-history-failed: "%prefix% &c历史加载失败：&7%error%"
+cult-history-unknown-player: "%prefix% &c未知玩家：&f%player%"
+cult-history-no-sessions: "%prefix% &7没有 &f%player% &7的会话历史。"
+cult-history-session-not-found: "%prefix% &c未找到 &f%player% &c的第 &f%ordinal% &c次会话。"
 
 # 会话列表 — 可用占位符: %prefix% %player% %page% %max_pages%
-grim-history-header: "%prefix% &b显示 &f%player% 的会话历史 &8[&f%page%&7/&f%max_pages%&8]"
+cult-history-header: "%prefix% &b显示 &f%player% 的会话历史 &8[&f%page%&7/&f%max_pages%&8]"
 # 单条会话摘要 — 可用占位符:
-#   %prefix% %player% %ordinal% %grim_version% %server_name%
+#   %prefix% %player% %ordinal% %cult_version% %server_name%
 #   %client_version% %client_brand% %duration% %timeago%
 #   %violations% %unique_checks% %crashed_marker% %session_uuid% %detail_command%
 # 当会话因服务器崩溃、kill -9 或未触发 UserDisconnectEvent 的连接重置而非正常关闭时，
-# %crashed_marker% 会展开为 grim-history-crashed-marker；正在进行或正常关闭的会话则为空字符串。
-grim-history-session: "<hover:show_text:'&b会话 &7%session_uuid%<newline>&7点击或运行 &e%detail_command%<newline>&7查看会话详情。'>%prefix% &8[&b%grim_version%&8] &8[&b%server_name%&8] &8[&b%client_version%&8] &b第 &f%ordinal% &b次会话，时长 &f%duration%&b，含 &c%violations% &b次违规 &8[&c%unique_checks%&8]%crashed_marker% &8(&7%timeago% 前&8)</hover>"
+# %crashed_marker% 会展开为 cult-history-crashed-marker；正在进行或正常关闭的会话则为空字符串。
+cult-history-session: "<hover:show_text:'&b会话 &7%session_uuid%<newline>&7点击或运行 &e%detail_command%<newline>&7查看会话详情。'>%prefix% &8[&b%cult_version%&8] &8[&b%server_name%&8] &8[&b%client_version%&8] &b第 &f%ordinal% &b次会话，时长 &f%duration%&b，含 &c%violations% &b次违规 &8[&c%unique_checks%&8]%crashed_marker% &8(&7%timeago% 前&8)</hover>"
 
 # 替换到 %crashed_marker% 的内联标记：仅对 closed_at == last_activity 的会话显示
 # （即由下次启动的崩溃扫描而非正常断开路径标记的会话）。包含前导空格，
 # 这样存在时读起来自然，缺失时也会消失。
-grim-history-crashed-marker: " &8(&c崩溃&8)"
+cult-history-crashed-marker: " &8(&c崩溃&8)"
 
 # 会话详情 — 可用占位符:
-#   %prefix% %player% %ordinal% %grim_version% %server_name%
+#   %prefix% %player% %ordinal% %cult_version% %server_name%
 #   %client_version% %client_brand% %duration% %timeago%
 #   %violations% %unique_checks% %bucket_size%
-grim-history-detail-header: "%prefix% &b显示 &f%player% &b的第 &f%ordinal% &b次会话详情："
-grim-history-detail-meta1: "%prefix% &bGrim：&f%grim_version%&b，服务器：&f%server_name%&b，时长：&f%duration%&b，时间：&7%timeago% 前"
-grim-history-detail-meta2: "%prefix% &b客户端：&f%client_version%&b，品牌：&f%client_brand%"
-grim-history-detail-violations-header: "%prefix% &b违规：&8(共 %violations% 次，独立检查 %unique_checks% 个)"
-grim-history-detail-empty: "%prefix% &7- (无)"
+cult-history-detail-header: "%prefix% &b显示 &f%player% &b的第 &f%ordinal% &b次会话详情："
+cult-history-detail-meta1: "%prefix% &bCult：&f%cult_version%&b，服务器：&f%server_name%&b，时长：&f%duration%&b，时间：&7%timeago% 前"
+cult-history-detail-meta2: "%prefix% &b客户端：&f%client_version%&b，品牌：&f%client_brand%"
+cult-history-detail-violations-header: "%prefix% &b违规：&8(共 %violations% 次，独立检查 %unique_checks% 个)"
+cult-history-detail-empty: "%prefix% &7- (无)"
 # 分组行（默认） — 可用占位符: %prefix% %offset% %checks_list%
 #   %bucket_start% %bucket_end% %bucket_hover_entries%
-#   %checks_list% 是用 ", " 拼接 grim-history-check-count 项构成的列表
-grim-history-detail-group: "<hover:show_text:'&b%bucket_start%–%bucket_end% 内的违规:%bucket_hover_entries%'>%prefix% &7- %checks_list% &8(&b%offset%&8)</hover>"
-grim-history-detail-group-hover: "&b%bucket_start%–%bucket_end% 内的违规:%bucket_hover_entries%"
-grim-history-detail-group-hover-entry: "<newline>&8  %offset% &b%check%%description%%verbose%"
-grim-history-hover-description: " — &f%description%"
-grim-history-detail-group-hover-verbose: " — &7%verbose%"
+#   %checks_list% 是用 ", " 拼接 cult-history-check-count 项构成的列表
+cult-history-detail-group: "<hover:show_text:'&b%bucket_start%–%bucket_end% 内的违规:%bucket_hover_entries%'>%prefix% &7- %checks_list% &8(&b%offset%&8)</hover>"
+cult-history-detail-group-hover: "&b%bucket_start%–%bucket_end% 内的违规:%bucket_hover_entries%"
+cult-history-detail-group-hover-entry: "<newline>&8  %offset% &b%check%%description%%verbose%"
+cult-history-hover-description: " — &f%description%"
+cult-history-detail-group-hover-verbose: " — &7%verbose%"
 # 单条原始违规行（--detailed） — 可用占位符:
 #   %prefix% %offset% %check% %description% %vl% %verbose%
-grim-history-detail-entry: "%prefix% &7- &f%check% &8(&b%offset%&8)&7 %verbose%"
-grim-history-detail-entry-hover: "&b%check%%description%<newline>&8@ %offset% — vl %vl%%verbose%"
-grim-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
+cult-history-detail-entry: "%prefix% &7- &f%check% &8(&b%offset%&8)&7 %verbose%"
+cult-history-detail-entry-hover: "&b%check%%description%<newline>&8@ %offset% — vl %vl%%verbose%"
+cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
 # %checks_list% 中每个检查项的内部格式 — 可用占位符: %check_name% %count%
-grim-history-check-count: "&f%check_name%&7 x&c%count%"
+cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
 # 模式标记 — 参见 config.yml 顶部的注释。
 config-flavor: V2

@@ -1,0 +1,16 @@
+{
+  "development": {
+    "before_classes": 553,
+    "after_classes": 553,
+    "removed": [],
+    "added": [],
+    "changed_beyond_shaded_prefix": []
+  },
+  "production": {
+    "before_classes": 524,
+    "after_classes": 524,
+    "removed": [],
+    "added": [],
+    "changed_beyond_shaded_prefix": []
+  }
+}
