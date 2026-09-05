@@ -1,4 +1,4 @@
-package com.noxcrew.packet;
+package ac.cult.cultac.packet;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import io.netty.channel.ChannelPromise;

@@ -1,4 +1,4 @@
-package com.noxcrew.packet;
+package ac.cult.cultac.packet;
 
 import io.netty.channel.Channel;
 import net.minecraft.network.protocol.Packet;

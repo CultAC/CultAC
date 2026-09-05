@@ -1,4 +1,4 @@
-package com.noxcrew.packet;
+package ac.cult.cultac.packet;
 
 /** A function that unregisters a packet handler. */
 @FunctionalInterface

@@ -1,4 +1,4 @@
-package com.noxcrew.packet;
+package ac.cult.cultac.packet;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

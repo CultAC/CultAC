@@ -1,4 +1,4 @@
-package com.noxcrew.packet;
+package ac.cult.cultac.packet;
 
 /**
  * When registered via {@link PacketApi#registerListener(PacketListener)}, all functions annotated

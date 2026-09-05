@@ -1,4 +1,4 @@
-package com.noxcrew.packet;
+package ac.cult.cultac.packet;
 
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.Multimap;
