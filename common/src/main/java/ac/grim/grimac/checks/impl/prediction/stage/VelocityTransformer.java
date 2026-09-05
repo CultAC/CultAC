@@ -419,7 +419,9 @@ public class VelocityTransformer {
         List<PredVector> outputs = new ArrayList<>();
 
         for (PredVector vector : velocities) {
-            if (playerEntity && version.isNewerThan(ClientVersion.V_1_8)) {
+            // LivingEntity#aiStep switched players from per-axis cutoffs to a
+            // horizontal-length cutoff in 1.21.5. Ridden entities retain per-axis cutoffs.
+            if (playerEntity && version.isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
                 if (vector.x * vector.x + vector.z * vector.z < minimumMovement * minimumMovement) {
                     vector = vector.withX(0, "Inertia threshold").withZ(0, "Inertia threshold");
                 }
