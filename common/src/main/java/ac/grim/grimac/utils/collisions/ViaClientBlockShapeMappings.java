@@ -55,7 +55,7 @@ public final class ViaClientBlockShapeMappings {
 
     static Optional<CollisionBox> movement(GrimPlayer player, BlockData state, int x, int y, int z, double entityBottom) {
         Replacement replacement = replacement(player, state);
-        if (replacement == null || !replacement.movementChanged()) {
+        if (replacement == null) {
             return Optional.empty();
         }
 
@@ -66,7 +66,7 @@ public final class ViaClientBlockShapeMappings {
 
     static Optional<CollisionBox> visual(GrimPlayer player, BlockData state, int x, int y, int z) {
         Replacement replacement = replacement(player, state);
-        if (replacement == null || !replacement.visualChanged()) {
+        if (replacement == null) {
             return Optional.empty();
         }
 
@@ -109,15 +109,17 @@ public final class ViaClientBlockShapeMappings {
                 continue;
             }
 
-            List<ProtocolPathEntry> toServer = Via.getManager().getProtocolManager()
+            // Connection paths run client -> server, but block-state mappings
+            // translate clientbound packets, in the opposite direction/order.
+            List<ProtocolPathEntry> clientConnection = Via.getManager().getProtocolManager()
                     .getProtocolPath(version.getProtocolVersion(), serverProtocol);
-            List<ProtocolPathEntry> toClient = Via.getManager().getProtocolManager()
+            List<ProtocolPathEntry> serverConnection = Via.getManager().getProtocolManager()
                     .getProtocolPath(serverProtocol, version.getProtocolVersion());
-            if (toServer == null || toClient == null) {
+            if (clientConnection == null || serverConnection == null) {
                 continue;
             }
 
-            VersionMappings versionMappings = buildVersionMappings(toServer, toClient);
+            VersionMappings versionMappings = buildVersionMappings(serverConnection.reversed(), clientConnection.reversed());
             if (!versionMappings.isEmpty()) {
                 mappings.put(version, versionMappings);
             }
@@ -127,6 +129,14 @@ public final class ViaClientBlockShapeMappings {
     }
 
     private static VersionMappings buildVersionMappings(List<ProtocolPathEntry> toServer, List<ProtocolPathEntry> toClient) {
+        // Via loads mapping data asynchronously; a registered path does not mean
+        // its mappings are ready. Finish both directions before caching states.
+        for (ProtocolPathEntry entry : toServer) {
+            Via.getManager().getProtocolManager().completeMappingDataLoading(entry.protocol().getClass());
+        }
+        for (ProtocolPathEntry entry : toClient) {
+            Via.getManager().getProtocolManager().completeMappingDataLoading(entry.protocol().getClass());
+        }
         BitSet representedCurrentStates = representedCurrentStates(toServer);
         Map<Integer, Replacement> replacements = new HashMap<>();
         Set<Material> needsReplacementByMaterial = new HashSet<>();
@@ -150,12 +160,9 @@ public final class ViaClientBlockShapeMappings {
             }
 
             BlockState replacementState = Block.stateById(normalizedReplacement);
-            ShapeDifference difference = shapeDifference(state, replacementState);
             replacements.put(currentId, new Replacement(
                     replacementState,
-                    ac.grim.grimac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(replacementState),
-                    difference.movementChanged(),
-                    difference.visualChanged()));
+                    ac.grim.grimac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(replacementState)));
         }
 
         return new VersionMappings(replacements, Set.copyOf(needsReplacementByMaterial));
@@ -221,29 +228,6 @@ public final class ViaClientBlockShapeMappings {
         }
     }
 
-    private static ShapeDifference shapeDifference(BlockState state, BlockState replacementState) {
-        BlockData blockData = ac.grim.grimac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(state);
-        BlockData replacementData = ac.grim.grimac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(replacementState);
-
-        boolean movementChanged = false;
-        boolean visualChanged = false;
-        try {
-            CollisionBox originalMovement = NativeBlockCollisionHelper.getCollisionBox(null, blockData, 0, 0, 0, Double.NaN);
-            CollisionBox replacementMovement = NativeBlockCollisionHelper.getCollisionBox(null, replacementData, 0, 0, 0, Double.NaN);
-            movementChanged = !ClientBlockShapes.sameShape(originalMovement, replacementMovement);
-        } catch (RuntimeException ignored) {
-        }
-
-        try {
-            CollisionBox originalVisual = NativeBlockCollisionHelper.getSelectionBox(null, state, 0, 0, 0);
-            CollisionBox replacementVisual = NativeBlockCollisionHelper.getSelectionBox(null, replacementState, 0, 0, 0);
-            visualChanged = !ClientBlockShapes.sameShape(originalVisual, replacementVisual);
-        } catch (RuntimeException ignored) {
-        }
-
-        return new ShapeDifference(movementChanged, visualChanged);
-    }
-
     private static BlockState toBlockState(BlockData state) {
         if (state instanceof CraftBlockData craftBlockData) {
             return craftBlockData.getState();
@@ -288,12 +272,7 @@ public final class ViaClientBlockShapeMappings {
         }
     }
 
-    private record Replacement(BlockState blockState, BlockData blockData, boolean movementChanged, boolean visualChanged) {
+    private record Replacement(BlockState blockState, BlockData blockData) {
     }
 
-    private record ShapeDifference(boolean movementChanged, boolean visualChanged) {
-        boolean changed() {
-            return movementChanged || visualChanged;
-        }
-    }
 }
