@@ -2,6 +2,7 @@ package ac.grim.grimac.checks.impl.prediction;
 
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.api.event.events.CompletePredictionEvent;
+import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckInfo;
 import ac.grim.grimac.checks.impl.prediction.checks.psuedo.Speed;
@@ -12,9 +13,11 @@ import ac.grim.grimac.checks.type.PostPredictionListener;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import lombok.Getter;
+import org.bukkit.ChatColor;
 
 //@CheckData(name = "Simulation", configName = "Simulation", decay = 0.02)
 public class OffsetHandler extends Check implements PostPredictionListener {
+    private static final Verbose V = Verbose.of("{offset}");
     private static final CompletePredictionEvent.Channel COMPLETE_PREDICTION_CHANNEL =
             GrimAPI.INSTANCE.getEventBus().get(CompletePredictionEvent.class);
     // Config
@@ -55,7 +58,9 @@ public class OffsetHandler extends Check implements PostPredictionListener {
         if (COMPLETE_PREDICTION_CHANNEL.fire(getPlayer(), this, offset)) return;
 
         // Short circuit out flag call
-        if ((offset >= threshold || offset >= immediateSetbackThreshold) && flag()) {
+        if ((offset >= threshold || offset >= immediateSetbackThreshold)
+                && flag(V.write(verbose()).f64(offset),
+                () -> formatOffset(offset) + " " + ChatColor.DARK_GRAY + predictionResult.getIdentifier())) {
             advantageGained += offset;
 
             boolean isSetback = advantageGained >= maxAdvantage || offset >= immediateSetbackThreshold;
