@@ -317,6 +317,14 @@ public final class CompensatedWorldPistons {
         return playerBox;
     }
 
+    public boolean mayHavePushedOnLastClientTick(SimpleCollisionBox playerBox) {
+        // These boxes describe the block-entity phase captured at tick-end.
+        // Query before a later position correction replaces the player's box;
+        // that correction preserves Entity#onGround even when it removes the shove.
+        return usesClientTickEndPistonPhase()
+                && !tickPlayerInPistonPushingArea(playerBox.copy()).getPistonPush().isEmpty();
+    }
+
     PistonPushes tickPlayerInPistonPushingArea(SimpleCollisionBox playerBox) {
         Set<BlockFace> launches = new HashSet<>();
         SimpleCollisionBox pistonPushes = new SimpleCollisionBox();

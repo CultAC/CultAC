@@ -180,6 +180,17 @@ public class SimulationProcessor extends GrimProcessor implements PositionListen
                   this.couldPotentiallyTickSkip = true;
                }
             }
+            // Minecraft#tick runs piston block entities after LocalPlayer#tick
+            // and its movement packet. Entity#move(PISTON) can change onGround
+            // at that later boundary. Preserve the existing push approximation
+            // in the carried ground state, including across handleMovePlayer's
+            // position corrections, which do not assign Entity#onGround.
+            // Do this after idle travel too, so it affects the following tick.
+            if (this.currentPredictionVehicle() == null
+               && this.player.compensatedWorld.pistons.mayHavePushedOnLastClientTick(
+                  GetBoundingBox.getCollisionBoxForPlayer(this.player, this.player.x, this.player.y, this.player.z))) {
+               this.lastOnGround = DesyncStatus.UNKNOWN;
+            }
          }
       }
    }
