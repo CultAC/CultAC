@@ -15,6 +15,7 @@ Punishments:
     # Örnek olarak, !BadPacketsN
     checks:
       - "Simulation"
+      - "BedrockMovement"
       - "GroundSpoof"
       - "Timer"
       - "NoFall"

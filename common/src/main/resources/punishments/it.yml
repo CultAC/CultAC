@@ -11,6 +11,7 @@ Punishments:
     remove-violations-after: 300
     checks:
       - "Simulation"
+      - "BedrockMovement"
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
