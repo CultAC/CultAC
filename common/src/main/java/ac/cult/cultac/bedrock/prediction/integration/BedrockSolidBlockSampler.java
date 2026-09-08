@@ -8,13 +8,12 @@ import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
+import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.AABB;
 
 final class BedrockSolidBlockSampler {
     private final BedrockFluidBlockSampler fluidBlocks;
@@ -47,22 +46,13 @@ final class BedrockSolidBlockSampler {
             String javaState,
             BedrockCollisionWorldBuilder worldBuilder
     ) {
-        List<AABB> nativeBoxes = NativeBlockCollisionHelper.getCollisionShape(
-                player,
-                blockState,
-                position.x(),
-                position.y(),
-                position.z()).toAabbs();
-        List<WorldCollisionBox> boxes = new ArrayList<>(nativeBoxes.size());
-        for (AABB box : nativeBoxes) {
+        List<SimpleCollisionBox> collisionBoxes = new ArrayList<>();
+        ClientBlockShapes.movement(player, blockState, position.x(), position.y(), position.z())
+                .downCast(collisionBoxes);
+        List<WorldCollisionBox> boxes = new ArrayList<>(collisionBoxes.size());
+        for (SimpleCollisionBox box : collisionBoxes) {
             if (box.maxX > box.minX && box.maxY > box.minY && box.maxZ > box.minZ) {
-                boxes.add(new WorldCollisionBox(
-                        box.minX + position.x(),
-                        box.minY + position.y(),
-                        box.minZ + position.z(),
-                        box.maxX + position.x(),
-                        box.maxY + position.y(),
-                        box.maxZ + position.z()));
+                boxes.add(new WorldCollisionBox(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ));
             }
         }
         return PlacedBlockCollision.sampled(

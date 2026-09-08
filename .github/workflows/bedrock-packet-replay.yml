@@ -21,7 +21,6 @@ permissions:
 
 env:
   BEDROCK_PACKET_REPLAY_REPOSITORY: CultAC/BedrockPacketReplay
-  MAPPINGS_GENERATOR_REPOSITORY: CultAC/mappings-generator
   BEDROCK_SMOKETEST_SCENARIOS_REPOSITORY: CultAC/bedrock-smoketest-scenarios
 
 jobs:
@@ -35,6 +34,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: cultac
+          submodules: recursive
+          token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
           persist-credentials: false
 
       - name: Use local CultAC checkout for act
@@ -68,16 +69,6 @@ jobs:
         with:
           repository: ${{ env.BEDROCK_SMOKETEST_SCENARIOS_REPOSITORY }}
           path: bedrock-smoketest-scenarios
-          persist-credentials: false
-          token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
-          fetch-depth: 1
-
-      - name: Check out mappings generator
-        if: env.ACT != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.MAPPINGS_GENERATOR_REPOSITORY }}
-          path: mappings-generator
           persist-credentials: false
           token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
           fetch-depth: 1
@@ -118,22 +109,17 @@ jobs:
             echo "act validation requires mounting mappings-generator at /tmp/mappings-generator" >&2
             exit 1
           fi
-          mkdir -p mappings-generator
+          mkdir -p cultac/mappings-generator
           tar -C /tmp/mappings-generator \
             --exclude=.git \
             --exclude=.gradle \
-            -cf - . | tar -xf - -C mappings-generator
+            -cf - . | tar -xf - -C cultac/mappings-generator
 
       - name: Set up Java 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "25"
-
-      - name: Generate Bedrock collision overrides
-        working-directory: mappings-generator
-        run: |
-          ./gradlew generateCultacBedrockCollisionOverrides --no-daemon --console=plain
 
       - name: Build CultAC
         working-directory: cultac

@@ -43,7 +43,6 @@ env:
   SMOKETEST_JVM_HEAP: "2g"
   SMOKETEST_SERVER_JVM_XMS: "512m"
   SMOKETEST_SERVER_JVM_HEAP: "1536m"
-  MAPPINGS_GENERATOR_REPOSITORY: CultAC/mappings-generator
 
 jobs:
   smoketest:
@@ -128,6 +127,8 @@ jobs:
           repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
           path: cultac
+          submodules: recursive
+          token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
           persist-credentials: false
           fetch-depth: 1
 
@@ -186,16 +187,6 @@ jobs:
           copy_real_validation_cache "paper"
           copy_real_validation_cache "plugins/Geyser-Spigot.jar"
 
-      - name: Check out mappings generator
-        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.MAPPINGS_GENERATOR_REPOSITORY }}
-          path: mappings-generator
-          persist-credentials: false
-          token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
-          fetch-depth: 1
-
       - name: Use local mappings generator checkout for act
         if: steps.decision.outputs.allowed == 'true' && env.ACT == 'true'
         run: |
@@ -204,11 +195,11 @@ jobs:
             echo "act validation requires mounting mappings-generator at /tmp/mappings-generator" >&2
             exit 1
           fi
-          mkdir -p mappings-generator
+          mkdir -p cultac/mappings-generator
           tar -C /tmp/mappings-generator \
             --exclude=.git \
             --exclude=.gradle \
-            -cf - . | tar -xf - -C mappings-generator
+            -cf - . | tar -xf - -C cultac/mappings-generator
 
       - name: Set up Java 25
         if: steps.decision.outputs.allowed == 'true'
@@ -349,12 +340,6 @@ jobs:
           fi
           echo "ready=$ready" >> "$GITHUB_OUTPUT"
           echo "Smoketest server runtime ready: $ready"
-
-      - name: Generate Bedrock collision overrides
-        if: steps.decision.outputs.allowed == 'true'
-        working-directory: mappings-generator
-        run: |
-          ./gradlew generateCultacBedrockCollisionOverrides --no-daemon --console=plain
 
       - name: Set up smoketest server runtime
         if: steps.decision.outputs.allowed == 'true' && steps.server-runtime.outputs.ready != 'true'

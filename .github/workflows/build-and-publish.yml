@@ -63,6 +63,8 @@ jobs:
               with:
                   persist-credentials: false
                   fetch-depth: 0
+                  submodules: recursive
+                  token: ${{ secrets.SMOKETEST_REPO_TOKEN || github.token }}
 
             - name: Set up JDK 25
               uses: actions/setup-java@v4

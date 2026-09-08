@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.collisions;
 
 import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
+import ac.cult.cultac.bedrock.prediction.geometry.BedrockServerStateMappings;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideShape;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockAabb;
@@ -9,6 +10,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.ComplexCollisionBox;
@@ -27,24 +29,38 @@ import org.bukkit.craftbukkit.block.data.CraftBlockData;
 import org.bukkit.inventory.ItemStack;
 
 public final class BedrockClientBlockShapeMappings {
+    // The bundled generator targets the latest Java version supported by this CultAC build.
+    private static final ClientVersion CATALOG_JAVA_VERSION = ClientVersion.V_26_2;
+    private static final BedrockCollisionOverrideCatalog NATIVE_FALLBACK = BedrockCollisionOverrideCatalog.nativeFallback();
     private static final AtomicReference<Snapshot> SNAPSHOT = new AtomicReference<>(Snapshot.empty());
 
     private BedrockClientBlockShapeMappings() {
     }
 
     public static void initialize() {
-        try {
-            Snapshot snapshot = build(BedrockCollisionOverrideCatalog.bundled());
-            SNAPSHOT.set(snapshot);
-            LogUtil.info("[ClientBlockShapes] Bedrock collision override cache: "
-                    + snapshot.staticMovementCount() + " static movement states, "
-                    + snapshot.dynamicMovementCount() + " dynamic movement states, "
-                    + snapshot.clientComputedMovementCount() + " client-computed movement states, "
-                    + snapshot.shapeCount() + " unique override shapes.");
-        } catch (RuntimeException exception) {
-            SNAPSHOT.set(Snapshot.empty());
-            LogUtil.warn("[ClientBlockShapes] Failed to build Bedrock collision override cache: " + exception.getMessage());
-        }
+        BedrockCollisionOverrideCatalog artifact = BedrockCollisionOverrideCatalog.bundled();
+        int serverProtocol = net.minecraft.SharedConstants.getProtocolVersion();
+        int[] mappings = BedrockServerStateMappings.create(serverProtocol, Block.BLOCK_STATE_REGISTRY.size(),
+                CATALOG_JAVA_VERSION.getProtocolVersion(), artifact.javaStateCount());
+        Snapshot snapshot = build(artifact.forServerStates(mappings));
+        SNAPSHOT.set(snapshot);
+        LogUtil.info("[ClientBlockShapes] Bedrock collision cache: server protocol " + serverProtocol
+                + " -> catalog protocol " + CATALOG_JAVA_VERSION.getProtocolVersion() + ", " + mappings.length
+                + " translated states, " + snapshot.staticMovementCount() + " static movement states, "
+                + snapshot.dynamicMovementCount() + " dynamic movement states.");
+    }
+
+    public static BedrockCollisionOverrideCatalog catalog() {
+        BedrockCollisionOverrideCatalog catalog = SNAPSHOT.get().catalog();
+        return catalog == null ? NATIVE_FALLBACK : catalog;
+    }
+
+    public static boolean isInitialized() {
+        return SNAPSHOT.get().catalog() != null;
+    }
+
+    public static void clear() {
+        SNAPSHOT.set(Snapshot.empty());
     }
 
     static Optional<CollisionBox> movement(CultPlayer player, BlockData state, int x, int y, int z) {
@@ -55,12 +71,13 @@ public final class BedrockClientBlockShapeMappings {
         if (blockState == null) {
             return Optional.empty();
         }
-        Entry entry = SNAPSHOT.get().entry(Block.getId(blockState));
+        Snapshot snapshot = SNAPSHOT.get();
+        Entry entry = snapshot.entry(Block.getId(blockState));
         if (entry == null) {
             return Optional.empty();
         }
         if (entry.dynamicMovement()) {
-            return buildDynamicMovement(player, blockState, x, y, z);
+            return buildDynamicMovement(snapshot.catalog(), player, blockState, x, y, z);
         }
         return Optional.of(entry.movement().copy().offset(x, y, z));
     }
@@ -85,14 +102,17 @@ public final class BedrockClientBlockShapeMappings {
                 entries.put(javaStateId, new Entry(movement, false, true));
                 continue;
             }
-            override.ifPresent(shape -> entries.put(javaStateId, new Entry(fromLocalBoxes(shape.boxes()), false, false)));
+            Optional<CollisionBox> movement = override.map(shape -> fromLocalBoxes(shape.boxes()))
+                    .or(() -> VersionedJavaBlockShapes.movement(CATALOG_JAVA_VERSION,
+                            ac.cult.cultac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(state), 0, 0, 0));
+            movement.ifPresent(shape -> entries.put(javaStateId, new Entry(shape, false, false)));
         }
-        return new Snapshot(Map.copyOf(entries), catalog.shapeCount());
+        return new Snapshot(Map.copyOf(entries), catalog.shapeCount(), catalog);
     }
 
-    private static Optional<CollisionBox> buildDynamicMovement(CultPlayer player, BlockState state, int x, int y, int z) {
+    private static Optional<CollisionBox> buildDynamicMovement(BedrockCollisionOverrideCatalog catalog, CultPlayer player, BlockState state, int x, int y, int z) {
         BlockPosition position = new BlockPosition(x, y, z);
-        BlockCollisionWorld world = new BedrockCollisionWorldBuilder(BedrockCollisionOverrideCatalog.bundled())
+        BlockCollisionWorld world = new BedrockCollisionWorldBuilder(catalog)
                 .build(Map.of(position, state), bedrockQuery(player, position, state));
         return Optional.of(world.blockAt(position)
                 .map(block -> fromWorldBoxes(block.collisionBoxes()))
@@ -174,9 +194,9 @@ public final class BedrockClientBlockShapeMappings {
         return new SimpleCollisionBox(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ());
     }
 
-    record Snapshot(Map<Integer, Entry> entries, int shapeCount) {
+    record Snapshot(Map<Integer, Entry> entries, int shapeCount, BedrockCollisionOverrideCatalog catalog) {
         static Snapshot empty() {
-            return new Snapshot(Map.of(), 0);
+            return new Snapshot(Map.of(), 0, null);
         }
 
         Entry entry(int stateId) {
@@ -214,7 +234,7 @@ public final class BedrockClientBlockShapeMappings {
         }
     }
 
-    private record Entry(
+    record Entry(
             CollisionBox movement,
             boolean dynamicMovement,
             boolean clientComputedMovement

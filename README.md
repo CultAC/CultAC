@@ -66,7 +66,7 @@ migration schema names remain unchanged for compatibility.
 
 ## Compiling From Source
 
-1. `git clone <this repository>`
+1. `git clone --recurse-submodules <this repository>`
 2. `cd` into the cloned directory
 3. `./gradlew build`
 4. The final jar is at `bukkit/build/libs/`

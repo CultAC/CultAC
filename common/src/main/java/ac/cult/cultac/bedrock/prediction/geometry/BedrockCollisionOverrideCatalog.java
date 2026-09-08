@@ -112,6 +112,11 @@ public final class BedrockCollisionOverrideCatalog {
         }
     }
 
+    /** No generated overrides or metadata: retain the engine's native fallback behavior. */
+    public static BedrockCollisionOverrideCatalog nativeFallback() {
+        return new BedrockCollisionOverrideCatalog(null, null, List.of(), Map.of(), Map.of());
+    }
+
     private static BedrockCollisionOverrideCatalog loadBundled() {
         try (InputStream input = BedrockCollisionOverrideCatalog.class.getClassLoader().getResourceAsStream(BUNDLED_RESOURCE)) {
             if (input == null) {
@@ -121,6 +126,40 @@ public final class BedrockCollisionOverrideCatalog {
         } catch (IOException exception) {
             throw new IllegalStateException("failed to load Bedrock collision override resource " + BUNDLED_RESOURCE, exception);
         }
+    }
+
+    public int javaStateCount() {
+        int count = integer(summary.get("javaStateCount"), "summary.javaStateCount");
+        if (count <= 0) {
+            throw new IllegalArgumentException("Catalog Java state count must be positive");
+        }
+        return count;
+    }
+
+    /** Rekeys both sparse tables without interpreting catalog IDs as native states. */
+    public BedrockCollisionOverrideCatalog forServerStates(int[] serverToCatalog) {
+        int count = javaStateCount();
+        if (byJavaStateId.keySet().stream().anyMatch(id -> id < 0 || id >= count)
+                || blockPropertyMasksByJavaStateId.keySet().stream().anyMatch(id -> id < 0 || id >= count)) {
+            throw new IllegalArgumentException("Catalog contains state IDs outside its declared registry");
+        }
+        Map<Integer, BedrockCollisionOverrideShape> overrides = new LinkedHashMap<>();
+        Map<Integer, Long> masks = new LinkedHashMap<>();
+        for (int serverId = 0; serverId < serverToCatalog.length; serverId++) {
+            int catalogId = serverToCatalog[serverId];
+            if (catalogId < 0 || catalogId >= count) {
+                throw new IllegalArgumentException("Invalid catalog ID " + catalogId + " for server state " + serverId);
+            }
+            BedrockCollisionOverrideShape shape = byJavaStateId.get(catalogId);
+            if (shape != null) {
+                overrides.put(serverId, shape);
+            }
+            Long mask = blockPropertyMasksByJavaStateId.get(catalogId);
+            if (mask != null) {
+                masks.put(serverId, mask);
+            }
+        }
+        return new BedrockCollisionOverrideCatalog(source, summary, shapes, overrides, masks);
     }
 
     public Optional<BedrockCollisionOverrideShape> override(int javaStateId) {

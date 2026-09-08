@@ -76,21 +76,28 @@ public final class GeyserBedrockBridgeRuntime {
             return;
         }
 
-        started = true;
-
         if (!GeyserUtil.isGeyserAvailable()) {
             return;
         }
+        started = true;
 
         GeyserUtil.forceForwardPlayerPing();
-        BedrockClientBlockShapeMappings.initialize();
+        refreshCollisionMappings();
+        if (ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil.isAvailable()
+                && !com.viaversion.viaversion.api.Via.getManager().isInitialized()) {
+            com.viaversion.viaversion.api.Via.getManager().addPostEnableListener(() -> {
+                if (started) {
+                    refreshCollisionMappings();
+                }
+            });
+        }
 
         EventRegistrar owner = EventRegistrar.of(CultAPI.INSTANCE.getPlugin());
         eventOwner = owner;
 
         GeyserApi.api().eventBus().subscribe(owner, GeyserPostReloadEvent.class, event -> {
             GeyserUtil.forceForwardPlayerPing();
-            BedrockClientBlockShapeMappings.initialize();
+            refreshCollisionMappings();
         });
         GeyserApi.api().eventBus().subscribe(owner, SessionInitializeEvent.class, event -> installPacketTap(event.connection()));
         GeyserApi.api().eventBus().subscribe(owner, SessionLoginEvent.class, event -> {
@@ -115,7 +122,19 @@ public final class GeyserBedrockBridgeRuntime {
             tap.detach();
         }
         PACKET_TAPS.clear();
+        BedrockClientBlockShapeMappings.clear();
         started = false;
+    }
+
+    private static synchronized void refreshCollisionMappings() {
+        try {
+            BedrockClientBlockShapeMappings.initialize();
+        } catch (RuntimeException | LinkageError failure) {
+            LogUtil.warn("Bedrock collision initialization failed; "
+                    + (BedrockClientBlockShapeMappings.isInitialized()
+                    ? "keeping the last valid collision cache: "
+                    : "using native collision fallback: ") + failure);
+        }
     }
 
     private static void onSessionDisconnect(SessionDisconnectEvent event) {

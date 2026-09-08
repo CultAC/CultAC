@@ -32,6 +32,19 @@ import net.minecraft.world.level.block.state.properties.Half;
 public final class BedrockCollisionWorldBuilder {
     private static final double POWDER_SNOW_ABOVE_EPSILON = 1.1920929E-7D;
 
+    private static final net.minecraft.tags.TagKey<Block> BARS_TAG = optionalBarsTag();
+
+    @SuppressWarnings("unchecked")
+    private static net.minecraft.tags.TagKey<Block> optionalBarsTag() {
+        try {
+            return (net.minecraft.tags.TagKey<Block>) BlockTags.class.getField("BARS").get(null);
+        } catch (NoSuchFieldException absentOnOlderServer) {
+            return null;
+        } catch (IllegalAccessException exception) {
+            throw new ExceptionInInitializerError(exception);
+        }
+    }
+
     private final BedrockCollisionOverrideCatalog catalog;
 
     public BedrockCollisionWorldBuilder(BedrockCollisionOverrideCatalog catalog) {
@@ -230,7 +243,7 @@ public final class BedrockCollisionWorldBuilder {
     }
 
     private static boolean thinFenceBlock(BlockState state) {
-        return state.getBlock() instanceof IronBarsBlock || state.is(net.minecraft.tags.BlockTags.BARS);
+        return state.getBlock() instanceof IronBarsBlock || BARS_TAG != null && state.is(BARS_TAG);
     }
 
     private static boolean chorusPlantBlock(BlockState state) {
@@ -479,6 +492,6 @@ public final class BedrockCollisionWorldBuilder {
     }
 
     public static String javaIdentifier(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+        return ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil.registryKey(BuiltInRegistries.BLOCK, state.getBlock());
     }
 }

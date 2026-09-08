@@ -172,7 +172,7 @@ final class BedrockMovementInputFactory {
     }
 
     private BedrockCollisionOverrideCatalog geometryCatalog() {
-        return BedrockCollisionOverrideCatalog.bundled();
+        return ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings.catalog();
     }
 
 }

@@ -65,32 +65,34 @@ val bedrockMovementCollisionOverridesResource = layout.buildDirectory.file(
     "generated-resources/bedrock-movement/bedrock/cultac-bedrock-collision-overrides.json.gz"
 )
 
+// Keep the generator on its own Gradle wrapper; it uses a different plugin stack.
+val mappingsGeneratorDirectory = rootProject.layout.projectDirectory.dir("mappings-generator")
+val generateBedrockMovementCollisionOverrides = tasks.register<Exec>("generateBedrockMovementCollisionOverrides") {
+    group = "build"
+    description = "Generates the required Bedrock collision catalog using the pinned mappings submodule."
+    workingDir(mappingsGeneratorDirectory)
+    commandLine("./gradlew", "generateCultacBedrockCollisionOverrides", "--no-daemon", "--console=plain")
+    doFirst {
+        if (!mappingsGeneratorDirectory.file("gradlew").asFile.isFile) {
+            throw GradleException(
+                "Mappings generator submodule is missing. Run `git submodule update --init --recursive` from the repository root."
+            )
+        }
+    }
+}
+
 val prepareBedrockMovementCollisionOverrides = tasks.register("prepareBedrockMovementCollisionOverrides") {
     group = "build"
     description = "Bundles the generated sparse Bedrock collision overrides used by Bedrock movement validation."
-    val candidates = listOf(
-        layout.projectDirectory.file("../mappings-generator/build/generated/cultac-bedrock-collision-overrides.json.gz"),
-        layout.projectDirectory.file("mappings-generator/build/generated/cultac-bedrock-collision-overrides.json.gz"),
-        layout.projectDirectory.file("../bedrock-movement-smoketest/build/generated/bedrock/cultac-bedrock-collision-overrides.json.gz"),
-        rootProject.layout.projectDirectory.file("../CultAC/mappings-generator/build/generated/cultac-bedrock-collision-overrides.json.gz")
-    )
-    inputs.files(candidates)
+    dependsOn(generateBedrockMovementCollisionOverrides)
+    val catalog = mappingsGeneratorDirectory.file("build/generated/cultac-bedrock-collision-overrides.json.gz")
+    inputs.file(catalog)
     outputs.file(bedrockMovementCollisionOverridesResource)
-
     doLast {
-        val source = candidates
-            .map { it.asFile }
-            .firstOrNull { it.isFile }
-            ?: throw GradleException(
-                "Generated Bedrock collision override catalog not found. Run collision override generation first, "
-                    + "for example `cd ../mappings-generator && "
-                    + "./gradlew generateCultacBedrockCollisionOverrides`. Checked: "
-                    + candidates.joinToString { it.asFile.absolutePath }
-            )
+        check(catalog.asFile.isFile) { "Mappings generator did not produce ${catalog.asFile}." }
         copy {
-            from(source)
+            from(catalog)
             into(bedrockMovementCollisionOverridesResource.get().asFile.parentFile)
-            rename { "cultac-bedrock-collision-overrides.json.gz" }
         }
     }
 }
