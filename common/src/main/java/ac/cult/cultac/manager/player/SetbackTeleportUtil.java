@@ -194,7 +194,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         if (player.getSetbackTeleportUtil().debug) {
             LogUtil.warn("Setback sent to " + player.getName() + ", non simulating");
         }
-        blockMovementsUntilResync(false, // simulate next tick
+        blockMovementsUntilResync(false, // timer and other non-simulating setbacks must not advance a tick
                 false, // full resync
                 false); // ignore if no forced change
     }
@@ -305,46 +305,53 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 : !player.isBedrockMovement() && lastPrediction != null
                 && lastPrediction.getSimulationContext().getLastOnGround().determinePessimistically();
 
-        // Mini prediction engine - simulate collisions
-        if (!player.isBedrockMovement() && simulateNext && lastPrediction != null
+        // Use Java's correction tick for both platforms. The caller owns whether
+        // a tick is allowed: timer setbacks must stay on the non-simulating path.
+        if (simulateNext && lastPrediction != null
                 && !player.compensatedEntities.getSelf().inVehicle()) {
             SimpleCollisionBox oldBB = player.boundingBox;
-            player.boundingBox = GetBoundingBox.getPlayerBoundingBox(player, position.x, position.y, position.z);
+            try {
+                player.boundingBox = GetBoundingBox.getPlayerBoundingBox(player, position.x, position.y, position.z);
 
-            final PredVector thresholdInput = new PredVector(clientVel);
-            clientVel = VelocityTransformer.applyMovementThreshold(Collections.singletonList(thresholdInput), player.getClientVersion()).get(0);
+                final PredVector thresholdInput = new PredVector(clientVel);
+                clientVel = VelocityTransformer.applyMovementThreshold(Collections.singletonList(thresholdInput), player.getClientVersion()).get(0);
 
-            Vec3 collide = Collisions.collide(player, clientVel.x, clientVel.y, clientVel.z);
+                Vec3 collide = Collisions.collide(player, clientVel.x, clientVel.y, clientVel.z);
+                if (player.isBedrockMovement()) {
+                    // doesn't matter on bedrock players except the synthetic movement
+                    expectedOnGround = clientVel.y < 0.0D && clientVel.y != collide.y;
+                }
 
-            // We don't want to make it IMPOSSIBLE for high ping players to play after taking knockback
-            // If the player isn't really moving at all, don't bother
-            if (ignoreUnchanged && collide.lengthSqr() < 0.001 * 0.001) {
-                return;
+                // We don't want to make it IMPOSSIBLE for high ping players to play after taking knockback
+                // If the player isn't really moving at all, don't bother
+                if (ignoreUnchanged && collide.lengthSqr() < 0.001 * 0.001) {
+                    return;
+                }
+
+                SimulationContext context = lastPrediction.getSimulationContext();
+
+                Vec3 stuckSpeedMultiplier = context.getWorldData().getStuckSpeed().getStuckSpeedMultiplier();
+
+                position = new Vec3(position.x + collide.x, position.y, position.z);
+                // 1.8 players need the collision epsilon to not phase into blocks when being setback
+                // Due to simulation, this will not allow a flight bypass by sending a billion invalid movements
+                position = new Vec3(position.x, position.y + collide.y, position.z);
+                position = new Vec3(position.x, position.y, position.z + collide.z);
+
+                if (stuckSpeedMultiplier != null) {
+                    final Vec3 slowedVel = clientVel.multiply(stuckSpeedMultiplier);
+                    clientVel = slowedVel;
+                }
+
+                if (clientVel.x != collide.x) clientVel = new Vec3(0, clientVel.y, clientVel.z);
+                if (clientVel.y != collide.y) clientVel = new Vec3(clientVel.x, 0, clientVel.z);
+                if (clientVel.z != collide.z) clientVel = new Vec3(clientVel.x, clientVel.y, 0);
+
+
+                clientVel = simulateFriction(clientVel, context.getWorldData().getInWater().determineOptimistically(), context.getWorldData().getInLava().determineOptimistically(), context.usesFallFlyingMovement(), context.getLastOnGround().determineOptimistically(), stuckSpeedMultiplier != null);
+            } finally {
+                player.boundingBox = oldBB;
             }
-
-            SimulationContext context = lastPrediction.getSimulationContext();
-
-            Vec3 stuckSpeedMultiplier = context.getWorldData().getStuckSpeed().getStuckSpeedMultiplier();
-
-            position = new Vec3(position.x + collide.x, position.y, position.z);
-            // 1.8 players need the collision epsilon to not phase into blocks when being setback
-            // Due to simulation, this will not allow a flight bypass by sending a billion invalid movements
-            position = new Vec3(position.x, position.y + collide.y, position.z);
-            position = new Vec3(position.x, position.y, position.z + collide.z);
-
-            if (stuckSpeedMultiplier != null) {
-                final Vec3 slowedVel = clientVel.multiply(stuckSpeedMultiplier);
-                clientVel = slowedVel;
-            }
-
-            if (clientVel.x != collide.x) clientVel = new Vec3(0, clientVel.y, clientVel.z);
-            if (clientVel.y != collide.y) clientVel = new Vec3(clientVel.x, 0, clientVel.z);
-            if (clientVel.z != collide.z) clientVel = new Vec3(clientVel.x, clientVel.y, 0);
-
-
-            clientVel = simulateFriction(clientVel, context.getWorldData().getInWater().determineOptimistically(), context.getWorldData().getInLava().determineOptimistically(), context.usesFallFlyingMovement(), context.getLastOnGround().determineOptimistically(), stuckSpeedMultiplier != null);
-
-            player.boundingBox = oldBB; // reset back to the new bounding box
         }
 
         if (!hasFullyLoaded) { clientVel = null; } // if the player hasn't spawned... don't force kb
