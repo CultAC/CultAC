@@ -91,6 +91,12 @@ public record BedrockFrameFacts(
         );
     }
 
+    public BedrockFrameFacts withContext(BedrockMovementContext value) {
+        return new BedrockFrameFacts(value, boundingBoxMode, movementDimensions, swimming, climb,
+            inWaterFlag, lavaTravelFlag, inPowderSnow, rawPowderSnowAtFeetAscendable, powderSnowTicks,
+            blockMovementSlowdownState, honeySlideState, standingSurfaceState);
+    }
+
     public BedrockFrameFacts withClimb(BedrockClimbState climb) {
         return new BedrockFrameFacts(
             context,

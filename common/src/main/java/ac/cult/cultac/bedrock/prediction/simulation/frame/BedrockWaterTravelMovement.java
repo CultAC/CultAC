@@ -18,15 +18,16 @@ public final class BedrockWaterTravelMovement {
         boolean onGround,
         double swimSpeedMultiplier
     ) {
+        // Boosted swimming uses the full Depth Strider contribution while airborne.
+        if (swimSpeedMultiplier > 1.0D) {
+            float enchantPercent = (float) waterWalkSpeedEnchantPercent(depthStriderLevel, true);
+            return underwaterMovementSpeed * (float) swimSpeedMultiplier
+                * (enchantPercent * 0.3F + (float) DOLPHIN_BOOST_NO_WATER_WALK_SPEED_SCALE);
+        }
         float enchantPercent = (float) waterWalkSpeedEnchantPercent(depthStriderLevel, onGround);
         float travelSpeed = underwaterMovementSpeed;
         if (enchantPercent > 0.0F) {
             travelSpeed = travelSpeed + (movementSpeed - travelSpeed) * enchantPercent;
-        }
-        if (swimSpeedMultiplier > 1.0D) {
-            travelSpeed = underwaterMovementSpeed
-                * (float) swimSpeedMultiplier
-                * (enchantPercent * 0.3F + (float) DOLPHIN_BOOST_NO_WATER_WALK_SPEED_SCALE);
         }
         return travelSpeed;
     }

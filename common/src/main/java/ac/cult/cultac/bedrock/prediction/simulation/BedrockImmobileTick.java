@@ -108,7 +108,8 @@ public final class BedrockImmobileTick {
                         prepared.riptide().spinActive(),
                         prepared.riptide().spinTicks(),
                         nextSneaking ? current.sneakingTicks() + 1L : 0L,
-                        prepared.control().itemUseSlowdownTicks()));
+                        prepared.control().itemUseSlowdownTicks(),
+                        prepared.dolphinBoost().endTick()));
         return new Result(next, prepared.mobJumpComponent());
     }
 

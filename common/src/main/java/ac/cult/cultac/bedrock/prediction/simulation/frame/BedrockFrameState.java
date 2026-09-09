@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.prediction.simulation.frame;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
+import ac.cult.cultac.bedrock.prediction.state.BedrockDolphinBoost;
 import java.util.Objects;
 
 public record BedrockFrameState(
@@ -15,7 +16,8 @@ public record BedrockFrameState(
     BedrockRiptideMovement.Step riptide,
     BedrockMobJumpComponentState mobJumpComponent,
     Vec3d travelVelocity,
-    BedrockMobJump mobJump
+    BedrockMobJump mobJump,
+    BedrockDolphinBoost dolphinBoost
 ) {
     public BedrockFrameState {
         Objects.requireNonNull(input, "input");
@@ -28,6 +30,7 @@ public record BedrockFrameState(
         Objects.requireNonNull(mobJumpComponent, "mobJumpComponent");
         Objects.requireNonNull(travelVelocity, "travelVelocity");
         Objects.requireNonNull(mobJump, "mobJump");
+        Objects.requireNonNull(dolphinBoost, "dolphinBoost");
     }
 
     public boolean postMoveActorSprinting() {

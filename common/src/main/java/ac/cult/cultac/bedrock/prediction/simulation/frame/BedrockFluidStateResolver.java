@@ -58,13 +58,14 @@ public final class BedrockFluidStateResolver {
             return withWorldState(context, worldWithFluid(
                 world,
                 Medium.AIR,
-                FluidState.NONE,
+                FluidState.NONE.withSwimSpeedMultiplier(world.fluidState().swimSpeedMultiplier()),
                 false,
                 false,
                 Medium.AIR
             ));
         }
-        FluidState fluidState = withActorSwimming(resolution.fluidState(), world.fluidState().actorSwimming());
+        FluidState fluidState = withActorSwimming(resolution.fluidState(), world.fluidState().actorSwimming())
+            .withSwimSpeedMultiplier(world.fluidState().swimSpeedMultiplier());
         return withWorldState(context, worldWithFluid(
             world,
             resolution.medium(),
@@ -73,6 +74,15 @@ public final class BedrockFluidStateResolver {
             resolution.lavaContact(),
             resolution.liquidMovementMedium()
         ));
+    }
+
+    public static BedrockMovementContext withSwimSpeedMultiplier(
+        BedrockMovementContext context, double multiplier
+    ) {
+        WorldContactState world = context.worldState();
+        return withWorldState(context, worldWithFluid(world, world.medium(),
+            world.fluidState().withSwimSpeedMultiplier(multiplier), world.waterContact(),
+            world.lavaContact(), world.liquidMovementMedium()));
     }
 
     private static BedrockMovementContext withWorldState(

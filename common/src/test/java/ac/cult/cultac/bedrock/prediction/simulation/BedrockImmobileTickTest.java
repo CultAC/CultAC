@@ -15,6 +15,7 @@ import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockDolphinBoost;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
@@ -180,7 +181,8 @@ public final class BedrockImmobileTickTest {
                         spinActive,
                         spinTicks,
                         0L,
-                        itemUseTicks));
+                        itemUseTicks,
+                        BedrockDolphinBoost.INITIAL));
     }
 
     private static BedrockMovementContext context(

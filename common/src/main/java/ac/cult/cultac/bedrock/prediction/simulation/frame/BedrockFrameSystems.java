@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.api.BedrockFluidMovementSource;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
 import ac.cult.cultac.bedrock.prediction.world.JumpPreventionState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockDolphinBoost;
 
 public final class BedrockFrameSystems {
     private BedrockFrameSystems() {
@@ -127,6 +128,12 @@ public final class BedrockFrameSystems {
             );
         }
 
+        // Evaluate dolphin boost after swim actions and before travel.
+        BedrockDolphinBoost dolphinBoost = input.previousState().dolphinBoost().tick(
+            swimming.actorStateAfterActions(), facts.context().dolphinBoostAvailable());
+        facts = facts.withContext(BedrockFluidStateResolver.withSwimSpeedMultiplier(
+            facts.context(), dolphinBoost.multiplier()));
+
         BedrockTravelSelection selection = BedrockTravelTypeResolver.resolve(
             facts.context(),
 
@@ -147,7 +154,8 @@ public final class BedrockFrameSystems {
             riptide,
             mobJumpComponent,
             velocity,
-            mobJump
+            mobJump,
+            dolphinBoost
         );
     }
 

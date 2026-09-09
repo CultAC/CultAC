@@ -59,6 +59,15 @@ public record FluidState(
         1.0D
     );
 
+    public FluidState withSwimSpeedMultiplier(double value) {
+        if (swimSpeedMultiplier == value) {
+            return this;
+        }
+        return new FluidState(current, currentPositiveX, currentNegativeX, currentPositiveZ,
+            currentNegativeZ, bubbleColumnUp, bubbleColumnDown, currentState, bubbleColumnState,
+            waterWalkOnGroundComponentPresent, value, actorSwimming);
+    }
+
     public FluidState {
         currentState = Objects.requireNonNull(currentState, "currentState");
         bubbleColumnState = Objects.requireNonNull(bubbleColumnState, "bubbleColumnState");

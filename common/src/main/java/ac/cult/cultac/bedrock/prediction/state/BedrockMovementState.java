@@ -78,7 +78,8 @@ public record BedrockMovementState(
                 false,
                 0L,
                 initialSneakingTicks(inputFrame),
-                0L
+                0L,
+                BedrockDolphinBoost.INITIAL
             )
         );
     }
@@ -102,6 +103,7 @@ public record BedrockMovementState(
     public boolean swimming() { return actor.swimming(); }
     public boolean horizontalPose() { return actor.horizontalPose(); }
     public double swimAmount() { return memory.swimAmount(); }
+    public BedrockDolphinBoost dolphinBoost() { return memory.dolphinBoost(); }
     public long riptideChargeTicks() { return memory.riptideChargeTicks(); }
     public boolean riptideSpinActive() { return memory.riptideSpinActive(); }
     public long riptideSpinTicks() { return memory.riptideSpinTicks(); }
@@ -127,6 +129,11 @@ public record BedrockMovementState(
 
     public boolean movementGrounded() {
         return collisionFlags().onGround() || movementBranch() == Medium.GROUND;
+    }
+
+
+    public BedrockMovementState withDolphinBoost(BedrockDolphinBoost value) {
+        return new BedrockMovementState(motion, actor, memory.withDolphinBoost(value));
     }
 
     public BedrockMovementState withMovementBranch(Medium movementBranch) {
@@ -280,7 +287,8 @@ public record BedrockMovementState(
                 update.riptide().spinActive(),
                 update.riptide().spinTicks(),
                 frame.sneaking() ? sneakingTicks() + 1L : 0L,
-                update.itemUse().slowdownTicks()
+                update.itemUse().slowdownTicks(),
+                dolphinBoost()
             )
         );
     }
@@ -457,9 +465,11 @@ public record BedrockMovementState(
         boolean riptideSpinActive,
         long riptideSpinTicks,
         long sneakingTicks,
-        long itemUseSlowdownTicks
+        long itemUseSlowdownTicks,
+        BedrockDolphinBoost dolphinBoost
     ) {
         public TickMemory {
+            Objects.requireNonNull(dolphinBoost, "dolphinBoost");
             requireNonNegative("simulationTick", simulationTick);
             requireNonNegative("powderSnowTicks", powderSnowTicks);
             requireNonNegative("fallFlyTicks", fallFlyTicks);
@@ -478,9 +488,10 @@ public record BedrockMovementState(
             }
         }
 
-        TickMemory withFallFlyTicks(long value) { return new TickMemory(simulationTick, powderSnowTicks, value, fallDistance, swimAmount, riptideChargeTicks, riptideSpinActive, riptideSpinTicks, sneakingTicks, itemUseSlowdownTicks); }
-        TickMemory withFallDistance(float value) { return new TickMemory(simulationTick, powderSnowTicks, fallFlyTicks, value, swimAmount, riptideChargeTicks, riptideSpinActive, riptideSpinTicks, sneakingTicks, itemUseSlowdownTicks); }
-        TickMemory withItemUseSlowdownTicks(long value) { return new TickMemory(simulationTick, powderSnowTicks, fallFlyTicks, fallDistance, swimAmount, riptideChargeTicks, riptideSpinActive, riptideSpinTicks, sneakingTicks, value); }
+        TickMemory withFallFlyTicks(long value) { return new TickMemory(simulationTick, powderSnowTicks, value, fallDistance, swimAmount, riptideChargeTicks, riptideSpinActive, riptideSpinTicks, sneakingTicks, itemUseSlowdownTicks, dolphinBoost); }
+        TickMemory withFallDistance(float value) { return new TickMemory(simulationTick, powderSnowTicks, fallFlyTicks, value, swimAmount, riptideChargeTicks, riptideSpinActive, riptideSpinTicks, sneakingTicks, itemUseSlowdownTicks, dolphinBoost); }
+        TickMemory withItemUseSlowdownTicks(long value) { return new TickMemory(simulationTick, powderSnowTicks, fallFlyTicks, fallDistance, swimAmount, riptideChargeTicks, riptideSpinActive, riptideSpinTicks, sneakingTicks, value, dolphinBoost); }
+        TickMemory withDolphinBoost(BedrockDolphinBoost value) { return new TickMemory(simulationTick, powderSnowTicks, fallFlyTicks, fallDistance, swimAmount, riptideChargeTicks, riptideSpinActive, riptideSpinTicks, sneakingTicks, itemUseSlowdownTicks, value); }
 
         private static void requireNonNegative(String name, long value) {
             if (value < 0L) {

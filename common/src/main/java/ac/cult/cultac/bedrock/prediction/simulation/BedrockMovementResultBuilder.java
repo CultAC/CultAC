@@ -91,7 +91,8 @@ final class BedrockMovementResultBuilder {
             .withPendingBlockMovementSlowdownState(postMoveEffects.pendingBlockMovementSlowdownState())
             .withWasInWaterFlag(frameFacts.inWater())
             .withWaterTravelFlag(postMoveEffects.waterTravelActive())
-            .withMovementBranch(postMoveEffects.movementBranch());
+            .withMovementBranch(postMoveEffects.movementBranch())
+            .withDolphinBoost(state.dolphinBoost().endTick());
         return new BedrockMovementResult(
             current,
             frameFacts.context(),

@@ -1,6 +1,8 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.DolphinBoostState;
 import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
@@ -12,8 +14,7 @@ import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import java.util.Optional;
 
 final class BedrockEntityContactFactory {
-    private static final double DOLPHIN_PROXIMITY_HORIZONTAL_RANGE = 10.0D;
-    private static final double DOLPHIN_PROXIMITY_VERTICAL_RANGE = 10.0D;
+    private static final float DOLPHIN_PROXIMITY_RANGE = 10.0F;
 
     BedrockEntityContactFactory() {
     }
@@ -34,34 +35,38 @@ final class BedrockEntityContactFactory {
         if (trustedPosition.isEmpty()) {
             return false;
         }
+        // Scan before the requested pose size is applied.
+        BedrockMovementState previous = BedrockProfileState.previousState(context);
+        PlayerDimensionsState dimensions = previous == null
+                ? PlayerDimensionsState.DEFAULT : previous.playerDimensions();
         for (PacketEntity entity : entities.entityMap.values()) {
             if (entity == null || entity.isDead || entity.getType() != EntityTypesCompat.DOLPHIN) {
                 continue;
             }
-            if (isWithinDolphinProximity(trustedPosition.get(), entity)) {
+            if (isWithinDolphinProximity(trustedPosition.get(), dimensions, entity.getPossibleMovementCollisionBoxes())) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean isWithinDolphinProximity(Vec3d position, PacketEntity entity) {
-        SimpleCollisionBox box = entity.getPossibleMovementCollisionBoxes();
-        if (box == null) {
+    static boolean isWithinDolphinProximity(
+            Vec3d position, PlayerDimensionsState dimensions, SimpleCollisionBox dolphinBox
+    ) {
+        if (dolphinBox == null) {
             return false;
         }
-        double nearestX = clamp(position.x(), box.minX, box.maxX);
-        double nearestY = clamp(position.y(), box.minY, box.maxY);
-        double nearestZ = clamp(position.z(), box.minZ, box.maxZ);
-        double deltaX = position.x() - nearestX;
-        double deltaZ = position.z() - nearestZ;
-        double horizontalDistanceSquared = deltaX * deltaX + deltaZ * deltaZ;
-        double deltaY = Math.abs(position.y() - nearestY);
-        return horizontalDistanceSquared <= DOLPHIN_PROXIMITY_HORIZONTAL_RANGE * DOLPHIN_PROXIMITY_HORIZONTAL_RANGE
-                && deltaY <= DOLPHIN_PROXIMITY_VERTICAL_RANGE;
-    }
-
-    private static double clamp(double value, double min, double max) {
-        return Math.max(min, Math.min(max, value));
+        // Expand the player's AABB by five blocks on every axis.
+        double radius = dimensions.radius();
+        double minX = (float) (position.x() - radius) - DOLPHIN_PROXIMITY_RANGE;
+        double minY = (float) position.y() - DOLPHIN_PROXIMITY_RANGE;
+        double minZ = (float) (position.z() - radius) - DOLPHIN_PROXIMITY_RANGE;
+        double maxX = (float) (position.x() + radius) + DOLPHIN_PROXIMITY_RANGE;
+        double maxY = (float) (position.y() + dimensions.height()) + DOLPHIN_PROXIMITY_RANGE;
+        double maxZ = (float) (position.z() + radius) + DOLPHIN_PROXIMITY_RANGE;
+        // Require strict overlap with the expanded box.
+        return dolphinBox.maxX > minX && dolphinBox.minX < maxX
+                && dolphinBox.maxY > minY && dolphinBox.minY < maxY
+                && dolphinBox.maxZ > minZ && dolphinBox.minZ < maxZ;
     }
 }
