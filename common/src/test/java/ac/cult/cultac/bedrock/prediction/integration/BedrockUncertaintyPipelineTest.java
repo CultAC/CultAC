@@ -211,6 +211,66 @@ public final class BedrockUncertaintyPipelineTest {
       Assert.assertTrue(active.hasReason("block pushing"));
    }
 
+   @Test
+   public void lilyPadEscapeUsesExistingHorizontalAllowance() {
+      double x = 191.81735229492188;
+      double z = -111.4725112915039;
+      SimpleCollisionBox lilyPad = new SimpleCollisionBox(192.0625, 63.0, -111.9375, 192.9375, 63.09375, -111.0625);
+      SimpleCollisionBox standing = new SimpleCollisionBox(x - 0.3, 62.0, z - 0.3, x + 0.3, 63.8, z + 0.3);
+      SimpleCollisionBox swimming = new SimpleCollisionBox(x - 0.3, 62.0, z - 0.3, x + 0.3, 62.6, z + 0.3);
+      Assert.assertTrue(standing.isIntersected(lilyPad));
+      Assert.assertFalse(swimming.isIntersected(lilyPad));
+      Vec3 observed = new Vec3(-0.0521240234375, 0.0, 0.00690460205078125);
+      PredVector predicted = new PredVector(new Vec3(0.0, 0.0, 0.00704193115234375));
+      TestContext previous = context(observed, standing.isIntersected(lilyPad), noPushes(), UNIT_SCALE);
+      TestContext test = context(observed, swimming.isIntersected(lilyPad), noPushes(), UNIT_SCALE);
+      PredictionResult last = result(predicted, previous.context(), observed, neutralCollisions());
+      CultPlayer player = Mockito.mock(CultPlayer.class);
+      Mockito.when(player.isBedrockMovement()).thenReturn(true);
+      InsideBlock handler = new InsideBlock();
+      PredVector allowed = handler.handleUncertainty(player, null, null, test.context(), last, predicted, observed);
+      Assert.assertEquals(observed, new Vec3(allowed.x, allowed.y, allowed.z));
+      Assert.assertTrue(allowed.hasReason("block pushing"));
+      PredictionResult noOverlap = result(predicted, test.context(), observed, neutralCollisions());
+      Assert.assertSame(predicted, handler.handleUncertainty(player, null, null, test.context(), noOverlap, predicted, observed));
+      Mockito.when(player.isBedrockMovement()).thenReturn(false);
+      Assert.assertSame(predicted, handler.handleUncertainty(player, null, null, test.context(), last, predicted, observed));
+   }
+
+   @Test
+   public void endTickOverlapUsesAcceptedEndpointAndOnlyAffectsNextTick() {
+      var block = new ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision(
+         new ac.cult.cultac.bedrock.prediction.geometry.BlockPosition(1, 0, 0),
+         "minecraft:stone", "minecraft:stone", java.util.Map.of(),
+         List.of(new ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox(1, 0, 0, 2, 1, 1)));
+      BedrockMovementContext movementContext = airContext().withBlockCollisionWorld(new BlockCollisionWorld(List.of(block)));
+      BedrockMovementState previous = BedrockMovementState.fromPhysicalFeet(
+         new Vec3d(0.5, 0, 0.5), Vec3d.ZERO, BedrockInputFrame.idle(0), BedrockCollisionFlags.AIR);
+      BedrockMovementResult movement = new BedrockMovementResult(
+         previous, movementContext, movementContext, previous, previous.physicalFeetPosition(), Vec3d.ZERO,
+         false, false, false, false, BlockMovementSlowdownState.NONE, HoneySlideState.NONE,
+         false, false, 0.0, 1.0, false, false, false, 0.0);
+      TestContext tick = context(Vec3.ZERO, false, noPushes(), UNIT_SCALE);
+      java.util.concurrent.atomic.AtomicBoolean overlap = new java.util.concurrent.atomic.AtomicBoolean();
+      WorldData world = tick.context().getWorldData();
+      Mockito.when(world.isMightBeInBlock()).thenAnswer(invocation -> overlap.get());
+      Mockito.doAnswer(invocation -> { overlap.set(invocation.getArgument(0)); return null; })
+         .when(world).setMightBeInBlock(Mockito.anyBoolean());
+      PredVector start = new PredVector(Vec3.ZERO);
+      PredictionResult result = result(start, tick.context(), Vec3.ZERO, neutralCollisions());
+      BedrockMovementEngine.recordEndTickBlockPush(result, movement, new Vec3(0.4, 0, 0));
+      Assert.assertTrue(overlap.get());
+      CultPlayer player = Mockito.mock(CultPlayer.class);
+      Mockito.when(player.isBedrockMovement()).thenReturn(true);
+      InsideBlock handler = new InsideBlock();
+      Vec3 pushed = new Vec3(-0.08, 0, 0);
+      Assert.assertSame(start, handler.handleUncertainty(player, null, result, tick.context(), null, start, pushed));
+      TestContext next = context(pushed, false, noPushes(), UNIT_SCALE);
+      Assert.assertEquals(-0.08, handler.handleUncertainty(player, null, null, next.context(), result, start, pushed).x, 0);
+      BedrockMovementEngine.recordEndTickBlockPush(result, movement, Vec3.ZERO);
+      Assert.assertFalse(overlap.get());
+   }
+
    private static CultPlayer playerWithFireworks(boolean active) {
       CultPlayer player = (CultPlayer)Mockito.mock(CultPlayer.class);
 

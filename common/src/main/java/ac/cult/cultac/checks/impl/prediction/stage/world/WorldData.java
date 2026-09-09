@@ -22,6 +22,7 @@ public class WorldData {
     DesyncStatus touchingLava;
     @Setter
     DesyncStatus inFlowingLiquid;
+    @Setter
     boolean mightBeInBlock;
     boolean canJump;
     boolean canFluidHop;

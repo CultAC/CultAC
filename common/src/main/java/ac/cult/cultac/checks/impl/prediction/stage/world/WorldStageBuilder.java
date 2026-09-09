@@ -171,7 +171,7 @@ public class WorldStageBuilder {
 
         MainSupportingBlockData mainSupportingBlockData = findMainSupportingBlockPos(player, lastPrediction == null ? null : lastPrediction.getSimulationContext(), delta, simulationContext.getToMaxPose(), player.onGround);
 
-        boolean isSuffocating = mightBeSuffocating(player, simulationContext.getStart());
+        boolean isSuffocating = mightBeSuffocating(player, simulationContext);
         int numColliding = getNumEntitiesCollidingWith(simulationContext);
         Material onBlock = BlockProperties.getOnPos(player, mainSupportingBlockData, to);
 
@@ -340,8 +340,10 @@ public class WorldStageBuilder {
         return Math.max(0.0D, fluidPos.getY() + fluidHeight - entityBoundingBoxMinY);
     }
 
-    private boolean mightBeSuffocating(CultPlayer player, Vec3 oldPos) {
+    private boolean mightBeSuffocating(CultPlayer player, SimulationContext context) {
         if (player.compensatedEntities.getSelf().inVehicle()) return false;
+        Vec3 oldPos = context.getStart();
+        if (player.isBedrockMovement()) return false; // Set from the accepted endpoint at commit.
         // TODO: Does 0.03 affect this and if so, how?
         float bbWidth = 0.6f;
         return this.moveToClosestSpace(player, oldPos.x - bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D) ||
@@ -350,6 +352,44 @@ public class WorldStageBuilder {
                 this.moveToClosestSpace(player, oldPos.x + bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D);
     }
 
+
+    public static boolean moveTowardsClosestSpaceBedrock(SimpleCollisionBox box, List<SimpleCollisionBox> shapes) {
+        List<SimpleCollisionBox> surrounding = new ArrayList<>();
+        SimpleCollisionBox search = box.copy().expand(1.0, 0.0, 1.0);
+        float centerX = 0.0F;
+        float centerZ = 0.0F;
+        int overlaps = 0;
+        for (SimpleCollisionBox shape : shapes) {
+            if (!search.isIntersected(shape)) continue;
+            if (box.isIntersected(shape)) {
+                centerX += (float) ((shape.minX + shape.maxX) * 0.5);
+                centerZ += (float) ((shape.minZ + shape.maxZ) * 0.5);
+                overlaps++;
+            } else {
+                surrounding.add(shape);
+            }
+        }
+        if (overlaps == 0) return false;
+        centerX *= 1.0F / overlaps;
+        centerZ *= 1.0F / overlaps;
+        float dx = (float) ((box.minX + box.maxX) * 0.5) - centerX;
+        float dz = (float) ((box.minZ + box.maxZ) * 0.5) - centerZ;
+        if (Math.abs(dx) < Math.ulp(1.0F) && Math.abs(dz) < Math.ulp(1.0F)) {
+            dx = dz = 1.0F;
+        }
+        // Test escape corridors from the mean center of the overlapping shapes.
+        // The shapes being escaped are excluded from the obstruction checks.
+        // unlike java, anything with a collision box can push the player
+        SimpleCollisionBox centered = box.copy().offset(
+            centerX - (box.minX + box.maxX) * 0.5, 0.0,
+            centerZ - (box.minZ + box.maxZ) * 0.5);
+        for (BlockFace direction : new BlockFace[]{BlockFace.WEST, BlockFace.EAST, BlockFace.NORTH, BlockFace.SOUTH}) {
+            if (direction.getModX() != 0 ? dx == 0.0F : dz == 0.0F) continue;
+            SimpleCollisionBox corridor = centered.copy().expandToCoordinate(direction.getModX(), 0.0, direction.getModZ());
+            if (surrounding.stream().noneMatch(corridor::isIntersected)) return true;
+        }
+        return false;
+    }
 
     // 1.12- suffocation logic: Does the block at my feet + 0.5 or the block at my head suffocate me?
     // 1.13 suffocation logic: Does the block at my feet + 0.5 (if swimming) or my feet and head suffocate me?

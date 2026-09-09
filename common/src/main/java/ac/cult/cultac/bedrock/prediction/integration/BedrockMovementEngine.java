@@ -248,6 +248,7 @@ public final class BedrockMovementEngine implements MovementEngine {
                 new Entry(bedrockResult.nextTickBaseState(), bedrockResult.nextTickBaseMobJumpComponent())
             );
             if (player != null && bedrockResult.movementResult() != null && acceptedDiff != null) {
+                recordEndTickBlockPush(result, bedrockResult.movementResult(), acceptedDiff);
                 boolean claimedVerticalCollision = result.getSimulationContext().getBedrockInput()
                     .hasRawInputFlag(PlayerAuthInputData.VERTICAL_COLLISION);
                 baseEntries = BedrockVerticalCollisionSelection.apply(
@@ -276,6 +277,19 @@ public final class BedrockMovementEngine implements MovementEngine {
             }
         }
         return new PredictionCommit(null, Set.of());
+    }
+
+    static void recordEndTickBlockPush(PredictionResult result, BedrockMovementResult movement, Vec3 acceptedDiff) {
+        var context = result.getSimulationContext();
+        var dimensions = movement.movementContext().playerDimensionsState();
+        Vec3d endpoint = movement.previousState().physicalFeetPosition().add(BedrockVectorAdapter.toBedrock(acceptedDiff));
+        SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
+            endpoint.x(), endpoint.y(), endpoint.z(), (float) dimensions.width(), (float) dimensions.height());
+        List<SimpleCollisionBox> shapes = movement.movementContext().worldState().blockCollisionWorld().collisionBoxes().stream()
+            .map(shape -> new SimpleCollisionBox(shape.minX(), shape.minY(), shape.minZ(), shape.maxX(), shape.maxY(), shape.maxZ()))
+            .toList();
+        context.getWorldData().setMightBeInBlock(context.getVehicle() == null
+            && WorldStageBuilder.moveTowardsClosestSpaceBedrock(box, shapes));
     }
 
     public PredictionSetbackState prepareSetbackState(CultPlayer player, PredictionResult result) {
