@@ -1,6 +1,8 @@
 package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bedrock.logging.BedrockPacketLogger;
+import ac.cult.cultac.bedrock.logging.BedrockPacketLogOutboundHandler;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockPositionTranslator;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
@@ -67,6 +69,7 @@ public final class GeyserBedrockBridgeRuntime {
 
     private static volatile EventRegistrar eventOwner;
     private static volatile boolean started;
+    private static volatile BedrockPacketLogger packetLogger;
 
     private GeyserBedrockBridgeRuntime() {
     }
@@ -80,6 +83,11 @@ public final class GeyserBedrockBridgeRuntime {
             return;
         }
         started = true;
+        packetLogger = new BedrockPacketLogger(
+                CultAPI.INSTANCE.getGrimPlugin().getDataFolder().toPath().resolve("geyserpacketlogs"),
+                "cultac_version=" + CultAPI.INSTANCE.getExternalAPI().getGrimVersion()
+                        + "\ngeyser_version=" + org.bukkit.Bukkit.getPluginManager().getPlugin("Geyser-Spigot").getDescription().getVersion(),
+                LogUtil::info);
 
         GeyserUtil.forceForwardPlayerPing();
         refreshCollisionMappings();
@@ -96,22 +104,37 @@ public final class GeyserBedrockBridgeRuntime {
         eventOwner = owner;
 
         GeyserApi.api().eventBus().subscribe(owner, GeyserPostReloadEvent.class, event -> {
+            BedrockPacketLogger logger = packetLogger;
+            if (logger != null) logger.stopAll("Geyser reload");
             GeyserUtil.forceForwardPlayerPing();
             refreshCollisionMappings();
         });
-        GeyserApi.api().eventBus().subscribe(owner, SessionInitializeEvent.class, event -> installPacketTap(event.connection()));
+        GeyserApi.api().eventBus().subscribe(owner, SessionInitializeEvent.class, event -> {
+            installPacketTap(event.connection());
+            BedrockPacketLogger logger = packetLogger;
+            if (logger != null && event.connection() instanceof GeyserSession session) {
+                logger.onInitialize(session, session.bedrockUsername(), session.protocolVersion());
+            }
+        });
         GeyserApi.api().eventBus().subscribe(owner, SessionLoginEvent.class, event -> {
             if (event.connection() instanceof GeyserSession session) {
                 session.executeInEventLoop(() -> installPacketTap(session));
             }
         });
-        GeyserApi.api().eventBus().subscribe(owner, SessionJoinEvent.class, event -> installPacketTap(event.connection()));
+        GeyserApi.api().eventBus().subscribe(owner, SessionJoinEvent.class, event -> {
+            installPacketTap(event.connection());
+            BedrockPacketLogger logger = packetLogger;
+            if (logger != null) logger.identity(event.connection(), event.connection().javaUuid());
+        });
         GeyserApi.api().eventBus().subscribe(owner, SessionDisconnectEvent.class, GeyserBedrockBridgeRuntime::onSessionDisconnect);
 
         LogUtil.info("Geyser Bedrock movement bridge enabled.");
     }
 
     public static synchronized void stop() {
+        BedrockPacketLogger logger = packetLogger;
+        packetLogger = null;
+        if (logger != null) logger.close();
         EventRegistrar owner = eventOwner;
         if (owner != null && GeyserUtil.isGeyserAvailable()) {
             GeyserApi.api().eventBus().unregisterAll(owner);
@@ -139,10 +162,36 @@ public final class GeyserBedrockBridgeRuntime {
 
     private static void onSessionDisconnect(SessionDisconnectEvent event) {
         GeyserConnection connection = event.connection();
+        BedrockPacketLogger logger = packetLogger;
+        if (logger != null) logger.stop(connection, "disconnect");
         PacketTapHandler tap = PACKET_TAPS.remove(connection);
         if (tap != null) {
             tap.detach();
         }
+    }
+
+    public static void configurePacketLog(String username, UUID uuid, boolean onJoin, Consumer<String> feedback) {
+        BedrockPacketLogger logger = packetLogger;
+        if (logger == null || !started) {
+            feedback.accept("Geyser packet logger is unavailable.");
+            return;
+        }
+        if (onJoin) {
+            for (GeyserConnection connection : PACKET_TAPS.keySet()) {
+                if (username.equalsIgnoreCase(connection.bedrockUsername())) {
+                    feedback.accept("Player is already connected. Toggle their capture without --onjoin using their server player name.");
+                    return;
+                }
+            }
+            feedback.accept(logger.arm(username));
+            return;
+        }
+        GeyserConnection connection = GeyserApi.api().connectionByUuid(uuid);
+        if (!(connection instanceof GeyserSession session) || !PACKET_TAPS.containsKey(connection)) {
+            feedback.accept("Player has no active local Geyser packet tap.");
+            return;
+        }
+        logger.toggle(session, session.bedrockUsername(), session.protocolVersion(), uuid, feedback);
     }
 
     private static void installPacketTap(GeyserConnection connection) {
@@ -184,6 +233,7 @@ public final class GeyserBedrockBridgeRuntime {
         private final BedrockPacketHandler delegate;
         private final AtomicBoolean detached = new AtomicBoolean();
         private final String outboundHandlerName;
+        private final String packetLogHandlerName;
         private Vec3 lastAuthInputPosition;
         private Vector3f latestTrustedMotion;
         private float lastWrittenDeltaY;
@@ -193,6 +243,7 @@ public final class GeyserBedrockBridgeRuntime {
             this.bedrockSession = bedrockSession;
             this.delegate = delegate;
             this.outboundHandlerName = "cultac-outbound-packet-" + Integer.toHexString(System.identityHashCode(this));
+            this.packetLogHandlerName = outboundHandlerName + "-log";
         }
 
         @Override
@@ -212,6 +263,7 @@ public final class GeyserBedrockBridgeRuntime {
 
         @Override
         public PacketSignal handle(MovementPredictionSyncPacket packet) {
+            logPacket("C->S", packet);
             return delegate.handlePacket(packet);
         }
 
@@ -236,6 +288,7 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private PacketSignal handleTapped(BedrockPacket packet) {
+            logPacket("C->S", packet);
             if (packet instanceof NetworkStackLatencyPacket) {
                 return delegate.handlePacket(packet);
             }
@@ -262,6 +315,11 @@ public final class GeyserBedrockBridgeRuntime {
             return delegate.handlePacket(packet);
         }
 
+        private void logPacket(String direction, BedrockPacket packet) {
+            BedrockPacketLogger logger = packetLogger;
+            if (logger != null) logger.record(connection, direction, packet);
+        }
+
         private void detach() {
             if (!detached.compareAndSet(false, true)) {
                 return;
@@ -273,6 +331,7 @@ public final class GeyserBedrockBridgeRuntime {
             var channel = bedrockSession.getPeer().getChannel();
             channel.eventLoop().execute(() -> {
                 removeHandlerIfPresent(channel.pipeline(), outboundHandlerName);
+                removeHandlerIfPresent(channel.pipeline(), packetLogHandlerName);
             });
         }
 
@@ -280,10 +339,13 @@ public final class GeyserBedrockBridgeRuntime {
             var channel = bedrockSession.getPeer().getChannel();
             channel.eventLoop().execute(() -> {
                 var pipeline = channel.pipeline();
+                if (detached.get()) return;
                 if (pipeline.get(outboundHandlerName) != null) {
                     return;
                 }
 
+                pipeline.addLast(connection.getTickEventLoop(), packetLogHandlerName,
+                        new BedrockPacketLogOutboundHandler(packet -> logPacket("S->C", packet)));
                 pipeline.addLast(connection.getTickEventLoop(), outboundHandlerName, new OutboundPacketTap(this));
             });
 
