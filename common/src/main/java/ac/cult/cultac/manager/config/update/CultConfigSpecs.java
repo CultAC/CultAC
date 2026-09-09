@@ -5,6 +5,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Centralised registry of {@link ConfigUpdater.Spec} instances for every
@@ -32,8 +35,9 @@ import java.util.Locale;
  * recorded write ops via the line-mapped patcher so the bundled default's
  * comments survive the rewrite.
  *
- * <p>{@code punishments.yml} is intentionally absent — open-ended user-
- * defined data (operator-authored punishment groups), no schema versioning.
+ * <p>{@link #cultConfig} supplies a separate, in-place Cult migration chain,
+ * including for operator-authored punishment groups. Legacy config-version
+ * values and migration steps remain independent.
  */
 @UtilityClass
 public final class CultConfigSpecs {
@@ -97,6 +101,41 @@ public final class CultConfigSpecs {
                     }
                 })
                 .build();
+    }
+
+    /** Bump this per-file Cult revision and register steps here, leaving legacy specs unchanged. */
+    public static @NotNull ConfigUpdater.Spec cultConfig(String resourceDirectory) {
+        ConfigUpdater.Spec.Builder builder = ConfigUpdater.Spec.builder(
+                resourceDirectory, resourceDirectory.equals("/punishments/") ? 1 : 0,
+                ConfigUpdater.ConfigFlavor.V2).cultVersioning();
+        if (resourceDirectory.equals("/punishments/")) {
+            builder.migration(1, CultConfigSpecs::addBedrockPunishment);
+        }
+        return builder.build();
+    }
+
+    private static void addBedrockPunishment(MigrationContext ctx) {
+        Map<String, Object> groups = ctx.input().getMap("Punishments");
+        if (groups == null) return;
+        // Respect existing Bedrock routes and explicit exclusions, including broad selectors.
+        for (Object value : groups.values()) {
+            if (!(value instanceof Map<?, ?> group) || !(group.get("checks") instanceof List<?> checks)) continue;
+            for (Object selector : checks) {
+                if (!(selector instanceof String text)) continue;
+                String match = text.toLowerCase(Locale.ROOT);
+                if (match.startsWith("!")) match = match.substring(1);
+                if ("bedrockmovement".contains(match)) return;
+            }
+        }
+        for (Map.Entry<String, Object> entry : groups.entrySet()) {
+            if (!(entry.getValue() instanceof Map<?, ?> group)
+                    || !(group.get("checks") instanceof List<?> checks)
+                    || checks.stream().noneMatch(value -> "Simulation".equalsIgnoreCase(String.valueOf(value)))) continue;
+            List<Object> updated = new ArrayList<>(checks);
+            updated.add("BedrockMovement");
+            ctx.output().put("Punishments." + entry.getKey() + ".checks", updated);
+            return;
+        }
     }
 
     private static @Nullable String backendIdFor(@Nullable String legacyType) {

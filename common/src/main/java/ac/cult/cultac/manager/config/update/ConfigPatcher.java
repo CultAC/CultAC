@@ -42,6 +42,30 @@ public final class ConfigPatcher {
         }
     }
 
+    /** Insert a new setting beneath its closest existing parent, keeping surrounding text. */
+    public void addMissingValue(String path, Object value) {
+        String[] parts = path.split("\\.");
+        int parentDepth = parts.length - 1;
+        NodePosition parent = null;
+        while (parentDepth > 0) {
+            parent = locationMap.get(String.join(".", Arrays.copyOf(parts, parentDepth)));
+            if (parent != null) break;
+            parentDepth--;
+        }
+        Object nested = value;
+        for (int i = parts.length - 1; i >= parentDepth; i--) {
+            nested = Collections.singletonMap(parts[i], nested);
+        }
+        org.yaml.snakeyaml.DumperOptions options = new org.yaml.snakeyaml.DumperOptions();
+        options.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
+        String yaml = new org.yaml.snakeyaml.Yaml(options).dump(nested);
+        String indent = " ".repeat(parent == null ? 0 : parent.indent() + 2);
+        List<String> inserted = yaml.lines().map(line -> indent + line).toList();
+        lines.addAll(parent == null ? lines.size() : parent.lineIndex() + 1, inserted);
+        locationMap.clear();
+        mapFile();
+    }
+
     /**
      * One pending YAML value-replacement, sortable by descending line index
      * so list-block replacements at low line numbers don't invalidate the

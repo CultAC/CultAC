@@ -40,8 +40,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         // Use the multi-file API so cross-file migrations (e.g. config.yml
         // v9 → v10 lifting history.database.* into database.yml + the
         // matching databases/<id>.yml) can target sibling files via
-        // ctx.otherFile(...). punishments.yml is intentionally absent —
-        // open-ended user-defined data, no schema versioning.
+        // ctx.otherFile(...). Open-ended punishments use only the Cult chain below.
         Map<File, ConfigUpdater.Spec> batch = new LinkedHashMap<>();
         batch.put(getConfigFile("config.yml"), CultConfigSpecs.mainConfig());
         batch.put(getConfigFile("discord.yml"), CultConfigSpecs.discord());
@@ -56,6 +55,11 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         String langCode = config.getLanguage().getCode().toLowerCase();
         try {
             updater.updateAll(batch, langCode);
+            Map<File, ConfigUpdater.Spec> cultBatch = new LinkedHashMap<>();
+            batch.forEach((file, spec) -> cultBatch.put(file,
+                    CultConfigSpecs.cultConfig(spec.resourceDirectory)));
+            cultBatch.put(getConfigFile("punishments.yml"), CultConfigSpecs.cultConfig("/punishments/"));
+            updater.updateAll(cultBatch, langCode);
         } catch (Exception e) {
             LogUtil.warn("ConfigUpdater batch failed — loading on-disk files as-is: " + e);
         }

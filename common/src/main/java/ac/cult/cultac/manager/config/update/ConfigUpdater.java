@@ -78,16 +78,21 @@ public final class ConfigUpdater {
          */
         public final String resourceDirectory;
         public final int latestVersion;
+        public final String versionKey;
+        public final boolean inPlace;
         public final @NotNull ConfigFlavor flavor;
         /** Keyed by the version this migration upgrades TO. */
         public final @NotNull Map<Integer, Migration> migrations;
 
         Spec(@NotNull String resourceDirectory, int latestVersion,
-             @NotNull ConfigFlavor flavor, @NotNull Map<Integer, Migration> migrations) {
+             @NotNull ConfigFlavor flavor, @NotNull Map<Integer, Migration> migrations,
+             String versionKey, boolean inPlace) {
             Objects.requireNonNull(resourceDirectory, "resourceDirectory");
             this.resourceDirectory = resourceDirectory.endsWith("/")
                     ? resourceDirectory : resourceDirectory + "/";
             this.latestVersion = latestVersion;
+            this.versionKey = versionKey;
+            this.inPlace = inPlace;
             this.flavor = Objects.requireNonNull(flavor, "flavor");
             this.migrations = Map.copyOf(migrations);
         }
@@ -103,6 +108,8 @@ public final class ConfigUpdater {
             private final int latestVersion;
             private final ConfigFlavor flavor;
             private final Map<Integer, Migration> migrations = new LinkedHashMap<>();
+            private String versionKey = "config-version";
+            private boolean inPlace;
 
             private Builder(String resourceDirectory, int latestVersion, ConfigFlavor flavor) {
                 this.resourceDirectory = resourceDirectory;
@@ -116,8 +123,15 @@ public final class ConfigUpdater {
                 return this;
             }
 
+            /** Independent Cult revisions patch the operator's file without replacing its schema. */
+            public @NotNull Builder cultVersioning() {
+                versionKey = "cult-config-version";
+                inPlace = true;
+                return this;
+            }
+
             public @NotNull Spec build() {
-                return new Spec(resourceDirectory, latestVersion, flavor, migrations);
+                return new Spec(resourceDirectory, latestVersion, flavor, migrations, versionKey, inPlace);
             }
         }
     }
@@ -240,20 +254,22 @@ public final class ConfigUpdater {
             return new Result(false, -1, spec.latestVersion, warning);
         }
 
-        int oldVersion = parseVersion(oldData.get("config-version"));
-        if (oldVersion >= spec.latestVersion && onDiskFlavor != null) {
+        int oldVersion = parseVersion(oldData.get(spec.versionKey));
+        if (oldVersion >= spec.latestVersion && (spec.inPlace || onDiskFlavor != null)) {
             return new Result(false, oldVersion, spec.latestVersion, null);
         }
 
         Path backup = configFile.toPath().resolveSibling(
-                configFile.getName() + ".v" + oldVersion + ".bak");
+                configFile.getName() + (spec.inPlace ? ".cult-v" : ".v") + oldVersion + ".bak");
         if (!Files.exists(backup)) {
             Files.copy(configFile.toPath(), backup);
         }
 
         String resolvedResource = resolveBundledDefaultPath(spec, langCode);
-        try (InputStream defaultStream = openResource(resolvedResource)) {
-            Files.copy(defaultStream, configFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        if (!spec.inPlace) {
+            try (InputStream defaultStream = openResource(resolvedResource)) {
+                Files.copy(defaultStream, configFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
         }
 
         Map<String, Object> newData = readYaml(configFile.toPath());
@@ -282,6 +298,8 @@ public final class ConfigUpdater {
             try {
                 m.apply(ctx);
             } catch (RuntimeException e) {
+                if (spec.inPlace) throw new IOException("Cult migration to v" + v
+                        + " failed for " + configFile.getName() + "; version not advanced", e);
                 logger.log(Level.WARNING, "[cult-config-updater] migration to v" + v
                         + " failed for " + configFile.getName()
                         + " — partial state may have been applied", e);
@@ -289,8 +307,14 @@ public final class ConfigUpdater {
         }
 
         // Always stamp version + flavor.
-        outputView.put("config-version", spec.latestVersion);
-        outputView.put("config-flavor", spec.flavor.name());
+        outputView.put(spec.versionKey, spec.latestVersion);
+        if (!spec.inPlace) {
+            outputView.put("config-flavor", spec.flavor.name());
+            // Copying today's defaults must not mark Cult migrations as already applied.
+            if (newData.containsKey("cult-config-version")) {
+                outputView.put("cult-config-version", parseVersion(oldData.get("cult-config-version")));
+            }
+        }
 
         applyEntries(configFile, ownLog.finalState().entrySet().stream()
                 .map(e -> new WriteLog.Entry(
@@ -299,7 +323,7 @@ public final class ConfigUpdater {
                 .toList());
 
         logger.info("[cult-config-updater] " + configFile.getName()
-                + " migrated v" + oldVersion + " → v" + spec.latestVersion
+                + " migrated " + spec.versionKey + " v" + oldVersion + " → v" + spec.latestVersion
                 + " (flavor " + spec.flavor + ", backup at " + backup.getFileName() + ")");
         return new Result(true, oldVersion, spec.latestVersion, null);
     }
@@ -330,6 +354,7 @@ public final class ConfigUpdater {
         if (entries.isEmpty()) return;
         ConfigPatcher patcher = new ConfigPatcher(configFile);
         List<ConfigPatcher.PendingChange> pending = new ArrayList<>();
+        List<WriteLog.Entry> additions = new ArrayList<>();
         for (WriteLog.Entry e : entries) {
             if (e.op() == WriteLog.Op.REMOVE) {
                 logger.log(Level.FINE, "[cult-config-updater] REMOVE op for '"
@@ -339,8 +364,7 @@ public final class ConfigUpdater {
             }
             ConfigPatcher.NodePosition pos = patcher.getNodePosition(e.path());
             if (pos == null) {
-                logger.log(Level.FINE, "[cult-config-updater] no slot for migrated path '"
-                        + e.path() + "' in " + configFile.getName() + "; dropping");
+                additions.add(e);
                 continue;
             }
             pending.add(new ConfigPatcher.PendingChange(pos, e.value()));
@@ -350,6 +374,12 @@ public final class ConfigUpdater {
             patcher.applyChange(c);
         }
         patcher.save();
+        // List replacements can shift parents; rebuild positions before inserting new paths.
+        if (!additions.isEmpty()) {
+            patcher = new ConfigPatcher(configFile);
+            for (WriteLog.Entry addition : additions) patcher.addMissingValue(addition.path(), addition.value());
+            patcher.save();
+        }
     }
 
     @SuppressWarnings("unchecked")
