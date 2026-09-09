@@ -56,6 +56,9 @@ public class CultVersion implements BuildableCommand {
     // Using UserAgent format recommended by https://docs.modrinth.com/api/
     @SuppressWarnings("deprecation")
     private static void checkForUpdates(Sender sender) {
+        if (true) { // TODO: Publish project on modrinth
+            return;
+        }
         try {
             //
             HttpRequest request = HttpRequest.newBuilder()
