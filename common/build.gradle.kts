@@ -67,9 +67,20 @@ val bedrockMovementCollisionOverridesResource = layout.buildDirectory.file(
 
 // Keep the generator on its own Gradle wrapper; it uses a different plugin stack.
 val mappingsGeneratorDirectory = rootProject.layout.projectDirectory.dir("mappings-generator")
+val bedrockMovementCollisionCatalog = mappingsGeneratorDirectory.file(
+    "build/generated/cultac-bedrock-collision-overrides.json.gz"
+)
 val generateBedrockMovementCollisionOverrides = tasks.register<Exec>("generateBedrockMovementCollisionOverrides") {
     group = "build"
     description = "Generates the required Bedrock collision catalog using the pinned mappings submodule."
+    // Skip the entire nested build when its sources and catalog are unchanged.
+    inputs.files(fileTree(mappingsGeneratorDirectory) {
+        include("*.gradle.kts", "gradle.properties", "gradle/**", "gradlew", "gradlew.bat")
+        // Downloaded palettes and BDS assets are pinned by the build configuration.
+        include("src/main/**", "scripts/**/*.py", "tools/bds-shape-probe/**")
+        exclude("**/__pycache__/**")
+    }).withPropertyName("generatorInputs").withPathSensitivity(PathSensitivity.RELATIVE)
+    outputs.file(bedrockMovementCollisionCatalog).withPropertyName("collisionCatalog")
     workingDir(mappingsGeneratorDirectory)
     commandLine("./gradlew", "generateCultacBedrockCollisionOverrides", "--no-daemon", "--console=plain")
     doFirst {
@@ -85,7 +96,7 @@ val prepareBedrockMovementCollisionOverrides = tasks.register("prepareBedrockMov
     group = "build"
     description = "Bundles the generated sparse Bedrock collision overrides used by Bedrock movement validation."
     dependsOn(generateBedrockMovementCollisionOverrides)
-    val catalog = mappingsGeneratorDirectory.file("build/generated/cultac-bedrock-collision-overrides.json.gz")
+    val catalog = bedrockMovementCollisionCatalog
     inputs.file(catalog)
     outputs.file(bedrockMovementCollisionOverridesResource)
     doLast {
