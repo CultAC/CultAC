@@ -2,7 +2,6 @@ package ac.cult.cultac.bedrock.prediction.simulation.travel;
 
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
-import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.StandingSurfaceState;
@@ -36,7 +35,6 @@ final class BedrockHorizontalSpeedControl {
         BedrockInputFrame frame,
         AttributeState attributeState,
         EquipmentState equipmentState,
-        BedrockEffectState effectState,
         StandingSurfaceState standingSurfaceState,
         boolean ordinaryAirborne,
         boolean inWater,
@@ -73,16 +71,12 @@ final class BedrockHorizontalSpeedControl {
             standingSurfaceState,
             current.lastPhysicalDisplacementSquared()
         );
-        float speed = finalSpeed(
-            movementSpeed,
-            horizontalAttributeSpeed,
-            effectState
-        );
-        float inputRadiusSpeed = finalSpeed(
-            inputRadiusMovementSpeed,
-            horizontalAttributeSpeed,
-            effectState
-        );
+        // These are compensated attribute current values, including Speed/Slowness.
+        // Geyser LivingEntity#calculateAttribute applies the Java modifiers before
+        // sending minecraft:movement. Travel consumes that current value directly
+        // and must not multiply the effect levels a second time.
+        float speed = (float) movementSpeed;
+        float inputRadiusSpeed = (float) inputRadiusMovementSpeed;
         return new PreparedSpeed(
             speed,
             inputRadiusSpeed,
@@ -121,18 +115,6 @@ final class BedrockHorizontalSpeedControl {
             return movementSpeed + soulSpeedAttributeBoost(soulSpeedLevel);
         }
         return movementSpeed;
-    }
-
-    static float finalSpeed(
-        double movementSpeed,
-        boolean horizontalAttributeSpeed,
-        BedrockEffectState effectState
-    ) {
-        float speed = (float) movementSpeed;
-        if (horizontalAttributeSpeed) {
-            speed = effectState.applyMovementSpeedEffects(speed);
-        }
-        return speed;
     }
 
     static float flyingSpeed(double movementAbilityFlySpeed, double horizontalFlySpeedScale) {

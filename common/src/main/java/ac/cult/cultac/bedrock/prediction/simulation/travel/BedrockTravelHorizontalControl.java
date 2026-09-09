@@ -43,7 +43,6 @@ public final class BedrockTravelHorizontalControl {
             frame,
             context.attributeState(),
             context.equipmentState(),
-            effectState,
             standingSurfaceState,
             false,
             true,
@@ -108,7 +107,6 @@ public final class BedrockTravelHorizontalControl {
             frame,
             context.attributeState(),
             context.equipmentState(),
-            effectState,
             standingSurfaceState,
 
             !onGroundTravel,
