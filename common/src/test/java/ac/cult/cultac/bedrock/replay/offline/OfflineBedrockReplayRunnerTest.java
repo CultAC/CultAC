@@ -1181,6 +1181,13 @@ public final class OfflineBedrockReplayRunnerTest {
         }
 
         @Override
+        public org.bukkit.inventory.meta.ItemMeta getItemMeta() {
+            // Material-only armor fixtures are fresh items with no damage.
+            // This offline stack has no CraftItemStack delegate to query.
+            return null;
+        }
+
+        @Override
         public Map<Enchantment, Integer> getEnchantments() {
             return Map.of();
         }

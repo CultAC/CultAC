@@ -31,14 +31,10 @@ final class BedrockGlidingTravelMovement {
         BedrockInputIntent intent,
         BedrockMovementContext context
     ) {
-        return intent.glide().start()
+        return (intent.glide().start() || intent.glide().startAction())
             && context.elytraGlideAvailable()
             && !context.movementAbilityFlying()
             && !current.collisionFlags().onGround();
-    }
-
-    private static boolean hasStartGlidingAction(BedrockInputIntent intent) {
-        return intent.glide().startAction();
     }
 
     private static boolean shouldApplyStopGlidingAction(BedrockInputIntent intent) {
@@ -71,8 +67,7 @@ final class BedrockGlidingTravelMovement {
             BedrockMovementContext context
         ) {
             boolean startIntent = shouldApplyStartGlidingIntent(current, intent, context);
-            boolean startAction = startIntent || hasStartGlidingAction(intent);
-            boolean actorStateAfterStart = current.gliding() || startAction;
+            boolean actorStateAfterStart = current.gliding() || startIntent;
             return new GlideActionState(
                 startIntent,
                 shouldApplyStopGlidingAction(intent),

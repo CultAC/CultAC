@@ -28,6 +28,81 @@ import static org.junit.Assert.assertTrue;
 
 public final class BedrockGlidingTravelMovementTest {
     @Test
+    public void bothGlideStartPacketsRequireUsableElytra() {
+        for (String start : List.of("START_GLIDING", "START_GLIDING_ACTION")) {
+            assertStartResult(start, BedrockCollisionFlags.AIR, false, false, false);
+            assertStartResult(start, BedrockCollisionFlags.AIR, true, false, true);
+        }
+    }
+
+    @Test
+    public void playerActionCannotBypassGroundedOrFlyingEligibility() {
+        for (String start : List.of("START_GLIDING", "START_GLIDING_ACTION")) {
+            assertStartResult(start, BedrockCollisionFlags.ON_GROUND, true, false, false);
+            assertStartResult(start, BedrockCollisionFlags.AIR, true, true, false);
+        }
+    }
+
+    @Test
+    public void stopWinsOverEitherEligibleStartPacket() {
+        for (String start : List.of("START_GLIDING", "START_GLIDING_ACTION")) {
+            for (String stop : List.of("STOP_GLIDING", "STOP_GLIDING_ACTION")) {
+                BedrockInputFrame frame = new BedrockInputFrame(
+                    2L, 0.0F, 0.0F, false, false, false, Set.of(start, stop));
+                BedrockGlideState glide = BedrockGlidingTravelMovement.resolve(
+                    airborneState(), frame.intent(), glideContext(true, false));
+                assertFalse(glide.activeAfterActions());
+                assertFalse(glide.requestAfterActions());
+            }
+        }
+    }
+
+    @Test
+    public void serverEstablishedGlidingDoesNotRequireEquippedElytra() {
+        BedrockGlideState glide = BedrockGlidingTravelMovement.resolve(
+            airborneState().withGliding(true), BedrockInputFrame.idle(2L).intent(),
+            glideContext(false, false));
+
+        assertTrue(glide.activeAfterActions());
+        assertTrue(glide.activeAtTravelSensing());
+        assertTrue(glide.activeAtGlideInputSystem());
+    }
+
+    private static void assertStartResult(
+        String start, BedrockCollisionFlags flags, boolean usableElytra, boolean flying, boolean expected
+    ) {
+        BedrockMovementState current = airborneState().withVelocityAndCollisionFlags(Vec3d.ZERO, flags);
+        BedrockInputFrame frame = new BedrockInputFrame(
+            2L, 0.0F, 0.0F, false, false, false, Set.of(start));
+        BedrockTravelInput input = new BedrockTravelInput(
+            current, frame, frame.intent(), BedrockWorldSnapshot.fromContext(glideContext(usableElytra, flying)),
+            BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE, current.velocity(),
+            BedrockTravelOptions.vanilla(false, 0.5625D));
+
+        BedrockFrameState prepared = BedrockFrameSystems.prepare(input, BedrockMobJumpComponentState.DEFAULT);
+
+        assertEquals(start, expected, prepared.gliding().activeAfterActions());
+        assertEquals(start, expected, prepared.gliding().requestAfterActions());
+        assertEquals(start, expected, prepared.gliding().activeAtGlideInputSystem());
+        assertEquals(start, expected, prepared.branch().glidingTravel());
+    }
+
+    private static BedrockMovementState airborneState() {
+        return BedrockMovementState.fromPhysicalFeet(
+            Vec3d.ZERO, Vec3d.ZERO, BedrockInputFrame.idle(1L), BedrockCollisionFlags.AIR, Medium.AIR);
+    }
+
+    private static BedrockMovementContext glideContext(boolean usableElytra, boolean flying) {
+        return new BedrockMovementContext(
+            BedrockEffectState.NONE, AttributeState.DEFAULT,
+            new WorldContactState(Medium.AIR, FluidState.NONE, BlockCollisionWorld.EMPTY),
+            new EquipmentState(0, 0, 0, false, usableElytra), EntityContactState.NONE,
+            new MovementModifierState(
+                usableElytra, flying, flying, 0.05D, false, false, false, false, 0.35D, 0L),
+            PlayerDimensionsState.DEFAULT);
+    }
+
+    @Test
     public void airborneSwimmingActorStillUsesGlideSystems() {
         BedrockMovementState state = concurrentSwimmingAndGlidingState();
         BedrockInputFrame frame = new BedrockInputFrame(

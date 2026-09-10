@@ -9,6 +9,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
 import org.bukkit.Material;
@@ -27,6 +28,7 @@ record BedrockPlayerContext(
     private static final double BEDROCK_STANDING_HEIGHT = Double.parseDouble(Float.toString(1.8F));
     private static final double BEDROCK_SNEAKING_HEIGHT = Double.parseDouble(Float.toString(1.49F));
     private static final double BEDROCK_LOW_POSE_HEIGHT = Double.parseDouble(Float.toString(0.6F));
+    private static final int BEDROCK_ELYTRA_MAX_DAMAGE = 432;
 
     static BedrockPlayerContext from(
             CultPlayer player,
@@ -147,7 +149,8 @@ record BedrockPlayerContext(
             return false;
         }
         ItemStack chestplate = player.getInventory().getChestplate();
-        return chestplate != null && chestplate.getType() == Material.ELYTRA;
+        return chestplate != null && chestplate.getType() == Material.ELYTRA
+                && ItemUtil.getDamageValue(chestplate) < BEDROCK_ELYTRA_MAX_DAMAGE - 1;
     }
 
     private static BedrockEffectState effects(CultPlayer player, SimulationContext context) {
