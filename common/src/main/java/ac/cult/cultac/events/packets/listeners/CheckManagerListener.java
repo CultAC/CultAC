@@ -152,17 +152,6 @@ public class CheckManagerListener {
 
     @CultPacketHandler
     public void onPlayerInput(PacketReceiveEvent event, CultPlayer player, ServerboundPlayerInputPacket packet) {
-        if (player.isBedrockMovement()
-                && player.packetStateData.hasPendingRejectedBedrockTranslatedMovement()) {
-            // InputCache.processInputs sends changed Java input before
-            // BedrockMovePlayer's single movement projection. A rejected raw
-            // auth frame must not update Java input state, but its decision is
-            // consumed only by the following Rot/MovePlayer projection.
-            event.setCancelled(true);
-            clearPendingVehicleMoveForInterveningPacket(player);
-            clearTransientPacketState(player);
-            return;
-        }
         processGenericReceive(event, player);
     }
 

@@ -1,7 +1,6 @@
 package ac.cult.cultac.bedrock.replay.offline;
 
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
-import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
@@ -11,8 +10,6 @@ import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundAcceptTeleportationPacket;
-import net.minecraft.network.protocol.game.ServerboundPlayerInputPacket;
-import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
@@ -20,35 +17,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public final class BedrockPlayerTransportGateTest {
-    @Test
-    public void rejectedAuthInputSuppressesTranslatedInputUntilMovementConsumesIt() {
-        OfflineCultTestBootstrap.installConfig();
-        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
-        try {
-            player.packetStateData.rejectBedrockTranslatedMovement(19L);
-            ServerboundPlayerInputPacket inputPacket = new ServerboundPlayerInputPacket(
-                    new Input(true, false, false, false, false, true, false));
-            PacketReceiveEvent inputEvent = receiveEvent(player, inputPacket);
-
-            new CheckManagerListener().onPlayerInput(inputEvent, player, inputPacket);
-            new PacketPlayerSteer().onPlayerInput(inputEvent, player, inputPacket);
-
-            assertTrue(inputEvent.isCancelled());
-            assertFalse(player.isSneaking);
-            assertTrue(player.packetStateData.hasPendingRejectedBedrockTranslatedMovement());
-
-            ServerboundMovePlayerPacket.Pos translatedMove = new ServerboundMovePlayerPacket.Pos(
-                    0.5D, 64.0D, 0.5D, false, false);
-            PacketReceiveEvent movementEvent = receiveEvent(player, translatedMove);
-            new CheckManagerListener().onMovePlayer(movementEvent, player, translatedMove);
-
-            assertTrue(movementEvent.isCancelled());
-            assertFalse(player.packetStateData.hasPendingRejectedBedrockTranslatedMovement());
-        } finally {
-            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
-        }
-    }
-
     @Test
     public void mountedRotationUsesJavaRotBehaviorWithoutAnotherPermit() {
         OfflineCultTestBootstrap.installConfig();
