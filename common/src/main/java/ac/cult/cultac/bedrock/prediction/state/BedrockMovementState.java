@@ -227,7 +227,7 @@ public record BedrockMovementState(
         return new BedrockMovementState(
             motion,
             actor.withGliding(gliding, gliding),
-            memory.withFallFlyTicks(gliding ? Math.max(1L, fallFlyTicks()) : 0L)
+            memory.withFallFlyTicks(gliding ? fallFlyTicks() : 0L)
         );
     }
 
