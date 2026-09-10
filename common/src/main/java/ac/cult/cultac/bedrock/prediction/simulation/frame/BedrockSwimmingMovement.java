@@ -34,10 +34,10 @@ public final class BedrockSwimmingMovement {
             return actorStateAfterActions;
         }
 
-        public SwimmingState afterActions(BedrockInputIntent intent) {
+        public SwimmingState afterActions(BedrockInputIntent intent, boolean waterContact) {
             boolean actorSwimming = actorStateAtStart;
 
-            if (intent.pose().startSwimming()) {
+            if (intent.pose().startSwimming() && waterContact) { // TODO: stop permanent desync from this
                 actorSwimming = true;
             }
             if (intent.pose().stopSwimming()) {

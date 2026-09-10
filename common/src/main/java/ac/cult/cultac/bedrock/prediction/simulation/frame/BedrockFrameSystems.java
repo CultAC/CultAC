@@ -54,7 +54,8 @@ public final class BedrockFrameSystems {
             input.previousState().physicalFeetPosition().y()
         );
         velocity = velocity.add(movementSource.appliedDelta());
-        BedrockSwimmingMovement.SwimmingState swimming = facts.swimming().afterActions(intent);
+        BedrockSwimmingMovement.SwimmingState swimming = facts.swimming().afterActions(
+            intent, facts.context().inWater());
         facts = facts.withSwimming(swimming);
 
         BedrockGlideState gliding = BedrockGlidingTravelMovement.resolve(
@@ -94,7 +95,8 @@ public final class BedrockFrameSystems {
         if (mobJump.active()) {
             velocity = mobJump.applyVelocityMutation(velocity);
         }
-        if (input.options().travelActive() && mobJump.groundJumpRequest()) {
+        boolean groundJumpApplied = input.options().travelActive() && mobJump.groundJumpRequest();
+        if (groundJumpApplied) {
             JumpPreventionState jumpPreventionState = BedrockJumpPreventionResolver.resolve(
                 facts.context(),
                 input.previousState().physicalFeetPosition(),
@@ -152,7 +154,8 @@ public final class BedrockFrameSystems {
             mobJumpComponent,
             velocity,
             mobJump,
-            dolphinBoost
+            dolphinBoost,
+            groundJumpApplied
         );
     }
 

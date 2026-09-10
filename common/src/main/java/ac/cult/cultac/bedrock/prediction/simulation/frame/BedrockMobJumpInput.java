@@ -34,7 +34,8 @@ record BedrockMobJumpInput(
             climb.climbable().ascending() || frameFacts.rawPowderSnowAtFeetAscendable(),
             nonSwimmerSwimUp(liquidJumpContact),
             liquidJumpContact.lavaSwimUpApplies(),
-            groundJumpRequest(input, intent, swimming, climb, jumping, inWater, inLava)
+            BedrockLocalPlayerJumpMovement.requestedLaunch(
+                input.previousState(), input.inputFrame(), intent, inWater, inLava, climb.inScaffolding())
         );
     }
 
@@ -66,33 +67,6 @@ record BedrockMobJumpInput(
     }
 
     private static boolean nonSwimmerSwimUp(BedrockLiquidJumpContact liquidJumpContact) {
-
         return liquidJumpContact.waterSwimUpApplies();
     }
-
-    private static boolean groundJumpRequest(
-        BedrockTravelInput input,
-        ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent intent,
-        BedrockSwimmingMovement.SwimmingState swimming,
-        BedrockClimbState climb,
-        boolean jumping,
-        boolean inWater,
-        boolean inLava
-    ) {
-        return BedrockLocalPlayerJumpMovement.requestedLaunch(
-            input.previousState(),
-            input.inputFrame(),
-            intent,
-            inWater,
-            inLava,
-            climb.inScaffolding())
-            || swimming.actorStateAtStart()
-            && jumping
-            && intent.jump().start()
-            && intent.pose().stopSwimming()
-            && !inWater
-            && !inLava
-            && !climb.inScaffolding();
-    }
-
 }

@@ -48,7 +48,7 @@ public final class BedrockTravelInputControl {
 
         boolean sprintJumpImpulseActive = sprintJumpImpulseMode.actorSprinting(actorSprinting) && controlsNotSuppressed;
         boolean sprintSpeedInput = sprintTravelSpeedMode.sprintSpeedInput(actorSprinting) && controlsNotSuppressed;
-        float moveInputScale = itemUseSlowdown.moveInputScale(context) * sneakMoveScale(current, frame, intent, context);
+        float moveInputScale = itemUseSlowdown.moveInputScale(context) * sneakMoveScale(current, frame, context);
         return new InputControlState(
             moveInputScale,
             itemUseSlowdown.active(),
@@ -61,12 +61,11 @@ public final class BedrockTravelInputControl {
     private static float sneakMoveScale(
         BedrockMovementState current,
         BedrockInputFrame frame,
-        BedrockInputIntent intent,
         BedrockMovementContext context
     ) {
-
         return !context.inWater()
-            && !intent.pose().stopSwimming()
+            && !current.swimming()
+            && !context.actorSwimming()
             && actualSneakingMovement(frame, current)
             ? DEFAULT_SNEAK_MOVE_SCALE
             : 1.0F;
