@@ -11,8 +11,8 @@ import java.util.Objects;
 import java.util.Optional;
 
 final class BedrockJumpPreventionResolver {
-    private static final long PREVENT_JUMPING_BLOCK_PROPERTY = 0x80000000000L;
-    private static final long CHECK_BELOW_BLOCK_PROPERTY = 0x100L;
+    private static final long PREVENT_JUMPING_BLOCK_PROPERTY = 0x40000000L;
+    private static final long CHECK_BELOW_BLOCK_PROPERTY = 0x80L;
 
     private BedrockJumpPreventionResolver() {
     }
