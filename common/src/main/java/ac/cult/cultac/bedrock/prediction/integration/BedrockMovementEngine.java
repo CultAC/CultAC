@@ -155,7 +155,7 @@ public final class BedrockMovementEngine implements MovementEngine {
         );
         CandidateKey key = new CandidateKey(
             candidate.x, candidate.y, candidate.z, movementResult.horizontalInputLimit(),
-            movementResult.predictedState(), movementCandidate.mobJumpComponent()
+            movementResult.predictedState(), movementCandidate.mobJumpComponent(), movementResult.groundJumpApplied()
         );
         PredVector retained = output.putIfAbsent(key, candidate);
         if (retained != null) {
@@ -361,7 +361,7 @@ public final class BedrockMovementEngine implements MovementEngine {
             if (teleport.getBedrockOnGround() != null) {
 
                 rebased = rebased.withVelocityAndCollisionFlags(
-                    rebased.velocity(), rebased.collisionFlags().withOnGround(teleport.getBedrockOnGround())
+                    rebased.velocity(), rebased.collisionFlags().withTeleportOnGround(teleport.getBedrockOnGround())
                 );
             }
             return entry.withState(rebased);
@@ -528,7 +528,8 @@ public final class BedrockMovementEngine implements MovementEngine {
         double z,
         double horizontalInputLimit,
         BedrockMovementState predictedState,
-        BedrockMobJumpComponentState mobJumpComponent
+        BedrockMobJumpComponentState mobJumpComponent,
+        boolean groundJumpApplied
     ) {
     }
 }

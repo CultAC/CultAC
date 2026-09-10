@@ -34,6 +34,9 @@ final class BedrockPredVector extends PredVector {
         this.mobJumpComponent = mobJumpComponent == null
                 ? BedrockMobJumpComponentState.DEFAULT
                 : mobJumpComponent;
+        if (movementResult.groundJumpApplied()) {
+            setJump();
+        }
     }
 
     BedrockMovementInputFactory.Input input() {

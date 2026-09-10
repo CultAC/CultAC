@@ -18,7 +18,8 @@ final class BedrockVerticalCollisionSelection {
             boolean claimedCollision,
             BedrockVerticalCollisionVerdict verdict
     ) {
-        if (entries.isEmpty() || movementResult == null || verdict != BedrockVerticalCollisionVerdict.LEGAL) {
+        if (entries.isEmpty() || movementResult == null || !movementResult.travelActive()
+                || verdict != BedrockVerticalCollisionVerdict.LEGAL) {
             return entries;
         }
         double requestedY = movementResult.rawPredictedPhysicalFeetPosition().y()

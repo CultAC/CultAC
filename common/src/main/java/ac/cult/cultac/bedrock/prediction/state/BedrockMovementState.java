@@ -197,7 +197,8 @@ public record BedrockMovementState(
     public BedrockMovementState afterServerTeleport(Vec3d physicalFeetPosition, Vec3d velocity) {
         Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition);
         return new BedrockMovementState(
-            new Motion(position, velocity, 0.0D, Vec3d.ZERO, motion.inputFrame(), BedrockCollisionFlags.AIR),
+            // bedrock teleports preserve collision
+            new Motion(position, velocity, 0.0D, Vec3d.ZERO, motion.inputFrame(), motion.collisionFlags()),
             actor,
             memory.withFallDistance(0.0F)
         );

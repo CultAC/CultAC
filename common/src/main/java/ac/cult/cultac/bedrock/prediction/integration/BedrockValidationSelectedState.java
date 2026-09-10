@@ -19,6 +19,10 @@ final class BedrockValidationSelectedState {
         BedrockMovementState selectedState = movementResult.predictedState()
                 .withPhysicalFeetPosition(nextTickBasePosition, displacementSquared(selection, nextTickBasePosition));
 
+        if (!movementResult.travelActive()) {
+            return selectedState;
+        }
+
         return BedrockPacketHorizontalCollisionState.applyToValidationSelectedState(
                 selectedState,
                 movementResult.movementContext(),

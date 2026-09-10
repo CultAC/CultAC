@@ -17,7 +17,8 @@ public record BedrockFrameState(
     BedrockMobJumpComponentState mobJumpComponent,
     Vec3d travelVelocity,
     BedrockMobJump mobJump,
-    BedrockDolphinBoost dolphinBoost
+    BedrockDolphinBoost dolphinBoost,
+    boolean groundJumpApplied
 ) {
     public BedrockFrameState {
         Objects.requireNonNull(input, "input");

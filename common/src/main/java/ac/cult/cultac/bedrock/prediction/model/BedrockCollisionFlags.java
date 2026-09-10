@@ -56,6 +56,12 @@ public record BedrockCollisionFlags(
         );
     }
 
+    public BedrockCollisionFlags withTeleportOnGround(boolean nextOnGround) {
+        return onGround == nextOnGround ? this : new BedrockCollisionFlags(
+            nextOnGround, horizontalCollision, verticalCollision, horizontalBlockContact,
+            liquidClimbOut, verticalCollisionBelow, xCollision, zCollision);
+    }
+
     public BedrockCollisionFlags withOnGround(boolean nextOnGround) {
         if (onGround == nextOnGround) {
             return this;

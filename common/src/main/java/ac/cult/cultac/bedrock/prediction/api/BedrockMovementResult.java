@@ -28,7 +28,8 @@ public record BedrockMovementResult(
     boolean stepRetryAllowed,
     boolean canStep,
     double maxUpStep,
-    boolean travelActive
+    boolean travelActive,
+    boolean groundJumpApplied
 ) {
     public BedrockMovementResult {
         previousState = Objects.requireNonNull(previousState, "previousState");
