@@ -98,7 +98,7 @@ public final class BedrockLiquidGeometry {
         BedrockLiquidKind liquidKind
     ) {
         BlockPosition position = blockPosition(x, y, z);
-        return blockWorld.blockAt(position)
+        return Optional.ofNullable(blockWorld.liquidBlocksByPosition().get(position))
             .filter(block -> liquidKind(block) == liquidKind)
             .flatMap(BedrockLiquidGeometry::liquidBlockBox)
             // The vanilla liquid material test excludes a point exactly on
