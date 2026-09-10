@@ -18,6 +18,11 @@ public final class BedrockVelocitySystems {
         BedrockFrameFacts facts = frame.frameFacts();
         Vec3d velocity = frame.travelVelocity();
 
+        if (!frame.input().options().travelActive()) {
+            return new BedrockTravelPlan(frame, velocity, new BedrockTravelHorizontalControl.Step(0.0D, 1.0D),
+                new BedrockMoveRequest(new BedrockResolvedMove(false, Vec3d.ZERO, Vec3d.ZERO),
+                    frame.input().previousState().physicalFeetPosition()));
+        }
         if (branch.glidingTravel()) {
             velocity = BedrockBlockSurfaceMovement.applyHoneySlideBeforeMove(
                 velocity,

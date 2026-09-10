@@ -337,6 +337,85 @@ public final class BedrockSimulationStructureTest {
         assertFalse(next.autoClimbTravel());
     }
 
+    @Test
+    public void teleportTickKeepsBubbleColumnEffectWithoutWaterTravel() {
+        var block = PlacedBlockCollision.manual(new BlockPosition(0, 0, 0),
+            "minecraft:bubble_column[drag=false]", "minecraft:bubble_column", Map.of("drag_down", false), List.of());
+        var waterAbove = PlacedBlockCollision.manual(new BlockPosition(0, 1, 0),
+            "minecraft:water[level=0]", "minecraft:water", Map.of("liquid_depth", 0), List.of());
+        var result = teleportResult(new Vec3d(0.5, 0, 0.5), new Vec3d(0, -0.02, 0),
+            new BlockCollisionWorld(List.of(block, waterAbove)), Set.of());
+        assertEquals(result.previousState().physicalFeetPosition(), result.predictedPosition());
+        assertEquals(0.04, result.predictedVelocity().y(), 0.000001);
+        assertFalse(result.selectedWaterTravel());
+        assertFalse(result.travelActive());
+        var carry = BedrockSimulation.deriveNextStates(result, List.of(result.predictedState()), Vec3d.ZERO);
+        assertEquals(1, carry.size());
+        assertEquals(result.predictedVelocity(), carry.getFirst().state().velocity());
+    }
+
+    @Test
+    public void teleportTickAppliesHoneyInsideOnceWithoutMoveFriction() {
+        var block = PlacedBlockCollision.manual(new BlockPosition(0, 0, 0),
+            "minecraft:honey_block", "minecraft:honey_block", Map.of(), List.of());
+        var result = teleportResult(new Vec3d(0.5, 0, 0.5), new Vec3d(0.2, -0.2, 0.1),
+            new BlockCollisionWorld(List.of(block)), Set.of());
+        assertEquals(result.previousState().physicalFeetPosition(), result.predictedPosition());
+        // Honey friction scales x/z by 0.4F and clamps y to at least -0.12F.
+        assertEquals(0.08, result.predictedVelocity().x(), 0.000001);
+        assertEquals(-0.12, result.predictedVelocity().y(), 0.000001);
+        assertEquals(0.04, result.predictedVelocity().z(), 0.000001);
+        var carry = BedrockSimulation.deriveNextStates(result, List.of(result.predictedState()), Vec3d.ZERO);
+        assertEquals(result.predictedVelocity(), carry.getFirst().state().velocity());
+    }
+
+    @Test
+    public void teleportTickSensesWebWithoutConsumingItsMoveSlowdown() {
+        var box = new WorldCollisionBox(0, 0, 0, 1, 1, 1);
+        var block = PlacedBlockCollision.manual(new BlockPosition(0, 0, 0),
+            "minecraft:cobweb", "minecraft:web", List.of(), List.of(box), List.of(box),
+            Set.of(PlacedBlockCollision.BlockContactBehavior.COBWEB));
+        var result = teleportResult(new Vec3d(0.5, 0, 0.5), new Vec3d(0.125, -0.25, 0.5),
+            new BlockCollisionWorld(List.of(block)), Set.of("UP", "SPRINTING"));
+        assertEquals(result.previousState().physicalFeetPosition(), result.predictedPosition());
+        assertEquals(result.previousState().velocity(), result.predictedVelocity());
+        assertTrue(result.predictedState().pendingBlockMovementSlowdownState().active());
+        assertEquals(0.0, result.horizontalInputLimit(), 0.0);
+    }
+
+    @Test
+    public void consecutiveTeleportTicksAdvanceAndFinishRiptideSpin() {
+        var frame = BedrockInputFrame.idle(1L);
+        var state = BedrockMovementState.fromPhysicalFeet(new Vec3d(0, 64, 0), Vec3d.ZERO, frame, BedrockCollisionFlags.AIR);
+        state = state.advance(new BedrockMovementUpdate(state.physicalFeetPosition(), Vec3d.ZERO, frame,
+            BedrockCollisionFlags.AIR, state.boundingBoxMode(), state.playerDimensions(), 0F, 0L,
+            new BedrockMovementUpdate.Glide(false, false), false, 0D,
+            new BedrockMovementUpdate.Riptide(0L, true, 6L), new BedrockMovementUpdate.ItemUse(false, 0L)));
+        for (long tick = 2; tick <= 15; tick++) {
+            frame = BedrockInputFrame.idle(tick);
+            var snapshot = BedrockSnapshotResolver.forState(BedrockWorldSnapshot.fromContext(airContext()), state, frame);
+            var result = BedrockSimulation.candidates(new BedrockSimulation.Input(state, frame, frame.intent(), snapshot,
+                false, 0, BedrockMobJumpComponentState.DEFAULT, true, true)).getFirst().movementResult();
+            assertEquals(state.physicalFeetPosition(), result.predictedPosition());
+            assertEquals(state.simulationTick() + 1, result.predictedState().simulationTick());
+            state = result.predictedState();
+            if (tick < 15) assertEquals(5 + tick, state.riptideSpinTicks());
+        }
+        assertFalse(state.riptideSpinActive());
+    }
+
+    private static ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult teleportResult(
+            Vec3d position, Vec3d velocity, BlockCollisionWorld world, Set<String> inputs) {
+        BedrockInputFrame frame = new BedrockInputFrame(42L, 0F, 0F, false, false, false, inputs);
+        var state = BedrockMovementState.fromPhysicalFeet(position, velocity, BedrockInputFrame.idle(41L), BedrockCollisionFlags.AIR);
+        var snapshot = BedrockSnapshotResolver.forState(BedrockWorldSnapshot.fromContext(airContext(world, false)), state, frame);
+        var result = BedrockSimulation.candidates(new BedrockSimulation.Input(state, frame, frame.intent(), snapshot,
+            true, BedrockSimulation.DEFAULT_MAX_AUTO_STEP, BedrockMobJumpComponentState.DEFAULT, true, true)).getFirst().movementResult();
+        assertEquals(state.simulationTick() + 1, result.predictedState().simulationTick());
+        assertEquals(42L, result.predictedState().inputFrame().clientTick());
+        return result;
+    }
+
     private static BedrockMovementContext airContext() {
         return airContext(new BlockCollisionWorld(List.of()), false);
     }

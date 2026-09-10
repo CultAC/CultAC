@@ -47,7 +47,8 @@ record BedrockPostMoveContext(
     boolean swimmingActorStateAfterAction() { return plan.frame().frameFacts().swimming().actorStateAfterActions(); }
     BedrockClimbState climb() { return plan.frame().frameFacts().climb(); }
     BedrockGlideState gliding() { return plan.frame().gliding(); }
-    boolean clearStateVectorAfterSlowdownMove() { return plan.frame().frameFacts().blockMovementSlowdownState().clearVelocityAfterMove(); }
+    boolean clearVelocityAfterSlowdownMove() { return plan.frame().input().options().travelActive()
+        && plan.frame().frameFacts().blockMovementSlowdownState().clearVelocityAfterMove(); }
     boolean liquidTravelActive() { return plan.frame().branch().selection().liquidTravelActive(); }
     BedrockMobJump mobJump() { return plan.frame().mobJump(); }
     boolean lavaSwimUpApplied() { return moveRequest.lavaSwimUpApplied(); }
@@ -92,7 +93,7 @@ record BedrockPostMoveContext(
     }
 
     BedrockPostMoveFrame applyBlockMovementSlowdownClear(BedrockPostMoveFrame frame) {
-        if (clearStateVectorAfterSlowdownMove()) {
+        if (clearVelocityAfterSlowdownMove()) {
             return frame.withVelocity(Vec3d.ZERO);
         }
         return frame;
@@ -237,7 +238,7 @@ record BedrockPostMoveContext(
             result.flags(),
             climb().climbing()
         );
-        boolean waterTravelActive = BedrockTravelTypeResolver.waterActive(
+        boolean waterTravelActive = plan.frame().input().options().travelActive() && BedrockTravelTypeResolver.waterActive(
             result.postMoveContext(),
             nextPosition,
             movementDimensions());

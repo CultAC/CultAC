@@ -50,7 +50,8 @@ final class BedrockMovementResultBuilder {
             false,
             false,
             canStep,
-            maxUpStep);
+            maxUpStep,
+            true);
     }
 
     static BedrockMovementResult build(
@@ -113,7 +114,8 @@ final class BedrockMovementResultBuilder {
             blockMove.steppedUp(),
             blockMove.stepRetryAllowed(),
             state.input().options().canStep(),
-            state.input().options().maxUpStep()
+            state.input().options().maxUpStep(),
+            state.input().options().travelActive()
         );
     }
 

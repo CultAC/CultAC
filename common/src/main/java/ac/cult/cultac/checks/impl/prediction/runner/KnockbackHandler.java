@@ -7,6 +7,7 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.TransactionVel;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 
@@ -25,6 +26,10 @@ public class KnockbackHandler extends PacketModHandler implements PostPrediction
             .build()); }
 
     public int handleEntityVelocity(PacketSendEvent event, ClientboundSetEntityMotionPacket velocity) {
+        if (player.isBedrockMovement()) {
+            // The Geyser wire observer owns Bedrock motion and its receipt proof.
+            return -1;
+        }
         var motion = ac.cult.cultac.network.packet.NmsPacketUtil.readEntityMotion(velocity);
         PacketEntity vehicle = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
         int movementEntityId = vehicle != null ? vehicle.getEntityId() : player.entityID;
@@ -53,17 +58,13 @@ public class KnockbackHandler extends PacketModHandler implements PostPrediction
         return handleEvent(playerVelocity, true, event, motion.entityId());
     }
 
-    public void handleObservedEntityVelocity(Vec3 velocity, int entityId) {
+    public void handleObservedEntityVelocity(Vec3 velocity, int entityId, long teleportRevision,
+                                             CultPlayer.BedrockTransaction before, CultPlayer.BedrockTransaction receipt) {
+        var entry = new TransactionVel.Bedrock(velocity, receipt.transaction(), isSetbackVal, entityId, teleportRevision);
         player.runSafely(() -> {
-            // Geyser sends this marker before queueing the Bedrock motion,
-            // so the first client movement affected by it sees firstBread.
-            registerExternallyAcknowledgedEvent(velocity, true, entityId);
+            lastSent = entry;
+            player.addBedrockTransactionTask(before, () -> makeVelocityPossible(entry, velocity));
+            player.addBedrockTransactionTask(receipt, () -> confirmVelocity(entry, velocity));
         });
-    }
-
-    public void acknowledgeObservedEntityVelocity() {
-        // Geyser owns a single FIFO latency callback queue for the connection,
-        // so acknowledgements arrive in the same order as their motion writes.
-        player.runSafely(this::acknowledgeExternallyAcknowledgedEvent);
     }
 }

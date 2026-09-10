@@ -4,7 +4,6 @@ import net.minecraft.world.phys.Vec3;
 import lombok.Data;
 import lombok.ToString;
 
-import java.util.Objects;
 
 @Data
 @ToString
@@ -17,6 +16,7 @@ public class TransactionVel implements TransactionOrder {
     final boolean isSetbackVel;
     final int sourceEntityId;
     private double offset = Double.MAX_VALUE;
+    private boolean consumed;
 
     public TransactionVel(Vec3 vel, int transaction, boolean isVelocity, boolean isSetbackVel) {
         this(vel, transaction, isVelocity, isSetbackVel, UNKNOWN_SOURCE_ENTITY_ID);
@@ -28,6 +28,23 @@ public class TransactionVel implements TransactionOrder {
         this.isVelocity = isVelocity;
         this.isSetbackVel = isSetbackVel;
         this.sourceEntityId = sourceEntityId;
+    }
+
+    public long getBedrockTeleportRevision() {
+        return -1L;
+    }
+
+    public static final class Bedrock extends TransactionVel {
+        private final long teleportRevision;
+
+        public Bedrock(Vec3 vel, int transaction, boolean isSetbackVel, int sourceEntityId, long teleportRevision) {
+            super(vel, transaction, true, isSetbackVel, sourceEntityId);
+            this.teleportRevision = teleportRevision;
+        }
+
+        @Override public long getBedrockTeleportRevision() { return teleportRevision; }
+        @Override public boolean equals(Object other) { return this == other; }
+        @Override public int hashCode() { return System.identityHashCode(this); }
     }
 
     public void addOffset(double offset) {
@@ -44,7 +61,7 @@ public class TransactionVel implements TransactionOrder {
 
     @Override
     public int hashCode() {
-        return Objects.hash(transaction);
+        return Integer.hashCode(transaction);
     }
 
     @Override

@@ -100,7 +100,7 @@ public final class BedrockFrameSystems {
         if (mobJump.active()) {
             velocity = mobJump.applyVelocityMutation(velocity);
         }
-        if (mobJump.groundJumpRequest()) {
+        if (input.options().travelActive() && mobJump.groundJumpRequest()) {
             JumpPreventionState jumpPreventionState = BedrockJumpPreventionResolver.resolve(
                 facts.context(),
                 input.previousState().physicalFeetPosition(),
@@ -134,7 +134,10 @@ public final class BedrockFrameSystems {
         facts = facts.withContext(BedrockFluidStateResolver.withSwimSpeedMultiplier(
             facts.context(), dolphinBoost.multiplier()));
 
-        BedrockTravelSelection selection = BedrockTravelTypeResolver.resolve(
+        // Teleport ticks skip travel selection.
+        BedrockTravelSelection selection = !input.options().travelActive()
+            ? new BedrockTravelSelection(BedrockTravelType.NONE, input.previousState().movementBranch())
+            : BedrockTravelTypeResolver.resolve(
             facts.context(),
 
             facts.inWater(),

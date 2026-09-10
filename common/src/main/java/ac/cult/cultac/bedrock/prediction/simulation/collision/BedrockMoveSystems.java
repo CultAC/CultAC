@@ -16,6 +16,16 @@ public final class BedrockMoveSystems {
 
     public static BedrockCollisionOutput move(BedrockTravelPlan plan) {
         BedrockFrameState frame = plan.frame();
+        if (!frame.input().options().travelActive()) {
+            var previous = frame.input().previousState();
+            // Travel is inactive on this tick, so no collision sweep is needed.
+            var unchanged = new BedrockEntityMove.Result(previous.physicalFeetPosition(), plan.travelVelocity(),
+                false, false, false, false, previous.collisionFlags(), previous.movementGrounded(),
+                false, false, false, false);
+            return new BedrockCollisionOutput(unchanged,
+                frame.input().worldSnapshot().climbableContactAt(previous.physicalFeetPosition(),
+                    frame.frameFacts().movementDimensions()), plan.moveRequest());
+        }
         BedrockMoveRequest request = applyBlockMovementSlowdown(plan);
         if (!frame.branch().glidingTravel()) {
             Vec3d requestedPosition = BedrockTravelMoveRequest.applySneakMovement(

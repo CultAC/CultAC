@@ -42,6 +42,10 @@ public final class BedrockNextTickStateDeriver {
         Objects.requireNonNull(sourceStates, "sourceStates");
         Objects.requireNonNull(acceptedDiff, "acceptedDiff");
 
+        // next tick isn't derived after teleport
+        if (!movementResult.travelActive()) {
+            return sourceStates.stream().map(state -> new DerivedState(state, state)).toList();
+        }
         ArrayList<DerivedState> states = new ArrayList<>();
         for (BedrockMovementState sourceState : sourceStates) {
             List<BedrockAcceptedDiffVelocity.AcceptedState> acceptedDiffStates = BedrockAcceptedDiffVelocity.apply(

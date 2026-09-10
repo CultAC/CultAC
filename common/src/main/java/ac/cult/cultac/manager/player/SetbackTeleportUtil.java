@@ -63,6 +63,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     private final ConcurrentLinkedQueue<VehicleTeleport> vehicleTeleports = new ConcurrentLinkedQueue<>();
     private final AtomicLong bedrockTeleportRevision = new AtomicLong();
 
+    public long getBedrockTeleportRevision() {
+        return bedrockTeleportRevision.get();
+    }
+
     // has the player fully joined the server yet
     public boolean hasFullyJoined = false;
 
@@ -611,7 +615,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
         // This is the existing Java teleport proof: its pre-teleport Cult ping
         // has been answered and Geyser supplied the exact Bedrock echo. Consume
-        // the echo as a correction boundary without invoking ActorMove.
+        // the echo as a correction boundary without applying movement.
         return completeTeleport(matching, actual, true);
     }
 

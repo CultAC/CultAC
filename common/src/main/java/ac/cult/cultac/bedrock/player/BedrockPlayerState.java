@@ -14,6 +14,8 @@ import java.util.WeakHashMap;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockPlayerState {
+    // Accessed under the CultPlayer transaction lock.
+    public ac.cult.cultac.player.CultPlayer.BedrockTransaction lastClientboundTransaction;
     private final UUID playerUuid;
 
     private BedrockProtocolVersion protocolVersion = BedrockProtocolVersion.UNKNOWN;

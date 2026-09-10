@@ -7,6 +7,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.LastInstance;
+import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.packetentity.*;
 import ac.cult.cultac.utils.enums.Pose;
@@ -79,6 +80,8 @@ public class SimulationContext {
     BedrockProtocolVersion bedrockVersion = BedrockProtocolVersion.UNKNOWN;
     long bedrockInputTick = -1L;
     boolean hasTrustedAuthoredInput;
+    @Setter
+    TeleportData bedrockTeleport;
     @ToString.Exclude
     List<SimpleCollisionBox> entityCollisionBoxesForMovementTick;
     @ToString.Exclude
@@ -404,6 +407,10 @@ public class SimulationContext {
                 || NmsBlockTags.hasBlockTag(legacyBlock, BlockTags.STRIDER_WARM_BLOCKS)
                 || player.compensatedWorld.getLavaFluidLevelAt(blockPos) > 0.0D;
         return !warm;
+    }
+
+    public boolean isBedrockTeleportTick() {
+        return bedrockTeleport != null;
     }
 
     public record HardCollidingEntityCollision(

@@ -93,6 +93,16 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             handleAllDoneWithVels();
             return;
         }
+        if (predictionComplete.isTeleport() && player.isBedrockMovement()) {
+            TeleportData teleport = predictionComplete.getPredictionResult().getSetBackData();
+            // The Bedrock wire order, not the eventual auth-input arrival, determines
+            // which motion the teleport replaces. Keep later motion for this actor tick.
+            firstBread = afterBedrockTeleport(firstBread, teleport);
+            secondBread = afterBedrockTeleport(secondBread, teleport);
+            lastSent = afterBedrockTeleport(lastSent, teleport);
+            overriddenVels.removeIf(velocity -> afterBedrockTeleport(velocity, teleport) == null);
+            return;
+        }
         if (predictionComplete.isTeleport()) {
             handleTeleport(predictionComplete.getPredictionResult().getSetBackData());
             handleAllDoneWithVels();
@@ -119,6 +129,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             }
             // Prevent abuse by replaying the first bread over and over
             if (!hasValidNonBreadVector) {
+                this.firstBread.setConsumed(true);
                 this.firstBread = null;
             }
         }
@@ -150,6 +161,14 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         }
 
         handleAllDoneWithVels();
+    }
+
+    private TransactionVel afterBedrockTeleport(TransactionVel velocity, TeleportData teleport) {
+        if (velocity == null || teleport == null) return null;
+        long revision = teleport.getBedrockTransportRevision();
+        if (revision >= 0 && velocity.getBedrockTeleportRevision() >= revision) return velocity;
+        velocity.setConsumed(true);
+        return null;
     }
 
     // TODO: OOP
@@ -284,84 +303,42 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     }
 
     protected int registerTransactionSandwich(Vec3 playerVelocity, boolean isVel, int sourceEntityId) {
-        int lastTransactionSent = player.lastTransactionSent.get();
-        lastSent = new TransactionVel(playerVelocity, lastTransactionSent, isVel, isSetbackVal, sourceEntityId);
-        boolean thisTransIsSetback = this.isSetbackVal;
-
-        final Runnable applyFirstBread = () -> {
-            TransactionVel transactionVel = new TransactionVel(playerVelocity, lastTransactionSent, isVel, thisTransIsSetback, sourceEntityId);
-
-            if (!isVel && shouldCarryPreviousPacketModifier(secondBread, false, lastTransactionSent)) {
-                transactionVel.setVel(transactionVel.getVel().add(secondBread.getVel()));
-            }
-            firstBread = transactionVel;
-        };
-        player.latencyUtils.addRealTimeTaskNow(applyFirstBread);
-        player.latencyUtils.addRealTimeTask(lastTransactionSent + 1, () -> {
-            TransactionVel transactionVel = new TransactionVel(playerVelocity, lastTransactionSent, isVel, thisTransIsSetback, sourceEntityId);
-
-            // The first bread was overridden to stop abuse
-            if (this.firstBread == null) return;
-
-            if (secondBread != null && isVel && shouldCarryPreviousPacketModifier(secondBread, true, lastTransactionSent)) {
-                overriddenVels.add(secondBread);
-            }
-
-            transactionVel.setOffset(firstBread.getOffset());
-            if (!isVel && shouldCarryPreviousPacketModifier(secondBread, false, lastTransactionSent)) {
-                transactionVel.setVel(transactionVel.getVel().add(secondBread.getVel()));
-            }
-            firstBread = null;
-            secondBread = transactionVel;
-        });
-
-        return lastTransactionSent + 1;
-    }
-
-    protected void registerExternallyAcknowledgedEvent(Vec3 playerVelocity, boolean isVel, int sourceEntityId) {
         int transaction = player.lastTransactionSent.get();
-        TransactionVel transactionVel = new TransactionVel(
-                playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId);
-        lastSent = transactionVel;
-
-        if (!isVel && shouldCarryPreviousPacketModifier(secondBread, false, transaction)) {
-            transactionVel.setVel(transactionVel.getVel().add(secondBread.getVel()));
-        }
-        firstBread = transactionVel;
+        TransactionVel velocity = new TransactionVel(playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId);
+        lastSent = velocity;
+        player.latencyUtils.addRealTimeTaskWithNextTransaction(transaction,
+                () -> makeVelocityPossible(velocity, playerVelocity),
+                () -> confirmVelocity(velocity, playerVelocity));
+        return transaction + 1;
     }
 
-    protected void acknowledgeExternallyAcknowledgedEvent() {
-        TransactionVel transactionVel = firstBread;
-        if (transactionVel == null) {
-            return;
+    protected void makeVelocityPossible(TransactionVel velocity, Vec3 originalVelocity) {
+        if (!velocity.isVelocity() && shouldCarryPreviousPacketModifier(secondBread, false, velocity.getTransaction())) {
+            velocity.setVel(originalVelocity.add(secondBread.getVel()));
         }
-        if (secondBread != null && transactionVel.isVelocity()
-                && shouldCarryPreviousPacketModifier(secondBread, true, transactionVel.getTransaction())) {
+        firstBread = velocity;
+    }
+
+    protected void confirmVelocity(TransactionVel velocity, Vec3 originalVelocity) {
+        // The callback owns this entry. A later write may already occupy firstBread.
+        if (velocity.isConsumed()) return;
+        if (secondBread != null && velocity.isVelocity()
+                && shouldCarryPreviousPacketModifier(secondBread, true, velocity.getTransaction())) {
             overriddenVels.add(secondBread);
         }
-        firstBread = null;
-        secondBread = transactionVel;
+        if (!velocity.isVelocity()) {
+            velocity.setVel(shouldCarryPreviousPacketModifier(secondBread, false, velocity.getTransaction())
+                    ? originalVelocity.add(secondBread.getVel()) : originalVelocity);
+        }
+        if (firstBread == velocity) firstBread = null;
+        secondBread = velocity;
     }
 
     protected void handleEventAfterTransaction(Vec3 playerVelocity, boolean isVel, int transaction, int sourceEntityId) {
         if (transaction <= 0) return;
-
-        lastSent = new TransactionVel(playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId);
-        boolean thisTransIsSetback = this.isSetbackVal;
-
-        player.latencyUtils.addRealTimeTask(transaction, () -> {
-            TransactionVel transactionVel = new TransactionVel(playerVelocity, transaction, isVel, thisTransIsSetback, sourceEntityId);
-
-            if (secondBread != null && isVel && shouldCarryPreviousPacketModifier(secondBread, true, transaction)) {
-                overriddenVels.add(secondBread);
-            }
-            if (!isVel && shouldCarryPreviousPacketModifier(secondBread, false, transaction)) {
-                transactionVel.setVel(transactionVel.getVel().add(secondBread.getVel()));
-            }
-
-            firstBread = null;
-            secondBread = transactionVel;
-        });
+        TransactionVel velocity = new TransactionVel(playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId);
+        lastSent = velocity;
+        player.latencyUtils.addRealTimeTask(transaction, () -> confirmVelocity(velocity, playerVelocity));
     }
 
     private boolean shouldCarryPreviousPacketModifier(TransactionVel previous, boolean currentIsVelocity, int currentTransaction) {
@@ -404,6 +381,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
 
     public void clearVelocitiesFromSourceEntity(int entityId) {
         if (firstBread != null && firstBread.getSourceEntityId() == entityId) {
+            firstBread.setConsumed(true);
             firstBread = null;
         }
         if (secondBread != null && secondBread.getSourceEntityId() == entityId) {
@@ -417,6 +395,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
 
     public void keepOnlyVelocitiesFromSourceEntity(int entityId) {
         if (firstBread != null && firstBread.getSourceEntityId() != entityId) {
+            firstBread.setConsumed(true);
             firstBread = null;
         }
         if (secondBread != null && secondBread.getSourceEntityId() != entityId) {

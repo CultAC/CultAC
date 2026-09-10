@@ -6,8 +6,18 @@ public record BedrockTravelOptions(
     StepMode stepMode,
     double maxUpStep,
     SprintTravelSpeedMode sprintTravelSpeedMode,
-    SprintJumpImpulseMode sprintJumpImpulseMode
+    SprintJumpImpulseMode sprintJumpImpulseMode,
+    boolean travelActive
 ) {
+    public BedrockTravelOptions(StepMode stepMode, double maxUpStep,
+                                SprintTravelSpeedMode sprintTravelSpeedMode, SprintJumpImpulseMode sprintJumpImpulseMode) {
+        this(stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, true);
+    }
+
+    public BedrockTravelOptions withTravelActive(boolean active) {
+        return new BedrockTravelOptions(stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, active);
+    }
+
     public BedrockTravelOptions {
         stepMode = Objects.requireNonNull(stepMode, "stepMode");
         sprintTravelSpeedMode = Objects.requireNonNull(sprintTravelSpeedMode, "sprintTravelSpeedMode");
@@ -35,7 +45,8 @@ public record BedrockTravelOptions(
             stepMode,
             maxUpStep,
             sprintTravelSpeedMode,
-            sprintJumpImpulseMode
+            sprintJumpImpulseMode,
+            travelActive
         );
     }
 
@@ -44,12 +55,13 @@ public record BedrockTravelOptions(
             stepMode,
             maxUpStep,
             sprintTravelSpeedMode,
-            sprintJumpImpulseMode
+            sprintJumpImpulseMode,
+            travelActive
         );
     }
 
     public boolean canStep() {
-        return stepMode.canStep();
+        return travelActive && stepMode.canStep();
     }
 
     public enum StepMode {

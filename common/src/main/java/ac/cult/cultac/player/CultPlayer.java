@@ -121,7 +121,23 @@ public class CultPlayer implements GrimUser {
     public record TrackedTransaction(int transaction, int id, ClientboundPingPacket packet) {
     }
 
-    private record SentTransaction(int transaction, int id, long sentAt) {
+    @lombok.Getter
+    @lombok.RequiredArgsConstructor
+    @lombok.experimental.Accessors(fluent = true)
+    private static class SentTransaction {
+        private final int transaction;
+        private final int id;
+        private final long sentAt;
+    }
+
+    // Only Bedrock entries carry native receipt state and callbacks.
+    public static final class BedrockTransaction extends SentTransaction {
+        private boolean acknowledged;
+        private java.util.List<Runnable> acknowledgements;
+
+        private BedrockTransaction(int transaction, int id) {
+            super(transaction, id, System.nanoTime());
+        }
     }
 
     public final @NotNull User user;
@@ -137,7 +153,7 @@ public class CultPlayer implements GrimUser {
     // Start transaction handling stuff
     // Determining player ping
     // The difference between keepalive and transactions is that keepalive is async while transactions are sync
-    private final @NotNull Queue<@NotNull SentTransaction> transactionsSent = new ArrayDeque<>();
+    private Queue<SentTransaction> transactionsSent = new ArrayDeque<>();
     private final @NotNull Map<@NotNull ClientboundPingPacket, @NotNull TrackedTransaction> transactionsPendingSend = new IdentityHashMap<>(4);
     public final @NotNull AtomicInteger lastTransactionSent = new AtomicInteger(0);
     public final @NotNull AtomicInteger lastTransactionReceived = new AtomicInteger(0);
@@ -395,7 +411,7 @@ public class CultPlayer implements GrimUser {
     // The design is allowing players to miss transaction packets, which shouldn't be possible
     // But if some error made a client miss a packet, then it won't hurt them too bad.
     // Also it forces players to take knockback
-    public boolean addTransactionResponse(int id) {
+    public synchronized boolean addTransactionResponse(int id) {
         // Count how many unacknowledged transactions this response jumps past
         int skipped = 0;
         boolean known = false;
@@ -443,6 +459,14 @@ public class CultPlayer implements GrimUser {
             rawTransactionPing = System.nanoTime() - current.sentAt();
             transPings.add(rawTransactionPing);
             playerClockAtLeast = current.sentAt();
+            if (current instanceof BedrockTransaction bedrock) {
+                // Drain ordinary compensation before callbacks on this exact wire boundary.
+                latencyUtils.handleNettySyncTransaction(current.transaction());
+                bedrock.acknowledged = true;
+                var tasks = bedrock.acknowledgements;
+                bedrock.acknowledgements = null;
+                if (tasks != null) tasks.forEach(latencyUtils::runQueuedTask);
+            }
         } while (current.id() != id);
         return current;
     }
@@ -539,8 +563,8 @@ public class CultPlayer implements GrimUser {
         return createTrackedTransaction();
     }
 
-    private TrackedTransaction createTrackedTransaction() {
-        int transactionID = ThreadLocalRandom.current().nextInt();
+    private synchronized TrackedTransaction createTrackedTransaction() {
+        int transactionID = nextTransactionId();
         ClientboundPingPacket packet = new ClientboundPingPacket(transactionID);
         TrackedTransaction transaction = new TrackedTransaction(lastTransactionSent.incrementAndGet(), transactionID, packet);
         transactionsPendingSend.put(packet, transaction);
@@ -564,15 +588,79 @@ public class CultPlayer implements GrimUser {
         return markTransactionPacketSent(packet, System.currentTimeMillis());
     }
 
-    public boolean markTransactionPacketSent(ClientboundPingPacket packet, long timestamp) {
+    public synchronized boolean markTransactionPacketSent(ClientboundPingPacket packet, long timestamp) {
         TrackedTransaction transaction = transactionsPendingSend.remove(packet);
         if (transaction == null) {
             return false;
         }
 
-        transactionsSent.add(new SentTransaction(transaction.transaction(), transaction.id(), System.nanoTime()));
+        if (isBedrockMovement()) {
+            bedrockTransactions().add(new BedrockTransaction(transaction.transaction(), transaction.id()));
+        } else {
+            transactionsSent.add(new SentTransaction(transaction.transaction(), transaction.id(), System.nanoTime()));
+        }
         TransactionChannels.SEND.fire(this, transaction.id(), timestamp);
         return true;
+    }
+
+    private int nextTransactionId() {
+        int id;
+        boolean used;
+        do {
+            id = ThreadLocalRandom.current().nextInt();
+            used = false;
+            for (SentTransaction sent : transactionsSent) used |= sent.id() == id;
+            for (TrackedTransaction pending : transactionsPendingSend.values()) used |= pending.id() == id;
+        } while (used);
+        return id;
+    }
+
+    private java.util.LinkedList<SentTransaction> bedrockTransactions() {
+        if (!(transactionsSent instanceof java.util.LinkedList)) {
+            transactionsSent = new java.util.LinkedList<>(transactionsSent);
+        }
+        return (java.util.LinkedList<SentTransaction>) transactionsSent;
+    }
+
+    public synchronized BedrockTransaction getLastClientboundBedrockTransaction() {
+        return bedrockState.lastClientboundTransaction;
+    }
+
+    /** Insert at the actual wire position, before Java pings allocated but not yet written. */
+    public synchronized BedrockTransaction createBedrockTransactionAfterClientbound() {
+        if (!isBedrockMovement()) throw new IllegalStateException("Native boundary requires Bedrock transport");
+        BedrockTransaction previous = bedrockState.lastClientboundTransaction;
+        BedrockTransaction transaction = new BedrockTransaction(
+                previous == null ? lastTransactionReceived.get() : previous.transaction(), nextTransactionId());
+        var pending = bedrockTransactions();
+        if (previous == null || previous.acknowledged) {
+            pending.addFirst(transaction);
+        } else {
+            int index = pending.indexOf(previous);
+            if (index < 0) throw new IllegalStateException("Last written transaction is missing");
+            pending.add(index + 1, transaction);
+        }
+        return transaction;
+    }
+
+    public synchronized void addBedrockTransactionTask(BedrockTransaction transaction, Runnable task) {
+        if (!isBedrockMovement()) throw new IllegalStateException("Native boundary requires Bedrock transport");
+        if (transaction == null || transaction.acknowledged) {
+            latencyUtils.runQueuedTask(task);
+        } else {
+            if (transaction.acknowledgements == null) transaction.acknowledgements = new java.util.ArrayList<>(2);
+            transaction.acknowledgements.add(task);
+        }
+    }
+
+    /** Observe actual Bedrock writes, not Java allocation order. */
+    public synchronized void markBedrockTransactionClientbound(long id) {
+        for (SentTransaction entry : transactionsSent) {
+            if (entry.id() == id && entry instanceof BedrockTransaction sent) {
+                bedrockState.lastClientboundTransaction = sent;
+                return;
+            }
+        }
     }
 
     public float getScale() {

@@ -178,7 +178,8 @@ public final class BedrockValidationSelectionTest {
                 false,
                 false,
                 false,
-                0.0D);
+                0.0D,
+                true);
         BedrockAuthInputFrame authFrame = BedrockAuthInputFrame.builder(UUID.randomUUID())
                 .position(new Vec3(1.35D, 2.25D, 2.75D))
                 .delta(new Vec3(99.0D, 99.0D, 99.0D))

@@ -56,7 +56,14 @@ public class MovementModifiers {
             PredictionResult lastResult,
             boolean canTickSkip
     ) {
-        return applyModifers(player, initial, state, lastResult, canTickSkip, FluidHopMode.EXCLUDE, false);
+        List<PredVector> vectors = applyModifers(player, initial, state, lastResult, canTickSkip, FluidHopMode.EXCLUDE, false);
+        TransactionVel receivedMotion = player.checkManager.getKnockbackHandler().secondBread;
+        if (state.isBedrockTeleportTick() && receivedMotion != null) {
+            // Travel is suppressed, so displacement cannot select the applied motion.
+            // Its receipt proof makes the server velocity mandatory for carry instead.
+            vectors.removeIf(vector -> !vector.hasPacketModifier(receivedMotion));
+        }
+        return vectors;
     }
 
     private List<PredVector> applyModifers(
@@ -115,7 +122,19 @@ public class MovementModifiers {
         packetEventsInOrder.add(player.checkManager.getKnockbackHandler().secondBread);
         packetEventsInOrder.add(player.checkManager.getExplosionHandler().secondBread);
         packetEventsInOrder.removeIf(Objects::isNull);
-        packetEventsInOrder.sort(Comparator.comparingInt(TransactionOrder::getTransaction));
+        if (state.isBedrockTeleportTick()) {
+            // The outbound observer can see B + motion while A's reply is in flight.
+            // Exclude that unconfirmed motion from A; firstBread retains it normally.
+            TransactionVel possibleMotion = player.checkManager.getKnockbackHandler().firstBread;
+            if (possibleMotion != null && possibleMotion.getBedrockTeleportRevision()
+                    > state.getBedrockTeleport().getBedrockTransportRevision()) {
+                packetEventsInOrder.removeIf(event -> event == possibleMotion);
+            }
+        }
+        packetEventsInOrder.sort(Comparator.comparingInt(TransactionOrder::getTransaction)
+                // Within one Java transaction, confirmed Bedrock motion precedes its pending successor.
+                .thenComparingInt(event -> player.isBedrockMovement()
+                        && event == player.checkManager.getKnockbackHandler().firstBread ? 1 : 0));
 
         for (Vec3 vector : initial) {
             start.add(PredVector.fromStartingVector(vector));

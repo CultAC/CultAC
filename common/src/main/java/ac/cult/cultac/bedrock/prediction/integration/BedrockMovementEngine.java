@@ -117,7 +117,8 @@ public final class BedrockMovementEngine implements MovementEngine {
                     true,
                     selectedInput.maxUpStep(),
                     selectedInput.mobJumpComponent(),
-                    selectedInput.actorMovementTick()
+                    selectedInput.actorMovementTick(),
+                    context.isBedrockTeleportTick()
                 );
                 for (Candidate movementCandidate : BedrockSimulation.candidates(simulationInput)) {
                     BedrockMovementResult movementResult = movementCandidate.movementResult();
@@ -182,6 +183,9 @@ public final class BedrockMovementEngine implements MovementEngine {
         SimpleCollisionBox attemptedMovementExtents,
         boolean canStep
     ) {
+        if (context.isBedrockTeleportTick()) {
+            return BedrockCollisionAxisData.neutral();
+        }
         Input input = initialStartingVelocity instanceof BedrockPredVector candidate
             ? candidate.input()
             : inputFactory.create(player, context);
@@ -350,9 +354,9 @@ public final class BedrockMovementEngine implements MovementEngine {
         List<Entry> rebasedEntries = nextTickStates.profileEntries().stream().map(entry -> {
             BedrockMovementState state = entry.state();
 
-            Vec3d velocity = teleport.isBedrockTransportOnly()
-                ? Vec3d.ZERO
-                : BedrockVectorAdapter.toBedrock(teleport.applyToVelocity(BedrockVectorAdapter.toJava(state.velocity())));
+            // MovePlayer TELEPORT resets velocity; any subsequent SetEntityMotion
+            // enters through the existing packet modifiers, not Java teleport delta flags.
+            Vec3d velocity = Vec3d.ZERO;
             BedrockMovementState rebased = restoreCorrectedState(state, position, velocity);
             if (teleport.getBedrockOnGround() != null) {
 

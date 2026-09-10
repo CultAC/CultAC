@@ -247,6 +247,8 @@ public final class ReachabilityOrderingParityTest {
             TrackingTransactionOrder order = new TrackingTransactionOrder(player);
             player.checkManager.allChecks.put(TransactionOrder.class, order);
 
+            player.markBedrockTransactionClientbound(101);
+            player.markBedrockTransactionClientbound(202);
             assertTrue(player.addTransactionResponse(202));
             assertEquals(0, order.skipped);
             assertEquals(0, sentTransactions(player).size());
@@ -427,10 +429,15 @@ public final class ReachabilityOrderingParityTest {
 
     private static void enqueueSentTransaction(CultPlayer player, int transaction, int id)
             throws ReflectiveOperationException {
-        Class<?> sentTransaction = Class.forName("ac.cult.cultac.player.CultPlayer$SentTransaction");
-        Constructor<?> constructor = sentTransaction.getDeclaredConstructor(int.class, int.class, long.class);
+        Class<?> sentTransaction = Class.forName("ac.cult.cultac.player.CultPlayer$"
+                + (player.isBedrockMovement() ? "BedrockTransaction" : "SentTransaction"));
+        Constructor<?> constructor = player.isBedrockMovement()
+                ? sentTransaction.getDeclaredConstructor(int.class, int.class)
+                : sentTransaction.getDeclaredConstructor(int.class, int.class, long.class);
         constructor.setAccessible(true);
-        sentTransactions(player).add(constructor.newInstance(transaction, id, System.nanoTime()));
+        sentTransactions(player).add(player.isBedrockMovement()
+                ? constructor.newInstance(transaction, id)
+                : constructor.newInstance(transaction, id, System.nanoTime()));
     }
 
     private static long longField(Object target, String name) throws ReflectiveOperationException {

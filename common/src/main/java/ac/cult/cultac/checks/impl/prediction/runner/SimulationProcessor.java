@@ -108,6 +108,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    boolean lastMovementWasSetback = false;
    PredictionCarry profileCarry;
    private boolean bedrockSleepingStateObserved;
+   private TeleportData bedrockTeleport;
    private PredictionSetbackState activeBedrockSetbackState;
    private final WorldStageBuilder worldStageBuilder = new WorldStageBuilder();
 
@@ -295,7 +296,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.validPlayerStartingVels = new HashSet<>();
 
             for (Vec3 vector : existingVectors) {
-               this.validPlayerStartingVels.add(teleportData.applyToVelocity(vector));
+               this.validPlayerStartingVels.add(this.player.isBedrockMovement() ? Vec3.ZERO : teleportData.applyToVelocity(vector));
             }
 
             if (!teleportData.isRelativeDeltaX() && !teleportData.isRelativeDeltaY() && !teleportData.isRelativeDeltaZ()) {
@@ -323,7 +324,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       this.callPredictionEndListeners(result, teleportCommit);
       this.lastMovementWasSetback = teleportAcceptData.getSetback() != null && !teleportAcceptData.getSetback().isPlugin();
       this.couldPotentiallyTickSkip = false;
-      if (teleportAcceptData.getSetback() != null && teleportAcceptData.getSetback().getVelocity() != null) {
+      if (!this.player.isBedrockMovement() && teleportAcceptData.getSetback() != null && teleportAcceptData.getSetback().getVelocity() != null) {
          this.validPlayerStartingVels.clear();
          this.validPlayerStartingVels.add(teleportAcceptData.getSetback().getVelocity());
       }
@@ -336,11 +337,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          }
       }
 
-      if (this.player.bedrockState != null) {
-         this.player.bedrockState.clearTransientMovementInputState();
+      // Bedrock actions and item-use clocks belong to the actor tick, which still
+      // runs after this rebase. Do not erase them at the teleport boundary.
+      if (!this.player.isBedrockMovement()) {
+         MovementProfiles.forPlayer(this.player).resetQueuedAuthoredInput(this.player);
       }
-
-      MovementProfiles.forPlayer(this.player).resetQueuedAuthoredInput(this.player);
    }
 
    public void applyAcceptedBedrockTeleport(TeleportAcceptData teleportAcceptData) {
@@ -369,6 +370,19 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
    @Nullable
    public PredictionResult processBedrockAuthInputFrame(BedrockAuthInputFrame frame, BedrockPredictionTrigger trigger) {
+      return processBedrockAuthInputFrame(frame, trigger, null);
+   }
+
+   public PredictionResult processBedrockAuthInputFrame(BedrockAuthInputFrame frame, BedrockPredictionTrigger trigger, @Nullable TeleportData acceptedTeleport) {
+      this.bedrockTeleport = acceptedTeleport;
+      try {
+         return processBedrockAuthInputTick(frame, trigger);
+      } finally {
+         this.bedrockTeleport = null;
+      }
+   }
+
+   private PredictionResult processBedrockAuthInputTick(BedrockAuthInputFrame frame, BedrockPredictionTrigger trigger) {
       if (!this.player.isBedrockMovement()
          || this.player.bedrockState == null
          || this.player.compensatedEntities.vehicles.hasPlayerPassengerState()
@@ -1174,6 +1188,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          player.getScale()
       );
       context.setProfileCarry(this.profileCarry);
+      context.setBedrockTeleport(player.isBedrockMovement() ? this.bedrockTeleport : null);
       context = movementProfile.createContext(player, context, authoredMovementFrame);
       DesyncStatus contextLastOnGround = riding == null
          ? this.lastOnGround

@@ -1161,7 +1161,8 @@ public final class BedrockNextTickStateDeriverTest {
                 false,
                 false,
                 false,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                true);
     }
 
     private static BedrockMovementContext context(Medium medium, BlockCollisionWorld blockWorld) {

@@ -87,7 +87,7 @@ public final class BedrockMovementEngineTest {
     }
 
     @Test
-    public void relativeDeltaTeleportPreservesEveryCandidateVelocity() {
+    public void bedrockTeleportResetsVelocityRegardlessOfJavaRelativeDeltaFlags() {
         BedrockMovementState canonical = state(
                 new Vec3d(10.0D, 64.0D, 20.0D),
                 new Vec3d(0.09D, -0.0784D, 0.03D),
@@ -112,14 +112,14 @@ public final class BedrockMovementEngineTest {
 
         assertEquals(2, entries.size());
         assertEquals(new Vec3d(10.5D, 64.0D, 20.0D), entries.get(0).state().physicalFeetPosition());
-        assertEquals(canonical.velocity(), entries.get(0).state().velocity());
+        assertEquals(Vec3d.ZERO, entries.get(0).state().velocity());
         assertEquals(new Vec3d(10.5D, 64.0D, 20.0D), entries.get(1).state().physicalFeetPosition());
-        assertEquals(alternative.velocity(), entries.get(1).state().velocity());
+        assertEquals(Vec3d.ZERO, entries.get(1).state().velocity());
         assertTrue(entries.get(1).state().gliding());
         assertTrue(entries.get(1).state().fallFlyTicks() > 0L);
-        assertEquals(Set.of(
-                new Vec3(0.09D, -0.0784D, 0.03D),
-                new Vec3(0.07D, 0.1D, 0.02D)), rebased.startingVelocities());
+        // A teleport resets velocity before any subsequent motion packet is applied.
+        // Java relative-delta flags do not exist on Bedrock MovePlayer TELEPORT.
+        assertEquals(Set.of(Vec3.ZERO), rebased.startingVelocities());
     }
 
     @Test
@@ -157,7 +157,7 @@ public final class BedrockMovementEngineTest {
 
         assertEquals(1, entries.size());
         assertTrue(entries.getFirst().state().collisionFlags().onGround());
-        assertEquals(airborne.velocity(), entries.getFirst().state().velocity());
+        assertEquals(Vec3d.ZERO, entries.getFirst().state().velocity());
     }
 
     @Test

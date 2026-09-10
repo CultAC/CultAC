@@ -108,7 +108,8 @@ public final class BedrockSimulation {
         BedrockTravelInput.ScaffoldingVerticalBranch scaffolding
     ) {
         ArrayList<Candidate> branch = new ArrayList<>();
-        BedrockTravelOptions options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep());
+        BedrockTravelOptions options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
+            .withTravelActive(!input.acceptedTeleport());
         for (BedrockTravelOptions.SprintTravelSpeedMode speed : sprintSpeedModes()) {
             for (BedrockTravelOptions.SprintJumpImpulseMode jump : sprintJumpModes(input)) {
                 BedrockTravelResult result = travel(
@@ -199,7 +200,8 @@ public final class BedrockSimulation {
         boolean canStep,
         double maxUpStep,
         BedrockMobJumpComponentState mobJumpComponent,
-        boolean actorMovementTick
+        boolean actorMovementTick,
+        boolean acceptedTeleport
     ) {
         public Input(
             BedrockMovementState previousState,
@@ -212,6 +214,12 @@ public final class BedrockSimulation {
         ) {
             this(previousState, frame, intent, snapshot, canStep, maxUpStep, mobJumpComponent, true);
         }
+        public Input(BedrockMovementState previousState, BedrockInputFrame frame, BedrockInputIntent intent,
+                     BedrockWorldSnapshot snapshot, boolean canStep, double maxUpStep,
+                     BedrockMobJumpComponentState mobJumpComponent, boolean actorMovementTick) {
+            this(previousState, frame, intent, snapshot, canStep, maxUpStep, mobJumpComponent, actorMovementTick, false);
+        }
+
         public Input {
             Objects.requireNonNull(previousState, "previousState");
             Objects.requireNonNull(frame, "frame");

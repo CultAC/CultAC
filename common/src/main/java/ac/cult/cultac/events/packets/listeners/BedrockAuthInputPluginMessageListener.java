@@ -52,18 +52,6 @@ public final class BedrockAuthInputPluginMessageListener {
             return;
         }
 
-        BedrockAuthInputPluginMessage.VelocityMessage velocity =
-                BedrockAuthInputPluginMessage.decodeVelocity(data);
-        if (velocity != null && player.playerUUID.equals(velocity.playerUuid())) {
-            if (velocity.acknowledged()) {
-                player.checkManager.getKnockbackHandler().acknowledgeObservedEntityVelocity();
-            } else {
-                player.checkManager.getKnockbackHandler()
-                        .handleObservedEntityVelocity(velocity.motion(), player.entityID);
-            }
-            return;
-        }
-
         BedrockAuthInputPluginMessage.MetadataMessage metadata =
                 BedrockAuthInputPluginMessage.decodeAcknowledgedMetadata(data);
         if (metadata != null && player.playerUUID.equals(metadata.playerUuid())) {
@@ -105,19 +93,11 @@ public final class BedrockAuthInputPluginMessageListener {
                         frame.hasRawInputFlag(PlayerAuthInputData.HANDLE_TELEPORT));
         if (acceptedTeleport.isTeleport()) {
             simulationProcessor.applyAcceptedBedrockTeleport(acceptedTeleport);
-            Boolean teleportGround = acceptedTeleport.getTeleportData().getBedrockOnGround();
-            player.packetStateData.grantBedrockTranslatedMovementPermit(
-                    frame.getClientTick(),
-                    frame.isProjectedOnGround(),
-                    teleportGround == null ? player.onGround : teleportGround);
-            return null;
-        }
-        if (player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport()) {
-            // A raw frame can race ahead of the post-teleport transaction
-            // proof. It cannot advance simulation or reach Paper until the
-            // exact client echo proves the correction was processed; vanilla
-            // treats a teleport ack as acknowledgement, not an ActorMove tick
-            // .
+            // Teleport ticks advance actor state while skipping travel.
+            // Only a matched server teleport may activate that phase gate.
+        } else if (player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport()) {
+            // Preserve the existing gate for frames that did not acknowledge
+            // a queued teleport with its transaction and matching destination.
             player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
             return null;
         }
@@ -137,7 +117,7 @@ public final class BedrockAuthInputPluginMessageListener {
         player.bedrockState.offerAuthInputFrame(frame);
         boolean sleeping = simulationProcessor.isBedrockSleepingStateObserved();
         PredictionResult result = simulationProcessor
-                .processBedrockAuthInputFrame(frame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+                .processBedrockAuthInputFrame(frame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE, acceptedTeleport.getTeleportData());
         if (result != null) {
             player.checkManager.doChecksWithKnownLook();
         }

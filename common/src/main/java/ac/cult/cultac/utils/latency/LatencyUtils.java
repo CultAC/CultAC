@@ -80,7 +80,7 @@ public class LatencyUtils {
         }
     }
 
-    private void runQueuedTask(Runnable queuedTask) {
+    public void runQueuedTask(Runnable queuedTask) {
         try {
             queuedTask.run();
         } catch (Exception e) {

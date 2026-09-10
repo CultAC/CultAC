@@ -18,8 +18,6 @@ public final class BedrockAuthInputPluginMessage {
     private static final int TYPE_AUTH_INPUT = 0;
     private static final int TYPE_CLIENT_ACTION = 1;
     private static final int TYPE_MOVE_FRAME = 2;
-    private static final int TYPE_VELOCITY_BEGIN = 5;
-    private static final int TYPE_VELOCITY_ACKNOWLEDGED = 6;
     private static final int TYPE_METADATA_ACKNOWLEDGED = 7;
     private static final int MAX_STRING_LENGTH = 128;
 
@@ -122,25 +120,6 @@ public final class BedrockAuthInputPluginMessage {
             return bytes.toByteArray();
         } catch (IOException exception) {
             throw new IllegalStateException("Unable to encode Bedrock move frame plugin message", exception);
-        }
-    }
-
-    public static byte[] encodeVelocity(UUID playerUuid, Vec3 motion, boolean acknowledged) {
-        if (!isFinite(motion)) {
-            throw new IllegalArgumentException("motion must be finite");
-        }
-        try {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(48);
-            DataOutputStream out = new DataOutputStream(bytes);
-            out.writeInt(VERSION);
-            out.writeByte(acknowledged ? TYPE_VELOCITY_ACKNOWLEDGED : TYPE_VELOCITY_BEGIN);
-            out.writeLong(playerUuid.getMostSignificantBits());
-            out.writeLong(playerUuid.getLeastSignificantBits());
-            writeVec3(out, motion);
-            out.flush();
-            return bytes.toByteArray();
-        } catch (IOException exception) {
-            throw new IllegalStateException("Unable to encode Bedrock velocity plugin message", exception);
         }
     }
 
@@ -301,28 +280,6 @@ public final class BedrockAuthInputPluginMessage {
         }
     }
 
-    public static VelocityMessage decodeVelocity(byte[] data) {
-        try {
-            DataInputStream in = new DataInputStream(new ByteArrayInputStream(data));
-            int version = in.readInt();
-            int type = in.readUnsignedByte();
-            if (version != VERSION
-                    || (type != TYPE_VELOCITY_BEGIN && type != TYPE_VELOCITY_ACKNOWLEDGED)) {
-                return null;
-            }
-            VelocityMessage message = new VelocityMessage(
-                    new UUID(in.readLong(), in.readLong()),
-                    readVec3(in),
-                    type == TYPE_VELOCITY_ACKNOWLEDGED);
-            if (in.available() != 0 || !isFinite(message.motion())) {
-                return null;
-            }
-            return message;
-        } catch (IOException | RuntimeException ignored) {
-            return null;
-        }
-    }
-
     public static MetadataMessage decodeAcknowledgedMetadata(byte[] data) {
         try {
             DataInputStream in = new DataInputStream(new ByteArrayInputStream(data));
@@ -349,9 +306,6 @@ public final class BedrockAuthInputPluginMessage {
     }
 
     public record ClientActionMessage(UUID playerUuid, BedrockClientAction action) {
-    }
-
-    public record VelocityMessage(UUID playerUuid, Vec3 motion, boolean acknowledged) {
     }
 
     public record MetadataMessage(

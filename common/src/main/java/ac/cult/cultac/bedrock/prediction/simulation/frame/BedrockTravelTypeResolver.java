@@ -71,7 +71,7 @@ public final class BedrockTravelTypeResolver {
             case WATER -> Medium.WATER;
             case LAVA -> Medium.LAVA;
             case GROUND -> Medium.GROUND;
-            case PLAYER_FLYING, GLIDING, AIR -> Medium.AIR;
+            case NONE, PLAYER_FLYING, GLIDING, AIR -> Medium.AIR;
         };
     }
 }

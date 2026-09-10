@@ -24,6 +24,118 @@ public final class GeyserBedrockBridgeRuntimeTest {
     private static final float JUMP_VELOCITY = 0.42F;
 
     @Test
+    public void latencyQueueInstallsThroughTheUnmodifiedGeyserGetter() throws Exception {
+        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class, Mockito.CALLS_REAL_METHODS);
+        var cache = org.geysermc.geyser.session.GeyserSession.class.getDeclaredField("latencyPingCache");
+        cache.setAccessible(true);
+        cache.set(session, new java.util.concurrent.ConcurrentLinkedQueue<Runnable>());
+        var queue = GeyserBedrockBridgeRuntime.installLatencyQueue(session);
+        assertSame(queue, session.getLatencyPingCache());
+        assertSame(queue, GeyserBedrockBridgeRuntime.installLatencyQueue(session));
+        assertTrue(queue.isEmpty());
+    }
+
+    @Test
+    public void originalJavaPingCallbacksAndNativeCallbacksUseTheSameReplyPath() throws Exception {
+        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class, Mockito.CALLS_REAL_METHODS);
+        var cache = org.geysermc.geyser.session.GeyserSession.class.getDeclaredField("latencyPingCache");
+        cache.setAccessible(true);
+        cache.set(session, new java.util.concurrent.ConcurrentLinkedQueue<Runnable>());
+        var queue = GeyserBedrockBridgeRuntime.installLatencyQueue(session);
+        var geyser = Mockito.mock(org.geysermc.geyser.GeyserImpl.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.doReturn(geyser).when(session).getGeyser();
+        Mockito.when(geyser.config().gameplay().forwardPlayerPing()).thenReturn(true);
+        List<org.cloudburstmc.protocol.bedrock.packet.BedrockPacket> packets = new ArrayList<>();
+        Mockito.doAnswer(invocation -> { packets.add(invocation.getArgument(0)); return null; })
+                .when(session).sendUpstreamPacket(Mockito.any());
+        Deque<Runnable> eventLoop = new ArrayDeque<>();
+        Mockito.doAnswer(invocation -> { eventLoop.add(invocation.getArgument(0)); return null; })
+                .when(session).ensureInEventLoop(Mockito.any(Runnable.class));
+        List<Integer> pongs = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            var pong = (org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket) invocation.getArgument(0);
+            pongs.add(pong.getId());
+            return null;
+        }).when(session).sendDownstreamPacket(Mockito.any());
+
+        var pingTranslator = new org.geysermc.geyser.translator.protocol.java.JavaPingTranslator();
+        pingTranslator.translate(session, new org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundPingPacket(101));
+        pingTranslator.translate(session, new org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundPingPacket(102));
+        assertEquals(2, packets.size());
+        queue.write(() -> {});
+        queue.insert(GeyserBedrockBridgeRuntime.nativeLatencyCallback(session, 999), () -> {});
+        queue.write(() -> {});
+        var translator = new org.geysermc.geyser.translator.protocol.bedrock.BedrockNetworkStackLatencyTranslator();
+        var reply = new org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket();
+        reply.setTimestamp(0);
+        for (int i = 0; i < 3; i++) translator.translate(session, reply);
+        assertTrue(pongs.isEmpty());
+        while (!eventLoop.isEmpty()) eventLoop.removeFirst().run();
+        assertEquals(List.of(101, 999, 102), pongs);
+        assertTrue(queue.isEmpty());
+    }
+
+    @Test
+    public void mixedLatencyCallbacksFollowWireOrderRegardlessOfTimestamp() {
+        var queue = new ac.cult.cultac.utils.latency.GeyserQueue();
+        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(session.getLatencyPingCache()).thenReturn(queue);
+        List<String> completed = new ArrayList<>();
+        // Geyser registers these before Cloudburst flushes their packets.
+        queue.add(() -> completed.add("ping-A"));
+        queue.add(() -> completed.add("keepalive"));
+        queue.add(() -> completed.add("inventory"));
+        queue.add(() -> completed.add("form"));
+        queue.add(() -> completed.add("ping-B"));
+        assertNull(queue.poll());
+        queue.write(() -> {});
+        queue.insert(() -> completed.add("motion-A"), () -> {});
+        queue.write(() -> {});
+        queue.insert(() -> completed.add("motion-B"), () -> {});
+        queue.write(() -> {});
+        queue.write(() -> {});
+        queue.write(() -> {});
+
+        var translator = new org.geysermc.geyser.translator.protocol.bedrock.BedrockNetworkStackLatencyTranslator();
+        for (long timestamp : new long[] {0, 0, Long.MIN_VALUE, Long.MAX_VALUE, -1, 42, 42, 42}) {
+            var reply = new org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket();
+            reply.setTimestamp(timestamp);
+            translator.translate(session, reply);
+        }
+        assertEquals(List.of("ping-A", "motion-A", "keepalive", "motion-B", "inventory", "form", "ping-B"), completed);
+        assertTrue(queue.isEmpty());
+    }
+
+    @Test
+    public void nativeReceiptForwardsItsServerAssignedPongOnGeysersEventLoop() {
+        var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class);
+        Deque<Runnable> eventLoop = new ArrayDeque<>();
+        Mockito.doAnswer(invocation -> { eventLoop.add(invocation.getArgument(0)); return null; })
+                .when(session).ensureInEventLoop(Mockito.any(Runnable.class));
+        GeyserBedrockBridgeRuntime.nativeLatencyCallback(session, 123).run();
+        Mockito.verify(session, Mockito.never()).sendDownstreamPacket(Mockito.any());
+        eventLoop.removeFirst().run();
+        Mockito.verify(session).sendDownstreamPacket(
+                new org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket(123));
+    }
+
+    @Test
+    public void failedWriteLeavesCallbackUnconfirmedAndDetachPreservesGeyserCallbacks() {
+        var queue = new ac.cult.cultac.utils.latency.GeyserQueue();
+        Runnable callback = () -> {};
+        queue.add(callback);
+        org.junit.Assert.assertThrows(IllegalStateException.class,
+                () -> queue.write(() -> { throw new IllegalStateException("write failed"); }));
+        assertNull(queue.poll());
+        queue.stopTrackingWrites();
+        assertSame(callback, queue.poll());
+        queue.add(callback);
+        assertSame(callback, queue.poll());
+        queue.clear();
+        assertTrue(queue.isEmpty());
+    }
+
+    @Test
     public void bootstrapUsesZeroTrustedVelocityWithSignClamp() {
         Vector3f reported = Vector3f.from(0.1F, -0.08F, -0.2F);
         Vector3f rewritten = GeyserBedrockBridgeRuntime.rewriteDelta(reported, Vector3f.ZERO);

@@ -22,7 +22,7 @@ public final class BedrockEntityInsideMovement {
             nextPosition,
             context.current().simulationTick()
         );
-        if (context.clearStateVectorAfterSlowdownMove()) {
+        if (context.clearVelocityAfterSlowdownMove()) {
             velocity = new Vec3d(0.0D, velocity.y(), 0.0D);
         }
         Vec3d preInsideBlockVelocity = velocity;
@@ -32,7 +32,7 @@ public final class BedrockEntityInsideMovement {
             nextPosition,
             context.movementDimensions()
         );
-        if (context.clearStateVectorAfterSlowdownMove()) {
+        if (context.clearVelocityAfterSlowdownMove()) {
             velocity = new Vec3d(0.0D, velocity.y(), 0.0D);
         }
         return effects.withEntityInside(

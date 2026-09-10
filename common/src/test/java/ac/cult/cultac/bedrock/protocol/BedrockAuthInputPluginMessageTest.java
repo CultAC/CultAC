@@ -60,25 +60,6 @@ public final class BedrockAuthInputPluginMessageTest {
     }
 
     @Test
-    public void velocityRoundTripsExactClientVisibleReplacementAndAcknowledgement() {
-        Vec3 motion = new Vec3(0.33125D, 0.4D, -0.31366D);
-        var begin = BedrockAuthInputPluginMessage.decodeVelocity(
-                BedrockAuthInputPluginMessage.encodeVelocity(
-                        PLAYER_UUID, motion, false));
-        var acknowledged = BedrockAuthInputPluginMessage.decodeVelocity(
-                BedrockAuthInputPluginMessage.encodeVelocity(
-                        PLAYER_UUID, motion, true));
-
-        assertNotNull(begin);
-        assertEquals(PLAYER_UUID, begin.playerUuid());
-        assertEquals(motion, begin.motion());
-        assertFalse(begin.acknowledged());
-        assertNotNull(acknowledged);
-        assertEquals(motion, acknowledged.motion());
-        assertTrue(acknowledged.acknowledged());
-    }
-
-    @Test
     public void acknowledgedMetadataRoundTripsPartialUpdates() {
         var gliding = BedrockAuthInputPluginMessage.decodeAcknowledgedMetadata(
                 BedrockAuthInputPluginMessage.encodeAcknowledgedMetadata(

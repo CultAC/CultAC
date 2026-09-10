@@ -18,19 +18,26 @@ public final class BedrockPostMoveSystems {
             blockMove.collisionFlags(),
             false
         );
-        frame = context.applyWaterJumpGroundReset(frame);
-        frame = context.applyBlockMovementSlowdownClear(frame);
+        boolean travel = plan.frame().input().options().travelActive();
+        if (travel) {
+            frame = context.applyWaterJumpGroundReset(frame);
+            frame = context.applyBlockMovementSlowdownClear(frame);
+        }
         frame = context.resolvePostMoveFluidContext(frame, blockMove.position());
-        frame = BedrockPostMoveAutoClimb.apply(context, frame, collision.nextClimbableContact());
-        frame = context.applyLiquidDrag(frame);
-        frame = context.applyLevitation(frame);
-        frame = context.applyGravity(frame);
-        frame = context.applyVerticalDrag(frame);
-        frame = context.applyStandingSurface(frame, blockMove.position());
-        frame = context.applyNormalFriction(frame);
-        frame = context.applyPlayerWaterGravity(frame);
+        if (travel) {
+            frame = BedrockPostMoveAutoClimb.apply(context, frame, collision.nextClimbableContact());
+            frame = context.applyLiquidDrag(frame);
+            frame = context.applyLevitation(frame);
+            frame = context.applyGravity(frame);
+            frame = context.applyVerticalDrag(frame);
+            frame = context.applyStandingSurface(frame, blockMove.position());
+            frame = context.applyNormalFriction(frame);
+            frame = context.applyPlayerWaterGravity(frame);
+        }
 
-        BedrockPostMoveResult result = context.applyLiquidClimbOut(frame, blockMove.position());
+        BedrockPostMoveResult result = travel
+            ? context.applyLiquidClimbOut(frame, blockMove.position())
+            : BedrockPostMoveResult.afterLiquidClimbOut(frame, frame.velocity(), frame.flags(), 1.0D);
         result = BedrockEntityInsideMovement.apply(context, result, blockMove.position());
         result = result.withPendingBlockMovementSlowdownState(
             context.resolvePendingBlockMovementSlowdown(blockMove.position())
