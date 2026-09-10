@@ -131,6 +131,19 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       }
    }
 
+   /** Apply on the player's packet thread at the acknowledged clientbound boundary. */
+   public void applyAcknowledgedBedrockMetadata(Float width, Float height, Boolean gliding,
+                                               Boolean crawling, Boolean swimming) {
+      if (!this.player.isBedrockMovement() || this.player.bedrockState == null) {
+         return;
+      }
+      this.player.bedrockState.applyAcknowledgedBoundingBoxMetadata(width, height);
+      this.player.bedrockState.applyAcknowledgedPoseMetadata(crawling, swimming);
+      if (gliding != null) {
+         this.applyAcknowledgedBedrockGliding(gliding);
+      }
+   }
+
    public Set<Vec3> getLastStartingVelocitiesUsed() {
       return this.validPlayerStartingVels;
    }

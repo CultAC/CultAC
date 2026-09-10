@@ -55,14 +55,8 @@ public final class BedrockAuthInputPluginMessageListener {
         BedrockAuthInputPluginMessage.MetadataMessage metadata =
                 BedrockAuthInputPluginMessage.decodeAcknowledgedMetadata(data);
         if (metadata != null && player.playerUUID.equals(metadata.playerUuid())) {
-            player.bedrockState.applyAcknowledgedBoundingBoxMetadata(
-                    metadata.width(), metadata.height());
-            player.bedrockState.applyAcknowledgedPoseMetadata(
-                    metadata.crawling(), metadata.swimming());
-            if (metadata.gliding() != null) {
-                player.checkManager.getSimulationProcessor()
-                        .applyAcknowledgedBedrockGliding(metadata.gliding());
-            }
+            player.checkManager.getSimulationProcessor().applyAcknowledgedBedrockMetadata(
+                    metadata.width(), metadata.height(), metadata.gliding(), metadata.crawling(), metadata.swimming());
             return;
         }
 

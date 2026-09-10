@@ -399,14 +399,13 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
 
-            writeLatencyBoundary(context, source, () -> {
+            writeLatencyBoundary(context, source, player -> {
                 if (isCurrentConnection(uuid)) {
-                    // Rely on FIFO to match this payload with the auth input.
-                    connection.sendDownstreamGamePacket(createPayloadPacket(
-                            BedrockAuthInputPluginMessage.encodeAcknowledgedMetadata(
-                                    uuid, width, height, gliding, crawling, swimming)
-                    )
-                    );
+                    // Already on the server channel's acknowledgement boundary.
+                    // Sending through Geyser's downstream client channel again
+                    // could put this state behind an already queued auth input.
+                    player.checkManager.getSimulationProcessor().applyAcknowledgedBedrockMetadata(
+                            width, height, gliding, crawling, swimming);
                 }
             });
         }
@@ -446,11 +445,11 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private void writeLatencyBoundary(ChannelHandlerContext context, BedrockPacketWrapper source,
-                                          Runnable acknowledgement) {
+                                          Consumer<CultPlayer> acknowledgement) {
             CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(connection.javaUuid());
             if (player == null) return;
             CultPlayer.BedrockTransaction transaction = player.createBedrockTransactionAfterClientbound();
-            player.runSafely(() -> player.addBedrockTransactionTask(transaction, acknowledgement));
+            player.runSafely(() -> player.addBedrockTransactionTask(transaction, () -> acknowledgement.accept(player)));
             writeTransactionBoundary(context, source, player, transaction);
         }
 
