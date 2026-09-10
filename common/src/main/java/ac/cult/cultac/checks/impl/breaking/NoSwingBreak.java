@@ -7,13 +7,14 @@ import ac.cult.cultac.network.CultPacketGroup;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.PacketGroup;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.packet.SwingPacketUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
+import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
 
 @CheckData(name = "NoSwingBreak", stableKey = "cult.breaking.no_swing_break", description = "Did not swing while breaking block", experimental = true)
 public class NoSwingBreak extends Check implements BlockBreakListener {
@@ -31,9 +32,14 @@ public class NoSwingBreak extends Check implements BlockBreakListener {
     }
 
 
-    @CultPacketHandler
-    public void onSwing(PacketReceiveEvent event, CultPlayer player, ServerboundSwingPacket packet) {
+    @CultPacketHandler(packetClass = SwingPacketUtil.LEGACY_SWING_PACKET)
+    public void onSwing(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         sentAnimation = true;
+    }
+
+    @CultPacketHandler(packetClass = SwingPacketUtil.PUNCH_PACKET)
+    public void onPunch(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSwing(event, player, packet);
     }
 
     // isTickPacket: movement packets count unless they answered a teleport

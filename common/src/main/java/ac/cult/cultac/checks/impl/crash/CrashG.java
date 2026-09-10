@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
@@ -32,7 +33,7 @@ public class CrashG extends BlockPlaceCheck implements BlockBreakListener {
     @CultPacketHandler
     public void onUseItem(final PacketReceiveEvent event, CultPlayer player, ServerboundUseItemPacket packet) {
         if (!isApplicable()) return;
-        if (packet.getSequence() < 0) {
+        if (NmsPacketUtil.readUseItem(packet).sequence() < 0) {
             flag();
             event.setCancelled(true);
             player.onPacketCancel();

@@ -74,37 +74,41 @@ public final class NmsPacketUtil {
     }
 
     public static MoveVehicleData readMoveVehicle(ServerboundMoveVehiclePacket packet) {
-        Object position = invokeNoArgOrNull(packet, "position");
+        Object movingTo = invokeNoArgOrNull(packet, "movingTo");
+        Object transform = movingTo == null ? packet : movingTo;
+        Object position = invokeNoArgOrNull(transform, "position");
         Vec3 coordinates = position instanceof Vec3 vec3
                 ? vec3
                 : new Vec3(
-                        doubleValue(packet, "getX"),
-                        doubleValue(packet, "getY"),
-                        doubleValue(packet, "getZ")
+                        doubleValue(transform, "getX"),
+                        doubleValue(transform, "getY"),
+                        doubleValue(transform, "getZ")
                 );
         Object onGround = invokeNoArgOrNull(packet, "onGround");
         return new MoveVehicleData(
                 coordinates,
-                floatValue(packet, "yRot", "getYRot"),
-                floatValue(packet, "xRot", "getXRot"),
+                floatValue(transform, "yRot", "getYRot"),
+                floatValue(transform, "xRot", "getXRot"),
                 onGround instanceof Boolean value && value,
                 onGround instanceof Boolean
         );
     }
 
     public static MoveVehicleData readMoveVehicle(ClientboundMoveVehiclePacket packet) {
-        Object position = invokeNoArgOrNull(packet, "position");
+        Object movingTo = invokeNoArgOrNull(packet, "movingTo");
+        Object transform = movingTo == null ? packet : movingTo;
+        Object position = invokeNoArgOrNull(transform, "position");
         Vec3 coordinates = position instanceof Vec3 vec3
                 ? vec3
                 : new Vec3(
-                        doubleValue(packet, "getX"),
-                        doubleValue(packet, "getY"),
-                        doubleValue(packet, "getZ")
+                        doubleValue(transform, "getX"),
+                        doubleValue(transform, "getY"),
+                        doubleValue(transform, "getZ")
                 );
         return new MoveVehicleData(
                 coordinates,
-                floatValue(packet, "yRot", "getYRot"),
-                floatValue(packet, "xRot", "getXRot"),
+                floatValue(transform, "yRot", "getYRot"),
+                floatValue(transform, "xRot", "getXRot"),
                 false,
                 false
         );
@@ -417,20 +421,22 @@ public final class NmsPacketUtil {
 
     public static UseItemData readUseItem(ServerboundUseItemPacket packet) {
         return new UseItemData(
-                packet.getHand(),
-                packet.getSequence(),
-                packet.getYRot(),
-                packet.getXRot()
+                (InteractionHand) invokeNoArg(packet, "hand", "getHand"),
+                intValue(packet, "sequence", "getSequence"),
+                floatValue(packet, "yRot", "getYRot"),
+                floatValue(packet, "xRot", "getXRot")
         );
     }
 
     public static UseItemOnData readUseItemOn(ServerboundUseItemOnPacket packet) {
-        BlockPos pos = packet.getHitResult().getBlockPos();
-        net.minecraft.world.phys.Vec3 location = packet.getHitResult().getLocation();
+        net.minecraft.world.phys.BlockHitResult hit = (net.minecraft.world.phys.BlockHitResult)
+                invokeNoArg(packet, "hitResult", "getHitResult");
+        BlockPos pos = hit.getBlockPos();
+        net.minecraft.world.phys.Vec3 location = hit.getLocation();
         return new UseItemOnData(
-                packet.getHand(),
+                (InteractionHand) invokeNoArg(packet, "hand", "getHand"),
                 pos,
-                switch (packet.getHitResult().getDirection()) {
+                switch (hit.getDirection()) {
                     case DOWN -> BlockFace.DOWN;
                     case UP -> BlockFace.UP;
                     case NORTH -> BlockFace.NORTH;
@@ -439,8 +445,8 @@ public final class NmsPacketUtil {
                     case EAST -> BlockFace.EAST;
                 },
                 new Vec3(location.x - pos.getX(), location.y - pos.getY(), location.z - pos.getZ()),
-                packet.getHitResult().isInside(),
-                packet.getSequence()
+                hit.isInside(),
+                intValue(packet, "sequence", "getSequence")
         );
     }
 

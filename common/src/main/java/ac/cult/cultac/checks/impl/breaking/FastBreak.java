@@ -8,17 +8,18 @@ import ac.cult.cultac.network.CultPacketGroup;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.PacketGroup;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.packet.SwingPacketUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
+import net.minecraft.network.protocol.Packet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -117,11 +118,16 @@ public class FastBreak extends Check implements BlockBreakListener {
     }
 
 
-    @CultPacketHandler
-    public void onSwing(PacketReceiveEvent event, CultPlayer player, ServerboundSwingPacket packet) {
+    @CultPacketHandler(packetClass = SwingPacketUtil.LEGACY_SWING_PACKET)
+    public void onSwing(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) {
             updateMaximumBlockDamage();
         }
+    }
+
+    @CultPacketHandler(packetClass = SwingPacketUtil.PUNCH_PACKET)
+    public void onPunch(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSwing(event, player, packet);
     }
 
     private void updateMaximumBlockDamage() {

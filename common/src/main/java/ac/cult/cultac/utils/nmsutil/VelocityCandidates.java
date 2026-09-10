@@ -320,7 +320,11 @@ public final class VelocityCandidates {
             if (deltaY < 0.0D) {
                 // #suppresses_bounce (vanilla: honey block) and the impact-speed
                 // gate both force restitution to zero.
-                if (-deltaY < gravity || onBlock == Material.HONEY_BLOCK) {
+                // 26.3 Entity#restituteMovementAfterCollisions also suppresses
+                // bounce at EXACTLY the effective gravity, removing rest bounces.
+                boolean belowBounceThreshold = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3_RC_1)
+                        ? -deltaY <= gravity : -deltaY < gravity;
+                if (belowBounceThreshold || onBlock == Material.HONEY_BLOCK) {
                     restitution = 0.0D;
                 } else {
                     restitution = Math.max(restitution, blockBounciness(result, onBlock));

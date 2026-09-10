@@ -1,0 +1,102 @@
+{
+  "date": "2026-09-10",
+  "cult_base_commit": "26458e972791499d5d58524f2d0758de49381d9e",
+  "target_status": "release candidate; final protocol unassigned",
+  "decompiler": {
+    "name": "Vineflower",
+    "version": "1.12.0",
+    "sha256": "1dfcfe974395734fa467ce620661c7623d05ba83670de0529b1fbd63ff548b9d"
+  },
+  "versions": {
+    "26.2": {
+      "downloads": {
+        "client": {
+          "sha1": "2dc72797acbc1b63fc16a11c4ac393605f453754",
+          "size": 39193383,
+          "url": "https://piston-data.mojang.com/v1/objects/2dc72797acbc1b63fc16a11c4ac393605f453754/client.jar"
+        },
+        "server": {
+          "sha1": "823e2250d24b3ddac457a60c92a6a941943fcd6a",
+          "size": 60894273,
+          "url": "https://piston-data.mojang.com/v1/objects/823e2250d24b3ddac457a60c92a6a941943fcd6a/server.jar"
+        }
+      },
+      "version": {
+        "id": "26.2",
+        "name": "26.2",
+        "world_version": 4903,
+        "series_id": "main",
+        "protocol_version": 776,
+        "pack_version": {
+          "resource_major": 88,
+          "resource_minor": 0,
+          "data_major": 107,
+          "data_minor": 1
+        },
+        "build_time": "2026-06-16T12:01:27+00:00",
+        "java_component": "java-runtime-epsilon",
+        "java_version": 25,
+        "stable": true,
+        "use_editor": false
+      }
+    },
+    "26.3-rc-1": {
+      "downloads": {
+        "client": {
+          "sha1": "a64d116707456e8c6069776a558936d11a2674e1",
+          "size": 41483348,
+          "url": "https://piston-data.mojang.com/v1/objects/a64d116707456e8c6069776a558936d11a2674e1/client.jar"
+        },
+        "server": {
+          "sha1": "7ae096efda2563d58a0c01575256f3db7669d386",
+          "size": 62294799,
+          "url": "https://piston-data.mojang.com/v1/objects/7ae096efda2563d58a0c01575256f3db7669d386/server.jar"
+        }
+      },
+      "version": {
+        "id": "26.3-rc-1",
+        "name": "26.3 Release Candidate 1",
+        "world_version": 5020,
+        "series_id": "main",
+        "protocol_version": 1073742160,
+        "pack_version": {
+          "resource_major": 97,
+          "resource_minor": 1,
+          "data_major": 121,
+          "data_minor": 0
+        },
+        "build_time": "2026-09-10T11:26:09+00:00",
+        "java_component": "java-runtime-epsilon",
+        "java_version": 25,
+        "stable": false,
+        "use_editor": false
+      }
+    }
+  },
+  "source_review_scope": [
+    "net/minecraft/client/player/",
+    "net/minecraft/client/multiplayer/",
+    "net/minecraft/client/Minecraft",
+    "net/minecraft/world/entity/",
+    "net/minecraft/world/level/block/",
+    "net/minecraft/world/level/material/",
+    "net/minecraft/world/item/",
+    "net/minecraft/network/protocol/",
+    "net/minecraft/world/phys/",
+    "net/minecraft/tags/",
+    "net/minecraft/core/component/",
+    "net/minecraft/server/network/"
+  ],
+  "game_protocol_classes": {
+    "added": [
+      "net/minecraft/network/protocol/game/ClientboundAddTransientBlockPacket.class",
+      "net/minecraft/network/protocol/game/ClientboundSwingAnimationPacket.class",
+      "net/minecraft/network/protocol/game/MovementPacket.class",
+      "net/minecraft/network/protocol/game/ServerboundPunchPacket.class",
+      "net/minecraft/network/protocol/game/VecDelta.class"
+    ],
+    "removed": [
+      "net/minecraft/network/protocol/game/ServerboundSwingPacket.class"
+    ]
+  }
+}

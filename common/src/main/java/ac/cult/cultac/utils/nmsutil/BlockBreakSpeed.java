@@ -84,19 +84,7 @@ public class BlockBreakSpeed {
         Integer miningFatigue = player.compensatedEntities.getPotionLevelForPlayer(PotionEffectType.MINING_FATIGUE);
 
         if (miningFatigue != null) {
-            switch (miningFatigue) {
-                case 0:
-                    speedMultiplier *= 0.3;
-                    break;
-                case 1:
-                    speedMultiplier *= 0.09;
-                    break;
-                case 2:
-                    speedMultiplier *= 0.0027;
-                    break;
-                default:
-                    speedMultiplier *= 0.00081;
-            }
+            speedMultiplier = MiningFatigue.apply(speedMultiplier, miningFatigue, player.getClientVersion());
         }
 
         double eyeHeight = player.getEyeHeight();

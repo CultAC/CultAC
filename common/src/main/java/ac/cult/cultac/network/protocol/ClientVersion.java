@@ -27,6 +27,9 @@ public enum ClientVersion {
     V_1_21_11(774, "1.21.11"),
     V_26_1(775, "26.1"),
     V_26_2(776, "26.2"),
+    // Verified against Mojang's 26.3-rc-1 version.json. Do not guess the final
+    // release protocol or accept other snapshots as this RC.
+    V_26_3_RC_1(1073742160, "26.3-rc-1"),
     HIGHER_THAN_SUPPORTED_VERSIONS(V_26_2.protocolVersion + 1, "HIGHER_THAN_SUPPORTED");
 
     private final int protocolVersion;
@@ -38,19 +41,19 @@ public enum ClientVersion {
     }
 
     public boolean isOlderThan(ClientVersion version) {
-        return protocolVersion < version.protocolVersion;
+        return ordinal() < version.ordinal();
     }
 
     public boolean isOlderThanOrEquals(ClientVersion version) {
-        return protocolVersion <= version.protocolVersion;
+        return ordinal() <= version.ordinal();
     }
 
     public boolean isNewerThan(ClientVersion version) {
-        return protocolVersion > version.protocolVersion;
+        return ordinal() > version.ordinal();
     }
 
     public boolean isNewerThanOrEquals(ClientVersion version) {
-        return protocolVersion >= version.protocolVersion;
+        return ordinal() >= version.ordinal();
     }
 
     public String getReleaseName() {
@@ -70,8 +73,15 @@ public enum ClientVersion {
 
     // TODO: This i
     public static ClientVersion fromProtocolVersion(int protocolVersion) {
+        // Snapshot wire IDs have bit 30 set and are not release-order numbers.
+        if (protocolVersion == V_26_3_RC_1.protocolVersion) {
+            return V_26_3_RC_1;
+        }
         ClientVersion selected = V_1_7_10;
         for (ClientVersion version : values()) {
+            if (version == V_26_3_RC_1) {
+                continue;
+            }
             if (protocolVersion >= version.protocolVersion) {
                 selected = version;
             }

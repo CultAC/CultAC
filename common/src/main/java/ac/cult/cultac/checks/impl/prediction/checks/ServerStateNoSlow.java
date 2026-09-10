@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.manager.tick.Tickable;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.nmsutil.IsUsingItem;
@@ -48,7 +49,7 @@ public class ServerStateNoSlow extends CultProcessor implements PostPredictionLi
 
     @CultPacketHandler
     public void onUseItem(PacketReceiveEvent event, CultPlayer player, ServerboundUseItemPacket packet) {
-        hand = packet.getHand();
+        hand = NmsPacketUtil.readUseItem(packet).hand();
     }
 
     @CultPacketHandler

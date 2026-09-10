@@ -12,6 +12,7 @@ import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.packet.SwingPacketUtil;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import net.minecraft.network.protocol.common.ServerboundPongPacket;
 import net.minecraft.network.protocol.Packet;
@@ -74,7 +75,7 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
         }
     }
 
-    private void handleSwing(ServerboundSwingPacket packet) {
+    private void handleSwing(Packet<?> packet) {
         if (sentFlying && post == null && isExemptFromSwingingCheck < player.lastTransactionReceived.get()) {
             post = packetName(packet);
         }
@@ -153,9 +154,14 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
         recordPostPacket(packet);
     }
 
-    @CultPacketHandler
-    public void onSwing(PacketReceiveEvent event, CultPlayer player, ServerboundSwingPacket packet) {
+    @CultPacketHandler(packetClass = SwingPacketUtil.LEGACY_SWING_PACKET)
+    public void onSwing(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         handleSwing(packet);
+    }
+
+    @CultPacketHandler(packetClass = SwingPacketUtil.PUNCH_PACKET)
+    public void onPunch(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSwing(event, player, packet);
     }
 
     @CultPacketHandler

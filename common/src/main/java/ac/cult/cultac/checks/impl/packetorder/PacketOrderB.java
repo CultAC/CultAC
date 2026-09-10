@@ -8,14 +8,13 @@ import ac.cult.cultac.checks.type.OrderedPacketReceiveListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.DecodedPacketReliability;
 import ac.cult.cultac.network.packet.NmsPacketUtil;
+import ac.cult.cultac.network.packet.SwingPacketUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
-import net.minecraft.world.InteractionHand;
 import org.bukkit.GameMode;
 
 @CheckData(name = "PacketOrderB", stableKey = "cult.packetorder.noswing", description = "Did not swing for attack")
@@ -41,8 +40,7 @@ public class PacketOrderB extends Check implements OrderedPacketReceiveListener 
     public void onPacketReceive(PacketReceiveEvent event) {
         Packet<?> packet = event.getNmsPacket();
 
-        if (packet instanceof ServerboundSwingPacket swing
-                && swing.getHand() == InteractionHand.MAIN_HAND) {
+        if (SwingPacketUtil.isMainHandSwing(packet)) {
             sentAnimationSinceLastAttack = sentAnimation = true;
             sentAttack = sentSlotSwitch = false;
             return;
@@ -64,7 +62,10 @@ public class PacketOrderB extends Check implements OrderedPacketReceiveListener 
         }
 
         if (packet instanceof ServerboundPlayerActionPacket actionPacket
-                && actionPacket.getAction() == ServerboundPlayerActionPacket.Action.STAB) {
+                && actionPacket.getAction() == ServerboundPlayerActionPacket.Action.STAB
+                // 26.3 MultiPlayerGameMode#piercingAttack animates locally and
+                // sends only STAB, unlike ordinary attacks followed by PUNCH.
+                && player.getClientVersion().isOlderThan(ClientVersion.V_26_3_RC_1)) {
             onAttack(event);
             return;
         }

@@ -2,6 +2,7 @@ package ac.cult.cultac.events.packets.worldreader;
 
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.utils.latency.CompensatedWorld.ClientboundDimensionData;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.latency.CompensatedGeysers;
@@ -12,6 +13,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkPacketData;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import org.bukkit.Bukkit;
 import org.bukkit.craftbukkit.CraftServer;
@@ -27,7 +29,11 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
     @Override
     public void handleMapChunk(CultPlayer player, PacketSendEvent event, ClientboundLevelChunkWithLightPacket packet) {
         ClientboundDimensionData dimensionData = player.compensatedWorld.getLastClientboundDimension();
-        FriendlyByteBuf chunkData = packet.getChunkData().getReadBuffer();
+        int chunkX = NmsPacketUtil.intValue(packet, "x", "getX");
+        int chunkZ = NmsPacketUtil.intValue(packet, "z", "getZ");
+        ClientboundLevelChunkPacketData payload = (ClientboundLevelChunkPacketData)
+                NmsPacketUtil.invokeNoArg(packet, "chunkData", "getChunkData");
+        FriendlyByteBuf chunkData = payload.getReadBuffer();
 
         CachedSection[] chunks = new CachedSection[dimensionData.sectionCount()];
         try {
@@ -41,14 +47,27 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
         }
 
         List<BlockPos> geyserTickers = new ArrayList<>();
-        packet.getChunkData().getBlockEntitiesTagsConsumer(packet.getX(), packet.getZ()).accept((position, type, tag) -> {
+        forEachBlockEntityTag(payload, chunkX, chunkZ, (position, type, tag) -> {
             if ("potent_sulfur".equals(BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(type).getPath())
                     && hasGeyserTicker(chunks, dimensionData.minHeight(), position)) {
                 geyserTickers.add(position.immutable());
             }
         });
 
-        addChunkToCache(event, player, chunks, true, dimensionData.dimension(), packet.getX(), packet.getZ(), geyserTickers);
+        addChunkToCache(event, player, chunks, true, dimensionData.dimension(), chunkX, chunkZ, geyserTickers);
+    }
+
+    private static void forEachBlockEntityTag(ClientboundLevelChunkPacketData data, int x, int z,
+                                              ClientboundLevelChunkPacketData.BlockEntityTagOutput output) {
+        try {
+            // 26.3 replaces the consumer-returning method with a direct visitor.
+            ClientboundLevelChunkPacketData.class.getMethod("forEachBlockEntityTag", int.class, int.class,
+                    ClientboundLevelChunkPacketData.BlockEntityTagOutput.class).invoke(data, x, z, output);
+        } catch (NoSuchMethodException ignored) {
+            data.getBlockEntitiesTagsConsumer(x, z).accept(output);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to read chunk block entity tags", unwrap(exception));
+        }
     }
 
     private static boolean hasGeyserTicker(CachedSection[] sections, int minHeight, BlockPos position) {

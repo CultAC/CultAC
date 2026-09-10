@@ -37,6 +37,7 @@ import ac.cult.cultac.utils.latency.BlockPredictionAckSender;
 import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.packet.NmsPacketUtil;
+import ac.cult.cultac.network.packet.SwingPacketUtil;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import net.minecraft.network.protocol.Packet;
@@ -446,9 +447,14 @@ public class CheckManagerListener {
         processGenericReceive(event, player);
     }
 
-    @CultPacketHandler
-    public void onSwing(PacketReceiveEvent event, CultPlayer player, ServerboundSwingPacket packet) {
+    @CultPacketHandler(packetClass = SwingPacketUtil.LEGACY_SWING_PACKET)
+    public void onSwing(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         processGenericReceive(event, player);
+    }
+
+    @CultPacketHandler(packetClass = SwingPacketUtil.PUNCH_PACKET)
+    public void onPunch(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSwing(event, player, packet);
     }
 
     @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundPlayerLoadedPacket")
@@ -1023,23 +1029,16 @@ public class CheckManagerListener {
         clearPendingVehicleMoveForInterveningPacket(player);
         dispatchPrePredictionReceive(event, player);
 
-        BlockPos clickedBlock = packet.getHitResult().getBlockPos();
-        net.minecraft.world.phys.Vec3 location = packet.getHitResult().getLocation();
-        Vec3 cursor = new Vec3(location.x - clickedBlock.getX(), location.y - clickedBlock.getY(), location.z - clickedBlock.getZ());
-        BlockFace blockFace = switch (packet.getHitResult().getDirection()) {
-            case DOWN -> BlockFace.DOWN;
-            case UP -> BlockFace.UP;
-            case NORTH -> BlockFace.NORTH;
-            case SOUTH -> BlockFace.SOUTH;
-            case WEST -> BlockFace.WEST;
-            case EAST -> BlockFace.EAST;
-        };
+        NmsPacketUtil.UseItemOnData use = NmsPacketUtil.readUseItemOn(packet);
+        BlockPos clickedBlock = use.blockPosition();
+        Vec3 cursor = use.cursor();
+        BlockFace blockFace = use.blockFace();
         player.lastBlockPlaceUseItem = System.currentTimeMillis();
 
-        ItemStack placedWith = player.getInventory().getHandItem(packet.getHand());
+        ItemStack placedWith = player.getInventory().getHandItem(use.hand());
 
-        BlockPlace blockPlace = new BlockPlace(player, packet.getHand(), clickedBlock, blockFace, placedWith,
-                TraverseBlocks.getNearestHitResult(player, null, true), packet.getSequence());
+        BlockPlace blockPlace = new BlockPlace(player, use.hand(), clickedBlock, blockFace, placedWith,
+                TraverseBlocks.getNearestHitResult(player, null, true), use.sequence());
         blockPlace.setCursor(cursor);
 
         // Deny fun stuff like teleport bridging
@@ -1075,12 +1074,12 @@ public class CheckManagerListener {
                 player.onPacketCancel();
             }
 
-            BlockPredictionAckSender.sendAck(player, packet.getSequence());
+            BlockPredictionAckSender.sendAck(player, use.sequence());
 
             // Stop inventory desync from cancelling place
             if (player.bukkitPlayer != null) {
                 // TODO: Is this unsafe enough to have to run on the main thread?
-                if (packet.getHand() == InteractionHand.MAIN_HAND) {
+                if (use.hand() == InteractionHand.MAIN_HAND) {
                     ItemStack mainHand = ItemUtil.copy(player.bukkitPlayer.getInventory().getItemInHand());
                     player.user.sendPacket(new ClientboundContainerSetSlotPacket(0, player.getInventory().stateID, 36 + player.packetStateData.lastSlotSelected, SpigotConversionUtil.toNmsItemStack(mainHand)));
                 } else {

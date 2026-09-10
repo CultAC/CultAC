@@ -12,10 +12,11 @@ import ac.cult.cultac.utils.nmsutil.Ray;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.NmsPacketUtil;
+import ac.cult.cultac.network.packet.SwingPacketUtil;
+import net.minecraft.network.protocol.Packet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket.Action;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
 import org.bukkit.GameMode;
 import org.bukkit.util.Vector;
 
@@ -109,9 +110,14 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
         handleDigAction(packet);
     }
 
-    @CultPacketHandler
-    public void onSwing(PacketReceiveEvent event, CultPlayer player, ServerboundSwingPacket packet) {
+    @CultPacketHandler(packetClass = SwingPacketUtil.LEGACY_SWING_PACKET)
+    public void onSwing(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         handleSwing();
+    }
+
+    @CultPacketHandler(packetClass = SwingPacketUtil.PUNCH_PACKET)
+    public void onPunch(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSwing(event, player, packet);
     }
 
     @Override
