@@ -25,15 +25,6 @@ public final class BedrockSwimmingMovement {
         );
     }
 
-    static SwimmingState duringSpin(BedrockMovementState current) {
-
-        return new SwimmingState(
-            false,
-            false,
-            BedrockSwimmingPoseProgress.nextSwimAmount(current.swimAmount(), false)
-        );
-    }
-
     public record SwimmingState(
         boolean actorStateAtStart,
         boolean actorStateAfterActions,

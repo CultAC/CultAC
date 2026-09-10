@@ -54,13 +54,7 @@ public final class BedrockFrameSystems {
             input.previousState().physicalFeetPosition().y()
         );
         velocity = velocity.add(movementSource.appliedDelta());
-
-
         BedrockSwimmingMovement.SwimmingState swimming = facts.swimming().afterActions(intent);
-        if (riptide.spinActive()) {
-
-            swimming = BedrockSwimmingMovement.duringSpin(input.previousState());
-        }
         facts = facts.withSwimming(swimming);
 
         BedrockGlideState gliding = BedrockGlidingTravelMovement.resolve(
