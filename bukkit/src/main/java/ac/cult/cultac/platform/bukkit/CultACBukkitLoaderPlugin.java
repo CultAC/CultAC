@@ -49,6 +49,8 @@ import org.incendo.cloud.bukkit.CloudBukkitCapabilities;
 import org.incendo.cloud.execution.ExecutionCoordinator;
 import org.incendo.cloud.paper.LegacyPaperCommandManager;
 
+import java.util.concurrent.CompletableFuture;
+
 public final class CultACBukkitLoaderPlugin extends JavaPlugin implements PlatformLoader {
     public static CultACBukkitLoaderPlugin LOADER;
 
@@ -137,7 +139,13 @@ public final class CultACBukkitLoaderPlugin extends JavaPlugin implements Platfo
         });
 
         eventBus.get(ac.grim.grimac.api.event.events.GrimQuitEvent.class).onQuit(plugin, (user) -> {
-            Bukkit.getPluginManager().callEvent(new ac.grim.grimac.api.events.GrimQuitEvent(user));
+            Runnable notifyQuit = () -> Bukkit.getPluginManager().callEvent(
+                    new ac.grim.grimac.api.events.GrimQuitEvent(user));
+            if (Bukkit.isPrimaryThread()) {
+                CompletableFuture.runAsync(notifyQuit).join();
+            } else {
+                notifyQuit.run();
+            }
         });
 
         eventBus.get(ac.grim.grimac.api.event.events.GrimReloadEvent.class).onReload(plugin, (success) -> {
