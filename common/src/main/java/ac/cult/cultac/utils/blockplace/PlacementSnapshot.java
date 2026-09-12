@@ -4,6 +4,7 @@ import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import lombok.Getter;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
@@ -15,6 +16,7 @@ import org.bukkit.util.Vector;
 
 @Getter
 public final class PlacementSnapshot {
+    private final ClientVersion clientVersion;
     private final InteractionHand hand;
     private final org.bukkit.inventory.ItemStack bukkitItemStack;
     private final ItemStack itemStack;
@@ -58,8 +60,10 @@ public final class PlacementSnapshot {
             int foodLevel,
             int minY,
             int maxY,
-            boolean replaceClicked
+            boolean replaceClicked,
+            ClientVersion clientVersion
     ) {
+        this.clientVersion = clientVersion;
         this.hand = hand;
         this.bukkitItemStack = bukkitItemStack;
         this.itemStack = itemStack;
@@ -127,7 +131,8 @@ public final class PlacementSnapshot {
                 foodLevel,
                 minY,
                 maxY,
-                replaceClicked
+                replaceClicked,
+                ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion())
         );
     }
 
@@ -194,7 +199,7 @@ public final class PlacementSnapshot {
         // uses the camera that produced this hit, so reconstruct that context from eye position -> hit.
         ViewRotation viewRotation = viewRotationFromHit(clientPosition, player.getEyeHeight(), clickLocation, player.xRot, player.yRot);
 
-        return of(
+        return new PlacementSnapshot(
                 place.getHand(),
                 place.getItemStack(),
                 SpigotConversionUtil.toNmsItemStack(place.getItemStack()),
@@ -215,7 +220,8 @@ public final class PlacementSnapshot {
                 player.food,
                 player.compensatedWorld.getMinHeight(),
                 player.compensatedWorld.getMaxHeight(),
-                place.isReplaceClicked()
+                place.isReplaceClicked(),
+                player.getClientVersion()
         );
     }
 
@@ -232,7 +238,7 @@ public final class PlacementSnapshot {
                 player.packetStateData.clientSidePosition.z
         );
 
-        return of(
+        return new PlacementSnapshot(
                 InteractionHand.MAIN_HAND,
                 null,
                 ItemStack.EMPTY,
@@ -253,7 +259,8 @@ public final class PlacementSnapshot {
                 player.food,
                 player.compensatedWorld.getMinHeight(),
                 player.compensatedWorld.getMaxHeight(),
-                true
+                true,
+                player.getClientVersion()
         );
     }
 

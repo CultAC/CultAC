@@ -83,7 +83,7 @@ public final class BedrockPlayerTransportGateTest {
                     teleportId);
 
             ServerboundAcceptTeleportationPacket accept =
-                    new ServerboundAcceptTeleportationPacket(teleportId);
+                    new ServerboundAcceptTeleportationPacket(teleportId, player.x, player.y, player.z, player.xRot, player.yRot);
             new PacketServerTeleport().onAcceptTeleportation(
                     receiveEvent(player, accept), player, accept);
 

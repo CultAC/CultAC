@@ -20,7 +20,6 @@ repositories {
 
     // Exclusive Repositories (One HTTP request per dep)
     exclusive("https://repo.papermc.io/repository/maven-public/", { name = "papermc" }) {
-        includeGroup("io.papermc.paper")
         includeGroup("net.md-5")
     }
 
@@ -83,7 +82,7 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 dependencies {
-    paperweight.paperDevBundle("26.2.build.112-stable")
+    paperweight.paperDevBundle(providers.gradleProperty("paperDevBundleVersion").get())
 
     compileOnly(libs.placeholderapi)
     compileOnly(libs.luckperms)
@@ -235,6 +234,10 @@ tasks {
     }
 
     shadowJar {
+        dependsOn(":placement-1-21-11-adapter:classes")
+        from(project(":placement-1-21-11-adapter").layout.buildDirectory.dir("classes/java/main"))
+        dependsOn(":placement-26-2-adapter:classes")
+        from(project(":placement-26-2-adapter").layout.buildDirectory.dir("classes/java/main"))
         dependsOn(":legacy-placement-adapter:classes")
         from(project(":legacy-placement-adapter").layout.buildDirectory.dir("classes/java/main"))
 
@@ -256,6 +259,10 @@ tasks.register<ShadowJar>("devShadowJar") {
     description = "Builds a development fat jar without relocations."
 
     dependsOn(":legacy-placement-adapter:classes")
+    dependsOn(":placement-1-21-11-adapter:classes")
+    from(project(":placement-1-21-11-adapter").layout.buildDirectory.dir("classes/java/main"))
+    dependsOn(":placement-26-2-adapter:classes")
+    from(project(":placement-26-2-adapter").layout.buildDirectory.dir("classes/java/main"))
     from(sourceSets["main"].output)
     from(project(":legacy-placement-adapter").layout.buildDirectory.dir("classes/java/main"))
     configurations = listOf(project.configurations["runtimeClasspath"])

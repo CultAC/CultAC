@@ -116,7 +116,7 @@ tasks.processResources {
 }
 
 dependencies {
-    paperweight.paperDevBundle("26.2.build.112-stable")
+    paperweight.paperDevBundle(providers.gradleProperty("paperDevBundleVersion").get())
 
     api(libs.cloud.core)
     api(libs.cloud.processors.requirements)

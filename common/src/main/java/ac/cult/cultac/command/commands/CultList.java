@@ -46,7 +46,7 @@ public class CultList implements BuildableCommand {
             default -> sender.sendMessage(Component.text()
                     .append(Component.text("Invalid argument: ", NamedTextColor.GRAY))
                     .append(Component.text(id, NamedTextColor.RED))
-                    .build());
+                    .asComponent());
         }
     }
 
@@ -75,7 +75,7 @@ public class CultList implements BuildableCommand {
             builder.append(Component.newline());
             builder.append(Component.text("Not Registered").color(NamedTextColor.RED));
         }
-        return builder.build();
+        return builder.asComponent();
     }
 
     private void handleListPlayers(Sender sender) {
@@ -115,7 +115,7 @@ public class CultList implements BuildableCommand {
         }
         // close and send
         builder.append(Component.text("]", NamedTextColor.GRAY));
-        sender.sendMessage(builder.build());
+        sender.sendMessage(builder.asComponent());
     }
 
 }

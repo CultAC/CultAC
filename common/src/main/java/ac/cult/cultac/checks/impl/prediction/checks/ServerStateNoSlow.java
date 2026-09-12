@@ -48,7 +48,7 @@ public class ServerStateNoSlow extends CultProcessor implements PostPredictionLi
 
     @CultPacketHandler
     public void onUseItem(PacketReceiveEvent event, CultPlayer player, ServerboundUseItemPacket packet) {
-        hand = packet.getHand();
+        hand = ac.cult.cultac.network.packet.NmsPacketUtil.readUseItem(packet).hand();
     }
 
     @CultPacketHandler

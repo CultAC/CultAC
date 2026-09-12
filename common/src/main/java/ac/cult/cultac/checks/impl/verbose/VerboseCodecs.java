@@ -4,6 +4,7 @@ import ac.grim.grimac.api.storage.verbose.VerboseSchema;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
 import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
@@ -82,9 +83,9 @@ public final class VerboseCodecs {
         return BuiltInRegistries.ITEM.getId(type);
     }
 
-    /** Encoder for {@code {packet}}: the 26.2 packet-type identifier (e.g. {@code minecraft:move_player_pos}). */
+    /** Encoder for {@code {packet}}: the native packet-type identifier (e.g. {@code minecraft:move_player_pos}). */
     public static String packet(@NotNull Packet<?> packet) {
-        return packet.type().id().toString();
+        return NmsIdentifierUtil.packetTypeId(packet.type());
     }
 
     /** Encoder for {@code {entity}}: the server's built-in registry entity-type id. */
@@ -95,18 +96,18 @@ public final class VerboseCodecs {
     private static @NotNull String blockName(int id) {
         if (id < 0) return "unknown";
         Block type = BuiltInRegistries.BLOCK.byId(id);
-        return type == null ? "unknown(" + id + ")" : BuiltInRegistries.BLOCK.getKey(type).toString();
+        return type == null ? "unknown(" + id + ")" : NmsIdentifierUtil.registryKey(BuiltInRegistries.BLOCK, type);
     }
 
     private static @NotNull String itemTypeName(int id) {
         if (id < 0) return "";
         Item type = BuiltInRegistries.ITEM.byId(id);
-        return type == null ? "unknown(" + id + ")" : BuiltInRegistries.ITEM.getKey(type).toString();
+        return type == null ? "unknown(" + id + ")" : NmsIdentifierUtil.registryKey(BuiltInRegistries.ITEM, type);
     }
 
     private static @NotNull String entityTypeName(int entityId) {
         EntityType<?> entityType = BuiltInRegistries.ENTITY_TYPE.byId(entityId);
-        return entityType == null ? "unknown" : BuiltInRegistries.ENTITY_TYPE.getKey(entityType).toString();
+        return entityType == null ? "unknown" : NmsIdentifierUtil.registryKey(BuiltInRegistries.ENTITY_TYPE, entityType);
     }
 
 

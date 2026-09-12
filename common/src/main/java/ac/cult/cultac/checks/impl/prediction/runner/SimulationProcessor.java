@@ -66,6 +66,7 @@ import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -167,7 +168,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    private boolean canSpeculatePointThreeFromMovementPacket() {
       return this.player.isBedrockMovement()
          ? false
-         : this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9) && this.player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5);
+         : this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9) && this.player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2);
    }
 
    private boolean isPassengerRotationOnlyTick(ServerboundMovePlayerPacket packet) {
@@ -305,7 +306,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          this.player, teleportData.getLocation().x, teleportData.getLocation().y, teleportData.getLocation().z
       );
       if (!this.player.compensatedEntities.getSelf().inVehicle()) {
-         if (this.player.isBedrockMovement() || this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
+         if (this.player.isBedrockMovement() || this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
             Set<Vec3> existingVectors = this.validPlayerStartingVels;
             this.validPlayerStartingVels = new HashSet<>();
 
@@ -362,6 +363,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       }
    }
 
+   public void applyAcceptedJavaTeleport(TeleportAcceptData accepted) {
+      if (accepted == null || !accepted.isTeleport() || accepted.getTeleportData() == null) return;
+      this.handleTeleport(accepted);
+      this.commitPlayerPosition(accepted.getTeleportData().getLocation());
+   }
+
    public void applyAcceptedBedrockTeleport(TeleportAcceptData teleportAcceptData) {
       if (teleportAcceptData != null && teleportAcceptData.isTeleport() && teleportAcceptData.getTeleportData() != null) {
          this.handleTeleport(teleportAcceptData);
@@ -374,6 +381,14 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       if (positionUpdate.getTeleportAcceptData().isTeleport()) {
          this.handleTeleport(positionUpdate.getTeleportAcceptData());
          return null;
+      }
+
+      if (!this.player.isBedrockMovement() && !positionUpdate.isHasOnGround()) {
+         PacketEntity vehicle = this.currentPredictionVehicle();
+         if (vehicle != null && (this.lastPrediction == null
+         || this.lastPrediction.getSimulationContext().getVehicle() != vehicle)) {
+            this.lastOnGround = DesyncStatus.fromBoolean(vehicle.onGround);
+         }
       }
 
       PredictionResult result = this.callPrediction(
@@ -771,8 +786,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    }
 
    public void seedStartingVelocity(Vec3 velocity) {
-      this.validPlayerStartingVels.clear();
-      this.validPlayerStartingVels.add(velocity);
+      this.seedStartingVelocities(List.of(velocity));
+   }
+
+   public void seedStartingVelocities(Collection<Vec3> velocities) {
+      this.validPlayerStartingVels = new HashSet<>(velocities);
    }
 
    private int nextDebugIdentifier() {
@@ -944,7 +962,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       this.bedrockSleepingStateObserved = false;
       this.profileCarry = null;
       this.player.packetStateData.clearBedrockTranslatedMovementPermit();
-      this.player.packetStateData.clearMountedTeleportPosRotPending();
       if (this.player.bedrockState != null) {
          this.lastMovementWasSetback = false;
          this.player.bedrockState.clearMovementInputState();

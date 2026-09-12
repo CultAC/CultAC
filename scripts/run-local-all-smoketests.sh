@@ -14,6 +14,7 @@ artifact_root="${SMOKETEST_ARTIFACT_ROOT:-$smoketest_root/.real-validation/runs/
 setup_client="${SMOKETEST_SETUP_CLIENT:-auto}"
 use_xvfb="${SMOKETEST_USE_XVFB:-auto}"
 skip_cultac_build="${SMOKETEST_SKIP_CULTAC_BUILD:-false}"
+plugin_jar="${SMOKETEST_PLUGIN_JAR:-}"
 stop_gradle_daemons="${SMOKETEST_STOP_GRADLE_DAEMONS:-true}"
 max_workers="${SMOKETEST_MAX_WORKERS:-2}"
 gradle_heap="${SMOKETEST_GRADLE_HEAP:-1024m}"
@@ -46,6 +47,7 @@ Options:
   --server-jvm-heap SIZE      Paper server heap for real validation. Default: 1536m
   --keep-gradle-daemons       Do not stop existing Gradle daemons before running.
   --skip-cultac-build         Use an existing CultAC *-dev.jar.
+  --plugin-jar PATH           Validate this exact jar, skipping the plugin build.
   --no-xvfb                   Do not wrap real-client phases in xvfb-run.
   --help                      Show this message.
 
@@ -56,7 +58,7 @@ Environment overrides match the long option names:
   SMOKETEST_CULTAC_GRADLE_HEAP, SMOKETEST_MCP_TOOL_HEAP,
   SMOKETEST_JVM_HEAP, REAL_VALIDATION_SERVER_JVM_XMS,
   REAL_VALIDATION_SERVER_JVM_HEAP, SMOKETEST_SKIP_CULTAC_BUILD,
-  SMOKETEST_STOP_GRADLE_DAEMONS,
+  SMOKETEST_STOP_GRADLE_DAEMONS, SMOKETEST_PLUGIN_JAR,
   SMOKETEST_USE_XVFB.
 EOF
 }
@@ -136,6 +138,12 @@ while [[ $# -gt 0 ]]; do
       skip_cultac_build="true"
       shift
       ;;
+    --plugin-jar)
+      [[ $# -ge 2 ]] || fail "--plugin-jar requires a path"
+      plugin_jar="$(realpath "$2")"
+      skip_cultac_build="true"
+      shift 2
+      ;;
     --no-xvfb)
       use_xvfb="false"
       shift
@@ -149,6 +157,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -n "$plugin_jar" ]]; then
+  plugin_jar="$(realpath "$plugin_jar")"
+  skip_cultac_build="true"
+fi
 
 [[ -d "$smoketest_root" ]] || fail "missing mcp-client-smoketest repo: $smoketest_root"
 smoketest_root="$(cd "$smoketest_root" && pwd)"
@@ -184,6 +197,7 @@ start_epoch="$(date +%s)"
 deadline_epoch=$((start_epoch + (time_budget_minutes * 60)))
 declare -a phase_summaries=()
 overall_status=0
+last_phase_status=0
 
 remaining_seconds() {
   local now
@@ -226,6 +240,7 @@ run_phase() {
   timeout -k 30s "${timeout_seconds}s" "$@"
   phase_status=$?
   set -e
+  last_phase_status="$phase_status"
   phase_elapsed="$(( $(date +%s) - phase_start ))"
 
   if [[ "$phase_status" -eq 0 ]]; then
@@ -254,6 +269,14 @@ if [[ "$setup_client" == "always" || ( "$setup_client" == "auto" && ! -f "$mcp_c
 fi
 if [[ "$setup_client" == "never" && ! -f "$mcp_client_jar" ]]; then
   fail "--setup-client never was set but the MCP-Reborn client cache is missing: $mcp_client_jar"
+fi
+if [[ -f "$mcp_client_jar" && "$setup_client" != "always" ]]; then
+  if ! python3 "$script_dir/verify-smoketest-client.py" \
+      "$smoketest_root/.real-validation/toolchains/MCP-Reborn" "$mcp_ref" \
+      > "$artifact_root/client-identity.json"; then
+    [[ "$setup_client" != "never" ]] || fail "cached client identity does not match --mcp-ref $mcp_ref"
+    client_setup_needed="true"
+  fi
 fi
 client_setup_args=(setupSmoketestClient --no-daemon --console=plain --stacktrace -Psmoketest.mcp.ref="$mcp_ref")
 
@@ -307,8 +330,12 @@ else
   phase_summaries+=("setup MCP-Reborn client workspace: SKIP")
 fi
 
+python3 "$script_dir/verify-smoketest-client.py" \
+  "$smoketest_root/.real-validation/toolchains/MCP-Reborn" "$mcp_ref" \
+  > "$artifact_root/client-identity.json" || fail "client setup did not produce the requested client"
+
 if [[ "$skip_cultac_build" == "true" ]]; then
-  cult_dev_jar="$(find_cult_dev_jar)"
+  cult_dev_jar="${plugin_jar:-$(find_cult_dev_jar)}"
   [[ -n "$cult_dev_jar" ]] || fail "--skip-cultac-build was set but no *-dev.jar exists under $cultac_root/build/libs"
   echo
   echo "== build CultAC dev jar =="
@@ -318,10 +345,13 @@ else
   run_phase "build CultAC dev jar" \
     "${cultac_gradle_env_cmd[@]}" \
     "$cultac_root/gradlew" -p "$cultac_root" devShadowJar --rerun-tasks --no-daemon --console=plain --stacktrace --max-workers="$max_workers"
+  [[ "$last_phase_status" -eq 0 ]] || fail "CultAC build failed; refusing to validate a stale jar"
   cult_dev_jar="$(find_cult_dev_jar)"
 fi
 
 [[ -n "${cult_dev_jar:-}" ]] || fail "no CultAC dev jar found under $cultac_root/build/libs"
+[[ -f "$cult_dev_jar" ]] || fail "plugin jar does not exist: $cult_dev_jar"
+sha256sum "$cult_dev_jar" > "$artifact_root/plugin.sha256"
 
 common_gradle_args=(
   --no-daemon
@@ -351,6 +381,13 @@ run_real_client_gradle_phase "combat reach smoketest" \
   "$smoketest_root/gradlew" -p "$smoketest_root" smoketestCombatReach "${common_gradle_args[@]}" \
   -Psmoketest.basePort="$base_port" \
   -Psmoketest.artifactRoot="$artifact_root/combat-reach"
+
+run_real_client_gradle_phase "full Java movement smoketest" \
+  "${real_validation_env_cmd[@]}" \
+  "$smoketest_root/gradlew" -p "$smoketest_root" smoketestRun -x smoketestCombatReach "${common_gradle_args[@]}" \
+  -Psmoketest.suite=ci-full \
+  -Psmoketest.basePort="$((base_port + 20))" \
+  -Psmoketest.artifactRoot="$artifact_root/java-movement"
 
 {
   echo "totalElapsedSeconds=$(elapsed_seconds)"

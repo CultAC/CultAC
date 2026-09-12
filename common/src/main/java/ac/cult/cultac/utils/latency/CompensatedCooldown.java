@@ -1,59 +1,69 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.cultac.checks.CultProcessor;
+import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.PositionListener;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
 import ac.cult.cultac.utils.data.CooldownData;
-import org.bukkit.Material;
+import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.ItemStack;
 
-import java.util.Iterator;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-// Applies a cooldown period to all items with the given type. Used by the Notchian server with enderpearls.
-// This packet should be sent when the cooldown starts and also when the cooldown ends (to compensate for lag),
-// although the client will end the cooldown automatically. Can be applied to any item,
-// note that interactions still get sent to the server with the item but the client does not play the animation
-// nor attempt to predict results (i.e block placing).
-public class CompensatedCooldown extends CultProcessor implements PositionListener {
-    private final ConcurrentHashMap<Material, CooldownData> itemCooldownMap = new ConcurrentHashMap<>();
+/** ItemCooldowns uses the stack's cooldown group, including custom component overrides. */
+public class CompensatedCooldown extends CultProcessor implements PositionListener, ClientTickEndListener {
+    private final ConcurrentHashMap<String, CooldownData> cooldowns = new ConcurrentHashMap<>();
 
-    public CompensatedCooldown(CultPlayer playerData) {
-        super(playerData);
+    public CompensatedCooldown(CultPlayer player) {
+        super(player);
     }
 
     @Override
-    public void onPositionUpdate(final PositionUpdate positionUpdate) {
-        for (Iterator<Map.Entry<Material, CooldownData>> it = itemCooldownMap.entrySet().iterator(); it.hasNext(); ) {
-            Map.Entry<Material, CooldownData> entry = it.next();
-
-            // Only tick if we have known that this packet has arrived
-            if (entry.getValue().getTransaction() < player.lastTransactionReceived.get()) {
-                entry.getValue().tick();
-            }
-
-            // The client will automatically remove cooldowns after enough time
-            if (entry.getValue().getTicksRemaining() <= 0) it.remove();
-        }
+    public void onPositionUpdate(PositionUpdate update) {
+        if (!usesClientTickEnd()) tick();
     }
 
-    // all the same to us... having a cooldown or not having one
-    public boolean hasMaterial(Material item) {
-        return itemCooldownMap.containsKey(item);
+    @Override
+    public void onPlayerTickEnd(PacketReceiveEvent event) {
+        if (usesClientTickEnd()) tick();
     }
 
-    // Yes, new cooldowns overwrite old ones, we don't have to check for an existing cooldown
-    public void addCooldown(Material item, int cooldown, int transaction) {
-        if (cooldown == 0) {
-            removeCooldown(item);
-            return;
-        }
-
-        itemCooldownMap.put(item, new CooldownData(cooldown, transaction));
+    private boolean usesClientTickEnd() {
+        return !player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
     }
 
-    public void removeCooldown(Material item) {
-        itemCooldownMap.remove(item);
+    private void tick() {
+        cooldowns.entrySet().removeIf(entry -> {
+            CooldownData cooldown = entry.getValue();
+            if (cooldown.getTransaction() <= player.lastTransactionReceived.get()) cooldown.tick();
+            return cooldown.getTicksRemaining() <= 0;
+        });
+    }
+
+    public boolean hasItem(org.bukkit.inventory.ItemStack item) {
+        return !cooldowns.isEmpty() && item != null && !item.isEmpty()
+                && cooldowns.containsKey(group(SpigotConversionUtil.toNmsItemStack(item)));
+    }
+
+    public static String group(ItemStack item) {
+        return NmsIdentifierUtil.useCooldownGroup(item.get(DataComponents.USE_COOLDOWN),
+                NmsIdentifierUtil.registryKey(BuiltInRegistries.ITEM, item.getItem()));
+    }
+
+    public void addPredictedCooldown(ItemStack beforeUse, int ticks) {
+        // Minecraft.handleKeybinds uses the item before Player.tick advances cooldowns.
+        // The same tick's tick-end therefore counts, including ticks without movement.
+        addCooldown(group(beforeUse), ticks, player.lastTransactionReceived.get());
+    }
+
+    public void addCooldown(String group, int ticks, int transaction) {
+        if (ticks == 0) cooldowns.remove(group);
+        else cooldowns.put(group, new CooldownData(ticks, transaction));
     }
 }

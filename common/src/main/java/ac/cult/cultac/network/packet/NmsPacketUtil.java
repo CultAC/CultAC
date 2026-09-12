@@ -23,7 +23,6 @@ import net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket;
 import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
 import net.minecraft.network.protocol.game.ClientboundEntityEventPacket;
 import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
-import net.minecraft.network.protocol.game.ClientboundMountScreenOpenPacket;
 import net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.network.protocol.game.ClientboundExplodePacket;
@@ -39,7 +38,6 @@ import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket.StatusOnl
 import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket.Action;
-import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
 import net.minecraft.network.protocol.game.ServerboundUseItemOnPacket;
 import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
 import net.minecraft.network.protocol.game.ServerboundTeleportToEntityPacket;
@@ -58,6 +56,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -69,11 +68,41 @@ public final class NmsPacketUtil {
     private NmsPacketUtil() {
     }
 
+    public static boolean isSwingOrPunch(Packet<?> packet) {
+        String type = packet.getClass().getName();
+        return type.equals("net.minecraft.network.protocol.game.ServerboundSwingPacket")
+                || type.equals("net.minecraft.network.protocol.game.ServerboundPunchPacket");
+    }
+
+    public static InteractionHand swingHand(Packet<?> packet) {
+        if (packet.getClass().getName().equals("net.minecraft.network.protocol.game.ServerboundPunchPacket")) {
+            return InteractionHand.MAIN_HAND;
+        }
+        return (InteractionHand) invokeNoArg(packet, "hand", "getHand");
+    }
+
+    public static TeleportAcknowledgement readTeleportAcknowledgement(Packet<?> packet) {
+        Object x = invokeNoArgOrNull(packet, "x");
+        return new TeleportAcknowledgement(intValue(packet, "id", "getId"),
+                x instanceof Number number ? new Vec3(number.doubleValue(), doubleValue(packet, "y"), doubleValue(packet, "z")) : null,
+                x != null ? floatValue(packet, "yRot") : 0.0F,
+                x != null ? floatValue(packet, "xRot") : 0.0F);
+    }
+
+    public record TeleportAcknowledgement(int id, @Nullable Vec3 position, float yaw, float pitch) {
+    }
+
     public static MovePlayerData readMovePlayer(ServerboundMovePlayerPacket packet, CultPlayer player) {
         return readMovePlayer(packet, player.x, player.y, player.z, player.xRot, player.yRot);
     }
 
     public static MoveVehicleData readMoveVehicle(ServerboundMoveVehiclePacket packet) {
+        Object movingTo = invokeNoArgOrNull(packet, "movingTo");
+        if (movingTo != null) {
+            return new MoveVehicleData((Vec3) invokeNoArg(movingTo, "position"),
+                    floatValue(movingTo, "yRot"), floatValue(movingTo, "xRot"),
+                    (Boolean) invokeNoArg(packet, "onGround"), true);
+        }
         Object position = invokeNoArgOrNull(packet, "position");
         Vec3 coordinates = position instanceof Vec3 vec3
                 ? vec3
@@ -93,6 +122,11 @@ public final class NmsPacketUtil {
     }
 
     public static MoveVehicleData readMoveVehicle(ClientboundMoveVehiclePacket packet) {
+        Object movingTo = invokeNoArgOrNull(packet, "movingTo");
+        if (movingTo != null) {
+            return new MoveVehicleData((Vec3) invokeNoArg(movingTo, "position"),
+                    floatValue(movingTo, "yRot"), floatValue(movingTo, "xRot"), false, false);
+        }
         Object position = invokeNoArgOrNull(packet, "position");
         Vec3 coordinates = position instanceof Vec3 vec3
                 ? vec3
@@ -318,10 +352,21 @@ public final class NmsPacketUtil {
         return new InteractData(entityId, action, interactHand, target, usingSecondaryAction);
     }
 
-    public static int readSpectatorEntityId(ServerboundSpectatorActionPacket packet) {
+    public static int readSpectatorEntityId(Packet<?> packet) {
         // PacketEvents exposed the optional 26.2 target through an integer getter
         // whose absent-value default was zero.
-        return packet.spectateEntityId().orElse(0);
+        return spectatorEntityId(packet).orElse(0);
+    }
+
+    public static OptionalInt spectatorEntityId(Packet<?> packet) {
+        if (packet.getClass().getSimpleName().equals("ServerboundSpectateEntityPacket")) {
+            return OptionalInt.of(intValue(packet, "entityId"));
+        }
+        return (OptionalInt) invokeNoArg(packet, "spectateEntityId");
+    }
+
+    public static String gameProfileName(Object profile) {
+        return (String) invokeNoArg(profile, "name", "getName");
     }
 
     private static final Field TELEPORT_TO_ENTITY_UUID = resolveTeleportUuidField();
@@ -388,13 +433,11 @@ public final class NmsPacketUtil {
     }
 
     public static MountScreenOpenData readMountScreenOpen(Packet<?> packet) {
-        if (!(packet instanceof ClientboundMountScreenOpenPacket mountScreenOpenPacket)) {
-            throw new IllegalArgumentException("Not a mount screen open packet: " + packet.getClass().getName());
-        }
+        // HorseScreenOpen (1.21.3) and MountScreenOpen carry the same inventory fields.
         return new MountScreenOpenData(
-                mountScreenOpenPacket.getContainerId(),
-                mountScreenOpenPacket.getInventoryColumns(),
-                mountScreenOpenPacket.getEntityId()
+                intValue(packet, "getContainerId"),
+                intValue(packet, "getInventoryColumns"),
+                intValue(packet, "getEntityId")
         );
     }
 
@@ -416,32 +459,39 @@ public final class NmsPacketUtil {
     }
 
     public static UseItemData readUseItem(ServerboundUseItemPacket packet) {
-        return new UseItemData(
-                packet.getHand(),
-                packet.getSequence(),
-                packet.getYRot(),
-                packet.getXRot()
-        );
+        return new UseItemData((InteractionHand) invokeNoArg(packet, "hand", "getHand"),
+                intValue(packet, "sequence", "getSequence"), floatValue(packet, "yRot", "getYRot"),
+                floatValue(packet, "xRot", "getXRot"));
     }
 
     public static UseItemOnData readUseItemOn(ServerboundUseItemOnPacket packet) {
-        BlockPos pos = packet.getHitResult().getBlockPos();
-        net.minecraft.world.phys.Vec3 location = packet.getHitResult().getLocation();
-        return new UseItemOnData(
-                packet.getHand(),
-                pos,
-                switch (packet.getHitResult().getDirection()) {
-                    case DOWN -> BlockFace.DOWN;
-                    case UP -> BlockFace.UP;
-                    case NORTH -> BlockFace.NORTH;
-                    case SOUTH -> BlockFace.SOUTH;
-                    case WEST -> BlockFace.WEST;
-                    case EAST -> BlockFace.EAST;
-                },
+        net.minecraft.world.phys.BlockHitResult hit = (net.minecraft.world.phys.BlockHitResult)
+                invokeNoArg(packet, "hitResult", "getHitResult");
+        BlockPos pos = hit.getBlockPos();
+        Vec3 location = hit.getLocation();
+        return new UseItemOnData((InteractionHand) invokeNoArg(packet, "hand", "getHand"), pos,
+                BlockFace.valueOf(hit.getDirection().name()),
                 new Vec3(location.x - pos.getX(), location.y - pos.getY(), location.z - pos.getZ()),
-                packet.getHitResult().isInside(),
-                packet.getSequence()
-        );
+                hit.isInside(), intValue(packet, "sequence", "getSequence"));
+    }
+
+    public static int[] removedEntityIds(Packet<?> packet) {
+        return ((it.unimi.dsi.fastutil.ints.IntList) invokeNoArg(packet, "entityIds", "getEntityIds")).toIntArray();
+    }
+
+    public static net.minecraft.world.item.component.BundleContents.Mutable mutableBundle(
+            net.minecraft.world.item.component.BundleContents contents) {
+        try {
+            try {
+                return (net.minecraft.world.item.component.BundleContents.Mutable)
+                        contents.getClass().getMethod("asMutable").invoke(contents);
+            } catch (NoSuchMethodException legacy) {
+                return net.minecraft.world.item.component.BundleContents.Mutable.class
+                        .getConstructor(net.minecraft.world.item.component.BundleContents.class).newInstance(contents);
+            }
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Unable to copy bundle contents", failure);
+        }
     }
 
     public static PlayerCommandData readPlayerCommand(ServerboundPlayerCommandPacket packet) {
@@ -454,16 +504,27 @@ public final class NmsPacketUtil {
 
     public static ContainerClickData readContainerClick(ServerboundContainerClickPacket packet) {
         Map<Integer, ItemStack> changedSlots = new HashMap<>();
-        packet.changedSlots().forEach((slot, stack) -> changedSlots.put(slot, SpigotConversionUtil.fromHashedStack(stack)));
+        Map<?, ?> slots = (Map<?, ?>) invokeNoArg(packet, "changedSlots", "getChangedSlots");
+        slots.forEach((slot, stack) -> changedSlots.put(((Number) slot).intValue(), containerItem(stack)));
+        // 1.21.3 sends full ItemStacks with getter accessors; later packets carry
+        // HashedStacks. ClickType was renamed ContainerInput without changing its values.
+        Enum<?> input = (Enum<?>) invokeNoArg(packet, "containerInput", "clickType", "getClickType");
         return new ContainerClickData(
-                packet.containerId(),
-                packet.stateId(),
-                packet.slotNum(),
-                packet.buttonNum(),
-                WindowClickType.fromNms(packet.containerInput()),
+                intValue(packet, "containerId", "getContainerId"),
+                intValue(packet, "stateId", "getStateId"),
+                intValue(packet, "slotNum", "getSlotNum"),
+                intValue(packet, "buttonNum", "getButtonNum"),
+                WindowClickType.VALUES[input.ordinal()],
                 Collections.unmodifiableMap(changedSlots),
-                SpigotConversionUtil.fromHashedStack(packet.carriedItem())
+                containerItem(invokeNoArg(packet, "carriedItem", "getCarriedItem"))
         );
+    }
+
+    private static ItemStack containerItem(Object item) {
+        if (item instanceof net.minecraft.world.item.ItemStack stack) {
+            return SpigotConversionUtil.fromNmsItemStack(stack);
+        }
+        return SpigotConversionUtil.fromHashedStack((HashedStack) item);
     }
 
     public static EntityEventData readEntityEvent(ClientboundEntityEventPacket packet) {
@@ -696,6 +757,32 @@ public final class NmsPacketUtil {
         }
     }
 
+    public static net.minecraft.world.scores.Team.CollisionRule teamCollisionRule(Object parameters) {
+        Object value = invokeNoArg(parameters, "collisionRule", "getCollisionRule");
+        if (value instanceof net.minecraft.world.scores.Team.CollisionRule rule) return rule;
+        // ClientPacketListener#handleSetPlayerTeamPacket used CollisionRule.byName
+        // for the older string field, retaining the previous rule for unknown names.
+        for (net.minecraft.world.scores.Team.CollisionRule rule : net.minecraft.world.scores.Team.CollisionRule.values()) {
+            if (rule.name.equals(value)) return rule;
+        }
+        return null;
+    }
+
+    public static Packet<?> withPlayerRotation(Packet<?> packet, float yaw, float pitch) {
+        try {
+            try {
+                Constructor<?> constructor = packet.getClass().getConstructor(float.class, boolean.class, float.class, boolean.class);
+                return (Packet<?>) constructor.newInstance(yaw, booleanValue(packet, "relativeY"),
+                        pitch, booleanValue(packet, "relativeX"));
+            } catch (NoSuchMethodException legacy) {
+                // The 1.21.3 record carries two absolute angles and no relative flags.
+                return (Packet<?>) packet.getClass().getConstructor(float.class, float.class).newInstance(yaw, pitch);
+            }
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to construct native player rotation", exception);
+        }
+    }
+
     public static Object invokeNoArg(Object target, String... methodNames) {
         if (target == null) {
             throw new IllegalArgumentException("target must not be null");
@@ -731,7 +818,7 @@ public final class NmsPacketUtil {
         return null;
     }
 
-    private static boolean hasNoArgMethod(Object target, String methodName) {
+    public static boolean hasNoArgMethod(Object target, String methodName) {
         try {
             target.getClass().getMethod(methodName);
             return true;

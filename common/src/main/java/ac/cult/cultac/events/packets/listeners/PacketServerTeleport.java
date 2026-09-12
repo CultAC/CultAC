@@ -5,8 +5,6 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
-import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -30,9 +28,16 @@ public class PacketServerTeleport {
             // Geyser's Java acknowledgement does not prove Bedrock processed the teleport.
             return;
         }
-        // A second acknowledgement replaces, rather than extends, the previous pair.
-        player.packetStateData.clearMountedTeleportPosRotPending();
-        handleMountedTeleportConfirmation(player, packet.getId());
+        // Before 26.3 the position response is a separate PosRot packet.
+        // Decode the native format: Via may translate an older client's response.
+        NmsPacketUtil.TeleportAcknowledgement ack = NmsPacketUtil.readTeleportAcknowledgement(packet);
+        if (ack.position() == null) return;
+
+        TeleportAcceptData accepted = player.getSetbackTeleportUtil()
+                .checkTeleportQueue(ack.position().x, ack.position().y, ack.position().z);
+        if (accepted.isTeleport()) {
+            CheckManagerListener.applyTeleportResponse(player, accepted, ack.yaw(), ack.pitch());
+        }
     }
 
     @CultPacketHandler
@@ -80,8 +85,14 @@ public class PacketServerTeleport {
             player.pollData();
         }
 
-        player.sendTransaction();
-        final int lastTransactionSent = player.lastTransactionSent.get();
+        // Keep the pre-teleport ping adjacent even inside a replacement packet group.
+        // Both the old PosRot and the 26.3 acknowledgement follow its pong.
+        CultPlayer.TrackedTransaction proof = player.createTrackedTransactionPacketForDeferredSend();
+        if (proof != null) {
+            event.getPacketsBeforeSend().add(proof.packet());
+            event.getTasksAfterSend().add(() -> player.markTrackedTransactionPacketSent(proof));
+        }
+        int lastTransactionSent = proof == null ? player.lastTransactionSent.get() : proof.transaction();
         event.getTasksAfterSend().add(player::sendTransaction);
 
         player.getSetbackTeleportUtil().addSentTeleport(pos, deltaMovement, lastTransactionSent, flags, true, change.teleportId(), sourceYaw, sourcePitch, finalYaw, finalPitch);
@@ -249,49 +260,6 @@ public class PacketServerTeleport {
                 box.minY,
                 (box.maxZ - box.minZ) / 2.0D + box.minZ
         );
-    }
-
-    private static void handleMountedTeleportConfirmation(CultPlayer player, int teleportId) {
-        if (hasPendingClientVisibleDismount(player)) {
-            // The acknowledgement may precede the transaction proving the dismount.
-            player.getSetbackTeleportUtil().markVehicleDismountTeleportIdAccepted(teleportId);
-            return;
-        }
-
-        if (player.getSetbackTeleportUtil().hasPendingVehicleDismountTeleport(teleportId)) {
-            player.getSetbackTeleportUtil().markVehicleDismountTeleportIdAccepted(teleportId);
-            return;
-        }
-
-        if (player.compensatedEntities.vehicles.serverPlayerVehicle == null
-                && !player.compensatedEntities.getSelf().inVehicle()) {
-            return;
-        }
-
-        TeleportAcceptData teleportData = player.getSetbackTeleportUtil().checkMountedTeleportQueue(teleportId);
-        if (!teleportData.isTeleport()) {
-            return;
-        }
-
-        // Mounted teleports are confirmed without moving the passenger.
-        Vec3 currentPosition = new Vec3(player.x, player.y, player.z);
-        PositionUpdate update = new PositionUpdate(
-                currentPosition,
-                currentPosition,
-                player.xRot,
-                player.yRot,
-                player.onGround,
-                teleportData,
-                null
-        );
-        player.getSetbackTeleportUtil().onPredictionComplete(new PredictionComplete(update));
-        player.packetStateData.markMountedTeleportPosRotPending();
-    }
-
-    private static boolean hasPendingClientVisibleDismount(CultPlayer player) {
-        return player.compensatedEntities.vehicles.serverPlayerVehicle != null
-                && player.compensatedEntities.vehicles.serverPlayerVehiclePassengers == null
-                && player.compensatedEntities.vehicles.serverPlayerVehicleTransaction != null;
     }
 
     private static float calculateRotation(float current, float change, RelativeFlag flags, RelativeFlag relativeFlag) {

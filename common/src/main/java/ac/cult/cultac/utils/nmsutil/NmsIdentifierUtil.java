@@ -1,5 +1,9 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import net.minecraft.core.Registry;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.tags.TagKey;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Optional;
@@ -28,6 +32,10 @@ public final class NmsIdentifierUtil {
         return asString(invokeNoArg(payloadOrType, "id"));
     }
 
+    public static String packetTypeId(Object packetType) {
+        return asString(invokeNoArg(packetType, "id"));
+    }
+
     public static String registryKey(Object registry, Object value) {
         if (registry == null || value == null) {
             return null;
@@ -44,6 +52,38 @@ public final class NmsIdentifierUtil {
 
     public static String attributeModifierId(Object modifier) {
         return asString(invokeNoArg(modifier, "id"));
+    }
+
+    public static <T> T registryValue(Registry<T> registry, String identifier) {
+        return lookupRegistry(registry, identifier, "getValue");
+    }
+
+    public static <T> Optional<T> registryOptional(Registry<T> registry, String identifier) {
+        return lookupRegistry(registry, identifier, "getOptional");
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> TagKey<T> tagKey(ResourceKey<? extends Registry<T>> registry, String identifier) {
+        try {
+            Class<?> keyType = Registry.class.getMethod("getKey", Object.class).getReturnType();
+            Object key = keyType.getMethod("parse", String.class).invoke(null, identifier);
+            return (TagKey<T>) TagKey.class.getMethod("create", ResourceKey.class, keyType).invoke(null, registry, key);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Tag lookup failed for " + identifier, exception);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T lookupRegistry(Registry<?> registry, String identifier, String methodName) {
+        try {
+            // The registry's declared key type is ResourceLocation on 1.21.3 and
+            // Identifier on newer runtimes. Both expose parse(String).
+            Class<?> keyType = Registry.class.getMethod("getKey", Object.class).getReturnType();
+            Object key = keyType.getMethod("parse", String.class).invoke(null, identifier);
+            return (T) Registry.class.getMethod(methodName, keyType).invoke(registry, key);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Registry lookup failed for " + identifier, exception);
+        }
     }
 
     public static int cooldownDuration(Object packet) {

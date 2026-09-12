@@ -46,6 +46,14 @@ final class SmoketestSnapshotBridge {
     }
 
     private static Snapshot readSnapshot(byte[] data) throws IOException {
+        // RC1 transformer components can make an unchanged snapshot exceed the
+        // vanilla custom-payload limit. Compression preserves every comparison.
+        if (data.length >= 2 && data[0] == (byte) 0x1f && data[1] == (byte) 0x8b) {
+            try (var compressed = new java.util.zip.GZIPInputStream(new ByteArrayInputStream(data))) {
+                data = compressed.readNBytes(1024 * 1024 + 1);
+                if (data.length > 1024 * 1024) throw new IOException("snapshot exceeds 1 MiB");
+            }
+        }
         DataInputStream input = new DataInputStream(new ByteArrayInputStream(data));
         int magic = input.readInt();
         if (magic != MAGIC) {

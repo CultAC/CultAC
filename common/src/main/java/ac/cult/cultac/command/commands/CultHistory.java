@@ -258,7 +258,7 @@ public class CultHistory implements BuildableCommand {
                 .append(Component.text(" session ", NamedTextColor.GRAY))
                 .append(Component.text("<N | latest>", NamedTextColor.AQUA))
                 .append(Component.text(" — show violations for a specific session.", NamedTextColor.GRAY))
-                .build());
+                .asComponent());
         sender.sendMessage(Component.text(
                 "  N is the session ordinal (1 = oldest). 'latest' / 'last' / 'l' = most recent.",
                 NamedTextColor.GRAY));
@@ -544,13 +544,13 @@ public class CultHistory implements BuildableCommand {
                 .append(Component.text(result.mappingsApplied() + " id mapping(s), "))
                 .append(Component.text(result.violationsUpdated() + " violation row(s) rewritten, "))
                 .append(Component.text(result.catalogVersionsUpdated() + " stub version row(s) fixed"))
-                .build());
+                .asComponent());
         if (plan.ambiguousHashes() > 0 || plan.catalogIdCollisions() > 0) {
             logBoth(sender, Component.text()
                     .append(Component.text("Skipped ", NamedTextColor.YELLOW))
                     .append(Component.text(plan.ambiguousHashes() + " ambiguous hash mapping(s), "))
                     .append(Component.text(plan.catalogIdCollisions() + " catalog-id collision(s)."))
-                    .build());
+                    .asComponent());
         }
     }
 

@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.breaking;
 
+import net.minecraft.network.protocol.Packet;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.type.BlockBreakListener;
@@ -18,7 +19,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -117,8 +117,13 @@ public class FastBreak extends Check implements BlockBreakListener {
     }
 
 
-    @CultPacketHandler
-    public void onSwing(PacketReceiveEvent event, CultPlayer player, ServerboundSwingPacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundPunchPacket")
+    public void onPunch(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSwing(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSwingPacket")
+    public void onSwing(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) {
             updateMaximumBlockDamage();
         }

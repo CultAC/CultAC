@@ -211,12 +211,9 @@ public class Collisions {
     }
 
     public static boolean addWorldBorder(CultPlayer player, SimpleCollisionBox wantedBB, List<SimpleCollisionBox> listOfBlocks, boolean onlyCheckCollide) {
-        // MCP-Reborn 26.2 Entity#collectCollidersIgnoringWorldBorder: the Java client
-        // no longer collides with the world border. Bedrock players keep their own
-        // client behavior, so only exempt Java 26.2+ clients.
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2) && player.bedrockState == null) {
-            return false;
-        }
+        // Both 26.2 and 26.3 still add the border in the Entity overload of
+        // collectCollidersIgnoringWorldBorder. Only its CollisionContext
+        // overload omits it; ordinary entity travel uses the former.
         final PacketWorldBorder border = player.checkManager.getListener(PacketWorldBorder.class);
         double centerX = border.getCenterX();
         double centerZ = border.getCenterZ();

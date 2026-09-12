@@ -47,7 +47,7 @@ final class PaperPatchedCakeUseResolver {
 
     private static boolean needsCakeEatingPatch(PlacementSnapshot snapshot, BlockState state) {
         ItemStack itemStack = snapshot.getItemStack();
-        if (itemStack.is(Items.FLINT_AND_STEEL) || itemStack.is(Items.FIRE_CHARGE)) {
+        if (itemStack.getItem() == Items.FLINT_AND_STEEL || itemStack.getItem() == Items.FIRE_CHARGE) {
             return false;
         }
         return !candleCakeHit(snapshot) || !itemStack.isEmpty() || !state.getValue(BlockStateProperties.LIT);

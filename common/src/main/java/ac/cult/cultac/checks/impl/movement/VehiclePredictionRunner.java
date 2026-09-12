@@ -109,7 +109,11 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             }
 
             // The player is off the ground and must collide onto the ground
-            if (!reality.getSimulationContext().isOnGround() && downCollide != null && downCollide.isLikelyCollide()
+            // Entity#move refreshes onGround after every downward collision,
+            // including consecutive grounded ticks. Legacy vehicle packets have
+            // no wire bit to supply that result after this collision inference.
+            if ((!vehicleUpdate.isHasOnGround() || !reality.getSimulationContext().isOnGround())
+                    && downCollide != null && downCollide.isLikelyCollide()
                     && valid.maxY + 0.001 < reality.getTarget().y // And their valid Y is below their actual movement
                     && downCollide.getResult() + 0.001 >= reality.getTarget().y) { // And they recovered by colliding
                 // Must be on the ground
@@ -127,6 +131,13 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             nextLastOnGround = DesyncStatus.fromBoolean(vehicleUpdate.isOnGround());
         }
         player.checkManager.getSimulationProcessor().setLastOnGround(nextLastOnGround);
+        if (vehicleMovementFromClientTick && riding != null && !vehicleUpdate.isHasOnGround()
+                && !nextLastOnGround.isDesync()) {
+            // Older MoveVehicle packets omit onGround. Carry ground transitions
+            // proved by Entity#move's downward collision instead of overwriting
+            // the entity with the packet accessor's absent-field default.
+            riding.onGround = nextLastOnGround.determinePessimistically();
+        }
 
         if (!vehicleMovementFromClientTick) {
             // MCP-Reborn ClientPacketListener#handleMoveVehicle emits this

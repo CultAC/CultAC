@@ -110,7 +110,7 @@ public final class OrderedLegacyCheckDispatchTest {
             // SignUpdate intentionally bypasses normal check dispatch. It still
             // has to close the legacy one-packet DROP -> SWING exemption.
             ServerboundSignUpdatePacket sign = new ServerboundSignUpdatePacket(
-                    BlockPos.ZERO, true, "", "", "", "");
+                    BlockPos.ZERO, java.util.List.of("", "", "", ""), net.minecraft.world.level.block.entity.SignTextSlot.FRONT);
             PacketReceiveEvent signEvent = receiveEvent(player, sign);
             player.checkManager.dispatchEarlyReceive(signEvent);
             if (!signEvent.isCancelled()) {
@@ -373,7 +373,7 @@ public final class OrderedLegacyCheckDispatchTest {
             setLongField(vehicleTimer, "lastMovementPlayerClock", now - 2_000_000_000L);
             long initial = longField(vehicleTimer, "timerBalanceRealTime");
             ServerboundMoveVehiclePacket moveVehicle =
-                    new ServerboundMoveVehiclePacket(Vec3.ZERO, 0.0F, 0.0F, false);
+                    new ServerboundMoveVehiclePacket(net.minecraft.core.PositionAndRotation.of(Vec3.ZERO, 0.0F, 0.0F), false);
             player.checkManager.dispatchPrePredictionReceive(receiveEvent(player, moveVehicle));
             player.checkManager.dispatchPrePredictionReceive(receiveEvent(player, moveVehicle));
             assertTrue(longField(vehicleTimer, "timerBalanceRealTime") - initial == 50_000_000L);

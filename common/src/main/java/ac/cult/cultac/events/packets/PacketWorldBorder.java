@@ -7,12 +7,15 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import net.minecraft.network.protocol.game.ClientboundInitializeBorderPacket;
 import net.minecraft.network.protocol.game.ClientboundSetBorderCenterPacket;
 import net.minecraft.network.protocol.game.ClientboundSetBorderLerpSizePacket;
 import net.minecraft.network.protocol.game.ClientboundSetBorderSizePacket;
 
 public class PacketWorldBorder extends CultProcessor implements CheckListener, ClientTickEndListener {
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion());
     double centerX;
     double centerZ;
     double oldDiameter;
@@ -41,7 +44,12 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             if (lerpDurationTicks <= 0L) {
                 return newDiameter;
             }
-            double progress = Math.min(1.0D, (double) lerpElapsedTicks / (double) lerpDurationTicks);
+            // 1.21.11/26.1 WorldBorder collision shapes use getMin/Max(0.0F):
+            // the previous world-tick size, until MovingBorderExtent becomes static.
+            long collisionTicks = !player.isBedrockMovement()
+                    && player.getClientVersion().isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_26_2)
+                    ? Math.max(0L, lerpElapsedTicks - 1L) : lerpElapsedTicks;
+            double progress = Math.min(1.0D, (double) collisionTicks / (double) lerpDurationTicks);
             return CultMath.lerp(progress, oldDiameter, newDiameter);
         }
         double d0 = (double) (System.currentTimeMillis() - this.startTime) / ((double) this.endTime - this.startTime);
@@ -50,6 +58,9 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
 
     @Override
     public void onPlayerTickEnd(ac.cult.cultac.network.event.PacketReceiveEvent event) {
+        // ClientLevel#tick advances the border only while world ticks run.
+        if (player.isBedrockMovement() || player.packetStateData.serverTicksFrozen
+                && player.packetStateData.serverFrozenTickStepsRemaining == 0) return;
         if (tickBasedLerp && lerpElapsedTicks < lerpDurationTicks) {
             lerpElapsedTicks++;
             if (lerpElapsedTicks >= lerpDurationTicks) {
@@ -103,17 +114,25 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
     private void setLerp(double oldDiameter, double newDiameter, long length) {
         player.latencyUtils.addRealTimeTaskNow(() -> { this.oldDiameter = oldDiameter;
             this.newDiameter = newDiameter;
-            this.tickBasedLerp = usesTickBasedLerp(player.getClientVersion(), oldDiameter, newDiameter, length);
+            long clientLength = clientLerpDuration(SERVER_VERSION, player.getClientVersion(), length);
+            this.tickBasedLerp = usesTickBasedLerp(player.getClientVersion(), oldDiameter, newDiameter, clientLength);
             if (this.tickBasedLerp) {
-                this.lerpDurationTicks = length;
+                this.lerpDurationTicks = clientLength;
                 this.lerpElapsedTicks = 0L;
             } else {
-                // The 26.2 server packet expresses the duration in ticks. Via's
-                // older-client codec presents the corresponding real-time border.
                 this.startTime = System.currentTimeMillis();
-                this.endTime = this.startTime + Math.max(0L, length) * 50L;
+                this.endTime = this.startTime + (player.isBedrockMovement()
+                        ? Math.max(0L, length) * 50L : Math.max(0L, clientLength));
             }
         });
+    }
+
+    static long clientLerpDuration(ClientVersion serverVersion, ClientVersion clientVersion, long length) {
+        // The listener sees native units before Via converts the wire duration.
+        boolean serverTicks = serverVersion.isNewerThanOrEquals(ClientVersion.V_1_21_11);
+        boolean clientTicks = clientVersion.isNewerThanOrEquals(ClientVersion.V_1_21_11);
+        if (serverTicks == clientTicks) return length;
+        return serverTicks ? length * 50L : length / 50L;
     }
 
     static boolean usesTickBasedLerp(

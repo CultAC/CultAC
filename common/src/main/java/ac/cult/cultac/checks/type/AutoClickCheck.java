@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.type;
 
+import net.minecraft.network.protocol.Packet;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -15,7 +16,6 @@ import ac.cult.cultac.network.packet.NmsPacketUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket.Action;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
 import org.bukkit.GameMode;
 import org.bukkit.util.Vector;
 
@@ -73,7 +73,7 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
                     diggingLocation = null;
                     lastDiggingAction = Action.STOP_DESTROY_BLOCK;
                 } else {
-                    diggingLocation = new net.minecraft.core.BlockPos(action.blockPosition());
+                    diggingLocation = action.blockPosition().immutable();
                     lastDiggingAction = Action.START_DESTROY_BLOCK;
                     lastDigging.reset();
                 }
@@ -109,8 +109,13 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
         handleDigAction(packet);
     }
 
-    @CultPacketHandler
-    public void onSwing(PacketReceiveEvent event, CultPlayer player, ServerboundSwingPacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundPunchPacket")
+    public void onPunch(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSwing(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSwingPacket")
+    public void onSwing(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         handleSwing();
     }
 

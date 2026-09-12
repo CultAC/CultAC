@@ -5,6 +5,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.viaversion.ViaVersionUtil;
 import com.viaversion.viaversion.api.Via;
+import com.viaversion.viaversion.api.protocol.version.ProtocolVersion;
 import net.minecraft.SharedConstants;
 
 public class ViaVersion implements StartableInitable {
@@ -22,9 +23,12 @@ public class ViaVersion implements StartableInitable {
             LogUtil.error("Please disable this option in your ViaVersion configuration to prevent these issues.");
         }
 
-        if (CultAPI.INSTANCE.getPluginManager().getPlugin("ViaBackwards") != null && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
+        ProtocolVersion blockedBelow = Via.getConfig().blockedProtocolVersions().blocksBelow();
+        if (CultAPI.INSTANCE.getPluginManager().getPlugin("ViaBackwards") != null
+                && (!blockedBelow.isKnown() || blockedBelow.olderThan(ProtocolVersion.v1_21_2))) {
             LogUtil.warn("CultAC has detected that you have installed ViaBackwards on a 1.21.2+ server.");
-            LogUtil.warn("This setup is currently unsupported and you will experience issues with older clients using vehicles.");
+            LogUtil.warn("Pre-1.21.2 clients are not supported, you will experience issues.");
+            LogUtil.warn("You are recommended to add block-versions: [\"<1.21.2\"] to ViaVersion's config");
         }
     }
 }

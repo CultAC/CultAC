@@ -15,7 +15,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.piston.MovingPistonBlock;
 import net.minecraft.world.level.block.piston.PistonBaseBlock;
 import net.minecraft.world.level.block.piston.PistonHeadBlock;
-import net.minecraft.world.level.material.PushReaction;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.PistonType;
@@ -310,7 +309,11 @@ public final class CompensatedWorldPistons {
 
     SimpleCollisionBox createPistonQueryBox(SimulationContext context) {
         SimpleCollisionBox playerBox = context.getFromMaximumExtent();
-        if (!usesClientTickEndPistonPhase()) {
+        if (reportsAfterBlockEntities()) {
+            // 26.3 Minecraft#tick sends changes after travel and block entities.
+            // Keep the existing envelope query, including where travel can end.
+            playerBox.union(context.getToMaximumExtent());
+        } else if (!usesClientTickEndPistonPhase()) {
             playerBox.union(context.getToMaximumExtent());
             playerBox.expand(0.2);
         }
@@ -325,17 +328,24 @@ public final class CompensatedWorldPistons {
                 && !tickPlayerInPistonPushingArea(playerBox.copy()).getPistonPush().isEmpty();
     }
 
-    PistonPushes tickPlayerInPistonPushingArea(SimpleCollisionBox playerBox) {
+    public PistonPushes tickPlayerInPistonPushingArea(SimpleCollisionBox playerBox) {
         Set<BlockFace> launches = new HashSet<>();
         SimpleCollisionBox pistonPushes = new SimpleCollisionBox();
+        boolean currentPass = reportsAfterBlockEntities();
 
         for (PistonData data : activePistons) {
-            if (!data.canAffectMovement()) {
+            if (!currentPass && !data.canAffectMovement()) {
                 continue;
             }
 
+            // Read the current pass for 26.3 without advancing it. Older clients
+            // report before block entities and consume the last completed pass.
+            // In both cases tick-end is the sole owner of piston clock advancement.
+            List<SimpleCollisionBox> movementBoxes = currentPass
+                    ? collectCurrentMovingPistonMovementBoxes(data.getMovingPositions()) : data.boxes;
+            if (currentPass && movementBoxes.isEmpty()) continue;
             double movementAmount = 0.0D;
-            for (SimpleCollisionBox box : data.boxes) {
+            for (SimpleCollisionBox box : movementBoxes) {
                 if (playerBox.isIntersected(box)) {
                     movementAmount = Math.max(movementAmount, movementNeededToExit(box, data.getMovementDirection(), playerBox));
                 }
@@ -378,6 +388,11 @@ public final class CompensatedWorldPistons {
         return new PistonPushes(pistonPushes, pistonPushes, new SimpleCollisionBox(), launches);
     }
 
+    public boolean reportsAfterBlockEntities() {
+        return !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3);
+    }
+
     private static void unionSignedAxis(SimpleCollisionBox box, BlockFace direction, double limit) {
         if (direction.getModX() != 0) {
             box.unionX(direction.getModX() * limit);
@@ -412,7 +427,13 @@ public final class CompensatedWorldPistons {
     }
 
     private boolean usesClientTickEndPistonPhase() {
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5);
+        // 1.21.2/1.21.3 ClientLevel#tickEntities ticks block entities after
+        // LocalPlayer#tick sends movement, then Minecraft#tick sends tick-end.
+        // Their next movement therefore reports the same completed piston sweep
+        // as 1.21.5+. Preserve the existing Bedrock phase selection.
+        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)
+                || (!player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2));
     }
 
     private static List<SimpleCollisionBox> retractingSourceFixBoxes(BlockPos sourcePos, Direction pistonDirection) {
@@ -505,7 +526,7 @@ public final class CompensatedWorldPistons {
         BlockState startState = getPistonStructureStateAt(startPos, retractingHeadPos);
 
         if (!isPistonPushable(startState, startPos, pushDirection, false, pistonDirection)) {
-            if (extending && startState.getPistonPushReaction() == PushReaction.DESTROY) {
+            if (extending && isReaction(startState, "DESTROY", "POPPED")) {
                 toDestroy.add(startPos);
                 return new PistonStructure(true, toPush, toDestroy);
             }
@@ -595,7 +616,7 @@ public final class CompensatedWorldPistons {
                 return false;
             }
 
-            if (blockState.getPistonPushReaction() == PushReaction.DESTROY) {
+            if (isReaction(blockState, "DESTROY", "POPPED")) {
                 toDestroy.add(ahead);
                 return true;
             }
@@ -647,7 +668,12 @@ public final class CompensatedWorldPistons {
         // has NORMAL piston reaction or is itself a piston block.
         return !state.isAir()
                 && isPistonPushable(state, pos, pistonDirection.getOpposite(), false, pistonDirection)
-                && (state.getPistonPushReaction() == PushReaction.NORMAL || state.getBlock() == Blocks.PISTON || state.getBlock() == Blocks.STICKY_PISTON);
+                && (isReaction(state, "NORMAL", "PUSH_PULL") || state.getBlock() == Blocks.PISTON || state.getBlock() == Blocks.STICKY_PISTON);
+    }
+
+    private static boolean isReaction(BlockState state, String legacy, String modern) {
+        String name = state.getPistonPushReaction().name();
+        return name.equals(legacy) || name.equals(modern);
     }
 
     private boolean isPistonPushable(BlockState state, BlockPos pos, Direction direction, boolean allowDestroyable, Direction connectionDirection) {
@@ -675,10 +701,10 @@ public final class CompensatedWorldPistons {
                 return false;
             }
 
-            return switch (state.getPistonPushReaction()) {
-                case BLOCK -> false;
-                case DESTROY -> allowDestroyable;
-                case PUSH_ONLY -> direction == connectionDirection;
+            return switch (state.getPistonPushReaction().name()) {
+                case "BLOCK", "IMMOVEABLE" -> false;
+                case "DESTROY", "POPPED" -> allowDestroyable;
+                case "PUSH_ONLY", "PUSH" -> direction == connectionDirection;
                 default -> !state.hasBlockEntity();
             };
         }

@@ -17,7 +17,6 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
-import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
 import net.minecraft.network.protocol.game.ServerboundTeleportToEntityPacket;
 
 import java.util.ArrayList;
@@ -51,8 +50,14 @@ public class MultiInteractA extends Check implements PostPredictionListener {
     }
 
 
-    @CultPacketHandler
-    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, ServerboundSpectatorActionPacket packet) {
+    // 26.1 uses a required entity id; 26.2 also permits a spectator action without a target.
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectateEntityPacket")
+    public void onSpectateEntity(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSpectatorAction(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket")
+    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         // PacketEvents exposed an absent 26.2 spectator target as entity id 0.
         // Preserve that decoded-field contract instead of silently dropping the interaction.
         onInteract(event, NmsPacketUtil.readSpectatorEntityId(packet), lastSneaking);

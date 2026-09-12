@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.type.OrderedPacketReceiveListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.util.WrapperPlayClientPlayerFlying;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
 import net.minecraft.network.protocol.game.ServerboundMoveVehiclePacket;
@@ -58,6 +59,6 @@ public class PacketOrderO extends Check implements OrderedPacketReceiveListener 
             }
         }
 
-        flag(V.write(verbose()).str(packet.type().id().toString()));
+        flag(V.write(verbose()).str(NmsIdentifierUtil.packetTypeId(packet.type())));
     }
 }

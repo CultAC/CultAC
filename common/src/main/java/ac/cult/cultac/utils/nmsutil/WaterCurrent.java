@@ -63,7 +63,7 @@ public final class WaterCurrent {
                 for (int z = minZ; z <= maxZ; z++) {
                     mutablePos.set(x, y, z);
                     FluidState fluidState = player.compensatedWorld.getFluidState(mutablePos);
-                    if (!fluidState.is(FluidTags.WATER)) {
+                    if (!ClientFluidQueries.is(player, fluidState, FluidTags.WATER)) {
                         continue;
                     }
 
@@ -72,7 +72,7 @@ public final class WaterCurrent {
                         continue;
                     }
 
-                    Vec3 flow = fluidState.getFlow(player.compensatedWorld, mutablePos);
+                    Vec3 flow = FluidTypeFlowing.flow(player, mutablePos, fluidState);
                     if (flow.lengthSqr() >= 1.0E-5F) {
                         accumulatedCurrent = accumulatedCurrent.add(flow);
                     }
@@ -133,7 +133,7 @@ public final class WaterCurrent {
                 for (int z = minZ; z <= maxZ; z++) {
                     mutablePos.set(x, y, z);
                     FluidState fluidState = player.compensatedWorld.getFluidState(mutablePos);
-                    if (!fluidState.is(fluidTag)) {
+                    if (!ClientFluidQueries.is(player, fluidState, fluidTag)) {
                         continue;
                     }
 
@@ -143,7 +143,7 @@ public final class WaterCurrent {
                     }
 
                     height = Math.max(fluidTop - entityMinY, height);
-                    Vec3 flow = fluidState.getFlow(player.compensatedWorld, mutablePos);
+                    Vec3 flow = FluidTypeFlowing.flow(player, mutablePos, fluidState);
                     if (height < 0.4D) {
                         flow = flow.scale(height);
                     }

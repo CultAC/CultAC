@@ -15,11 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package ac.cult.cultac.utils.data.packetentity;
 
+import ac.cult.cultac.network.protocol.ClientVersion;
+
 import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BoatData;
 import ac.cult.cultac.utils.data.ReachInterpolationData;
+import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
 import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -165,6 +168,44 @@ public class PacketEntity {
                 desyncClientPos.x, desyncClientPos.y, desyncClientPos.z,
                 clientPhysicalYaw, clientPhysicalPitch, targetYaw, targetPitch,
                 !ridingInVehicle, this, uncertainInitialSteps);
+    }
+
+    /** Packet processing appends to the client's queue; its codec base remains separate. */
+    public void onPositionPath(EntityPositionPath path, boolean hasPosition, @Nullable Float yaw,
+                               @Nullable Float pitch, CultPlayer player, boolean bundled) {
+        if (hasPosition) desyncClientPos = path.endPosition();
+        if (type == EntityTypesCompat.SHULKER || (!EntityTypeUtil.isLiving(type)
+                && !EntityTypeUtil.isBoat(type) && !EntityTypeUtil.isMinecart(type)
+                && type != EntityTypesCompat.FISHING_BOBBER)) {
+            setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, desyncClientPos.x,
+                    desyncClientPos.y, desyncClientPos.z, this), interpolationTargetYaw(yaw), interpolationTargetPitch(pitch));
+            return;
+        }
+        if (EntityTypeUtil.isLiving(type) && (newPacketLocation == null || !newPacketLocation.usesSteppedInterpolation())) {
+            SimpleCollisionBox start = interpolationStartingLocation(player);
+            Vec3 current = positionFromCollisionBox(start);
+            newPacketLocation = new ReachInterpolationData(player, start, current.x, current.y, current.z,
+                    clientPhysicalYaw, clientPhysicalPitch, clientPhysicalYaw, clientPhysicalPitch, false, this, false);
+        }
+        if (newPacketLocation != null && newPacketLocation.usesSteppedInterpolation()) {
+            float targetYaw = interpolationTargetYaw(yaw);
+            float targetPitch = interpolationTargetPitch(pitch);
+            EntityPositionPath actualPath = hasPosition ? path : EntityPositionPath.linear(
+                    newPacketLocation.hasActiveInterpolationTarget()
+                            ? positionFromCollisionBox(newPacketLocation.getTargetLocation()) : clientPhysicalPosition);
+            oldPacketLocation = bundled ? null : newPacketLocation;
+            newPacketLocation = newPacketLocation.copy();
+            // Starting/appending an interpolation records the entity's physical transform,
+            // including its current passenger attachment, as the next delta reference.
+            newPacketLocation.setPhysicalBeforePathAppend(actualPath, targetYaw, targetPitch,
+                    clientPhysicalPosition, clientPhysicalYaw, clientPhysicalPitch);
+            newPacketLocation.appendPath(actualPath, targetYaw, targetPitch);
+            return;
+        }
+        if (bundled) onBundleTransaction(false, hasPosition, path.endPosition().x, path.endPosition().y,
+                path.endPosition().z, yaw, pitch, player);
+        else onFirstTransaction(false, hasPosition, path.endPosition().x, path.endPosition().y,
+                path.endPosition().z, yaw, pitch, player);
     }
 
     private void applyEntityPositionUpdate(boolean relative, boolean hasPos, double relX, double relY, double relZ) {
@@ -375,7 +416,7 @@ public class PacketEntity {
         carryInterpolationTargetByLocalPhysics(player, newPacketLocation);
     }
 
-    private void carryInterpolationTargetByLocalPhysics(CultPlayer player, ReachInterpolationData interpolationData) {
+    protected void carryInterpolationTargetByLocalPhysics(CultPlayer player, ReachInterpolationData interpolationData) {
         if (interpolationData == null
                 || !interpolationData.hasActiveInterpolationTarget()
                 || !hasUsableMountedPhysicalPosition(player)) {
@@ -388,13 +429,15 @@ public class PacketEntity {
         }
         Vec3 previousInterpolationPosition = positionFromCollisionBox(currentInterpolationLocation);
         Vec3 physicalDelta = clientPhysicalPosition.subtract(previousInterpolationPosition);
-        interpolationData.shiftRootVehicleTargetIfCollisionFree(player, this, physicalDelta);
+        if (!interpolationData.usesSteppedInterpolation() || physicalDelta.lengthSqr() > 1.0E-5F) {
+            interpolationData.shiftRootVehicleTargetIfCollisionFree(player, this, physicalDelta);
+        }
         interpolationData.shiftTargetRotationByPhysical(clientPhysicalYaw, clientPhysicalPitch);
         syncDesyncClientPosToInterpolationTarget(interpolationData);
     }
 
     private void syncDesyncClientPosToInterpolationTarget(ReachInterpolationData interpolationData) {
-        if (interpolationData == newPacketLocation && interpolationData.hasActiveInterpolationTarget()) {
+        if (!interpolationData.usesSteppedInterpolation() && interpolationData == newPacketLocation && interpolationData.hasActiveInterpolationTarget()) {
             this.desyncClientPos = positionFromCollisionBox(interpolationData.getTargetLocation());
         }
     }
@@ -486,6 +529,20 @@ public class PacketEntity {
         this.newPacketLocation = new ReachInterpolationData(box);
     }
 
+    private SimpleCollisionBox passengerPhysicalBox;
+
+    public void setPassengerPosition(CultPlayer player, SimpleCollisionBox box) {
+        if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) {
+            setPositionRaw(box);
+            return;
+        }
+        // Entity#positionRider uses setPos, not snapTo: neither the codec nor
+        // the pending interpolation path is replaced by the attachment position.
+        passengerPhysicalBox = box.copy();
+        clientPhysicalPosition = positionFromCollisionBox(box);
+        clientPhysicalPositionExact = true;
+    }
+
     public void setPositionRaw(SimpleCollisionBox box, float yaw, float pitch) {
         setPositionRaw(box);
         setClientPhysicalRotation(yaw, pitch);
@@ -513,6 +570,7 @@ public class PacketEntity {
     }
 
     public SimpleCollisionBox getPossibleCollisionBoxes() {
+        if (passengerPhysicalBox != null && riding != null) return passengerPhysicalBox.copy();
         if (oldPacketLocation == null) {
             return newPacketLocation.getPossibleLocationCombined();
         }
@@ -521,6 +579,7 @@ public class PacketEntity {
     }
 
     public SimpleCollisionBox getPossibleMovementCollisionBoxes() {
+        if (passengerPhysicalBox != null && riding != null) return passengerPhysicalBox.copy();
         if (oldPacketLocation == null) {
             return newPacketLocation.getPossibleMovementLocationCombined();
         }
@@ -529,6 +588,7 @@ public class PacketEntity {
     }
 
     public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidates() {
+        if (passengerPhysicalBox != null && riding != null) return List.of(passengerPhysicalBox.copy());
         List<SimpleCollisionBox> candidates = new ArrayList<>();
         if (oldPacketLocation != null) {
             candidates.addAll(oldPacketLocation.getPossibleMovementLocations());
@@ -538,6 +598,7 @@ public class PacketEntity {
     }
 
     public SimpleCollisionBox getExactMovementCollisionBox() {
+        if (passengerPhysicalBox != null && riding != null) return passengerPhysicalBox.copy();
         if (newPacketLocation == null || oldPacketLocation != null) {
             return null;
         }

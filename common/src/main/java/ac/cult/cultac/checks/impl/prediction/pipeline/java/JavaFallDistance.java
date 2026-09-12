@@ -132,7 +132,7 @@ public final class JavaFallDistance {
             public VoxelShape getBlockShape(BlockState state, BlockGetter world, BlockPos pos) {
                 // ClipContext's player-specific portal branch also requires EntityCollisionContext.
                 return state.is(BlockTags.FALL_DAMAGE_RESETTING)
-                        || context.getVehicle() == null && (state.is(Blocks.END_PORTAL) || state.is(Blocks.END_GATEWAY))
+                        || context.getVehicle() == null && (state.getBlock() == Blocks.END_PORTAL || state.getBlock() == Blocks.END_GATEWAY)
                         ? Shapes.block() : Shapes.empty();
             }
         };

@@ -1284,11 +1284,19 @@ public class CompensatedWorld implements BlockGetter {
         visibleDimension = NmsIdentifierUtil.resourceKey(spawnInfo.dimension());
         minHeight = spawnInfo.dimensionType().value().minY();
         maxHeight = minHeight + spawnInfo.dimensionType().value().height();
-        // 1.21.11 replaced DimensionType#ultraWarm for lava flow/push behavior
-        // with the syncable gameplay/fast_lava environment attribute. The
-        // dimension type in CommonPlayerSpawnInfo is exactly what the client receives.
-        fastLava = spawnInfo.dimensionType().value().attributes()
-                .applyModifier(EnvironmentAttributes.FAST_LAVA, false);
+        fastLava = dimensionHasFastLava(spawnInfo.dimensionType().value());
+    }
+
+    private static boolean dimensionHasFastLava(net.minecraft.world.level.dimension.DimensionType dimension) {
+        // LavaFluid uses DimensionType.ultraWarm on 1.21.3. Since 1.21.11 it
+        // uses gameplay/fast_lava. Read the dimension sent to the client in both cases.
+        try {
+            return (boolean) dimension.getClass().getMethod("ultraWarm").invoke(dimension);
+        } catch (NoSuchMethodException modernDimension) {
+            return dimension.attributes().applyModifier(EnvironmentAttributes.FAST_LAVA, false);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to read the client's dimension lava behavior", exception);
+        }
     }
 
     public boolean hasFastLava() {

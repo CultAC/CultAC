@@ -172,7 +172,7 @@ public class CultDebug implements BuildableCommand {
 
     private static String compensatedBlockId(CultPlayer target, int x, int y, int z) {
         net.minecraft.world.level.block.state.BlockState state = target.compensatedWorld.getBlockStateAt(x, y, z);
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+        return ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil.registryKey(BuiltInRegistries.BLOCK, state.getBlock());
     }
 
     private void handleDebug(@NotNull CommandContext<Sender> context) {
@@ -222,7 +222,7 @@ public class CultDebug implements BuildableCommand {
                 .append(Component.text(playerName, NamedTextColor.WHITE))
                 .append(Component.text(" is now ", NamedTextColor.GRAY))
                 .append(Component.text(isOutput ? "enabled" : "disabled", NamedTextColor.WHITE))
-                .build();
+                .asComponent();
 
         sender.sendMessage(message);
     }

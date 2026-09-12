@@ -129,7 +129,7 @@ public class CultLog implements BuildableCommand {
                         .append(Component.text(pathString, NamedTextColor.AQUA)
                                 .clickEvent(ClickEvent.copyToClipboard(pathString))
                                 .hoverEvent(HoverEvent.showText(Component.text("Click to copy", NamedTextColor.GRAY))))
-                        .build());
+                        .asComponent());
             } catch (IOException e) {
                 sender.sendMessage(Component.text("Failed to write debug log locally; see console for more information.", NamedTextColor.RED));
                 LogUtil.error("Failed to write debug log " + flagId + " locally", e);

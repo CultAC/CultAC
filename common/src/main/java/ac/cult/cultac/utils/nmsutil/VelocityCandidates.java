@@ -147,7 +147,7 @@ public final class VelocityCandidates {
         if (use26Dot2) {
             // MCP-Reborn 26.2 Entity#restituteMovementAfterCollisions (Entity.java:803-844)
             double gravity = effectiveGravity(player);
-            if (-deltaY < gravity || onBlock == Material.HONEY_BLOCK) {
+            if (suppressesBounceAtGravity(player.getClientVersion(), deltaY, gravity) || onBlock == Material.HONEY_BLOCK) {
                 // Below the effective-gravity impact speed (or inside
                 // #suppresses_bounce) the 26.2 client does not bounce at all.
                 return OptionalDouble.empty();
@@ -169,15 +169,17 @@ public final class VelocityCandidates {
     }
 
     private static boolean isBouncyBlock(Material onBlock) {
+        if (onBlock == null) return false;
         // Blocks registered with a bounceRestitution in the 26.2 client
         // registry (MCP-Reborn Blocks.java): slime (1.0) and beds (0.75).
-        return onBlock == Material.SLIME_BLOCK || NmsBlockTags.isBed(onBlock);
+        return onBlock == Material.SLIME_BLOCK || "SHELF_MUSHROOM".equals(onBlock.name())
+                || (NmsBlockTags.isBed(onBlock) && !"STRAW_BED".equals(onBlock.name()));
     }
 
     private static double blockBounciness(PredictionResult result, Material onBlock) {
         // MCP-Reborn 26.2 Entity#getBlockBounciness: non-living entities (such as
         // boats and minecarts) only receive 80% of the block's restitution.
-        double restitution = onBlock == Material.SLIME_BLOCK ? 1.0D : NmsBlockTags.isBed(onBlock) ? 0.75D : 0.0D;
+        double restitution = onBlock == Material.SLIME_BLOCK ? 1.0D : isBouncyBlock(onBlock) ? 0.75D : 0.0D;
         PacketEntity vehicle = result.getSimulationContext().getVehicle();
         boolean living = vehicle == null || vehicle.isLivingEntity();
         return living ? restitution : restitution * 0.8D;
@@ -196,6 +198,11 @@ public final class VelocityCandidates {
         double portionWithMovement = deltaY == 0.0D ? 0.0D : clippedY / deltaY;
         double effectiveDrag = Mth.lerp(portionWithMovement, 1.0D, airDrag);
         return (portionWithMovement * gravity - deltaY) * effectiveDrag * restitution;
+    }
+
+    static boolean suppressesBounceAtGravity(ClientVersion version, double deltaY, double gravity) {
+        // 26.3 Entity#restituteMovementAfterCollisions includes exact equality.
+        return version.isNewerThanOrEquals(ClientVersion.V_26_3) ? -deltaY <= gravity : -deltaY < gravity;
     }
 
     private static double effectiveGravity(CultPlayer player) {
@@ -320,7 +327,7 @@ public final class VelocityCandidates {
             if (deltaY < 0.0D) {
                 // #suppresses_bounce (vanilla: honey block) and the impact-speed
                 // gate both force restitution to zero.
-                if (-deltaY < gravity || onBlock == Material.HONEY_BLOCK) {
+                if (suppressesBounceAtGravity(player.getClientVersion(), deltaY, gravity) || onBlock == Material.HONEY_BLOCK) {
                     restitution = 0.0D;
                 } else {
                     restitution = Math.max(restitution, blockBounciness(result, onBlock));

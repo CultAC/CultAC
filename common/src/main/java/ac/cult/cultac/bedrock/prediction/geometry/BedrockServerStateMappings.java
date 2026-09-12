@@ -19,9 +19,6 @@ public final class BedrockServerStateMappings {
             }
             return translate(serverStateCount, catalogStateCount, List.of());
         }
-        if (serverProtocol < 768 || serverProtocol > catalogProtocol) {
-            throw new IllegalStateException("Unsupported Bedrock collision server protocol " + serverProtocol);
-        }
         return ViaMappings.create(serverProtocol, serverStateCount, catalogProtocol, catalogStateCount);
     }
 

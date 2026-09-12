@@ -64,6 +64,8 @@ rootProject.name = "cultac"
 include("common")
 include("bukkit")
 include("legacy-placement-adapter")
+include("placement-26-2-adapter")
+include("placement-1-21-11-adapter")
 include("parity")
 
 if (file("workspace.gradle.kts").exists()) apply(from = "workspace.gradle.kts")

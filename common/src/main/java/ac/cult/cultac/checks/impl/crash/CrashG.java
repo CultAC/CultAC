@@ -32,7 +32,7 @@ public class CrashG extends BlockPlaceCheck implements BlockBreakListener {
     @CultPacketHandler
     public void onUseItem(final PacketReceiveEvent event, CultPlayer player, ServerboundUseItemPacket packet) {
         if (!isApplicable()) return;
-        if (packet.getSequence() < 0) {
+        if (ac.cult.cultac.network.packet.NmsPacketUtil.intValue(packet, "sequence", "getSequence") < 0) {
             flag();
             event.setCancelled(true);
             player.onPacketCancel();

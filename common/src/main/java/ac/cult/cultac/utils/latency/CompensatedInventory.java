@@ -410,7 +410,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         net.minecraft.world.item.ItemStack carried = SpigotConversionUtil.toNmsItemStack(carriedBefore);
 
         if (hasBundleContents(carried)) {
-            BundleContents.Mutable mutable = new BundleContents.Mutable(carried.get(DataComponents.BUNDLE_CONTENTS));
+            BundleContents.Mutable mutable = NmsPacketUtil.mutableBundle(carried.get(DataComponents.BUNDLE_CONTENTS));
             if (primary && !clicked.isEmpty()) {
                 mutable.tryInsert(clicked);
                 carried.set(DataComponents.BUNDLE_CONTENTS, mutable.toImmutable());
@@ -434,7 +434,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         }
 
         if (hasBundleContents(clicked)) {
-            BundleContents.Mutable mutable = new BundleContents.Mutable(clicked.get(DataComponents.BUNDLE_CONTENTS));
+            BundleContents.Mutable mutable = NmsPacketUtil.mutableBundle(clicked.get(DataComponents.BUNDLE_CONTENTS));
             if (primary && !carried.isEmpty()) {
                 mutable.tryInsert(carried);
                 clicked.set(DataComponents.BUNDLE_CONTENTS, mutable.toImmutable());
@@ -852,6 +852,11 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             merchantOffers = List.of();
             selectedMerchantOffer = 0;
         });
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ClientboundHorseScreenOpenPacket")
+    public void onHorseScreenOpen(PacketSendEvent event, CultPlayer player, Packet<?> packet) {
+        onMountScreenOpen(event, player, packet);
     }
 
     @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ClientboundMountScreenOpenPacket")

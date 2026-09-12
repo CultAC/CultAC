@@ -14,7 +14,6 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
 import net.minecraft.world.InteractionHand;
 import org.bukkit.GameMode;
 
@@ -41,8 +40,8 @@ public class PacketOrderB extends Check implements OrderedPacketReceiveListener 
     public void onPacketReceive(PacketReceiveEvent event) {
         Packet<?> packet = event.getNmsPacket();
 
-        if (packet instanceof ServerboundSwingPacket swing
-                && swing.getHand() == InteractionHand.MAIN_HAND) {
+        if (NmsPacketUtil.isSwingOrPunch(packet)
+                && NmsPacketUtil.swingHand(packet) == InteractionHand.MAIN_HAND) {
             sentAnimationSinceLastAttack = sentAnimation = true;
             sentAttack = sentSlotSwitch = false;
             return;
@@ -64,7 +63,15 @@ public class PacketOrderB extends Check implements OrderedPacketReceiveListener 
         }
 
         if (packet instanceof ServerboundPlayerActionPacket actionPacket
-                && actionPacket.getAction() == ServerboundPlayerActionPacket.Action.STAB) {
+                && actionPacket.getAction().name().equals("STAB")) {
+            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
+                // RC1 MultiPlayerGameMode#piercingAttack sends STAB and only a
+                // local animation. A preceding ordinary attack still needs Punch.
+                if (sentAttack && is1_9) flag(V.write(verbose()).bool(false));
+                sentAttack = sentAnimation = sentSlotSwitch = false;
+                sentAnimationSinceLastAttack = true;
+                return;
+            }
             onAttack(event);
             return;
         }

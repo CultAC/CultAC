@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.latency;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
+
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ShulkerData;
@@ -10,27 +11,29 @@ import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
-import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
-import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil.MetadataAccessor;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil.MetadataAccessor;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import com.mojang.datafixers.util.Pair;
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
-import org.bukkit.block.BlockFace;
-import net.minecraft.world.phys.Vec3;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.minecraft.network.protocol.game.ClientboundUpdateAttributesPacket;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.world.phys.Vec3;
+import org.bukkit.block.BlockFace;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffectType;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 public class CompensatedEntities {
     private static final EquipmentSlot SADDLE_EQUIPMENT_SLOT = resolveEquipmentSlot("saddle");
@@ -433,8 +436,15 @@ public class CompensatedEntities {
             return;
         }
 
+        positionPassenger(riding, passenger);
+        for (PacketEntity passengerPassenger : passenger.passengers) {
+            tickPassenger(passenger, passengerPassenger);
+        }
+    }
+
+    public void positionPassenger(PacketEntity riding, PacketEntity passenger) {
         Vec3 passengerPosition = BoundingBoxSize.getRidingOffsetFromVehicle(riding, passenger, player);
-        passenger.setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(
+        passenger.setPassengerPosition(player, GetBoundingBox.getPacketEntityBoundingBox(
                 player,
                 passengerPosition.x,
                 passengerPosition.y,
@@ -445,9 +455,6 @@ public class CompensatedEntities {
             player.packetStateData.clientSidePosition = passengerPosition;
         }
 
-        for (PacketEntity passengerPassenger : passenger.passengers) {
-            tickPassenger(passenger, passengerPassenger);
-        }
     }
 
     public void addEntity(int entityID, EntityType entityType, Vec3 position, float xRot, float yRot, int data) {
@@ -805,6 +812,40 @@ public class CompensatedEntities {
         SynchedEntityData.DataValue<?> mobFlags = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.MOB_FLAGS);
         if (mobFlags != null) {
             entity.noAI = ((byte) mobFlags.value() & 0x01) != 0;
+        }
+    }
+
+    /** ClientLevel root/passenger order and client ticking membership. */
+    public boolean isTicking(PacketEntity entity) {
+        if (entity.type == EntityTypesCompat.PLAYER) return true;
+        Vec3 position = entity.clientPhysicalPosition;
+        return position != null && player.compensatedWorld.isChunkLoaded(Mth.floor(position.x) >> 4, Mth.floor(position.z) >> 4);
+    }
+
+    public void tickClientEntities(Consumer<PacketEntity> tick) {
+        var roots = new ArrayList<>(entityMap.values());
+        roots.add(getSelf());
+        roots.removeIf(entity -> entity.getRiding() != null || !isTicking(entity));
+        roots.sort(Comparator.comparingLong(PacketEntity::getClientTickOrder));
+        boolean frozen = player.packetStateData.serverTicksFrozen && player.packetStateData.serverFrozenTickStepsRemaining == 0;
+        for (PacketEntity root : roots) {
+            if (!frozen || containsPlayer(root)) tickEntityTree(root, tick);
+        }
+    }
+
+    private static boolean containsPlayer(PacketEntity entity) {
+        if (entity.type == EntityTypesCompat.PLAYER) return true;
+        for (PacketEntity passenger : entity.passengers) if (containsPlayer(passenger)) return true;
+        return false;
+    }
+
+    private void tickEntityTree(PacketEntity entity, Consumer<PacketEntity> tick) {
+        if (entity != getSelf()) tick.accept(entity);
+        if (entity.getRiding() != null) {
+            positionPassenger(entity.getRiding(), entity);
+        }
+        for (PacketEntity passenger : entity.passengers) {
+            if (passenger.getRiding() == entity && isTicking(passenger)) tickEntityTree(passenger, tick);
         }
     }
 }

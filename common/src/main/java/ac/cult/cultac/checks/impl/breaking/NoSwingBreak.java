@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.breaking;
 
+import net.minecraft.network.protocol.Packet;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.checks.CheckData;
@@ -13,7 +14,6 @@ import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
 
 @CheckData(name = "NoSwingBreak", stableKey = "cult.breaking.no_swing_break", description = "Did not swing while breaking block", experimental = true)
 public class NoSwingBreak extends Check implements BlockBreakListener {
@@ -31,8 +31,13 @@ public class NoSwingBreak extends Check implements BlockBreakListener {
     }
 
 
-    @CultPacketHandler
-    public void onSwing(PacketReceiveEvent event, CultPlayer player, ServerboundSwingPacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundPunchPacket")
+    public void onPunch(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSwing(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSwingPacket")
+    public void onSwing(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         sentAnimation = true;
     }
 

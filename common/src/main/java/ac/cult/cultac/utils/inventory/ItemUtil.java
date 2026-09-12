@@ -10,6 +10,22 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
 
 public final class ItemUtil {
+    private static final Class<?> LEGACY_SWORD_CLASS = legacySwordClass();
+
+    private static Class<?> legacySwordClass() {
+        try {
+            Tool.class.getMethod("canDestroyBlocksInCreative");
+            return null;
+        } catch (NoSuchMethodException legacy) {
+            try {
+                // 1.21.3 SwordItem#canAttackBlock returns !player.isCreative().
+                return Class.forName("net.minecraft.world.item.SwordItem");
+            } catch (ClassNotFoundException exception) {
+                throw new ExceptionInInitializerError(exception);
+            }
+        }
+    }
+
     private ItemUtil() {
     }
 
@@ -86,6 +102,9 @@ public final class ItemUtil {
         }
 
         Item item = CraftMagicNumbers.getItem(type);
+        if (LEGACY_SWORD_CLASS != null) {
+            return LEGACY_SWORD_CLASS.isInstance(item);
+        }
         Tool tool = item == null ? null : item.components().get(DataComponents.TOOL);
         return tool != null && !tool.canDestroyBlocksInCreative();
     }

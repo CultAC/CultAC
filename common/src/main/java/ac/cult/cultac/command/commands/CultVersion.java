@@ -41,7 +41,7 @@ public class CultVersion implements BuildableCommand {
         sender.sendMessage(Component.text()
                 .append(Component.text("Cult Version: ").color(NamedTextColor.GRAY))
                 .append(Component.text(current).color(NamedTextColor.AQUA))
-                .build());
+                .asComponent());
         // use cached message if last check was less than 1 minute ago
         final long now = System.currentTimeMillis();
         if (now - lastCheck < 60000) {
@@ -80,7 +80,7 @@ public class CultVersion implements BuildableCommand {
                         .append(Component.text(statusCode)
                                 .color(getColorForStatusCode(statusCode))
                                 .decorate(TextDecoration.BOLD))
-                        .build()));
+                        .asComponent()));
                 return;
             }
             // Using old JsonParser method, as old versions of Gson don't include the static one
@@ -108,13 +108,13 @@ public class CultVersion implements BuildableCommand {
                         .append(Component.text(" is available to be downloaded here: ").color(NamedTextColor.GRAY))
                         .append(Component.text(downloadPage).color(NamedTextColor.GRAY).decorate(TextDecoration.UNDERLINED)
                                 .clickEvent(ClickEvent.openUrl(downloadPage)))
-                        .build();
+                        .asComponent();
                 case UNKNOWN ->
                         Component.text("You are using an unknown CultAC version.").color(NamedTextColor.RED);
             };
             // in case of a critical exploit that requires attention, allow us to provide a warning
             if (warning != null && !warning.isBlank()) {
-                msg = msg.append(Component.text().append(Component.text(warning).color(NamedTextColor.RED)).build());
+                msg = msg.append(Component.text().append(Component.text(warning).color(NamedTextColor.RED)).asComponent());
             }
             updateMessage.set(msg);
             sender.sendMessage(msg);

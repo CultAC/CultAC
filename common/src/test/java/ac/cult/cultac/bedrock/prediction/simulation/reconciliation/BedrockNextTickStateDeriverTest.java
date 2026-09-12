@@ -1162,7 +1162,7 @@ public final class BedrockNextTickStateDeriverTest {
                 false,
                 false,
                 BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
-                true);
+                true, false);
     }
 
     private static BedrockMovementContext context(Medium medium, BlockCollisionWorld blockWorld) {

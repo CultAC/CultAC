@@ -96,7 +96,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
     private boolean canStartUsingItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()
-                || player.checkManager.getCompensatedCooldown().hasMaterial(stack.getType())) {
+                || player.checkManager.getCompensatedCooldown().hasItem(stack)) {
             return false;
         }
 

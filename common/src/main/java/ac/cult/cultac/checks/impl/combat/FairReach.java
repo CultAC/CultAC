@@ -63,7 +63,7 @@ public class FairReach extends Check implements CheckListener {
     @CultPacketHandler
     public void onRemoveEntities(PacketSendEvent event, CultPlayer player, ClientboundRemoveEntitiesPacket packet) {
         // Server won't process destroyed entity hits anyway... might as well remove them immediately
-        for (int entityId : packet.getEntityIds().toIntArray()) {
+        for (int entityId : ac.cult.cultac.network.packet.NmsPacketUtil.removedEntityIds(packet)) {
             targetPlayers.remove(entityId);
         }
     }

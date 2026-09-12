@@ -102,10 +102,10 @@ public final class ViaClientBlockShapeMappings {
 
     private static Snapshot build() {
         EnumMap<ClientVersion, VersionMappings> mappings = new EnumMap<>(ClientVersion.class);
-        int serverProtocol = ClientVersion.V_26_2.getProtocolVersion();
+        int serverProtocol = net.minecraft.SharedConstants.getProtocolVersion();
 
         for (ClientVersion version : ClientVersion.values()) {
-            if (version.isOlderThan(MINIMUM_SUPPORTED_VERSION) || !version.isOlderThan(ClientVersion.V_26_2)) {
+            if (version.isOlderThan(MINIMUM_SUPPORTED_VERSION) || version.getProtocolVersion() >= serverProtocol) {
                 continue;
             }
 

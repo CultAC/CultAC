@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.multiactions;
 
+import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.LegacyPacketEventSemantics;
@@ -9,7 +10,6 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
 import net.minecraft.world.InteractionHand;
 
 @CheckData(name = "MultiActionsE", stableKey = "cult.multiactions.swing_while_using", description = "Swinging while using an item", experimental = true)
@@ -24,7 +24,7 @@ public class MultiActionsE extends Check implements OrderedPacketReceiveListener
     public void onPacketReceive(PacketReceiveEvent event) {
         Packet<?> packet = event.getNmsPacket();
 
-        if (packet instanceof ServerboundSwingPacket && !dropping && isActivelyUsingItem()) {
+        if (NmsPacketUtil.isSwingOrPunch(packet) && !dropping && isActivelyUsingItem()) {
             // This is possible to false on 1.7.
             if (!player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_7_10)
                     && flag() && shouldModifyPackets()) {

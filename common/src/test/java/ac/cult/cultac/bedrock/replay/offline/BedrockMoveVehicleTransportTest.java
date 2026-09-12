@@ -21,8 +21,7 @@ public final class BedrockMoveVehicleTransportTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
-            ServerboundMoveVehiclePacket packet = new ServerboundMoveVehiclePacket(
-                    new Vec3(2.0D, 64.0D, 3.0D), 0.0F, 0.0F, true);
+            ServerboundMoveVehiclePacket packet = new ServerboundMoveVehiclePacket(net.minecraft.core.PositionAndRotation.of(new Vec3(2.0D, 64.0D, 3.0D), 0.0F, 0.0F), true);
             PacketReceiveEvent event = new PacketReceiveEvent(
                     player.user, packet, ConnectionProtocol.PLAY);
             BadPacketsJ badPackets = player.checkManager.getCheck(BadPacketsJ.class);
@@ -144,6 +143,6 @@ public final class BedrockMoveVehicleTransportTest {
     }
 
     private static ServerboundMoveVehiclePacket vehiclePacket(Vec3 position) {
-        return new ServerboundMoveVehiclePacket(position, 0.0F, 0.0F, true);
+        return new ServerboundMoveVehiclePacket(net.minecraft.core.PositionAndRotation.of(position, 0.0F, 0.0F), true);
     }
 }

@@ -1,5 +1,7 @@
 package ac.cult.cultac.checks.impl.post;
 
+import ac.cult.cultac.network.protocol.ClientVersion;
+
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -29,12 +31,20 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
 
     @CultPacketHandler
     public void onAnimate(PacketSendEvent event, CultPlayer player, ClientboundAnimatePacket packet) {
-        if (packet.getId() == player.entityID) {
+        if (ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion()).isOlderThan(ClientVersion.V_26_3)
+                && packet.getId() == player.entityID) {
             int action = PacketCodecUtil.decodeUnsignedByte(packet.getAction());
-            if (action == ClientboundAnimatePacket.SWING_MAIN_HAND ||
-                    action == ClientboundAnimatePacket.SWING_OFF_HAND) {
+            if (action == 0 ||
+                    action == 3) {
                 isExemptFromSwingingCheck = player.lastTransactionSent.get();
             }
+        }
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ClientboundSwingAnimationPacket")
+    public void onSwingAnimation(PacketSendEvent event, CultPlayer player, net.minecraft.network.protocol.Packet<?> packet) {
+        if (ac.cult.cultac.network.packet.NmsPacketUtil.intValue(packet, "entityId") == player.entityID) {
+            isExemptFromSwingingCheck = player.lastTransactionSent.get();
         }
     }
 
@@ -74,7 +84,7 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
         }
     }
 
-    private void handleSwing(ServerboundSwingPacket packet) {
+    private void handleSwing(Packet<?> packet) {
         if (sentFlying && post == null && isExemptFromSwingingCheck < player.lastTransactionReceived.get()) {
             post = packetName(packet);
         }
@@ -128,8 +138,14 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
         recordPostPacket(packet);
     }
 
-    @CultPacketHandler
-    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, ServerboundSpectatorActionPacket packet) {
+    // 26.1 uses a required entity id; 26.2 also permits a spectator action without a target.
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectateEntityPacket")
+    public void onSpectateEntity(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSpectatorAction(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket")
+    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         recordPostPacket(packet);
     }
 
@@ -153,8 +169,13 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
         recordPostPacket(packet);
     }
 
-    @CultPacketHandler
-    public void onSwing(PacketReceiveEvent event, CultPlayer player, ServerboundSwingPacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundPunchPacket")
+    public void onPunch(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSwing(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSwingPacket")
+    public void onSwing(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         handleSwing(packet);
     }
 

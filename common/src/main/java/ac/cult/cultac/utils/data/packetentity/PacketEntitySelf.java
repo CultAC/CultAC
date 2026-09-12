@@ -4,6 +4,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.checks.impl.sprint.SprintD;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
+import ac.cult.cultac.network.packet.EntityPositionPath;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.potion.PotionEffectType;
@@ -62,6 +63,12 @@ public class PacketEntitySelf extends PacketEntity {
 
     public boolean inVehicle() {
         return getRiding() != null;
+    }
+
+    @Override
+    public void onPositionPath(EntityPositionPath path, boolean hasPosition, @Nullable Float yaw,
+                               @Nullable Float pitch, CultPlayer player, boolean bundled) {
+        // please don't send this type of packet to the player self, it's not possible in vanilla
     }
 
     @Override

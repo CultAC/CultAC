@@ -46,6 +46,11 @@ public final class EntityTypeUtil {
         return isType(type, "happy_ghast");
     }
 
+    public static boolean isProjectile(EntityType<?> type) {
+        Class<? extends Entity> entityClass = nmsEntityClass(type);
+        return entityClass != null && net.minecraft.world.entity.projectile.Projectile.class.isAssignableFrom(entityClass);
+    }
+
     public static boolean isLiving(EntityType<?> type) {
         Class<? extends Entity> nmsClass = nmsEntityClass(type);
         if (nmsClass != null) {

@@ -188,12 +188,13 @@ public class BasePacketWorldReader {
                 event.setNmsPacket(new ClientboundBundlePacket(packets));
                 event.getTasksAfterSend().add(() -> {
                     player.markTrackedTransactionPacketSent(transaction);
-                    player.compensatedWorld.pistons.handleBlockEvent(
+                    Runnable applyEvent = () -> player.compensatedWorld.pistons.handleBlockEvent(
                         blockPosition,
                         blockEvent.getBlock(),
                         blockEvent.getB0(),
                         blockEvent.getB1(),
                         transaction.transaction());
+                    player.latencyUtils.addRealTimeTask(transaction.transaction(), applyEvent);
                 });
                 return;
             }

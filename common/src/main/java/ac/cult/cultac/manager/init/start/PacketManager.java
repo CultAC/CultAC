@@ -4,7 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.events.packets.PacketPlayerJoinQuit;
 import ac.cult.cultac.events.packets.PacketPluginMessage;
 import ac.cult.cultac.events.packets.PacketServerPlayerRotation;
-import ac.cult.cultac.events.packets.PacketServerTags;
+import ac.cult.cultac.events.packets.PacketServerRegistries;
 import ac.cult.cultac.events.packets.listeners.BedrockAuthInputPluginMessageListener;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
@@ -93,7 +93,7 @@ public class PacketManager implements StartableInitable {
         // Proxy details may arrive before a CultPlayer exists.
         networkManager.registerReceiveTap(PacketListenerPriority.NORMAL, new PacketPluginMessage());
         registrar.registerSendListener(PacketListenerPriority.LOW, new PacketServerPlayerRotation());
-        registrar.registerSendListener(PacketListenerPriority.NORMAL, new PacketServerTags());
+        registrar.registerSendListener(PacketListenerPriority.NORMAL, new PacketServerRegistries());
 
         new ac.cult.cultac.events.packets.ProxyAlertMessenger();
     }

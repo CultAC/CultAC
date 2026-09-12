@@ -11,7 +11,6 @@ import ac.cult.cultac.player.CultPlayer;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
-import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
 import net.minecraft.world.InteractionHand;
 
 @CheckData(name = "MultiActionsA", stableKey = "cult.multiactions.attack_while_using", description = "Attacked while using an item", experimental = true)
@@ -35,8 +34,14 @@ public class MultiActionsA extends Check implements CheckListener {
     }
 
 
-    @CultPacketHandler
-    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, ServerboundSpectatorActionPacket packet) {
+    // 26.1 uses a required entity id; 26.2 also permits a spectator action without a target.
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectateEntityPacket")
+    public void onSpectateEntity(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSpectatorAction(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket")
+    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         if (!DecodedPacketReliability.interactionFamilyReliable(player.getClientVersion())) return;
         check(event);
     }
@@ -44,7 +49,7 @@ public class MultiActionsA extends Check implements CheckListener {
 
     @CultPacketHandler
     public void onPlayerAction(PacketReceiveEvent event, CultPlayer player, ServerboundPlayerActionPacket packet) {
-        if (packet.getAction() == ServerboundPlayerActionPacket.Action.STAB) {
+        if (packet.getAction().name().equals("STAB")) {
             check(event);
         }
     }

@@ -1,12 +1,11 @@
 package ac.cult.cultac.utils.blockplace;
 
+import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.item.BedItem;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.DoubleHighBlockItem;
 import net.minecraft.world.item.EggItem;
@@ -139,9 +138,10 @@ final class NmsClientInteraction {
     }
 
     private static Block concreteFor(Block powder) {
-        Identifier id = BuiltInRegistries.BLOCK.getKey(powder);
-        return BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace(
-                id.getPath().substring(0, id.getPath().length() - "_powder".length())));
+        String id = NmsIdentifierUtil.registryKey(BuiltInRegistries.BLOCK, powder);
+        String path = id.substring(id.indexOf(':') + 1);
+        return NmsIdentifierUtil.registryValue(BuiltInRegistries.BLOCK,
+                "minecraft:" + path.substring(0, path.length() - "_powder".length()));
     }
 
     static boolean place(BlockItem item, BlockPlaceContext context, BlockState state) {
@@ -151,7 +151,7 @@ final class NmsClientInteraction {
             level.setBlock(pos.above(), level.isWaterAt(pos.above())
                     ? Blocks.WATER.defaultBlockState() : Blocks.AIR.defaultBlockState(), 27);
         }
-        boolean placed = level.setBlock(pos, state, item instanceof BedItem ? 26 : 11);
+        boolean placed = level.setBlock(pos, state, item.getClass().getName().equals("net.minecraft.world.item.BedItem") ? 26 : 11);
         if (placed && item instanceof DoubleHighBlockItem) {
             BlockState upper = state.getBlock() instanceof DoublePlantBlock plant
                     ? DoublePlantBlock.copyWaterloggedFrom(level, pos.above(),
@@ -164,9 +164,10 @@ final class NmsClientInteraction {
     }
 
     static @Nullable Block strippedBlock(Block block) {
-        Identifier id = BuiltInRegistries.BLOCK.getKey(block);
-        return BuiltInRegistries.BLOCK.getOptional(Identifier.fromNamespaceAndPath(
-                id.getNamespace(), "stripped_" + id.getPath())).orElse(null);
+        String id = NmsIdentifierUtil.registryKey(BuiltInRegistries.BLOCK, block);
+        int separator = id.indexOf(':') + 1;
+        return NmsIdentifierUtil.registryOptional(BuiltInRegistries.BLOCK,
+                id.substring(0, separator) + "stripped_" + id.substring(separator)).orElse(null);
     }
 
     static boolean clientConsumesHeldUse(Item item) {

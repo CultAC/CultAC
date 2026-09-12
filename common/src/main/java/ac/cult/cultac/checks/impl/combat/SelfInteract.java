@@ -10,7 +10,6 @@ import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.player.CultPlayer;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
-import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
 
 @CheckData(name = "SelfInteract", stableKey = "cult.badpackets.self_hit", description = "Interacted with self")
 public class SelfInteract extends Check implements CheckListener {
@@ -33,10 +32,16 @@ public class SelfInteract extends Check implements CheckListener {
     }
 
 
-    @CultPacketHandler
-    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, ServerboundSpectatorActionPacket packet) {
+    // 26.1 uses a required entity id; 26.2 also permits a spectator action without a target.
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectateEntityPacket")
+    public void onSpectateEntity(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSpectatorAction(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket")
+    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         if (!DecodedPacketReliability.interactionFamilyReliable(player.getClientVersion())) return;
-        packet.spectateEntityId().ifPresent(entityId -> onInteract(event, entityId));
+        NmsPacketUtil.spectatorEntityId(packet).ifPresent(entityId -> onInteract(event, entityId));
     }
 
     // TODO: should check for camera entity id instead of player entity id?

@@ -95,7 +95,7 @@ public class PlaceHandler {
 
         BlockPlace blockPlace = createUseItemOnBlockPlace(player, place, placedWith);
 
-        if (player.checkManager.getCompensatedCooldown().hasMaterial(placedWith.getType())) {
+        if (player.checkManager.getCompensatedCooldown().hasItem(placedWith)) {
             return;
         }
 
@@ -105,24 +105,24 @@ public class PlaceHandler {
         }
 
         if (placedWith.getType() == Material.POWDER_SNOW_BUCKET) {
-            if (NmsBlockPlaceResolver.applyBlockPlace(player, blockPlace) && player.gamemode != GameMode.CREATIVE) {
-                UseItemHandler.setPlayerItem(player, place.hand(), Material.BUCKET);
+            var before = ac.cult.cultac.utils.blockplace.PlacementSnapshot.capture(player, blockPlace);
+            if (NmsBlockPlaceResolver.applyBlockPlace(player, blockPlace)) {
+                if (player.gamemode != GameMode.CREATIVE) UseItemHandler.setPlayerItem(player, place.hand(), Material.BUCKET);
+                NmsBlockPlaceResolver.applyAfterUseOn(player, before);
+            } else {
+                NmsBlockPlaceResolver.applyWorldModifyingUseItem(player, blockPlace);
             }
             return;
         }
 
-        if (NmsBlockPlaceResolver.applyWorldModifyingUseItem(player, blockPlace)) {
+        // BlockItem.useOn tries placement before falling back to Item.useOn.
+        if (blockPlace.isBlock() && NmsBlockPlaceResolver.applyBlockPlace(player, blockPlace)) {
             return;
         }
-
         if (NmsBlockPlaceResolver.applyClientSideUseOnItem(player, blockPlace)) {
             return;
         }
-
-        if (blockPlace.isBlock()) {
-            // This prediction path must stay on Netty and must never read live world state.
-            NmsBlockPlaceResolver.applyBlockPlace(player, blockPlace);
-        }
+        NmsBlockPlaceResolver.applyWorldModifyingUseItem(player, blockPlace);
     }
 
     private static BlockPlace createUseItemOnBlockPlace(CultPlayer player, NmsPacketUtil.UseItemOnData place, ItemStack placedWith) {

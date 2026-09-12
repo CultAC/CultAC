@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.team;
 
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.player.CultPlayer;
 import lombok.Getter;
 import net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket;
@@ -24,7 +25,10 @@ public final class EntityTeam {
     }
 
     public void update(ClientboundSetPlayerTeamPacket teams) {
-        teams.getParameters().ifPresent(info -> this.collisionRule = info.collisionRule());
+        teams.getParameters().ifPresent(info -> {
+            Team.CollisionRule rule = NmsPacketUtil.teamCollisionRule(info);
+            if (rule != null) this.collisionRule = rule;
+        });
 
         final TeamHandler teamHandler = player.checkManager.getCheck(TeamHandler.class);
 

@@ -20,7 +20,6 @@ import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
-import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
 import net.minecraft.network.protocol.game.ServerboundUseItemOnPacket;
 import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
 import org.bukkit.GameMode;
@@ -157,8 +156,14 @@ public class PacketOrderI extends Check implements PostPredictionListener {
     }
 
 
-    @CultPacketHandler
-    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, ServerboundSpectatorActionPacket packet) {
+    // 26.1 uses a required entity id; 26.2 also permits a spectator action without a target.
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectateEntityPacket")
+    public void onSpectateEntity(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSpectatorAction(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket")
+    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         onAttack(event, player);
         resetOnCameraSwitch(player);
     }

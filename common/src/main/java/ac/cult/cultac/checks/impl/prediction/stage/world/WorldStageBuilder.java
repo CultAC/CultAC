@@ -16,8 +16,8 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
+import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
-import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.FluidTypeFlowing;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -114,23 +114,10 @@ public class WorldStageBuilder {
         // before travel, and LivingEntity#floatInWaterWhileRidden later reads
         // that cached state inside the same tick. Keep the current tick's
         // pre-move deep-water state so the next tick can carry the exact +0.04.
-        boolean canFloatWhileRidden = simulationContext.getVehicle() != null
-                && EntityTypeUtil.canFloatWhileRidden(simulationContext.getVehicle().type)
-                // MCP-Reborn LivingEntity#floatInWaterWhileRidden requires the mount
-                // to still be a vehicle, which the riding relationship in this
-                // simulation context proves.
-                && !minFluidState.isWaterTimingUncertain()
-                && minFluidState.isInWater()
-                // MCP-Reborn Entity#getFluidJumpThreshold returns 0.4 for these
-                // rideable entities, and the float is only added strictly above it.
-                && minFluidState.getMaxWaterHeight() > 0.4D;
-        boolean couldFloatWhileRidden = simulationContext.getVehicle() != null
-                && EntityTypeUtil.canFloatWhileRidden(simulationContext.getVehicle().type)
-                // The same pre-move water sample drives LivingEntity#floatInWaterWhileRidden.
-                // When client-visible fluid timing is uncertain, the exact +0.04 carry is
-                // likewise uncertain, but the branch remains mathematically possible.
-                && minFluidState.getMaxWaterHeight() > 0.4D
-                && (minFluidState.isInWater() || minFluidState.isWaterTimingUncertain());
+        DesyncStatus riddenFloat = ClientFluidQueries.floatWhileRidden(player, simulationContext,
+                minFluidState.isInWater(), minFluidState.getMaxWaterHeight(), minFluidState.isWaterTimingUncertain());
+        boolean canFloatWhileRidden = riddenFloat.determinePessimistically();
+        boolean couldFloatWhileRidden = riddenFloat.determineOptimistically();
 
         // LivingEntity#travelFallFlying samples the starting block, before movement.
         DesyncStatus climbingAtStart = sampleClimbingAtStart(player, simulationContext);
@@ -181,15 +168,17 @@ public class WorldStageBuilder {
         final BubbleColumnData bubble = computeBubbleColumns(player, to, simulationContext);
 
         PistonPushes push = player.compensatedWorld.tickPlayerInPistonPushingArea(simulationContext);
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)) {
+        // Java 1.21.2+ sends tick-end after the block-entity pass. Its piston,
+        // shulker and recent world state already advance in CheckManager at that
+        // boundary, including idle ticks; prediction must not advance them again.
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) {
             player.compensatedWorld.removeInvalidPistonLikeStuff();
         }
         StuckSpeedData stuckSpeedData = calculateStuckSpeed(player, simulationContext, push);
 
         // Eye-fluid state is sampled at the movement start position.
-        double eyeY = from.y + player.getEyeHeight() - 0.1111111119389534D;
-        player.wasEyeInWater = eyeY < (float) Math.floor(eyeY)
-                + player.compensatedWorld.getWaterFluidLevelAt(from.x, eyeY, from.z);
+        player.wasEyeInWater = ClientFluidQueries.eyesInWater(player, simulationContext.getFromMinimumExtent(),
+                from, from.y + player.getEyeHeight());
         // Portal contact uses the swept inside-block volume.
         player.intersectedWithNetherPortal = Collisions.hasMaterial(player,
                 simulationContext.getFromMinimumExtent().copy().union(simulationContext.getToMinimumExtent()),
@@ -300,8 +289,9 @@ public class WorldStageBuilder {
 
         Collisions.hasMaterial(player, box, mat -> {
             boolean isInsideFluid = false;
-            if (NmsBlockTags.isWater(mat.getFirst())) {
-                double fluidHeight = player.compensatedWorld.getWaterFluidLevelAt(mat.getSecond());
+            ClientFluidQueries.Sample fluid = ClientFluidQueries.sample(player, mat.getFirst(), mat.getSecond());
+            if (fluid.water()) {
+                double fluidHeight = fluid.height();
                 boolean status = calculateStatusForFluid(player, box, fluidHeight, mat.getSecond());
                 state.setInWater(status || state.isInWater());
                 if (status) {
@@ -310,15 +300,15 @@ public class WorldStageBuilder {
                 isInsideFluid = status;
             }
 
-            if (!oldLavaLogic && mat.getFirst().getMaterial() == Material.LAVA) {
-                double fluidHeight = player.compensatedWorld.getLavaFluidLevelAt(mat.getSecond());
+            if (!oldLavaLogic && fluid.lava()) {
+                double fluidHeight = fluid.height();
                 // 1.14 doesn't care about actual lava collision box
                 boolean status = calculateStatusForFluid(player, lavaCollision, fluidHeight, mat.getSecond());
                 state.setInLava(status || state.isInLava());
                 if (status) {
                     state.setMaxLavaHeight(Math.max(state.getMaxLavaHeight(), getFluidHeightAboveMinY(entityBoundingBoxMinY, fluidHeight, mat.getSecond())));
                 }
-                isInsideFluid = status;
+                isInsideFluid |= status;
             }
 
             // If the player isn't touching the fluid, then they aren't being pushed by the water

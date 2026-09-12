@@ -84,7 +84,7 @@ public class CultHistoryMigrate implements BuildableCommand {
         logBoth(sender, Component.text()
                 .append(Component.text("Starting v0 → v1 migration from ", NamedTextColor.AQUA))
                 .append(Component.text(source.summary(), NamedTextColor.WHITE))
-                .build());
+                .asComponent());
 
         try {
             LegacyMigrator.Result result =
@@ -95,7 +95,7 @@ public class CultHistoryMigrate implements BuildableCommand {
                     .append(Component.text(result.violationsWritten() + " violations in "))
                     .append(Component.text(result.elapsedMs() + "ms"))
                     .append(result.resumed() ? Component.text(" (resumed)", NamedTextColor.GRAY) : Component.empty())
-                    .build());
+                    .asComponent());
             if (delete) {
                 dropLegacy(source, sender);
             }

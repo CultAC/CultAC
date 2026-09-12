@@ -556,6 +556,8 @@ public class CheckManager {
         registerTickEnd(packetChecks.get(PacketEntityReplication.class));
         registerTickEnd(packetChecks.get(SimulationProcessor.class));
         registerTickEnd(packetChecks.get(AutoclickerLimit.class));
+        registerTickEnd(packetChecks.get(PacketWorldBorder.class));
+        registerTickEnd(positionCheck.get(CompensatedCooldown.class));
 
         registerReceive(postPredictionCheck.get(NoSlow.class));
         registerReceive(postPredictionCheck.get(ServerStateNoSlow.class));

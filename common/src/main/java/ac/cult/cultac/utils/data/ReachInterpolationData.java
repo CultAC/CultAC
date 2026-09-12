@@ -16,6 +16,8 @@
 package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.network.packet.EntityPositionPath;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
@@ -27,6 +29,7 @@ import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,7 +37,17 @@ import java.util.List;
 public class ReachInterpolationData {
     private static final double REACH_PACKET_POSITION_UNCERTAINTY = 0.03125D;
 
-    private final SimpleCollisionBox targetLocation;
+    private SimpleCollisionBox targetLocation;
+    // RC1 SteppedInterpolationHandler state belongs to this interpolation snapshot.
+    // Keep exact transforms separately from boxes to avoid coordinate round trips.
+    private ArrayDeque<Step> interpolationQueue;
+    private Transform steppedCurrent;
+    private Transform steppedTarget;
+    private Transform lastStep;
+    private float currentStepTicks;
+    private float remainingTicks;
+    private float interpolationSpeed = 1.0F;
+    private CultPlayer interpolationPlayer;
     private SimpleCollisionBox startingLocation;
     private float currentYaw;
     private float currentPitch;
@@ -47,6 +60,14 @@ public class ReachInterpolationData {
 
     private ReachInterpolationData(ReachInterpolationData other) {
         this.targetLocation = other.targetLocation.copy();
+        this.interpolationQueue = other.interpolationQueue == null ? null : new ArrayDeque<>(other.interpolationQueue);
+        this.steppedCurrent = other.steppedCurrent;
+        this.steppedTarget = other.steppedTarget;
+        this.lastStep = other.lastStep;
+        this.currentStepTicks = other.currentStepTicks;
+        this.remainingTicks = other.remainingTicks;
+        this.interpolationSpeed = other.interpolationSpeed;
+        this.interpolationPlayer = other.interpolationPlayer;
         this.startingLocation = other.startingLocation.copy();
         this.currentYaw = other.currentYaw;
         this.currentPitch = other.currentPitch;
@@ -92,7 +113,154 @@ public class ReachInterpolationData {
         this.reachesUsePacketPositionUncertainty = true;
         this.interpolationSteps = vanillaInterpolationStepsFor(entity);
 
-        if (isPointNine && uncertainInitialSteps) interpolationStepsHighBound = getInterpolationSteps();
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
+            interpolationPlayer = player;
+            if (EntityTypeUtil.isLiving(entity.type) && entity.type != EntityTypesCompat.SHULKER) {
+                interpolationSteps = entity.type.updateInterval();
+                interpolationQueue = new ArrayDeque<>();
+                steppedCurrent = lastStep = new Transform(feet(startingLocation), currentYaw, currentPitch);
+                steppedTarget = new Transform(Vec3.ZERO, 0.0F, 0.0F);
+                if (!feet(startingLocation).equals(new Vec3(x, y, z)) || currentYaw != targetYaw || currentPitch != targetPitch) {
+                    appendSteppedPath(EntityPositionPath.linear(new Vec3(x, y, z)), targetYaw, targetPitch);
+                }
+            } else if (entity.type == EntityTypesCompat.FISHING_BOBBER) {
+                interpolationSteps = 3;
+            }
+        }
+        if (interpolationQueue == null && isPointNine && uncertainInitialSteps) interpolationStepsHighBound = getInterpolationSteps();
+    }
+
+    public boolean usesSteppedInterpolation() { return interpolationQueue != null; }
+
+    public void setPhysicalBeforePathAppend(EntityPositionPath path, float targetYaw, float targetPitch,
+                                            Vec3 position, float yaw, float pitch) {
+        if (interpolationQueue != null && !matchesActiveSteppedTarget(path, targetYaw, targetPitch)) {
+            steppedCurrent = new Transform(position, yaw, pitch);
+            currentYaw = yaw;
+            currentPitch = pitch;
+        }
+    }
+
+    public void appendPath(EntityPositionPath path, float yaw, float pitch) {
+        if (interpolationQueue == null) throw new IllegalStateException("Not a stepped entity");
+        appendSteppedPath(path, yaw, pitch);
+        targetLocation = targetLocation.copy().offset(path.endPosition().subtract(feet(targetLocation)));
+        targetYaw = yaw;
+        targetPitch = pitch;
+    }
+
+    private void appendSteppedPath(EntityPositionPath path, float yaw, float pitch) {
+        Transform end = new Transform(path.endPosition(), yaw, pitch);
+        if (interpolationSteps == 0) {
+            steppedCurrent = steppedTarget = end;
+            cancelSteppedInterpolation();
+            return;
+        }
+        if (matchesActiveSteppedTarget(path, yaw, pitch)) return;
+        if (!hasActiveInterpolationTarget()) {
+            lastStep = steppedCurrent;
+            currentStepTicks = 1.0F;
+        }
+        if (path.steps().isEmpty() || path.endPosition().equals(steppedTarget.position())) {
+            addStep(end, interpolationSteps);
+        } else {
+            int total = 0;
+            for (EntityPositionPath.Step step : path.steps()) total += step.tickOffset();
+            int offset = 0;
+            for (EntityPositionPath.Step step : path.steps()) {
+                offset += step.tickOffset();
+                float a = (float) offset / total;
+                addStep(new Transform(step.position(),
+                        yaw == steppedTarget.yaw() && pitch == steppedTarget.pitch() ? yaw : Mth.rotLerp(a, steppedTarget.yaw(), yaw),
+                        yaw == steppedTarget.yaw() && pitch == steppedTarget.pitch() ? pitch : Mth.lerp(a, steppedTarget.pitch(), pitch)), step.tickOffset());
+            }
+        }
+        steppedTarget = end;
+    }
+
+    private void addStep(Transform transform, int ticks) {
+        interpolationQueue.addLast(new Step(transform, ticks));
+        remainingTicks += ticks;
+    }
+
+    private Transform tickSteppedMovement(float relativeTickSpeed) {
+        if (!hasActiveInterpolationTarget()) {
+            cancelSteppedInterpolation();
+            return steppedCurrent;
+        }
+        // Vanilla samples first, consumes completed steps, then advances tick progress.
+        Transform sampled = sampleSteppedMovement();
+        steppedCurrent = new Transform(sampled.position(), sampled.yaw() % 360.0F, sampled.pitch() % 360.0F);
+        float targetSpeed = Math.max(remainingTicks / interpolationSteps, 1.0F);
+        interpolationSpeed = Mth.lerp(1.0F / interpolationSteps, interpolationSpeed, targetSpeed);
+        float advance;
+        if (relativeTickSpeed * interpolationSpeed < remainingTicks) {
+            advance = relativeTickSpeed * interpolationSpeed;
+        } else {
+            advance = remainingTicks;
+            interpolationSpeed = 1.0F;
+        }
+        currentStepTicks += advance;
+        remainingTicks -= advance;
+        return steppedCurrent;
+    }
+
+    private Transform sampleSteppedMovement() {
+        while (!interpolationQueue.isEmpty()) {
+            Step step = interpolationQueue.getFirst();
+            if (currentStepTicks < step.ticks()) {
+                float a = currentStepTicks / step.ticks();
+                return new Transform(lastStep.position().lerp(step.transform().position(), a),
+                        Mth.rotLerp(a, lastStep.yaw(), step.transform().yaw()),
+                        Mth.lerp(a, lastStep.pitch(), step.transform().pitch()));
+            }
+            currentStepTicks -= step.ticks();
+            lastStep = step.transform();
+            interpolationQueue.removeFirst();
+        }
+        return steppedTarget;
+    }
+
+    private boolean matchesActiveSteppedTarget(EntityPositionPath path, float yaw, float pitch) {
+        return hasActiveInterpolationTarget() && steppedTarget.position().equals(path.endPosition())
+                && steppedTarget.yaw() == yaw && steppedTarget.pitch() == pitch;
+    }
+
+    private void cancelSteppedInterpolation() {
+        interpolationQueue.clear();
+        remainingTicks = 0.0F;
+        interpolationSpeed = 1.0F;
+    }
+
+    /** Call only after the native destination collision test has succeeded. */
+    private void shiftSteppedPath(Vec3 movement, float yaw, float pitch) {
+        steppedTarget = steppedTarget.shift(movement, yaw, pitch);
+        lastStep = lastStep.shift(movement, yaw, pitch);
+        int size = interpolationQueue.size();
+        for (int i = 0; i < size; i++) {
+            Step step = interpolationQueue.removeFirst();
+            interpolationQueue.addLast(new Step(step.transform().shift(movement, yaw, pitch), step.ticks()));
+        }
+    }
+
+    public record Transform(Vec3 position, float yaw, float pitch) {
+        private Transform shift(Vec3 delta, float yawDelta, float pitchDelta) {
+            return new Transform(position.add(delta), yaw + yawDelta, pitch + pitchDelta);
+        }
+    }
+
+    private record Step(Transform transform, int ticks) {}
+
+    private static Vec3 feet(SimpleCollisionBox box) {
+        return new Vec3((box.minX + box.maxX) / 2.0D, box.minY, (box.minZ + box.maxZ) / 2.0D);
+    }
+
+    private SimpleCollisionBox steppedBox(Vec3 position) {
+        return targetLocation.copy().offset(position.subtract(feet(targetLocation)));
+    }
+
+    public Transform nextSteppedTransform() {
+        return copy().tickSteppedMovement(Math.max(interpolationPlayer.packetStateData.serverTickRate / 20.0F, 1.0F));
     }
 
     private static int vanillaInterpolationStepsFor(PacketEntity entity) {
@@ -161,6 +329,7 @@ public class ReachInterpolationData {
     }
 
     public List<SimpleCollisionBox> getPossibleMovementLocations() {
+        if (interpolationQueue != null) return List.of(steppedBox(steppedCurrent.position()));
         int interpSteps = getInterpolationSteps();
 
         double stepMinX = (targetLocation.minX - startingLocation.minX) / interpSteps;
@@ -198,6 +367,7 @@ public class ReachInterpolationData {
     }
 
     public SimpleCollisionBox getExactMovementLocationAfterClientTickFromPhysical(SimpleCollisionBox physicalLocation) {
+        if (interpolationQueue != null) return steppedBox(nextSteppedTransform().position());
         if (interpolationStepsLowBound != interpolationStepsHighBound || !hasActiveInterpolationTarget()) {
             return null;
         }
@@ -248,6 +418,10 @@ public class ReachInterpolationData {
     }
 
     public void setExactMovementLocation(SimpleCollisionBox exactLocation) {
+        if (interpolationQueue != null) {
+            steppedCurrent = new Transform(feet(exactLocation), currentYaw, currentPitch);
+            return;
+        }
         if (interpolationStepsLowBound != interpolationStepsHighBound) {
             return;
         }
@@ -306,6 +480,7 @@ public class ReachInterpolationData {
         SimpleCollisionBox shiftedTarget = targetLocation.copy().offset(movement);
         if (Collisions.isEmpty(player, shiftedTarget, shiftedTarget.minY)) {
             targetLocation.offset(movement);
+            if (interpolationQueue != null) shiftSteppedPath(movement, 0, 0);
         }
     }
 
@@ -321,6 +496,7 @@ public class ReachInterpolationData {
         );
         if (RootVehicleInterpolationCollision.shouldShiftRootInterpolationTarget(player, entity, targetPosition, movement)) {
             targetLocation.offset(movement);
+            if (interpolationQueue != null) shiftSteppedPath(movement, 0, 0);
         }
     }
 
@@ -329,11 +505,13 @@ public class ReachInterpolationData {
             return;
         }
 
+        if (interpolationQueue != null) shiftSteppedPath(Vec3.ZERO, physicalYaw - currentYaw, physicalPitch - currentPitch);
         targetYaw += physicalYaw - currentYaw;
         targetPitch += physicalPitch - currentPitch;
     }
 
     public float getExactYawAfterClientTickFromPhysical(float physicalYaw) {
+        if (interpolationQueue != null) return nextSteppedTransform().yaw();
         int remainingSteps = getInterpolationSteps() - interpolationStepsLowBound;
         if (remainingSteps <= 0) {
             return physicalYaw;
@@ -343,6 +521,7 @@ public class ReachInterpolationData {
     }
 
     public float getExactPitchAfterClientTickFromPhysical(float physicalPitch) {
+        if (interpolationQueue != null) return nextSteppedTransform().pitch();
         int remainingSteps = getInterpolationSteps() - interpolationStepsLowBound;
         if (remainingSteps <= 0) {
             return physicalPitch;
@@ -352,6 +531,7 @@ public class ReachInterpolationData {
     }
 
     public void setExactRotation(float yaw, float pitch) {
+        if (interpolationQueue != null) steppedCurrent = new Transform(steppedCurrent.position(), yaw, pitch);
         this.currentYaw = yaw;
         this.currentPitch = pitch;
     }
@@ -364,11 +544,13 @@ public class ReachInterpolationData {
     }
 
     public boolean hasActiveInterpolationTarget() {
+        if (interpolationQueue != null) return !interpolationQueue.isEmpty();
         return reachesUsePacketPositionUncertainty
                 && interpolationStepsLowBound < getInterpolationSteps();
     }
 
     public void updatePossibleStartingLocation(SimpleCollisionBox possibleLocationCombined) {
+        if (interpolationQueue != null) return;
         //CultACBukkitLoaderPlugin.staticGetLogger().info(ChatColor.BLUE + "Updated new starting location as second trans hasn't arrived " + startingLocation);
         this.startingLocation = combineCollisionBox(startingLocation, possibleLocationCombined);
         //CultAC.staticGetLogger().info(ChatColor.BLUE + "Finished updating new starting location as second trans hasn't arrived " + startingLocation);
@@ -381,6 +563,13 @@ public class ReachInterpolationData {
     }
 
     public void tickMovement(boolean incrementLowBound, boolean tickingReliably) {
+        if (interpolationQueue != null) {
+            Transform transform = tickSteppedMovement(
+                    Math.max(interpolationPlayer.packetStateData.serverTickRate / 20.0F, 1.0F));
+            currentYaw = transform.yaw();
+            currentPitch = transform.pitch();
+            return;
+        }
         if (!tickingReliably) this.interpolationStepsHighBound = getInterpolationSteps();
         if (incrementLowBound)
             this.interpolationStepsLowBound = Math.min(interpolationStepsLowBound + 1, getInterpolationSteps());

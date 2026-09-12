@@ -14,7 +14,7 @@ public final class BedrockSwimmingMovementTest {
             new BedrockSwimmingMovement.SwimmingState(false, false, 0.0D);
 
         BedrockSwimmingMovement.SwimmingState result =
-            initial.afterActions(intent("START_SWIMMING"));
+            initial.afterActions(intent("START_SWIMMING"), true);
 
         assertTrue(result.actorStateAfterActions());
     }
@@ -27,7 +27,7 @@ public final class BedrockSwimmingMovementTest {
         BedrockSwimmingMovement.SwimmingState result = initial.afterActions(intent(
             "START_SWIMMING",
             "STOP_SWIMMING"
-        ));
+        ), true);
 
         org.junit.Assert.assertFalse(result.actorStateAfterActions());
     }
@@ -38,7 +38,7 @@ public final class BedrockSwimmingMovementTest {
             new BedrockSwimmingMovement.SwimmingState(true, true, (double) 0.2F);
 
         BedrockSwimmingMovement.SwimmingState result =
-            initial.afterActions(intent("STOP_SWIMMING"));
+            initial.afterActions(intent("STOP_SWIMMING"), true);
 
         org.junit.Assert.assertEquals((double) 0.2F, result.swimAmount(), 0.0D);
     }

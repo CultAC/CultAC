@@ -83,38 +83,42 @@ public class BoundingBoxSize {
         double y = box.minY;
         double z = (box.maxZ + box.minZ) / 2.0;
 
-        if (entity instanceof PacketEntityTrackXRot) {
-            PacketEntityTrackXRot xRotEntity = (PacketEntityTrackXRot) entity;
-
-            if (EntityTypeUtil.isBoat(entity.type)) {
-                Vec3 offset = getBoatPassengerAttachmentOffset(entity, passenger, xRotEntity.interpYaw, passengerIndex, passengerCount);
-                return new Vec3(x + offset.x, y + offset.y, z + offset.z);
-            }
+        Vec3 passengerAttachment;
+        if (entity instanceof PacketEntityTrackXRot xRotEntity && EntityTypeUtil.isBoat(entity.type)) {
+            passengerAttachment = getBoatPassengerAttachmentPoint(entity, passenger, xRotEntity.interpYaw, passengerIndex, passengerCount);
+        } else {
+            passengerAttachment = getDefaultPassengerAttachmentPoint(entity, passengerIndex);
         }
 
-        Vec3 offset = getDefaultPassengerAttachmentOffset(entity, passenger, passengerIndex);
-        return new Vec3(x + offset.x, y + offset.y, z + offset.z);
+        // Vanilla Entity#positionRider subtracts the rider's current, scaled attachment
+        // after the vehicle supplies its passenger point, including for stationary seats.
+        Vec3 vehicleAttachment = baseDimensions(passenger).scale(passenger.scale).attachments()
+                .get(EntityAttachment.VEHICLE, 0, getAttachmentYaw(passenger));
+        return new Vec3(x, y, z).add(passengerAttachment).subtract(vehicleAttachment);
     }
 
-    private static Vec3 getDefaultPassengerAttachmentOffset(PacketEntity vehicle, PacketEntity passenger, int passengerIndex) {
+    private static float getAttachmentYaw(PacketEntity entity) {
+        return entity instanceof PacketEntityTrackXRot xRotEntity ? xRotEntity.interpYaw : entity.clientPhysicalYaw;
+    }
+
+    private static Vec3 getDefaultPassengerAttachmentPoint(PacketEntity vehicle, int passengerIndex) {
         int index = Math.max(passengerIndex, 0);
-        float vehicleYaw = vehicle instanceof PacketEntityTrackXRot xRotEntity ? xRotEntity.interpYaw : 0.0F;
-        float passengerYaw = passenger instanceof PacketEntityTrackXRot xRotEntity ? xRotEntity.interpYaw : 0.0F;
-        Vec3 passengerAttachment = baseDimensions(vehicle).attachments().getClamped(EntityAttachment.PASSENGER, index, vehicleYaw);
+        float vehicleYaw = getAttachmentYaw(vehicle);
+        Vec3 passengerAttachment = baseDimensions(vehicle).scale(vehicle.scale).attachments()
+                .getClamped(EntityAttachment.PASSENGER, index, vehicleYaw);
         if (vehicle instanceof PacketEntityHorse horse) {
             // MCP-Reborn AbstractHorse#getPassengerAttachmentPoint adds this rearing offset to the default point.
-            passengerAttachment = passengerAttachment.add(new Vec3(0.0D, 0.15D * horse.standAnimO, -0.7D * horse.standAnimO)
+            passengerAttachment = passengerAttachment.add(new Vec3(0.0D, 0.15D * horse.standAnimO * vehicle.scale, -0.7D * horse.standAnimO * vehicle.scale)
                     .yRot(-vehicleYaw * ((float) Math.PI / 180F)));
         } else if (vehicle instanceof PacketEntityStrider strider) {
             // MCP-Reborn Strider#getPassengerAttachmentPoint adds a client-only
             // walk-animation Y offset before passenger positioning.
-            passengerAttachment = passengerAttachment.add(0.0D, strider.getPassengerAttachmentYOffset(), 0.0D);
+            passengerAttachment = passengerAttachment.add(0.0D, (float) strider.getPassengerAttachmentYOffset() * vehicle.scale, 0.0D);
         }
-        Vec3 vehicleAttachment = baseDimensions(passenger).attachments().get(EntityAttachment.VEHICLE, 0, passengerYaw);
-        return passengerAttachment.subtract(vehicleAttachment);
+        return passengerAttachment;
     }
 
-    private static Vec3 getBoatPassengerAttachmentOffset(PacketEntity vehicle, PacketEntity passenger, float vehicleYaw, int passengerIndex, int passengerCount) {
+    private static Vec3 getBoatPassengerAttachmentPoint(PacketEntity vehicle, PacketEntity passenger, float vehicleYaw, int passengerIndex, int passengerCount) {
         int index = Math.max(passengerIndex, 0);
         float zOffset = getSingleBoatPassengerOffset(vehicle);
 
@@ -126,10 +130,7 @@ public class BoundingBoxSize {
         }
 
         double rideHeight = isRaft(vehicle) ? getHeight(vehicle) * 0.8888889F : getHeight(vehicle) / 3.0F;
-        Vec3 passengerAttachment = new Vec3(0.0D, rideHeight, zOffset).yRot(-vehicleYaw * ((float) Math.PI / 180F));
-        float passengerYaw = passenger instanceof PacketEntityTrackXRot xRotEntity ? xRotEntity.interpYaw : 0.0F;
-        Vec3 vehicleAttachment = baseDimensions(passenger).attachments().get(EntityAttachment.VEHICLE, 0, passengerYaw);
-        return passengerAttachment.subtract(vehicleAttachment);
+        return new Vec3(0.0D, rideHeight, zOffset).yRot(-vehicleYaw * ((float) Math.PI / 180F));
     }
 
     private static float getSingleBoatPassengerOffset(PacketEntity vehicle) {

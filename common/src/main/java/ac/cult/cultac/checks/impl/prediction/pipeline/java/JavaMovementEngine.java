@@ -154,8 +154,9 @@ public final class JavaMovementEngine implements MovementEngine {
     }
 
     public static boolean supportsExactEffects(ClientVersion version) {
-        // Both audited clients run the same ordered callbacks after travel and
-        // landing, including powder's fall-distance-dependent inside shape.
-        return version.isNewerThanOrEquals(ClientVersion.V_26_1);
+        // 1.21.11 Entity#checkInsideBlocks already uses the same axis-ordered,
+        // step-based callbacks after travel/landing as 26.1 and 26.2. In particular,
+        // powder snow's inside shape must observe the fall distance at that step.
+        return version.isNewerThanOrEquals(ClientVersion.V_1_21_11);
     }
 }

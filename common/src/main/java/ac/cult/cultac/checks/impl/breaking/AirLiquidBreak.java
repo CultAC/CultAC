@@ -67,7 +67,8 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
                 // or the client claims to have broken an unbreakable block
                 || block.defaultDestroyTime() == -1.0f && blockBreak.action == ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK
                 // or the player is holding a spear
-                || SpigotConversionUtil.toNmsItemStack(player.getInventory().getHeldItem()).has(DataComponents.PIERCING_WEAPON) && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11);
+                || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)
+                && SpigotConversionUtil.toNmsItemStack(player.getInventory().getHeldItem()).has(DataComponents.PIERCING_WEAPON);
 
         if (invalid && flag(V.write(verbose())
                 .sint(BuiltInRegistries.BLOCK.getId(block))

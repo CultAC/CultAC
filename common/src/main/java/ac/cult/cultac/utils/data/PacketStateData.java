@@ -47,7 +47,6 @@ public class PacketStateData {
     private boolean awaitingVehicleMoveAfterPassengerRotation = false;
     private boolean mountedPassengerRotationSeenThisClientTick = false;
     private boolean vehicleMovementFromClientTick = false;
-    private boolean mountedTeleportPosRotPending;
     public int vehicleMovePacketsThisClientTick = 0;
     public int clientTickVehicleMovePacketsThisClientTick = 0;
     public int localAuthoritativeVehicleMovePacketsThisClientTick = 0;
@@ -191,22 +190,6 @@ public class PacketStateData {
         awaitingVehicleMoveAfterPassengerRotation = false;
         mountedPassengerRotationSeenThisClientTick = false;
         vehicleMovementFromClientTick = false;
-        clearMountedTeleportPosRotPending();
-    }
-
-    /** Armed only by consuming a real pending mounted teleport ID. */
-    public void markMountedTeleportPosRotPending() {
-        mountedTeleportPosRotPending = true;
-    }
-
-    public boolean consumeMountedTeleportPosRotPending() {
-        boolean pending = mountedTeleportPosRotPending;
-        mountedTeleportPosRotPending = false;
-        return pending;
-    }
-
-    public void clearMountedTeleportPosRotPending() {
-        mountedTeleportPosRotPending = false;
     }
 
     // For future checks

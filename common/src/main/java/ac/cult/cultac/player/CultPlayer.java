@@ -42,7 +42,7 @@ import ac.cult.cultac.utils.change.PlayerBlockHistory;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BoatData;
 import ac.cult.cultac.utils.data.PacketStateData;
-import ac.cult.cultac.utils.data.tags.SyncedTags;
+import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.data.VehicleData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
@@ -221,7 +221,7 @@ public class CultPlayer implements GrimUser {
     public final @NotNull NettyScheduler nettyScheduler;
     public @NotNull TrigHandler trigHandler;
     public @NotNull PacketStateData packetStateData;
-    public final @NotNull SyncedTags tagManager;
+    public ClientComponentRegistries registryState;
     public final @NotNull KnockbackHandler knockbackHandler;
     public final @NotNull ExplosionHandler explosionHandler;
     public final @NotNull PluginChannelManager pluginChannelManager;
@@ -318,7 +318,6 @@ public class CultPlayer implements GrimUser {
         this.entityID = bukkitPlayer == null ? 0 : bukkitPlayer.getEntityId();
         this.timeJoined = System.currentTimeMillis();
         onReload();
-        this.tagManager = new SyncedTags(this);
 
         this.nettyScheduler = new NettyScheduler(this);
         this.packetEntityReplication = new PacketEntityReplication(this);
@@ -1070,7 +1069,7 @@ public class CultPlayer implements GrimUser {
     public ClientVersion getClientVersion() {
         if (ViaVersionUtil.isAvailable()) {
             try {
-                int protocolVersion = Via.getAPI().getPlayerVersion(playerUUID);
+                int protocolVersion = Via.getAPI().getPlayerProtocolVersion(playerUUID).getOriginalVersion();
                 if (protocolVersion > 0) {
                     return ClientVersion.fromProtocolVersion(protocolVersion);
                 }

@@ -40,7 +40,7 @@ public class PositionBreakA extends Check implements BlockBreakListener {
     public void onBlockBreak(BlockBreak blockBreak) {
         if (player.inVehicle()
                 || blockBreak.action == ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK // PE DiggingAction.CANCELLED_DIGGING
-                || blockBreak.block.is(Blocks.REDSTONE_WIRE)
+                || blockBreak.block.getBlock() == Blocks.REDSTONE_WIRE
         ) return;
 
         SimpleCollisionBox combined = blockBreak.getCombinedBox();

@@ -181,7 +181,7 @@ public final class GeyserVelocity {
         for (int cy = y + 1; cy <= maxY; cy++) {
             BlockState state = player.compensatedWorld.getBlockStateAt(x, cy, z);
             boolean waterSource = player.compensatedWorld.getFluidStateAt(x, cy, z).isSourceOfType(Fluids.WATER);
-            if (!waterSource || (!state.is(Blocks.WATER) && !isPassable(player, state, x, cy, z))) {
+            if (!waterSource || (state.getBlock() != Blocks.WATER && !isPassable(player, state, x, cy, z))) {
                 if (state.isAir() || isPassable(player, state, x, cy, z)) {
                     return cy - y - 1;
                 }
@@ -204,7 +204,7 @@ public final class GeyserVelocity {
 
     // MCP-Reborn 26.2 PotentSulfurBlockEntity#isGeyserPassableBlock
     private static boolean isPassable(CultPlayer player, BlockState state, int x, int y, int z) {
-        if (state.isAir() || state.is(Blocks.WATER)) {
+        if (state.isAir() || state.getBlock() == Blocks.WATER) {
             return true;
         }
         return state.getCollisionShape(player.compensatedWorld, new BlockPos(x, y, z),

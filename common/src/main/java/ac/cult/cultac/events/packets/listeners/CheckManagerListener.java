@@ -41,7 +41,6 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.common.ServerboundClientInformationPacket;
-import net.minecraft.network.protocol.common.ServerboundCustomClickActionPacket;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.ServerboundKeepAlivePacket;
 import net.minecraft.network.protocol.common.ServerboundPongPacket;
@@ -226,8 +225,8 @@ public class CheckManagerListener {
         processGenericReceive(event, player);
     }
 
-    @CultPacketHandler
-    public void onChangeGameMode(PacketReceiveEvent event, CultPlayer player, ServerboundChangeGameModePacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundChangeGameModePacket")
+    public void onChangeGameMode(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         processGenericReceive(event, player);
     }
 
@@ -246,13 +245,18 @@ public class CheckManagerListener {
         processGenericReceive(event, player);
     }
 
-    @CultPacketHandler
-    public void onCustomClickAction(PacketReceiveEvent event, CultPlayer player, ServerboundCustomClickActionPacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.common.ServerboundCustomClickActionPacket")
+    public void onCustomClickAction(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         processGenericReceive(event, player);
     }
 
-    @CultPacketHandler
-    public void onDebugSubscriptionRequest(PacketReceiveEvent event, CultPlayer player, ServerboundDebugSubscriptionRequestPacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundDebugSampleSubscriptionPacket")
+    public void onDebugSampleSubscription(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        processGenericReceive(event, player);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundDebugSubscriptionRequestPacket")
+    public void onDebugSubscriptionRequest(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         processGenericReceive(event, player);
     }
 
@@ -286,8 +290,8 @@ public class CheckManagerListener {
         processGenericReceive(event, player);
     }
 
-    @CultPacketHandler
-    public void onSetGameRule(PacketReceiveEvent event, CultPlayer player, ServerboundSetGameRulePacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSetGameRulePacket")
+    public void onSetGameRule(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         processGenericReceive(event, player);
     }
 
@@ -296,18 +300,24 @@ public class CheckManagerListener {
         processGenericReceive(event, player);
     }
 
-    @CultPacketHandler
-    public void onSetTestBlock(PacketReceiveEvent event, CultPlayer player, ServerboundSetTestBlockPacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSetTestBlockPacket")
+    public void onSetTestBlock(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         processGenericReceive(event, player);
     }
 
-    @CultPacketHandler
-    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, ServerboundSpectatorActionPacket packet) {
+    // 26.1 uses a required entity id; 26.2 also permits a spectator action without a target.
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectateEntityPacket")
+    public void onSpectateEntity(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSpectatorAction(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket")
+    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         processGenericReceive(event, player);
     }
 
-    @CultPacketHandler
-    public void onTestInstanceBlockAction(PacketReceiveEvent event, CultPlayer player, ServerboundTestInstanceBlockActionPacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundTestInstanceBlockActionPacket")
+    public void onTestInstanceBlockAction(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         processGenericReceive(event, player);
     }
 
@@ -355,6 +365,14 @@ public class CheckManagerListener {
     @CultPacketHandler
     public void onSetBeacon(PacketReceiveEvent event, CultPlayer player, ServerboundSetBeaconPacket packet) {
         processInterveningReceive(event, player);
+    }
+
+    // Before 1.21.4, vanilla picks an inventory slot through this packet.
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundPickItemPacket")
+    public void onPickItem(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        // Unlike the newer block/entity pick packets, legacy PickItem has normal
+        // receive handlers in PacketOrderProcessor and PacketOrderF.
+        processGenericReceive(event, player);
     }
 
     @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundPickItemFromBlockPacket")
@@ -435,8 +453,13 @@ public class CheckManagerListener {
         processGenericReceive(event, player);
     }
 
-    @CultPacketHandler
-    public void onSwing(PacketReceiveEvent event, CultPlayer player, ServerboundSwingPacket packet) {
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundPunchPacket")
+    public void onPunch(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSwing(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSwingPacket")
+    public void onSwing(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
         processGenericReceive(event, player);
     }
 
@@ -519,9 +542,6 @@ public class CheckManagerListener {
             return;
         }
 
-        boolean mountedTeleportPosRot = !player.isBedrockMovement()
-                && consumeMountedTeleportPosRot(player, packet);
-
         if (shouldIgnoreTranslatedBedrockMovement(player, false)) {
             // Auth input owns movement; this projection still passes through the setback gate.
             player.checkManager.getListener(SetbackBlocker.class)
@@ -537,11 +557,8 @@ public class CheckManagerListener {
 
         Vec3 movementPosition = position;
         TeleportAcceptData teleportData;
-        // A mounted teleport's paired PosRot is acknowledgement state, not movement.
         if (packet.hasPosition()) {
-            teleportData = mountedTeleportPosRot
-                    ? new TeleportAcceptData()
-                    : player.getSetbackTeleportUtil().checkTeleportQueue(movementPosition.x, movementPosition.y, movementPosition.z);
+            teleportData = player.getSetbackTeleportUtil().checkTeleportQueue(movementPosition.x, movementPosition.y, movementPosition.z);
         } else if (packet instanceof ServerboundMovePlayerPacket.Rot) {
             teleportData = player.getSetbackTeleportUtil().checkRotationTeleportQueue(
                     packet.getYRot(player.xRot),
@@ -551,7 +568,9 @@ public class CheckManagerListener {
             teleportData = new TeleportAcceptData();
         }
 
-        player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport() || mountedTeleportPosRot;
+        boolean mountedTeleportPosRot = packet.hasPosition() && teleportData.isTeleport()
+                && !teleportData.isMatchedTeleportPosition() && !player.isBedrockMovement();
+        player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
         player.packetStateData.lastPacketMatchedTeleportPosition = teleportData.isMatchedTeleportPosition();
         player.packetStateData.lastPacketWasOnePointSeventeenDuplicate = isOnePointSeventeenDuplicate(
                 player.getClientVersion(),
@@ -565,7 +584,7 @@ public class CheckManagerListener {
                 movementPosition,
                 player.getMovementThreshold()
         );
-        if (teleportData.isTeleport()
+        if (teleportData.isMatchedTeleportPosition()
                 && teleportData.getTeleportData() != null
                 && player.compensatedEntities.vehicles.hasPendingServerDismount()) {
             player.compensatedEntities.vehicles.applyClientVisibleDismount();
@@ -603,7 +622,7 @@ public class CheckManagerListener {
         }
 
         if (mountedTeleportPosRot) {
-            recordMountedTeleportPosRot(player, position, packet);
+            applyTeleportResponse(player, teleportData, packet.getYRot(player.xRot), packet.getXRot(player.yRot));
             dispatchReceiveHandlers(event, player);
             clearTransientPacketState(player);
             return;
@@ -639,13 +658,6 @@ public class CheckManagerListener {
         clearTransientPacketState(player);
     }
 
-    private boolean consumeMountedTeleportPosRot(CultPlayer player, ServerboundMovePlayerPacket packet) {
-        boolean pending = player.packetStateData.consumeMountedTeleportPosRotPending();
-        // ClientPacketListener#handleMovePlayer sends AcceptTeleportation then
-        // PosRot consecutively, even while mounting and before transaction pongs.
-        return pending && packet instanceof ServerboundMovePlayerPacket.PosRot;
-    }
-
     private boolean hasBufferedServerVehiclePassengerRotation(CultPlayer player) {
         Integer serverVehicleId = player.compensatedEntities.vehicles.serverPlayerVehicle;
         PacketEntity serverVehicle = serverVehicleId == null ? null : player.compensatedEntities.getEntity(serverVehicleId);
@@ -660,16 +672,6 @@ public class CheckManagerListener {
         return player.isBedrockMovement()
                 && !passengerRotationTickPacket
                 && !player.compensatedEntities.vehicles.hasPlayerPassengerState();
-    }
-
-    private void recordMountedTeleportPosRot(CultPlayer player, Vec3 position, ServerboundMovePlayerPacket packet) {
-        // A mounted position echo does not move the client or its root vehicle.
-        // Never use its coordinates to seed prediction, reach, or fall distance.
-        if (packet.hasRotation()) {
-            float yaw = packet.getYRot(player.xRot);
-            float pitch = packet.getXRot(player.yRot);
-            player.xRot = yaw; player.yRot = pitch;
-        }
     }
 
     private void processMoveVehicleReceive(PacketReceiveEvent event, CultPlayer player, ServerboundMoveVehiclePacket packet) {
@@ -877,7 +879,8 @@ public class CheckManagerListener {
                         player, packetRoot, physicalNewPos, vehiclePacket, teleportData);
             } else if (checkableClientTick) {
                 player.compensatedEntities.vehicles.applyVehiclePacketPosition(packetRoot, physicalNewPos,
-                        vehiclePacket.onGround(), physicalYaw, physicalPitch);
+                        vehiclePacket.hasOnGround() ? vehiclePacket.onGround() : packetRoot.onGround,
+                        physicalYaw, physicalPitch);
             }
         }
 
@@ -904,7 +907,8 @@ public class CheckManagerListener {
                     false);
         } else {
             player.compensatedEntities.vehicles.applyVehiclePacketPosition(
-                    packetRoot, position, vehiclePacket.onGround(), vehiclePacket.yaw(), vehiclePacket.pitch());
+                    packetRoot, position, vehiclePacket.hasOnGround() ? vehiclePacket.onGround() : packetRoot.onGround,
+                    vehiclePacket.yaw(), vehiclePacket.pitch());
         }
     }
 
@@ -983,7 +987,7 @@ public class CheckManagerListener {
             if (NmsBlockTags.toNmsState(block).getDestroySpeed(player.compensatedWorld, blockPosition) != -1.0f) {
                 player.compensatedWorld.startPredicting();
                 applyClientBreakPrediction(player, blockPosition);
-                player.checkManager.getCheck(AirLiquidPlace.class).handleBlockBreak(new BlockPos(blockPosition));
+                player.checkManager.getCheck(AirLiquidPlace.class).handleBlockBreak(blockPosition.immutable());
                 player.compensatedWorld.stopPredicting(packet);
             }
         }
@@ -994,7 +998,7 @@ public class CheckManagerListener {
             //Instant breaking, no damage means it is unbreakable by creative players (with swords)
             if (damage >= 1) {
                 player.compensatedWorld.startPredicting();
-                player.checkManager.getListener(AirLiquidPlace.class).handleBlockBreak(new BlockPos(blockPosition));
+                player.checkManager.getListener(AirLiquidPlace.class).handleBlockBreak(blockPosition.immutable());
                 applyClientBreakPrediction(player, blockPosition);
                 player.compensatedWorld.stopPredicting(packet);
             } else if (player.debugBreaks) {
@@ -1012,23 +1016,16 @@ public class CheckManagerListener {
         clearPendingVehicleMoveForInterveningPacket(player);
         dispatchPrePredictionReceive(event, player);
 
-        BlockPos clickedBlock = packet.getHitResult().getBlockPos();
-        net.minecraft.world.phys.Vec3 location = packet.getHitResult().getLocation();
-        Vec3 cursor = new Vec3(location.x - clickedBlock.getX(), location.y - clickedBlock.getY(), location.z - clickedBlock.getZ());
-        BlockFace blockFace = switch (packet.getHitResult().getDirection()) {
-            case DOWN -> BlockFace.DOWN;
-            case UP -> BlockFace.UP;
-            case NORTH -> BlockFace.NORTH;
-            case SOUTH -> BlockFace.SOUTH;
-            case WEST -> BlockFace.WEST;
-            case EAST -> BlockFace.EAST;
-        };
+        NmsPacketUtil.UseItemOnData use = NmsPacketUtil.readUseItemOn(packet);
+        BlockPos clickedBlock = use.blockPosition();
+        Vec3 cursor = use.cursor();
+        BlockFace blockFace = use.blockFace();
         player.lastBlockPlaceUseItem = System.currentTimeMillis();
 
-        ItemStack placedWith = player.getInventory().getHandItem(packet.getHand());
+        ItemStack placedWith = player.getInventory().getHandItem(use.hand());
 
-        BlockPlace blockPlace = new BlockPlace(player, packet.getHand(), clickedBlock, blockFace, placedWith,
-                TraverseBlocks.getNearestHitResult(player, null, true), packet.getSequence());
+        BlockPlace blockPlace = new BlockPlace(player, use.hand(), clickedBlock, blockFace, placedWith,
+                TraverseBlocks.getNearestHitResult(player, null, true), use.sequence());
         blockPlace.setCursor(cursor);
 
         // Deny fun stuff like teleport bridging
@@ -1064,12 +1061,12 @@ public class CheckManagerListener {
                 player.onPacketCancel();
             }
 
-            BlockPredictionAckSender.sendAck(player, packet.getSequence());
+            BlockPredictionAckSender.sendAck(player, use.sequence());
 
             // Stop inventory desync from cancelling place
             if (player.bukkitPlayer != null) {
                 // TODO: Is this unsafe enough to have to run on the main thread?
-                if (packet.getHand() == InteractionHand.MAIN_HAND) {
+                if (use.hand() == InteractionHand.MAIN_HAND) {
                     ItemStack mainHand = ItemUtil.copy(player.bukkitPlayer.getInventory().getItemInHand());
                     player.user.sendPacket(new ClientboundContainerSetSlotPacket(0, player.getInventory().stateID, 36 + player.packetStateData.lastSlotSelected, SpigotConversionUtil.toNmsItemStack(mainHand)));
                 } else {
@@ -1123,8 +1120,6 @@ public class CheckManagerListener {
     }
 
     private void clearPendingVehicleMoveForInterveningPacket(CultPlayer player) {
-        // A mounted teleport's acknowledgement packets are consecutive.
-        player.packetStateData.clearMountedTeleportPosRotPending();
         if (player.packetStateData.isAwaitingVehicleMoveAfterPassengerRotation()) {
             // LocalPlayer#tick sends the mounted Rot and vehicle move consecutively.
             player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
@@ -1151,10 +1146,52 @@ public class CheckManagerListener {
         player.packetStateData.clearDesiredOnGround();
     }
 
+    /** Applies a transaction-matched teleport response without producing a movement tick. */
+    public static void applyTeleportResponse(CultPlayer player, TeleportAcceptData accepted, float yaw, float pitch) {
+        Vec3 previous = new Vec3(player.x, player.y, player.z);
+        applyTeleportAcknowledgementLook(player, yaw, pitch);
+        if (accepted.isMatchedTeleportPosition()) {
+            if (player.compensatedEntities.vehicles.hasPendingServerDismount()) {
+                player.compensatedEntities.vehicles.applyClientVisibleDismount();
+            }
+            player.checkManager.getSimulationProcessor().applyAcceptedJavaTeleport(accepted);
+        }
+        player.getSetbackTeleportUtil().onPredictionComplete(new PredictionComplete(new PositionUpdate(
+                previous, new Vec3(player.x, player.y, player.z), yaw, pitch, player.onGround, accepted, null)));
+    }
+
+    /** 26.3's coordinate-bearing acknowledgement carries the old teleport PosRot's look state. */
+    public static void applyTeleportAcknowledgementLook(CultPlayer player, float yaw, float pitch) {
+        boolean previous = player.packetStateData.lastPacketWasTeleport;
+        player.packetStateData.lastPacketWasTeleport = true;
+        try {
+            if (player.xRot != yaw || player.yRot != pitch) {
+                player.lastTickXRot = player.xRot;
+                player.lastTickYRot = player.yRot;
+            }
+            applyRotation(player, yaw, pitch);
+        } finally {
+            player.packetStateData.lastPacketWasTeleport = previous;
+        }
+    }
+
+    private static void applyRotation(CultPlayer player, float yaw, float pitch) {
+        HeadRotation from = new HeadRotation(player.xRot, player.yRot);
+        player.xRot = yaw; player.yRot = pitch;
+        RotationUpdate update = new RotationUpdate(
+                from,
+                new HeadRotation(player.xRot, player.yRot),
+                player.xRot - from.yaw(),
+                player.yRot - from.pitch()
+        );
+        if (update.getDeltaXRot() != 0 || update.getDeltaYRot() != 0) {
+            player.lastRotated = System.currentTimeMillis();
+        }
+        player.checkManager.onRotationUpdate(update);
+    }
+
     private void handleFlying(CultPlayer player, double x, double y, double z, float yaw, float pitch, boolean hasPosition, boolean hasLook, boolean onGround, TeleportAcceptData teleportData) {
         player.serverOpenedInventoryThisTick = false;
-
-        // We can't set the look if this is actually the stupidity packet
         if (hasLook && (player.xRot != yaw || player.yRot != pitch)) {
             player.lastTickXRot = player.xRot;
             player.lastTickYRot = player.yRot;
@@ -1174,18 +1211,7 @@ public class CheckManagerListener {
         }
 
         if (hasLook) {
-            HeadRotation from = new HeadRotation(player.xRot, player.yRot);
-            player.xRot = yaw; player.yRot = pitch;
-            RotationUpdate update = new RotationUpdate(
-                    from,
-                    new HeadRotation(player.xRot, player.yRot),
-                    player.xRot - from.yaw(),
-                    player.yRot - from.pitch()
-            );
-            if (update.getDeltaXRot() != 0 || update.getDeltaYRot() != 0) {
-                player.lastRotated = System.currentTimeMillis();
-            }
-            player.checkManager.onRotationUpdate(update);
+            applyRotation(player, yaw, pitch);
         }
 
         player.checkManager.doChecksWithKnownLook();

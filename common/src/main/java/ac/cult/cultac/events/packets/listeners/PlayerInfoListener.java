@@ -2,6 +2,7 @@ package ac.cult.cultac.events.packets.listeners;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.CultPacketHandler;
+import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.reflection.Reflection;
 import ac.cult.cultac.player.CultPlayer;
@@ -27,7 +28,7 @@ public class PlayerInfoListener {
                 for (ClientboundPlayerInfoUpdatePacket.Entry entry : packet.entries()) {
                     GameProfile gameProfile = entry.profile();
                     receiver.compensatedEntities.profiles.put(entry.profileId(),
-                            new User.Profile(entry.profileId(), gameProfile == null ? null : gameProfile.name()));
+                            new User.Profile(entry.profileId(), gameProfile == null ? null : NmsPacketUtil.gameProfileName(gameProfile)));
                 }
             });
         }

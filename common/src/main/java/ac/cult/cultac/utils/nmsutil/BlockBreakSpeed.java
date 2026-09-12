@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import org.bukkit.inventory.ItemStack;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
@@ -83,7 +84,11 @@ public class BlockBreakSpeed {
 
         Integer miningFatigue = player.compensatedEntities.getPotionLevelForPlayer(PotionEffectType.MINING_FATIGUE);
 
-        if (miningFatigue != null) {
+        if (miningFatigue != null && !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
+            // RC1 Player#getDestroySpeed: cast the factor before multiplying.
+            speedMultiplier *= miningFatigueMultiplier(miningFatigue);
+        } else if (miningFatigue != null) {
             switch (miningFatigue) {
                 case 0:
                     speedMultiplier *= 0.3;
@@ -136,6 +141,10 @@ public class BlockBreakSpeed {
         return damage;
     }
 
+    static float miningFatigueMultiplier(int amplifier) {
+        return (float) Math.pow(0.3, amplifier + 1);
+    }
+
     private static ModernToolData modernToolData(CultPlayer player, Tool tool, BlockState state) {
         if (tool == null) {
             return new ModernToolData(1.0F, false);
@@ -150,7 +159,7 @@ public class BlockBreakSpeed {
         // matching rule which defines that property. Match named rule sets against the
         // per-player tag payload rather than this server's registry bindings.
         for (Tool.Rule rule : tool.rules()) {
-            if (!player.tagManager.containsBlock(rule.blocks(), state.getBlock())) {
+            if (!rule.blocks().contains(state.getBlock().builtInRegistryHolder())) {
                 continue;
             }
 

@@ -10,6 +10,9 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.utils.data.SprintingState;
+import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import org.bukkit.inventory.ItemStack;
@@ -38,7 +41,7 @@ public class PacketEntityAction {
                     player.compensatedEntities.hasSprintingAttributeEnabled = false;
                     break;
                 case START_FALL_FLYING:
-                    if (player.onGround || player.lastOnGround) {
+                    if (player.onGround || player.lastOnGround || lavaPreventsGlideActivation(player)) {
                         rejectGlideStart(event, player);
                         break;
                     }
@@ -93,6 +96,15 @@ public class PacketEntityAction {
                 default:
                     break;
             }
+    }
+
+    static boolean lavaPreventsGlideActivation(CultPlayer player) {
+        // 26.3+
+        if (!ClientFluidQueries.usesTagBasedFluidRules(player)) return false;
+        // Entity#baseTick refreshes fluids before LocalPlayer#aiStep attempts
+        // gliding. The previous prediction sampled the preceding tick's start.
+        return ClientFluidQueries.depth(player,
+                GetBoundingBox.getPlayerBoundingBox(player, player.x, player.y, player.z), FluidTags.LAVA) > 0.0D;
     }
 
     private void rejectGlideStart(PacketReceiveEvent event, CultPlayer player) {

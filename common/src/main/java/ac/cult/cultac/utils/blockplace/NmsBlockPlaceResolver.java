@@ -2,34 +2,38 @@ package ac.cult.cultac.utils.blockplace;
 
 import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
+import ac.cult.cultac.utils.nmsutil.NmsBucketUtil;
+import ac.cult.cultac.utils.math.VanillaMath;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponentType;
-import net.minecraft.tags.BlockTags;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.util.Mth;
-import net.minecraft.world.InteractionResult;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.AxeItem;
-import net.minecraft.world.item.BucketItem;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.BucketItem;
 import net.minecraft.world.item.GameMasterBlockItem;
 import net.minecraft.world.item.HoneycombItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.PotionItem;
+import net.minecraft.world.item.alchemy.Potion;
 import net.minecraft.world.item.alchemy.PotionContents;
 import net.minecraft.world.item.alchemy.Potions;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.BucketPickup;
 import net.minecraft.world.level.block.CampfireBlock;
 import net.minecraft.world.level.block.CandleBlock;
 import net.minecraft.world.level.block.CandleCakeBlock;
 import net.minecraft.world.level.block.LiquidBlockContainer;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RotatedPillarBlock;
 import net.minecraft.world.level.block.WeatheringCopper;
 import net.minecraft.world.level.block.state.BlockState;
@@ -40,6 +44,7 @@ import net.minecraft.world.phys.Vec3;
 import org.bukkit.Material;
 import org.bukkit.block.data.BlockData;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -50,6 +55,36 @@ public final class NmsBlockPlaceResolver {
     // Shields were hard-coded by AxeItem through 1.21.3. Newer clients moved the same
     // decision to the blocks_attacks component, which is absent from the old runtime ABI.
     private static final DataComponentType<?> BLOCKS_ATTACKS_COMPONENT = findDataComponent("BLOCKS_ATTACKS");
+    private static final net.minecraft.tags.TagKey<Block> CONVERTIBLE_TO_MUD = convertibleToMudTag();
+    private static final Holder<Potion> WATER_POTION = waterPotion();
+
+    @SuppressWarnings("unchecked")
+    private static net.minecraft.tags.TagKey<Block> convertibleToMudTag() {
+        // PotionItem.useOn uses this tag on every supported client. The spelling
+        // changed in 26.3; reading the native constant also avoids the Identifier rename.
+        try {
+            java.lang.reflect.Field field;
+            try {
+                field = net.minecraft.tags.BlockTags.class.getField("CONVERTIBLE_TO_MUD");
+            } catch (NoSuchFieldException olderSpelling) {
+                field = net.minecraft.tags.BlockTags.class.getField("CONVERTABLE_TO_MUD");
+            }
+            return (net.minecraft.tags.TagKey<Block>) field.get(null);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to resolve vanilla's mud conversion tag", exception);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Holder<Potion> waterPotion() {
+        // Potions.WATER is declared Holder.Reference through 26.1.2 and Holder
+        // in 26.2. PotionContents.is accepts Holder in both versions.
+        try {
+            return (Holder<Potion>) Potions.class.getField("WATER").get(null);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to resolve vanilla's water potion", exception);
+        }
+    }
     private NmsBlockPlaceResolver() {
     }
 
@@ -75,7 +110,11 @@ public final class NmsBlockPlaceResolver {
             logResolvedChangeSet(player, result.getChangedBlocks());
         }
 
-        return applyResolvedStates(place, result);
+        boolean applied = applyResolvedStates(place, result);
+        if (applied && snapshot.getItemStack().getItem() != net.minecraft.world.item.Items.POWDER_SNOW_BUCKET) {
+            applyAfterUseOn(player, snapshot);
+        }
+        return applied;
     }
 
     public static boolean applyIgnitionItem(CultPlayer player, BlockPlace place, boolean consumeInventory) {
@@ -92,7 +131,9 @@ public final class NmsBlockPlaceResolver {
             logResolvedChangeSet(player, result.getChangedBlocks());
         }
 
-        return consumeInventory ? applyResolvedStates(place, result) : applyResolvedWorldStates(place, result);
+        boolean applied = consumeInventory ? applyResolvedStates(place, result) : applyResolvedWorldStates(place, result);
+        if (applied) applyAfterUseOn(player, snapshot);
+        return applied;
     }
 
     public static boolean applyBucketPlace(CultPlayer player, BlockPlace place) {
@@ -136,7 +177,8 @@ public final class NmsBlockPlaceResolver {
         BlockUseResult result = simulateBlockUse(
                 PlacementBlockAccess.fromCompensatedWorld(player.compensatedWorld),
                 snapshot,
-                player.canUseGameMasterBlocks()
+                player.canUseGameMasterBlocks(),
+                player.isBedrockMovement() ? null : player.getClientVersion()
         );
         if (!result.isSuccess()) {
             if (player.debugPlaces && result.resyncReason() != null) {
@@ -165,6 +207,13 @@ public final class NmsBlockPlaceResolver {
 
     public static boolean applyWorldModifyingUseItem(CultPlayer player, BlockPlace place) {
         PlacementSnapshot snapshot = PlacementSnapshot.capture(player, place);
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(
+                ac.cult.cultac.network.protocol.ClientVersion.V_26_3)
+                && findDataComponent("BLOCK_TRANSFORMER") != null
+                && BlockTransformations.usesTransformer(snapshot.getItemStack().getItem(),
+                        player.compensatedWorld.getBlockState(snapshot.getClickedBlockPos()))) {
+            return BlockTransformations.apply(player, place, snapshot);
+        }
         PlacementResult result = simulateWorldModifyingUseItem(
                 PlacementBlockAccess.fromCompensatedWorld(player.compensatedWorld),
                 snapshot,
@@ -186,11 +235,16 @@ public final class NmsBlockPlaceResolver {
 
     public static boolean applyClientSideUseOnItem(CultPlayer player, BlockPlace place) {
         PlacementSnapshot snapshot = PlacementSnapshot.capture(player, place);
-        ItemUseOnResult result = simulateClientSideUseOnItem(
-                PlacementBlockAccess.fromCompensatedWorld(player.compensatedWorld),
-                snapshot,
-                player.getInventory().inventory.hasItemType(Material.GLASS_BOTTLE)
-        );
+        ItemUseOnResult result;
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
+                && snapshot.getItemStack().getItem() instanceof net.minecraft.world.item.CompassItem
+                && player.compensatedWorld.getBlockState(snapshot.getClickedBlockPos()).getBlock() == Blocks.LODESTONE) {
+            result = simulateCompassBinding(snapshot, player.dimension);
+        } else {
+            result = simulateClientSideUseOnItem(
+                    PlacementBlockAccess.fromCompensatedWorld(player.compensatedWorld), snapshot,
+                    player.getInventory().inventory.hasItemType(Material.GLASS_BOTTLE));
+        }
         if (!result.isSuccess()) {
             if (player.debugPlaces && result.resyncReason() != null) {
                 player.sendMessage("Resolved item useOn failed: " + result.resyncReason());
@@ -203,11 +257,22 @@ public final class NmsBlockPlaceResolver {
         }
 
         applyResolvedWorldStates(place, PlacementResult.success(result.changedBlocks(), snapshot.getClickedBlockPos(), false));
-        player.getInventory().applyClientSideUseItemOnResult(
-                snapshot.getHand(),
-                SpigotConversionUtil.fromNmsItemStack(result.handAfter()),
-                result.addedItems().stream().map(SpigotConversionUtil::fromNmsItemStack).toList());
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ac.cult.cultac.network.protocol.ClientVersion.V_26_3)) {
+            applyAfterUse(player, snapshot, snapshot.getItemStack(), result.handAfter(), result.addedItems());
+        } else {
+            player.getInventory().applyClientSideUseItemOnResult(
+                    snapshot.getHand(),
+                    SpigotConversionUtil.fromNmsItemStack(result.handAfter()),
+                    result.addedItems().stream().map(SpigotConversionUtil::fromNmsItemStack).toList());
+        }
         return true;
+    }
+
+    public static void applyAfterUseOn(CultPlayer player, PlacementSnapshot before) {
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ac.cult.cultac.network.protocol.ClientVersion.V_26_3)) {
+            applyAfterUse(player, before, before.getItemStack(),
+                    SpigotConversionUtil.toNmsItemStack(player.getInventory().getHandItem(before.getHand())));
+        }
     }
 
     public static boolean applyClientSideUseItem(CultPlayer player, InteractionHand hand, float yaw, float pitch) {
@@ -306,14 +371,14 @@ public final class NmsBlockPlaceResolver {
         if (snapshot.getItemStack().isEmpty() || !(snapshot.getItemStack().getItem() instanceof BucketItem bucketItem)) {
             return PlacementResult.failed("not a fluid bucket");
         }
-        if (bucketItem.getContent() == Fluids.EMPTY) {
+        if (NmsBucketUtil.content(bucketItem) == Fluids.EMPTY) {
             return PlacementResult.failed("empty bucket cannot place fluid");
         }
 
         PlacementWorldAdapter world = PlacementWorldFactory.create(blockAccess, snapshot);
         BlockPos clickedPos = snapshot.getClickedBlockPos();
         BlockState clickedState = world.getBlockState(clickedPos);
-        BlockPos placePos = clickedState.getBlock() instanceof LiquidBlockContainer && bucketItem.getContent() == Fluids.WATER
+        BlockPos placePos = clickedState.getBlock() instanceof LiquidBlockContainer && NmsBucketUtil.content(bucketItem) == Fluids.WATER
                 ? clickedPos
                 : clickedPos.relative(snapshot.getClickedFace());
 
@@ -323,7 +388,7 @@ public final class NmsBlockPlaceResolver {
 
         // Paper's BucketItem#use fires Bukkit events around emptyContents. Calling emptyContents
         // directly with no entity keeps the vanilla fluid-placement rules without touching Bukkit.
-        if (!bucketItem.emptyContents(null, world.level(), placePos, SnapshotBlockPlaceContext.createHitResult(snapshot))) {
+        if (!NmsBucketUtil.emptyContents(bucketItem, world.level(), placePos, SnapshotBlockPlaceContext.createHitResult(snapshot))) {
             return PlacementResult.failed("bucket fluid cannot be placed");
         }
 
@@ -342,7 +407,7 @@ public final class NmsBlockPlaceResolver {
             return BucketPickupResult.failed("target is not bucket-pickup capable");
         }
 
-        ItemStack filledBucket = bucketPickup.pickupBlock(null, world.level(), pos, state);
+        ItemStack filledBucket = NmsBucketUtil.pickupBlock(bucketPickup, world.level(), pos, state);
         if (filledBucket.isEmpty()) {
             return BucketPickupResult.failed("bucket pickup returned empty");
         }
@@ -351,10 +416,20 @@ public final class NmsBlockPlaceResolver {
     }
 
     static BlockUseResult simulateBlockUse(PlacementBlockAccess blockAccess, PlacementSnapshot snapshot, boolean canUseGameMasterBlocks) {
+        return simulateBlockUse(blockAccess, snapshot, canUseGameMasterBlocks,
+                ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion()));
+    }
+
+    static BlockUseResult simulateBlockUse(PlacementBlockAccess blockAccess, PlacementSnapshot snapshot, boolean canUseGameMasterBlocks, ClientVersion clientVersion) {
         PlacementWorldAdapter world = PlacementWorldFactory.create(blockAccess, snapshot);
         BlockPos pos = snapshot.getClickedBlockPos();
         if (snapshot.isOutsideBuildHeight(pos)) {
             return BlockUseResult.failed("outside build height");
+        }
+
+        if (clientVersion != null) {
+            BlockUseResult versionedResult = simulateVersionedBlockUse(world, snapshot, clientVersion);
+            if (versionedResult != null) return versionedResult;
         }
 
         BlockState state = world.getBlockState(pos);
@@ -364,8 +439,8 @@ public final class NmsBlockPlaceResolver {
         }
         // MCP-Reborn c59f05e TntBlock.java:101-128 consumes ignition on the client,
         // while prime() at lines 84-97 mutates only a ServerLevel.
-        if (state.getBlock() == Blocks.TNT && (snapshot.getItemStack().is(Items.FLINT_AND_STEEL)
-                || snapshot.getItemStack().is(Items.FIRE_CHARGE))) {
+        if (state.getBlock() == Blocks.TNT && (snapshot.getItemStack().getItem() == Items.FLINT_AND_STEEL
+                || snapshot.getItemStack().getItem() == Items.FIRE_CHARGE)) {
             return BlockUseResult.success(List.of(), false);
         }
         BlockHitResult hitResult = SnapshotBlockPlaceContext.createHitResult(snapshot);
@@ -412,6 +487,47 @@ public final class NmsBlockPlaceResolver {
         return BlockUseResult.success(world.buildResult(pos).getChangedBlocks(), false);
     }
 
+    private static BlockUseResult simulateVersionedBlockUse(PlacementWorldAdapter world,
+                                                             PlacementSnapshot snapshot, ClientVersion version) {
+        BlockPos pos = snapshot.getClickedBlockPos();
+        BlockState state = world.getBlockState(pos);
+        ItemStack hand = snapshot.getItemStack();
+        // 1.21.5 TntBlock#prime moved ignition mutation behind ServerLevel.
+        // The client's behavior is independent of the detached Level's native ABI.
+        if (state.getBlock() == Blocks.TNT && (hand.getItem() == Items.FLINT_AND_STEEL || hand.getItem() == Items.FIRE_CHARGE)) {
+            if (version.isNewerThanOrEquals(ClientVersion.V_1_21_5)) return BlockUseResult.success(List.of(), false);
+            world.setBlock(pos, Blocks.AIR.defaultBlockState(), 11, MAX_UPDATE_DEPTH);
+            ItemStack handAfter = hand.copy();
+            if (hand.getItem() == Items.FIRE_CHARGE && !snapshot.isCreative()) handAfter.shrink(1);
+            return BlockUseResult.success(world.buildResult(pos).getChangedBlocks(), handAfter, List.of(), false);
+        }
+        // 1.21.9's harvest loot tables moved berry mutations into ServerLevel.
+        // 1.21.2 through 1.21.8 predict these block changes on the client.
+        BlockState harvested;
+        if (state.getBlock() instanceof net.minecraft.world.level.block.CaveVines
+                && state.getValue(BlockStateProperties.BERRIES)) {
+            harvested = state.setValue(BlockStateProperties.BERRIES, false);
+        } else if (state.getBlock() == Blocks.SWEET_BERRY_BUSH && state.getValue(BlockStateProperties.AGE_3) > 1
+                && (hand.getItem() != Items.BONE_MEAL || state.getValue(BlockStateProperties.AGE_3) == 3)) {
+            harvested = state.setValue(BlockStateProperties.AGE_3, 1);
+        } else {
+            return null;
+        }
+        if (version.isOlderThan(ClientVersion.V_1_21_9)) world.setBlock(pos, harvested, 2, MAX_UPDATE_DEPTH);
+        return BlockUseResult.success(world.buildResult(pos).getChangedBlocks(), false);
+    }
+
+    private static boolean isVanillaAxe(ItemStack stack) {
+        // 26.3 registers axes as Item with BLOCK_TRANSFORMER. Older Java clients
+        // and Geyser still use AxeItem behavior for these identities, regardless
+        // of arbitrary components on other items in the native server registry.
+        return switch (NmsIdentifierUtil.registryKey(net.minecraft.core.registries.BuiltInRegistries.ITEM, stack.getItem())) {
+            case "minecraft:wooden_axe", "minecraft:stone_axe", "minecraft:copper_axe", "minecraft:iron_axe",
+                    "minecraft:golden_axe", "minecraft:diamond_axe", "minecraft:netherite_axe" -> true;
+            default -> false;
+        };
+    }
+
     static PlacementResult simulateWorldModifyingUseItem(PlacementBlockAccess blockAccess, PlacementSnapshot snapshot, boolean mainHandBlockedByOffhand) {
         if (snapshot.getItemStack().isEmpty()) {
             return PlacementResult.failed("empty item");
@@ -424,7 +540,7 @@ public final class NmsBlockPlaceResolver {
         }
 
         ItemStack itemStack = snapshot.getItemStack();
-        if (itemStack.getItem() instanceof AxeItem) {
+        if (isVanillaAxe(itemStack)) {
             if (mainHandBlockedByOffhand) {
                 return PlacementResult.failed("main-hand axe use blocked by offhand item");
             }
@@ -440,6 +556,22 @@ public final class NmsBlockPlaceResolver {
         }
 
         return PlacementResult.failed("item has no client-side world mutation");
+    }
+
+    static ItemUseOnResult simulateCompassBinding(PlacementSnapshot snapshot,
+            net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension) {
+        // CompassItem.useOn modifies the client stack before ItemStack applies after-use components.
+        var target = new net.minecraft.world.item.component.LodestoneTracker(
+                Optional.of(net.minecraft.core.GlobalPos.of(dimension, snapshot.getClickedBlockPos())), true);
+        ItemStack after = snapshot.getItemStack().copy();
+        if (!snapshot.isCreative() && after.getCount() == 1) {
+            after.set(DataComponents.LODESTONE_TRACKER, target);
+            return ItemUseOnResult.success(List.of(), after, List.of());
+        }
+        ItemStack bound = after.transmuteCopy(Items.COMPASS, 1);
+        bound.set(DataComponents.LODESTONE_TRACKER, target);
+        if (!snapshot.isCreative()) after.shrink(1);
+        return ItemUseOnResult.success(List.of(), after, List.of(bound));
     }
 
     static ItemUseOnResult simulateClientSideUseOnItem(PlacementBlockAccess blockAccess, PlacementSnapshot snapshot) {
@@ -461,12 +593,27 @@ public final class NmsBlockPlaceResolver {
         if (snapshot.isOutsideBuildHeight(snapshot.getClickedBlockPos())) {
             return ItemUseOnResult.failed("outside build height");
         }
+        BlockState target = blockAccess.getBlockStateAt(snapshot.getClickedBlockPos());
+        // ShearsItem.useOn crops the plant before reaching its Item.useOn fallback.
+        if (itemStack.getItem() instanceof net.minecraft.world.item.ShearsItem
+                && target.getBlock() instanceof net.minecraft.world.level.block.GrowingPlantHeadBlock plant
+                && !plant.isMaxAge(target)) {
+            PlacementWorldAdapter world = PlacementWorldFactory.create(blockAccess, snapshot);
+            world.setBlock(snapshot.getClickedBlockPos(), plant.getMaxAgeState(target), 3, MAX_UPDATE_DEPTH);
+            return ItemUseOnResult.success(world.buildResult(snapshot.getClickedBlockPos()).getChangedBlocks(),
+                    itemStack.copy(), List.of());
+        }
+        // MapItem's banner update is server-only, but the client consumes the interaction.
+        if (itemStack.getItem() instanceof net.minecraft.world.item.MapItem
+                && target.getBlock().builtInRegistryHolder().is(net.minecraft.tags.BlockTags.BANNERS)) {
+            return ItemUseOnResult.success(List.of(), itemStack.copy(), List.of());
+        }
         // MCP-Reborn c59f05e PotionItem.java:35-66, inside the prediction window at
         // MultiPlayerGameMode.java:320-329 and 361-370.
         if (itemStack.getItem() instanceof PotionItem
                 && snapshot.getClickedFace() != Direction.DOWN
-                && itemStack.getOrDefault(DataComponents.POTION_CONTENTS, PotionContents.EMPTY).is(Potions.WATER)
-                && blockAccess.getBlockStateAt(snapshot.getClickedBlockPos()).is(BlockTags.CONVERTABLE_TO_MUD)) {
+                && itemStack.getOrDefault(DataComponents.POTION_CONTENTS, PotionContents.EMPTY).is(WATER_POTION)
+                && blockAccess.getBlockStateAt(snapshot.getClickedBlockPos()).is(CONVERTIBLE_TO_MUD)) {
             PlacementWorldAdapter world = PlacementWorldFactory.create(blockAccess, snapshot);
             world.setBlock(snapshot.getClickedBlockPos(), Blocks.MUD.defaultBlockState(), 3, MAX_UPDATE_DEPTH);
 
@@ -776,10 +923,10 @@ public final class NmsBlockPlaceResolver {
             PlacementSnapshot snapshot = snapshot();
             float xRot = snapshot.getXRot() * ((float) Math.PI / 180F);
             float yRot = -snapshot.getYRot() * ((float) Math.PI / 180F);
-            float sinX = Mth.sin(xRot);
-            float cosX = Mth.cos(xRot);
-            float sinY = Mth.sin(yRot);
-            float cosY = Mth.cos(yRot);
+            float sinX = VanillaMath.sin(snapshot.getClientVersion(), xRot);
+            float cosX = VanillaMath.cos(snapshot.getClientVersion(), xRot);
+            float sinY = VanillaMath.sin(snapshot.getClientVersion(), yRot);
+            float cosY = VanillaMath.cos(snapshot.getClientVersion(), yRot);
             boolean east = sinY > 0.0F;
             boolean up = sinX < 0.0F;
             boolean south = cosY > 0.0F;
@@ -830,5 +977,86 @@ public final class NmsBlockPlaceResolver {
                     snapshot.isInsideBlock()
             );
         }
+    }
+
+    // These components exist since 1.21.2. Keep this path outside the transformer
+    // class so a translated 26.3 client on an older server never links new registry types.
+    private static void applyAfterUse(CultPlayer player, PlacementSnapshot snapshot, ItemStack before, ItemStack after) {
+        applyAfterUse(player, snapshot, before, after, java.util.List.of());
+    }
+
+    private static void applyAfterUse(CultPlayer player, PlacementSnapshot snapshot, ItemStack before, ItemStack after,
+                              java.util.List<ItemStack> addedItems) {
+        var extras = new ArrayList<>(addedItems);
+        var remainder = before.get(DataComponents.USE_REMAINDER);
+        if (remainder != null) {
+            after = remainder.convertIntoRemainder(after, before.getCount(), snapshot.isCreative(), extras::add);
+        }
+        var cooldown = before.get(DataComponents.USE_COOLDOWN);
+        if (cooldown != null) player.checkManager.getCompensatedCooldown().addPredictedCooldown(before, cooldown.ticks());
+        player.getInventory().applyClientSideUseItemOnResult(snapshot.getHand(), SpigotConversionUtil.fromNmsItemStack(after),
+                extras.stream().map(SpigotConversionUtil::fromNmsItemStack).toList());
+    }
+
+    /** Isolates component/provider types absent from older server runtimes. */
+    private static final class BlockTransformations {
+        private BlockTransformations() {}
+
+        private static final ClassValue<Class<?>> USE_ON_IMPLEMENTATION = new ClassValue<>() {
+            @Override
+            protected Class<?> computeValue(Class<?> type) {
+                try {
+                    return type.getMethod("useOn", net.minecraft.world.item.context.UseOnContext.class).getDeclaringClass();
+                } catch (NoSuchMethodException impossible) {
+                    throw new IllegalStateException(impossible);
+                }
+            }
+        };
+
+        // Called after placement and the item's own client-side useOn behavior.
+        // These overrides delegate to Item.useOn only when their first branch passes.
+        static boolean usesTransformer(net.minecraft.world.item.Item item, BlockState target) {
+            Class<?> implementation = USE_ON_IMPLEMENTATION.get(item.getClass());
+            if (implementation == net.minecraft.world.item.Item.class || implementation == BlockItem.class
+                    || implementation == net.minecraft.world.item.SolidBucketItem.class) return true;
+            if (implementation == net.minecraft.world.item.ShearsItem.class) {
+                return !(target.getBlock() instanceof net.minecraft.world.level.block.GrowingPlantHeadBlock plant)
+                        || plant.isMaxAge(target);
+            }
+            if (implementation == net.minecraft.world.item.CompassItem.class) return target.getBlock() != Blocks.LODESTONE;
+            return implementation == net.minecraft.world.item.MapItem.class
+                    && !target.getBlock().builtInRegistryHolder().is(net.minecraft.tags.BlockTags.BANNERS);
+        }
+
+        static boolean apply(CultPlayer player, BlockPlace place, PlacementSnapshot snapshot) {
+            var component = player.registryState == null ? snapshot.getItemStack().get(DataComponents.BLOCK_TRANSFORMER)
+                    : player.registryState.transformer(snapshot.getItemStack());
+            if (component == null || snapshot.isOutsideBuildHeight(snapshot.getClickedBlockPos())) return false;
+            if (snapshot.getHand() == InteractionHand.MAIN_HAND && !snapshot.isSecondaryUse()
+                    && snapshot.getOffHandItemStack().has(DataComponents.BLOCKS_ATTACKS)) return false;
+            var world = PlacementWorldFactory.create(PlacementBlockAccess.fromCompensatedWorld(player.compensatedWorld), snapshot);
+            var position = snapshot.getClickedBlockPos();
+            for (var transform : component.value().transforms()) {
+                if (transform.disallowedFaces().contains(snapshot.getClickedFace())) continue;
+                var state = transform.blockStateProvider().value().getOptionalState(world.level(), world.level().getRandom(), position);
+                if (state == null) continue;
+                var updated = transform.updateFromNeighbors() ? Block.updateFromNeighbourShapes(state, world.level(), position) : state;
+                ItemStack before = snapshot.getItemStack();
+                ItemStack after = before.copy();
+                // Client ItemStack#hurtAndBreak does not predict server durability damage.
+                if (after.isStackable() && transform.consumeOnUse() && !snapshot.isCreative()) after.shrink(1);
+                world.setBlock(position, updated, 11, 512);
+                for (var change : world.buildResult(position).getChangedBlocks()) {
+                    place.applyResolvedSecondary(change.position(), SpigotConversionUtil.fromNmsBlockState(change.state()));
+                }
+                if (before.getItem() == Items.POWDER_SNOW_BUCKET && !snapshot.isCreative()) {
+                    after = new ItemStack(Items.BUCKET);
+                }
+                applyAfterUse(player, snapshot, before, after);
+                return true;
+            }
+            return false;
+        }
+
     }
 }

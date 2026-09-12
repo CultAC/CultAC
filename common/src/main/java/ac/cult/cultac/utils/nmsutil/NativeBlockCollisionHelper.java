@@ -182,7 +182,7 @@ public final class NativeBlockCollisionHelper {
 
         @Override
         public boolean isHoldingItem(Item item) {
-            return heldItem.is(item);
+            return heldItem.getItem() == item;
         }
 
         @Override

@@ -28,7 +28,7 @@ public class ChatA extends Check implements CheckListener {
     @CultPacketHandler
     public void onCommandSuggestion(PacketReceiveEvent event, CultPlayer player, ServerboundCommandSuggestionPacket packet) {
         if (!isApplicable()) return;
-        String text = packet.getCommand();
+        String text = (String) ac.cult.cultac.network.packet.NmsPacketUtil.invokeNoArg(packet, "command", "getCommand");
         if (text.equals("/") || text.trim().isEmpty()) {
             if (flag() && shouldModifyPackets()) {
                 event.setCancelled(true);

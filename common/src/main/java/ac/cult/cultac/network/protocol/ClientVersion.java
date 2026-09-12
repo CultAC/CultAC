@@ -11,13 +11,13 @@ public enum ClientVersion {
     V_1_15_2(578, "1.15.2"),
     V_1_18_2(758, "1.18.2"),
     V_1_19(759, "1.19"),
-    // TODO: Everything older than 1.19.4 is unsupported in CultAC
     V_1_19_4(762, "1.19.4"),
     V_1_20(763, "1.20"),
     V_1_20_2(764, "1.20.2"),
     V_1_20_3(765, "1.20.3"),
     V_1_20_5(766, "1.20.5/1.20.6"),
     V_1_21(767, "1.21.1"),
+    // TODO: Everything older than 1.21.2 is unsupported in CultAC
     V_1_21_2(768, "1.21.2"),
     V_1_21_4(769, "1.21.4"),
     V_1_21_5(770, "1.21.5"),
@@ -27,7 +27,8 @@ public enum ClientVersion {
     V_1_21_11(774, "1.21.11"),
     V_26_1(775, "26.1"),
     V_26_2(776, "26.2"),
-    HIGHER_THAN_SUPPORTED_VERSIONS(V_26_2.protocolVersion + 1, "HIGHER_THAN_SUPPORTED");
+    V_26_3(777, "26.3"),
+    HIGHER_THAN_SUPPORTED_VERSIONS(777, "HIGHER_THAN_SUPPORTED");
 
     private final int protocolVersion;
     private final String releaseName;
@@ -68,7 +69,6 @@ public enum ClientVersion {
         return isNewerThanOrEquals(V_1_21);
     }
 
-    // TODO: This i
     public static ClientVersion fromProtocolVersion(int protocolVersion) {
         ClientVersion selected = V_1_7_10;
         for (ClientVersion version : values()) {

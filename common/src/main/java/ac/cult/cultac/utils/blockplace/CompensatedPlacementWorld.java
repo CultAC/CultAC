@@ -19,7 +19,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.flag.FeatureFlags;
-import net.minecraft.world.item.alchemy.PotionBrewing;
 import net.minecraft.world.item.crafting.RecipeAccess;
 import net.minecraft.world.item.crafting.RecipePropertySet;
 import net.minecraft.world.item.crafting.SelectableRecipe;
@@ -32,7 +31,6 @@ import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.FuelValues;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.border.WorldBorder;
@@ -123,8 +121,7 @@ public final class CompensatedPlacementWorld extends Level implements PlacementW
                 null,
                 null,
                 World.Environment.NORMAL,
-                ignored -> null,
-                Runnable::run
+                ignored -> null
         );
         this.blockAccess = blockAccess;
         this.snapshot = snapshot;
@@ -412,17 +409,6 @@ public final class CompensatedPlacementWorld extends Level implements PlacementW
     @Override
     public LevelEntityGetter<Entity> getEntities() {
         return entities;
-    }
-
-    @Override
-    public PotionBrewing potionBrewing() {
-        return PotionBrewing.EMPTY;
-    }
-
-    @Override
-    public FuelValues fuelValues() {
-        SmoketestPredictionSafety.forbiddenAccess("Level#fuelValues");
-        throw new UnsupportedOperationException("Fuel access is forbidden in compensated placement simulation");
     }
 
     @Override

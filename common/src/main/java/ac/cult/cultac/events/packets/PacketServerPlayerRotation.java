@@ -3,6 +3,7 @@ package ac.cult.cultac.events.packets;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.PreservedClientboundBundlePacket;
+import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.player.CultPlayer;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
@@ -22,8 +23,7 @@ public class PacketServerPlayerRotation {
         if (!Float.isFinite(pitch) || !Float.isFinite(yaw)) {
             if (!Float.isFinite(pitch)) pitch = 0;
             if (!Float.isFinite(yaw)) yaw = 0;
-            output = new ClientboundPlayerRotationPacket(
-                    yaw, packet.relativeY(), pitch, packet.relativeX());
+            output = NmsPacketUtil.withPlayerRotation(packet, yaw, pitch);
             event.markForReEncode(true);
         }
 

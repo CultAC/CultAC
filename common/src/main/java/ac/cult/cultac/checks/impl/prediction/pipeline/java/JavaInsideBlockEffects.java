@@ -32,7 +32,7 @@ public final class JavaInsideBlockEffects {
         SimpleCollisionBox from = to.copy().offset(movement.scale(-1));
         boolean living = actor.isLivingEntity();
         boolean stuckAllowed = context.getVehicle() != null || !player.isFlying;
-        boolean powderAllowed = !living || player.compensatedWorld.getBlockStateAt(BlockPos.containing(end)).is(Blocks.POWDER_SNOW);
+        boolean powderAllowed = !living || player.compensatedWorld.getBlockStateAt(BlockPos.containing(end)).getBlock() == Blocks.POWDER_SNOW;
         // AbstractBoat#tick invokes applyEffectsFromBlocks twice. The second pass
         // has no recorded axis-dependent movement and uses oldPosition -> position.
         int passes = actor.isBoat() ? 2 : 1;

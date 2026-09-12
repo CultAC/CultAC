@@ -19,7 +19,7 @@ public class CrashH extends Check implements CheckListener {
 
     @CultPacketHandler
     public void onCommandSuggestion(PacketReceiveEvent event, CultPlayer player, ServerboundCommandSuggestionPacket packet) {
-        String text = packet.getCommand();
+        String text = (String) ac.cult.cultac.network.packet.NmsPacketUtil.invokeNoArg(packet, "command", "getCommand");
         final int length = text.length();
         // general length limit
         if (length > (!player.canUseGameMasterBlocks() ? 256 : 32500)) {

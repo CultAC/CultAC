@@ -34,6 +34,7 @@ public class VelocityTransformer {
         }
 
         input = applyBaseTickFluidCurrents(player, input);
+        input = applyLegacyLivingVehicleDrag(player, input);
         input = applyAttackSlow(input);
         if (simulationContext.getVehicle() instanceof PacketEntityHappyGhast) {
             input = applyMovementThreshold(input, simulationContext.getVersion(), false);
@@ -79,6 +80,27 @@ public class VelocityTransformer {
                 && (vehicle.type == EntityTypesCompat.PIG || vehicle.type == EntityTypesCompat.STRIDER)
                 && player.packetStateData.isVehicleMovementFromClientTick()
                 && canUseItemControlledMovement(player, vehicle);
+    }
+
+    private List<PredVector> applyLegacyLivingVehicleDrag(CultPlayer player, List<PredVector> input) {
+        PacketEntity vehicle = simulationContext.getVehicle();
+        if (simulationContext.getVersion() != ClientVersion.V_1_21_2
+                || vehicle == null || !vehicle.isLivingEntity()
+                || !player.packetStateData.isVehicleMovementFromClientTick()
+                || vehicle.newPacketLocation != null && vehicle.newPacketLocation.hasActiveInterpolationTarget()) {
+            return input;
+        }
+        // 1.21.2/1.21.3 LivingEntity#aiStep scales deltaMovement before
+        // thresholding and travelRidden because Entity#isEffectiveAi is false
+        // on the client, including locally controlled living vehicles. The
+        // preceding lerpSteps > 0 branch skips this drag, including the final
+        // interpolation step; prediction still sees the pre-tick target here.
+        // Newer clients instead test canSimulateMovement and retain the delta.
+        List<PredVector> transformed = new ArrayList<>(input.size());
+        for (PredVector vector : input) {
+            transformed.add(vector.multiply(0.98D, "legacy living vehicle drag"));
+        }
+        return transformed;
     }
 
     private List<PredVector> applyBaseTickFluidCurrents(CultPlayer player, List<PredVector> input) {

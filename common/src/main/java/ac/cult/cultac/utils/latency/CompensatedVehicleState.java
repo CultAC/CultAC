@@ -13,11 +13,13 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.debug.Debuggable;
 import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
+import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import net.minecraft.world.phys.Vec3;
 import org.bukkit.Material;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collection;
 import java.util.List;
 
 public final class CompensatedVehicleState implements Debuggable {
@@ -102,10 +104,35 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     public boolean applyClientboundVehicleVelocity(@Nullable PacketEntity vehicle, Vec3 velocity) {
+        return applyClientboundVehicleVelocity(vehicle, velocity, List.of(velocity));
+    }
+
+    private boolean applyClientboundVehicleVelocity(@Nullable PacketEntity vehicle, Vec3 velocity,
+                                                    Collection<Vec3> startingVelocities) {
         if (vehicle == null || vehicle != getVelocityMovementVehicle()) return false;
         vehicle.deltaMovement = velocity;
-        player.checkManager.getSimulationProcessor().seedVehicleStartingVelocity(velocity);
+        player.checkManager.getSimulationProcessor().seedStartingVelocities(startingVelocities);
         return true;
+    }
+
+    /** Apply at the acknowledged event boundary, after earlier passenger updates. */
+    public void applyBoatBubbleColumnEvent(int entityId, byte event) {
+        PacketEntity boat = entities.getEntity(entityId);
+        if ((event != 71 && event != 72) || boat == null || !EntityTypeUtil.isBoat(boat.type)
+                || boat.passengers.isEmpty() || boat.passengers.getFirst() != entities.getSelf()) return;
+
+        // RC1 AbstractBoat#handleBubbleColumnEffect requires a direct local player
+        // controller. Event 71 adds -0.7 Y; event 72 replaces Y, preserving X/Z.
+        Vec3 velocity = bubbleColumnVelocity(boat.deltaMovement, event);
+        var startingVelocities = player.checkManager.getSimulationProcessor().getValidPlayerStartingVels()
+                .stream().map(candidate -> bubbleColumnVelocity(candidate, event)).toList();
+        if (!applyClientboundVehicleVelocity(boat, velocity, startingVelocities)) {
+            boat.deltaMovement = velocity;
+        }
+    }
+
+    private static Vec3 bubbleColumnVelocity(Vec3 velocity, byte event) {
+        return new Vec3(velocity.x, event == 71 ? velocity.y - 0.7D : 0.6D, velocity.z);
     }
 
     public void applyAcceptedVehicleTeleportEntityState(int entityId, Vec3 position, float yaw, float pitch,
@@ -341,7 +368,8 @@ public final class CompensatedVehicleState implements Debuggable {
         // MCP-Reborn Entity#isLocalInstanceAuthoritative only requires the root
         // vehicle's controlling passenger to be the local player. Pig/strider
         // item control gates movement inputs, not MoveVehicle packet emission.
-        return vehicle != null && passengerIndex(vehicle) == 0;
+        return vehicle != null && passengerIndex(vehicle) == 0
+                && !"cushion".equals(ac.cult.cultac.utils.nmsutil.EntityTypeUtil.getKey(vehicle.type).getPath());
     }
 
     private boolean canPossiblySwitchToItemControlThisClientTick(@Nullable PacketEntity vehicle) {
@@ -549,6 +577,7 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     private boolean canLocalClientAuthoritativelyMove(PacketEntity vehicle) {
+        if ("cushion".equals(ac.cult.cultac.utils.nmsutil.EntityTypeUtil.getKey(vehicle.type).getPath())) return false;
         if (vehicle.type == EntityTypesCompat.PIG) {
             return hasSaddle(vehicle) && player.getInventory().hasClientSelectedHandItem(Material.CARROT_ON_A_STICK);
         }

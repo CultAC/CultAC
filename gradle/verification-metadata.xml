@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://schema.gradle.org/dependency-verification https://schema.gradle.org/dependency-verification/dependency-verification-1.3.xsd">
+   <configuration>
+      <verify-metadata>true</verify-metadata>
+      <verify-signatures>false</verify-signatures>
+      <trusted-artifacts>
+         <trust group="^(?!io[.]papermc[.]paper$).*" regex="true" reason="Verification is scoped to the RC2 Paper publication." />
+         <trust group="io[.]papermc[.]paper" version="^(?!26[.]3-rc-2[.]build[.]1-alpha$).*" regex="true" reason="Older official Paper bundles are outside this audit." />
+      </trusted-artifacts>
+   </configuration>
+   <components>
+      <component group="io.papermc.paper" name="dev-bundle" version="26.3-rc-2.build.1-alpha">
+         <artifact name="dev-bundle-26.3-rc-2.build.1-alpha.module">
+            <sha256 value="42d741e830d7c8074341f1e9a88ad9ca9b89325003a0f28935860a09f066b598" />
+         </artifact>
+         <artifact name="dev-bundle-26.3-rc-2.build.1-alpha.pom">
+            <sha256 value="4adeab2633970a24e69faf2a24820d7fd30ceaca749a3729d75e1e804060d931" />
+         </artifact>
+         <artifact name="dev-bundle-26.3-rc-2.build.1-alpha.zip">
+            <sha256 value="6d0c51ef32fc725dc345bfb69d700c26ad7f5d4c676a188d7b58640740dc14c4" />
+         </artifact>
+      </component>
+      <component group="io.papermc.paper" name="paper-api" version="26.3-rc-2.build.1-alpha">
+         <artifact name="paper-api-26.3-rc-2.build.1-alpha.jar">
+            <sha256 value="28441a95bdd17fce7a2f5e394ca3615b170dd8049c321dd52708486496ba66fa" />
+         </artifact>
+         <artifact name="paper-api-26.3-rc-2.build.1-alpha.module">
+            <sha256 value="9765a2a95bdfe044012a56515a71b542c602f3758988584f3fcccd064192e2a3" />
+         </artifact>
+         <artifact name="paper-api-26.3-rc-2.build.1-alpha.pom">
+            <sha256 value="10a623235c1b159d50691bd580312a1dc87fb8ab03867355dba8e62acf07ded5" />
+         </artifact>
+         <artifact name="paper-api-26.3-rc-2.build.1-alpha-javadoc.jar">
+            <sha256 value="1b7f71736fd1d3738146c9871d39fd01fac2fcf53259a77708c4b31481dd4e4e" />
+         </artifact>
+         <artifact name="paper-api-26.3-rc-2.build.1-alpha-sources.jar">
+            <sha256 value="e147c47709893b469b2c2aec6cd2883eec6c2a7e1690a5ff722cb5b74ecfbba6" />
+         </artifact>
+      </component>
+   </components>
+</verification-metadata>

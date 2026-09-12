@@ -4,7 +4,6 @@ import ac.cult.cultac.CultAPI;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.platform.api.manager.PermissionRegistrationManager;
-import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.cult.cultac.manager.config.BaseConfigManager;
 import java.io.File;
@@ -53,12 +52,12 @@ public final class OfflineCultTestBootstrap {
             return;
         }
         SpongeSchematicCompensatedWorldLoader.bootstrapMinecraft();
-        loadVanillaTags();
         initializePaperGlobalConfiguration();
         installBukkitServer();
         installCultPlugin();
         installPlatformLoader();
-        BedrockClientBlockShapeMappings.initialize();
+        loadVanillaData();
+        OfflineBedrockCollisionCatalog.install();
         ConfigManager config = Mockito.mock(ConfigManager.class);
         Mockito.when(config.getIntElse(Mockito.anyString(), Mockito.anyInt()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
@@ -92,13 +91,20 @@ public final class OfflineCultTestBootstrap {
         DOUBLE_CONFIG_OVERRIDES.remove(key);
     }
 
-    private static void loadVanillaTags() {
+    private static void loadVanillaData() {
         VanillaPackResources vanilla = ServerPacksSource.createVanillaPackSource();
-        try (MultiPackResourceManager resources = new MultiPackResourceManager(PackType.SERVER_DATA, List.of(vanilla))) {
+        try (MultiPackResourceManager resources = new MultiPackResourceManager(PackType.SERVER_DATA, List.of(vanilla.fullResources()))) {
             List<Registry.PendingTags<?>> pendingTags = TagLoader.loadTagsForExistingRegistries(
                     resources,
                     RegistryLayer.STATIC_ACCESS);
             pendingTags.forEach(Registry.PendingTags::apply);
+            // 26.3 binds item components after their provider/transformer registries.
+            var base = net.minecraft.core.RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
+            var world = net.minecraft.resources.RegistryDataLoader.load(resources, base.listRegistries().toList(),
+                    net.minecraft.resources.RegistryDataLoader.WORLD_REGISTRIES, Runnable::run).join();
+            var context = net.minecraft.core.HolderLookup.Provider.create(java.util.stream.Stream.concat(
+                    base.listRegistries(), world.listRegistries()));
+            BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(context).forEach(pending -> pending.apply());
         }
     }
 

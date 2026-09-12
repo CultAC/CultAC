@@ -325,7 +325,7 @@ public final class ReachabilityOrderingParityTest {
             long initial = longField(timer, "timerBalanceRealTime");
 
             ServerboundMoveVehiclePacket packet =
-                    new ServerboundMoveVehiclePacket(Vec3.ZERO, 0.0F, 0.0F, false);
+                    new ServerboundMoveVehiclePacket(net.minecraft.core.PositionAndRotation.of(Vec3.ZERO, 0.0F, 0.0F), false);
             PacketReceiveEvent event = receiveEvent(player, packet);
             new CheckManagerListener().onMoveVehicle(event, player, packet);
 
@@ -343,7 +343,7 @@ public final class ReachabilityOrderingParityTest {
             TrackingVehicleTimer timer = new TrackingVehicleTimer(player);
             player.checkManager.allChecks.put(VehicleTimer.class, timer);
             ServerboundMoveVehiclePacket packet =
-                    new ServerboundMoveVehiclePacket(Vec3.ZERO, 0.0F, 0.0F, false);
+                    new ServerboundMoveVehiclePacket(net.minecraft.core.PositionAndRotation.of(Vec3.ZERO, 0.0F, 0.0F), false);
             PacketReceiveEvent event = receiveEvent(player, packet);
 
             new CheckManagerListener().onMoveVehicle(event, player, packet);

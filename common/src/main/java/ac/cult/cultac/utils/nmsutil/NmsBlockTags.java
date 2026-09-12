@@ -40,6 +40,20 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public final class NmsBlockTags {
+    private static final TagKey<Block> BARS = barsTag();
+
+    @SuppressWarnings("unchecked")
+    private static TagKey<Block> barsTag() {
+        try {
+            return (TagKey<Block>) BlockTags.class.getField("BARS").get(null);
+        } catch (NoSuchFieldException legacy) {
+            // Before the bars tag existed, IronBarsBlock supplies the same family.
+            return null;
+        } catch (IllegalAccessException exception) {
+            throw new ExceptionInInitializerError(exception);
+        }
+    }
+
     private NmsBlockTags() {
     }
 
@@ -146,7 +160,7 @@ public final class NmsBlockTags {
                 || isWall(block, state)
                 || isFence(block, state)
                 || isFenceGate(block, state)
-                || state.is(BlockTags.BARS)
+                || BARS != null && state.is(BARS)
                 || block instanceof IronBarsBlock
                 || state.hasProperty(BlockStateProperties.BELL_ATTACHMENT)
                 || state.hasProperty(BlockStateProperties.TILT)
@@ -263,11 +277,24 @@ public final class NmsBlockTags {
 
     public static boolean isCompostable(Material material) {
         Item item = toNmsItem(material);
-        return item != null && ComposterBlock.COMPOSTABLES.containsKey(item);
+        if (item == null) return false;
+        try {
+            Object component = net.minecraft.core.component.DataComponents.class.getField("COMPOSTABLE").get(null);
+            return new net.minecraft.world.item.ItemStack(item).has((net.minecraft.core.component.DataComponentType<?>) component);
+        } catch (NoSuchFieldException legacy) {
+            try {
+                return ((it.unimi.dsi.fastutil.objects.Object2FloatMap<?>) ComposterBlock.class
+                        .getField("COMPOSTABLES").get(null)).containsKey(item);
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException("Unable to resolve compostable items", failure);
+            }
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Unable to resolve compostable component", failure);
+        }
     }
 
     private static Fluid bucketContent(Material material) {
         Item item = toNmsItem(material);
-        return item instanceof BucketItem bucketItem ? bucketItem.getContent() : null;
+        return item instanceof BucketItem bucketItem ? NmsBucketUtil.content(bucketItem) : null;
     }
 }

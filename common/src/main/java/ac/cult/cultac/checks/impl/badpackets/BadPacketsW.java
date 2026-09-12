@@ -10,7 +10,6 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
-import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
 
 @CheckData(name = "BadPacketsW", stableKey = "cult.badpackets.invalid_entity_target", description = "Interacted with non-existent entity", experimental = true)
 public class BadPacketsW extends Check implements CheckListener {
@@ -28,9 +27,15 @@ public class BadPacketsW extends Check implements CheckListener {
         validateTarget(event, NmsPacketUtil.readAttack(packet));
     }
 
-    @CultPacketHandler
-    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, ServerboundSpectatorActionPacket packet) {
-        packet.spectateEntityId().ifPresent(entityId -> {
+    // 26.1 uses a required entity id; 26.2 also permits a spectator action without a target.
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectateEntityPacket")
+    public void onSpectateEntity(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        onSpectatorAction(event, player, packet);
+    }
+
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket")
+    public void onSpectatorAction(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
+        NmsPacketUtil.spectatorEntityId(packet).ifPresent(entityId -> {
             if (isInvalidEntityTarget(entityId)) {
                 handleInvalidTarget(event, entityId);
             }

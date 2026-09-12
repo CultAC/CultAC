@@ -69,7 +69,7 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
         if (!usesClientTickEndBoundary()) return;
         if (!countClientTickMovement) return;
 
-        // MCP-Reborn 1.21.5 LocalPlayer#tick calls sendPosition() once per
+        // MCP-Reborn 1.21.2 LocalPlayer#tick calls sendPosition() once per
         // client tick and Minecraft#tick sends ServerboundClientTickEndPacket
         // once at tick end. More than one move packet before tick-end is not
         // produced by the vanilla client and is therefore provably invalid.
@@ -162,11 +162,12 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
     }
 
     protected final boolean usesClientTickEndBoundary() {
-        // ViaVersion cannot carry the 1.21.5 tick-end packet through an older
+        // ViaVersion cannot carry the 1.21.2 tick-end packet through an older
         // backend protocol. In that case the backend receives the traditional
         // one-movement-per-tick clock and must use that observable boundary.
         return SERVER_SUPPORTS_CLIENT_TICK_END
-                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5);
+                && !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
     }
 
     private static boolean classExists(String className) {

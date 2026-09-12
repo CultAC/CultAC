@@ -95,7 +95,7 @@ public final class BedrockUncertaintyPipelineTest {
          false,
          0.0,
          true
-      );
+      , false);
       BedrockInputFrame inputFrame = BedrockInputFrame.idle(0L);
       Input input = new Input(
          BedrockAuthInputFrame.builder(UUID.randomUUID()).build(),
@@ -250,7 +250,7 @@ public final class BedrockUncertaintyPipelineTest {
       BedrockMovementResult movement = new BedrockMovementResult(
          previous, movementContext, movementContext, previous, previous.physicalFeetPosition(), Vec3d.ZERO,
          false, false, false, false, BlockMovementSlowdownState.NONE, HoneySlideState.NONE,
-         false, false, 0.0, 1.0, false, false, false, 0.0, true);
+         false, false, 0.0, 1.0, false, false, false, 0.0, true, false);
       TestContext tick = context(Vec3.ZERO, false, noPushes(), UNIT_SCALE);
       java.util.concurrent.atomic.AtomicBoolean overlap = new java.util.concurrent.atomic.AtomicBoolean();
       WorldData world = tick.context().getWorldData();

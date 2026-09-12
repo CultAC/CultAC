@@ -53,6 +53,11 @@ public class PacketPlayerWindow {
         player.latencyUtils.addRealTimeTaskNow(applyScreenOpen);
     }
 
+    @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ClientboundHorseScreenOpenPacket")
+    public void onHorseScreenOpen(PacketSendEvent event, CultPlayer player, Packet<?> packet) {
+        onMountScreenOpen(event, player, packet);
+    }
+
     @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ClientboundMountScreenOpenPacket")
     public void onMountScreenOpen(PacketSendEvent event, CultPlayer player, Packet<?> packet) {
         player.sendTransaction();

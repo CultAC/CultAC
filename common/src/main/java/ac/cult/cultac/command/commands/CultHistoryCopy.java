@@ -92,7 +92,7 @@ public class CultHistoryCopy implements BuildableCommand {
                 .append(Component.text(srcId, NamedTextColor.WHITE))
                 .append(Component.text(" → ", NamedTextColor.AQUA))
                 .append(Component.text(dstId, NamedTextColor.WHITE))
-                .build());
+                .asComponent());
 
         try {
             BackendToBackendCopier copier = new BackendToBackendCopier(src, dst);
@@ -107,7 +107,7 @@ public class CultHistoryCopy implements BuildableCommand {
                     .append(Component.text(result.sessions() + " sessions, "))
                     .append(Component.text(result.violations() + " violations in "))
                     .append(Component.text(result.elapsedMs() + "ms"))
-                    .build());
+                    .asComponent());
             if (delete) {
                 logBoth(sender, Component.text("--delete requested — wiping source " + srcId + "…", NamedTextColor.YELLOW));
                 copier.dropSource();

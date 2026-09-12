@@ -14,7 +14,7 @@ import versioning.VersionUtil
 plugins {
     // Shared classloader for paperweight-userdev across subprojects (common, bukkit,
     // legacy-placement-adapter apply it without a version).
-    id("io.papermc.paperweight.userdev") version "2.0.0-SNAPSHOT" apply false
+    id("io.papermc.paperweight.userdev") version "2.0.0-beta.23" apply false
 }
 
 BuildConfig.init(project)
@@ -22,7 +22,7 @@ BuildConfig.init(project)
 val baseVersion = "2.3.74"
 group = "ac.cult.cultac"
 version = VersionUtil.computeVersion(project, baseVersion)
-description = "Libre simulation anticheat designed for 26.2 with 1.21.2+ server and client support."
+description = "Libre simulation anticheat designed for 26.3 with 1.21.2+ server and client support."
 
 ext["timestamp"] = System.currentTimeMillis().toString()
 ext["git_branch"] = VersionUtil.getGitBranch(project, true)
@@ -56,6 +56,18 @@ tasks.register("cultParity") {
 
 // ---------- Java Compile Optimization ----------
 subprojects {
+    // Checksums are pinned in gradle/verification-metadata.xml.
+    repositories.exclusiveContent {
+        forRepository {
+            repositories.maven("https://maven.fancyspaces.net/origami/releases") {
+                name = "auditedPaperRc2"
+            }
+        }
+        filter {
+            includeVersion("io.papermc.paper", "dev-bundle", "26.3-rc-2.build.1-alpha")
+            includeVersion("io.papermc.paper", "paper-api", "26.3-rc-2.build.1-alpha")
+        }
+    }
     tasks.withType<JavaCompile>().configureEach {
         options.isFork = true
         options.isIncremental = true

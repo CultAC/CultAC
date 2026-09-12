@@ -186,7 +186,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     public void handleTeleport(TeleportData data) {
         if (data == null) {
             markVelocityOverriddenByTeleport();
-        } else if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
+        } else if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
             if (!hasRelativeDelta(data)) {
                 markVelocityOverriddenByTeleport();
                 return;
@@ -350,7 +350,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         // then LocalPlayer#tick consumes that delta before Minecraft#tick sends
         // ServerboundClientTickEndPacket. Once Cult has seen that tick-end after the
         // packet's proof transaction, the previous modifier is already consumed.
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)
+        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
                 && player.packetStateData.lastClientTickEndTransaction >= previous.getTransaction()) {
             return false;
         }

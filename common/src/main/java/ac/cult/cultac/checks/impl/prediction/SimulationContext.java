@@ -386,7 +386,7 @@ public class SimulationContext {
             } else if (vehicle.type == EntityTypesCompat.STRIDER) {
                 speed *= isMountedStriderSuffocating(player) ? 0.35F : 0.55F;
             }
-            return (float) (speed * rideable.boost.factor());
+            return (float) (speed * rideable.boost.factor(player.getClientVersion()));
         }
         return 0; // ??? I guess riding a weird vehicle?
     }

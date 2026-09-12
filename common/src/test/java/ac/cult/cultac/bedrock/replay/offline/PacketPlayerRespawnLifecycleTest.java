@@ -112,7 +112,7 @@ public final class PacketPlayerRespawnLifecycleTest {
                 Level.OVERWORLD,
                 0L,
                 GameType.SURVIVAL,
-                GameType.SURVIVAL,
+                Optional.of(GameType.SURVIVAL),
                 false,
                 false,
                 Optional.empty(),

@@ -121,7 +121,10 @@ public class PacketSelfMetadataListener {
                             BlockPos bedPos = bed.get();
                             player.bedPosition = new Vec3(
                                     bedPos.getX() + 0.5,
-                                    bedPos.getY() + 0.6875,
+                                    bedPos.getY() + (player.getClientVersion().isNewerThanOrEquals(
+                                            ac.cult.cultac.network.protocol.ClientVersion.V_26_3)
+                                            && "straw_bed".equals(net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                                                .getKey(player.compensatedWorld.getBlockState(bedPos).getBlock()).getPath()) ? 0.375 : 0.6875),
                                     bedPos.getZ() + 0.5);
                         } else {
                             player.checkManager.getSimulationProcessor()

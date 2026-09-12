@@ -18,6 +18,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.flag.FeatureFlags;
 import net.minecraft.world.item.alchemy.PotionBrewing;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.item.crafting.RecipeAccess;
 import net.minecraft.world.item.crafting.RecipePropertySet;
 import net.minecraft.world.item.crafting.SelectableRecipe;
@@ -77,6 +80,9 @@ public final class LegacyCompensatedPlacementWorld extends Level implements Plac
     private static final RegistryAccess.Frozen REGISTRY_ACCESS = RegistryAccess.EMPTY;
     private static final FeatureFlagSet ENABLED_FEATURES = FeatureFlags.DEFAULT_FLAGS;
     private static final Unsafe UNSAFE = resolveUnsafe();
+    private static final long CLIENT_SIDE_OFFSET = levelFieldOffset("isClientSide");
+    private static final long RANDOM_OFFSET = levelFieldOffset("random");
+    private static final long SOUND_RANDOM_OFFSET = levelFieldOffset("threadSafeRandom");
     private static final Holder<Biome> DEFAULT_BIOME = Holder.direct(createDefaultBiome());
     private static final RecipeAccess EMPTY_RECIPE_ACCESS = new RecipeAccess() {
         @Override
@@ -145,6 +151,12 @@ public final class LegacyCompensatedPlacementWorld extends Level implements Plac
         dimensionType = createDimensionType(snapshot);
         dimensionTypeRegistration = Holder.direct(dimensionType);
         randomSource = RandomSource.create(0L);
+        // Vanilla 1.21.3 block interactions read these public Level fields
+        // directly. Unsafe allocation bypasses the Level constructor; virtual
+        // isClientSide()/getRandom() overrides alone do not initialize them.
+        UNSAFE.putBoolean(this, CLIENT_SIDE_OFFSET, true);
+        UNSAFE.putObject(this, RANDOM_OFFSET, randomSource);
+        UNSAFE.putObject(this, SOUND_RANDOM_OFFSET, RandomSource.createThreadSafe());
         changedBlocks = new LinkedHashMap<>();
         overlayStates = new LinkedHashMap<>();
         tickRateManager = new TickRateManager();
@@ -359,6 +371,14 @@ public final class LegacyCompensatedPlacementWorld extends Level implements Plac
     @Override public void gameEvent(Holder<GameEvent> event, Vec3 pos, GameEvent.Context context) { }
     @Override public @Nullable net.minecraft.server.level.ServerLevel getMinecraftWorld() { return null; }
     @Override public @Nullable org.bukkit.craftbukkit.CraftWorld getWorld() { return null; }
+
+    private static long levelFieldOffset(String name) {
+        try {
+            return UNSAFE.objectFieldOffset(Level.class.getDeclaredField(name));
+        } catch (NoSuchFieldException exception) {
+            throw new ExceptionInInitializerError(exception);
+        }
+    }
 
     private static Unsafe resolveUnsafe() {
         try {

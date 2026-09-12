@@ -1,5 +1,6 @@
 package ac.cult.cultac.manager.player;
 
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.CultAPI;
 import ac.grim.grimac.api.event.events.GrimPlayerSetbackEvent;
 import ac.grim.grimac.api.event.events.GrimTeleportEvent;
@@ -457,8 +458,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 addSentTeleport(new Vec3(position.x, y, position.z), data.getTeleportData().getTransaction(), new RelativeFlag(0b11000), false, teleportId);
                 // Receive the player's position packet to make setbacks appear smooth for other players (and to stop vanilla ac setbacks)
                 CultAPI.INSTANCE.getNetworkManager().receivePacket(player.user.getChannel(),
-                        ac.cult.cultac.network.packet.NmsPacketUtil.positionPacket(
-                                position.x, y, position.z, data.isExpectedOnGround(), false), true);
+                        ac.cult.cultac.network.packet.ServerSetbackPosition.wrap(
+                                ac.cult.cultac.network.packet.NmsPacketUtil.positionPacket(
+                                        position.x, y, position.z, data.isExpectedOnGround(), false)), true);
                 // Send after tracking to fix race condition
                 // The entity teleport mirrors position/onGround state; keep look relative like the player teleport.
                 CultAPI.INSTANCE.getNetworkManager().sendPacket(
@@ -486,7 +488,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                                 data.getTeleportData().getFlags().getMask(),
                                 data.isExpectedOnGround()
                         ),
-                        true
+                        // 26.3 queues this teleport on the local living entity.
+                        // Let replication track our own packet as well as packets
+                        // authored by the server or another plugin.
+                        player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
                 );
                 //
             }
@@ -677,6 +682,19 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 break;
             }
 
+            int receivedTransaction = player.lastTransactionReceived.get();
+            // ClientPacketListener#handleMovePlayer leaves passengers in place.
+            // Consume its single response at the same transaction boundary as a
+            // normal teleport, without applying the reported passenger position.
+            if (!player.isBedrockMovement()
+                    && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                    && receivedTransaction == teleportPos.getTransaction()
+                    && teleportPos.isSentWhileVehicle() && !teleportPos.isSentDuringVehicleDismount()
+                    && player.compensatedEntities.getSelf().inVehicle()) {
+                pendingTeleports.poll();
+                return completeMountedTeleport(teleportPos);
+            }
+
             double trueTeleportX = (teleportPos.isRelativeX() ? player.x : 0) + teleportPos.getLocation().x;
             double trueTeleportY = (teleportPos.isRelativeY() ? player.y : 0) + teleportPos.getLocation().y;
             double trueTeleportZ = (teleportPos.isRelativeZ() ? player.z : 0) + teleportPos.getLocation().z;
@@ -697,12 +715,11 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             boolean yPass = yDiff <= (teleportPos.isRelativeY() ? player.getMovementThreshold() : 0);
             boolean zPass = zDiff <= (teleportPos.isRelativeZ() ? player.getMovementThreshold() : 0);
 
-            int receivedTransaction = player.lastTransactionReceived.get();
             if (debug) LogUtil.info("dx=" + xDiff + " dy=" + yDiff + " dz=" + zDiff + " | trans=" + receivedTransaction + " | " + teleportPos.getTransaction());
 
             boolean exactTeleportPosition = xPass && yPass && zPass;
-            if ((exactTeleportPosition && (teleportPos.isPositionOnly()
-                    || receivedTransaction == teleportPos.getTransaction()))) {
+            if (exactTeleportPosition && (teleportPos.isPositionOnly()
+                    || receivedTransaction == teleportPos.getTransaction())) {
                 pendingTeleports.poll();
                 return completeTeleport(teleportPos, clamped, true);
             } else if (teleportPos.isPositionOnly() && receivedTransaction <= teleportPos.getTransaction()) {
@@ -777,91 +794,19 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 || player.compensatedEntities.getSelf().inVehicle();
     }
 
-    public TeleportAcceptData checkMountedTeleportQueue(int teleportId) {
-        TeleportAcceptData teleportData = new TeleportAcceptData();
-        TeleportData teleportPos = matchingMountedTeleport(teleportId);
-        if (teleportPos == null) {
-            return teleportData;
+    private TeleportAcceptData completeMountedTeleport(TeleportData teleport) {
+        Vec3 position = new Vec3(player.x, player.y, player.z);
+        if (!isRequiredSetbackTeleport(teleport) || requiredSetBack.isPlugin()) {
+            return completeTeleport(teleport, position, false);
         }
 
-        // Vanilla clients do not apply ClientboundPlayerPositionPacket while mounted.
-        // They confirm the teleport ID, then send PosRot with their unchanged passenger position.
-        pendingTeleports.remove(teleportPos);
-
-        boolean currentRequiredSetback = requiredSetBack != null
-                && requiredSetBack.getTeleportData().getTransaction() == teleportPos.getTransaction();
-        if (currentRequiredSetback && requiredSetBack.isPlugin()) {
-            blockOffsets = false;
-
-            teleportData.setSetback(requiredSetBack);
-            teleportData.setInitialSpawnTeleport(!this.hasFullyLoaded);
-            requiredSetBack.setComplete(true);
-
-            this.hasFullyLoaded = true;
-            this.hasFullyJoined = true;
-        } else if (currentRequiredSetback) {
-            // The vanilla client acknowledged this ClientboundPlayerPositionPacket
-            // while mounted, but did not apply its position. Do not let a
-            // malicious client turn that valid mounted ignore into a completed
-            // Cult setback.
-            requiredSetBack.setPlugin(false);
-            resendIgnoredRequiredSetback("mounted-player-position-ignored");
-        }
-
-        Vec3 clamped = VectorUtils.clampVector(new Vec3(
-                (teleportPos.isRelativeX() ? player.x : 0) + teleportPos.getLocation().x,
-                (teleportPos.isRelativeY() ? player.y : 0) + teleportPos.getLocation().y,
-                (teleportPos.isRelativeZ() ? player.z : 0) + teleportPos.getLocation().z
-        ));
-        teleportData.setTeleportData(teleportPos.copyWithLocation(clamped));
-        teleportData.setTeleport(true);
-        return teleportData;
-    }
-
-    private TeleportData matchingMountedTeleport(int teleportId) {
-        TeleportData teleport = matchingVehicleTeleport(teleportId);
-        return teleport != null && teleport.isSentWhileVehicle() && !teleport.isSentDuringVehicleDismount() ? teleport : null;
-    }
-
-    public boolean hasPendingVehicleDismountTeleport(int teleportId) {
-        for (TeleportData teleport : pendingTeleports) {
-            if (teleport.getTeleportId() == teleportId) {
-                return teleport.isSentDuringVehicleDismount();
-            }
-        }
-        return false;
-    }
-
-    public boolean markVehicleDismountTeleportIdAccepted(int teleportId) {
-        TeleportData teleport = matchingVehicleTeleport(teleportId);
-        if (teleport == null || !teleport.isSentDuringVehicleDismount()) {
-            return false;
-        }
-
-        teleport.setPositionOnly(true);
-        return true;
-    }
-
-    private TeleportData matchingVehicleTeleport(int teleportId) {
-        while (true) {
-            TeleportData head = pendingTeleports.peek();
-            if (head == null) {
-                return null;
-            }
-
-            if (head.getTeleportId() == teleportId) {
-                return head;
-            }
-
-            if (!head.isSentWhileVehicle()) {
-                return null;
-            }
-
-            TeleportData skipped = pendingTeleports.poll();
-            if (isRequiredSetbackTeleport(skipped) && requiredSetBack != null) {
-                requiredSetBack.setPlugin(false);
-            }
-        }
+        // A passenger ignores the position. This cannot complete a Cult setback.
+        requiredSetBack.setPlugin(false);
+        resendIgnoredRequiredSetback("mounted-player-position-ignored");
+        TeleportAcceptData accepted = new TeleportAcceptData();
+        accepted.setTeleportData(teleport.copyWithLocation(position));
+        accepted.setTeleport(true);
+        return accepted;
     }
 
     /**

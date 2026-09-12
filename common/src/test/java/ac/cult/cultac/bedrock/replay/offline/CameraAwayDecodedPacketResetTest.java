@@ -109,7 +109,7 @@ public final class CameraAwayDecodedPacketResetTest {
             setBooleanField(elytraC, "glideLastTick", true);
 
             ServerboundSignUpdatePacket packet = new ServerboundSignUpdatePacket(
-                    BlockPos.ZERO, true, "", "", "", "");
+                    BlockPos.ZERO, java.util.List.of("", "", "", ""), net.minecraft.world.level.block.entity.SignTextSlot.FRONT);
             new CheckManagerListener().onSignUpdate(receiveEvent(player, packet), player, packet);
 
             assertEquals(0, intField(badPacketsJ, "rotations"));
