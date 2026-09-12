@@ -12,6 +12,8 @@ public class PistonPushes {
     SimpleCollisionBox pistonPush;
     SimpleCollisionBox shulkerPush;
     Set<BlockFace> slimeBlockLaunches;
+    // The piston snapshot already represents the pass visible to this movement.
+    boolean pistonMovementPhased;
 
     public PistonPushes(SimpleCollisionBox push, Set<BlockFace> slimeBlockLaunches) {
         this(push, push.copy(), new SimpleCollisionBox(), slimeBlockLaunches);

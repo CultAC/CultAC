@@ -37,7 +37,7 @@ public final class ClientFluidQueries {
 
     /** Classify one compensated cell without changing the caller's body-query bounds. */
     public static Sample sample(CultPlayer player, BlockData block, BlockPos pos) {
-        if (usesTagBasedFluidRules(player)) {
+        if (usesTagBasedFluidRules(player) || (!player.isBedrockMovement() && player.getClientVersion().isOlderThan(ClientVersion.V_1_13))) {
             FluidState fluid = player.compensatedWorld.getFluidState(pos);
             if (fluid.isEmpty()) return Sample.EMPTY;
             return new Sample(fluid.is(FluidTags.WATER),

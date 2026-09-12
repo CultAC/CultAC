@@ -64,7 +64,11 @@ public final class VelocityCandidates {
                 || result.getValidMovements().isCanStep();
         boolean isZ = result.getCollideAxisData().getZ().isLikelyCollide();
 
-        OptionalDouble requiredPostCollisionY = requiredPacketVisibleSlimeBounceY(result, collisionMovementY);
+        // Before 1.21.2, BouncyBlock handles vertical bounce uncertainty. Do not
+        // replace its falling/zero carry with a mandatory bounce from a probe.
+        // TODO: Should this be expanded to earlier client versions?
+        OptionalDouble requiredPostCollisionY = player != null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                ? requiredPacketVisibleSlimeBounceY(result, collisionMovementY) : OptionalDouble.empty();
         if (requiredPostCollisionY.isPresent()) {
             diff = new Vec3(diff.x, requiredPostCollisionY.getAsDouble(), diff.z);
             isY = false;

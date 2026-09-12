@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.math.CultMath;
 import net.minecraft.world.phys.Vec3;
@@ -18,16 +19,34 @@ public class BlockProperties {
      * (we don't account for this and instead remove this debuff) And powder snow block attribute
      */
     public static Material getOnPos(CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
+        if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_19_4)) {
+            // Entity#moveEntity uses the center below the feet, with a fallback
+            // for the upper half of fences, walls and gates.
+            Material block = player.compensatedWorld.getMaterialAt(BlockPos.containing(playerPos.x, playerPos.y - 0.2F, playerPos.z));
+            if (block.isAir()) {
+                Material below = player.compensatedWorld.getMaterialAt(BlockPos.containing(playerPos.x, playerPos.y - 1.2F, playerPos.z));
+                if (NmsBlockTags.isFence(below) || NmsBlockTags.isWall(below) || NmsBlockTags.isFenceGate(below)) return below;
+            }
+            return block;
+        }
         BlockPos pos = getOnPos(player, playerPos, mainSupportingBlockData, 0.2F);
         return player.compensatedWorld.getMaterialAt(pos);
     }
 
     public static float getFriction(CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
+        if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_19_4)) {
+            double below = player.getClientVersion().isOlderThan(ClientVersion.V_1_15) ? 1.0D : 0.5000001D;
+            Material material = player.compensatedWorld.getMaterialAt(BlockPos.containing(playerPos.x, playerPos.y - below, playerPos.z));
+            return getMaterialFriction(material);
+        }
         Material underPlayer = getBlockPosBelowThatAffectsMyMovement(player, mainSupportingBlockData, playerPos);
         return getMaterialFriction(underPlayer);
     }
 
     public static float getBlockSpeedFactor(CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
+        // Before 1.15 soul sand is an inside-block callback. Applying the
+        // modern speed factor as well would slow the same movement twice.
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_15)) return 1.0F;
         if (player.isGliding || player.isFlying) return 1.0f;
 
         BlockState inBlock = player.compensatedWorld.getBlockStateAt(CultMath.floor(playerPos.x), CultMath.floor(playerPos.y), CultMath.floor(playerPos.z));
@@ -41,6 +60,7 @@ public class BlockProperties {
     }
 
     public static boolean onHoneyBlock(CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_15)) return false;
         Material inBlock = player.compensatedWorld.getBlockStateAt(CultMath.floor(playerPos.x), CultMath.floor(playerPos.y), CultMath.floor(playerPos.z)).getBukkitMaterial();
         // MCP-Reborn Entity#getBlockJumpFactor reads the entity's current
         // blockPosition first, then getBlockPosBelowThatAffectsMyMovement().

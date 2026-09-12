@@ -9,7 +9,8 @@ public enum Pose {
     CROUCHING(0.6f, 1.5f, 1.27f),
     DYING(0.2f, 0.2f, 0.2f),
 
-    // Non-player poses
+    // Historical player dimensions; sneaking did not shrink the 1.8 body.
+    EIGHT_CROUCHING(0.6f, 1.8f, 1.62f - 0.08f),
     NINE_CROUCHING(0.6f, 1.65f, 1.54f), // 1.9-1.13 clients have a slightly different crouching hitbox
     LONG_JUMPING(0.6f, 1.8f, 1.54f); // DUMMY (players can't have this pose)
 

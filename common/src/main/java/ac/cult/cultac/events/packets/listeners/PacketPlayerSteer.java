@@ -1,6 +1,7 @@
 package ac.cult.cultac.events.packets.listeners;
 
 import ac.cult.cultac.network.CultPacketHandler;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
@@ -19,7 +20,13 @@ public class PacketPlayerSteer {
         if (event.isCancelled()) {
             return;
         }
-        player.isSneaking = packet.input().shift();
+        // For 1.8-1.21.1, LegacyViaInputBridge applies the original sneak
+        // command or mounted steer packet in client order. Via's periodically
+        // synthesized input must not undo it. 1.7 uses older packet layouts.
+        if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_8)
+                || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
+            player.isSneaking = packet.input().shift();
+        }
         net.minecraft.world.entity.player.Input input = packet.input();
         // Vanilla sends input only when key state changes; keep the latest raw state even before mounting.
         float vehicleHoriz = input.left() ? 1.0F : (input.right() ? -1.0F : 0.0F);

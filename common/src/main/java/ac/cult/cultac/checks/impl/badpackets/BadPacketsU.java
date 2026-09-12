@@ -28,6 +28,7 @@ public class BadPacketsU extends Check implements CheckListener {
     public void onUseItemOn(final PacketReceiveEvent event, CultPlayer player, ServerboundUseItemOnPacket packet) {
         // Supported clients cannot express legacy face-255 item use with this packet.
         if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) return;
+        if (true) return; // TODO: this only works on 1.8 servers?
 
         // This packet is always sent at (-1, -1, -1) at (0, 0, 0) on the block
         // except y gets wrapped?

@@ -21,6 +21,8 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
+import ac.cult.cultac.network.packet.NmsPacketUtil;
+import ac.cult.cultac.network.packet.ServerSetbackPosition;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
@@ -39,10 +41,14 @@ import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import net.minecraft.world.phys.Vec3;
 import lombok.Getter;
 import lombok.Setter;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundBundlePacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import org.bukkit.GameMode;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -427,13 +433,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         Vec3 position = data.getTeleportData().getLocation();
 
         try {
-            double y = position.y;
-
             // Send a transaction now to make sure there's always transactions around teleport
             player.sendTransaction();
 
-            // Min value is 10000000000000000000000000000000 in binary, this makes sure the number is always < 0
-            int teleportId = random.nextInt() | Integer.MIN_VALUE;
+            int teleportId = nextTeleportId();
             data.setPlugin(false);
             data.getTeleportData().setTeleportId(teleportId);
             data.getTeleportData().setTransaction(player.lastTransactionSent.get());
@@ -447,53 +450,18 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     return;
                 }
 
-                Vec3 vehiclePosition = new Vec3(position.x, position.y, position.z);
                 // PacketServerTeleport observes this packet and queues the exact
                 // vanilla snap/echo response position for the vehicle teleport.
-                CultAPI.INSTANCE.getNetworkManager().sendPacket(player.user.getChannel(),
-                        ac.cult.cultac.network.packet.NmsPacketUtil.clientboundMoveVehiclePacket(
-                                vehiclePosition, player.xRot, player.yRot), false);
+                player.user.sendPacket(NmsPacketUtil.clientboundMoveVehiclePacket(
+                        position, player.xRot, player.yRot));
             } else {
-                // Use provided transaction ID to make sure it can never desync, although there's no reason to do this
-                addSentTeleport(new Vec3(position.x, y, position.z), data.getTeleportData().getTransaction(), new RelativeFlag(0b11000), false, teleportId);
+                // Track the correction before sending; its outbound packet is silenced below.
+                addSentTeleport(position, data.getTeleportData().getTransaction(), new RelativeFlag(0b11000), false, teleportId);
                 // Receive the player's position packet to make setbacks appear smooth for other players (and to stop vanilla ac setbacks)
-                CultAPI.INSTANCE.getNetworkManager().receivePacket(player.user.getChannel(),
-                        ac.cult.cultac.network.packet.ServerSetbackPosition.wrap(
-                                ac.cult.cultac.network.packet.NmsPacketUtil.positionPacket(
-                                        position.x, y, position.z, data.isExpectedOnGround(), false)), true);
-                // Send after tracking to fix race condition
-                // The entity teleport mirrors position/onGround state; keep look relative like the player teleport.
-                CultAPI.INSTANCE.getNetworkManager().sendPacket(
-                        player.user.getChannel(),
-                        ac.cult.cultac.network.packet.NmsPacketUtil.playerPositionPacket(
-                                teleportId,
-                                position.x,
-                                position.y,
-                                position.z,
-                                0.0F,
-                                0.0F,
-                                data.getTeleportData().getFlags().getMask()
-                        ),
-                        true
-                );
-                CultAPI.INSTANCE.getNetworkManager().sendPacket(
-                        player.user.getChannel(),
-                        ac.cult.cultac.network.packet.NmsPacketUtil.modernEntityTeleportPacket(
-                                player.entityID,
-                                position.x,
-                                position.y,
-                                position.z,
-                                0.0F,
-                                0.0F,
-                                data.getTeleportData().getFlags().getMask(),
-                                data.isExpectedOnGround()
-                        ),
-                        // 26.3 queues this teleport on the local living entity.
-                        // Let replication track our own packet as well as packets
-                        // authored by the server or another plugin.
-                        player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
-                );
-                //
+                player.user.receivePacketSilently(ServerSetbackPosition.wrap(NmsPacketUtil.positionPacket(
+                        position.x, position.y, position.z, data.isExpectedOnGround(), false)));
+                sendPlayerSetbackPackets(teleportId, position,
+                        data.getTeleportData().getFlags().getMask(), data.isExpectedOnGround());
             }
 
             // required setback applies for both our own vehicle teleports and regular teleports
@@ -510,7 +478,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 knockbackHandler.setSetbackVal(true);
                 player.user.sendPacket(new ClientboundSetEntityMotionPacket(
                         vehicleEntityId == Integer.MIN_VALUE ? player.entityID : vehicleEntityId,
-                        new Vec3(data.getVelocity().x, data.getVelocity().y, data.getVelocity().z)
+                        data.getVelocity()
                 ));
                 knockbackHandler.setSetbackVal(false);
             } else {
@@ -519,6 +487,32 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         } finally {
             isSendingSetback = false;
         }
+    }
+
+    private void sendPlayerSetbackPackets(int teleportId, Vec3 position, int relativeMask, boolean onGround) {
+        Packet<?> positionPacket = NmsPacketUtil.playerPositionPacket(
+                teleportId, position.x, position.y, position.z, 0.0F, 0.0F, relativeMask);
+        Packet<?> selfTeleport = null;
+        // Keep the mirror paired with the correction in a Java bundle.
+        // else the client begins to interpolate itself
+        // Geyser converts this packet to a regular teleport, which neither helps nor hurts us
+        if (!player.isBedrockMovement() && player.supportsBundles()) {
+            selfTeleport = NmsPacketUtil.modernEntityTeleportPacket(
+                    player.entityID, position.x, position.y, position.z, 0.0F, 0.0F, relativeMask, onGround);
+        }
+        if (selfTeleport == null) {
+            player.user.sendPacketSilently(positionPacket);
+            return;
+        }
+
+        // ClientPacketListener#handleBundlePacket processes both packets before movement.
+        // Apply the correction first so the mirror targets the corrected position.
+        @SuppressWarnings("unchecked")
+        ClientboundBundlePacket bundle = new ClientboundBundlePacket(List.of(
+                (Packet<? super ClientGamePacketListener>) positionPacket,
+                (Packet<? super ClientGamePacketListener>) selfTeleport));
+        // Only the correction was registered by addSentTeleport. The self packet must reach listeners.
+        player.user.sendPacketWithSilentPackets(bundle, List.of(positionPacket));
     }
 
     private int resolveSetbackVehicleId() {

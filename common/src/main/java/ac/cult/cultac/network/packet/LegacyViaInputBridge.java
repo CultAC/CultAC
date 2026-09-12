@@ -31,8 +31,8 @@ import java.util.List;
 
 /**
  * Preserves the identity of legacy input packets before ViaBackwards maps them
- * onto the 1.21.2+ input bitset. Their payload values remain Via's concern; Cult
- * only needs the original packet family and legacy sneak action here.
+ * onto the 1.21.2+ input bitset. Sneaking must follow these original packets:
+ * Via's periodically synthesized on-foot input can arrive after movement.
  */
 public final class LegacyViaInputBridge extends ChannelInboundHandlerAdapter {
     public static final String HANDLER_NAME = "cult-legacy-via-input";
@@ -145,7 +145,8 @@ public final class LegacyViaInputBridge extends ChannelInboundHandlerAdapter {
             if (packet.readableBytes() != Float.BYTES * 2 + Byte.BYTES) {
                 return false;
             }
-            return handleLegacySteer(player);
+            packet.skipBytes(Float.BYTES * 2);
+            return handleLegacySteer(player, (packet.readByte() & 2) != 0);
         }
 
         if (!PLAYER_COMMAND.equals(packetName)) {
@@ -193,17 +194,24 @@ public final class LegacyViaInputBridge extends ChannelInboundHandlerAdapter {
         throw new IllegalArgumentException("VarInt is too large");
     }
 
-    private static boolean handleLegacySteer(CultPlayer player) {
+    private static boolean handleLegacySteer(CultPlayer player, boolean sneaking) {
         boolean rejected = player.checkManager.getCheck(VehicleTimer.class).handleLegacySteerVehicle();
         player.checkManager.getCheck(BadPacketsE.class).handleLegacySteerVehicle();
         player.checkManager.getCheck(BadPacketsR.class).handleLegacySteerVehicle();
-        return player.checkManager.getCheck(VehicleB.class).handleLegacySteerVehicle() || rejected;
+        rejected = player.checkManager.getCheck(VehicleB.class).handleLegacySteerVehicle() || rejected;
+        if (!rejected) {
+            player.isSneaking = sneaking;
+        }
+        return rejected;
     }
 
     private static boolean handleLegacySneak(CultPlayer player, boolean sneaking) {
         boolean rejected = player.checkManager.getCheck(BadPacketsG.class).handleLegacySneak(sneaking);
         player.checkManager.getCheck(BadPacketsX.class).handleLegacySneakAction();
         player.packetOrderProcessor.handleLegacySneakAction();
+        if (!rejected) {
+            player.isSneaking = sneaking;
+        }
         return rejected;
     }
 }

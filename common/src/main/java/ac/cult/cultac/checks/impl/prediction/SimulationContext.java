@@ -310,6 +310,9 @@ public class SimulationContext {
             float speed = 0.02f;
 
             if (depthStriderLevel > 0) {
+                if (version.isOlderThan(ClientVersion.V_1_13)) {
+                    return speed + ((float) normalSpeed - speed) * depthStriderLevel / 3.0F;
+                }
                 speed += (normalSpeed * 1.3 - speed) * depthStriderLevel / 3.0F;
             }
             return speed;
@@ -321,6 +324,10 @@ public class SimulationContext {
 
         float onGroundSpeed = (float) (normalSpeed * (0.21600002f / (friction * friction * friction)));
         if (isOnGround) {
+            if (version.isOlderThan(ClientVersion.V_1_13)) {
+                float drag = friction * 0.91F;
+                return (float) normalSpeed * (0.16277136F / (drag * drag * drag));
+            }
             // MCP-Reborn 26.2 LivingEntity#getFrictionInfluencedSpeed receives the
             // friction_modifier-adjusted block friction and only boosts movement
             // speed on slippery blocks (friction > 0.6).

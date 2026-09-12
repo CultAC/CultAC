@@ -32,7 +32,11 @@ public final class ExternalMovementUncertainty {
                 : lastResult.getSimulationContext().getWorldData().getPistonPushes();
         PistonPushes currentPush = context.getWorldData().getPistonPushes();
 
-        SimpleCollisionBox lastPiston = scalePistonPushForStuckSpeedTarget(push(lastPush, true), context);
+        // Legacy block-entity effects are captured after the preceding movement
+        // handlers. They already belong to this packet; do not reuse that same
+        // shove for an additional tick after its snapshot expires.
+        SimpleCollisionBox lastPiston = currentPush != null && currentPush.isPistonMovementPhased() ? emptyBox()
+                : scalePistonPushForStuckSpeedTarget(push(lastPush, true), context);
         SimpleCollisionBox lastShulker = push(lastPush, false);
         // Minecraft#tick runs ClientLevel#tickEntities, then ClientLevel#tickBlockEntities,
         // and only after that sends ServerboundClientTickEndPacket. Cult's

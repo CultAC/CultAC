@@ -81,6 +81,7 @@ import com.google.common.collect.ImmutableClassToInstanceMap;
 import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -853,6 +854,15 @@ public class CheckManager {
         }
 
         dispatchOrderedReceive(packet);
+
+        if (routedPacket instanceof ServerboundMovePlayerPacket
+                && player.compensatedWorld.pistons.usesLegacyCollision()
+                && !player.packetStateData.lastPacketWasTeleport) {
+            // 1.7/1.8 send a movement, rotation or status packet every player tick,
+            // before World#updateEntities ticks TileEntityPiston. Phase is one of
+            // the receive handlers above and must still see the movement's phase.
+            player.compensatedWorld.pistons.onLegacyMovementTick();
+        }
 
         if (routedPacket instanceof ServerboundClientTickEndPacket) {
             // MCP-Reborn Minecraft#tick sends ServerboundClientTickEndPacket only

@@ -172,7 +172,7 @@ public class WorldStageBuilder {
         // shulker and recent world state already advance in CheckManager at that
         // boundary, including idle ticks; prediction must not advance them again.
         if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) {
-            player.compensatedWorld.removeInvalidPistonLikeStuff();
+            player.compensatedWorld.onLegacyPredictionTick();
         }
         StuckSpeedData stuckSpeedData = calculateStuckSpeed(player, simulationContext, push);
 
@@ -677,15 +677,11 @@ public class WorldStageBuilder {
     }
 
     private int getSoulSandCount(CultPlayer player, SimulationContext context) {
-        if (context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_14)) return 0;
+        // Through 1.14.4, SoulSandBlock#entityInside multiplies velocity once
+        // per intersected block. The block speed factor replaces this in 1.15.
+        if (context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_15)) return 0;
 
-        Vec3 to = context.getEnd();
-        float sneakHeight = context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_9) ? 1.65f : 1.5f;
-        float height = player.isSneaking ? sneakHeight : 1.8f;
-        SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(to.x, to.y, to.z, 0.6f, height);
-
-        double expandAmount = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19_4) ? 1e-7 : 0.001;
-        playerBox.expand(-expandAmount);
+        SimpleCollisionBox playerBox = context.getToActualPose().expand(-0.001);
 
         int[] soulSandCount = new int[1];
         Collisions.hasMaterial(player, playerBox, mat -> {
@@ -752,6 +748,9 @@ public class WorldStageBuilder {
                                            SimpleCollisionBox from, SimpleCollisionBox to,
                                            boolean powderSnowCanApply) {
         Vec3 endpoint = Collisions.checkStuckSpeed(player, to, powderSnowCanApply);
+        // Entity#moveEntity calls doBlockCollisions on the final bounding box.
+        // Passing through a cell during the move does not run its callback.
+        if (!player.isBedrockMovement() && context.getVersion().isOlderThan(ClientVersion.V_1_13)) return endpoint;
         boolean ordered = player.bedrockState == null
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
         Vec3 path = ordered

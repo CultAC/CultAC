@@ -26,8 +26,8 @@ public class ViaVersion implements StartableInitable {
         ProtocolVersion blockedBelow = Via.getConfig().blockedProtocolVersions().blocksBelow();
         if (CultAPI.INSTANCE.getPluginManager().getPlugin("ViaBackwards") != null
                 && (!blockedBelow.isKnown() || blockedBelow.olderThan(ProtocolVersion.v1_21_2))) {
-            LogUtil.warn("CultAC has detected that you have installed ViaBackwards on a 1.21.2+ server.");
-            LogUtil.warn("Pre-1.21.2 clients are not supported, you will experience issues.");
+            LogUtil.warn("CultAC has detected that ViaBackwards allows pre-1.21.2 clients.");
+            LogUtil.warn("Pre-1.21.2 clients are difficult to check, are infrequently tested, and may cause issues");
             LogUtil.warn("You are recommended to add block-versions: [\"<1.21.2\"] to ViaVersion's config");
         }
     }

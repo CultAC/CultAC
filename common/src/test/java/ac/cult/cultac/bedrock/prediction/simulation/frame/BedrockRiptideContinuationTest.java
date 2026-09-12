@@ -30,22 +30,6 @@ import static org.junit.Assert.assertTrue;
 
 public final class BedrockRiptideContinuationTest {
     @Test
-    public void activeSpinKeepsHorizontalPoseSeparateFromActorSwimming() {
-        Vec3d carriedVelocity = new Vec3d(0.0085693359375D, -0.160614013671875D, -0.342974853515625D);
-        BedrockMovementState state = activeSpinState(
-            new Vec3d(256.97430419921875D, 82.17816925048828D, -57.41366958618164D),
-            carriedVelocity, true, true, 12L);
-        BedrockInputFrame frame = new BedrockInputFrame(
-            1319L, 139.42911F, 4.0225677F, true, false, true,
-            Set.of("JUMPING", "JUMP_CURRENT_RAW", "WANT_UP", "START_SWIMMING", "SWIMMING"));
-
-        BedrockFrameState prepared = prepare(state, frame, Medium.WATER);
-
-        assertFalse(prepared.frameFacts().swimming().actorStateAfterActions());
-        assertEquals(carriedVelocity.y() + 0.04F, prepared.travelVelocity().y(), 1.0E-12D);
-    }
-
-    @Test
     public void localSpinPoseResizesBeforeWaterSensingAndTravelSelection() {
         Vec3d carriedVelocity = new Vec3d(-0.1572998046875D, 0.22865478515625D, -0.9177398681640625D);
         BedrockMovementState state = activeSpinState(

@@ -1,5 +1,7 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.cultac.network.protocol.ClientVersion;
+
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
@@ -112,14 +114,17 @@ public class CompensatedEntities {
     }
 
     public Integer getLevitationAmplifier() {
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) return null;
         return getPotionLevelForPlayer(PotionEffectType.LEVITATION);
     }
 
     public Integer getSlowFallingAmplifier() {
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_13)) return null;
         return getPotionLevelForPlayer(PotionEffectType.SLOW_FALLING);
     }
 
     public Integer getDolphinsGraceAmplifier() {
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_13)) return null;
         return getPotionLevelForPlayer(PotionEffectType.DOLPHINS_GRACE);
     }
 
@@ -167,6 +172,12 @@ public class CompensatedEntities {
         bedrockPlayerMovementSpeed = 0.1f;
     }
 
+    // NetHandlerPlayClient#handleEntityProperties only updates attributes present
+    // in the client's attribute map. Via drops attributes older clients lack.
+    private boolean supportsAttributes(ClientVersion since) {
+        return player.isBedrockMovement() || player.getClientVersion().isNewerThanOrEquals(since);
+    }
+
     public void updateAttributes(int entityID, List<ClientboundUpdateAttributesPacket.AttributeSnapshot> objects) {
         boolean selfScaleChanged = false;
         if (entityID == player.entityID) {
@@ -204,31 +215,31 @@ public class CompensatedEntities {
                     bedrockPlayerJumpStrength = calculateBedrockAttributeCurrent(snapshot);
                 }
 
-                if (matchesAttribute(snapshot, "scale")) {
+                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "scale")) {
                     player.compensatedEntities.getSelf().scale = (float) calculateAttribute(snapshot, 0.0625, 16.0);
                     selfScaleChanged = true;
                 }
 
-                if (matchesAttribute(snapshot, "gravity")) {
+                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "gravity")) {
                     player.compensatedEntities.getSelf().gravity = calculateAttribute(snapshot, 0.0, 1024.0);
                 }
 
-                if (matchesAttributeName(snapshot, "step_height")) {
+                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttributeName(snapshot, "step_height")) {
                     player.compensatedEntities.getSelf().stepHeightAttribute = calculateAttribute(snapshot, 0.0, 10.0);
                 }
 
                 // 26.2 attributes (Attributes#BOUNCINESS / FRICTION_MODIFIER /
                 // AIR_DRAG_MODIFIER). Matched by registry path because the static
                 // constants do not exist on pre-26.2 servers.
-                if (matchesAttributeName(snapshot, "bounciness")) {
+                if (supportsAttributes(ClientVersion.V_26_2) && matchesAttributeName(snapshot, "bounciness")) {
                     player.compensatedEntities.getSelf().bounciness = calculateAttribute(snapshot, 0.0, 1.0);
                 }
 
-                if (matchesAttributeName(snapshot, "friction_modifier")) {
+                if (supportsAttributes(ClientVersion.V_26_2) && matchesAttributeName(snapshot, "friction_modifier")) {
                     player.compensatedEntities.getSelf().frictionModifier = calculateAttribute(snapshot, 0.0, 2048.0);
                 }
 
-                if (matchesAttributeName(snapshot, "air_drag_modifier")) {
+                if (supportsAttributes(ClientVersion.V_26_2) && matchesAttributeName(snapshot, "air_drag_modifier")) {
                     player.compensatedEntities.getSelf().airDragModifier = calculateAttribute(snapshot, 0.0, 2048.0);
                 }
 
@@ -259,28 +270,28 @@ public class CompensatedEntities {
 
         if (entity != null) {
             for (ClientboundUpdateAttributesPacket.AttributeSnapshot snapshot : objects) {
-                if (matchesAttribute(snapshot, "scale")) {
+                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "scale")) {
                     entity.scale = (float) calculateAttribute(snapshot, 0.0625, 16.0);
                     entityScaleChanged = true;
                 }
 
-                if (matchesAttribute(snapshot, "gravity")) {
+                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "gravity")) {
                     entity.gravity = calculateAttribute(snapshot, 0.0, 1024.0);
                 }
 
-                if (matchesAttributeName(snapshot, "step_height")) {
+                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttributeName(snapshot, "step_height")) {
                     entity.stepHeightAttribute = calculateAttribute(snapshot, 0.0, 10.0);
                 }
 
-                if (matchesAttributeName(snapshot, "bounciness")) {
+                if (supportsAttributes(ClientVersion.V_26_2) && matchesAttributeName(snapshot, "bounciness")) {
                     entity.bounciness = calculateAttribute(snapshot, 0.0, 1.0);
                 }
 
-                if (matchesAttributeName(snapshot, "friction_modifier")) {
+                if (supportsAttributes(ClientVersion.V_26_2) && matchesAttributeName(snapshot, "friction_modifier")) {
                     entity.frictionModifier = calculateAttribute(snapshot, 0.0, 2048.0);
                 }
 
-                if (matchesAttributeName(snapshot, "air_drag_modifier")) {
+                if (supportsAttributes(ClientVersion.V_26_2) && matchesAttributeName(snapshot, "air_drag_modifier")) {
                     entity.airDragModifier = calculateAttribute(snapshot, 0.0, 2048.0);
                 }
             }
@@ -790,6 +801,7 @@ public class CompensatedEntities {
     }
 
     private void applyGravityMetadata(PacketEntity entity, List<SynchedEntityData.DataValue<?>> watchableObjects) {
+        if (!player.isBedrockMovement() && player.getClientVersion().isOlderThan(ClientVersion.V_1_10)) return;
         SynchedEntityData.DataValue<?> gravityData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_NO_GRAVITY);
         if (gravityData != null && gravityData.value() instanceof Boolean noGravity) {
             // Vanilla uses hasNoGravity, which is a bad name IMO

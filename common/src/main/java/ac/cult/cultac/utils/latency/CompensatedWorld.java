@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
 import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import ac.cult.cultac.utils.nmsutil.NmsPalettedContainerUtil;
+import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
 import ac.cult.cultac.network.packet.NmsPacketUtil;
 import org.bukkit.block.BlockFace;
 import org.bukkit.Material;
@@ -182,6 +183,18 @@ public class CompensatedWorld implements BlockGetter {
             this.shared = shared;
             this.lastMutatedNanos = System.nanoTime();
             recalcCounts();
+        }
+
+        /** Map each palette entry once, then repack privately before section pooling. */
+        public CachedSection translated(java.util.function.UnaryOperator<BlockState> mapper) {
+            java.util.IdentityHashMap<BlockState, BlockState> palette = new java.util.IdentityHashMap<>();
+            states.count((state, count) -> palette.put(state, mapper.apply(state)));
+            if (palette.entrySet().stream().allMatch(entry -> entry.getKey() == entry.getValue())) return this;
+            PalettedContainer<BlockState> translated = states.recreate();
+            for (int index = 0; index < 4096; index++) {
+                translated.set(index & 15, (index >> 8) & 15, (index >> 4) & 15, palette.get(getState(index)));
+            }
+            return new CachedSection(translated);
         }
 
         public boolean isShared() {
@@ -696,6 +709,7 @@ public class CompensatedWorld implements BlockGetter {
     }
 
     public BlockData updateBlock(int x, int y, int z, BlockState newState) {
+        newState = ViaClientBlockShapeMappings.clientBlockState(player, newState);
         BlockPos asVector = new BlockPos(x, y, z);
         BlockPrediction prediction = originalServerBlocks.get(asVector.asLong());
         BlockData original = getBlockDataAt(asVector);
@@ -743,6 +757,7 @@ public class CompensatedWorld implements BlockGetter {
     }
 
     public void applyBlockChangeRawDANGER(int x, int y, int z, BlockState combinedState) {
+        combinedState = ViaClientBlockShapeMappings.clientBlockState(player, combinedState);
         int chunkX = x >> 4;
         int chunkZ = z >> 4;
         CachedChunk column = getChunk(chunkX, chunkZ);
@@ -767,6 +782,13 @@ public class CompensatedWorld implements BlockGetter {
 
     public void removeInvalidPistonLikeStuff() {
         removeInvalidPistonLikeStuff(0);
+    }
+
+    public void onLegacyPredictionTick() {
+        // Pre-1.9 movement/status packets delimit ticks. Their piston pass runs
+        // after all movement handlers, including Phase, rather than per prediction.
+        tickClientWorldState(!pistons.usesLegacyCollision());
+        pruneOrphanedShulkerBoxes();
     }
 
     public void onClientTickEnd() {
@@ -873,16 +895,20 @@ public class CompensatedWorld implements BlockGetter {
         if (transactionId == 0) {
             // End-of-client-tick path: advance time-based state instead of
             // pruning by transaction watermark.
-            tickRecentClientCollisionChanges();
-            tickRecentClientFluidChanges();
-            pistons.tickClientTickEnd();
-            openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
+            tickClientWorldState(true);
         } else {
             // Transaction path: drop entries the client has provably seen.
             pistons.removeSentBefore(transactionId);
             openShulkerBoxes.removeIf(box -> box.isClosing() && box.lastTransactionSent < transactionId);
         }
         pruneOrphanedShulkerBoxes();
+    }
+
+    private void tickClientWorldState(boolean advancePistons) {
+        tickRecentClientCollisionChanges();
+        tickRecentClientFluidChanges();
+        if (advancePistons) pistons.tickClientTickEnd();
+        openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
     }
 
     // Drop shulker boxes whose backing block or entity no longer exists.
@@ -910,7 +936,9 @@ public class CompensatedWorld implements BlockGetter {
 
         SimpleCollisionBox pistonPush = pistonResult.getPistonPush();
         SimpleCollisionBox combinedPushes = pistonPush.copy().union(shulkerPushes);
-        return new PistonPushes(combinedPushes, pistonPush, shulkerPushes, pistonResult.getSlimeBlockLaunches());
+        PistonPushes result = new PistonPushes(combinedPushes, pistonPush, shulkerPushes, pistonResult.getSlimeBlockLaunches());
+        result.setPistonMovementPhased(pistonResult.isPistonMovementPhased());
+        return result;
     }
 
     // Expands the query box by every colliding open shulker box lid and

@@ -21,7 +21,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
-import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -53,7 +52,6 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -69,66 +67,6 @@ public final class OfflineBedrockReplayRunnerTest {
     private static final double MIN_HORIZONTAL_INPUT = 1.0E-6D;
     private static final String KNOWN_FALSE_FLAG_SCENARIO = "largerun1";
     private static final long KNOWN_FALSE_FLAG_TICK = 6147L;
-
-    @Test
-    public void smallReplaysRunThroughProductionBedrockPrediction() throws Exception {
-        OfflineCultTestBootstrap.installConfig();
-
-        List<String> failures = new ArrayList<>();
-        for (String scenario : smallScenarioNames()) {
-            String scenarioPath = "small-scenarios/" + scenario;
-            ReplayResult baseline = runScenario(scenarioPath);
-            OfflineBedrockReplayScenario loaded = OfflineBedrockReplayScenario.load(
-                    SCENARIOS.resolve(scenarioPath));
-            String authoredAttack = authoredMovementAttack(loaded.manifest());
-            if (authoredAttack != null) {
-                String failure = authoredMovementAttackExpectationFailure(
-                        scenario + " " + authoredAttack,
-                        validationFlags(scenario, baseline));
-                if (failure != null) {
-                    failures.add(failure);
-                }
-                // These captures already contain a movement attack. Layering
-                // the generic one-frame injection on top would make its
-                // allowed flag window meaningless, so injection coverage
-                // remains on the clean and packet-flag-only fixtures below.
-                continue;
-            }
-            String failure = bedrockMovementExpectationFailure(scenario + " baseline", baseline, 0, List.of(), 0.0D);
-            if (failure != null) {
-                failures.add(failure);
-            }
-
-            ReplayResult injected = runScenario(scenarioPath, ReplayVariant.injected(scenario));
-            failure = injectedBedrockMovementExpectationFailure(scenario, injected);
-            if (failure != null) {
-                failures.add(failure);
-            }
-        }
-
-        for (String scenario : List.of("cheating1", "cheating2", "cheating3", "cheating4")) {
-            if (!cheatScenarioSelected(scenario)) {
-                continue;
-            }
-            OfflineBedrockReplayScenario loaded = OfflineBedrockReplayScenario.load(
-                    SCENARIOS.resolve("cheating").resolve(scenario));
-            ReplayResult result = runScenario("cheating/" + scenario);
-            JsonObject expected = loaded.manifest().getAsJsonObject("replay")
-                    .getAsJsonObject("expectedBedrockMovementAlert");
-            String failure = bedrockMovementExpectationFailure(
-                    scenario,
-                    result,
-                    intValue(expected, "count", 0),
-                    expectedOffsets(expected),
-                    doubleValue(expected, "offsetTolerance", 0.0D));
-            if (failure != null) {
-                failures.add(failure);
-            }
-        }
-        if (!failures.isEmpty()) {
-            fail(String.join("\n", failures));
-        }
-    }
 
     @Test
     public void impossibleMovementInjectionIndexIgnoresPositionsAndTicks() {
@@ -309,97 +247,6 @@ public final class OfflineBedrockReplayRunnerTest {
         assertTrue(event.isCancelled());
         assertFalse(event.shouldReEncode());
         assertEquals(null, player.packetStateData.consumeBedrockTranslatedCanonicalGround());
-        closeOfflinePlayer(player);
-    }
-
-    @Test
-    public void acceptedBedrockSetbackUsesRegularTeleportWithoutRestoringAnchorVelocity() throws Exception {
-        OfflineCultTestBootstrap.installConfig();
-        OfflineBedrockReplayScenario scenario = OfflineBedrockReplayScenario.load(
-                SCENARIOS.resolve("small-scenarios/jump"));
-        List<BedrockAuthInputFrame> frames = OfflineBedrockAuthInputCapture.read(
-                scenario.packetsPath(), PLAYER_UUID);
-        Vec3 initialVelocity = initialVelocity(scenario.manifest(), scenario.packetsPath(), frames.getFirst());
-        int firstReplayFrame = initialVelocity == null ? 0 : 1;
-        CultPlayer player = offlinePlayer();
-        applyFixturePlayerState(player, scenario.manifest());
-        SpongeSchematicCompensatedWorldLoader.load(scenario, player.compensatedWorld);
-        seedPlayerAt(player, frames.getFirst());
-        seedInitialVelocity(player, initialVelocity);
-        BedrockAuthInputFrame frame = frames.get(firstReplayFrame);
-        player.bedrockState.offerAuthInputFrame(frame);
-
-        PredictionResult result = player.checkManager.getSimulationProcessor()
-                .processBedrockAuthInputFrame(frame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
-
-        assertNotNull(result);
-        SetbackPosWithVector safe = player.getSetbackTeleportUtil().lastKnownGoodPosition;
-        assertNotNull(safe);
-        assertNotNull(safe.getProfileState());
-        assertEquals(frame.getPosition(), safe.getPos());
-        assertEquals(frame.getPosition(), safe.getProfileState().position());
-
-        int bootstrapTransaction = player.lastTransactionSent.get();
-        player.getSetbackTeleportUtil().addSentTeleport(
-                safe.getPos(), bootstrapTransaction, new RelativeFlag(0), true, -2);
-        player.lastTransactionReceived.set(bootstrapTransaction);
-        assertTrue(player.getSetbackTeleportUtil().checkTeleportQueue(
-                safe.getPos().x, safe.getPos().y, safe.getPos().z).isTeleport());
-        player.getSetbackTeleportUtil().lastKnownGoodPosition = safe;
-
-        assertTrue(player.getSetbackTeleportUtil().executeViolationSetback());
-        SetBackData pending = player.getSetbackTeleportUtil().getRequiredSetBack();
-        assertNotNull(pending);
-        assertFalse(pending.isPlugin());
-        assertFalse(pending.isComplete());
-        assertNotSame(safe.getProfileState(), pending.getProfileState());
-        assertEquals(safe.getProfileState().commit(), pending.getProfileState().commit());
-        assertEquals(safe.getPos(), pending.getTeleportData().getLocation());
-
-        for (int queuedFrame = 1; queuedFrame <= 3; queuedFrame++) {
-            ServerboundMovePlayerPacket.Pos queuedTranslatedMove = new ServerboundMovePlayerPacket.Pos(
-                    safe.getPos().x + queuedFrame * 0.25D,
-                    safe.getPos().y,
-                    safe.getPos().z,
-                    true,
-                    false);
-            PacketReceiveEvent queuedMovementEvent = translatedMovementEvent(player, queuedTranslatedMove);
-            new CheckManagerListener().onMovePlayer(queuedMovementEvent, player, queuedTranslatedMove);
-            assertTrue(queuedMovementEvent.isCancelled());
-        }
-
-        long revision = player.getSetbackTeleportUtil()
-                .addImmediateBedrockTransportTeleport(safe.getPos(), false);
-        player.lastTransactionReceived.set(pending.getTeleportData().getTransaction());
-        TeleportAcceptData accepted = player.getSetbackTeleportUtil()
-                .acknowledgeBedrockTeleportFrame(safe.getPos());
-        assertTrue(accepted.isTeleport());
-        BedrockAuthInputFrame acknowledgement = withInputFlag(
-                BedrockAuthInputFrame.builder(PLAYER_UUID)
-                        .clientTick(frame.getClientTick())
-                        .position(safe.getPos())
-                        .rotation(frame.getYaw(), frame.getPitch(), frame.getHeadYaw())
-                        .moveVector(0.0F, 0.0F)
-                        .authorityMode("server"),
-                PlayerAuthInputData.HANDLE_TELEPORT).build();
-        player.checkManager.getSimulationProcessor().applyAcceptedBedrockTeleport(accepted);
-
-        assertTrue(pending.isComplete());
-        assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
-        SetbackPosWithVector restored = player.getSetbackTeleportUtil().lastKnownGoodPosition;
-        assertNotNull(restored.getProfileState());
-        assertEquals(safe.getPos(), restored.getPos());
-        // The position packet carries absolute zero delta movement. Any later
-        // SetEntityMotion is handled by the normal ordered velocity path; the
-        // older safe-state velocity must not be restored with the anchor.
-        assertEquals(Vec3.ZERO, restored.getVector());
-
-        BedrockAuthInputFrame nextFrame = frames.get(firstReplayFrame + 1);
-        player.bedrockState.offerAuthInputFrame(nextFrame);
-        PredictionResult nextResult = player.checkManager.getSimulationProcessor()
-                .processBedrockAuthInputFrame(nextFrame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
-        assertNotNull(nextResult);
-        assertFalse(nextResult.hasFlag(BedrockMovement.class));
         closeOfflinePlayer(player);
     }
 

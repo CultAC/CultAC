@@ -77,7 +77,7 @@ public class PistonData implements TransactionOrder {
     // shove entities for two client block-entity ticks. On clients with
     // ServerboundClientTickEndPacket, Cult advances this after tick-end, so those
     // two shoves apply to the next two movement packets. Older clients keep Cult's
-    // legacy three-prediction window because they do not expose that boundary.
+    // legacy three-observed-tick window because they do not expose that boundary.
     public boolean tickIfGuaranteedFinished() {
         ticksOfPistonBeingAlive++;
         return phaseWithClientTickEnd

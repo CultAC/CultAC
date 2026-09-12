@@ -485,6 +485,7 @@ public class CultPlayer implements GrimUser {
     public float getMaxUpStep() {
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
         if (riding == null) {
+            if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_20_5)) return 0.6F;
             Double stepHeight = compensatedEntities.getSelf().stepHeightAttribute;
             return stepHeight == null ? 0.6f : stepHeight.floatValue();
         }
@@ -493,7 +494,7 @@ public class CultPlayer implements GrimUser {
             return 0f;
         }
 
-        if (riding.stepHeightAttribute != null) {
+        if ((isBedrockMovement() || getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5)) && riding.stepHeightAttribute != null) {
             return riding.stepHeightAttribute.floatValue();
         }
 
@@ -669,6 +670,7 @@ public class CultPlayer implements GrimUser {
     }
 
     public float getScale() {
+        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_20_5)) return 1.0F;
         return compensatedEntities == null ? 1.0f : compensatedEntities.getSelf().scale;
     }
 
@@ -696,6 +698,8 @@ public class CultPlayer implements GrimUser {
 
     private Pose determineCurrentPoseLikeVanilla() {
         Pose desiredPose = getDesiredPoseLikeVanilla();
+        // EntityPlayerSP before 1.14 has no collision-driven crawling fallback.
+        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_14)) return desiredPose;
         if (compensatedWorld == null || compensatedEntities == null) {
             return desiredPose;
         }
@@ -723,6 +727,17 @@ public class CultPlayer implements GrimUser {
     private Pose getDesiredPoseLikeVanilla() {
         if (isInBed) {
             return Pose.SLEEPING;
+        }
+        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_9)) {
+            // 1.8 EntityPlayer#getEyeHeight subtracts 0.08F while sneaking,
+            // but its body remains 0.6F by 1.8F (including creative flight).
+            return isSneaking ? Pose.EIGHT_CROUCHING : Pose.STANDING;
+        }
+        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_14)) {
+            if (isGliding) return Pose.FALL_FLYING;
+            if (getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13) && isSwimming) return Pose.SWIMMING;
+            if (getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13) && isRiptidePose) return Pose.SPIN_ATTACK;
+            return isSneaking ? Pose.NINE_CROUCHING : Pose.STANDING;
         }
         if (isSwimming) {
             return Pose.SWIMMING;
@@ -928,11 +943,14 @@ public class CultPlayer implements GrimUser {
     }
 
     public boolean isPointThree() {
-        return false;
+        return !isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_18_2);
     }
 
     public double getMovementThreshold() {
-        return 0.0002;
+        // EntityPlayerSP#onUpdateWalkingPlayer reports coordinates only after
+        // squared displacement exceeds 9.0E-4. LocalPlayer changed this to
+        // (2.0E-4)^2 in 1.18.2; a status/rotation packet is not zero movement.
+        return isPointThree() ? 0.03 : 0.0002;
     }
 
     // Alright, someone at mojang decided to not send a flying packet every tick with 1.9
@@ -973,6 +991,12 @@ public class CultPlayer implements GrimUser {
     }
 
     public List<Double> getPossibleEyeHeights() { // We don't return sleeping eye height
+        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_9)) {
+            return Arrays.asList((double) (1.62F - 0.08F), (double) 1.62F);
+        }
+        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_14)) {
+            return Arrays.asList(0.4D, 1.54D, 1.62D);
+        }
         double scale = getScale();
         return Arrays.asList(0.4 * scale, 1.27 * scale, 1.62 * scale);
     }

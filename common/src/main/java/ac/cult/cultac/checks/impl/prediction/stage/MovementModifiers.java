@@ -164,6 +164,11 @@ public class MovementModifiers {
             }
         }
 
+        boolean legacyPistonPass = state.getWorldData().getPistonPushes().isPistonMovementPhased();
+        if (includeSlimePistonLaunches && legacyPistonPass) {
+            addSlimePistonLaunches(start, state);
+        }
+
         // TODO: This is too brute forcey, we don't need duplicates in certain situations.
         // TODO: This should just be refactored for 1.20.4+ clients with tick end and bundle packet!
         for (TransactionOrder event : packetEventsInOrder) {
@@ -182,20 +187,24 @@ public class MovementModifiers {
             }
         }
 
-        // TODO: We should consider packet based pistons.
-        if (includeSlimePistonLaunches) {
-            for (PredVector vector : new ArrayList<>(start)) {
-                for (BlockFace direction : state.getWorldData().getPistonPushes().getSlimeBlockLaunches()) {
-                    double x = direction.getModX() == 0 ? vector.getX() : direction.getModX();
-                    double y = direction.getModY() == 0 ? vector.getY() : direction.getModY();
-                    double z = direction.getModZ() == 0 ? vector.getZ() : direction.getModZ();
-
-                    start.add(vector.withXYZ(x, y, z, "Slime Block"));
-                }
-            }
+        // The legacy launch happened in the preceding block-entity pass,
+        // before this tick's queued velocity/explosion packets were processed.
+        if (includeSlimePistonLaunches && !legacyPistonPass) {
+            addSlimePistonLaunches(start, state);
         }
 
         return start;
+    }
+
+    private static void addSlimePistonLaunches(List<PredVector> start, SimulationContext state) {
+        for (PredVector vector : new ArrayList<>(start)) {
+            for (BlockFace direction : state.getWorldData().getPistonPushes().getSlimeBlockLaunches()) {
+                double x = direction.getModX() == 0 ? vector.getX() : direction.getModX();
+                double y = direction.getModY() == 0 ? vector.getY() : direction.getModY();
+                double z = direction.getModZ() == 0 ? vector.getZ() : direction.getModZ();
+                start.add(vector.withXYZ(x, y, z, "Slime Block"));
+            }
+        }
     }
 
     private static void addFluidHopCandidates(

@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
@@ -94,6 +95,8 @@ public class CollisionModifier implements UncertaintyHandler {
             }
         }
 
+        // Legacy Entity#moveEntity always commits the clipped bounding box.
+        if (context != null && context.getVersion() != null && context.getVersion().isOlderThan(ClientVersion.V_1_14)) return start;
         Vec3 packetVisibleMovement = applyEntityMovePositionCommitGuard(
                 attempted,
                 start,
@@ -102,6 +105,7 @@ public class CollisionModifier implements UncertaintyHandler {
     }
 
     private static boolean positionCommitGuardCanProduceTargetY(SimulationContext context, PredVector attempted, PredVector clipped, Vec3 target) {
+        if (context != null && context.getVersion() != null && context.getVersion().isOlderThan(ClientVersion.V_1_14)) return false;
         Vec3 visible = applyEntityMovePositionCommitGuard(
                 attempted,
                 clipped,
@@ -233,11 +237,15 @@ public class CollisionModifier implements UncertaintyHandler {
 
         List<List<Collisions.Axis>> orderPossibilities = new ArrayList<>();
         orderPossibilities.add(Arrays.asList(Collisions.Axis.Y, Collisions.Axis.X, Collisions.Axis.Z));
-        orderPossibilities.add(Arrays.asList(Collisions.Axis.Y, Collisions.Axis.Z, Collisions.Axis.X));
+        if (context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_14)) {
+            orderPossibilities.add(Arrays.asList(Collisions.Axis.Y, Collisions.Axis.Z, Collisions.Axis.X));
+        }
 
         if (context.getLastOnGround().determineOptimistically()) {
             orderPossibilities.add(Arrays.asList(Collisions.Axis.X, Collisions.Axis.Z, Collisions.Axis.Y));
-            orderPossibilities.add(Arrays.asList(Collisions.Axis.Z, Collisions.Axis.X, Collisions.Axis.Y));
+            if (context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_14)) {
+                orderPossibilities.add(Arrays.asList(Collisions.Axis.Z, Collisions.Axis.X, Collisions.Axis.Y));
+            }
         }
 
         // Brute force the current-client axis order possibilities exposed by the server-observable movement envelope.
@@ -426,9 +434,31 @@ public class CollisionModifier implements UncertaintyHandler {
 
         List<Collisions.Axis> axisAsList = Collections.singletonList(axis);
 
+        // Restore Grim 3.0's collision-constrained reporting extent. Old clients
+        // can be up to 0.03 from their last reported coordinates; collision
+        // clipping, rather than proximity, bounds where that body can be.
+        double reportingExtent = !isVehicle && context.getVersion().isOlderThan(ClientVersion.V_1_18_2) ? 0.03D : 0.0D;
         SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                pos.x, pos.y, pos.z, dimensions.width(), dimensions.initialHeight());
-        if (!isVehicle) {
+                pos.x, pos.y, pos.z, (float) (dimensions.width() - reportingExtent),
+                (float) (dimensions.initialHeight() - reportingExtent));
+        if (reportingExtent > 0) {
+            List<Collisions.Axis> expandOrder = new ArrayList<>(Arrays.asList(Collisions.Axis.values()));
+            expandOrder.remove(axis);
+            expandOrder.add(axis);
+            Vec3 extent = new Vec3(reportingExtent * 2, reportingExtent * 2, reportingExtent * 2);
+            for (Collisions.Axis expandAxis : expandOrder) {
+                if (expandAxis == axis) {
+                    expandUpwards(playerBox, collisions, axis, epsilon,
+                            dimensions.maxHeight() - dimensions.initialHeight(), dimensions.epsilon());
+                }
+                Vec3 expansion = transformToOnlyHaveAxis(extent, expandAxis);
+                List<Collisions.Axis> oneAxis = Collections.singletonList(expandAxis);
+                Vec3 positive = Collisions.collideBoundingBoxLegacy(expansion, playerBox, collisions, oneAxis, dimensions.epsilon());
+                Vec3 negative = Collisions.collideBoundingBoxLegacy(expansion.scale(-1), playerBox, collisions, oneAxis, dimensions.epsilon());
+                playerBox.expandToCoordinate(positive);
+                playerBox.expandToCoordinate(negative);
+            }
+        } else if (!isVehicle) {
             expandUpwards(playerBox, collisions, axis, epsilon,
                     dimensions.maxHeight() - dimensions.initialHeight(), dimensions.epsilon());
         } else {

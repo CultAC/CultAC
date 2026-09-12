@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -12,6 +13,7 @@ public final class BlockSpeedFactors {
     }
 
     public static float nextTickForResult(CultPlayer player, PredictionResult result) {
+        if (!player.isBedrockMovement() && player.getClientVersion().isOlderThan(ClientVersion.V_1_15)) return 1.0F;
         // MCP-Reborn Player#getBlockSpeedFactor returns 1.0F while the player is
         // fall-flying or ability-flying. Use the frozen SimulationContext for
         // fall-flying; mutable CultPlayer state may already describe a later packet.

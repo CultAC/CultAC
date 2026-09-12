@@ -91,6 +91,12 @@ public class BasePacketWorldReader {
     }
 
     public void addChunkToCache(PacketSendEvent event, CultPlayer player, CachedSection[] chunks, boolean isGroundUp, String dimension, int chunkX, int chunkZ, List<BlockPos> geyserTickers) {
+        // The compensated world stores what this connection sees. Translate
+        // before pooling so clients with different palettes cannot share wrong states.
+        for (int i = 0; i < chunks.length; i++) {
+            if (chunks[i] != null) chunks[i] = chunks[i].translated(
+                    state -> ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings.clientBlockState(player, state));
+        }
         double chunkCenterX = (chunkX << 4) + 8;
         double chunkCenterZ = (chunkZ << 4) + 8;
         boolean playerLoadingIntoChunk = Math.abs(player.x - chunkCenterX) < 16 && Math.abs(player.z - chunkCenterZ) < 16;

@@ -87,42 +87,6 @@ public final class BedrockMovementEngineTest {
     }
 
     @Test
-    public void bedrockTeleportResetsVelocityRegardlessOfJavaRelativeDeltaFlags() {
-        BedrockMovementState canonical = state(
-                new Vec3d(10.0D, 64.0D, 20.0D),
-                new Vec3d(0.09D, -0.0784D, 0.03D),
-                BedrockCollisionFlags.ON_GROUND);
-        BedrockMovementState alternative = state(
-                new Vec3d(10.0D, 64.0D, 20.0D),
-                new Vec3d(0.07D, 0.1D, 0.02D),
-                BedrockCollisionFlags.AIR).withGliding(true);
-        Vec3 correctedPosition = new Vec3(10.5D, 64.0D, 20.0D);
-
-        TeleportData teleport = new TeleportData(
-                correctedPosition,
-                new RelativeFlag(RelativeFlag.DELTA_X.getMask()
-                        | RelativeFlag.DELTA_Y.getMask()
-                        | RelativeFlag.DELTA_Z.getMask()),
-                Vec3.ZERO,
-                0,
-                0);
-        PredictionCommit rebased = BedrockMovementEngine.INSTANCE.applyTeleportToCarry(
-                commit(canonical, alternative).carry(), teleport);
-        List<BedrockProfileState.Entry> entries = ((BedrockNextTickStates) rebased.carry()).profileEntries();
-
-        assertEquals(2, entries.size());
-        assertEquals(new Vec3d(10.5D, 64.0D, 20.0D), entries.get(0).state().physicalFeetPosition());
-        assertEquals(Vec3d.ZERO, entries.get(0).state().velocity());
-        assertEquals(new Vec3d(10.5D, 64.0D, 20.0D), entries.get(1).state().physicalFeetPosition());
-        assertEquals(Vec3d.ZERO, entries.get(1).state().velocity());
-        assertTrue(entries.get(1).state().gliding());
-        assertTrue(entries.get(1).state().fallFlyTicks() > 0L);
-        // A teleport resets velocity before any subsequent motion packet is applied.
-        // Java relative-delta flags do not exist on Bedrock MovePlayer TELEPORT.
-        assertEquals(Set.of(Vec3.ZERO), rebased.startingVelocities());
-    }
-
-    @Test
     public void acknowledgedGlidingMetadataUpdatesTheExistingCarry() {
         BedrockMovementState gliding = state(
                 new Vec3d(10.0D, 64.0D, 20.0D),

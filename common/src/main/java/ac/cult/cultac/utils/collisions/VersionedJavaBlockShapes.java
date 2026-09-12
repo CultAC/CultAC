@@ -29,6 +29,8 @@ final class VersionedJavaBlockShapes {
     }
 
     static Optional<CollisionBox> movement(CultPlayer player, BlockData state, int x, int y, int z) {
+        Optional<CollisionBox> legacy = LegacyJavaBlockShapes.movement(player, state, x, y, z);
+        if (legacy.isPresent()) return legacy;
         if (!canUseVersionedJavaShape(player, state)) {
             return Optional.empty();
         }

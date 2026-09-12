@@ -300,6 +300,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
    private void handleTeleport(TeleportAcceptData teleportAcceptData) {
       TeleportData teleportData = teleportAcceptData.getTeleportData();
+      this.player.compensatedWorld.pistons.onLegacyPlayerTeleport();
       PredictionResult result = new PredictionResult(this.player, null, null, null, teleportData, new ArrayList(), new ArrayList());
       result.setTeleport(true);
       this.player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(
@@ -317,17 +318,19 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             if (!teleportData.isRelativeDeltaX() && !teleportData.isRelativeDeltaY() && !teleportData.isRelativeDeltaZ()) {
                this.lastFlying.setRaw(20);
             }
-         } else if (teleportData.isAbsolute()) {
-            this.validPlayerStartingVels.clear();
-            this.validPlayerStartingVels.add(teleportData.getDeltaMovement());
-            this.lastFlying.setRaw(20);
          } else {
             Set<Vec3> existingVectors = this.validPlayerStartingVels;
             this.validPlayerStartingVels = new HashSet<>();
-
+            ClientVersion serverVersion = ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion());
             for (Vec3 vector : existingVectors) {
-               this.validPlayerStartingVels.add(teleportData.modifyVector(vector));
+               this.validPlayerStartingVels.add(ac.cult.cultac.utils.nmsutil.LegacyTeleportVelocity.apply(
+                     this.player.getClientVersion(), serverVersion, teleportData, vector));
             }
+            if (this.validPlayerStartingVels.isEmpty()) {
+               this.validPlayerStartingVels.add(ac.cult.cultac.utils.nmsutil.LegacyTeleportVelocity.apply(
+                     this.player.getClientVersion(), serverVersion, teleportData, Vec3.ZERO));
+            }
+            if (teleportData.isAbsolute() || this.player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) this.lastFlying.setRaw(20);
          }
       }
 
@@ -843,6 +846,14 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    }
 
    private PredictionResult advanceNoPositionClientTick(Vec3 position, float xRot, float yRot) {
+      // Grim 3.0 keeps pre-tick-end clients anchored to their last reported
+      // position. The next position packet includes their unreported movement;
+      // committing zero here destroys that velocity/position relationship.
+      // 1.8 supplies a status/rotation packet every tick, so this probe (rather
+      // than speculative skipped packets) establishes its PointThree candidate.
+      if (!this.player.supportsEndTick()) {
+         return this.tryToAchievePointThree(position, xRot, yRot);
+      }
       MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
       PredictionResult result = this.callPrediction(Vec3.ZERO, position, position, true, xRot, yRot, null, movementProfile);
       this.handlePossibleRealities(result);
@@ -1042,7 +1053,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          do {
             PredictionResult thisResult = validMovements.getResult();
             SimpleCollisionBox attemptedExtents = validMovements.getCollisionIgnoredMaxStartingVelExtents();
-            boolean useSelectedMovement = engine == JavaMovementEngine.INSTANCE && !validMovements.isCanStep();
+            boolean useSelectedMovement = engine == JavaMovementEngine.INSTANCE && !validMovements.isCanStep()
+               && !thisResult.getSimulationContext().isTestingPointThree();
             Vec3 collisionTarget = useSelectedMovement
                ? validMovements.computeCollisionIgnoredMovement(lastPrediction)
                : thisResult.getSimulationContext().getTarget();

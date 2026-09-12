@@ -45,7 +45,14 @@ public final class Friction {
                 if (!Double.isFinite(friction)) {
                     continue;
                 }
-                Vec3 withFriction = playerVelocity.multiply(friction, 0.8, friction);
+                boolean legacyWater = context.getVersion().isOlderThan(ClientVersion.V_1_13);
+                Vec3 withFriction = playerVelocity.multiply(friction, legacyWater ? (double) 0.8F : 0.8D, friction);
+                // EntityLivingBase#moveEntityWithHeading before Update Aquatic:
+                // water always subtracts 0.02 after drag, including sprinting.
+                if (legacyWater) {
+                    addDistinct(results, withFriction.add(0, -0.02D, 0));
+                    continue;
+                }
                 List<Vec3> adjusted = new ArrayList<>();
                 addFluidFallingAdjustedMovement(player, context, adjusted, gravity, falling, withFriction);
                 for (Vec3 candidate : adjusted) {
@@ -60,6 +67,9 @@ public final class Friction {
         // Lava friction applies a stronger lateral slowdown before fluid falling is applied.
         if (inLava) {
             List<Vec3> velocities = new ArrayList<>();
+            if (context.getVersion().isOlderThan(ClientVersion.V_1_16)) {
+                return Collections.singletonList(playerVelocity.scale(0.5D).add(0, -0.02D, 0));
+            }
             Vec3 withSomeFriction = playerVelocity.multiply(0.5, 0.8f, 0.5).add(0, -gravity / 4, 0);
             addFluidFallingAdjustedMovement(player, context, velocities, gravity, falling, withSomeFriction);
             velocities.add(playerVelocity.scale(0.5).add(0, -gravity / 4, 0));
@@ -76,6 +86,15 @@ public final class Friction {
             double y = playerVelocity.y;
             y += (0.05 * (player.compensatedEntities.getLevitationAmplifier() + 1) - y) * 0.2;
             playerVelocity = new Vec3(playerVelocity.x, y, playerVelocity.z);
+        } else if (!player.isBedrockMovement()
+                && context.getVersion().isOlderThan(ClientVersion.V_1_9)
+                && !player.compensatedWorld.isChunkLoaded(
+                        (int) context.getEnd().x >> 4, (int) context.getEnd().z >> 4)) {
+            // 1.8 EntityLivingBase#moveEntityWithHeading still ticks EmptyChunk.
+            // After moving, it replaces motionY before drag until the column
+            // loads. The chunk lookup casts toward zero, and the Y cutoff is
+            // the legacy world's zero, independent of the modern server's minY.
+            playerVelocity = new Vec3(playerVelocity.x, context.getEnd().y > 0 ? -0.1D : 0.0D, playerVelocity.z);
         } else if (player.compensatedEntities.getEntityInControl().hasGravity) {
             playerVelocity = playerVelocity.subtract(0, gravity, 0);
         }
@@ -117,6 +136,14 @@ public final class Friction {
     }
 
     public static List<Double> getSwimFriction(SimulationContext context) {
+        if (context.getVersion().isOlderThan(ClientVersion.V_1_13)) {
+            float friction = 0.8F;
+            // Vanilla evaluates depth-strider interpolation in float precision.
+            if (context.getDepthStriderLevel() > 0) {
+                friction += (0.54600006F - friction) * context.getDepthStriderLevel() / 3.0F;
+            }
+            return Collections.singletonList((double) friction);
+        }
         boolean skeletonHorse = context.getVehicle() != null && context.getVehicle().type == EntityTypesCompat.SKELETON_HORSE;
         boolean dolphinsGrace = context.getEntities().getPotionLevelForPlayer(PotionEffectType.DOLPHINS_GRACE) != null;
         return getSwimFriction(skeletonHorse, dolphinsGrace, context.getDepthStriderLevel());

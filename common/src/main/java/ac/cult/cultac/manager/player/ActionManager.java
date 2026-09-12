@@ -74,7 +74,8 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         ItemStack heldStack = player.getInventory().getHandItem(hand);
         if (heldStack == null) heldStack = ItemStack.empty();
 
-        this.blocking = heldStack.getType() == Material.SHIELD;
+        this.blocking = heldStack.getType() == Material.SHIELD
+                || (player.getClientVersion().isOlderThan(ClientVersion.V_1_9) && heldStack.getType().name().endsWith("_SWORD"));
 
         if (canStartUsingItem(heldStack)) {
             player.packetStateData.setSlowedByUsingItem(true);
@@ -96,7 +97,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
     private boolean canStartUsingItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()
-                || player.checkManager.getCompensatedCooldown().hasItem(stack)) {
+                || (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9) && player.checkManager.getCompensatedCooldown().hasItem(stack))) {
             return false;
         }
 
@@ -134,6 +135,8 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         // The compact legacy path retained by this fork. These are the baseline
         // items whose use can be proven without guessing projectile inventory.
         Material material = stack.getType();
+        // 1.8 ItemSword#onItemRightClick sets a 72000-tick BLOCK use action.
+        if (version.isOlderThan(ClientVersion.V_1_9) && material.name().endsWith("_SWORD")) return true;
         if (material == Material.SHIELD || material == Material.SPYGLASS || material == Material.GOAT_HORN) {
             return true;
         }
