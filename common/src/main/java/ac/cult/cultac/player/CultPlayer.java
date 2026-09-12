@@ -603,10 +603,16 @@ public class CultPlayer implements GrimUser {
     }
 
     private int nextTransactionId() {
+        boolean legacyAcknowledgement = !isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_17);
         int id;
         boolean used;
         do {
-            id = ThreadLocalRandom.current().nextInt();
+            // ViaBackwards only forwards pre-1.17 pings as inventory acknowledgements
+            // when the id fits a signed short. Otherwise it replies itself, before the
+            // client processes the preceding packets, invalidating our transaction proof.
+            id = legacyAcknowledgement
+                    ? ThreadLocalRandom.current().nextInt(Short.MIN_VALUE, Short.MAX_VALUE + 1)
+                    : ThreadLocalRandom.current().nextInt();
             used = false;
             for (SentTransaction sent : transactionsSent) used |= sent.id() == id;
             for (TrackedTransaction pending : transactionsPendingSend.values()) used |= pending.id() == id;
