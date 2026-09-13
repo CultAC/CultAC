@@ -1,0 +1,118 @@
+# CultAC-specific configuration.
+cult:
+  checks:
+    bedrock-movement:
+      # Flag when the Bedrock validation offset reaches this value.
+      # Includes vertical movement error and excess horizontal input.
+      position-flag-threshold: 0.001
+
+      # Currently shown in diagnostics only; this value does not trigger flags.
+      velocity-flag-threshold: 0.001
+
+      # Allow corrective setbacks for Bedrock players.
+      # Currently applied when the player connects; changes require reconnecting.
+      enable-setbacks: true
+
+    fair-reach:
+      # Timing variation around FairReach's 50 ms tracking interval.
+      # Measured in milliseconds; 15 gives a 35–65 ms window.
+      max-position-packet-jitter-ms: 15
+
+      # Maximum wait before applying a target's position update, in milliseconds.
+      # Updates acknowledged by the client are applied sooner.
+      max-ping-compensation-ms: 300
+
+      # Cancel attacks on players beyond this distance from their
+      # nearest possible hitbox, in blocks.
+      max-reach: 3.1
+
+    autoclicker-limit:
+      # Average clicks per second above which the autoclicker buffer increases.
+      # Calculated over batches of 50 eligible swings.
+      max-cps: 25
+
+    omni-sprint:
+      # Accumulated OmniSprint buffer required to force a resynchronization.
+      # Each detection adds 1 to the buffer.
+      buffer-threshold: 20
+
+      # Amount removed from the OmniSprint buffer after each prediction.
+      buffer-decay: 0.5
+
+    explosion:
+      # Explosion setbacks also require the check's setback violation
+      # level to be exceeded.
+
+      # Accumulated explosion movement error required to attempt a setback.
+      max-advantage: 1
+
+      # Error from a single explosion required to attempt a setback
+      # without waiting for accumulated error to reach max-advantage.
+      immediate-setback-threshold: 0.01
+
+      # Multiply accumulated error by this after an explosion response
+      # falls below Explosion.threshold. Values nearer 1 clear it more slowly.
+      setback-decay-multiplier: 0.98
+
+      # Maximum accumulated explosion error retained by the check.
+      max-ceiling: 2
+
+  prediction:
+    # Buffer required before stopping item use when movement remains
+    # too fast for item-use slowdown. Values <= 0 disable this handler's
+    # forced item-use cancellation, including its slot-change cancellation.
+    use-item-buffer: 20
+
+    # Maximum transaction ping or movement-packet silence tolerated
+    # while knockback is pending, in milliseconds.
+    # A fixed 50 ms allowance is added before issuing a latency setback.
+    max-knockback-ping-ms: 1000
+
+    # Time without movement packets before checking for a latency setback,
+    # in milliseconds. A setback requires the simulation to show that
+    # remaining stationary was invalid.
+    max-freeze-time-ms: 5000
+
+  networking:
+    # Use packet bundle boundaries to synchronize entity tracking
+    # for reach checks on clients that support bundles.
+    reach-use-bundle-delimiter: true
+
+    # Replace other living entities' reported health with 1 HP.
+    # Preserves the viewer's own health, their current mount, and dead entities.
+    # Viewers with cult.showhealth receive real health values.
+    spoof-health: false
+
+  client-brand:
+    # Remove the first match of this regex from received client brands.
+    # The default removes the trailing " (Velocity)" suffix.
+    # Set to an empty string to disable.
+    strip-pattern: ' \(Velocity\)$'
+
+  diagnostics:
+    # Currently unused: changing this does not automatically enable verbose alerts.
+    auto-enable-verbose: false
+
+    # Write teleport, setback, and resynchronization diagnostics to the console.
+    teleports: false
+
+    bedrock-movement:
+      # Enable detailed Bedrock movement verbose reports and associated
+      # prediction logs, subject to the filters and cooldown below.
+      enabled: false
+
+      # Also report unflagged movements whose validation offset
+      # reaches min-offset.
+      log-clean-offsets: false
+
+      # Minimum validation offset for reporting unflagged movements.
+      # Used only when log-clean-offsets is true.
+      min-offset: 1.0e-7
+
+      # Minimum interval between Bedrock movement reports for each player,
+      # in seconds. Set to 0 to remove the cooldown.
+      cooldown-seconds: 10
+
+# Schema markers. Do not edit.
+config-flavor: V2
+config-version: 1

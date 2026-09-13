@@ -61,7 +61,7 @@ public class ServerStateNoSlow extends CultProcessor implements PostPredictionLi
     @Override
     public void reload() {
         super.reload();
-        bufferThreshold = getConfig().getIntElse("use-item-buffer", 20);
+        bufferThreshold = getConfig().getIntElse("cult.prediction.use-item-buffer", 20);
         if (bufferThreshold <= 0) {
             bufferThreshold = Integer.MAX_VALUE;
         }

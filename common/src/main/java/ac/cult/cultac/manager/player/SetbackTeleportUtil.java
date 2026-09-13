@@ -1313,8 +1313,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
     @Override
     public void reload() {
-        super.reload(); this.freeze = getConfig().getIntElse("max-freeze-time", 5000);
-        this.debug = getConfig().getBooleanElse("debug-teleports", false);
+        super.reload(); this.freeze = getConfig().getIntElse("cult.prediction.max-freeze-time-ms", 5000);
+        this.debug = getConfig().getBooleanElse("cult.diagnostics.teleports", false);
     }
 
 

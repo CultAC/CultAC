@@ -314,7 +314,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     @Override
     public void reload() {
-        useReachBundleDelimiter = getConfig().getBooleanElse("Reach.use-bundle-delimiter", true);
+        useReachBundleDelimiter = getConfig().getBooleanElse("cult.networking.reach-use-bundle-delimiter", true);
     }
 
     @Override

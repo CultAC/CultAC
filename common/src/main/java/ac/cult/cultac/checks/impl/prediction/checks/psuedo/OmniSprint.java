@@ -18,8 +18,8 @@ public class OmniSprint extends Check implements PostPredictionListener {
     public void reload() {
         super.reload();
         buffer = 0;
-        maxBuffer = getConfig().getDoubleElse("omnisprint-buffer-threshold", 20);
-        decay = getConfig().getDoubleElse("omnisprint-decay", 0.5);
+        maxBuffer = getConfig().getDoubleElse("cult.checks.omni-sprint.buffer-threshold", 20);
+        decay = getConfig().getDoubleElse("cult.checks.omni-sprint.buffer-decay", 0.5);
     }
 
     @Override

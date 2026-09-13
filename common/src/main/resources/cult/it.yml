@@ -1,0 +1,118 @@
+# Configurazione specifica di CultAC.
+cult:
+  checks:
+    bedrock-movement:
+      # Segnala una violazione quando lo scostamento di convalida Bedrock raggiunge questo valore.
+      # Include l'errore di movimento verticale e l'eccesso di input orizzontale.
+      position-flag-threshold: 0.001
+
+      # Attualmente compare solo nella diagnostica; questo valore non genera violazioni.
+      velocity-flag-threshold: 0.001
+
+      # Consente le correzioni di posizione per i giocatori Bedrock.
+      # Attualmente viene applicato alla connessione; le modifiche richiedono di riconnettersi.
+      enable-setbacks: true
+
+    fair-reach:
+      # Variazione temporale attorno all'intervallo di tracciamento di 50 ms di FairReach.
+      # In millisecondi; 15 produce una finestra di 35–65 ms.
+      max-position-packet-jitter-ms: 15
+
+      # Attesa massima prima di applicare un aggiornamento della posizione del bersaglio, in millisecondi.
+      # Gli aggiornamenti confermati dal client vengono applicati prima.
+      max-ping-compensation-ms: 300
+
+      # Annulla gli attacchi ai giocatori la cui hitbox più vicina possibile
+      # si trova oltre questa distanza, in blocchi.
+      max-reach: 3.1
+
+    autoclicker-limit:
+      # Media di clic al secondo oltre la quale aumenta l'accumulatore dell'autoclicker.
+      # Calcolata su gruppi di 50 oscillazioni del braccio considerate valide dal controllo.
+      max-cps: 25
+
+    omni-sprint:
+      # Valore accumulato di OmniSprint necessario per forzare una risincronizzazione.
+      # Ogni rilevamento aggiunge 1 all'accumulatore.
+      buffer-threshold: 20
+
+      # Quantità sottratta dall'accumulatore di OmniSprint dopo ogni previsione.
+      buffer-decay: 0.5
+
+    explosion:
+      # Le correzioni di posizione dovute alle esplosioni richiedono anche il superamento
+      # del livello di violazioni previsto dal controllo per applicare una correzione.
+
+      # Errore di movimento accumulato dalle esplosioni necessario per tentare una correzione di posizione.
+      max-advantage: 1
+
+      # Errore di una singola esplosione necessario per tentare una correzione di posizione
+      # senza attendere che l'errore accumulato raggiunga max-advantage.
+      immediate-setback-threshold: 0.01
+
+      # Moltiplica l'errore accumulato per questo valore quando lo scostamento della risposta
+      # a un'esplosione scende sotto Explosion.threshold. Valori vicini a 1 lo riducono più lentamente.
+      setback-decay-multiplier: 0.98
+
+      # Errore massimo accumulato dalle esplosioni conservato dal controllo.
+      max-ceiling: 2
+
+  prediction:
+    # Valore accumulato necessario per interrompere l'uso di un oggetto quando il movimento
+    # rimane troppo veloce rispetto al rallentamento previsto. Valori <= 0 disattivano le
+    # interruzioni forzate di questo gestore, incluse quelle al cambio di slot.
+    use-item-buffer: 20
+
+    # Ping delle transazioni o tempo massimo senza pacchetti di movimento tollerato
+    # mentre è in attesa una spinta di contraccolpo, in millisecondi.
+    # Prima di una correzione per latenza viene aggiunto un margine fisso di 50 ms.
+    max-knockback-ping-ms: 1000
+
+    # Tempo senza pacchetti di movimento prima di valutare una correzione per latenza,
+    # in millisecondi. La correzione richiede che la simulazione mostri che
+    # rimanere fermi non era valido.
+    max-freeze-time-ms: 5000
+
+  networking:
+    # Usa i confini dei gruppi di pacchetti per sincronizzare il tracciamento delle entità
+    # nei controlli di portata sui client che supportano il raggruppamento.
+    reach-use-bundle-delimiter: true
+
+    # Sostituisce la salute comunicata delle altre entità viventi con 1 punto salute.
+    # Mantiene la salute dell'osservatore, della sua cavalcatura attuale e delle entità morte.
+    # Gli osservatori con cult.showhealth ricevono i valori di salute reali.
+    spoof-health: false
+
+  client-brand:
+    # Rimuove la prima corrispondenza di questa espressione regolare dalle marche dei client ricevute.
+    # Per impostazione predefinita rimuove il suffisso finale " (Velocity)".
+    # Usare una stringa vuota per disattivare.
+    strip-pattern: ' \(Velocity\)$'
+
+  diagnostics:
+    # Attualmente inutilizzato: modificare questo valore non attiva automaticamente gli avvisi dettagliati.
+    auto-enable-verbose: false
+
+    # Scrive nella console la diagnostica di teletrasporti, correzioni di posizione e risincronizzazioni.
+    teleports: false
+
+    bedrock-movement:
+      # Attiva i rapporti dettagliati sul movimento Bedrock e i relativi registri di previsione,
+      # soggetti ai filtri e all'intervallo minimo indicati sotto.
+      enabled: false
+
+      # Include anche i movimenti senza violazioni il cui scostamento di convalida
+      # raggiunge min-offset.
+      log-clean-offsets: false
+
+      # Scostamento di convalida minimo per segnalare movimenti senza violazioni.
+      # Usato solo quando log-clean-offsets è true.
+      min-offset: 1.0e-7
+
+      # Intervallo minimo tra i rapporti di movimento Bedrock per ciascun giocatore, in secondi.
+      # Impostare 0 per eliminare l'attesa.
+      cooldown-seconds: 10
+
+# Indicatori dello schema. Non modificare.
+config-flavor: V2
+config-version: 1

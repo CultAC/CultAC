@@ -29,6 +29,6 @@ public class AutoclickerLimit extends AutoClickCheck {
 
     @Override
     public void onReload(@NotNull ConfigManager config) {
-        maxCps = config.getDoubleElse("max-cps", 25);
+        maxCps = config.getDoubleElse("cult.checks.autoclicker-limit.max-cps", 25);
     }
 }

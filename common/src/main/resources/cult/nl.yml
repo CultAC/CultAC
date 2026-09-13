@@ -1,0 +1,118 @@
+# CultAC-specifieke configuratie.
+cult:
+  checks:
+    bedrock-movement:
+      # Meld een overtreding zodra de Bedrock-validatieafwijking deze waarde bereikt.
+      # Omvat verticale bewegingsfouten en te grote horizontale invoer.
+      position-flag-threshold: 0.001
+
+      # Wordt momenteel alleen in diagnostiek weergegeven; deze waarde veroorzaakt geen overtredingsmeldingen.
+      velocity-flag-threshold: 0.001
+
+      # Sta positiecorrecties voor Bedrock-spelers toe.
+      # Wordt momenteel bij het verbinden toegepast; wijzigingen vereisen opnieuw verbinden.
+      enable-setbacks: true
+
+    fair-reach:
+      # Tijdsvariatie rond het volginterval van 50 ms van FairReach.
+      # In milliseconden; 15 geeft een tijdvenster van 35–65 ms.
+      max-position-packet-jitter-ms: 15
+
+      # Maximale wachttijd voordat een positiewijziging van het doelwit wordt toegepast, in milliseconden.
+      # Door de client bevestigde wijzigingen worden eerder toegepast.
+      max-ping-compensation-ms: 300
+
+      # Annuleer aanvallen op spelers als hun dichtstbijzijnde mogelijke hitbox
+      # verder dan deze afstand ligt, in blokken.
+      max-reach: 3.1
+
+    autoclicker-limit:
+      # Gemiddeld aantal klikken per seconde waarboven de autoclickerbuffer toeneemt.
+      # Berekend over groepen van 50 meegetelde armzwaaien.
+      max-cps: 25
+
+    omni-sprint:
+      # Opgebouwde OmniSprint-buffer die nodig is om hersynchronisatie af te dwingen.
+      # Elke detectie verhoogt de buffer met 1.
+      buffer-threshold: 20
+
+      # Hoeveelheid die na elke voorspelling van de OmniSprint-buffer wordt afgetrokken.
+      buffer-decay: 0.5
+
+    explosion:
+      # Positiecorrecties door explosies vereisen ook dat het overtredingsniveau
+      # voor positiecorrecties van deze controle wordt overschreden.
+
+      # Opgebouwde bewegingsfout door explosies die nodig is om een positiecorrectie te proberen.
+      max-advantage: 1
+
+      # Fout van één explosie die nodig is om een positiecorrectie te proberen,
+      # zonder te wachten tot de opgebouwde fout max-advantage bereikt.
+      immediate-setback-threshold: 0.01
+
+      # Vermenigvuldig de opgebouwde fout met deze waarde zodra de afwijking van een
+      # explosiereactie onder Explosion.threshold komt. Waarden dichter bij 1 bouwen de fout langzamer af.
+      setback-decay-multiplier: 0.98
+
+      # Maximale opgebouwde explosiefout die de controle bewaart.
+      max-ceiling: 2
+
+  prediction:
+    # Benodigde buffer voordat voorwerpgebruik wordt gestopt als de beweging te snel
+    # blijft voor de vertraging tijdens gebruik. Waarden <= 0 schakelen de gedwongen
+    # gebruiksannulering van deze handler uit, ook bij het wisselen van een slot.
+    use-item-buffer: 20
+
+    # Maximaal toegestane transactieping of tijd zonder bewegingspakketten terwijl
+    # terugslag in behandeling is, in milliseconden.
+    # Voor een positiecorrectie wegens vertraging wordt een vaste marge van 50 ms toegevoegd.
+    max-knockback-ping-ms: 1000
+
+    # Tijd zonder bewegingspakketten voordat een positiecorrectie wegens vertraging
+    # wordt overwogen, in milliseconden. De simulatie moet aantonen dat stilstaan
+    # ongeldig was voordat een correctie wordt toegepast.
+    max-freeze-time-ms: 5000
+
+  networking:
+    # Gebruik pakketbundelgrenzen om het volgen van entiteiten te synchroniseren
+    # voor bereikcontroles op clients die bundels ondersteunen.
+    reach-use-bundle-delimiter: true
+
+    # Vervang de verzonden gezondheid van andere levende entiteiten door 1 HP.
+    # Behoud de eigen gezondheid van de kijker, diens huidige rijdier en dode entiteiten.
+    # Kijkers met cult.showhealth ontvangen de werkelijke gezondheidswaarden.
+    spoof-health: false
+
+  client-brand:
+    # Verwijder de eerste overeenkomst van deze reguliere expressie uit ontvangen clientmerken.
+    # Standaard wordt het achtervoegsel " (Velocity)" verwijderd.
+    # Gebruik een lege tekenreeks om dit uit te schakelen.
+    strip-pattern: ' \(Velocity\)$'
+
+  diagnostics:
+    # Momenteel ongebruikt: deze waarde wijzigen schakelt uitgebreide meldingen niet automatisch in.
+    auto-enable-verbose: false
+
+    # Schrijf diagnostiek over teleportaties, positiecorrecties en hersynchronisatie naar de console.
+    teleports: false
+
+    bedrock-movement:
+      # Schakel uitgebreide Bedrock-bewegingsrapporten en bijbehorende voorspellingslogboeken in,
+      # met de onderstaande filters en minimale wachttijd.
+      enabled: false
+
+      # Rapporteer ook bewegingen zonder overtreding waarvan de validatieafwijking
+      # min-offset bereikt.
+      log-clean-offsets: false
+
+      # Minimale validatieafwijking voor het rapporteren van bewegingen zonder overtreding.
+      # Wordt alleen gebruikt als log-clean-offsets true is.
+      min-offset: 1.0e-7
+
+      # Minimale tijd tussen Bedrock-bewegingsrapporten per speler, in seconden.
+      # Stel in op 0 om de wachttijd te verwijderen.
+      cooldown-seconds: 10
+
+# Schemamarkeringen. Niet wijzigen.
+config-flavor: V2
+config-version: 1

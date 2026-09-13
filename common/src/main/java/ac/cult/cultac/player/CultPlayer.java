@@ -920,7 +920,7 @@ public class CultPlayer implements GrimUser {
     public void onReload() {
         ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
         spamThreshold = config.getIntElse("packet-spam-threshold", 100);
-        spoofHealth = config.getBooleanElse("spoof-health", false);
+        spoofHealth = config.getBooleanElse("cult.networking.spoof-health", false);
     }
 
     // TODO: Create a configurable timer for this

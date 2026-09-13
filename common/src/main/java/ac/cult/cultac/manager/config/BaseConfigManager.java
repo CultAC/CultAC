@@ -48,7 +48,7 @@ public class BaseConfigManager {
     private boolean verboseAutoEnable = false;
     @Getter
     private int maxPingKnockback = 1000;
-    // client-brand.remove regex; null when disabled (empty key)
+    // cult.client-brand.strip-pattern regex; null when disabled (empty key)
     private Pattern brandRemover = null;
 
     // Bedrock movement reporting and tolerance options.
@@ -107,11 +107,11 @@ public class BaseConfigManager {
         disconnectBlacklistedForge = config.getStringElse("disconnect.blacklisted-forge",
                 "<red>Your forge version is blacklisted due to inbuilt reach hacks.<newline><gold>Versions affected: 1.18.2-1.19.3<newline><newline><red>Please see https://github.com/MinecraftForge/MinecraftForge/issues/9309.");
         disablePongCancelling = config.getBooleanElse("disable-pong-cancelling", false);
-        verboseAutoEnable = config.getBooleanElse("verbose.auto-enable", false);
-        maxPingKnockback = config.getIntElse("max-ping-taking-knockback", 1000);
+        verboseAutoEnable = config.getBooleanElse("cult.diagnostics.auto-enable-verbose", false);
+        maxPingKnockback = config.getIntElse("cult.prediction.max-knockback-ping-ms", 1000);
 
         // owner-authored config semantics: strip e.g. the " (Velocity)" suffix from brands
-        String brandRegex = config.getStringElse("client-brand.remove", " \\(Velocity\\)$");
+        String brandRegex = config.getStringElse("cult.client-brand.strip-pattern", " \\(Velocity\\)$");
         if (!brandRegex.isEmpty()) {
             try {
                 brandRemover = Pattern.compile(brandRegex);
@@ -124,13 +124,13 @@ public class BaseConfigManager {
         int configuredUpdatePermissionTicks = config.getIntElse("update-permission-ticks", -1);
         updatePermissionTicks = configuredUpdatePermissionTicks <= 0 ? -1 : configuredUpdatePermissionTicks;
 
-        verboseBedrockMovement = config.getBooleanElse("verbose.bedrock-movement.enabled", false);
-        verboseBedrockMovementLogCleanOffsets = config.getBooleanElse("verbose.bedrock-movement.log-clean-offsets", false);
-        verboseBedrockMovementMinOffset = nonNegativeElse(config, "verbose.bedrock-movement.min-offset", 1.0E-7D);
-        verboseBedrockMovementCooldownSeconds = nonNegativeElse(config, "verbose.bedrock-movement.cooldown-seconds", 10.0D);
-        bedrockMovementPositionFlagThreshold = nonNegativeElse(config, "bedrock-movement.position-flag-threshold", 0.001D);
-        bedrockMovementVelocityFlagThreshold = nonNegativeElse(config, "bedrock-movement.velocity-flag-threshold", 0.001D);
-        bedrockMovementSetbacksEnabled = config.getBooleanElse("bedrock-movement.enable-setbacks", true);
+        verboseBedrockMovement = config.getBooleanElse("cult.diagnostics.bedrock-movement.enabled", false);
+        verboseBedrockMovementLogCleanOffsets = config.getBooleanElse("cult.diagnostics.bedrock-movement.log-clean-offsets", false);
+        verboseBedrockMovementMinOffset = nonNegativeElse(config, "cult.diagnostics.bedrock-movement.min-offset", 1.0E-7D);
+        verboseBedrockMovementCooldownSeconds = nonNegativeElse(config, "cult.diagnostics.bedrock-movement.cooldown-seconds", 10.0D);
+        bedrockMovementPositionFlagThreshold = nonNegativeElse(config, "cult.checks.bedrock-movement.position-flag-threshold", 0.001D);
+        bedrockMovementVelocityFlagThreshold = nonNegativeElse(config, "cult.checks.bedrock-movement.velocity-flag-threshold", 0.001D);
+        bedrockMovementSetbacksEnabled = config.getBooleanElse("cult.checks.bedrock-movement.enable-setbacks", true);
     }
 
     // ran on start, can be used to handle things that can't be done while loading

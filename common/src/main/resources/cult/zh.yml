@@ -1,0 +1,114 @@
+# CultAC 专属配置。
+cult:
+  checks:
+    bedrock-movement:
+      # Bedrock 验证偏差达到此值时记录违规。
+      # 包含垂直移动误差和超出允许范围的水平输入。
+      position-flag-threshold: 0.001
+
+      # 目前仅显示在诊断信息中；此值不会触发违规。
+      velocity-flag-threshold: 0.001
+
+      # 允许对 Bedrock 玩家进行位置纠正。
+      # 目前在玩家连接时应用；修改后需要重新连接。
+      enable-setbacks: true
+
+    fair-reach:
+      # FairReach 的 50 毫秒跟踪更新间隔所允许的时间浮动。
+      # 单位为毫秒；设为 15 时，更新时间窗口为 35～65 毫秒。
+      max-position-packet-jitter-ms: 15
+
+      # 应用目标位置更新前的最长等待时间，单位为毫秒。
+      # 客户端已确认接收的更新会提前应用。
+      max-ping-compensation-ms: 300
+
+      # 攻击目标为玩家时，若其最近可能的命中箱距离超过此值，则取消攻击。
+      # 单位为方块。
+      max-reach: 3.1
+
+    autoclicker-limit:
+      # 平均每秒点击次数超过此值时，自动点击检测的累计值会增加。
+      # 每组 50 次符合检测条件的挥手动作计算一次。
+      max-cps: 25
+
+    omni-sprint:
+      # 触发强制重新同步所需的 OmniSprint 累计值。
+      # 每次检测到异常时增加 1。
+      buffer-threshold: 20
+
+      # 每次移动预测完成后，从 OmniSprint 累计值中扣除的数值。
+      buffer-decay: 0.5
+
+    explosion:
+      # 因爆炸进行位置纠正时，还必须超过该检测设置的位置纠正违规等级。
+
+      # 尝试进行位置纠正所需的爆炸移动累计误差。
+      max-advantage: 1
+
+      # 单次爆炸误差达到此值时即可尝试位置纠正，
+      # 无需等待累计误差达到 max-advantage。
+      immediate-setback-threshold: 0.01
+
+      # 当爆炸响应的误差低于 Explosion.threshold 时，将累计误差乘以此值。
+      # 越接近 1，累计误差消退得越慢。
+      setback-decay-multiplier: 0.98
+
+      # 该检测保留的爆炸累计误差上限。
+      max-ceiling: 2
+
+  prediction:
+    # 使用物品时，如果移动持续快于应有的减速效果，累计值达到此值后会停止物品使用。
+    # 设为 <= 0 可禁用此处理器强制停止物品使用的行为，
+    # 包括切换快捷栏槽位时强制停止使用。
+    use-item-buffer: 20
+
+    # 等待击退响应期间，允许的最大事务确认延迟或未收到移动数据包的时长，单位为毫秒。
+    # 因延迟进行位置纠正前，会额外给予固定的 50 毫秒余量。
+    max-knockback-ping-ms: 1000
+
+    # 未收到移动数据包达到此时长后，检查是否需要因延迟进行位置纠正，单位为毫秒。
+    # 只有模拟结果表明玩家不可能保持静止时，才会进行纠正。
+    max-freeze-time-ms: 5000
+
+  networking:
+    # 对于支持数据包捆绑的客户端，使用捆绑包边界同步实体跟踪，
+    # 供攻击距离检测使用。
+    reach-use-bundle-delimiter: true
+
+    # 将发送给玩家的其他存活实体生命值替换为 1 点生命值。
+    # 保留接收者自身、当前坐骑以及死亡实体的真实生命值。
+    # 拥有 cult.showhealth 权限的接收者会收到真实生命值。
+    spoof-health: false
+
+  client-brand:
+    # 从接收到的客户端品牌字符串中删除此正则表达式的第一个匹配项。
+    # 默认删除末尾的 " (Velocity)" 后缀。
+    # 设为空字符串可禁用。
+    strip-pattern: ' \(Velocity\)$'
+
+  diagnostics:
+    # 目前未使用：修改此值不会自动启用详细警报。
+    auto-enable-verbose: false
+
+    # 将传送、位置纠正和重新同步的诊断信息写入控制台。
+    teleports: false
+
+    bedrock-movement:
+      # 启用详细的 Bedrock 移动报告及相关预测日志，
+      # 并遵循下方的筛选条件和最小报告间隔。
+      enabled: false
+
+      # 同时报告未触发违规但验证偏差达到 min-offset 的移动。
+      log-clean-offsets: false
+
+      # 报告未触发违规的移动所需的最小验证偏差。
+      # 仅在 log-clean-offsets 为 true 时使用。
+      min-offset: 1.0e-7
+
+      # 每位玩家的 Bedrock 移动报告之间的最小间隔，单位为秒。
+      # 设为 0 可取消等待间隔。
+      cooldown-seconds: 10
+
+# 配置架构标记。请勿修改。
+config-flavor: V2
+config-version: 1

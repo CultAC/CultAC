@@ -42,6 +42,12 @@ import java.util.Map;
 @UtilityClass
 public final class CultConfigSpecs {
 
+    /** Cult-only settings in {@code cult.yml}; versioned independently of the upstream files. */
+    public static @NotNull ConfigUpdater.Spec cultSettings() {
+        return ConfigUpdater.Spec.builder("/cult/", 1, ConfigUpdater.ConfigFlavor.V2)
+                .build();
+    }
+
     /**
      * Spec for the main {@code config.yml}.
      *

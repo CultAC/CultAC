@@ -22,6 +22,11 @@ public class ExplosionHandler extends PacketModHandler {
             .setback(10)
             .build()); }
 
+    @Override
+    protected String getAdvantageConfigPath() {
+        return "cult.checks.explosion";
+    }
+
     @CultPacketHandler
     public void onExplode(PacketSendEvent event, CultPlayer player, ClientboundExplodePacket packet) {
         // The player will be in a vehicle when this packet arrives, don't bother

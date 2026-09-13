@@ -27,8 +27,12 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         config = new DynamicConfig();
     }
 
+    File getDataFolder() {
+        return CultAPI.INSTANCE.getGrimPlugin().getDataFolder();
+    }
+
     private File getConfigFile(String path) {
-        return new File(CultAPI.INSTANCE.getGrimPlugin().getDataFolder(), path);
+        return new File(getDataFolder(), path);
     }
 
     /** Backend ids whose per-backend yml gets loaded + auto-updated alongside the user-facing files. */
@@ -43,6 +47,7 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         // ctx.otherFile(...). Open-ended punishments use only the Cult chain below.
         Map<File, ConfigUpdater.Spec> batch = new LinkedHashMap<>();
         batch.put(getConfigFile("config.yml"), CultConfigSpecs.mainConfig());
+        batch.put(getConfigFile("cult.yml"), CultConfigSpecs.cultSettings());
         batch.put(getConfigFile("discord.yml"), CultConfigSpecs.discord());
         batch.put(getConfigFile("messages.yml"), CultConfigSpecs.messages());
         batch.put(getConfigFile("database.yml"), CultConfigSpecs.database());
@@ -67,10 +72,11 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
 
     @Override
     public void reload() {
-        CultAPI.INSTANCE.getGrimPlugin().getDataFolder().mkdirs();
+        getDataFolder().mkdirs();
         if (!initialized) {
             initialized = true;
             config.addSource(CultAPI.class, "config", getConfigFile("config.yml"));
+            config.addSource(CultAPI.class, "cult", getConfigFile("cult.yml"));
             config.addSource(CultAPI.class, "messages", getConfigFile("messages.yml"));
             config.addSource(CultAPI.class, "discord", getConfigFile("discord.yml"));
             config.addSource(CultAPI.class, "punishments", getConfigFile("punishments.yml"));

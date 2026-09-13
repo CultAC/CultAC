@@ -1,0 +1,118 @@
+# Configurație specifică CultAC.
+cult:
+  checks:
+    bedrock-movement:
+      # Semnalează o abatere când eroarea de validare Bedrock atinge această valoare.
+      # Include eroarea deplasării verticale și comenzile orizontale care depășesc limita permisă.
+      position-flag-threshold: 0.001
+
+      # În prezent apare doar în diagnosticare; această valoare nu declanșează abateri.
+      velocity-flag-threshold: 0.001
+
+      # Permite corectarea poziției jucătorilor Bedrock.
+      # În prezent se aplică la conectare; modificările necesită reconectarea.
+      enable-setbacks: true
+
+    fair-reach:
+      # Variația de timp în jurul intervalului de urmărire FairReach de 50 ms.
+      # În milisecunde; valoarea 15 oferă o fereastră de 35–65 ms.
+      max-position-packet-jitter-ms: 15
+
+      # Așteptarea maximă înainte de aplicarea unei actualizări a poziției țintei, în milisecunde.
+      # Actualizările confirmate de client sunt aplicate mai devreme.
+      max-ping-compensation-ms: 300
+
+      # Anulează atacurile asupra jucătorilor al căror cel mai apropiat hitbox posibil
+      # se află dincolo de această distanță, în blocuri.
+      max-reach: 3.1
+
+    autoclicker-limit:
+      # Media de clicuri pe secundă peste care crește contorul de detectare a autoclickerului.
+      # Se calculează pe grupuri de 50 de mișcări ale brațului luate în considerare de verificare.
+      max-cps: 25
+
+    omni-sprint:
+      # Valoarea acumulată de OmniSprint necesară pentru a forța resincronizarea.
+      # Fiecare detectare adaugă 1 la contor.
+      buffer-threshold: 20
+
+      # Cantitatea scăzută din contorul OmniSprint după fiecare predicție.
+      buffer-decay: 0.5
+
+    explosion:
+      # Corectările de poziție cauzate de explozii necesită și depășirea nivelului
+      # de abateri stabilit pentru corectare de această verificare.
+
+      # Eroarea de mișcare acumulată din explozii necesară pentru a încerca o corectare a poziției.
+      max-advantage: 1
+
+      # Eroarea unei singure explozii necesară pentru a încerca o corectare a poziției
+      # fără a aștepta ca eroarea acumulată să atingă max-advantage.
+      immediate-setback-threshold: 0.01
+
+      # Înmulțește eroarea acumulată cu această valoare când eroarea răspunsului la o explozie
+      # scade sub Explosion.threshold. Valorile apropiate de 1 o reduc mai lent.
+      setback-decay-multiplier: 0.98
+
+      # Eroarea acumulată maximă din explozii păstrată de verificare.
+      max-ceiling: 2
+
+  prediction:
+    # Valoarea acumulată necesară pentru a opri folosirea unui obiect când mișcarea rămâne
+    # prea rapidă față de încetinirea așteptată. Valorile <= 0 dezactivează opririle forțate
+    # ale folosirii obiectelor de către acest modul, inclusiv la schimbarea slotului.
+    use-item-buffer: 20
+
+    # Pingul maxim al tranzacțiilor sau timpul maxim tolerat fără pachete de mișcare
+    # cât timp se așteaptă reacția la respingere, în milisecunde.
+    # Se adaugă o marjă fixă de 50 ms înainte de corectarea poziției din cauza latenței.
+    max-knockback-ping-ms: 1000
+
+    # Timpul fără pachete de mișcare înainte de evaluarea unei corectări cauzate de latență,
+    # în milisecunde. Corectarea necesită ca simularea să arate că rămânerea
+    # pe loc era nevalidă.
+    max-freeze-time-ms: 5000
+
+  networking:
+    # Folosește limitele grupurilor de pachete pentru sincronizarea urmăririi entităților
+    # la verificările razei de atac, pe clienții care acceptă gruparea.
+    reach-use-bundle-delimiter: true
+
+    # Înlocuiește sănătatea transmisă a altor entități vii cu 1 punct de sănătate.
+    # Păstrează sănătatea observatorului, a entității pe care o călărește și a entităților moarte.
+    # Observatorii cu cult.showhealth primesc valorile reale de sănătate.
+    spoof-health: false
+
+  client-brand:
+    # Elimină prima potrivire a acestei expresii regulate din identificatorii de client primiți.
+    # Implicit elimină sufixul final " (Velocity)".
+    # Folosește un șir gol pentru dezactivare.
+    strip-pattern: ' \(Velocity\)$'
+
+  diagnostics:
+    # În prezent nefolosit: modificarea acestei valori nu activează automat alertele detaliate.
+    auto-enable-verbose: false
+
+    # Scrie în consolă diagnosticele pentru teleportări, corectări de poziție și resincronizări.
+    teleports: false
+
+    bedrock-movement:
+      # Activează rapoarte detaliate despre mișcarea Bedrock și jurnalele de predicție asociate,
+      # conform filtrelor și intervalului minim de mai jos.
+      enabled: false
+
+      # Raportează și mișcările fără abateri a căror eroare de validare
+      # atinge min-offset.
+      log-clean-offsets: false
+
+      # Eroarea minimă de validare pentru raportarea mișcărilor fără abateri.
+      # Se folosește doar când log-clean-offsets este true.
+      min-offset: 1.0e-7
+
+      # Intervalul minim dintre rapoartele de mișcare Bedrock pentru fiecare jucător, în secunde.
+      # Setează 0 pentru a elimina timpul de așteptare.
+      cooldown-seconds: 10
+
+# Marcaje ale schemei. Nu modifica.
+config-flavor: V2
+config-version: 1

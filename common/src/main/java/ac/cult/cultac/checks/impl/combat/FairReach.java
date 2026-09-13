@@ -175,9 +175,9 @@ public class FairReach extends Check implements CheckListener {
     @Override
     public void reload() {
         super.reload();
-        max_position_packet_jitter = getConfig().getIntElse("FairReach.max_position_packet_jitter", 15);
-        max_ping_compensation = getConfig().getIntElse("FairReach.max_ping_compensation", 300);
-        max_reach = getConfig().getDoubleElse("FairReach.max_reach", 3.1);
+        max_position_packet_jitter = getConfig().getIntElse("cult.checks.fair-reach.max-position-packet-jitter-ms", 15);
+        max_ping_compensation = getConfig().getIntElse("cult.checks.fair-reach.max-ping-compensation-ms", 300);
+        max_reach = getConfig().getDoubleElse("cult.checks.fair-reach.max-reach", 3.1);
     }
 
     enum TickingStatus {

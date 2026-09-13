@@ -1,0 +1,118 @@
+# CultAC'ye özgü yapılandırma.
+cult:
+  checks:
+    bedrock-movement:
+      # Bedrock doğrulama sapması bu değere ulaştığında ihlal bildirir.
+      # Dikey hareket hatasını ve izin verilenden fazla yatay girdiyi kapsar.
+      position-flag-threshold: 0.001
+
+      # Şu anda yalnızca tanılama çıktısında gösterilir; bu değer ihlal oluşturmaz.
+      velocity-flag-threshold: 0.001
+
+      # Bedrock oyuncuları için konum düzeltmelerine izin verir.
+      # Şu anda bağlantı kurulurken uygulanır; değişiklikler için yeniden bağlanmak gerekir.
+      enable-setbacks: true
+
+    fair-reach:
+      # FairReach'in 50 ms'lik takip aralığı çevresindeki zaman değişimi.
+      # Milisaniye cinsindendir; 15 değeri 35–65 ms'lik bir aralık oluşturur.
+      max-position-packet-jitter-ms: 15
+
+      # Hedefin konum güncellemesini uygulamadan önce beklenecek en uzun süre, milisaniye cinsinden.
+      # İstemcinin onayladığı güncellemeler daha erken uygulanır.
+      max-ping-compensation-ms: 300
+
+      # Oyuncuların mümkün olan en yakın vuruş kutusuna uzaklık bu değeri aştığında
+      # saldırıları iptal eder. Birimi bloktur.
+      max-reach: 3.1
+
+    autoclicker-limit:
+      # Aşıldığında otomatik tıklayıcı tespit birikimini artıran ortalama saniyelik tıklama sayısı.
+      # Kontrolün dikkate aldığı 50 kol sallama hareketinden oluşan gruplar üzerinden hesaplanır.
+      max-cps: 25
+
+    omni-sprint:
+      # Yeniden eşitlemeyi zorlamak için gereken birikmiş OmniSprint değeri.
+      # Her tespit birikime 1 ekler.
+      buffer-threshold: 20
+
+      # Her tahminden sonra OmniSprint birikiminden çıkarılan miktar.
+      buffer-decay: 0.5
+
+    explosion:
+      # Patlamadan kaynaklanan konum düzeltmeleri için kontrolün konum düzeltme
+      # amacıyla belirlenen ihlal seviyesinin de aşılması gerekir.
+
+      # Konum düzeltmeyi denemek için gereken birikmiş patlama hareket hatası.
+      max-advantage: 1
+
+      # Birikmiş hatanın max-advantage değerine ulaşmasını beklemeden konum düzeltmeyi
+      # denemek için gereken tek bir patlamanın hata değeri.
+      immediate-setback-threshold: 0.01
+
+      # Patlamaya verilen tepkideki sapma Explosion.threshold değerinin altına düştüğünde
+      # birikmiş hatayı bu değerle çarpar. 1'e yakın değerler hatayı daha yavaş azaltır.
+      setback-decay-multiplier: 0.98
+
+      # Kontrolün sakladığı en yüksek birikmiş patlama hatası.
+      max-ceiling: 2
+
+  prediction:
+    # Hareket, eşya kullanırken uygulanması gereken yavaşlamaya göre fazla hızlı kalırsa
+    # eşya kullanımını durdurmak için gereken birikim. <= 0 değerleri bu işleyicinin zorunlu
+    # eşya kullanımı iptallerini, yuva değişimindeki iptaller dahil, devre dışı bırakır.
+    use-item-buffer: 20
+
+    # Geri itmeye tepki beklenirken izin verilen en yüksek işlem onayı gecikmesi veya
+    # hareket paketi alınmadan geçen süre, milisaniye cinsinden.
+    # Gecikme nedeniyle konum düzeltilmeden önce sabit 50 ms ek pay tanınır.
+    max-knockback-ping-ms: 1000
+
+    # Gecikmeden kaynaklanan konum düzeltmesi değerlendirilmeden önce hareket paketi
+    # alınmadan geçebilecek süre, milisaniye cinsinden. Düzeltme için simülasyonun
+    # hareketsiz kalmanın geçersiz olduğunu göstermesi gerekir.
+    max-freeze-time-ms: 5000
+
+  networking:
+    # Paket demetlerini destekleyen istemcilerde erişim mesafesi kontrolleri için
+    # varlık takibini eşitlemek üzere demet sınırlarını kullanır.
+    reach-use-bundle-delimiter: true
+
+    # Diğer canlı varlıkların bildirilen sağlığını 1 sağlık puanıyla değiştirir.
+    # Gözlemcinin kendi sağlığını, o anki bineğini ve ölü varlıkları değiştirmez.
+    # cult.showhealth yetkisine sahip gözlemciler gerçek sağlık değerlerini alır.
+    spoof-health: false
+
+  client-brand:
+    # Alınan istemci marka bilgilerinden bu düzenli ifadenin ilk eşleşmesini kaldırır.
+    # Varsayılan olarak sondaki " (Velocity)" ekini kaldırır.
+    # Devre dışı bırakmak için boş bir metin kullanın.
+    strip-pattern: ' \(Velocity\)$'
+
+  diagnostics:
+    # Şu anda kullanılmıyor: bu değeri değiştirmek ayrıntılı uyarıları otomatik olarak etkinleştirmez.
+    auto-enable-verbose: false
+
+    # Işınlanma, konum düzeltme ve yeniden eşitleme tanılama bilgilerini konsola yazar.
+    teleports: false
+
+    bedrock-movement:
+      # Aşağıdaki filtrelere ve en kısa bekleme süresine göre ayrıntılı Bedrock hareket
+      # raporlarını ve ilgili tahmin günlüklerini etkinleştirir.
+      enabled: false
+
+      # Doğrulama sapması min-offset değerine ulaşan, ihlal olarak işaretlenmemiş
+      # hareketleri de raporlar.
+      log-clean-offsets: false
+
+      # İhlal olarak işaretlenmemiş hareketleri raporlamak için gereken en düşük doğrulama sapması.
+      # Yalnızca log-clean-offsets true olduğunda kullanılır.
+      min-offset: 1.0e-7
+
+      # Her oyuncunun Bedrock hareket raporları arasındaki en kısa süre, saniye cinsinden.
+      # Bekleme süresini kaldırmak için 0 yapın.
+      cooldown-seconds: 10
+
+# Şema işaretçileri. Değiştirmeyin.
+config-flavor: V2
+config-version: 1

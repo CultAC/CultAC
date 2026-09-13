@@ -70,10 +70,15 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     public void reload() {
         super.reload();
         offsetToFlag = getConfig().getDoubleElse(getConfigName() + ".threshold", 0.001);
-        this.maxAdvantage = getConfig().getDoubleElse(getConfigName() + ".max-advantage", 1);
-        this.immediate = getConfig().getDoubleElse(getConfigName() + ".immediate-setback-threshold", 0.01);
-        this.multiplier = getConfig().getDoubleElse(getConfigName() + ".setback-decay-multiplier", 0.98);
-        this.ceiling = getConfig().getDoubleElse(getConfigName() + ".max-ceiling", 2);
+        String advantageConfigPath = getAdvantageConfigPath();
+        this.maxAdvantage = getConfig().getDoubleElse(advantageConfigPath + ".max-advantage", 1);
+        this.immediate = getConfig().getDoubleElse(advantageConfigPath + ".immediate-setback-threshold", 0.01);
+        this.multiplier = getConfig().getDoubleElse(advantageConfigPath + ".setback-decay-multiplier", 0.98);
+        this.ceiling = getConfig().getDoubleElse(advantageConfigPath + ".max-ceiling", 2);
+    }
+
+    protected String getAdvantageConfigPath() {
+        return getConfigName();
     }
 
     private void handleAllDoneWithVels() {
