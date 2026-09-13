@@ -8,12 +8,10 @@ with a raw-NMS (non-PacketEvents) networking pipeline, replaces the 2.0 predicti
 with the 3.0 simulation engine written by DefineOutside in early 2023, and adds a dedicated Bedrock simulation engine bridged
 through Geyser.
 
-- Paper
-- Java client support: 1.21.2+ via ViaVersion. 1.8-1.21.1 clients are "best effort" supported.
-- Bedrock client support: via Geyser/Floodgate. Bedrock players are simulated by the
-  Bedrock engine; they are no longer exempt from the anticheat.
+Discord: https://discord.gg/nyeVp7UFau
 
 ## Compatibility
+* Java client support: primarily 1.21.2+, legacy 1.8-1.21.1 clients are deprecated
 * Java 21 or higher
 * Paper 1.21.2+, Spigot is unsupported.
 
@@ -84,6 +82,7 @@ separately; [Geyser's mappings-generator](https://github.com/GeyserMC/mappings-g
 ## What's not done
 * Few additional checks compared to upstream Grim 2.0, the focus is on the bedrock and 3.0 simulation engine
 * Extensive bedrock validation
+* Some bedrock actions such as riptide aren't perfect, and some feature from the most recent versions of the game aren't implemented
 * Validation for non-latest bedrock versions.
 * Validation on a variety of bedrock platforms, the primary target was bedrock clients running on Android via Linux
 * Validation for bedrock block placing, breaking, interactions etc, especially on touchscreen
