@@ -1023,9 +1023,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             queueVehicleProtocolResync(transaction, resyncState);
         }
         player.latencyUtils.addRealTimeTask(transaction, () -> {
-            player.compensatedEntities.vehicles.applyVehiclePassengers(vehicleId, passengers);
+            boolean applied = player.compensatedEntities.vehicles.applyVehiclePassengers(vehicleId, passengers);
             if (mountsLocalPlayer) {
                 player.vehicleData.wasVehicleSwitch = true;
+                if (applied) player.getSetbackTeleportUtil().onVehicleMount(transaction);
             }
             if (resyncState != null) {
                 player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(

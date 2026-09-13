@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollision;
@@ -21,13 +22,18 @@ final class BedrockCollisionClipper {
         Vec3d requestedMove,
         List<BlockCollision> obstacles
     ) {
+        return clip(moving, requestedMove, obstacles, BedrockCoordinateFrame.IDENTITY);
+    }
+
+    static ClipResult clip(WorldCollisionBox moving, Vec3d requestedMove, List<BlockCollision> obstacles,
+                           BedrockCoordinateFrame frame) {
         FloatMove move = FloatMove.from(requestedMove);
         Optional<PlacedBlockCollision> yCollisionBlock = Optional.empty();
         // The vanilla swept-move consumes shapes in reverse insertion
         // order and moves the actor only after the phase.
         for (int index = obstacles.size() - 1; index >= 0; index--) {
             BlockCollision obstacle = obstacles.get(index);
-            AabbClip clip = clipCollide(obstacle.box(), moving, move);
+            AabbClip clip = clipCollide(obstacle.box(), moving, move, frame);
             FloatMove clippedMove = clip.penetration() <= MAX_DEPENETRATION
                 ? clip.depenetratedMove()
                 : clip.normalMove();
@@ -42,17 +48,18 @@ final class BedrockCollisionClipper {
     private static AabbClip clipCollide(
         WorldCollisionBox obstacle,
         WorldCollisionBox moving,
-        FloatMove requestedMove
+        FloatMove requestedMove,
+        BedrockCoordinateFrame frame
     ) {
-        if (f(obstacle.maxX()) <= f(obstacle.minX())
+        if (frame.localX(obstacle.maxX()) <= frame.localX(obstacle.minX())
             || f(obstacle.maxY()) <= f(obstacle.minY())
-            || f(obstacle.maxZ()) <= f(obstacle.minZ())) {
+            || frame.localZ(obstacle.maxZ()) <= frame.localZ(obstacle.minZ())) {
             return AabbClip.unchanged(requestedMove);
         }
 
-        AxisOverlap x = axisOverlap(f(obstacle.minX()), f(obstacle.maxX()), f(moving.minX()), f(moving.maxX()));
+        AxisOverlap x = axisOverlap(frame.localX(obstacle.minX()), frame.localX(obstacle.maxX()), frame.localX(moving.minX()), frame.localX(moving.maxX()));
         AxisOverlap y = axisOverlap(f(obstacle.minY()), f(obstacle.maxY()), f(moving.minY()), f(moving.maxY()));
-        AxisOverlap z = axisOverlap(f(obstacle.minZ()), f(obstacle.maxZ()), f(moving.minZ()), f(moving.maxZ()));
+        AxisOverlap z = axisOverlap(frame.localZ(obstacle.minZ()), frame.localZ(obstacle.maxZ()), frame.localZ(moving.minZ()), frame.localZ(moving.maxZ()));
         int separatedAxes = (x.overlapping() ? 0 : 1) + (y.overlapping() ? 0 : 1) + (z.overlapping() ? 0 : 1);
         if (separatedAxes >= 2) {
             return AabbClip.unchanged(requestedMove);

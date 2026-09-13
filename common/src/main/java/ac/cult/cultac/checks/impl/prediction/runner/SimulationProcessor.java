@@ -359,8 +359,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          }
       }
 
-      // Bedrock actions and item-use clocks belong to the actor tick, which still
-      // runs after this rebase. Do not erase them at the teleport boundary.
+      // Bedrock actions and item-use clocks belong to the next actor tick.
+      // Chunk filtering can defer that tick past the teleport acknowledgement.
       if (!this.player.isBedrockMovement()) {
          MovementProfiles.forPlayer(this.player).resetQueuedAuthoredInput(this.player);
       }

@@ -1,5 +1,10 @@
 package ac.cult.cultac.manager.player;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
+import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.CultAPI;
 import ac.grim.grimac.api.event.events.GrimPlayerSetbackEvent;
@@ -68,6 +73,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     // Sync to netty
     public final ConcurrentLinkedDeque<TeleportData> pendingTeleports = new ConcurrentLinkedDeque<>();
     private final ConcurrentLinkedQueue<VehicleTeleport> vehicleTeleports = new ConcurrentLinkedQueue<>();
+    private BedrockCoordinateFrame activeBedrockCoordinateFrame = BedrockCoordinateFrame.IDENTITY;
+
+    public BedrockCoordinateFrame getActiveBedrockCoordinateFrame() { return activeBedrockCoordinateFrame; }
+
     private final AtomicLong bedrockTeleportRevision = new AtomicLong();
 
     public long getBedrockTeleportRevision() {
@@ -166,9 +175,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         // if we are currently blocking offsets, then the player is desync'd in a vehicle and needs to be teleported soon
         final PredictionResult completedPrediction = predictionComplete.getPredictionResult();
         if (completedPrediction != null && completedPrediction.getSetBackData() != null) {
-            // Teleport, let velocity be reset
-            lastKnownGoodPosition = new SetbackPosWithVector(
-                    to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
+            // Geyser/GFP can teleport to client-derived state, including rejected movement.
+            // Its acknowledgement updates the client model, not the authoritative rollback anchor.
+            if (!completedPrediction.getSetBackData().isBedrockTransportOnly()) {
+                lastKnownGoodPosition = new SetbackPosWithVector(
+                        to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
+            }
         } else if ((!player.isBedrockMovement() || profileState != null)
                 && (requiredSetBack == null || requiredSetBack.isComplete()
                 && !blockOffsets && !player.getSetbackTeleportUtil().insideUnloadedChunk())) {
@@ -543,7 +555,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
 
         for (TeleportData teleport : pendingTeleports) {
-            if (teleport.isRotationOnly()) {
+            // This allowance is only for a Java server teleport's generated PosRot echo.
+            // Geyser/GFP corrections can contain client-derived positions and require raw-auth
+            // authorization, including the normal Timer and pending-setback gates.
+            if (teleport.isRotationOnly() || teleport.isBedrockTransportOnly()) {
                 continue;
             }
 
@@ -563,12 +578,64 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         return false;
     }
 
+    /** Resolve only from an already active origin or an emitted, transaction-proven exact local echo. */
+    public BedrockAuthInputFrame resolveBedrockCoordinates(BedrockAuthInputFrame input) {
+        if (!player.playerUUID.equals(input.getPlayerUuid())) return null;
+        BedrockCoordinateFrame frame = activeBedrockCoordinateFrame;
+        if (input.hasRawInputFlag(PlayerAuthInputData.HANDLE_TELEPORT)) {
+            for (TeleportData pending : pendingTeleports) {
+                if (isConfirmedBedrockTeleport(pending)
+                        && sameLocalPacket(pending.getBedrockLocalPacketTarget(), input.getPacketPosition())) {
+                    frame = pending.getBedrockCoordinateFrame();
+                }
+            }
+        }
+        if (!input.hasCoordinateProvenance() && !frame.equals(BedrockCoordinateFrame.IDENTITY)) return null;
+        // The bridge submits unresolved identity frames. Nonidentity provenance (e.g. a replay) must agree
+        // with transport evidence; it can never establish a frame by itself.
+        if (!input.getCoordinateFrame().equals(BedrockCoordinateFrame.IDENTITY)
+                && !input.getCoordinateFrame().equals(frame)) return null;
+        return input.resolveCoordinates(frame);
+    }
+
+    public BedrockMoveFrame resolveBedrockCoordinates(BedrockMoveFrame input) {
+        if (!player.playerUUID.equals(input.playerUuid())) return null;
+        if (!input.coordinateProvenance() && !activeBedrockCoordinateFrame.equals(BedrockCoordinateFrame.IDENTITY)) return null;
+        if (!input.coordinateFrame().equals(BedrockCoordinateFrame.IDENTITY)
+                && !input.coordinateFrame().equals(activeBedrockCoordinateFrame)) return null;
+        return input.resolveCoordinates(activeBedrockCoordinateFrame);
+    }
+
+    private static boolean sameLocalPacket(Vec3 target, Vec3 actual) {
+        return target != null && actual != null && (float) target.x == (float) actual.x
+                && (float) target.y == (float) actual.y && (float) target.z == (float) actual.z;
+    }
+
+    private boolean isConfirmedBedrockTeleport(TeleportData pending) {
+        return !pending.isRotationOnly()
+                && pending.getBedrockTransportRevision() >= 0
+                && (pending.isBedrockOriginConfirmed()
+                    || pending.getBedrockCoordinateFrame().equals(activeBedrockCoordinateFrame))
+                && pending.getBedrockCoordinateFrame().revision() >= activeBedrockCoordinateFrame.revision()
+                && player.lastTransactionReceived.get() >= pending.getTransaction();
+    }
+
+    public TeleportAcceptData acknowledgeBedrockTeleportFrame(BedrockAuthInputFrame frame) {
+        return acknowledgeBedrockTeleportFrame(frame.getPosition(),
+                frame.hasRawInputFlag(PlayerAuthInputData.HANDLE_TELEPORT), frame);
+    }
+
     public TeleportAcceptData acknowledgeBedrockTeleportFrame(Vec3 physicalFeetPosition) {
         return acknowledgeBedrockTeleportFrame(physicalFeetPosition, true);
     }
 
     public TeleportAcceptData acknowledgeBedrockTeleportFrame(Vec3 physicalFeetPosition,
                                                                boolean handlesTeleport) {
+        return acknowledgeBedrockTeleportFrame(physicalFeetPosition, handlesTeleport, null);
+    }
+
+    private TeleportAcceptData acknowledgeBedrockTeleportFrame(Vec3 physicalFeetPosition, boolean handlesTeleport,
+                                                               BedrockAuthInputFrame frame) {
         TeleportAcceptData accepted = new TeleportAcceptData();
         if (!player.isBedrockMovement() || physicalFeetPosition == null || !handlesTeleport) {
             return accepted;
@@ -577,10 +644,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         Vec3 actual = VectorUtils.clampVector(physicalFeetPosition);
         TeleportData matching = null;
         for (TeleportData pending : pendingTeleports) {
-            if (!pending.isRotationOnly()
-                    && pending.getBedrockTransportRevision() >= 0L
-                    && player.lastTransactionReceived.get() >= pending.getTransaction()
-                    && samePosition(VectorUtils.clampVector(pending.getLocation()), actual)) {
+            if (isConfirmedBedrockTeleport(pending)
+                    && (frame == null ? pending.getBedrockCoordinateFrame().equals(BedrockCoordinateFrame.IDENTITY)
+                        : pending.getBedrockCoordinateFrame().equals(frame.getCoordinateFrame()))
+                    && (pending.getBedrockLocalPacketTarget() == null || frame == null
+                        ? samePosition(VectorUtils.clampVector(pending.getLocation()), actual)
+                        : sameLocalPacket(pending.getBedrockLocalPacketTarget(), frame.getPacketPosition()))) {
                 // One HANDLE_TELEPORT acknowledges the latest identical
                 // outbound teleport. Reliable packet order proves that every
                 // earlier identical boundary was processed first, so retaining
@@ -600,13 +669,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         // queue order. This does not relax violation enforcement: a Cult
         // setback's requiredSetBack survives the drop and keeps blocking
         // movement until its own transaction-matching completion.
-        while (pendingTeleports.peek() != null && pendingTeleports.peek() != matching) {
-            TeleportData head = pendingTeleports.peek();
-            if (head.isRotationOnly() || head.getBedrockTransportRevision() < 0L) {
-                break;
-            }
-            pendingTeleports.poll();
-        }
+        long matchedRevision = matching.getBedrockTransportRevision();
+        pendingTeleports.removeIf(pending -> pending.getBedrockTransportRevision() >= 0L
+                && pending.getBedrockTransportRevision() < matchedRevision);
 
         if (!pendingTeleports.remove(matching)) {
             return accepted;
@@ -615,13 +680,36 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         // This is the existing Java teleport proof: its pre-teleport Cult ping
         // has been answered and Geyser supplied the exact Bedrock echo. Consume
         // the echo as a correction boundary without applying movement.
+        activeBedrockCoordinateFrame = matching.getBedrockCoordinateFrame();
         return completeTeleport(matching, actual, true);
+    }
+
+    public void onVehicleMount(int transaction) {
+        if (!player.isBedrockMovement() || player.lastTransactionReceived.get() < transaction || isPendingSetback()) {
+            return;
+        }
+        // A confirmed mount supersedes earlier player positions. Mounted Bedrock auth input
+        // reports the vehicle position, so those player targets cannot receive position echoes.
+        pendingTeleports.removeIf(pending -> {
+            if (pending.isRotationOnly() || pending.isBedrockTransportOnly()
+                    || pending.getTransaction() >= transaction) return false;
+            completeTeleport(pending, pending.getLocation(), false);
+            return true;
+        });
     }
 
     public boolean hasPendingBedrockTransportTeleport() {
         return pendingTeleports.stream().anyMatch(
                 pending -> !pending.isRotationOnly()
                         && pending.getBedrockTransportRevision() >= 0L);
+    }
+
+    public boolean mustAcknowledgeBedrockTransportTeleport() {
+        return pendingTeleports.stream().anyMatch(pending -> !pending.isRotationOnly()
+                && pending.getBedrockTransportRevision() >= 0L
+                && (pending.getBedrockProvenance() != BedrockTeleportProvenance.GFP_REBASE
+                    || pending.isBedrockOriginConfirmed()
+                        && player.lastTransactionReceived.get() >= pending.getTransaction()));
     }
 
     private static boolean samePosition(Vec3 first, Vec3 second) {
@@ -640,7 +728,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                                                 boolean matchedPosition) {
         TeleportAcceptData accepted = new TeleportAcceptData();
         accepted.setMatchedTeleportPosition(matchedPosition);
-        if (requiredSetBack != null
+        if (!teleport.isBedrockTransportOnly() && requiredSetBack != null
                 && requiredSetBack.getTeleportData().getTransaction() == teleport.getTransaction()) {
             blockOffsets = false;
             accepted.setSetback(requiredSetBack);
@@ -1114,12 +1202,32 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     }
 
     public long addImmediateBedrockTransportTeleport(Vec3 physicalFeetPosition, boolean onGround) {
+        return addImmediateBedrockTransportTeleport(physicalFeetPosition, onGround, BedrockCoordinateFrame.IDENTITY,
+                null, BedrockTeleportProvenance.GEYSER, null, player.lastTransactionSent.get());
+    }
+
+    public long addImmediateBedrockTransportTeleport(Vec3 physicalFeetPosition, boolean onGround,
+            BedrockCoordinateFrame frame, Vec3 localPacketTarget, BedrockTeleportProvenance provenance,
+            Integer javaTeleportId, int proofTransaction) {
         long revision = bedrockTeleportRevision.incrementAndGet();
+        // The Geyser write observer runs on a different event loop. Publish the entire
+        // boundary on the player's packet thread before its receipt or later auth input.
+        player.runSafely(() -> registerBedrockTransportTeleport(revision, physicalFeetPosition, onGround,
+                frame, localPacketTarget, provenance, javaTeleportId, proofTransaction));
+        return revision;
+    }
+
+    private void registerBedrockTransportTeleport(long revision, Vec3 physicalFeetPosition, boolean onGround,
+            BedrockCoordinateFrame frame, Vec3 localPacketTarget, BedrockTeleportProvenance provenance,
+            Integer javaTeleportId, int proofTransaction) {
         Vec3 clamped = VectorUtils.clampVector(physicalFeetPosition);
         for (TeleportData pending : pendingTeleports) {
-            if (!pending.isRotationOnly() && pending.getBedrockTransportRevision() < 0L) {
+            if ((localPacketTarget == null || provenance == BedrockTeleportProvenance.JAVA_TELEPORT)
+                    && !pending.isRotationOnly() && pending.getBedrockTransportRevision() < 0L
+                    && (javaTeleportId == null || pending.getTeleportId() == javaTeleportId)) {
                 pending.applyBedrockTransportBoundary(clamped, onGround, revision);
-                return revision;
+                applyBedrockOrigin(pending, frame, localPacketTarget, provenance);
+                return;
             }
         }
 
@@ -1127,13 +1235,16 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         // before Geyser writes the translated Bedrock packet. Packet order,
         // not coordinate proximity, associates the next outbound position
         // boundary with the still-pending required teleport.
-        if (requiredSetBack != null && !requiredSetBack.isComplete()) {
+        if ((localPacketTarget == null || provenance == BedrockTeleportProvenance.JAVA_TELEPORT)
+                && requiredSetBack != null && !requiredSetBack.isComplete()
+                && (javaTeleportId == null || requiredSetBack.getTeleportData().getTeleportId() == javaTeleportId)) {
             TeleportData requiredTeleport = requiredSetBack.getTeleportData();
             TeleportData data = requiredTeleport.copyWithLocation(clamped);
             data.applyBedrockTransportBoundary(clamped, onGround, revision);
             data.setBedrockTransportOnly(false);
+            applyBedrockOrigin(data, frame, localPacketTarget, provenance);
             pendingTeleports.add(data);
-            return revision;
+            return;
         }
 
         // Geyser can author a client-visible position boundary without a Java
@@ -1145,15 +1256,29 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 clamped,
                 new RelativeFlag(0),
                 Vec3.ZERO,
-                player.lastTransactionSent.get(),
+                proofTransaction,
                 0
         );
         data.setPositionOnly(true);
         data.setBedrockOnGround(onGround);
         data.setBedrockTransportOnly(true);
         data.setBedrockTransportRevision(revision);
+        applyBedrockOrigin(data, frame, localPacketTarget, provenance);
         pendingTeleports.add(data);
-        return revision;
+    }
+
+    public void confirmBedrockOrigin(long transportRevision) {
+        for (TeleportData pending : pendingTeleports) {
+            if (pending.getBedrockTransportRevision() == transportRevision) pending.setBedrockOriginConfirmed(true);
+        }
+    }
+
+    private static void applyBedrockOrigin(TeleportData data, BedrockCoordinateFrame frame, Vec3 localPacketTarget,
+                                            BedrockTeleportProvenance provenance) {
+        data.setBedrockOriginConfirmed(localPacketTarget == null);
+        data.setBedrockCoordinateFrame(frame);
+        data.setBedrockLocalPacketTarget(localPacketTarget);
+        data.setBedrockProvenance(provenance);
     }
 
     public void addImmediatePlayerRotationTeleport(RelativeFlag flags, int proofTransaction,

@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
@@ -22,7 +23,12 @@ public final class BedrockCollisionSweep {
         List<BlockCollision> obstacles,
         PlayerDimensionsState playerDimensions
     ) {
-        return sweepAxisOrder(feet, delta, obstacles, playerDimensions);
+        return sweep(feet, delta, obstacles, playerDimensions, BedrockCoordinateFrame.IDENTITY);
+    }
+
+    public static MoveResult sweep(Vec3d feet, Vec3d delta, List<BlockCollision> obstacles,
+                                   PlayerDimensionsState dimensions, BedrockCoordinateFrame frame) {
+        return sweepAxisOrder(feet, delta, obstacles, dimensions, frame);
     }
 
     public static List<BlockCollision> collisionObstacles(BlockCollisionWorld world) {
@@ -30,16 +36,21 @@ public final class BedrockCollisionSweep {
     }
 
     public static WorldCollisionBox playerBox(Vec3d feet, PlayerDimensionsState playerDimensions) {
+        return playerBox(feet, playerDimensions, BedrockCoordinateFrame.IDENTITY);
+    }
+
+    public static WorldCollisionBox playerBox(Vec3d feet, PlayerDimensionsState playerDimensions,
+                                              BedrockCoordinateFrame frame) {
         double radius = PlayerDimensionsState.DEFAULT.equals(playerDimensions)
             ? BedrockBlockCollisionResolver.PLAYER_RADIUS
             : playerDimensions.radius();
         return new WorldCollisionBox(
-            f(feet.x() - radius),
+            frame.roundX(feet.x() - radius),
             f(feet.y()),
-            f(feet.z() - radius),
-            f(feet.x() + radius),
+            frame.roundZ(feet.z() - radius),
+            frame.roundX(feet.x() + radius),
             f(feet.y() + playerDimensions.height()),
-            f(feet.z() + radius)
+            frame.roundZ(feet.z() + radius)
         );
     }
 
@@ -51,9 +62,10 @@ public final class BedrockCollisionSweep {
         Vec3d feet,
         Vec3d delta,
         List<BlockCollision> obstacles,
-        PlayerDimensionsState playerDimensions
+        PlayerDimensionsState playerDimensions,
+        BedrockCoordinateFrame frame
     ) {
-        WorldCollisionBox box = playerBox(feet, playerDimensions);
+        WorldCollisionBox box = playerBox(feet, playerDimensions, frame);
         Vec3d requested = new Vec3d(f(delta.x()), f(delta.y()), f(delta.z()));
         float movedX = 0.0F;
         float movedY = 0.0F;
@@ -68,12 +80,12 @@ public final class BedrockCollisionSweep {
             new Vec3d(0.0D, 0.0D, requested.z())
         };
         for (int phase = 0; phase < segments.length; phase++) {
-            BedrockCollisionClipper.ClipResult clipped = BedrockCollisionClipper.clip(box, segments[phase], obstacles);
+            BedrockCollisionClipper.ClipResult clipped = BedrockCollisionClipper.clip(box, segments[phase], obstacles, frame);
             Vec3d move = clipped.move();
             movedX += (float) move.x();
             movedY += (float) move.y();
             movedZ += (float) move.z();
-            box = moveBedrock(box, move.x(), move.y(), move.z());
+            box = moveBedrock(box, move.x(), move.y(), move.z(), frame);
             if (phase == 0) {
                 verticalPhaseBox = box;
             }
@@ -83,7 +95,7 @@ public final class BedrockCollisionSweep {
         }
 
         Vec3d appliedDelta = new Vec3d(movedX, movedY, movedZ);
-        Vec3d position = new Vec3d(f(feet.x() + appliedDelta.x()), f(feet.y() + appliedDelta.y()), f(feet.z() + appliedDelta.z()));
+        Vec3d position = new Vec3d(frame.roundX(feet.x() + appliedDelta.x()), f(feet.y() + appliedDelta.y()), frame.roundZ(feet.z() + appliedDelta.z()));
 
         return new MoveResult(
             position,
@@ -93,18 +105,18 @@ public final class BedrockCollisionSweep {
             appliedDelta.x() != requested.x(),
             appliedDelta.y() != requested.y(),
             appliedDelta.z() != requested.z(),
-            yCollisionBlock
+            yCollisionBlock, frame
         );
     }
 
-    static WorldCollisionBox moveBedrock(WorldCollisionBox box, double dx, double dy, double dz) {
+    static WorldCollisionBox moveBedrock(WorldCollisionBox box, double dx, double dy, double dz, BedrockCoordinateFrame frame) {
         return new WorldCollisionBox(
-            f(box.minX() + dx),
+            frame.roundX(box.minX() + dx),
             f(box.minY() + dy),
-            f(box.minZ() + dz),
-            f(box.maxX() + dx),
+            frame.roundZ(box.minZ() + dz),
+            frame.roundX(box.maxX() + dx),
             f(box.maxY() + dy),
-            f(box.maxZ() + dz)
+            frame.roundZ(box.maxZ() + dz)
         );
     }
 
@@ -116,8 +128,16 @@ public final class BedrockCollisionSweep {
         boolean xCollision,
         boolean yCollision,
         boolean zCollision,
-        Optional<PlacedBlockCollision> yCollisionBlock
+        Optional<PlacedBlockCollision> yCollisionBlock,
+        BedrockCoordinateFrame coordinateFrame
     ) {
+        public MoveResult(Vec3d position, Vec3d appliedDelta, WorldCollisionBox finalBox,
+                          WorldCollisionBox verticalPhaseBox, boolean xCollision, boolean yCollision,
+                          boolean zCollision, Optional<PlacedBlockCollision> yCollisionBlock) {
+            this(position, appliedDelta, finalBox, verticalPhaseBox, xCollision, yCollision, zCollision,
+                    yCollisionBlock, BedrockCoordinateFrame.IDENTITY);
+        }
+
         public MoveResult {
             position = Objects.requireNonNull(position, "position");
             appliedDelta = Objects.requireNonNull(appliedDelta, "appliedDelta");

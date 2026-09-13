@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
@@ -43,7 +44,8 @@ final class BedrockEntityContactFactory {
             if (entity == null || entity.isDead || entity.getType() != EntityTypesCompat.DOLPHIN) {
                 continue;
             }
-            if (isWithinDolphinProximity(trustedPosition.get(), dimensions, entity.getPossibleMovementCollisionBoxes())) {
+            if (isWithinDolphinProximity(trustedPosition.get(), dimensions, entity.getPossibleMovementCollisionBoxes(),
+                    context.getBedrockInput() == null ? BedrockCoordinateFrame.IDENTITY : context.getBedrockInput().getCoordinateFrame())) {
                 return true;
             }
         }
@@ -53,17 +55,22 @@ final class BedrockEntityContactFactory {
     static boolean isWithinDolphinProximity(
             Vec3d position, PlayerDimensionsState dimensions, SimpleCollisionBox dolphinBox
     ) {
+        return isWithinDolphinProximity(position, dimensions, dolphinBox, BedrockCoordinateFrame.IDENTITY);
+    }
+
+    static boolean isWithinDolphinProximity(Vec3d position, PlayerDimensionsState dimensions,
+            SimpleCollisionBox dolphinBox, BedrockCoordinateFrame frame) {
         if (dolphinBox == null) {
             return false;
         }
         // Expand the player's AABB by five blocks on every axis.
         double radius = dimensions.radius();
-        double minX = (float) (position.x() - radius) - DOLPHIN_PROXIMITY_RANGE;
+        double minX = frame.roundX(position.x() - radius) - DOLPHIN_PROXIMITY_RANGE;
         double minY = (float) position.y() - DOLPHIN_PROXIMITY_RANGE;
-        double minZ = (float) (position.z() - radius) - DOLPHIN_PROXIMITY_RANGE;
-        double maxX = (float) (position.x() + radius) + DOLPHIN_PROXIMITY_RANGE;
+        double minZ = frame.roundZ(position.z() - radius) - DOLPHIN_PROXIMITY_RANGE;
+        double maxX = frame.roundX(position.x() + radius) + DOLPHIN_PROXIMITY_RANGE;
         double maxY = (float) (position.y() + dimensions.height()) + DOLPHIN_PROXIMITY_RANGE;
-        double maxZ = (float) (position.z() + radius) + DOLPHIN_PROXIMITY_RANGE;
+        double maxZ = frame.roundZ(position.z() + radius) + DOLPHIN_PROXIMITY_RANGE;
         // Require strict overlap with the expanded box.
         return dolphinBox.maxX > minX && dolphinBox.minX < maxX
                 && dolphinBox.maxY > minY && dolphinBox.minY < maxY

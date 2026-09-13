@@ -65,7 +65,7 @@ public final class BedrockLiquidClimbOutMovement {
         }
 
         double offsetY = velocity.y() + CLIMB_OUT_FREE_SPACE_Y - nextPosition.y() + previousPosition.y();
-        WorldCollisionBox climbOutBox = BedrockCollisionSweep.playerBox(nextPosition, dimensions)
+        WorldCollisionBox climbOutBox = BedrockCollisionSweep.playerBox(nextPosition, dimensions, blockCollisionWorld.coordinateFrame())
             .move(velocity.x(), offsetY, velocity.z());
         for (BlockCollision obstacle : BedrockCollisionSweep.collisionObstacles(blockCollisionWorld)) {
             if (climbOutBox.intersects(obstacle.box())) {

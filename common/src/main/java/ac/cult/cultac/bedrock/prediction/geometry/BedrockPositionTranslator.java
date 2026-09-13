@@ -1,5 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.geometry;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+
 public final class BedrockPositionTranslator {
     public static final double PLAYER_PACKET_Y_OFFSET = 1.6200103759765625D;
 
@@ -21,6 +23,18 @@ public final class BedrockPositionTranslator {
 
     public static Vec3d normalizePhysicalFeetPosition(Vec3d physicalFeetPosition) {
         return packetPositionToPhysicalFeet(physicalFeetToPacketPosition(physicalFeetPosition));
+    }
+
+    public static Vec3d physicalFeetToPacketPosition(Vec3d worldFeet, BedrockCoordinateFrame frame) {
+        return physicalFeetToPacketPosition(frame.toLocal(worldFeet));
+    }
+
+    public static Vec3d packetPositionToPhysicalFeet(Vec3d localPacket, BedrockCoordinateFrame frame) {
+        return frame.toWorld(packetPositionToPhysicalFeet(localPacket));
+    }
+
+    public static Vec3d normalizePhysicalFeetPosition(Vec3d worldFeet, BedrockCoordinateFrame frame) {
+        return frame.toWorld(normalizePhysicalFeetPosition(frame.toLocal(worldFeet)));
     }
 
     public static Vec3d roundTripPacketPosition(Vec3d position) {

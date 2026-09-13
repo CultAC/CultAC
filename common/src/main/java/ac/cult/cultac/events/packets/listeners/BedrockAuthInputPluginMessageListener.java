@@ -14,10 +14,10 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.world.phys.Vec3;
-import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockAuthInputPluginMessageListener {
     @CultPacketHandler
@@ -39,6 +39,18 @@ public final class BedrockAuthInputPluginMessageListener {
             return;
         }
 
+        var suppressed = BedrockAuthInputPluginMessage.decodeSuppressedProjection(data);
+        if (suppressed != null && player.playerUUID.equals(suppressed.playerUuid())) {
+            var decision = player.packetStateData.consumeSuppressedBedrockProjection(suppressed.clientTick());
+            if (decision != null && decision.decision() == PacketStateData.BedrockTranslatedMovementDecision.REJECT) {
+                // Geyser installs client position before GFP rebases it. Cancelling the Java projection
+                // alone is insufficient: GFP also teleports the client to that rejected position.
+                // Correct to the existing server anchor before its echo can authorize later movement.
+                player.getSetbackTeleportUtil().executeNonSimulatingSetback();
+            }
+            return;
+        }
+
         BedrockAuthInputPluginMessage.ClientActionMessage actionMessage =
                 BedrockAuthInputPluginMessage.decodeClientAction(data);
         if (actionMessage != null && player.playerUUID.equals(actionMessage.playerUuid())) {
@@ -48,7 +60,7 @@ public final class BedrockAuthInputPluginMessageListener {
 
         BedrockMoveFrame moveFrame = BedrockAuthInputPluginMessage.decodeMoveFrame(data);
         if (moveFrame != null && player.playerUUID.equals(moveFrame.playerUuid())) {
-            player.bedrockState.setLastMoveFrame(moveFrame);
+            player.bedrockState.setLastMoveFrame(player.getSetbackTeleportUtil().resolveBedrockCoordinates(moveFrame));
             return;
         }
 
@@ -80,18 +92,22 @@ public final class BedrockAuthInputPluginMessageListener {
     }
 
     private Vec3 processAuthInputFrameAndSelectVelocity(CultPlayer player, BedrockAuthInputFrame frame) {
+        BedrockAuthInputFrame resolved = player.getSetbackTeleportUtil().resolveBedrockCoordinates(frame);
+        if (resolved == null) {
+            player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
+            return null;
+        }
+        frame = resolved;
         SimulationProcessor simulationProcessor = player.checkManager.getSimulationProcessor();
         TeleportAcceptData acceptedTeleport = player.getSetbackTeleportUtil()
-                .acknowledgeBedrockTeleportFrame(
-                        frame.getPosition(),
-                        frame.hasRawInputFlag(PlayerAuthInputData.HANDLE_TELEPORT));
+                .acknowledgeBedrockTeleportFrame(frame);
         if (acceptedTeleport.isTeleport()) {
             simulationProcessor.applyAcceptedBedrockTeleport(acceptedTeleport);
             // Teleport ticks advance actor state while skipping travel.
             // Only a matched server teleport may activate that phase gate.
-        } else if (player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport()) {
-            // Preserve the existing gate for frames that did not acknowledge
-            // a queued teleport with its transaction and matching destination.
+        } else if (player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport()) {
+            // A GFP rebase still in flight cannot change an earlier input frame's origin.
+            // Once receipt is proven, require its exact echo through the existing gate.
             player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
             return null;
         }

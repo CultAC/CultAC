@@ -71,7 +71,7 @@ public final class BedrockCollisionProbe {
                 BedrockBlockCollisionResolver.horizontalContactAxes(
                         feet,
                         BedrockCollisionSweep.collisionObstacles(blockWorld),
-                        dimensions);
+                        dimensions, blockWorld.coordinateFrame());
         return new HorizontalContactAxes(axes.xContact(), axes.zContact());
     }
 

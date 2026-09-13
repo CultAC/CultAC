@@ -107,7 +107,7 @@ public final class BedrockSneakEdgeMovement {
         }
         WorldCollisionBox stepDownBox = BedrockCollisionSweep.playerBox(
             feet,
-            PlayerDimensionsState.DEFAULT
+            PlayerDimensionsState.DEFAULT, blockCollisionWorld.coordinateFrame()
         ).move(0.0D, -MAX_STEP_DOWN, 0.0D);
         for (BlockCollision obstacle : BedrockCollisionSweep.collisionObstacles(blockCollisionWorld)) {
             if (stepDownBox.intersects(obstacle.box())) {

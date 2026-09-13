@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
@@ -20,17 +21,22 @@ public final class BedrockStandingBlockResolver {
         BlockCollisionWorld world,
         PlayerDimensionsState dimensions
     ) {
-        return resolve(BedrockCollisionSweep.playerBox(feet, dimensions), world.collisions());
+        return resolve(BedrockCollisionSweep.playerBox(feet, dimensions, world.coordinateFrame()), world.collisions(), world.coordinateFrame());
     }
 
     public static Optional<StandingSupport> resolve(
         WorldCollisionBox collisionBox,
         Iterable<BlockCollision> collisionShapes
     ) {
+        return resolve(collisionBox, collisionShapes, BedrockCoordinateFrame.IDENTITY);
+    }
+
+    public static Optional<StandingSupport> resolve(WorldCollisionBox collisionBox,
+            Iterable<BlockCollision> collisionShapes, BedrockCoordinateFrame frame) {
         WorldCollisionBox query = collisionBox.move(0.0D, -QUERY_Y_OFFSET, 0.0D);
-        double centerX = f((query.minX() + query.maxX()) * CENTER_SCALE);
+        double centerX = frame.roundX((query.minX() + query.maxX()) * CENTER_SCALE);
         double centerY = f((query.minY() + query.maxY()) * CENTER_SCALE);
-        double centerZ = f((query.minZ() + query.maxZ()) * CENTER_SCALE);
+        double centerZ = frame.roundZ((query.minZ() + query.maxZ()) * CENTER_SCALE);
         StandingSupport selected = null;
         float selectedVerticalGap = Float.POSITIVE_INFINITY;
         float selectedCenterDistance = Float.POSITIVE_INFINITY;
@@ -39,9 +45,9 @@ public final class BedrockStandingBlockResolver {
             if (obstacle.block().isEmpty() || !verticalQueryContainsShape(query, box)) {
                 continue;
             }
-            double boxCenterX = f((box.minX() + box.maxX()) * CENTER_SCALE);
+            double boxCenterX = frame.roundX((box.minX() + box.maxX()) * CENTER_SCALE);
             double boxCenterY = f((box.minY() + box.maxY()) * CENTER_SCALE);
-            double boxCenterZ = f((box.minZ() + box.maxZ()) * CENTER_SCALE);
+            double boxCenterZ = frame.roundZ((box.minZ() + box.maxZ()) * CENTER_SCALE);
             float verticalGap = (float) (query.minY() - boxCenterY);
             if (verticalGap < 0.0F) {
                 continue;

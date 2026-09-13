@@ -17,6 +17,7 @@ import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
 import ac.cult.cultac.bedrock.prediction.world.FluidState;
 import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import java.util.List;
 import java.util.Set;
@@ -69,6 +70,26 @@ public final class BedrockImmobileCarryTest {
                 BedrockWorldSnapshot.fromContext(airContext()));
 
         assertEquals(Set.of(Vec3.ZERO), transformed.startingVelocities());
+    }
+
+    @Test
+    public void correctionTickPreservesOriginForEveryCarryCandidate() {
+        var origin = new BedrockCoordinateFrame(-29_000_000, 29_000_000, 4);
+        BedrockMovementState first = state(new Vec3d(-29_000_000 + 31.12345, 64, 29_000_000 - 19.7654),
+                new Vec3d(0.1, -0.08, 0.02), BedrockCollisionFlags.ON_GROUND).withCoordinateFrame(origin);
+        BedrockMovementState second = first.withVelocityAndCollisionFlags(new Vec3d(0.08, 0.12, 0.01), first.collisionFlags());
+        var carry = new BedrockNextTickStates(List.of(
+                new BedrockProfileState.Entry(first, BedrockMobJumpComponentState.DEFAULT),
+                new BedrockProfileState.Entry(second, new BedrockMobJumpComponentState(true))));
+        var transformed = BedrockMovementEngine.INSTANCE.applyImmobileStateToCarry(carry,
+                BedrockInputFrame.idle(12), false, BedrockWorldSnapshot.fromContext(airContext()));
+        var entries = ((BedrockNextTickStates) transformed.carry()).profileEntries();
+        assertEquals(2, entries.size());
+        for (var entry : entries) {
+            assertEquals(origin, entry.state().coordinateFrame());
+            assertEquals(first.physicalFeetPosition(), entry.state().physicalFeetPosition());
+            assertEquals(Vec3d.ZERO, entry.state().lastPhysicalDisplacement());
+        }
     }
 
     private static void assertCandidateTransformed(

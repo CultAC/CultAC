@@ -109,7 +109,7 @@ public final class BedrockSimulation {
     ) {
         ArrayList<Candidate> branch = new ArrayList<>();
         BedrockTravelOptions options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
-            .withTravelActive(!input.acceptedTeleport());
+            .withTravelActive(!input.previousState().hasTeleported());
         for (BedrockTravelOptions.SprintTravelSpeedMode speed : sprintSpeedModes()) {
             for (BedrockTravelOptions.SprintJumpImpulseMode jump : sprintJumpModes(input)) {
                 BedrockTravelResult result = travel(
@@ -141,7 +141,7 @@ public final class BedrockSimulation {
                     block.contactBoxes(), block.insideBlockContactBoxes(), block.contactBehaviors())
                 : block)
             .toList();
-        BlockCollisionWorld collisionWorld = new BlockCollisionWorld(blocks);
+        BlockCollisionWorld collisionWorld = new BlockCollisionWorld(blocks, snapshot.blockCollisionWorld().coordinateFrame());
         return snapshot.withBlockCollisionWorld(collisionWorld);
     }
 
@@ -222,6 +222,7 @@ public final class BedrockSimulation {
 
         public Input {
             Objects.requireNonNull(previousState, "previousState");
+            if (acceptedTeleport) previousState = previousState.withTeleportPending();
             Objects.requireNonNull(frame, "frame");
             intent = intent == null ? frame.intent() : intent;
             Objects.requireNonNull(snapshot, "snapshot");

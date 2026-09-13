@@ -6,6 +6,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 public class TerminateGeyserBedrockBridge implements StoppableInitable {
     @Override
     public void stop() {
+        if (org.bukkit.Bukkit.getPluginManager().getPlugin("Geyser-Spigot") == null) return;
         try {
             GeyserBedrockBridgeRuntime.stop();
         } catch (LinkageError error) {

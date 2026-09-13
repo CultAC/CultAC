@@ -14,11 +14,12 @@ public final class BedrockAuthInputPluginMessage {
     public static final String CHANNEL_NAMESPACE = "cultac";
     public static final String CHANNEL_PATH = "bedrock_auth_input/" + newSecret();
     public static final String CHANNEL = CHANNEL_NAMESPACE + ":" + CHANNEL_PATH;
-    private static final int VERSION = 16;
+    private static final int VERSION = 17;
     private static final int TYPE_AUTH_INPUT = 0;
     private static final int TYPE_CLIENT_ACTION = 1;
     private static final int TYPE_MOVE_FRAME = 2;
     private static final int TYPE_METADATA_ACKNOWLEDGED = 7;
+    private static final int TYPE_PROJECTION_SUPPRESSED = 8;
     private static final int MAX_STRING_LENGTH = 128;
 
     private BedrockAuthInputPluginMessage() {
@@ -79,12 +80,37 @@ public final class BedrockAuthInputPluginMessage {
             writeString(out, frame.getAuthorityMode());
             out.writeLong(frame.getRewindCorrectionId());
             writeVec3(out, frame.getReportedEndOfTickVelocity());
+            writeCoordinateFrame(out, frame.getCoordinateFrame());
             out.flush();
             return bytes.toByteArray();
         } catch (IOException exception) {
             throw new IllegalStateException("Unable to encode Bedrock auth input plugin message", exception);
         }
     }
+
+    public static byte[] encodeSuppressedProjection(UUID uuid, long tick) {
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            DataOutputStream out = new DataOutputStream(bytes);
+            out.writeInt(VERSION);
+            out.writeByte(TYPE_PROJECTION_SUPPRESSED);
+            out.writeLong(uuid.getMostSignificantBits());
+            out.writeLong(uuid.getLeastSignificantBits());
+            out.writeLong(tick);
+            return bytes.toByteArray();
+        } catch (IOException exception) { throw new IllegalStateException(exception); }
+    }
+
+    public static SuppressedProjection decodeSuppressedProjection(byte[] data) {
+        try {
+            DataInputStream in = new DataInputStream(new ByteArrayInputStream(data));
+            if (in.readInt() != VERSION || in.readUnsignedByte() != TYPE_PROJECTION_SUPPRESSED) return null;
+            SuppressedProjection value = new SuppressedProjection(new UUID(in.readLong(), in.readLong()), in.readLong());
+            return in.available() == 0 ? value : null;
+        } catch (IOException | RuntimeException exception) { return null; }
+    }
+
+    public record SuppressedProjection(UUID playerUuid, long clientTick) { }
 
     public static byte[] encode(UUID playerUuid, BedrockClientAction action) {
         try {
@@ -116,6 +142,8 @@ public final class BedrockAuthInputPluginMessage {
             out.writeFloat(frame.yaw());
             out.writeFloat(frame.pitch());
             out.writeFloat(frame.headYaw());
+            writeVec3(out, frame.packetPosition());
+            writeCoordinateFrame(out, frame.coordinateFrame());
             out.flush();
             return bytes.toByteArray();
         } catch (IOException exception) {
@@ -226,6 +254,8 @@ public final class BedrockAuthInputPluginMessage {
                 }
             }
 
+            builder.coordinateProvenance(version >= 17);
+            if (version >= 17) builder.coordinateFrame(readCoordinateFrame(in));
             if (in.available() != 0) {
                 return null;
             }
@@ -271,6 +301,10 @@ public final class BedrockAuthInputPluginMessage {
                     in.readFloat(),
                     in.readFloat(),
                     in.readFloat());
+            if (version >= 17) {
+                frame = new BedrockMoveFrame(uuid, frame.protocolVersion(), frame.clientTick(), frame.position(),
+                        frame.yaw(), frame.pitch(), frame.headYaw(), readVec3(in), readCoordinateFrame(in), true);
+            }
             if (in.available() != 0) {
                 return null;
             }
@@ -284,7 +318,7 @@ public final class BedrockAuthInputPluginMessage {
         try {
             DataInputStream in = new DataInputStream(new ByteArrayInputStream(data));
             int version = in.readInt();
-            if (version != VERSION || in.readUnsignedByte() != TYPE_METADATA_ACKNOWLEDGED) {
+            if ((version < 16 || version > VERSION) || in.readUnsignedByte() != TYPE_METADATA_ACKNOWLEDGED) {
                 return null;
             }
             MetadataMessage message = new MetadataMessage(
@@ -348,6 +382,16 @@ public final class BedrockAuthInputPluginMessage {
                 && Double.isFinite(vector.x)
                 && Double.isFinite(vector.y)
                 && Double.isFinite(vector.z);
+    }
+
+    private static void writeCoordinateFrame(DataOutputStream out, BedrockCoordinateFrame frame) throws IOException {
+        out.writeInt(frame.originX());
+        out.writeInt(frame.originZ());
+        out.writeLong(frame.revision());
+    }
+
+    private static BedrockCoordinateFrame readCoordinateFrame(DataInputStream in) throws IOException {
+        return new BedrockCoordinateFrame(in.readInt(), in.readInt(), in.readLong());
     }
 
     private static void writeVec3(DataOutputStream out, Vec3 vec) throws IOException {

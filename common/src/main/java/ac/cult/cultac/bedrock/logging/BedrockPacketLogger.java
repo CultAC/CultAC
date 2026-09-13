@@ -1,5 +1,8 @@
 package ac.cult.cultac.bedrock.logging;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import net.minecraft.world.phys.Vec3;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
@@ -88,6 +91,20 @@ public final class BedrockPacketLogger implements AutoCloseable {
     public void identity(Object connection, UUID uuid) {
         PacketLogCapture capture = captures.get(connection);
         if (capture != null) capture.record(() -> "IDENTITY java_uuid=" + uuid);
+    }
+
+    public void origin(Object connection, long transport, BedrockCoordinateFrame frame, Vec3 localTarget,
+                       BedrockTeleportProvenance provenance, Integer javaTeleportId, int proofTransaction) {
+        PacketLogCapture capture = captures.get(connection);
+        if (capture != null) capture.record(() -> "ORIGIN transport=" + transport
+                + " revision=" + frame.revision() + " origin_x=" + frame.originX() + " origin_z=" + frame.originZ()
+                + " local_target=" + localTarget + " source=" + provenance + " java_teleport=" + javaTeleportId
+                + " proof_transaction=" + proofTransaction);
+    }
+
+    public void originReceipt(Object connection, long transport) {
+        PacketLogCapture capture = captures.get(connection);
+        if (capture != null) capture.record(() -> "ORIGIN_RECEIPT transport=" + transport);
     }
 
     public void stop(Object connection, String reason) {

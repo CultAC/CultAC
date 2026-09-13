@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
@@ -48,8 +49,8 @@ public final class BedrockBlockCollisionResolver {
 
         boolean horizontalCollisionFlag = selectedMove.horizontalCollision();
         boolean horizontalBlockContact = horizontalCollisionFlag
-            || hasHorizontalBlockContact(selectedMove.position(), obstacles, playerDimensions)
-            || steppedUp && hasHorizontalBlockContact(baseMove.position(), obstacles, playerDimensions);
+            || hasHorizontalBlockContact(selectedMove.position(), obstacles, playerDimensions, selectedMove.coordinateFrame())
+            || steppedUp && hasHorizontalBlockContact(baseMove.position(), obstacles, playerDimensions, baseMove.coordinateFrame());
         return new Result(
             selectedMove.position(),
             nextVelocity,
@@ -93,7 +94,16 @@ public final class BedrockBlockCollisionResolver {
         List<BlockCollision> obstacles,
         PlayerDimensionsState playerDimensions
     ) {
-        HorizontalContactAxes axes = horizontalContactAxes(feet, obstacles, playerDimensions);
+        return hasHorizontalBlockContact(feet, obstacles, playerDimensions, BedrockCoordinateFrame.IDENTITY);
+    }
+
+    public static boolean hasHorizontalBlockContact(
+        Vec3d feet,
+        List<BlockCollision> obstacles,
+        PlayerDimensionsState playerDimensions,
+        BedrockCoordinateFrame frame
+    ) {
+        HorizontalContactAxes axes = horizontalContactAxes(feet, obstacles, playerDimensions, frame);
         return axes.xContact() || axes.zContact();
     }
 
@@ -102,8 +112,17 @@ public final class BedrockBlockCollisionResolver {
         List<BlockCollision> obstacles,
         PlayerDimensionsState playerDimensions
     ) {
-        double epsilon = horizontalContactEpsilon(feet);
-        WorldCollisionBox actorBox = BedrockCollisionSweep.playerBox(feet, playerDimensions);
+        return horizontalContactAxes(feet, obstacles, playerDimensions, BedrockCoordinateFrame.IDENTITY);
+    }
+
+    public static HorizontalContactAxes horizontalContactAxes(
+        Vec3d feet,
+        List<BlockCollision> obstacles,
+        PlayerDimensionsState playerDimensions,
+        BedrockCoordinateFrame frame
+    ) {
+        double epsilon = horizontalContactEpsilon(feet, frame);
+        WorldCollisionBox actorBox = BedrockCollisionSweep.playerBox(feet, playerDimensions, frame);
         boolean xContact = false;
         boolean zContact = false;
         for (BlockCollision obstacle : obstacles) {
@@ -134,8 +153,18 @@ public final class BedrockBlockCollisionResolver {
         List<BlockCollision> obstacles,
         PlayerDimensionsState playerDimensions
     ) {
-        double epsilon = horizontalContactEpsilon(feet);
-        WorldCollisionBox actorBox = BedrockCollisionSweep.playerBox(feet, playerDimensions);
+        return movementSideHorizontalContactAxes(feet, movement, obstacles, playerDimensions, BedrockCoordinateFrame.IDENTITY);
+    }
+
+    public static HorizontalContactAxes movementSideHorizontalContactAxes(
+        Vec3d feet,
+        Vec3d movement,
+        List<BlockCollision> obstacles,
+        PlayerDimensionsState playerDimensions,
+        BedrockCoordinateFrame frame
+    ) {
+        double epsilon = horizontalContactEpsilon(feet, frame);
+        WorldCollisionBox actorBox = BedrockCollisionSweep.playerBox(feet, playerDimensions, frame);
         boolean positiveX = movement.x() > EPSILON;
         boolean negativeX = movement.x() < -EPSILON;
         boolean positiveZ = movement.z() > EPSILON;
@@ -162,8 +191,12 @@ public final class BedrockBlockCollisionResolver {
     }
 
     public static double horizontalContactEpsilon(Vec3d feet) {
-        double xUlp = Math.ulp((float) feet.x());
-        double zUlp = Math.ulp((float) feet.z());
+        return horizontalContactEpsilon(feet, BedrockCoordinateFrame.IDENTITY);
+    }
+
+    public static double horizontalContactEpsilon(Vec3d feet, BedrockCoordinateFrame frame) {
+        double xUlp = Math.ulp(frame.localX(feet.x()));
+        double zUlp = Math.ulp(frame.localZ(feet.z()));
         return Math.min(MAX_FLOAT_CONTACT_EPSILON, Math.max(CONTACT_EPSILON, 4.0D * Math.max(xUlp, zUlp)));
     }
 

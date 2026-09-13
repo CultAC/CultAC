@@ -20,7 +20,8 @@ import static org.junit.Assert.*;
  * end-of-tick position and velocity, and Input Data as per-tick flags:
  * https://github.com/Mojang/bedrock-protocol-docs/blob/main/json/PlayerAuthInputPacketPayload.json
  * Unlike MCP-Reborn ClientPacketListener.handleMovePlayer's immediate Java
- * PosRot echo, HandledTeleport is part of the Bedrock simulation tick.
+ * PosRot echo, HandledTeleport is part of the Bedrock auth-input tick. Native
+ * chunk filtering can defer actor travel past that acknowledgement (see docs/geyser-floating-points.md).
  * Capture 1788992848677-2e828f41-19f5-4f7e-be92-d6b0b5660959, ticks 1823/1824,
  * reports a teleport at packet Y=64.174156 and then Y=64.169151, with future
  * velocities approximately -0.005 and -0.009. The first comes from the server
@@ -28,6 +29,46 @@ import static org.junit.Assert.*;
  */
 public final class BedrockTeleportTickTest {
     private static final Vec3 TARGET = new Vec3(0.5D, 62.55414581298828D, 0.5D);
+
+    @Test
+    public void missingChunkDefersActorTickAndTeleportUntilChunkReceipt() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.getSetbackTeleportUtil().hasFullyLoaded = true;
+            player.getSetbackTeleportUtil().hasFullyJoined = true;
+            Vec3 target = new Vec3(192.5, 80, -64.5);
+            assertNull(player.compensatedWorld.getChunk(12, -5));
+            queueTeleport(player, target);
+            assertEquals(Vec3.ZERO, process(player, frame(player, 1, target, true)));
+            assertTrue(state(player).hasTeleported());
+            long actorTick = state(player).simulationTick();
+
+            int receipt = player.lastTransactionSent.incrementAndGet();
+            var chunk = new ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk(
+                new ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection[24], receipt);
+            player.compensatedWorld.addToCache(chunk, 12, -5);
+            assertNull(player.compensatedWorld.getChunk(12, -5));
+            assertEquals(Vec3.ZERO, process(player, frame(player, 2, target, false)));
+            assertTrue(state(player).hasTeleported());
+            assertEquals(actorTick, state(player).simulationTick());
+
+            player.lastTransactionReceived.set(receipt);
+            player.latencyUtils.handleNettySyncTransaction(receipt);
+            assertSame(chunk, player.compensatedWorld.getChunk(12, -5));
+            assertEquals(Vec3.ZERO, process(player, frame(player, 3, target, false)));
+            assertFalse(state(player).hasTeleported());
+            assertEquals(actorTick + 1, state(player).simulationTick());
+            Vec3 travel = process(player, frame(player, 4, target, false));
+            assertNotNull(travel);
+            assertEquals(-0.0784, travel.y, 0.00000001);
+            assertEquals(actorTick + 2, state(player).simulationTick());
+            assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
+            assertTrue(player.checkManager.getSimulationProcessor().getLastPrediction().getOffset() <= 0.001);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
 
     @Test
     public void acceptedTeleportCarriesOrderedServerMotionWithoutWaterTravel() throws Exception {
@@ -75,6 +116,7 @@ public final class BedrockTeleportTickTest {
             player.getSetbackTeleportUtil().hasFullyLoaded = true;
             player.getSetbackTeleportUtil().hasFullyJoined = true;
             Vec3 target = new Vec3(-55.56788635253906, 62.68053436279297, -60.12018585205078);
+            player.compensatedWorld.ensureValidationChunkLoaded(-4, -4);
             Vec3 motion = new Vec3(0, (double) -0.0050051883F, 0);
             queueTeleport(player, target);
             assertNotNull(process(player, frame(player, 608, target, true)));
@@ -253,6 +295,7 @@ public final class BedrockTeleportTickTest {
             player.getSetbackTeleportUtil().hasFullyLoaded = true;
             player.getSetbackTeleportUtil().hasFullyJoined = true;
             Vec3 target = new Vec3(-36.65447998046875, 63.266326904296875, -46.8120231628418);
+            player.compensatedWorld.ensureValidationChunkLoaded(-3, -3);
             queueTeleport(player, target);
             assertNotNull(process(player, frame(player, 6063, target, true)));
             player.checkManager.getSimulationProcessor().applyAcknowledgedBedrockGliding(true);

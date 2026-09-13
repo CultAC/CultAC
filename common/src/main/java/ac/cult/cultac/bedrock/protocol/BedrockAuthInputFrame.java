@@ -13,6 +13,8 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
     private final int inputMode;
     private final int playMode;
     private final int deviceId;
+    private final BedrockCoordinateFrame coordinateFrame;
+    private final boolean coordinateProvenance;
     private final Vec3 position;
     private final Vec3 packetPosition;
     private final Vec3 delta;
@@ -52,6 +54,8 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         this.inputMode = builder.inputMode;
         this.playMode = builder.playMode;
         this.deviceId = builder.deviceId;
+        this.coordinateFrame = builder.coordinateFrame;
+        this.coordinateProvenance = builder.coordinateProvenance;
         this.position = builder.position;
         this.packetPosition = builder.packetPosition;
         this.delta = builder.delta;
@@ -83,6 +87,60 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         this.authorityMode = builder.authorityMode;
         this.rewindCorrectionId = builder.rewindCorrectionId;
         this.reportedEndOfTickVelocity = builder.reportedEndOfTickVelocity;
+    }
+
+    private BedrockAuthInputFrame(BedrockAuthInputFrame source, BedrockCoordinateFrame frame, Vec3 worldPosition) {
+        this.protocolVersion = source.protocolVersion;
+        this.clientTick = source.clientTick;
+        this.inputMode = source.inputMode;
+        this.playMode = source.playMode;
+        this.deviceId = source.deviceId;
+        this.coordinateFrame = frame;
+        this.coordinateProvenance = source.coordinateProvenance;
+        this.position = worldPosition;
+        this.packetPosition = source.packetPosition;
+        this.delta = source.delta;
+        this.yaw = source.yaw;
+        this.pitch = source.pitch;
+        this.headYaw = source.headYaw;
+        this.hasRotation = source.hasRotation;
+        this.moveVector = source.moveVector;
+        this.rawInputFlags = source.rawInputFlags;
+        this.rawInputFlagsHigh = source.rawInputFlagsHigh;
+        this.projectedOnGround = source.projectedOnGround;
+        this.jumping = source.jumping;
+        this.jumpStarted = source.jumpStarted;
+        this.jumpPressedRaw = source.jumpPressedRaw;
+        this.jumpCurrentRaw = source.jumpCurrentRaw;
+        this.wantUp = source.wantUp;
+        this.sneaking = source.sneaking;
+        this.startSneaking = source.startSneaking;
+        this.stopSneaking = source.stopSneaking;
+        this.sprinting = source.sprinting;
+        this.swimming = source.swimming;
+        this.stopSwimming = source.stopSwimming;
+        this.startCrawling = source.startCrawling;
+        this.stopCrawling = source.stopCrawling;
+        this.startGliding = source.startGliding;
+        this.stopGliding = source.stopGliding;
+        this.usingItem = source.usingItem;
+        this.blockAction = source.blockAction;
+        this.authorityMode = source.authorityMode;
+        this.rewindCorrectionId = source.rewindCorrectionId;
+        this.reportedEndOfTickVelocity = source.reportedEndOfTickVelocity;
+        this.playerUuid = source.playerUuid;
+    }
+
+    public BedrockCoordinateFrame getCoordinateFrame() { return coordinateFrame; }
+
+    public boolean hasCoordinateProvenance() { return coordinateProvenance; }
+
+    /** Called only after resolving the origin against the ordered transport queue. */
+    public BedrockAuthInputFrame resolveCoordinates(BedrockCoordinateFrame frame) {
+        if (frame.equals(coordinateFrame)) return this;
+        Vec3 localFeet = packetPosition == null ? coordinateFrame.toLocal(position)
+                : new Vec3((float) packetPosition.x, position.y, (float) packetPosition.z);
+        return new BedrockAuthInputFrame(this, frame, frame.toWorld(localFeet));
     }
 
     public static Builder builder(UUID playerUuid) {
@@ -258,6 +316,10 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
 
     public boolean samePacketAs(BedrockAuthInputFrame other) {
         return other != null
+                && Objects.equals(playerUuid, other.playerUuid)
+                && Objects.equals(protocolVersion, other.protocolVersion)
+                && Objects.equals(coordinateFrame, other.coordinateFrame)
+                && coordinateProvenance == other.coordinateProvenance
                 && clientTick == other.clientTick
                 && inputMode == other.inputMode
                 && playMode == other.playMode
@@ -301,6 +363,8 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         private int inputMode = -1;
         private int playMode = -1;
         private int deviceId = -1;
+        private BedrockCoordinateFrame coordinateFrame = BedrockCoordinateFrame.IDENTITY;
+        private boolean coordinateProvenance = true;
         private Vec3 position;
         private Vec3 packetPosition;
         private Vec3 delta;
@@ -359,6 +423,16 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
 
         public Builder deviceId(int deviceId) {
             this.deviceId = deviceId;
+            return this;
+        }
+
+        public Builder coordinateFrame(BedrockCoordinateFrame frame) {
+            this.coordinateFrame = Objects.requireNonNull(frame, "coordinateFrame");
+            return this;
+        }
+
+        public Builder coordinateProvenance(boolean present) {
+            this.coordinateProvenance = present;
             return this;
         }
 

@@ -31,7 +31,7 @@ final class BedrockInitialStateFactory {
         Vec3d start = vec(context.getStart());
         if (profilePreviousState != null) {
 
-            return profilePreviousState.withPhysicalFeetPosition(
+            return profilePreviousState.withCoordinateFrame(movementContext.worldState().blockCollisionWorld().coordinateFrame()).withPhysicalFeetPosition(
                     start,
                     profilePreviousState.lastPhysicalDisplacementSquared());
         }
@@ -52,7 +52,8 @@ final class BedrockInitialStateFactory {
                 initialVelocity,
                 BedrockInputFrame.idle(Math.max(0L, inputFrame.clientTick() - 1L)),
                 initialFlags,
-                initialMovementBranch(medium, onGround)
+                initialMovementBranch(medium, onGround),
+                movementContext.worldState().blockCollisionWorld().coordinateFrame()
         ).withPlayerDimensions(movementContext.playerDimensionsState(), false)
                 .withClimbableContact(BedrockClimbableContact.fromBlockWorld(
                         movementContext.worldState().blockCollisionWorld(),

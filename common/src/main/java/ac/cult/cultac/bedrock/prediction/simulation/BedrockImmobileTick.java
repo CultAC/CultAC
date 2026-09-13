@@ -78,7 +78,8 @@ public final class BedrockImmobileTick {
                         0.0D,
                         Vec3d.ZERO,
                         frame,
-                        current.collisionFlags()),
+                        current.collisionFlags(),
+                        current.coordinateFrame()),
                 new BedrockMovementState.ActorState(
                         new BedrockMovementState.ContactState(
                                 facts.blockMovementSlowdownState(),

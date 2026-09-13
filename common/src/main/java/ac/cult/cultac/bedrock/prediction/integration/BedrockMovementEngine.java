@@ -198,7 +198,7 @@ public final class BedrockMovementEngine implements MovementEngine {
         SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(
             playerPos.x, playerPos.y, playerPos.z, (float) dimensions.width(), (float) dimensions.height()
         );
-        AxisEpsilon epsilon = bedrockCollisionEpsilon(playerBox);
+        AxisEpsilon epsilon = bedrockCollisionEpsilon(playerBox, input.previousState().coordinateFrame());
         CollideAxisData result = modifier.probeCollisions(
             player,
             context,
@@ -352,7 +352,7 @@ public final class BedrockMovementEngine implements MovementEngine {
         }
         Vec3d position = BedrockVectorAdapter.toBedrock(teleport.getLocation());
         List<Entry> rebasedEntries = nextTickStates.profileEntries().stream().map(entry -> {
-            BedrockMovementState state = entry.state();
+            BedrockMovementState state = entry.state().withCoordinateFrame(teleport.getBedrockCoordinateFrame());
 
             // MovePlayer TELEPORT resets velocity; any subsequent SetEntityMotion
             // enters through the existing packet modifiers, not Java teleport delta flags.
@@ -491,11 +491,11 @@ public final class BedrockMovementEngine implements MovementEngine {
         return BedrockVectorAdapter.toJava(movementResult.rawPredictedPhysicalFeetPosition().subtract(previous));
     }
 
-    private static AxisEpsilon bedrockCollisionEpsilon(SimpleCollisionBox box) {
+    private static AxisEpsilon bedrockCollisionEpsilon(SimpleCollisionBox box, ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame frame) {
         return new AxisEpsilon(
-            bedrockAxisEpsilon(box.minX, box.maxX),
+            bedrockAxisEpsilon(box.minX - frame.originX(), box.maxX - frame.originX()),
             bedrockAxisEpsilon(box.minY, box.maxY),
-            bedrockAxisEpsilon(box.minZ, box.maxZ)
+            bedrockAxisEpsilon(box.minZ - frame.originZ(), box.maxZ - frame.originZ())
         );
     }
 

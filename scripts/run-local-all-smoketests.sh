@@ -41,12 +41,12 @@ Options:
                               auto reuses an existing prepared MCP-Reborn client.
   --max-workers N             Gradle worker cap. Default: 2
   --gradle-heap SIZE          Smoketest Gradle heap. Default: 1024m
-  --cultac-gradle-heap SIZE   CultAC Gradle heap for devShadowJar. Default: 2g
+  --cultac-gradle-heap SIZE   CultAC Gradle heap for :bukkit:shadowJar. Default: 2g
   --mcp-tool-heap SIZE        MCP-Reborn setup/decompiler heap. Default: 4g
   --smoketest-jvm-heap SIZE   JavaExec heap for each smoketest phase. Default: 3g
   --server-jvm-heap SIZE      Paper server heap for real validation. Default: 1536m
   --keep-gradle-daemons       Do not stop existing Gradle daemons before running.
-  --skip-cultac-build         Use an existing CultAC *-dev.jar.
+  --skip-cultac-build         Use an existing CultAC Bukkit jar.
   --plugin-jar PATH           Validate this exact jar, skipping the plugin build.
   --no-xvfb                   Do not wrap real-client phases in xvfb-run.
   --help                      Show this message.
@@ -216,7 +216,14 @@ elapsed_seconds() {
 }
 
 find_cult_dev_jar() {
-  find "$cultac_root/build/libs" -maxdepth 1 -name 'CultAC-dev.jar' -print -quit 2>/dev/null || true
+  python3 - "$cultac_root/bukkit/build/libs" <<'PY_JAR'
+from pathlib import Path
+import sys
+jars = [p for p in Path(sys.argv[1]).glob('cultac-bukkit-*.jar')
+        if not p.name.endswith(('-sources.jar', '-javadoc.jar', '-plain.jar'))]
+if jars:
+    print(max(jars, key=lambda p: p.stat().st_mtime))
+PY_JAR
 }
 
 use_xvfb_for_real_client() {
@@ -336,7 +343,7 @@ python3 "$script_dir/verify-smoketest-client.py" \
 
 if [[ "$skip_cultac_build" == "true" ]]; then
   cult_dev_jar="${plugin_jar:-$(find_cult_dev_jar)}"
-  [[ -n "$cult_dev_jar" ]] || fail "--skip-cultac-build was set but no *-dev.jar exists under $cultac_root/build/libs"
+  [[ -n "$cult_dev_jar" ]] || fail "--skip-cultac-build was set but no Bukkit jar exists under $cultac_root/bukkit/build/libs"
   echo
   echo "== build CultAC dev jar =="
   echo "skipped; using $cult_dev_jar"
@@ -344,12 +351,12 @@ if [[ "$skip_cultac_build" == "true" ]]; then
 else
   run_phase "build CultAC dev jar" \
     "${cultac_gradle_env_cmd[@]}" \
-    "$cultac_root/gradlew" -p "$cultac_root" devShadowJar --rerun-tasks --no-daemon --console=plain --stacktrace --max-workers="$max_workers"
+    "$cultac_root/gradlew" -p "$cultac_root" :bukkit:shadowJar --rerun-tasks --no-daemon --console=plain --stacktrace --max-workers="$max_workers"
   [[ "$last_phase_status" -eq 0 ]] || fail "CultAC build failed; refusing to validate a stale jar"
   cult_dev_jar="$(find_cult_dev_jar)"
 fi
 
-[[ -n "${cult_dev_jar:-}" ]] || fail "no CultAC dev jar found under $cultac_root/build/libs"
+[[ -n "${cult_dev_jar:-}" ]] || fail "no CultAC Bukkit jar found under $cultac_root/bukkit/build/libs"
 [[ -f "$cult_dev_jar" ]] || fail "plugin jar does not exist: $cult_dev_jar"
 sha256sum "$cult_dev_jar" > "$artifact_root/plugin.sha256"
 
@@ -366,6 +373,22 @@ common_gradle_args=(
 run_phase "prepare smoketest server workspace" \
   "${gradle_env_cmd[@]}" \
   "$smoketest_root/gradlew" -p "$smoketest_root" setupSmoketestServer writeSmoketestWorkspaceManifest "${common_gradle_args[@]}"
+
+[[ "$last_phase_status" -eq 0 ]] || fail "smoketest workspace setup failed"
+# Older standalone checkouts ignore the Gradle path overrides when writing this manifest.
+# Pin the actual runtime jar explicitly so every phase validates the jar hashed above.
+python3 - "$smoketest_root/.real-validation/smoketest-workspace.properties" "$cult_dev_jar" "$cultac_root" <<'PY_MANIFEST'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+overrides = {'smoketest.grim.devJar': sys.argv[2], 'smoketest.cultac.repoRoot': sys.argv[3]}
+lines = [line for line in path.read_text().splitlines()
+         if line.split('=', 1)[0] not in overrides]
+for key, value in overrides.items():
+    value = value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r')
+    lines.append(key + '=' + value)
+path.write_text('\n'.join(lines) + '\n')
+PY_MANIFEST
 
 run_phase "harness guardrails" \
   "${gradle_env_cmd[@]}" \

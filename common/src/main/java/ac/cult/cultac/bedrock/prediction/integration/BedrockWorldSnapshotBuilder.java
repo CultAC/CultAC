@@ -46,7 +46,7 @@ final class BedrockWorldSnapshotBuilder {
                 playerContext);
         BlockCollisionWorld collisionWorld = withHardCollidingEntities(
                 sampledBlockWorld.world(),
-                context.getHardCollidingEntityCollisionsForMovementTick());
+                context.getHardCollidingEntityCollisionsForMovementTick()).withCoordinateFrame(frame.getCoordinateFrame());
         BedrockMovementContext movementContext = movementContext(
                 collisionWorld,
                 playerContext,
@@ -124,7 +124,7 @@ final class BedrockWorldSnapshotBuilder {
                 blocks.add(block);
             }
         }
-        return new BlockCollisionWorld(blocks);
+        return new BlockCollisionWorld(blocks, world.coordinateFrame());
     }
 
     private static PlacedBlockCollision hardCollidingEntityBlock(

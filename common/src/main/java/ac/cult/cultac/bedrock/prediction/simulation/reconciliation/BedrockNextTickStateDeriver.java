@@ -42,7 +42,7 @@ public final class BedrockNextTickStateDeriver {
         Objects.requireNonNull(sourceStates, "sourceStates");
         Objects.requireNonNull(acceptedDiff, "acceptedDiff");
 
-        // next tick isn't derived after teleport
+        // Travel's end-of-tick systems do not run during a teleport or a skipped actor tick.
         if (!movementResult.travelActive()) {
             return sourceStates.stream().map(state -> new DerivedState(state, state)).toList();
         }

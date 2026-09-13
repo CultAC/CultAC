@@ -29,27 +29,27 @@ final class BedrockAutoStepResolver {
         }
 
         Vec3d startFeet = current.physicalFeetPosition();
-        WorldCollisionBox startBox = BedrockCollisionSweep.playerBox(startFeet, dimensions);
+        WorldCollisionBox startBox = BedrockCollisionSweep.playerBox(startFeet, dimensions, current.coordinateFrame());
         List<BlockCollision> stepShapes = shapesIgnoringCeiling(startBox, obstacles);
         BedrockCollisionSweep.MoveResult upMove = BedrockCollisionSweep.sweep(
             startFeet,
             new Vec3d(requestedDelta.x(), maxUpStep, requestedDelta.z()),
             stepShapes,
-            dimensions
+            dimensions, current.coordinateFrame()
         );
 
         double acceptedRise = upMove.appliedDelta().y();
         BedrockCollisionClipper.ClipResult downClip = BedrockCollisionClipper.clip(
             upMove.finalBox(),
             new Vec3d(0.0D, -acceptedRise, 0.0D),
-            stepShapes
+            stepShapes, current.coordinateFrame()
         );
         Vec3d finalDelta = addFloat(upMove.appliedDelta(), downClip.move());
         WorldCollisionBox finalBox = BedrockCollisionSweep.moveBedrock(
             upMove.finalBox(),
             downClip.move().x(),
             downClip.move().y(),
-            downClip.move().z()
+            downClip.move().z(), current.coordinateFrame()
         );
         if (collides(finalBox, obstacles)
             || horizontalDistanceSquared(finalDelta) <= horizontalDistanceSquared(baseMove.appliedDelta()) + EPSILON) {
@@ -57,9 +57,9 @@ final class BedrockAutoStepResolver {
         }
 
         Vec3d finalPosition = new Vec3d(
-            BedrockCollisionSweep.f(startFeet.x() + finalDelta.x()),
+            current.coordinateFrame().roundX(startFeet.x() + finalDelta.x()),
             BedrockCollisionSweep.f(startFeet.y() + finalDelta.y()),
-            BedrockCollisionSweep.f(startFeet.z() + finalDelta.z())
+            current.coordinateFrame().roundZ(startFeet.z() + finalDelta.z())
         );
         Optional<PlacedBlockCollision> yCollisionBlock = downClip.yCollisionBlock().or(upMove::yCollisionBlock);
         Vec3d requested = new Vec3d(
@@ -75,7 +75,7 @@ final class BedrockAutoStepResolver {
             finalDelta.x() != requested.x(),
             finalDelta.y() != requested.y(),
             finalDelta.z() != requested.z(),
-            yCollisionBlock
+            yCollisionBlock, current.coordinateFrame()
         ));
     }
 

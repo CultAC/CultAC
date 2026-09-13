@@ -251,7 +251,7 @@ final class BedrockAcceptedDiffVelocity {
     private static Vec3d packetVisibleRawMove(BedrockMovementResult movementResult) {
         Vec3d previous = movementResult.previousState().physicalFeetPosition();
         Vec3d rawPacketEndpoint = BedrockPositionTranslator.normalizePhysicalFeetPosition(
-            movementResult.rawPredictedPhysicalFeetPosition());
+            movementResult.rawPredictedPhysicalFeetPosition(), movementResult.previousState().coordinateFrame());
         return rawPacketEndpoint.subtract(previous);
     }
 

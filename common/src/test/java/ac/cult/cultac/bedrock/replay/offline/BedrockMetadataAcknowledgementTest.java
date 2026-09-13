@@ -72,6 +72,44 @@ import org.mockito.Mockito;
 import static org.junit.Assert.*;
 
 public final class BedrockMetadataAcknowledgementTest {
+    @Test public void localSessionsSharingAnIpKeepSeparateReceiptCallbacks() throws Exception {
+        checkSessionIsolation(false);
+    }
+
+    @Test public void delayedOldSessionWritesCannotAffectAReconnectedUuid() throws Exception {
+        checkSessionIsolation(true);
+    }
+
+    private static void checkSessionIsolation(boolean reconnect) throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        UUID uuid = UUID.randomUUID();
+        try (var first = new Transport(uuid); var second = new Transport(reconnect ? uuid : UUID.randomUUID())) {
+            first.initialize();
+            first.recordMetadata();
+            long firstTimestamp = first.player.getLastClientboundBedrockTransaction().id() * 1_000_000L;
+            second.initialize();
+            if (reconnect) first.recordMetadata(); // A stale write must not bind to the new CultPlayer.
+            assertNull(second.player.getLastClientboundBedrockTransaction());
+            var reply = new NetworkStackLatencyPacket();
+            reply.setTimestamp(firstTimestamp);
+            reply.setFromServer(true);
+            second.receive(reply);
+            second.drain();
+            assertFalse(second.server.submit(() -> state(second.player).gliding()).get(5, TimeUnit.SECONDS));
+            first.receive(reply);
+            first.drain();
+            assertEquals(!reconnect, first.server.submit(() -> state(first.player).gliding()).get(5, TimeUnit.SECONDS));
+            assertFalse(second.server.submit(() -> state(second.player).gliding()).get(5, TimeUnit.SECONDS));
+            second.recordMetadata();
+            reply = new NetworkStackLatencyPacket();
+            reply.setTimestamp(second.player.getLastClientboundBedrockTransaction().id() * 1_000_000L);
+            reply.setFromServer(true);
+            second.receive(reply);
+            second.drain();
+            assertTrue(second.server.submit(() -> state(second.player).gliding()).get(5, TimeUnit.SECONDS));
+        }
+    }
+
     @Test
     public void quietConnectionAppliesMetadataBeforeLaterMovement() throws Exception {
         checkOrdering(false);
@@ -128,6 +166,7 @@ public final class BedrockMetadataAcknowledgementTest {
     }
 
     private static final class Transport implements AutoCloseable {
+        final UUID uuid;
         final EventLoop bedrock = loop("metadata-bedrock");
         final EventLoop tick = loop("metadata-geyser-tick");
         final EventLoop downstream = loop("metadata-geyser-downstream");
@@ -146,6 +185,9 @@ public final class BedrockMetadataAcknowledgementTest {
         Map<Object, Object> players;
         Map<Object, Object> users;
         Map<Object, Object> taps;
+
+        Transport() { this(UUID.randomUUID()); }
+        Transport(UUID uuid) { this.uuid = uuid; }
 
         void initialize() throws Exception {
             var accepted = new CompletableFuture<Channel>();
@@ -181,7 +223,6 @@ public final class BedrockMetadataAcknowledgementTest {
                     }).connect(listener.localAddress()).sync().channel();
             serverChannel = accepted.get(5, TimeUnit.SECONDS);
             player = server.submit(() -> {
-                UUID uuid = UUID.randomUUID();
                 var user = new User(new User.Profile(uuid, ".Metadata_Test"), null, null, null, serverChannel);
                 return new CultPlayer(user, MovementPlatform.BEDROCK, new BedrockPlayerState(uuid));
             }).get(5, TimeUnit.SECONDS);

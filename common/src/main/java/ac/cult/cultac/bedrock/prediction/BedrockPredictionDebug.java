@@ -337,6 +337,8 @@ public final class BedrockPredictionDebug {
                 .append(" inputMode=").append(frame.getInputMode())
                 .append(" playMode=").append(frame.getPlayMode())
                 .append(" position=").append(frame.getPosition())
+                .append(" packetPosition=").append(frame.getPacketPosition())
+                .append(" coordinateFrame=").append(frame.getCoordinateFrame())
                 .append(" delta=").append(frame.getDelta())
                 .append(" yaw=").append(frame.getYaw())
                 .append(" pitch=").append(frame.getPitch())

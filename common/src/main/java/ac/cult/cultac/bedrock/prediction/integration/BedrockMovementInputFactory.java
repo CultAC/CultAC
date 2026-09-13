@@ -62,7 +62,7 @@ final class BedrockMovementInputFactory {
                 worldSnapshot,
                 BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                 mobJumpComponent,
-                actorMovementTickProven(player, context)
+                hasAcknowledgedStartChunk(player, context)
         );
     }
 
@@ -80,12 +80,12 @@ final class BedrockMovementInputFactory {
         return frame;
     }
 
-    private static boolean actorMovementTickProven(CultPlayer player, SimulationContext context) {
+    private static boolean hasAcknowledgedStartChunk(CultPlayer player, SimulationContext context) {
         int chunkX = CultMath.floor(context.getStart().x) >> 4;
         int chunkZ = CultMath.floor(context.getStart().z) >> 4;
         CompensatedWorld.CachedChunk chunk = player.compensatedWorld.getChunk(chunkX, chunkZ);
-        return chunk == null
-                || chunk.getTransaction() <= player.lastTransactionReceived.get();
+        return chunk != null
+                && chunk.getTransaction() <= player.lastTransactionReceived.get();
     }
 
     public record Input(

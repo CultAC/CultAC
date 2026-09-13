@@ -37,9 +37,9 @@ final class BedrockJumpPreventionResolver {
             return JumpPreventionState.NONE;
         }
 
-        int x = floorToInt((float) physicalFeetPosition.x());
+        int x = blockWorld.coordinateFrame().originX() + floorToInt(blockWorld.coordinateFrame().localX(physicalFeetPosition.x()));
         int y = floorToInt((float) physicalFeetPosition.y());
-        int z = floorToInt((float) physicalFeetPosition.z());
+        int z = blockWorld.coordinateFrame().originZ() + floorToInt(blockWorld.coordinateFrame().localZ(physicalFeetPosition.z()));
         BlockPosition currentPosition = new BlockPosition(x, y, z);
         Optional<PlacedBlockCollision> currentBlock = blockWorld.blockAt(currentPosition);
         if (currentBlock.filter(BedrockJumpPreventionResolver::preventsJumping).isPresent()) {

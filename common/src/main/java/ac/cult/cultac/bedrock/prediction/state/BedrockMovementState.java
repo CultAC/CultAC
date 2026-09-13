@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.state;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockPositionTranslator;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
@@ -16,8 +17,13 @@ import java.util.Objects;
 public record BedrockMovementState(
     Motion motion,
     ActorState actor,
-    TickMemory memory
+    TickMemory memory,
+    boolean hasTeleported
 ) {
+    public BedrockMovementState(Motion motion, ActorState actor, TickMemory memory) {
+        this(motion, actor, memory, false);
+    }
+
     public BedrockMovementState {
         Objects.requireNonNull(motion, "motion");
         Objects.requireNonNull(actor, "actor");
@@ -46,15 +52,22 @@ public record BedrockMovementState(
         BedrockCollisionFlags collisionFlags,
         Medium movementBranch
     ) {
+        return fromPhysicalFeet(physicalFeetPosition, velocity, inputFrame, collisionFlags, movementBranch,
+                BedrockCoordinateFrame.IDENTITY);
+    }
+
+    public static BedrockMovementState fromPhysicalFeet(Vec3d physicalFeetPosition, Vec3d velocity,
+            BedrockInputFrame inputFrame, BedrockCollisionFlags collisionFlags, Medium movementBranch,
+            BedrockCoordinateFrame coordinateFrame) {
         boolean swimming = BedrockSwimmingPoseProgress.initialSwimming(inputFrame);
         return new BedrockMovementState(
             new Motion(
-                BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition),
+                BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame),
                 velocity,
                 0.0D,
                 Vec3d.ZERO,
                 inputFrame,
-                collisionFlags
+                collisionFlags, coordinateFrame
             ),
             new ActorState(
                 new ContactState(
@@ -82,6 +95,13 @@ public record BedrockMovementState(
                 BedrockDolphinBoost.INITIAL
             )
         );
+    }
+
+    public BedrockCoordinateFrame coordinateFrame() { return motion.coordinateFrame(); }
+
+    public BedrockMovementState withCoordinateFrame(BedrockCoordinateFrame frame) {
+        return frame.equals(coordinateFrame()) ? this : withMotion(new Motion(physicalFeetPosition(), velocity(),
+                lastPhysicalDisplacementSquared(), lastPhysicalDisplacement(), inputFrame(), collisionFlags(), frame));
     }
 
     public Vec3d physicalFeetPosition() { return motion.physicalFeetPosition(); }
@@ -120,7 +140,7 @@ public record BedrockMovementState(
     public PlayerDimensionsState acknowledgedPlayerDimensions() { return actor.acknowledgedPlayerDimensions(); }
 
     public Vec3d bedrockPacketPosition() {
-        return BedrockPositionTranslator.physicalFeetToPacketPosition(physicalFeetPosition());
+        return BedrockPositionTranslator.physicalFeetToPacketPosition(physicalFeetPosition(), coordinateFrame());
     }
 
     public long clientTick() {
@@ -133,7 +153,11 @@ public record BedrockMovementState(
 
 
     public BedrockMovementState withDolphinBoost(BedrockDolphinBoost value) {
-        return new BedrockMovementState(motion, actor, memory.withDolphinBoost(value));
+        return new BedrockMovementState(motion, actor, memory.withDolphinBoost(value), hasTeleported);
+    }
+
+    public BedrockMovementState withTeleportPending() {
+        return hasTeleported ? this : new BedrockMovementState(motion, actor, memory, true);
     }
 
     public BedrockMovementState withMovementBranch(Medium movementBranch) {
@@ -166,13 +190,13 @@ public record BedrockMovementState(
     /** Advances an input frame without changing movement state. */
     public BedrockMovementState withoutActorMovementTick(BedrockInputFrame frame) {
         return withMotion(new Motion(
-            physicalFeetPosition(), velocity(), 0.0D, Vec3d.ZERO, frame, collisionFlags()));
+            physicalFeetPosition(), velocity(), 0.0D, Vec3d.ZERO, frame, collisionFlags(), coordinateFrame()));
     }
 
     /** Applies an immobile metadata boundary without completing a client tick. */
     public BedrockMovementState afterImmobileBoundary() {
         return withMotion(new Motion(
-            physicalFeetPosition(), Vec3d.ZERO, 0.0D, Vec3d.ZERO, inputFrame(), collisionFlags()));
+            physicalFeetPosition(), Vec3d.ZERO, 0.0D, Vec3d.ZERO, inputFrame(), collisionFlags(), coordinateFrame()));
     }
 
     public BedrockMovementState withAutoClimbTravel(boolean autoClimbTravel) {
@@ -185,7 +209,7 @@ public record BedrockMovementState(
         Vec3d physicalFeetPosition,
         double lastPhysicalDisplacementSquared
     ) {
-        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition);
+        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame());
         return withMotion(motion.withPosition(
             position,
             lastPhysicalDisplacementSquared,
@@ -195,12 +219,13 @@ public record BedrockMovementState(
 
     /** Applies an ordered teleport and motion update without restoring older tick state. */
     public BedrockMovementState afterServerTeleport(Vec3d physicalFeetPosition, Vec3d velocity) {
-        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition);
+        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame());
         return new BedrockMovementState(
             // bedrock teleports preserve collision
-            new Motion(position, velocity, 0.0D, Vec3d.ZERO, motion.inputFrame(), motion.collisionFlags()),
+            new Motion(position, velocity, 0.0D, Vec3d.ZERO, motion.inputFrame(), motion.collisionFlags(), coordinateFrame()),
             actor,
-            memory.withFallDistance(0.0F)
+            memory.withFallDistance(0.0F),
+            true
         );
     }
 
@@ -208,7 +233,7 @@ public record BedrockMovementState(
         Vec3d physicalFeetPosition,
         Vec3d lastPhysicalDisplacement
     ) {
-        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition);
+        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame());
         return withMotion(motion.withPosition(
             position,
             displacementSquared(lastPhysicalDisplacement),
@@ -220,7 +245,8 @@ public record BedrockMovementState(
         return new BedrockMovementState(
             motion,
             actor.withItemUseSlowdownActive(active),
-            memory.withItemUseSlowdownTicks(ticks)
+            memory.withItemUseSlowdownTicks(ticks),
+            hasTeleported
         );
     }
 
@@ -228,7 +254,8 @@ public record BedrockMovementState(
         return new BedrockMovementState(
             motion,
             actor.withGliding(gliding, gliding),
-            memory.withFallFlyTicks(gliding ? fallFlyTicks() : 0L)
+            memory.withFallFlyTicks(gliding ? fallFlyTicks() : 0L),
+            hasTeleported
         );
     }
 
@@ -258,13 +285,14 @@ public record BedrockMovementState(
     }
 
     public BedrockMovementState advance(BedrockMovementUpdate update) {
-        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(update.physicalFeetPosition());
+        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(update.physicalFeetPosition(), coordinateFrame());
         Vec3d displacement = position.subtract(physicalFeetPosition());
         BedrockInputFrame frame = update.frame();
         boolean horizontalPose = BedrockPoseInputData.committedHorizontalPose(frame);
+        // HasTeleportedFlagComponent is cleared only after an actor movement tick.
         return new BedrockMovementState(
             new Motion(position, update.velocity(), displacementSquared(displacement), displacement,
-                frame, update.collisionFlags()),
+                frame, update.collisionFlags(), coordinateFrame()),
             new ActorState(
                 new ContactState(
                     BlockMovementSlowdownState.NONE,
@@ -295,11 +323,11 @@ public record BedrockMovementState(
     }
 
     private BedrockMovementState withMotion(Motion motion) {
-        return new BedrockMovementState(motion, actor, memory);
+        return new BedrockMovementState(motion, actor, memory, hasTeleported);
     }
 
     private BedrockMovementState withActor(ActorState actor) {
-        return new BedrockMovementState(motion, actor, memory);
+        return new BedrockMovementState(motion, actor, memory, hasTeleported);
     }
 
     private boolean nextSprinting(BedrockInputFrame frame) {
@@ -323,9 +351,16 @@ public record BedrockMovementState(
         double lastPhysicalDisplacementSquared,
         Vec3d lastPhysicalDisplacement,
         BedrockInputFrame inputFrame,
-        BedrockCollisionFlags collisionFlags
+        BedrockCollisionFlags collisionFlags,
+        BedrockCoordinateFrame coordinateFrame
     ) {
+        public Motion(Vec3d position, Vec3d velocity, double distance, Vec3d displacement,
+                      BedrockInputFrame input, BedrockCollisionFlags flags) {
+            this(position, velocity, distance, displacement, input, flags, BedrockCoordinateFrame.IDENTITY);
+        }
+
         public Motion {
+            Objects.requireNonNull(coordinateFrame, "coordinateFrame");
             Objects.requireNonNull(physicalFeetPosition, "physicalFeetPosition");
             Objects.requireNonNull(velocity, "velocity");
             Objects.requireNonNull(lastPhysicalDisplacement, "lastPhysicalDisplacement");
@@ -339,12 +374,12 @@ public record BedrockMovementState(
         Motion withVelocityAndCollisionFlags(Vec3d velocity, BedrockCollisionFlags flags) {
             return new Motion(
                 physicalFeetPosition, velocity, lastPhysicalDisplacementSquared,
-                lastPhysicalDisplacement, inputFrame, flags
+                lastPhysicalDisplacement, inputFrame, flags, coordinateFrame
             );
         }
 
         Motion withPosition(Vec3d position, double displacementSquared, Vec3d displacement) {
-            return new Motion(position, velocity, displacementSquared, displacement, inputFrame, collisionFlags);
+            return new Motion(position, velocity, displacementSquared, displacement, inputFrame, collisionFlags, coordinateFrame);
         }
     }
 

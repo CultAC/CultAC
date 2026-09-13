@@ -141,6 +141,17 @@ public class PacketStateData {
         desiredOnGround = null;
     }
 
+    /** The local GFP dispatch suppressed this exact projection before it reached the server. */
+    public BedrockTranslatedMovementAuthorization consumeSuppressedBedrockProjection(long clientTick) {
+        if (bedrockTranslatedMovementAuthorization != null
+                && bedrockTranslatedMovementAuthorization.clientTick() == clientTick) {
+            BedrockTranslatedMovementAuthorization authorization = bedrockTranslatedMovementAuthorization;
+            clearBedrockTranslatedMovementPermit();
+            return authorization;
+        }
+        return null;
+    }
+
     public void clearBedrockTranslatedMovementPermit() {
         bedrockTranslatedMovementAuthorization = null;
         bedrockTranslatedCanonicalGround = null;

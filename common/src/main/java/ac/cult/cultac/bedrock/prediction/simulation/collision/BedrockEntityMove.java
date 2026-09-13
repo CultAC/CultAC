@@ -207,7 +207,7 @@ public final class BedrockEntityMove {
             current.physicalFeetPosition(),
             requestedDelta,
             obstacles,
-            dimensions
+            dimensions, current.coordinateFrame()
         );
         return new ActorMove(requestedDelta, obstacles, baseMove);
     }

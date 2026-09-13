@@ -1,5 +1,7 @@
 package ac.cult.cultac.utils.data;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
@@ -8,6 +10,14 @@ import lombok.Setter;
 
 @Getter
 public class TeleportData {
+    @Setter
+    BedrockCoordinateFrame bedrockCoordinateFrame = BedrockCoordinateFrame.IDENTITY;
+    @Setter
+    boolean bedrockOriginConfirmed = true;
+    @Setter
+    Vec3 bedrockLocalPacketTarget;
+    @Setter
+    BedrockTeleportProvenance bedrockProvenance = BedrockTeleportProvenance.GEYSER;
     Vec3 location;
     RelativeFlag flags;
     Vec3 deltaMovement;
@@ -63,6 +73,10 @@ public class TeleportData {
 
     public TeleportData copyWithLocation(Vec3 location) {
         TeleportData copy = new TeleportData(location, flags, deltaMovement, transaction, teleportId, sourceYaw, sourcePitch, finalYaw, finalPitch);
+        copy.bedrockOriginConfirmed = bedrockOriginConfirmed;
+        copy.bedrockCoordinateFrame = bedrockCoordinateFrame;
+        copy.bedrockLocalPacketTarget = bedrockLocalPacketTarget;
+        copy.bedrockProvenance = bedrockProvenance;
         copy.positionOnly = positionOnly;
         copy.rotationOnly = rotationOnly;
         copy.sentWhileVehicle = sentWhileVehicle;

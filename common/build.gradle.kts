@@ -178,6 +178,16 @@ tasks.test {
     System.getProperty("exportBedrockFixtures")?.let {
         systemProperty("exportBedrockFixtures", it)
     }
+    // Opt-in tests against the unmodified GFP jar; PowerMock needs these opens on Java 25.
+    System.getProperty("gfpTestJar")?.let {
+        systemProperty("gfpTestJar", it)
+        jvmArgs(
+            "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+            "--add-opens=java.base/java.util=ALL-UNNAMED",
+            "--add-opens=java.base/java.net=ALL-UNNAMED",
+            "--add-opens=java.base/java.nio.file=ALL-UNNAMED"
+        )
+    }
     include("**/*Test.class")
     exclude("**/*$*")
 }

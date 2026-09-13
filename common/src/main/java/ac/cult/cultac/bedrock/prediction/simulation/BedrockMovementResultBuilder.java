@@ -51,7 +51,7 @@ final class BedrockMovementResultBuilder {
             false,
             canStep,
             maxUpStep,
-            true,
+            false,
             false);
     }
 

@@ -248,9 +248,16 @@ public final class GeyserBedrockBridgeRuntimeTest {
         InetSocketAddress endpoint = new InetSocketAddress("127.0.0.1", 32145);
 
         Mockito.when(geyserDownstream.localAddress()).thenReturn(endpoint);
-        Mockito.when(matchingServer.remoteAddress()).thenReturn(endpoint);
-        Mockito.when(otherServer.remoteAddress())
+        var matchingUnsafe = Mockito.mock(io.netty.channel.Channel.Unsafe.class);
+        var otherUnsafe = Mockito.mock(io.netty.channel.Channel.Unsafe.class);
+        Mockito.when(matchingServer.unsafe()).thenReturn(matchingUnsafe);
+        Mockito.when(otherServer.unsafe()).thenReturn(otherUnsafe);
+        Mockito.when(matchingUnsafe.remoteAddress()).thenReturn(endpoint);
+        Mockito.when(otherUnsafe.remoteAddress())
                 .thenReturn(new InetSocketAddress("127.0.0.1", 32146));
+        // Two players behind the same IP still have distinct native local peers.
+        Mockito.when(matchingServer.remoteAddress()).thenReturn(new InetSocketAddress("127.0.0.1", 0));
+        Mockito.when(otherServer.remoteAddress()).thenReturn(new InetSocketAddress("127.0.0.1", 0));
 
         assertTrue(GeyserBedrockBridgeRuntime.sameJavaConnection(
                 geyserDownstream, matchingServer));
@@ -258,6 +265,13 @@ public final class GeyserBedrockBridgeRuntimeTest {
                 geyserDownstream, otherServer));
         assertFalse(GeyserBedrockBridgeRuntime.sameJavaConnection(
                 geyserDownstream, new Object()));
+    }
+
+    @Test
+    public void unboundChannelsCannotMatchAnotherSession() {
+        var downstream = Mockito.mock(io.netty.channel.Channel.class);
+        var server = Mockito.mock(io.netty.channel.Channel.class);
+        assertFalse(GeyserBedrockBridgeRuntime.sameJavaConnection(downstream, server));
     }
 
     @Test

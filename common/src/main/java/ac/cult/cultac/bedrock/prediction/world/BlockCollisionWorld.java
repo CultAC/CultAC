@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.world;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import java.util.ArrayList;
@@ -13,6 +14,7 @@ import java.util.Optional;
 public final class BlockCollisionWorld {
     public static final BlockCollisionWorld EMPTY = new BlockCollisionWorld(List.of());
 
+    private final BedrockCoordinateFrame coordinateFrame;
     private final List<PlacedBlockCollision> blocks;
     private final Map<BlockPosition, PlacedBlockCollision> blocksByPosition;
     private final Map<BlockPosition, PlacedBlockCollision> liquidBlocksByPosition;
@@ -22,14 +24,25 @@ public final class BlockCollisionWorld {
     private final List<BlockCollision> collisions;
 
     public BlockCollisionWorld(List<PlacedBlockCollision> blocks) {
+        this(blocks, BedrockCoordinateFrame.IDENTITY);
+    }
+
+    public BlockCollisionWorld(List<PlacedBlockCollision> blocks, BedrockCoordinateFrame coordinateFrame) {
+        this.coordinateFrame = Objects.requireNonNull(coordinateFrame, "coordinateFrame");
         this.blocks = List.copyOf(blocks);
-        WorldIndex index = WorldIndex.from(this.blocks);
+        WorldIndex index = WorldIndex.from(this.blocks, coordinateFrame);
         this.blocksByPosition = index.blocksByPosition();
         this.liquidBlocksByPosition = index.liquidBlocksByPosition();
         this.waterBlocks = index.waterBlocks();
         this.lavaBlocks = index.lavaBlocks();
         this.collisionBoxes = index.collisionBoxes();
         this.collisions = index.collisions();
+    }
+
+    public BedrockCoordinateFrame coordinateFrame() { return coordinateFrame; }
+
+    public BlockCollisionWorld withCoordinateFrame(BedrockCoordinateFrame frame) {
+        return frame.equals(coordinateFrame) ? this : new BlockCollisionWorld(blocks, frame);
     }
 
     public List<PlacedBlockCollision> blocks() {
@@ -76,28 +89,14 @@ public final class BlockCollisionWorld {
         };
     }
 
-    private static WorldCollisionBox bedrockBox(WorldCollisionBox box) {
-        return new WorldCollisionBox(
-                f(box.minX()),
-                f(box.minY()),
-                f(box.minZ()),
-                f(box.maxX()),
-                f(box.maxY()),
-                f(box.maxZ()));
-    }
-
-    private static double f(double value) {
-        return (double) (float) value;
-    }
-
     @Override
     public boolean equals(Object other) {
-        return this == other || other instanceof BlockCollisionWorld world && blocks.equals(world.blocks);
+        return this == other || other instanceof BlockCollisionWorld world && blocks.equals(world.blocks) && coordinateFrame.equals(world.coordinateFrame);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(blocks);
+        return Objects.hash(blocks, coordinateFrame);
     }
 
     @Override
@@ -119,7 +118,7 @@ public final class BlockCollisionWorld {
             List<WorldCollisionBox> collisionBoxes,
             List<BlockCollision> collisions
     ) {
-        private static WorldIndex from(List<PlacedBlockCollision> blocks) {
+        private static WorldIndex from(List<PlacedBlockCollision> blocks, BedrockCoordinateFrame frame) {
             if (blocks.isEmpty()) {
                 return new WorldIndex(Map.of(), Map.of(), List.of(), List.of(), List.of(), List.of());
             }
@@ -141,7 +140,7 @@ public final class BlockCollisionWorld {
                 }
                 for (WorldCollisionBox box : block.collisionBoxes()) {
                     boxes.add(box);
-                    collisions.add(new BlockCollision(block, bedrockBox(box)));
+                    collisions.add(new BlockCollision(block, frame.roundBox(box)));
                 }
             }
             return new WorldIndex(

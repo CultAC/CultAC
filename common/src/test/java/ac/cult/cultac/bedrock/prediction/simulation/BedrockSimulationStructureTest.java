@@ -90,6 +90,52 @@ public final class BedrockSimulationStructureTest {
         assertEquals(BedrockCollisionFlags.ON_GROUND, predicted.collisionFlags());
         assertEquals(currentFrame, predicted.inputFrame());
         assertEquals(state.simulationTick(), predicted.simulationTick());
+        var carry = BedrockSimulation.deriveNextStates(
+            candidates.getFirst().movementResult(), List.of(predicted), Vec3d.ZERO);
+        assertEquals(1, carry.size());
+        assertEquals(state.velocity(), carry.getFirst().state().velocity());
+        assertEquals(state.simulationTick(), carry.getFirst().state().simulationTick());
+    }
+
+    @Test
+    public void skippedActorTickPreservesAirborneVelocityThroughReconciliation() {
+        var frame = BedrockInputFrame.idle(3L);
+        var state = BedrockMovementState.fromPhysicalFeet(new Vec3d(0, 80, 0),
+            new Vec3d(0.125, -0.25, 0.0625), BedrockInputFrame.idle(2L), BedrockCollisionFlags.AIR);
+        var snapshot = BedrockSnapshotResolver.forState(
+            BedrockWorldSnapshot.fromContext(airContext()), state, frame);
+        var result = BedrockSimulation.candidates(new BedrockSimulation.Input(
+            state, frame, frame.intent(), snapshot, true,
+            BedrockSimulation.DEFAULT_MAX_AUTO_STEP, BedrockMobJumpComponentState.DEFAULT, false))
+            .getFirst().movementResult();
+        var carry = BedrockSimulation.deriveNextStates(result, List.of(result.predictedState()), Vec3d.ZERO);
+        assertEquals(1, carry.size());
+        assertEquals(state.physicalFeetPosition(), carry.getFirst().state().physicalFeetPosition());
+        assertEquals(state.velocity(), carry.getFirst().state().velocity());
+        assertEquals(state.collisionFlags(), carry.getFirst().state().collisionFlags());
+    }
+
+    @Test
+    public void teleportSuppressionSurvivesSkippedActorTicksAndIsConsumedOnce() {
+        var state = BedrockMovementState.fromPhysicalFeet(new Vec3d(0, 80, 0), Vec3d.ZERO,
+            BedrockInputFrame.idle(0L), BedrockCollisionFlags.AIR);
+        for (long tick = 1; tick <= 5; tick++) {
+            var frame = BedrockInputFrame.idle(tick);
+            var snapshot = BedrockSnapshotResolver.forState(
+                BedrockWorldSnapshot.fromContext(airContext()), state, frame);
+            var result = BedrockSimulation.candidates(new BedrockSimulation.Input(
+                state, frame, frame.intent(), snapshot, true,
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP, BedrockMobJumpComponentState.DEFAULT,
+                tick >= 4, tick == 1)).getFirst().movementResult();
+            var carry = BedrockSimulation.deriveNextStates(result, List.of(result.predictedState()), Vec3d.ZERO);
+            assertEquals(1, carry.size());
+            state = carry.getFirst().state();
+            assertEquals(tick < 4, state.hasTeleported());
+            assertEquals(tick == 5, result.travelActive());
+            assertEquals(tick < 4 ? 0 : tick - 3, state.simulationTick());
+            assertEquals(tick == 5 ? -0.0784 : 0.0, state.velocity().y(), 0.00000001);
+            assertEquals(80.0, state.physicalFeetPosition().y(), 0.0);
+        }
     }
 
     @Test
