@@ -61,8 +61,8 @@ tasks.withType<JavaCompile>().configureEach {
     options.release.set(21)
 }
 
-val bedrockMovementCollisionOverridesResource = layout.buildDirectory.file(
-    "generated-resources/bedrock-movement/bedrock/cultac-bedrock-collision-overrides.json.gz"
+val bedrockMovementCollisionOverridesResource = layout.projectDirectory.file(
+    "src/main/resources/bedrock/cultac-bedrock-collision-overrides.json.gz"
 )
 
 // Keep the generator on its own Gradle wrapper; it uses a different plugin stack.
@@ -71,48 +71,39 @@ val bedrockMovementCollisionCatalog = mappingsGeneratorDirectory.file(
     "build/generated/cultac-bedrock-collision-overrides.json.gz"
 )
 val generateBedrockMovementCollisionOverrides = tasks.register<Exec>("generateBedrockMovementCollisionOverrides") {
-    group = "build"
-    description = "Generates the required Bedrock collision catalog using the pinned mappings submodule."
-    // Skip the entire nested build when its sources and catalog are unchanged.
-    inputs.files(fileTree(mappingsGeneratorDirectory) {
-        include("*.gradle.kts", "gradle.properties", "gradle/**", "gradlew", "gradlew.bat")
-        // Downloaded palettes and BDS assets are pinned by the build configuration.
-        include("src/main/**", "scripts/**/*.py", "tools/bds-shape-probe/**")
-        exclude("**/__pycache__/**")
-    }).withPropertyName("generatorInputs").withPathSensitivity(PathSensitivity.RELATIVE)
-    outputs.file(bedrockMovementCollisionCatalog).withPropertyName("collisionCatalog")
+    group = "generation"
+    description = "Regenerates the checked-in Bedrock collision catalog (Linux x86-64 only)."
     workingDir(mappingsGeneratorDirectory)
     commandLine("./gradlew", "generateCultacBedrockCollisionOverrides", "--no-daemon", "--console=plain")
     doFirst {
+        if (System.getProperty("os.name") != "Linux" || System.getProperty("os.arch") !in setOf("amd64", "x86_64")) {
+            throw GradleException(
+                "Geometry regeneration requires Linux x86-64. Normal builds use the checked-in catalog; run `build` instead."
+            )
+        }
         if (!mappingsGeneratorDirectory.file("gradlew").asFile.isFile) {
             throw GradleException(
                 "Mappings generator submodule is missing. Run `git submodule update --init --recursive` from the repository root."
             )
         }
     }
-}
-
-val prepareBedrockMovementCollisionOverrides = tasks.register("prepareBedrockMovementCollisionOverrides") {
-    group = "build"
-    description = "Bundles the generated sparse Bedrock collision overrides used by Bedrock movement validation."
-    dependsOn(generateBedrockMovementCollisionOverrides)
-    val catalog = bedrockMovementCollisionCatalog
-    inputs.file(catalog)
-    outputs.file(bedrockMovementCollisionOverridesResource)
     doLast {
-        check(catalog.asFile.isFile) { "Mappings generator did not produce ${catalog.asFile}." }
+        check(bedrockMovementCollisionCatalog.asFile.isFile) {
+            "Mappings generator did not produce ${bedrockMovementCollisionCatalog.asFile}."
+        }
         copy {
-            from(catalog)
-            into(bedrockMovementCollisionOverridesResource.get().asFile.parentFile)
+            from(bedrockMovementCollisionCatalog)
+            into(bedrockMovementCollisionOverridesResource.asFile.parentFile)
         }
     }
 }
 
 tasks.processResources {
-    dependsOn(prepareBedrockMovementCollisionOverrides)
-    from(bedrockMovementCollisionOverridesResource) {
-        into("bedrock")
-    }
+    // An explicit required input prevents accidentally shipping a jar without geometry.
+    inputs.file(bedrockMovementCollisionOverridesResource).withPropertyName("bedrockCollisionCatalog")
+    // Allows an explicit regeneration and build in one invocation without making
+    // regeneration part of the normal build graph.
+    mustRunAfter(generateBedrockMovementCollisionOverrides)
 }
 
 dependencies {

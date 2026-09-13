@@ -8,21 +8,18 @@ make the process go more smoothly.*
 ### Pull Request Guidelines
 
 - **Compatibility**
-  - Any changes must be compatible with
-  the [supported environments](https://github.com/GrimAnticheat/Grim/wiki/Supported-environments) (Spigot, Paper, Folia, Fabric, etc.)
-  - The plugin must be compatible with minecraft versions 1.8 and higher. Exempting checks from specific versions is acceptable.
+  - The plugin must not entirely break with legacy clients (1.8-1.21.1), you may exempt older clients
   - The plugin must be able to run on Java 17 or higher. Changes that don't support Java 17 at runtime will not be accepted.
 
 - **Non-acceptable pull requests**
-  - Heuristic-based checks will not be accepted; however, basic rate limiting such as blocking attacks based on CPS is acceptable.
-  - Checks that can be easily circumvented that don't block packets or fix anything are likely to not be accepted.
-  - Checks or features that are too specific to a single environment or minecraft version are likely to not be accepted.
-  - Changes that require large or unnecessary dependencies will likely not be accepted.
+  - Heuristic-based checks will be accepted ONLY IF they are mathematically reasonable and unlikely to cause false positives
+  - Changes that require large dependencies must be justified, i.e. machine learning libraries
 
 - **Pull request formatting**
   - Create a new branch for your feature or fix when forking the repository.
   - Reference related issues in your pull request description if applicable.
   - Write clear and descriptive commit messages.
+  - Don't use AI to write a description of your pull request, you must understand the code yourself.
 
 - **Code styling**
   - Add code comments for complex logic or significant changes.
@@ -32,9 +29,5 @@ make the process go more smoothly.*
 ### Development Notes
 
 - CultAC is built using [Gradle](https://gradle.org/) kotlin scripts.
-- Java 21 is currently required to build the project. A minimum of Java 17 is required to run it.
-
-### Questions & Support
-
-- Join upstream Grim’s [Discord](https://discord.grim.ac) if you have questions or need assistance.
-- Refer to the [Wiki](https://github.com/GrimAnticheat/Grim/wiki) for upstream documentation.
+- JDK 25 is required to build the project; the plugin classes target Java 21.
+- Bedrock geometry is checked into this repo as it can only be regenerated on Linux

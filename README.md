@@ -5,37 +5,25 @@ CultAC is an open source Minecraft anticheat designed to support the latest vers
 **This repository is a fork of upstream Grim.** It keeps the GPLv3 Grim 2.0-modern base
 (checks, commands, config system, platform SPI) but replaces the PacketEvents dependency
 with a raw-NMS (non-PacketEvents) networking pipeline, replaces the 2.0 prediction engine
-with the 3.0 simulation engine, and adds a dedicated Bedrock simulation engine bridged
-through Geyser. See [NOTICE.port](NOTICE.port) for the port's licensing and attribution
-statement and [PORTING.md](PORTING.md) for the provenance index.
+with the 3.0 simulation engine written by DefineOutside in early 2023, and adds a dedicated Bedrock simulation engine bridged
+through Geyser.
 
-- Bukkit/Paper only; the Fabric modules were removed in this fork.
-- Server support: 1.21.2+ (primary target Paper 26.2).
-- Java client support: 1.21.2+ via ViaVersion.
+- Paper
+- Java client support: 1.21.2+ via ViaVersion. 1.8-1.21.1 clients are "best effort" supported.
 - Bedrock client support: via Geyser/Floodgate. Bedrock players are simulated by the
   Bedrock engine; they are no longer exempt from the anticheat.
 
-## Downloads
+## Compatibility
+* Java 21 or higher
+* Paper 1.21.2+, Spigot is unsupported.
 
-This fork is not published to Modrinth or Hangar; build it from source (see below).
-Upstream Grim releases are on [Modrinth](https://modrinth.com/plugin/grimac).
-
-## Requirements & Installation
-
-- Java 21 or higher.
-- A Bukkit-platform server (Spigot, Paper, or Folia) running 1.21.2+. Paper 26.2 is the
-  primary and tested target.
+Bedrock notes
+* GeyserFloatingPoints must be installed as a Geyser addon if players are > 3000 blocks from 0,0
 
 If you use a proxy such as Velocity or BungeeCord:
-- If you use Geyser, Floodgate must be installed on the backend server (where Cult is) so Cult can access the Floodgate API.
+- Geyser and Floodgate must be on the backend server so we may read the bedrock client's packets
 - If you use ViaVersion, it must be installed on the backend server (where Cult is) ONLY.
   Cult does not support having ViaVersion installed on the proxy, even if it is also installed on the backend.
-
-## Resources
-
-- For upstream documentation and examples visit the [Wiki](https://github.com/GrimAnticheat/Grim/wiki).
-- For upstream answers to commonly asked questions visit the [FAQ](https://github.com/GrimAnticheat/Grim/wiki/FAQ).
-- For community support and project discussion join upstream Grim’s [Discord](https://discord.grim.ac).
 
 ## Pull Requests
 
@@ -50,9 +38,6 @@ GrimAPI can keep their dependency on `GrimAC`; CultAC provides that plugin alias
 The implementation lives under `ac.cult.cultac`, while the external API stays under
 `ac.grim.grimac.api`.
 
-The [compatibility probe](validation/grimapi-compat/README.md) verifies this using
-an independently compiled Bukkit plugin.
-
 ## Commands and configuration
 
 `/cult` is the primary command. `/cultac`, `/grim`, and `/grimac` are aliases.
@@ -66,10 +51,37 @@ migration schema names remain unchanged for compatibility.
 
 ## Compiling From Source
 
-1. `git clone --recurse-submodules <this repository>`
+Install JDK 25 and Git, and set `JAVA_HOME` to the JDK 25 installation.
+
+1. `git clone https://github.com/CultAC/CultAC.git`
 2. `cd` into the cloned directory
 3. `./gradlew build`
 4. The final jar is at `bukkit/build/libs/`
+
+## Cult changes from Grim
+
+* Dedicated simulation engine for bedrock players
+  * Written and validated to 0.001 accuracy without exemption scenarios
+    * Tridents, elytra, slime, honey, water, lava, bubble columns, etc. all match bedrock client
+  * Machine generated based upon replaying bedrock packets sequences thousands of times, human validated
+  * Listens to bedrock packets to increase accuracy
+* Chunk section deduplication. Only one copy per unique chunk section is stored reducing memory usage in common areas.
+  * Copy on write on shared chunk sections preserves packet-based blocks, version differences, and latency differences
+  * Servers with many players in one area will see a substantial memory decrease
+* NMS based packets rather than PacketEvents
+* Lower allocation transaction scheduling
+* Fork of Grim 3.0 engine
+* Uses native collision from the server to reduce maintenance burden
+* Uses native block placing logic to increase accuracy and reduce maintenance burden
+* Uses client-provided inventory changes to increase accuracy and reduce maintenance burden
+* Packet driven piston simulation
+* FairReach ported from Grim 3.0 to limit latency abuse for reach
+* Loss of Fabric and Spigot support. Fabric support may be re-added eventually
+
+## What's not done
+* Few additional checks compared to upstream Grim 2.0, the focus is on the bedrock and 3.0 simulation engine
+* Extensive bedrock validation
+* Validation for non-latest bedrock versions.
 
 ## Cult Supremacy
 
@@ -104,7 +116,7 @@ What makes Cult stand out against other anticheats?
 * Using this cache, the anticheat can safely access the world state
 * Per player, the cache allows for multithreaded design
 * Sending players fake blocks with packets is safe and does not lead to falses
-* The world is recreated for each player to allow lag compensation
+* The world is recreated and deduplicated for each player to allow lag compensation
 * Client sided blocks cause no issues with packet based blocks. Block glitching does not false the
   anticheat.
 

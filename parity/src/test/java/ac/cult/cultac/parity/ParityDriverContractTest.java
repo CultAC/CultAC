@@ -1,6 +1,8 @@
 package ac.cult.cultac.parity;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,6 +48,7 @@ class ParityDriverContractTest {
     }
 
     @Test
+    @EnabledOnOs(value = {OS.LINUX, OS.MAC}, disabledReason = "Exercises the Unix Bash driver; Java parity tests run on every platform")
     void driverRejectsAnyBaselineOtherThanTheAuditedCommitBeforeBuilding() throws Exception {
         Path driver = repositoryPath("scripts/run-cult-parity.sh");
         Path artifacts = Files.createTempDirectory("cult-parity-contract-");
@@ -64,6 +67,7 @@ class ParityDriverContractTest {
     }
 
     @Test
+    @EnabledOnOs(value = {OS.LINUX, OS.MAC}, disabledReason = "Exercises the Unix Bash driver; Java parity tests run on every platform")
     void driverRejectsUnignoredArtifactRootInsideRepositoryBeforeCreatingIt() throws Exception {
         Path driver = repositoryPath("scripts/run-cult-parity.sh");
         Path repository = driver.getParent().getParent();
