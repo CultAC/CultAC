@@ -57,7 +57,6 @@ public final class OfflineCultTestBootstrap {
         installCultPlugin();
         installPlatformLoader();
         loadVanillaData();
-        OfflineBedrockCollisionCatalog.install();
         ConfigManager config = Mockito.mock(ConfigManager.class);
         Mockito.when(config.getIntElse(Mockito.anyString(), Mockito.anyInt()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
