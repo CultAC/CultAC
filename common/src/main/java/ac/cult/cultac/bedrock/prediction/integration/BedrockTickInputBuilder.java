@@ -21,6 +21,7 @@ final class BedrockTickInputBuilder {
                 player.bedrockState == null ? 0L : player.bedrockState.authoritativeInputTick(frame),
                 playerContext.pose(),
                 playerContext.actorGliding(),
+                player.bedrockState != null && player.bedrockState.isSwimmingRequested(),
                 consumedActionInput(player, frame, playerContext.riptideLevel()));
         return new BedrockTickInput(
                 inputFrame,

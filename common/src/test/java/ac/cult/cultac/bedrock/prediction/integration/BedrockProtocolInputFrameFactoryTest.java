@@ -8,6 +8,7 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
 
 public final class BedrockProtocolInputFrameFactoryTest {
     @Test
@@ -18,7 +19,7 @@ public final class BedrockProtocolInputFrameFactoryTest {
                 .build();
 
         var inputFrame = new BedrockProtocolInputFrameFactory().create(
-                authFrame, 1L, BedrockClientPoseState.STANDING, false, Set.of());
+                authFrame, 1L, BedrockClientPoseState.STANDING, false, false, Set.of());
 
         assertTrue(inputFrame.inputData().contains("SNEAK_CURRENT_RAW"));
     }
@@ -40,7 +41,7 @@ public final class BedrockProtocolInputFrameFactoryTest {
                 .build();
 
         var inputFrame = new BedrockProtocolInputFrameFactory().create(
-                authFrame, 1L, BedrockClientPoseState.STANDING, false, Set.of());
+                authFrame, 1L, BedrockClientPoseState.STANDING, false, false, Set.of());
 
         assertTrue(inputFrame.intent().fly().start());
         assertTrue(inputFrame.intent().fly().stop());
@@ -50,6 +51,25 @@ public final class BedrockProtocolInputFrameFactoryTest {
         assertTrue(inputFrame.intent().pose().stopCrawling());
         assertTrue(inputFrame.intent().pose().startSneaking());
         assertTrue(inputFrame.intent().pose().stopSneaking());
+    }
+
+    @Test
+    public void swimmingPoseDoesNotCreateARequestAndRequestDoesNotCreateAnActionEdge() {
+        var auth = BedrockAuthInputFrame.builder(UUID.randomUUID()).build();
+        var factory = new BedrockProtocolInputFrameFactory();
+        var poseOnly = factory.create(auth, 1L, BedrockClientPoseState.STANDING.withSwimming(true),
+                false, false, Set.of());
+        assertTrue(poseOnly.intent().pose().swimming());
+        assertFalse(poseOnly.swimmingRequested());
+        assertFalse(poseOnly.intent().swimmingRequested());
+        assertFalse(poseOnly.intent().pose().startSwimming());
+
+        var requestOnly = factory.create(auth, 2L, BedrockClientPoseState.STANDING,
+                false, true, Set.of());
+        assertTrue(requestOnly.swimmingRequested());
+        assertTrue(requestOnly.intent().swimmingRequested());
+        assertFalse(requestOnly.intent().pose().swimming());
+        assertFalse(requestOnly.intent().pose().startSwimming());
     }
 
     private static long[] rawFlags(PlayerAuthInputData... inputs) {

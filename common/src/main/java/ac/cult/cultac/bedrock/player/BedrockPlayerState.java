@@ -31,6 +31,7 @@ public final class BedrockPlayerState {
     private BedrockClientPoseState lastPoseAppliedState;
     private long trackedRiptideUseStartInputTick = Long.MIN_VALUE;
     private BedrockClientPoseState trackedPoseState = BedrockClientPoseState.STANDING;
+    private boolean swimmingRequested;
     private boolean pendingStartGlidingAction;
     private boolean pendingStopGlidingAction;
     private boolean pendingItemRelease;
@@ -71,6 +72,12 @@ public final class BedrockPlayerState {
         lastProcessedFrame = frame;
         processedAuthInputSequence++;
         authoritativeInputSequences.put(frame, processedAuthInputSequence);
+        if (frame.isSwimming()) {
+            swimmingRequested = true;
+        }
+        if (frame.isStopSwimming()) {
+            swimmingRequested = false;
+        }
         lastAuthInputMatchStatus = trigger == null
                 ? "processed auth input tick=" + frame.getClientTick() + " sequence=" + processedAuthInputSequence
                 : "processed auth input tick=" + frame.getClientTick() + " via " + trigger + " sequence=" + processedAuthInputSequence;
@@ -95,6 +102,7 @@ public final class BedrockPlayerState {
     public void clearMovementInputState() {
         clearTransientMovementInputState();
         trackedPoseState = BedrockClientPoseState.STANDING;
+        swimmingRequested = false;
         confirmedBoundingBoxSize = null;
         lastAuthInputMatchStatus = "auth input state cleared";
     }
@@ -139,7 +147,14 @@ public final class BedrockPlayerState {
         }
         if (swimming != null) {
             trackedPoseState = trackedPoseState.withSwimming(swimming);
+            if (!swimming) {
+                swimmingRequested = false;
+            }
         }
+    }
+
+    public boolean isSwimmingRequested() {
+        return swimmingRequested;
     }
 
     public synchronized BedrockMovementState applyConfirmedBoundingBoxSize(

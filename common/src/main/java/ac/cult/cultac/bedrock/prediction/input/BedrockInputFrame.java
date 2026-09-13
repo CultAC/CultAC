@@ -9,7 +9,8 @@ public record BedrockInputFrame(
     boolean jumping,
     boolean sneaking,
     boolean sprinting,
-    Set<String> inputData
+    Set<String> inputData,
+    boolean swimmingRequested
 ) {
     public BedrockInputFrame {
         if (clientTick < 0L) {
@@ -18,6 +19,18 @@ public record BedrockInputFrame(
         requireFinite(yaw, "yaw");
         requireFinite(pitch, "pitch");
         inputData = inputData == null ? Set.of() : Set.copyOf(inputData);
+    }
+
+    public BedrockInputFrame(
+        long clientTick,
+        float yaw,
+        float pitch,
+        boolean jumping,
+        boolean sneaking,
+        boolean sprinting,
+        Set<String> inputData
+    ) {
+        this(clientTick, yaw, pitch, jumping, sneaking, sprinting, inputData, false);
     }
 
     public BedrockInputFrame(

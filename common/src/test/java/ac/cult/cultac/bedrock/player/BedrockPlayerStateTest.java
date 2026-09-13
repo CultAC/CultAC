@@ -22,6 +22,60 @@ public final class BedrockPlayerStateTest {
     private static final UUID PLAYER_UUID = UUID.fromString("7cc5c1f7-4b66-4c7c-bbb6-b1b09478015d");
 
     @Test
+    public void swimmingRequestChangesOnlyAtTheProcessedActionBoundary() {
+        var state = new BedrockPlayerState(PLAYER_UUID);
+        var start = frameBuilder(1L, 0.0D).startSwimming(true).build();
+        state.offerAuthInputFrame(start);
+        assertFalse(state.isSwimmingRequested());
+        state.recordProcessedAuthInputFrame(start, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+        assertTrue(state.isSwimmingRequested());
+        state.recordProcessedAuthInputFrame(frame(2L, 0.0D), BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+        assertTrue(state.isSwimmingRequested());
+
+        var stop = frameBuilder(3L, 0.0D).stopSwimming(true).build();
+        state.offerAuthInputFrame(stop);
+        assertTrue(state.isSwimmingRequested());
+        state.recordProcessedAuthInputFrame(stop, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+        assertFalse(state.isSwimmingRequested());
+    }
+
+    @Test
+    public void swimmingStopWinsAndOnlyFullResetClearsAnUncancelledRequest() {
+        var state = new BedrockPlayerState(PLAYER_UUID);
+        state.recordProcessedAuthInputFrame(frameBuilder(1L, 0.0D)
+                .startSwimming(true).stopSwimming(true).build(), null);
+        assertFalse(state.isSwimmingRequested());
+        state.recordProcessedAuthInputFrame(frameBuilder(2L, 0.0D).startSwimming(true).build(), null);
+        for (int setback = 0; setback < 3; setback++) {
+            state.clearTransientMovementInputState();
+            assertTrue(state.isSwimmingRequested());
+        }
+        state.clearMovementInputState();
+        assertFalse(state.isSwimmingRequested());
+    }
+
+    @Test
+    public void acknowledgedSwimmingRejectionCancelsWithoutMetadataCreatingARequest() {
+        var state = new BedrockPlayerState(PLAYER_UUID);
+        state.applyAcknowledgedPoseMetadata(true, true);
+        state.applyAcknowledgedBoundingBoxMetadata(0.6F, 0.6F);
+        assertFalse(state.isSwimmingRequested());
+        var start = frameBuilder(1L, 0.0D).startSwimming(true).build();
+        state.recordProcessedAuthInputFrame(start, null);
+        state.applyAcknowledgedPoseMetadata(null, null);
+        assertTrue(state.isSwimmingRequested());
+        state.applyAcknowledgedPoseMetadata(null, false);
+        assertFalse(state.isSwimmingRequested());
+        state.recordProcessedAuthInputFrame(start, null);
+        assertFalse("processing the same frame twice must not undo acknowledged cancellation", state.isSwimmingRequested());
+        state.recordProcessedAuthInputFrame(frame(2L, 0.0D), null);
+        state.applyAcknowledgedPoseMetadata(null, true);
+        assertFalse(state.isSwimmingRequested());
+        state.recordProcessedAuthInputFrame(frameBuilder(3L, 0.0D).startSwimming(true).build(), null);
+        assertTrue(state.isSwimmingRequested());
+    }
+
+    @Test
     public void setbacksAreEnabledByDefault() {
         assertTrue(new BedrockPlayerState(PLAYER_UUID).shouldEnforceSetbacks());
     }

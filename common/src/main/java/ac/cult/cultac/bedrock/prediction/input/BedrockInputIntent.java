@@ -8,7 +8,8 @@ public record BedrockInputIntent(
     VerticalIntent vertical,
     SprintIntent sprint,
     ItemUseIntent itemUse,
-    RiptideIntent riptide
+    RiptideIntent riptide,
+    boolean swimmingRequested
 ) {
     public static BedrockInputIntent from(BedrockInputFrame frame) {
         return new BedrockInputIntent(
@@ -56,7 +57,8 @@ public record BedrockInputIntent(
                 frame.inputData().contains("RIPTIDE_CHARGE_START"),
                 frame.inputData().contains("START_SPIN_ATTACK"),
                 frame.inputData().contains("STOP_SPIN_ATTACK")
-            )
+            ),
+            frame.swimmingRequested()
         );
     }
 

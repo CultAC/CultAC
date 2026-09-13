@@ -14,6 +14,7 @@ final class BedrockProtocolInputFrameFactory {
             long authoritativeInputTick,
             BedrockClientPoseState poseState,
             boolean actorGliding,
+            boolean swimmingRequested,
             Set<String> extraInputData
     ) {
         TreeSet<String> inputData = new TreeSet<>();
@@ -27,7 +28,8 @@ final class BedrockProtocolInputFrameFactory {
                 frame.isJumping(),
                 frame.isSneaking(),
                 frame.isSprinting(),
-                inputData
+                inputData,
+                swimmingRequested
         );
     }
 

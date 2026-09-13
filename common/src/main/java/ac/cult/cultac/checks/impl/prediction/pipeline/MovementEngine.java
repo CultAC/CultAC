@@ -81,6 +81,11 @@ public interface MovementEngine {
             PredictionCarry currentCarry
     );
 
+    /** Retains completed actions without committing a rejected movement. */
+    default PredictionCommit commitRejectedTick(PredictionResult result, PredictionCarry currentCarry) {
+        return null;
+    }
+
     /**
      * Captures the engine-derived end-of-tick state used when the current
      * packet endpoint is rejected and a setback is requested by a

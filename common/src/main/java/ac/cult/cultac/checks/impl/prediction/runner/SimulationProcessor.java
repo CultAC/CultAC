@@ -771,6 +771,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          this.couldPotentiallyTickSkip = false;
          this.player.compensatedEntities.fishingRodPulls.clear();
          this.player.refreshPlayerPose();
+      } else {
+         PredictionCommit rejectedCommit = MovementEngines.requireForProfile(movementProfile).commitRejectedTick(result, this.profileCarry);
+         if (rejectedCommit != null) {
+            this.applyProfileCommit(rejectedCommit);
+         }
       }
    }
 

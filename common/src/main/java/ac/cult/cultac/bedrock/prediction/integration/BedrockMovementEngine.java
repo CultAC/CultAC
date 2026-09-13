@@ -283,6 +283,23 @@ public final class BedrockMovementEngine implements MovementEngine {
         return new PredictionCommit(null, Set.of());
     }
 
+    @Override
+    public PredictionCommit commitRejectedTick(PredictionResult result, PredictionCarry currentCarry) {
+        BedrockPredictionResult bedrockResult = result == null
+            ? null : result.getProfileResult(BedrockPredictionResult.class);
+        if (!(currentCarry instanceof BedrockNextTickStates states) || states.profileEntries().isEmpty()
+            || bedrockResult == null || bedrockResult.movementResult() == null) {
+            return null;
+        }
+        BedrockMovementState actions = bedrockResult.movementResult().predictedState();
+        List<Entry> entries = states.profileEntries().stream()
+            .map(entry -> entry.withState(entry.state().withRejectedTickActions(actions)))
+            .toList();
+        // Refresh the state held by starting-velocity lineage too:
+        return new PredictionCommit(new BedrockNextTickStates(entries),
+            BedrockNextTickVelocityDerivation.profileStateVelocities(entries));
+    }
+
     static void recordEndTickBlockPush(PredictionResult result, BedrockMovementResult movement, Vec3 acceptedDiff) {
         var context = result.getSimulationContext();
         var dimensions = movement.movementContext().playerDimensionsState();
