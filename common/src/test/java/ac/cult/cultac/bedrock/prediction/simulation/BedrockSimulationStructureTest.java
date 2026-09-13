@@ -178,7 +178,7 @@ public final class BedrockSimulationStructureTest {
         )).withMovementBranch(Medium.WATER);
         BedrockInputFrame release = new BedrockInputFrame(
             215L, -113.34771F, -5.7219696F, false, false, false,
-            Set.of("RELEASE_USING_ITEM")
+            Set.of("RELEASE_USING_ITEM", "START_SPIN_ATTACK")
         );
         BlockCollisionWorld world = new BlockCollisionWorld(List.of(
             PlacedBlockCollision.manual(
@@ -259,7 +259,7 @@ public final class BedrockSimulationStructureTest {
         )).withWasInWaterFlag(true).withMovementBranch(Medium.AIR);
         BedrockInputFrame release = new BedrockInputFrame(
             571L, 169.65863F, -1.5891876F, true, false, false,
-            Set.of("WANT_UP", "JUMP_CURRENT_RAW", "RELEASE_USING_ITEM", "JUMPING"));
+            Set.of("WANT_UP", "JUMP_CURRENT_RAW", "RELEASE_USING_ITEM", "START_SPIN_ATTACK", "JUMPING"));
         BedrockMovementContext context = new BedrockMovementContext(
             BedrockEffectState.NONE,
             AttributeState.DEFAULT,

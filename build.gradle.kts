@@ -19,7 +19,7 @@ plugins {
 
 BuildConfig.init(project)
 
-val baseVersion = "2.3.74"
+val baseVersion = "0.0.1"
 group = "ac.cult.cultac"
 version = VersionUtil.computeVersion(project, baseVersion)
 description = "Libre simulation anticheat designed for 26.3 with 1.21.2+ server and client support."
