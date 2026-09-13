@@ -82,6 +82,8 @@ Install JDK 25 and Git, and set `JAVA_HOME` to the JDK 25 installation.
 * Few additional checks compared to upstream Grim 2.0, the focus is on the bedrock and 3.0 simulation engine
 * Extensive bedrock validation
 * Validation for non-latest bedrock versions.
+* Validation on a variety of bedrock platforms, the primary target was bedrock clients running on Android via Linux
+* Validation for bedrock block placing, breaking, interactions etc, especially on touchscreen
 
 ## Cult Supremacy
 

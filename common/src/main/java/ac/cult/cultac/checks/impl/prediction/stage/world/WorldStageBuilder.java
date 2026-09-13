@@ -44,6 +44,14 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class WorldStageBuilder {
+    // Temporary Bedrock push-out approximation, inset on every face.
+    // prevents exploits due to incomplete phase check
+    // bedrock client sends pos as (minX + maxX) / 2 and doesn't rebase bounding box on position like java client
+    // causing floating point inaccuracies. Yes, this causes falses, but I'm not sure how to fix bedrock's
+    // floating point inprecision is any decent way... perhaps looking at the many bounding boxes that can send
+    // the position and picking the one at the end of the tick that doesn't intersect with any new block collisions?
+    private static final double BEDROCK_PUSH_OUT_INSET = 0.002D;
+
     public WorldData generateWorldData(CultPlayer player, SimulationContext simulationContext, PredictionResult lastPrediction, DesyncStatus lastOnGround) {
         Vec3 to = simulationContext.getEnd();
         Vec3 from = simulationContext.getStart();
@@ -344,6 +352,7 @@ public class WorldStageBuilder {
 
 
     public static boolean moveTowardsClosestSpaceBedrock(SimpleCollisionBox box, List<SimpleCollisionBox> shapes) {
+        box = box.copy().expand(-BEDROCK_PUSH_OUT_INSET);
         List<SimpleCollisionBox> surrounding = new ArrayList<>();
         SimpleCollisionBox search = box.copy().expand(1.0, 0.0, 1.0);
         float centerX = 0.0F;

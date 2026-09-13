@@ -86,7 +86,7 @@ public final class BedrockMovementProfile implements MovementProfile {
 
     @Override
     public boolean shouldRunPhaseCheck(CultPlayer player) {
-        return false;
+        return true;
     }
 
     @Override

@@ -1,5 +1,6 @@
 package ac.cult.cultac.manager;
 
+import ac.cult.cultac.checks.BedrockSupported;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
@@ -9,6 +10,7 @@ import ac.cult.cultac.utils.data.LastInstance;
 import java.util.ArrayList;
 import java.util.List;
 
+@BedrockSupported
 public class LastInstanceManager extends Check implements PostPredictionListener {
     private final List<LastInstance> instances = new ArrayList<>();
 
