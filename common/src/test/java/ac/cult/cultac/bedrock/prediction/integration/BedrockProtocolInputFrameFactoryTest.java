@@ -28,6 +28,8 @@ public final class BedrockProtocolInputFrameFactoryTest {
         long[] flags = rawFlags(
                 PlayerAuthInputData.START_FLYING,
                 PlayerAuthInputData.STOP_FLYING,
+                PlayerAuthInputData.START_SPIN_ATTACK,
+                PlayerAuthInputData.STOP_SPIN_ATTACK,
                 PlayerAuthInputData.START_SNEAKING,
                 PlayerAuthInputData.STOP_SNEAKING);
         BedrockAuthInputFrame authFrame = BedrockAuthInputFrame.builder(UUID.randomUUID())
@@ -42,6 +44,8 @@ public final class BedrockProtocolInputFrameFactoryTest {
 
         assertTrue(inputFrame.intent().fly().start());
         assertTrue(inputFrame.intent().fly().stop());
+        assertTrue(inputFrame.intent().riptide().startSpinAttack());
+        assertTrue(inputFrame.intent().riptide().stopSpinAttack());
         assertTrue(inputFrame.intent().pose().startCrawling());
         assertTrue(inputFrame.intent().pose().stopCrawling());
         assertTrue(inputFrame.intent().pose().startSneaking());

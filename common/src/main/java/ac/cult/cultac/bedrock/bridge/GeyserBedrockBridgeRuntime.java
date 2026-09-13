@@ -373,7 +373,7 @@ public final class GeyserBedrockBridgeRuntime {
         private PacketSignal handleTapped(BedrockPacket packet) {
             logPacket("C->S", packet);
             if (packet instanceof PlayerAuthInputPacket authInputPacket) {
-                return scheduleAuthInputBeforeTranslation(
+                return scheduleBeforeTranslation(
                         connection::ensureInEventLoop,
                         () -> processAuthInput(authInputPacket),
                         error -> LogUtil.warn("Unable to record Bedrock movement packet for CultAC: "
@@ -387,16 +387,22 @@ public final class GeyserBedrockBridgeRuntime {
                         });
             }
 
-            try {
-                if (packet instanceof MovePlayerPacket movePlayerPacket) {
-                    submitMove(movePlayerPacket);
-                } else if (packet instanceof InventoryTransactionPacket inventoryTransactionPacket) {
-                    submitInventoryTransaction(inventoryTransactionPacket);
-                } else if (packet instanceof PlayerActionPacket playerActionPacket) {
-                    submitPlayerAction(playerActionPacket);
-                }
-            } catch (RuntimeException error) {
-                LogUtil.warn("Unable to record Bedrock movement packet for CultAC: " + error.getClass().getSimpleName());
+            if (packet instanceof MovePlayerPacket || packet instanceof InventoryTransactionPacket
+                    || packet instanceof PlayerActionPacket) {
+                return scheduleBeforeTranslation(
+                        connection::ensureInEventLoop,
+                        () -> {
+                            if (packet instanceof MovePlayerPacket movePlayerPacket) {
+                                submitMove(movePlayerPacket);
+                            } else if (packet instanceof InventoryTransactionPacket inventoryTransactionPacket) {
+                                submitInventoryTransaction(inventoryTransactionPacket);
+                            } else if (packet instanceof PlayerActionPacket playerActionPacket) {
+                                submitPlayerAction(playerActionPacket);
+                            }
+                        },
+                        error -> LogUtil.warn("Unable to record Bedrock action packet for CultAC: "
+                                + error.getClass().getSimpleName()),
+                        () -> delegate.handlePacket(packet));
             }
             return delegate.handlePacket(packet);
         }
@@ -629,7 +635,7 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private void submitInventoryTransaction(InventoryTransactionPacket packet) {
-            if (packet.getTransactionType() != InventoryTransactionType.ITEM_RELEASE) {
+            if (packet.getTransactionType() != InventoryTransactionType.ITEM_RELEASE || packet.getActionType() != 0) {
                 return;
             }
             UUID uuid = connection.javaUuid();
@@ -711,7 +717,7 @@ public final class GeyserBedrockBridgeRuntime {
     private record AuthInputCompletion(Vec3 trustedVelocity) {
     }
 
-    static <T> T forwardAuthInputBeforeTranslation(
+    static <T> T forwardBeforeTranslation(
             Runnable forwardAuthInput,
             Consumer<RuntimeException> forwardingFailure,
             Supplier<T> translateMovement
@@ -724,13 +730,13 @@ public final class GeyserBedrockBridgeRuntime {
         return translateMovement.get();
     }
 
-    static PacketSignal scheduleAuthInputBeforeTranslation(
+    static PacketSignal scheduleBeforeTranslation(
             Consumer<Runnable> tickLoopScheduler,
             Runnable forwardAuthInput,
             Consumer<RuntimeException> forwardingFailure,
             Supplier<PacketSignal> translateMovement
     ) {
-        tickLoopScheduler.accept(() -> forwardAuthInputBeforeTranslation(
+        tickLoopScheduler.accept(() -> forwardBeforeTranslation(
                 forwardAuthInput,
                 forwardingFailure,
                 translateMovement));

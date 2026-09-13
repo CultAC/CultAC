@@ -165,7 +165,7 @@ public final class BedrockMetadataAcknowledgementTest {
         }
     }
 
-    private static final class Transport implements AutoCloseable {
+    static class Transport implements AutoCloseable {
         final UUID uuid;
         final EventLoop bedrock = loop("metadata-bedrock");
         final EventLoop tick = loop("metadata-geyser-tick");
@@ -254,7 +254,7 @@ public final class BedrockMetadataAcknowledgementTest {
                     if (packet instanceof NetworkStackLatencyPacket) {
                         assertTrue(bedrock.inEventLoop());
                         assertTrue(registry.translate(packet.getClass(), packet, session, false));
-                    } else {
+                    } else if (packet instanceof PlayerAuthInputPacket) {
                         // The bridge forwards raw auth input before vanilla movement translation.
                         assertTrue(tick.inEventLoop());
                     }

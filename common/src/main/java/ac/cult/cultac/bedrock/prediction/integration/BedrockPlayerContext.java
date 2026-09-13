@@ -116,24 +116,17 @@ record BedrockPlayerContext(
                 Math.max(0, Math.round(context.getDepthStriderLevel())),
                 0,
                 Math.max(0, context.getSwiftSneakLevel()),
-                riptideLevel(player, context),
+                riptideLevel(player),
                 wearingLeatherBoots(player),
                 wearingElytra(player)
         );
     }
 
-    private static int riptideLevel(CultPlayer player, SimulationContext context) {
-        int level = Math.max(0, context.getRiptideLevel());
+    private static int riptideLevel(CultPlayer player) {
         if (player == null || player.getInventory() == null) {
-            return level;
+            return 0;
         }
-        return Math.max(level, Math.max(
-                riptideLevel(player.getInventory().getClientSelectedHeldItem()),
-                Math.max(
-                        riptideLevel(player.getInventory().getHeldItem()),
-                        riptideLevel(player.getInventory().getOffHand())
-                )
-        ));
+        return riptideLevel(player.getInventory().getClientSelectedHeldItem());
     }
 
     private static boolean wearingLeatherBoots(CultPlayer player) {

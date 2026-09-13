@@ -80,14 +80,31 @@ public final class BedrockPlayerStateTest {
         BedrockPlayerState state = new BedrockPlayerState(PLAYER_UUID);
         BedrockAuthInputFrame use = frameBuilder(20L, 20.0D)
                 .usingItem(true)
+                .rawInputFlags(1L << PlayerAuthInputData.START_USING_ITEM.ordinal())
                 .build();
         state.offerAuthInputFrame(use);
 
         assertTrue(state.shouldStartRiptideCharge(use, true));
         assertFalse(state.shouldStartRiptideCharge(use, true));
 
+        BedrockAuthInputFrame restart = frameBuilder(21L, 20.0D)
+                .usingItem(true)
+                .rawInputFlags(1L << PlayerAuthInputData.START_USING_ITEM.ordinal())
+                .build();
+        state.offerAuthInputFrame(restart);
+        assertTrue(state.shouldStartRiptideCharge(restart, true));
+        assertFalse(state.shouldStartRiptideCharge(restart, true));
+
         state.clearRiptideUseTracking();
-        assertTrue(state.shouldStartRiptideCharge(use, true));
+        assertTrue(state.shouldStartRiptideCharge(restart, true));
+    }
+
+    @Test
+    public void genericItemInteractionCannotStartRiptideCharge() {
+        BedrockPlayerState state = new BedrockPlayerState(PLAYER_UUID);
+        BedrockAuthInputFrame interaction = frameBuilder(20L, 20.0D).usingItem(true).build();
+        state.offerAuthInputFrame(interaction);
+        assertFalse(state.shouldStartRiptideCharge(interaction, true));
     }
 
     @Test

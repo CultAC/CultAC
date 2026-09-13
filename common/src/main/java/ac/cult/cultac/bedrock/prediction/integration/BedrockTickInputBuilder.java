@@ -42,7 +42,6 @@ final class BedrockTickInputBuilder {
                 frame, riptideLevel > 0), "RIPTIDE_CHARGE_START");
         if (releasedItem) {
             inputData.add("RELEASE_USING_ITEM");
-            add(inputData, player.packetStateData.riptideLevel > 0, "RIPTIDE_RELEASE_VALID");
             player.bedrockState.clearRiptideUseTracking();
         }
         add(inputData, player.bedrockState.consumeStartSpinAttackFor(frame), "START_SPIN_ATTACK");

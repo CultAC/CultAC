@@ -58,6 +58,8 @@ final class BedrockProtocolInputFrameFactory {
         add(inputData, frame.isStartGliding(), BedrockPoseInputData.START_GLIDING);
         add(inputData, frame.isStopGliding(), BedrockPoseInputData.STOP_GLIDING);
         add(inputData, frame.isUsingItem(), "START_USING_ITEM");
+        add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.START_SPIN_ATTACK), "START_SPIN_ATTACK");
+        add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.STOP_SPIN_ATTACK), "STOP_SPIN_ATTACK");
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.WANT_DOWN), "WANT_DOWN");
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.DESCEND), "DESCEND");
         add(inputData, frame.hasRawInputFlag(PlayerAuthInputData.SNEAK_DOWN), "SNEAK_DOWN");

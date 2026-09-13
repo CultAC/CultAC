@@ -189,11 +189,12 @@ public final class BedrockPlayerState {
     }
 
     public boolean shouldStartRiptideCharge(BedrockAuthInputFrame frame, boolean riptideAvailable) {
-        if (!riptideAvailable || frame == null || !frame.isUsingItem()) {
+        if (!riptideAvailable || frame == null || !frame.hasRawInputFlag(PlayerAuthInputData.START_USING_ITEM)) {
             return false;
         }
         long inputTick = authoritativeInputTick(frame);
-        if (trackedRiptideUseStartInputTick == Long.MIN_VALUE) {
+        if (trackedRiptideUseStartInputTick != inputTick) {
+            // Each new START_USING_ITEM resets the timer
             trackedRiptideUseStartInputTick = inputTick;
             return true;
         }

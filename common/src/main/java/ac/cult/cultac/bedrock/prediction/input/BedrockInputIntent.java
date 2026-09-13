@@ -54,7 +54,6 @@ public record BedrockInputIntent(
             ),
             new RiptideIntent(
                 frame.inputData().contains("RIPTIDE_CHARGE_START"),
-                frame.inputData().contains("RIPTIDE_RELEASE_VALID"),
                 frame.inputData().contains("START_SPIN_ATTACK"),
                 frame.inputData().contains("STOP_SPIN_ATTACK")
             )
@@ -165,7 +164,6 @@ public record BedrockInputIntent(
 
     public record RiptideIntent(
         boolean chargeStart,
-        boolean validatedRelease,
         boolean startSpinAttack,
         boolean stopSpinAttack
     ) {

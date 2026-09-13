@@ -28,9 +28,9 @@ public final class BedrockRiptideMovement {
 
         boolean releaseRequested = usable && intent.itemUse().release();
         boolean releaseStartsSpinAttack = releaseRequested
+            && intent.riptide().startSpinAttack()
             && wet
-            && (intent.riptide().validatedRelease()
-                || current.riptideChargeTicks() > RELEASE_CHARGE_THRESHOLD_TICKS);
+            && current.riptideChargeTicks() > RELEASE_CHARGE_THRESHOLD_TICKS;
         SpinState spin = nextSpinState(current, intent, releaseStartsSpinAttack);
         Vec3d nextVelocity = startingVelocity;
         if (releaseStartsSpinAttack) {
@@ -73,11 +73,11 @@ public final class BedrockRiptideMovement {
         if (releaseRequested || intent.itemUse().stop()) {
             return 0L;
         }
-        if (usable && current.riptideChargeTicks() > 0L) {
-            return current.riptideChargeTicks() + 1L;
-        }
         if (usable && wet && intent.riptide().chargeStart()) {
             return 1L;
+        }
+        if (usable && current.riptideChargeTicks() > 0L) {
+            return current.riptideChargeTicks() + 1L;
         }
         return 0L;
     }

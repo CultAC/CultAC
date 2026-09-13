@@ -278,7 +278,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
     public void authInputIsForwardedBeforeGeyserTranslatesMovement() {
         List<String> order = new ArrayList<>();
 
-        String result = GeyserBedrockBridgeRuntime.forwardAuthInputBeforeTranslation(
+        String result = GeyserBedrockBridgeRuntime.forwardBeforeTranslation(
                 () -> order.add("auth-plugin-message"),
                 error -> order.add("forwarding-failure"),
                 () -> {
@@ -294,7 +294,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
     public void failedAuthForwardStillDelegatesButCannotSatisfyBackendOrderProof() {
         List<String> order = new ArrayList<>();
 
-        String result = GeyserBedrockBridgeRuntime.forwardAuthInputBeforeTranslation(
+        String result = GeyserBedrockBridgeRuntime.forwardBeforeTranslation(
                 () -> {
                     order.add("auth-plugin-message");
                     throw new IllegalStateException("forwarding failed");
@@ -317,7 +317,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
         Deque<Runnable> tickLoop = new ArrayDeque<>();
         List<String> order = new ArrayList<>();
 
-        assertEquals(PacketSignal.HANDLED, GeyserBedrockBridgeRuntime.scheduleAuthInputBeforeTranslation(
+        assertEquals(PacketSignal.HANDLED, GeyserBedrockBridgeRuntime.scheduleBeforeTranslation(
                 tickLoop::addLast,
                 () -> order.add("auth-a"),
                 error -> order.add("failure-a"),
@@ -325,7 +325,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
                     order.add("movement-a");
                     return PacketSignal.HANDLED;
                 }));
-        assertEquals(PacketSignal.HANDLED, GeyserBedrockBridgeRuntime.scheduleAuthInputBeforeTranslation(
+        assertEquals(PacketSignal.HANDLED, GeyserBedrockBridgeRuntime.scheduleBeforeTranslation(
                 tickLoop::addLast,
                 () -> order.add("auth-b"),
                 error -> order.add("failure-b"),

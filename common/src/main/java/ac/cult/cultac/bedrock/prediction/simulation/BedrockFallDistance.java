@@ -3,12 +3,20 @@ package ac.cult.cultac.bedrock.prediction.simulation;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionOutput;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameFacts;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockLiquidSensing;
 import ac.cult.cultac.bedrock.prediction.simulation.postmove.BedrockPostMoveResult;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockTravelPlan;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 
 final class BedrockFallDistance {
     private BedrockFallDistance() {
+    }
+
+    static boolean wasInWaterAfterMove(BedrockTravelPlan plan, BedrockCollisionOutput collision) {
+        BedrockFrameFacts facts = plan.frame().frameFacts();
+        return facts.inWater() || plan.frame().input().options().travelActive()
+            && BedrockLiquidSensing.inWaterFlag(
+                facts.context(), collision.blockMove().position(), facts.movementDimensions());
     }
 
     static float afterMove(

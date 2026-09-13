@@ -91,7 +91,7 @@ final class BedrockMovementResultBuilder {
         )).withClimbableContact(nextClimbableContact)
             .withAutoClimbTravel(postMoveEffects.climbVelocityApplied())
             .withPendingBlockMovementSlowdownState(postMoveEffects.pendingBlockMovementSlowdownState())
-            .withWasInWaterFlag(frameFacts.inWater())
+            .withWasInWaterFlag(BedrockFallDistance.wasInWaterAfterMove(plan, collision))
             .withWaterTravelFlag(postMoveEffects.waterTravelActive())
             .withMovementBranch(postMoveEffects.movementBranch())
             .withDolphinBoost(state.dolphinBoost().endTick());
