@@ -58,6 +58,9 @@ Install JDK 25 and Git, and set `JAVA_HOME` to the JDK 25 installation.
 3. `./gradlew build`
 4. The final jar is at `bukkit/build/libs/`
 
+Normal builds use the checked-in Bedrock collision catalog. Generator code is maintained
+separately; [Geyser's mappings-generator](https://github.com/GeyserMC/mappings-generator) is the public upstream.
+
 ## Cult changes from Grim
 
 * Dedicated simulation engine for bedrock players

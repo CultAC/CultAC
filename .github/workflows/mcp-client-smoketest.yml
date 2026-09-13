@@ -127,7 +127,6 @@ jobs:
           repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
           path: cultac
-          submodules: recursive
           token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
           persist-credentials: false
           fetch-depth: 1
@@ -186,20 +185,6 @@ jobs:
           copy_real_validation_cache "lwjgl-natives/linux-x64"
           copy_real_validation_cache "paper"
           copy_real_validation_cache "plugins/Geyser-Spigot.jar"
-
-      - name: Use local mappings generator checkout for act
-        if: steps.decision.outputs.allowed == 'true' && env.ACT == 'true'
-        run: |
-          set -euo pipefail
-          if [ ! -d /tmp/mappings-generator ]; then
-            echo "act validation requires mounting mappings-generator at /tmp/mappings-generator" >&2
-            exit 1
-          fi
-          mkdir -p cultac/mappings-generator
-          tar -C /tmp/mappings-generator \
-            --exclude=.git \
-            --exclude=.gradle \
-            -cf - . | tar -xf - -C cultac/mappings-generator
 
       - name: Set up Java 25
         if: steps.decision.outputs.allowed == 'true'

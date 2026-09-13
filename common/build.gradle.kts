@@ -83,7 +83,7 @@ val generateBedrockMovementCollisionOverrides = tasks.register<Exec>("generateBe
         }
         if (!mappingsGeneratorDirectory.file("gradlew").asFile.isFile) {
             throw GradleException(
-                "Mappings generator submodule is missing. Run `git submodule update --init --recursive` from the repository root."
+                "Collision regeneration requires a local generator checkout at mappings-generator. Normal builds use the checked-in catalog."
             )
         }
     }
