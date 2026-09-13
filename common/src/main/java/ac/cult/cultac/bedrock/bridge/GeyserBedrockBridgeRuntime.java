@@ -279,7 +279,10 @@ public final class GeyserBedrockBridgeRuntime {
         if (!started || eventSubscriptions != generation || session.isClosed()) return null;
         try {
             return new GeyserFloatingPointsAdapter(session,
-                    () -> { PacketTapHandler tap = PACKET_TAPS.get(session); return tap == null ? -1 : tap.lastAuthInputTick; },
+                    () -> {
+                        PacketTapHandler tap = PACKET_TAPS.get(session);
+                        return tap == null || tap.authInputOrder == null ? -1 : tap.authInputOrder.lastAuthInputTick();
+                    },
                     tick -> session.sendDownstreamGamePacket(createPayloadPacket(
                             BedrockAuthInputPluginMessage.encodeSuppressedProjection(session.javaUuid(), tick))));
         } catch (ReflectiveOperationException failure) {
@@ -312,7 +315,7 @@ public final class GeyserBedrockBridgeRuntime {
         private final AtomicBoolean detached = new AtomicBoolean();
         private final String outboundHandlerName;
         private final String packetLogHandlerName;
-        private long lastAuthInputTick = -1;
+        private volatile GeyserAuthInputOrder authInputOrder;
         private Vec3 lastAuthInputPosition;
         private Vector3f latestTrustedMotion;
         private float lastWrittenDeltaY;
@@ -375,7 +378,13 @@ public final class GeyserBedrockBridgeRuntime {
                         () -> processAuthInput(authInputPacket),
                         error -> LogUtil.warn("Unable to record Bedrock movement packet for CultAC: "
                                 + error.getClass().getSimpleName()),
-                        () -> delegate.handlePacket(packet));
+                        () -> {
+                            try {
+                                return delegate.handlePacket(packet);
+                            } finally {
+                                if (authInputOrder != null) authInputOrder.finishTranslation(authInputPacket.getTick());
+                            }
+                        });
             }
 
             try {
@@ -402,6 +411,7 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
             PACKET_TAPS.remove(connection, this);
+            if (authInputOrder != null) authInputOrder.close();
             if (connection.isClosed()) latencyQueue.clear();
             else latencyQueue.stopTrackingWrites();
             if (bedrockSession.getPacketHandler() == this) {
@@ -588,7 +598,6 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
 
-            lastAuthInputTick = packet.getTick();
             Vec3 position = toJavaPosition(packet.getPosition());
             // HANDLE_TELEPORT is a correction-only tick. This diagnostic displacement must not
             // include the change of local origin; authorization still requires the transport echo.
@@ -602,7 +611,10 @@ public final class GeyserBedrockBridgeRuntime {
                     position,
                     delta,
                     projectedOnGround(connection, packet));
-            connection.sendDownstreamGamePacket(createAuthInputPayloadPacket(frame));
+            if (authInputOrder == null) {
+                authInputOrder = new GeyserAuthInputOrder(connection);
+            }
+            authInputOrder.submit(createAuthInputPayloadPacket(frame), frame.getClientTick());
         }
 
         private void submitMove(MovePlayerPacket packet) {

@@ -1985,7 +1985,7 @@ public final class OfflineBedrockReplayRunnerTest {
     public void blankAuthorityModeDoesNotBypassBedrockMovement() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         OfflineCultTestBootstrap.setDoubleConfigOverride("Simulation.immediate-setback-threshold", 0.01D);
-        OfflineCultTestBootstrap.setDoubleConfigOverride("bedrock-movement.position-flag-threshold", 0.001D);
+        OfflineCultTestBootstrap.setDoubleConfigOverride("cult.checks.bedrock-movement.position-flag-threshold", 0.001D);
 
         CultPlayer player = null;
         try {
@@ -2037,7 +2037,7 @@ public final class OfflineBedrockReplayRunnerTest {
                 closeOfflinePlayer(player);
             }
             OfflineCultTestBootstrap.clearDoubleConfigOverride("Simulation.immediate-setback-threshold");
-            OfflineCultTestBootstrap.clearDoubleConfigOverride("bedrock-movement.position-flag-threshold");
+            OfflineCultTestBootstrap.clearDoubleConfigOverride("cult.checks.bedrock-movement.position-flag-threshold");
         }
     }
 
