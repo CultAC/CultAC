@@ -21,6 +21,10 @@ final class BedrockVerticalCollisionClassifier {
         if (result == null) {
             return BedrockVerticalCollisionVerdict.LEGAL;
         }
+        if (result.getSimulationContext() != null && result.getSimulationContext().isBedrockTeleportTick()) {
+            // teleports skip movement and preserve collision flags
+            return BedrockVerticalCollisionVerdict.LEGAL;
+        }
         ValidMovements validMovements = result.getValidMovements();
         BedrockVerticalCollisionVerdict verdict = classify(
                 claimedCollision,
