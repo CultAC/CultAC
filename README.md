@@ -83,6 +83,7 @@ separately; [Geyser's mappings-generator](https://github.com/GeyserMC/mappings-g
 * Few additional checks compared to upstream Grim 2.0, the focus is on the bedrock and 3.0 simulation engine
 * Extensive bedrock validation
 * Some bedrock actions such as riptide aren't perfect, and some feature from the most recent versions of the game aren't implemented
+* Reach support for bedrock players. The basis is the same as Java, but Geyser and Bedrock clients change a bunch of small things.
 * Validation for non-latest bedrock versions.
 * Validation on a variety of bedrock platforms, the primary target was bedrock clients running on Android via Linux
 * Validation for bedrock block placing, breaking, interactions etc, especially on touchscreen
