@@ -19,6 +19,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
@@ -162,7 +163,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             }
             initialVel = UncertaintyHelper.handleCircular(initialVel, context.getTarget(), speed);
 
-            afterTickFriction = simulateFriction(initialVel, context.getWorldData().getInWater().determineOptimistically(), context.getWorldData().getInLava().determineOptimistically(), context.usesFallFlyingMovement(), context.getLastOnGround().determineOptimistically(), context.getWorldData().getStuckSpeed().getStuckSpeedMultiplier() != null);
+            afterTickFriction = simulateFriction(initialVel, context.getWorldData().getInWater().determineOptimistically(), context.getWorldData().getInLava().determineOptimistically(), context.usesFallFlyingMovement(), context.getLastOnGround().determineOptimistically(), context.getWorldData().getStuckSpeed().getStuckSpeedMultiplier() != null, null);
         } else {
             final TransactionVel sentKnockback = player.checkManager.getKnockbackHandler().getLastSent();
             if (sentKnockback != null) {
@@ -371,7 +372,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 if (clientVel.z != collide.z) clientVel = new Vec3(clientVel.x, clientVel.y, 0);
 
 
-                clientVel = simulateFriction(clientVel, context.getWorldData().getInWater().determineOptimistically(), context.getWorldData().getInLava().determineOptimistically(), context.usesFallFlyingMovement(), context.getLastOnGround().determineOptimistically(), stuckSpeedMultiplier != null);
+                clientVel = simulateFriction(clientVel, context.getWorldData().getInWater().determineOptimistically(), context.getWorldData().getInLava().determineOptimistically(), context.usesFallFlyingMovement(), context.getLastOnGround().determineOptimistically(), stuckSpeedMultiplier != null, context);
             } finally {
                 player.boundingBox = oldBB;
             }
@@ -399,7 +400,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         if (debug) { LogUtil.info("Teleport sent | resync=" + fullResync + ", infc=" + ignoreUnchanged + ", simNext=" + simulateNext); }
     }
 
-    private Vec3 simulateFriction(Vec3 input, boolean water, boolean lava, boolean gliding, boolean wasOnGround, boolean stuckSpeed) {
+    private Vec3 simulateFriction(Vec3 input, boolean water, boolean lava, boolean gliding, boolean wasOnGround, boolean stuckSpeed, SimulationContext correctionContextForElytra) {
         double gravity = 0.08D;
         final boolean noGravity = !player.compensatedEntities.getEntityInControl().hasGravity;
         final boolean slowFalling = input.y < 0 && player.compensatedEntities.getSlowFallingAmplifier() != null;
@@ -421,6 +422,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             simulated = input.scale(0.8f).subtract(0.0D, gravity / 16.0f, 0.0D);
         } else if (lava) {
             simulated = input.scale(0.5D).subtract(0.0D, gravity / 4.0D, 0.0D);
+        } else if (gliding && correctionContextForElytra != null) {
+            // Route Java safe state capture already ran ElytraTransform, setbacks and bedrock must run it
+            simulated = new ElytraTransform().transformElytra(player, correctionContextForElytra, input, gravity);
         } else if (gliding) {
             simulated = input.multiply(0.99F, 0.98F, 0.99F);
         } else { // Gliding doesn't have friction, we handle it differently
