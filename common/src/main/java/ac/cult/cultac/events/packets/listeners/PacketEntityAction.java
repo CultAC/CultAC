@@ -27,17 +27,11 @@ public class PacketEntityAction {
                 case START_SPRINTING:
                     player.isSprinting = true;
                     player.vehicleData.camelSprintingState = SprintingState.STARTED;
-                    // MCP-Reborn LocalPlayer#tick sends START_SPRINTING before the
-                    // movement packet, and ServerGamePacketListenerImpl#handlePlayerCommand
-                    // immediately calls LivingEntity#setSprinting, which adds the
-                    // sprinting movement-speed modifier for that same movement.
                     player.compensatedEntities.hasSprintingAttributeEnabled = true;
                     break;
                 case STOP_SPRINTING:
                     player.isSprinting = false;
                     player.vehicleData.camelSprintingState = SprintingState.STOPPED;
-                    // STOP_SPRINTING removes the same transient modifier immediately
-                    // on the server before any following movement packet is handled.
                     player.compensatedEntities.hasSprintingAttributeEnabled = false;
                     break;
                 case START_FALL_FLYING:

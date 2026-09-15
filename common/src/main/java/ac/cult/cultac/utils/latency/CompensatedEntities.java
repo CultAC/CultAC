@@ -150,13 +150,6 @@ public class CompensatedEntities {
     // TODO: This doesn't belong here at all
     public double getPlayerMovementSpeed() {
         double speed = player.compensatedEntities.getSelf().playerSpeed;
-        if (hasSprintingAttributeEnabled) {
-            // MCP-Reborn LivingEntity#setSprinting adds the "sprinting"
-            // ADD_MULTIPLIED_TOTAL modifier with amount 0.3. Attribute snapshots
-            // strip that modifier so command-order compensation can apply it at
-            // the exact packet boundary where the server and client both do.
-            speed *= 1.3D;
-        }
         return CultMath.clampFloat((float) speed, 0.0F, 1024.0F);
     }
 

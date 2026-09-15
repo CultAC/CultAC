@@ -58,16 +58,12 @@ public class HorizontalAnalyzer implements EngineCheck {
         Class<? extends Check> pseudoCheck = wasOnGround ? Speed.class : Strafe.class;
         final Check speedOrStrafe = player.checkManager.getCheck(pseudoCheck);
 
-        double addHorizUncertainty = HORIZONTAL_INPUT_UNCERTAINTY;
-
         // A player cannot move more than 0.98 "input" in a single direction
         // A player cannot move more than a total of 1 "input" in a single tick
-        // MCP-Reborn LivingEntity#setSprinting applies sprint as a movement-speed
-        // attribute modifier. getMaxSpeed already contains that modifier, while
-        // LocalPlayer#modifyInput independently enforces this input shape.
-        double speedFlagAmount = getHorizontalInputExcess(absInput, playerSpeed);
+        double speedFlagAmount = getHorizontalInputFlagAmount(absInput, playerSpeed,
+                result.getSimulationContext().getWorldData().mustBeInLiquid());
 
-        if (speedFlagAmount > addHorizUncertainty) {
+        if (speedFlagAmount > 0.0D) {
             result.addFlag(speedOrStrafe, () -> NumFormatter.formatNumberStandard(minimumInputRequired.x) + " " + NumFormatter.formatNumberStandard(minimumInputRequired.z), speedFlagAmount);
         }
 
@@ -139,17 +135,21 @@ public class HorizontalAnalyzer implements EngineCheck {
         // Probably not, what would it even be checking?
     }
 
-    static double getHorizontalInputExcess(Vec3 input, double playerSpeed) {
+    static double getHorizontalInputFlagAmount(Vec3 input, double playerSpeed, boolean mustBeInLiquid) {
         double absX = Math.abs(input.x);
         double absZ = Math.abs(input.z);
-        double magnitudeExcess = Math.hypot(absX, absZ) - playerSpeed;
-        double maxSpeedInOneDirection = playerSpeed * 0.98D;
+        double magnitude = input.length();
+        if (magnitude > playerSpeed * (1.3D + HORIZONTAL_INPUT_UNCERTAINTY)) {
+            return magnitude;
+        }
+        double sprinting = mustBeInLiquid ? 1.0D : 1.3D;
+        double maxSpeedInOneDirection = playerSpeed * sprinting * 0.98D;
         double axisExcess = Math.max(absX - maxSpeedInOneDirection, absZ - maxSpeedInOneDirection);
-        return Math.max(0.0D, Math.max(magnitudeExcess, axisExcess));
+        return axisExcess > HORIZONTAL_INPUT_UNCERTAINTY ? axisExcess : 0.0D;
     }
 
     static double getSneakingMaxInputAxis(double playerSpeed, int swiftSneakLevel) {
-        return playerSpeed * 0.295D + (0.15D * swiftSneakLevel);
+        return playerSpeed * 1.3D * 0.295D + (0.15D * swiftSneakLevel);
     }
 
     public static double minDistanceToValidMovementAngle(double angleMin, double angleMax) {

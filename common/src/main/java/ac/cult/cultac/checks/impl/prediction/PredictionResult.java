@@ -152,7 +152,8 @@ public class PredictionResult {
         }
         float speed = getSimulationContext().getMaxSpeed(player);
         Vec3 closest = getAcceptedClosestToTarget();
-        return UncertaintyHelper.handleCircular(new PredVector(closest), getTarget(), speed);
+        return UncertaintyHelper.handleCircular(new PredVector(closest), getTarget(),
+                getSimulationContext().getVehicle() == null ? speed * 1.3D : speed);
     }
 
     public Vec3 getInputVectorAndVerticals() {

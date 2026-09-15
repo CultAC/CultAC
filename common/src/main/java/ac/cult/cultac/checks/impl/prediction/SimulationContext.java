@@ -359,13 +359,7 @@ public class SimulationContext {
             return player.flySpeed * 20 * (player.isSprinting ? 0.1f : 0.05f);
         }
 
-        // MCP-Reborn Player#getFlyingSpeed uses the sprinting air acceleration
-        // whenever sprinting is possible for this tick.
-        return getPlayerFlyingSpeed(isSprinting);
-    }
-
-    static float getPlayerFlyingSpeed(DesyncStatus sprinting) {
-        return sprinting.determineOptimistically() ? 0.025999999F : 0.02F;
+        return 0.02F;
     }
 
     private double getPlayerMovementSpeed(CultPlayer player) { if (vehicle == null) {
