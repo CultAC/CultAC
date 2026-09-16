@@ -151,10 +151,17 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    public void applyAcknowledgedBedrockMetadata(Float width, Float height, Boolean gliding,
                                                Boolean crawling, Boolean swimming, Boolean sneaking,
                                                Boolean spinning, Boolean sleeping) {
+      applyAcknowledgedBedrockMetadata(width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, null);
+   }
+
+   public void applyAcknowledgedBedrockMetadata(Float width, Float height, Boolean gliding,
+                                               Boolean crawling, Boolean swimming, Boolean sneaking,
+                                               Boolean spinning, Boolean sleeping, Boolean usingItem) {
       if (!this.player.isBedrockMovement() || this.player.bedrockState == null) {
          return;
       }
       this.player.bedrockState.applyAcknowledgedBoundingBoxMetadata(width, height);
+      this.player.bedrockState.applyAcknowledgedItemUseMetadata(usingItem);
       this.player.bedrockState.applyAcknowledgedPoseMetadata(crawling, swimming, sneaking, spinning, sleeping, gliding);
       if (gliding != null) {
          this.applyAcknowledgedBedrockGliding(gliding);

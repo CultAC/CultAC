@@ -451,14 +451,14 @@ public final class GeyserBedrockBridgeRuntime {
         private void recordOutboundMetadata(
                 ChannelHandlerContext context, BedrockPacketWrapper source,
                 Float width, Float height, Boolean gliding, Boolean crawling, Boolean swimming,
-                Boolean sneaking, Boolean spinning, Boolean sleeping
+                Boolean sneaking, Boolean spinning, Boolean sleeping, Boolean usingItem
         ) {
             if (!isCurrentConnection()) {
                 return;
             }
             if ((width == null && height == null && gliding == null
                     && crawling == null && swimming == null && sneaking == null
-                    && spinning == null && sleeping == null)
+                    && spinning == null && sleeping == null && usingItem == null)
                     || (width != null && (!Float.isFinite(width) || width <= 0.0F))
                     || (height != null && (!Float.isFinite(height) || height <= 0.0F))) {
                 return;
@@ -470,7 +470,7 @@ public final class GeyserBedrockBridgeRuntime {
                     // Sending through Geyser's downstream client channel again
                     // could put this state behind an already queued auth input.
                     player.checkManager.getSimulationProcessor().applyAcknowledgedBedrockMetadata(
-                            width, height, gliding, crawling, swimming, sneaking, spinning, sleeping);
+                            width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem);
                 }
             });
         }
@@ -876,13 +876,15 @@ public final class GeyserBedrockBridgeRuntime {
                     ? null : metadata.getMetadata().getFlag(EntityFlag.DAMAGE_NEARBY_MOBS);
             Boolean sleeping = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
                     ? null : metadata.getMetadata().getFlag(EntityFlag.SLEEPING);
+            Boolean usingItem = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
+                    ? null : metadata.getMetadata().getFlag(EntityFlag.USING_ITEM);
 
             context.write(message, promise);
             if (width != null || height != null || gliding != null
                     || crawling != null || swimming != null || sneaking != null
-                    || spinning != null || sleeping != null) {
+                    || spinning != null || sleeping != null || usingItem != null) {
                 owner.recordOutboundMetadata(context, (BedrockPacketWrapper) message,
-                        width, height, gliding, crawling, swimming, sneaking, spinning, sleeping);
+                        width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem);
             }
         }
 

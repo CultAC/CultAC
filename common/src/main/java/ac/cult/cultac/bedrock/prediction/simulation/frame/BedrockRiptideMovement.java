@@ -63,7 +63,8 @@ public final class BedrockRiptideMovement {
         if (releaseRequested || intent.itemUse().stop()) {
             return 0L;
         }
-        if (usable && wet && intent.riptide().chargeStart()) {
+        // Acknowledged USING_ITEM metadata bypasses the wet check, thanks mojang!
+        if (usable && (wet || intent.riptide().serverUsingItem()) && intent.riptide().chargeStart()) {
             return 1L;
         }
         if (usable && current.riptideChargeTicks() > 0L) {

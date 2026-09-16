@@ -110,6 +110,7 @@ public final class BedrockPlayerState {
 
     public void clearMovementInputState() {
         clearTransientMovementInputState();
+        actions.applyAcknowledgedItemUse(false);
         trackedPoseState = BedrockClientPoseState.STANDING;
         swimmingRequested = false;
         confirmedBoundingBoxSize = null;
@@ -193,6 +194,10 @@ public final class BedrockPlayerState {
 
     public void recordClientAction(BedrockClientAction action) {
         actions.record(action);
+    }
+
+    public void applyAcknowledgedItemUseMetadata(Boolean usingItem) {
+        actions.applyAcknowledgedItemUse(usingItem);
     }
 
     public void recordItemReleaseAction() { recordClientAction(BedrockClientAction.ITEM_RELEASE); }

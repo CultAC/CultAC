@@ -74,7 +74,7 @@ public final class BedrockAuthInputPluginMessageListener {
         if (metadata != null && player.playerUUID.equals(metadata.playerUuid())) {
             player.checkManager.getSimulationProcessor().applyAcknowledgedBedrockMetadata(
                     metadata.width(), metadata.height(), metadata.gliding(), metadata.crawling(), metadata.swimming(),
-                    metadata.sneaking(), metadata.spinning(), metadata.sleeping());
+                    metadata.sneaking(), metadata.spinning(), metadata.sleeping(), metadata.usingItem());
             return;
         }
 

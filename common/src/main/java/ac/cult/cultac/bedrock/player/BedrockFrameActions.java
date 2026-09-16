@@ -13,6 +13,11 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 final class BedrockFrameActions {
     private final Set<BedrockClientAction> pending = new LinkedHashSet<>();
     private final WeakHashMap<BedrockAuthInputFrame, Set<String>> frames = new WeakHashMap<>();
+    private boolean serverUsingItem;
+
+    void applyAcknowledgedItemUse(Boolean usingItem) {
+        if (usingItem != null) serverUsingItem = usingItem;
+    }
 
     void record(BedrockClientAction action) {
         pending.add(action);
@@ -25,6 +30,7 @@ final class BedrockFrameActions {
 
     private Set<String> capture(BedrockAuthInputFrame frame) {
         TreeSet<String> input = new TreeSet<>();
+        if (serverUsingItem) input.add("SERVER_USING_ITEM");
         // Keep both start and stop actions; each phase consumes its own flag.
         for (BedrockClientAction action : pending) {
             input.add(switch (action) {

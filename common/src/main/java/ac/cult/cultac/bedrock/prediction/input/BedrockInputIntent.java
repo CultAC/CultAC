@@ -56,7 +56,8 @@ public record BedrockInputIntent(
             new RiptideIntent(
                 frame.inputData().contains("RIPTIDE_CHARGE_START"),
                 frame.inputData().contains("START_SPIN_ATTACK"),
-                frame.inputData().contains("STOP_SPIN_ATTACK")
+                frame.inputData().contains("STOP_SPIN_ATTACK"),
+                frame.inputData().contains("SERVER_USING_ITEM")
             ),
             frame.swimmingRequested()
         );
@@ -167,7 +168,11 @@ public record BedrockInputIntent(
     public record RiptideIntent(
         boolean chargeStart,
         boolean startSpinAttack,
-        boolean stopSpinAttack
+        boolean stopSpinAttack,
+        boolean serverUsingItem
     ) {
+        public RiptideIntent(boolean chargeStart, boolean startSpinAttack, boolean stopSpinAttack) {
+            this(chargeStart, startSpinAttack, stopSpinAttack, false);
+        }
     }
 }
