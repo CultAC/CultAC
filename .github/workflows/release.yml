@@ -7,6 +7,9 @@ on:
 jobs:
     call-release-workflow:
         uses: ./.github/workflows/build-and-publish.yml
+        permissions:
+            contents: read
+            packages: write
         with:
             runner: 'ubuntu-latest'
             is-release-build: true

@@ -39,6 +39,9 @@ on:
 jobs:
     call-build-workflow:
         uses: ./.github/workflows/build-and-publish.yml
+        permissions:
+            contents: read
+            packages: write
         with:
             runner: ${{ github.event.inputs.runner || 'ubuntu-latest' }}
             is-release-build: false

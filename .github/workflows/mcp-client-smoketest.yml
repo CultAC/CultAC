@@ -46,8 +46,8 @@ env:
 
 jobs:
   smoketest:
-    runs-on: ubicloud-standard-2
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Authorize smoketest run
@@ -127,7 +127,6 @@ jobs:
           repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
           path: cultac
-          token: ${{ secrets.SMOKETEST_REPO_TOKEN }}
           persist-credentials: false
           fetch-depth: 1
 
@@ -145,6 +144,16 @@ jobs:
           fi
           mkdir -p cultac
           git -C "$cultac_source" archive HEAD | tar -xf - -C cultac
+
+      - name: Verify private smoketest repository access
+        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true'
+        env:
+          SMOKETEST_REPO_TOKEN: ${{ secrets.SMOKETEST_REPO_TOKEN }}
+        run: |
+          if [ -z "$SMOKETEST_REPO_TOKEN" ]; then
+            echo "SMOKETEST_REPO_TOKEN is required to check out the private smoketest repository" >&2
+            exit 1
+          fi
 
       - name: Check out external smoketest project
         if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true'
