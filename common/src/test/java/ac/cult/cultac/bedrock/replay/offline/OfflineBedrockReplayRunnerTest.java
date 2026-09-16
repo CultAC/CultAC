@@ -7,7 +7,6 @@ import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
-import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockLiquidSensing;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveVector;
@@ -452,9 +451,7 @@ public final class OfflineBedrockReplayRunnerTest {
                 + " currentSlowdown=" + movement.currentBlockMovementSlowdownState()
                 + " predictedPendingSlowdown=" + movement.predictedState().pendingBlockMovementSlowdownState()
                 + " selectedWaterTravel=" + movement.selectedWaterTravel()
-                + " headInWater=" + BedrockLiquidSensing.waterHeadInWater(
-                    movement.movementContext(), movement.previousState().physicalFeetPosition(),
-                    movement.movementContext().playerDimensionsState())
+                + " cameraWater=" + movement.predictedState().cameraWater()
                 + " orderedPostMoveOwnsHorizontal=" + movement.orderedPostMoveOwnsHorizontalVelocity()
                 + " orderedPostMoveOwnsVertical=" + movement.orderedPostMoveOwnsVerticalVelocity()
                 + " horizontalFriction=" + movement.horizontalFriction()

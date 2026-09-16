@@ -108,14 +108,8 @@ public class PacketSelfMetadataListener {
 
                 SynchedEntityData.DataValue<?> bedObject = WatchableIndexUtil.getIndex(entityMetadata, WatchableIndexUtil.LIVING_SLEEPING_POS);
                 if (bedObject != null) { Optional<BlockPos> bed = (Optional<BlockPos>) bedObject.value();
-                    // Geyser updates its bed position from this ordered Java
-                    // metadata packet (AvatarEntity.java:189-201), and
-                    // BedrockMovePlayer gates movement on that state
-                    // (BedrockMovePlayer.java:74-79). Reuse Cult's existing
-                    // transaction proof to release the gate only after Geyser
-                    // has processed wake metadata. Entering sleep is applied
-                    // immediately and therefore fails closed at the boundary.
-                    if (bed.isPresent()) { player.checkManager.getSimulationProcessor().handleBedrockSleepingStateChange(true); }
+                    // The Bedrock actor's sleep flag is delivered separately by
+                    // the bridge after the client acknowledges its own metadata.
                     Runnable applyBedMetadata = () -> {
                         if (bed.isPresent()) { player.isInBed = true;
                             BlockPos bedPos = bed.get();
@@ -127,8 +121,6 @@ public class PacketSelfMetadataListener {
                                                 .getKey(player.compensatedWorld.getBlockState(bedPos).getBlock()).getPath()) ? 0.375 : 0.6875),
                                     bedPos.getZ() + 0.5);
                         } else {
-                            player.checkManager.getSimulationProcessor()
-                                    .handleBedrockSleepingStateChange(false);
                             player.isInBed = false;
                         }
                         player.refreshPlayerPose();

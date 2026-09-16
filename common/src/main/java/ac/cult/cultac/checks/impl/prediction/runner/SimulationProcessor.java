@@ -133,16 +133,38 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       }
    }
 
+   public void handleBedrockActorCreation(long runtimeEntityId) {
+      if (!this.player.isBedrockMovement() || this.player.bedrockState == null) return;
+      // Start fresh camera history before the new actor's first frame, while
+      // retaining metadata already acknowledged for that actor.
+      this.player.bedrockState.recordActorCreation(runtimeEntityId);
+      this.profileCarry = null;
+      this.validPlayerStartingVels = new HashSet<>(Set.of(Vec3.ZERO));
+   }
+
    /** Apply on the player's packet thread at the acknowledged clientbound boundary. */
    public void applyAcknowledgedBedrockMetadata(Float width, Float height, Boolean gliding,
                                                Boolean crawling, Boolean swimming) {
+      applyAcknowledgedBedrockMetadata(width, height, gliding, crawling, swimming, null, null, null);
+   }
+
+   public void applyAcknowledgedBedrockMetadata(Float width, Float height, Boolean gliding,
+                                               Boolean crawling, Boolean swimming, Boolean sneaking,
+                                               Boolean spinning, Boolean sleeping) {
       if (!this.player.isBedrockMovement() || this.player.bedrockState == null) {
          return;
       }
       this.player.bedrockState.applyAcknowledgedBoundingBoxMetadata(width, height);
-      this.player.bedrockState.applyAcknowledgedPoseMetadata(crawling, swimming);
+      this.player.bedrockState.applyAcknowledgedPoseMetadata(crawling, swimming, sneaking, spinning, sleeping, gliding);
       if (gliding != null) {
          this.applyAcknowledgedBedrockGliding(gliding);
+      }
+      if ((spinning != null || swimming != null || crawling != null) && this.profileCarry != null) {
+         this.profileCarry = MovementEngines.requireForProfile(MovementProfiles.forPlayer(this.player))
+            .applyAcknowledgedPoseToCarry(this.profileCarry, crawling, swimming, spinning);
+      }
+      if (sleeping != null) {
+         this.handleBedrockSleepingStateChange(sleeping);
       }
    }
 
@@ -436,12 +458,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    public void handleBedrockSleepingStateChange(boolean sleeping) {
       if (this.player.isBedrockMovement() && this.bedrockSleepingStateObserved != sleeping) {
          this.bedrockSleepingStateObserved = sleeping;
+         this.player.bedrockState.applyAcknowledgedPoseMetadata(null, null, null, null, sleeping);
          if (sleeping) {
             this.player.packetStateData.clearBedrockTranslatedMovementPermit();
             this.applyBedrockImmobileState(null);
          }
-
-         MovementProfiles.forPlayer(this.player).resetQueuedAuthoredInput(this.player);
+         // Sleep changes the travel gate, not the already ordered actor actions.
       }
    }
 
@@ -975,15 +997,18 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       this.lastFlying.setRaw(20);
       this.lastSneaking = false;
       this.lastGliding = false;
-      this.bedrockSleepingStateObserved = false;
-      this.profileCarry = null;
       this.player.packetStateData.clearBedrockTranslatedMovementPermit();
       if (this.player.bedrockState != null) {
          this.lastMovementWasSetback = false;
-         this.player.bedrockState.clearMovementInputState();
       }
-
-      MovementProfiles.forPlayer(this.player).resetQueuedAuthoredInput(this.player);
+      // A Java respawn is not a Bedrock LocalPlayer construction boundary.
+      // Bedrock metadata and position resets arrive through their own ordered
+      // bridge events. The persistent camera and water components survive.
+      if (!this.player.isBedrockMovement()) {
+         this.bedrockSleepingStateObserved = false;
+         this.profileCarry = null;
+         MovementProfiles.forPlayer(this.player).resetQueuedAuthoredInput(this.player);
+      }
    }
 
    public PredictionResult getPredictionResult(

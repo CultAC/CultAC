@@ -87,6 +87,10 @@ public record BedrockMovementContext(
         return modifierState.movementAbilityFlying();
     }
 
+    public boolean movementAbilityInstabuild() {
+        return modifierState.movementAbilityInstabuild();
+    }
+
     public double movementAbilityFlySpeed() {
         return modifierState.movementAbilityFlySpeed();
     }

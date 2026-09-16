@@ -27,8 +27,10 @@ public final class BedrockSnapshotResolver {
             state, snapshot.playerDimensionsState(), frame
         );
         snapshot = snapshot.withPlayerDimensions(dimensions);
+        // Water sensing precedes input pose changes; active spin sizing applies earlier.
+        PlayerDimensionsState sensingDimensions = state.riptideSpinActive() ? dimensions : state.playerDimensions();
         BedrockMovementContext context = BedrockFluidStateResolver.withFluidStateFromBlockWorld(
-            snapshot.movementContext(), state.physicalFeetPosition(), dimensions
+            snapshot.movementContext(), state.physicalFeetPosition(), sensingDimensions
         );
         snapshot = snapshot.withMovementContext(context);
         BedrockClimbableContact climbable = snapshot.climbableContactAt(state.physicalFeetPosition(), dimensions);

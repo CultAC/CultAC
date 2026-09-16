@@ -33,6 +33,32 @@ import static org.junit.Assert.assertTrue;
 
 public final class BedrockSimulationStructureTest {
     @Test
+    public void cameraAdvancesOncePerActorTickAcrossCandidatesAndTravelGates() {
+        BedrockMovementState state = BedrockMovementState.fromPhysicalFeet(
+            new Vec3d(1, 64, 3), Vec3d.ZERO, BedrockInputFrame.idle(0), BedrockCollisionFlags.AIR);
+        BedrockInputFrame frame = new BedrockInputFrame(10_000, 0, 0, false, false, false,
+            Set.of("START_SNEAKING"));
+        var snapshot = BedrockSnapshotResolver.forState(BedrockWorldSnapshot.fromContext(airContext()), state, frame);
+        var input = new BedrockSimulation.Input(state, frame, frame.intent(), snapshot, false, 0.0,
+            BedrockMobJumpComponentState.DEFAULT, true, true);
+        var expected = state.cameraWater().advanceCamera(false, true, false, 1.62001F, 0, 0.35F);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            for (var candidate : BedrockSimulation.candidates(input)) {
+                var next = candidate.movementResult().predictedState();
+                assertEquals(1, next.simulationTick());
+                assertEquals(expected, next.cameraWater());
+                assertEquals(state.physicalFeetPosition(), next.physicalFeetPosition());
+            }
+        }
+        var gated = new BedrockSimulation.Input(state, frame, frame.intent(), snapshot, false, 0.0,
+            BedrockMobJumpComponentState.DEFAULT, false, false);
+        for (var candidate : BedrockSimulation.candidates(gated)) {
+            assertEquals(state.cameraWater(), candidate.movementResult().predictedState().cameraWater());
+            assertEquals(0, candidate.movementResult().predictedState().simulationTick());
+        }
+    }
+
+    @Test
     public void idleInputBruteForcesWalkAndSprintTravelSpeed() {
         BedrockInputFrame frame = BedrockInputFrame.idle(1L);
         BedrockMovementState state = BedrockMovementState.fromPhysicalFeet(
@@ -201,9 +227,14 @@ public final class BedrockSimulationStructureTest {
             new EquipmentState(0, 0, 0, 1, false, false),
             EntityContactState.NONE,
             new MovementModifierState(
-                true, true, false, 0.05D, false, true, false, false, 0.35D, 0L),
+                true, true, false, false, 0.05D, false, true, false, false, 0.35D, 0L),
             PlayerDimensionsState.DEFAULT
         );
+        // This fixture begins after ten completed charge ticks in standing,
+        // submerged water. Carry the preceding tick's producer result.
+        charged = charged.withCameraWater(
+            ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockUnderwaterSensing.update(
+                charged.cameraWater(), context, charged.physicalFeetPosition(), charged.playerDimensions()));
         BedrockWorldSnapshot snapshot = BedrockSnapshotResolver.forState(
             BedrockWorldSnapshot.fromContext(context), charged, release
         );
@@ -267,7 +298,7 @@ public final class BedrockSimulationStructureTest {
             new EquipmentState(0, 0, 0, 1, false, false),
             EntityContactState.NONE,
             new MovementModifierState(
-                false, true, false, 0.05D, false, true, false, false, 0.35D, 0L),
+                false, true, false, false, 0.05D, false, true, false, false, 0.35D, 0L),
             PlayerDimensionsState.DEFAULT);
         BedrockWorldSnapshot snapshot = BedrockSnapshotResolver.forState(
             BedrockWorldSnapshot.fromContext(context), charged, release);

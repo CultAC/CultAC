@@ -98,7 +98,7 @@ public final class BedrockGlidingTravelMovementTest {
             new WorldContactState(Medium.AIR, FluidState.NONE, BlockCollisionWorld.EMPTY),
             new EquipmentState(0, 0, 0, false, usableElytra), EntityContactState.NONE,
             new MovementModifierState(
-                usableElytra, flying, flying, 0.05D, false, false, false, false, 0.35D, 0L),
+                usableElytra, flying, flying, false, 0.05D, false, false, false, false, 0.35D, 0L),
             PlayerDimensionsState.DEFAULT);
     }
 
@@ -203,7 +203,7 @@ public final class BedrockGlidingTravelMovementTest {
             EquipmentState.NONE,
             EntityContactState.NONE,
             new MovementModifierState(
-                true, true, false, 0.05D, false, false, false, false, 0.35D, 0L),
+                true, true, false, false, 0.05D, false, false, false, false, 0.35D, 0L),
             PlayerDimensionsState.DEFAULT);
     }
 }

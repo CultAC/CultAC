@@ -9,24 +9,6 @@ public final class BedrockLiquidSensing {
     private BedrockLiquidSensing() {
     }
 
-    public static boolean waterHeadInWater(
-        BedrockMovementContext context,
-        Vec3d physicalFeetPosition,
-        PlayerDimensionsState dimensions
-    ) {
-        Objects.requireNonNull(context, "context");
-        Objects.requireNonNull(physicalFeetPosition, "physicalFeetPosition");
-        Objects.requireNonNull(dimensions, "dimensions");
-        double cameraY = physicalFeetPosition.y() + BedrockActorDimensions.cameraOffset(dimensions);
-        return BedrockLiquidGeometry.liquidPointInBlock(
-            context.worldState().blockCollisionWorld(),
-            physicalFeetPosition.x(),
-            cameraY,
-            physicalFeetPosition.z(),
-            BedrockLiquidKind.WATER
-        );
-    }
-
     public static boolean lavaSwimUpApplies(
         BedrockMovementContext context,
         Vec3d physicalFeetPosition,

@@ -24,6 +24,7 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOutboundHandler;
 import io.netty.channel.DefaultEventLoop;
 import io.netty.channel.EventLoop;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -50,6 +51,7 @@ import org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket;
+import org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
 import org.cloudburstmc.protocol.common.PacketSignal;
 import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.entity.type.player.SessionPlayerEntity;
@@ -72,6 +74,103 @@ import org.mockito.Mockito;
 import static org.junit.Assert.*;
 
 public final class BedrockMetadataAcknowledgementTest {
+    @Test
+    public void startGameInitializationPrecedesTheFirstAuthFrame() throws Exception {
+        checkActorCreation(false);
+    }
+
+    @Test
+    public void droppedPreLoginFramesLeaveInitializationUnknown() throws Exception {
+        checkActorCreation(true);
+    }
+
+    private static void checkActorCreation(boolean dropBeforeLogin) throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        try (var transport = new Transport()) {
+            transport.initialize();
+            var start = new StartGamePacket();
+            start.setRuntimeEntityId(55L);
+            transport.writeBedrock(start);
+            if (dropBeforeLogin) {
+                transport.users.remove(transport.uuid, transport.player.user);
+                try {
+                    transport.receive(auth(10069));
+                    transport.drain();
+                } finally {
+                    transport.users.put(transport.uuid, transport.player.user);
+                }
+            }
+            transport.receive(auth(10070));
+            transport.lastAuth.get(5, TimeUnit.SECONDS);
+            transport.drain();
+            transport.server.submit(() -> {
+                assertEquals(dropBeforeLogin ? null : Long.valueOf(55L),
+                    transport.player.bedrockState.observedActorRuntimeId());
+                assertEquals(dropBeforeLogin ? List.of("auth:10070 gliding=false")
+                    : List.of("actor-created:55", "auth:10070 gliding=false"), transport.arrivals);
+            }).get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    public void respawnRetainsComponentsUntilAnObservedActorCreation() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        try (var transport = new Transport()) {
+            transport.initialize();
+            transport.server.submit(() -> {
+                var simulation = transport.player.checkManager.getSimulationProcessor();
+                var before = simulation.getCurrentPredictionCommit().carry();
+                simulation.handleRespawn();
+                assertSame(before, simulation.getCurrentPredictionCommit().carry());
+                assertNull(transport.player.bedrockState.observedActorRuntimeId());
+                simulation.handleBedrockActorCreation(55L);
+                assertNull(simulation.getCurrentPredictionCommit().carry());
+                assertEquals(Long.valueOf(55L), transport.player.bedrockState.observedActorRuntimeId());
+            }).get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    public void cameraPoseMetadataUsesBedrockReceiptAndPreservesOmittedFields() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        try (var transport = new Transport()) {
+            transport.initialize();
+            var camera = transport.server.submit(() -> state(transport.player).cameraWater()).get(5, TimeUnit.SECONDS);
+            transport.recordMetadata(null, null, null, null, null, true, true, true);
+            transport.server.submit(() -> {
+                var pose = transport.player.bedrockState.getClientPoseState(null);
+                assertFalse(pose.sneaking());
+                assertFalse(pose.spinning());
+                assertFalse(pose.sleeping());
+                assertFalse(transport.player.checkManager.getSimulationProcessor().isBedrockSleepingStateObserved());
+            }).get(5, TimeUnit.SECONDS);
+
+            transport.acknowledgeMetadata();
+            transport.server.submit(() -> {
+                var pose = transport.player.bedrockState.getClientPoseState(null);
+                assertTrue(pose.sneaking());
+                assertTrue(pose.spinning());
+                assertTrue(pose.sleeping());
+                assertTrue(state(transport.player).riptideSpinActive());
+                assertTrue(transport.player.checkManager.getSimulationProcessor().isBedrockSleepingStateObserved());
+                assertEquals(camera, state(transport.player).cameraWater());
+            }).get(5, TimeUnit.SECONDS);
+
+            transport.recordMetadata(0.6F, null, null, null, null, null, null, false);
+            transport.server.submit(() -> assertTrue(
+                transport.player.checkManager.getSimulationProcessor().isBedrockSleepingStateObserved())).get(5, TimeUnit.SECONDS);
+            transport.acknowledgeMetadata();
+            transport.server.submit(() -> {
+                var pose = transport.player.bedrockState.getClientPoseState(null);
+                assertTrue(pose.sneaking());
+                assertTrue(pose.spinning());
+                assertFalse(pose.sleeping());
+                assertFalse(transport.player.checkManager.getSimulationProcessor().isBedrockSleepingStateObserved());
+                assertEquals(camera, state(transport.player).cameraWater());
+            }).get(5, TimeUnit.SECONDS);
+        }
+    }
+
     @Test public void localSessionsSharingAnIpKeepSeparateReceiptCallbacks() throws Exception {
         checkSessionIsolation(false);
     }
@@ -270,6 +369,15 @@ public final class BedrockMetadataAcknowledgementTest {
         }
 
         void recordMetadata() throws Exception {
+            recordMetadata(0.6F, 0.6F, true, false, false, null, null, null);
+            server.submit(() -> {
+                assertFalse(state(player).gliding());
+                assertEquals("confirmedSize=null", player.bedrockState.boundingBoxStatus());
+            }).get(5, TimeUnit.SECONDS);
+        }
+
+        void recordMetadata(Float width, Float height, Boolean gliding, Boolean crawling, Boolean swimming,
+                            Boolean sneaking, Boolean spinning, Boolean sleeping) throws Exception {
             tick.submit(() -> {
                 var context = Mockito.mock(ChannelHandlerContext.class);
                 Mockito.doAnswer(invocation -> {
@@ -279,17 +387,38 @@ public final class BedrockMetadataAcknowledgementTest {
                 var source = BedrockPacketWrapper.create(0, 0, 0, new SetEntityDataPacket(), null);
                 try {
                     var record = tap.getClass().getDeclaredMethod("recordOutboundMetadata", ChannelHandlerContext.class,
-                            BedrockPacketWrapper.class, Float.class, Float.class, Boolean.class, Boolean.class, Boolean.class);
+                            BedrockPacketWrapper.class, Float.class, Float.class, Boolean.class, Boolean.class, Boolean.class,
+                            Boolean.class, Boolean.class, Boolean.class);
                     record.setAccessible(true);
-                    record.invoke(tap, context, source, 0.6F, 0.6F, true, false, false);
+                    record.invoke(tap, context, source, width, height, gliding, crawling, swimming, sneaking, spinning, sleeping);
                 } finally {
                     source.release();
                 }
                 return null;
             }).get(5, TimeUnit.SECONDS);
-            server.submit(() -> {
-                assertFalse(state(player).gliding());
-                assertEquals("confirmedSize=null", player.bedrockState.boundingBoxStatus());
+        }
+
+        void acknowledgeMetadata() throws Exception {
+            var reply = new NetworkStackLatencyPacket();
+            reply.setTimestamp(player.getLastClientboundBedrockTransaction().id() * 1_000_000L);
+            reply.setFromServer(true);
+            receive(reply);
+            drain();
+        }
+
+        void writeBedrock(BedrockPacket packet) throws Exception {
+            tick.submit(() -> {
+                Class<?> outboundClass = Class.forName(GeyserBedrockBridgeRuntime.class.getName() + "$OutboundPacketTap");
+                var constructor = outboundClass.getDeclaredConstructor(tap.getClass());
+                constructor.setAccessible(true);
+                var outbound = (ChannelOutboundHandler) constructor.newInstance(tap);
+                var context = Mockito.mock(ChannelHandlerContext.class);
+                Mockito.doAnswer(invocation -> {
+                    ((BedrockPacketWrapper) invocation.getArgument(0)).release();
+                    return null;
+                }).when(context).write(Mockito.any(), Mockito.any());
+                outbound.write(context, BedrockPacketWrapper.create(0, 0, 0, packet, null), context.voidPromise());
+                return null;
             }).get(5, TimeUnit.SECONDS);
         }
 
@@ -312,11 +441,14 @@ public final class BedrockMetadataAcknowledgementTest {
             } else if (packet instanceof ServerboundCustomPayloadPacket payload) {
                 var frame = BedrockAuthInputPluginMessage.decode(payload.getData());
                 if (frame != null) {
-                    glidingAtAuth.add(state(player).gliding());
-                    arrivals.add("auth:" + frame.getClientTick() + " gliding=" + state(player).gliding());
+                    boolean gliding = player.checkManager.getSimulationProcessor().getCurrentPredictionCommit().carry() == null
+                        ? player.bedrockState.getClientPoseState(null).gliding() : state(player).gliding();
+                    glidingAtAuth.add(gliding);
+                    arrivals.add("auth:" + frame.getClientTick() + " gliding=" + gliding);
                     if (frame.getClientTick() == 10070) lastAuth.complete(null);
                 } else {
-                    arrivals.add("metadata");
+                    var creation = BedrockAuthInputPluginMessage.decodeActorCreated(payload.getData());
+                    arrivals.add(creation == null ? "metadata" : "actor-created:" + creation.runtimeEntityId());
                     var nms = new net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket(
                             new DiscardedPayload(Identifier.parse(BedrockAuthInputPluginMessage.CHANNEL), payload.getData()));
                     new BedrockAuthInputPluginMessageListener().onCustomPayload(

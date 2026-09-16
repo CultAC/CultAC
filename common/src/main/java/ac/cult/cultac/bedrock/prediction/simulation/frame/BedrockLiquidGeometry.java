@@ -100,11 +100,16 @@ public final class BedrockLiquidGeometry {
         BlockPosition position = blockPosition(x, y, z);
         return Optional.ofNullable(blockWorld.liquidBlocksByPosition().get(position))
             .filter(block -> liquidKind(block) == liquidKind)
-            .flatMap(BedrockLiquidGeometry::liquidBlockBox)
-            // The vanilla liquid material test excludes a point exactly on
-            // the liquid surface.
-            .map(liquidBox -> y < liquidBox.maxY())
+            // A point exactly on the surface is outside the liquid.
+            .map(block -> y < liquidSurfaceY(block))
             .orElse(false);
+    }
+
+    // Keep each operation in float; rounding only the final result changes boundaries.
+    private static float liquidSurfaceY(PlacedBlockCollision block) {
+        int depth = liquidDepth(block).orElse(0);
+        float height = (depth < 8 ? depth + 1 : 1) / 9.0F;
+        return (float) (block.position().y() + 1) - (height - 1.0F / 9.0F);
     }
 
     public static boolean centerTopAndBottomNotInAir(

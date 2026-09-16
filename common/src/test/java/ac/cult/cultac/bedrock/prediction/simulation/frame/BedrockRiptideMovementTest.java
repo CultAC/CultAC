@@ -26,6 +26,20 @@ import static org.junit.Assert.assertTrue;
 
 public final class BedrockRiptideMovementTest {
     @Test
+    public void groundedLaunchReadsCarriedHeadWaterBeforeCurrentSensing() {
+        var current = state(10L, false, 0L, BedrockCollisionFlags.ON_GROUND).withWasInWaterFlag(true);
+        var release = new BedrockInputFrame(2, 0.0F, -40.0F, false, false, false,
+            Set.of("RELEASE_USING_ITEM", "START_SPIN_ATTACK"));
+        var above = tick(current, release, context(false, false, 3));
+        var submerged = tick(current.withCameraWater(
+            new ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState(0, 0, true, false)),
+            release, context(false, false, 3));
+        assertEquals(Vec3d.ZERO.add(BedrockAerialMovement.riptideImpulse(release, 3, true, true, false)), above.velocity());
+        assertEquals(Vec3d.ZERO.add(BedrockAerialMovement.riptideImpulse(release, 3, true, true, true)), submerged.velocity());
+        assertTrue(above.velocity().y() > submerged.velocity().y());
+    }
+
+    @Test
     public void chargedReleaseWithoutClientSpinDoesNotInventALaunch() {
         var result = tick(state(20L, false, 0L, BedrockCollisionFlags.AIR),
             frame("RELEASE_USING_ITEM"), context(true, false, 1));
@@ -297,7 +311,7 @@ public final class BedrockRiptideMovementTest {
             new WorldContactState(medium, FluidState.NONE, new BlockCollisionWorld(List.of())),
             new EquipmentState(0, 0, 0, level, false, false),
             EntityContactState.NONE,
-            new MovementModifierState(false, false, false, 0.05D, false,
+            new MovementModifierState(false, false, false, false, 0.05D, false,
                 level > 0, rain, false, 0.35D, 0L),
             PlayerDimensionsState.DEFAULT
         );

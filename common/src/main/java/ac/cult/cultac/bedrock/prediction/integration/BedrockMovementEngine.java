@@ -401,12 +401,21 @@ public final class BedrockMovementEngine implements MovementEngine {
             return applyImmobileStateToCarry(carry, null, trustedMayFly(player), null);
         }
         if (context == null || context.getAuthoredInput() != authoredMovementFrame) {
-            return new PredictionCommit(null, Set.of(Vec3.ZERO));
+            return new PredictionCommit(carry, Set.of(Vec3.ZERO));
         }
         Input input = inputFactory.create(player, context);
-        return input == null
-            ? new PredictionCommit(null, Set.of(Vec3.ZERO))
-            : applyImmobileStateToCarry(carry, input.inputFrame(), trustedMayFly(player), input.worldSnapshot());
+        if (input == null) {
+            return new PredictionCommit(carry, Set.of(Vec3.ZERO));
+        }
+        BedrockNextTickStates states = carry instanceof BedrockNextTickStates previous
+            && !previous.profileEntries().isEmpty() ? previous
+            : new BedrockNextTickStates(List.of(new Entry(input.previousState(), input.mobJumpComponent())));
+        if (!input.actorMovementTick()) {
+            return new PredictionCommit(new BedrockNextTickStates(states.profileEntries().stream()
+                .map(entry -> entry.withState(entry.state().withoutActorMovementTick(input.inputFrame()))).toList()),
+                Set.of(Vec3.ZERO));
+        }
+        return applyImmobileStateToCarry(states, input.inputFrame(), trustedMayFly(player), input.worldSnapshot());
     }
 
     public PredictionCarry applyAcknowledgedGlidingToCarry(PredictionCarry carry, boolean actorGliding) {
@@ -416,6 +425,15 @@ public final class BedrockMovementEngine implements MovementEngine {
                     .map(entry -> entry.withState(entry.state().withGliding(actorGliding)))
                     .toList()
             )
+            : carry;
+    }
+
+    @Override
+    public PredictionCarry applyAcknowledgedPoseToCarry(PredictionCarry carry,
+        Boolean crawling, Boolean swimming, Boolean spinning) {
+        return carry instanceof BedrockNextTickStates states
+            ? new BedrockNextTickStates(states.profileEntries().stream()
+                .map(entry -> entry.withState(entry.state().withAcknowledgedPose(crawling, swimming, spinning))).toList())
             : carry;
     }
 
@@ -429,7 +447,7 @@ public final class BedrockMovementEngine implements MovementEngine {
             return new PredictionCommit(null, Set.of(Vec3.ZERO));
         }
         if (frame != null && snapshot == null) {
-            return new PredictionCommit(null, Set.of(Vec3.ZERO));
+            return new PredictionCommit(carry, Set.of(Vec3.ZERO));
         }
         List<Entry> immobileEntries = nextTickStates.profileEntries().stream()
             .map(entry -> immobileEntry(entry, frame, mayFly, snapshot))

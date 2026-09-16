@@ -7,6 +7,8 @@ import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
+import ac.cult.cultac.bedrock.protocol.BedrockClientAction;
+import java.util.Set;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import java.util.UUID;
@@ -29,19 +31,24 @@ public final class BedrockPlayerState {
     private String lastAuthInputMatchStatus = "no auth input processed";
     private BedrockAuthInputFrame lastPoseAppliedFrame;
     private BedrockClientPoseState lastPoseAppliedState;
-    private long trackedRiptideUseStartInputTick = Long.MIN_VALUE;
     private BedrockClientPoseState trackedPoseState = BedrockClientPoseState.STANDING;
     private boolean swimmingRequested;
-    private boolean pendingStartGlidingAction;
-    private boolean pendingStopGlidingAction;
-    private boolean pendingItemRelease;
-    private boolean pendingStartSpinAttack;
-    private boolean pendingStopSpinAttack;
+    private final BedrockFrameActions actions = new BedrockFrameActions();
     private long lastVerboseMovementLog = Long.MIN_VALUE;
     private PlayerDimensionsState confirmedBoundingBoxSize;
+    private Long observedActorRuntimeId;
 
     public BedrockPlayerState(UUID playerUuid) {
         this.playerUuid = playerUuid;
+    }
+
+    /** Null for older captures whose actor-creation history is unavailable. */
+    public Long observedActorRuntimeId() {
+        return observedActorRuntimeId;
+    }
+
+    public void recordActorCreation(long runtimeEntityId) {
+        observedActorRuntimeId = runtimeEntityId;
     }
 
     public void offerAuthInputFrame(BedrockAuthInputFrame frame) {
@@ -56,6 +63,7 @@ public final class BedrockPlayerState {
         offeredAuthInputSequence++;
         authoritativeInputSequences.put(frame, offeredAuthInputSequence);
         lastAuthInputMatchStatus = "observed auth input tick=" + frame.getClientTick() + " sequence=" + offeredAuthInputSequence;
+        actions.forFrame(frame);
         applyClientPoseFrame(frame);
     }
 
@@ -81,6 +89,7 @@ public final class BedrockPlayerState {
         lastAuthInputMatchStatus = trigger == null
                 ? "processed auth input tick=" + frame.getClientTick() + " sequence=" + processedAuthInputSequence
                 : "processed auth input tick=" + frame.getClientTick() + " via " + trigger + " sequence=" + processedAuthInputSequence;
+        actions.forFrame(frame);
         applyClientPoseFrame(frame);
         return processedAuthInputSequence;
     }
@@ -115,12 +124,7 @@ public final class BedrockPlayerState {
         lastMoveFrame = null;
         lastPoseAppliedFrame = null;
         lastPoseAppliedState = null;
-        pendingStartGlidingAction = false;
-        pendingStopGlidingAction = false;
-        pendingItemRelease = false;
-        pendingStartSpinAttack = false;
-        pendingStopSpinAttack = false;
-        clearRiptideUseTracking();
+        actions.clear();
         lastAuthInputMatchStatus = "transient auth input state cleared";
     }
 
@@ -142,6 +146,16 @@ public final class BedrockPlayerState {
     }
 
     public synchronized void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming) {
+        applyAcknowledgedPoseMetadata(crawling, swimming, null, null, null);
+    }
+
+    public synchronized void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming,
+                                                          Boolean sneaking, Boolean spinning, Boolean sleeping) {
+        applyAcknowledgedPoseMetadata(crawling, swimming, sneaking, spinning, sleeping, null);
+    }
+
+    public synchronized void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming,
+            Boolean sneaking, Boolean spinning, Boolean sleeping, Boolean gliding) {
         if (crawling != null) {
             trackedPoseState = trackedPoseState.withCrawling(crawling);
         }
@@ -151,6 +165,10 @@ public final class BedrockPlayerState {
                 swimmingRequested = false;
             }
         }
+        if (sneaking != null) trackedPoseState = trackedPoseState.withSneaking(sneaking);
+        if (spinning != null) trackedPoseState = trackedPoseState.withSpinning(spinning);
+        if (sleeping != null) trackedPoseState = trackedPoseState.withSleeping(sleeping);
+        if (gliding != null) trackedPoseState = trackedPoseState.withGliding(gliding);
     }
 
     public boolean isSwimmingRequested() {
@@ -173,71 +191,18 @@ public final class BedrockPlayerState {
         return "confirmedSize=" + confirmedBoundingBoxSize;
     }
 
-    public void recordItemReleaseAction() {
-        pendingItemRelease = true;
+    public void recordClientAction(BedrockClientAction action) {
+        actions.record(action);
     }
 
-    public void recordStartSpinAttackAction() {
-        pendingStartSpinAttack = true;
-    }
+    public void recordItemReleaseAction() { recordClientAction(BedrockClientAction.ITEM_RELEASE); }
+    public void recordStartSpinAttackAction() { recordClientAction(BedrockClientAction.START_SPIN_ATTACK); }
+    public void recordStopSpinAttackAction() { recordClientAction(BedrockClientAction.STOP_SPIN_ATTACK); }
+    public void recordStartGlidingAction() { recordClientAction(BedrockClientAction.START_GLIDING); }
+    public void recordStopGlidingAction() { recordClientAction(BedrockClientAction.STOP_GLIDING); }
 
-    public void recordStopSpinAttackAction() {
-        pendingStopSpinAttack = true;
-    }
-
-    public boolean consumeItemReleaseFor(BedrockAuthInputFrame frame) {
-        boolean pending = pendingItemRelease;
-        pendingItemRelease = false;
-        return pending && frame != null;
-    }
-
-    public boolean consumeStartSpinAttackFor(BedrockAuthInputFrame frame) {
-        boolean pending = pendingStartSpinAttack;
-        pendingStartSpinAttack = false;
-        return pending && frame != null;
-    }
-
-    public boolean consumeStopSpinAttackFor(BedrockAuthInputFrame frame) {
-        boolean pending = pendingStopSpinAttack;
-        pendingStopSpinAttack = false;
-        return pending && frame != null;
-    }
-
-    public boolean shouldStartRiptideCharge(BedrockAuthInputFrame frame, boolean riptideAvailable) {
-        if (!riptideAvailable || frame == null || !frame.hasRawInputFlag(PlayerAuthInputData.START_USING_ITEM)) {
-            return false;
-        }
-        long inputTick = authoritativeInputTick(frame);
-        if (trackedRiptideUseStartInputTick != inputTick) {
-            // Each new START_USING_ITEM resets the timer
-            trackedRiptideUseStartInputTick = inputTick;
-            return true;
-        }
-        return false;
-    }
-
-    public void clearRiptideUseTracking() {
-        trackedRiptideUseStartInputTick = Long.MIN_VALUE;
-    }
-
-    public void recordStartGlidingAction() {
-        pendingStartGlidingAction = true;
-    }
-
-    public void recordStopGlidingAction() {
-        pendingStopGlidingAction = true;
-    }
-
-    public boolean consumeStartGlidingActionFor(BedrockAuthInputFrame frame) {
-        boolean pending = pendingStartGlidingAction;
-        pendingStartGlidingAction = false;
-        return pending && frame != null;
-    }
-
-    public boolean consumeStopGlidingActionFor(BedrockAuthInputFrame frame) {
-        boolean pending = pendingStopGlidingAction;
-        pendingStopGlidingAction = false;
-        return pending && frame != null;
+    public Set<String> actionInputFor(BedrockAuthInputFrame frame) {
+        return actions.forFrame(frame);
     }
 
     private BedrockClientPoseState poseStateForCurrentTick(BedrockAuthInputFrame frame) {
@@ -267,6 +232,21 @@ public final class BedrockPlayerState {
         lastPoseAppliedFrame = frame;
         lastPoseAppliedState = poseStateForCurrentTick(frame);
         trackedPoseState = PoseTransition.applyAll(trackedPoseState, frame);
+        Set<String> frameActions = actions.forFrame(frame);
+        if (frameActions.contains("START_SNEAKING") || frame.isStartSneaking()) {
+            trackedPoseState = trackedPoseState.withSneaking(true);
+        }
+        if (frameActions.contains("STOP_SNEAKING") || frame.isStopSneaking()) {
+            trackedPoseState = trackedPoseState.withSneaking(false);
+        }
+        if (frameActions.contains("START_CRAWLING")) trackedPoseState = trackedPoseState.withCrawling(true);
+        if (frameActions.contains("STOP_CRAWLING") || frame.isStopCrawling()) {
+            trackedPoseState = trackedPoseState.withCrawling(false);
+        }
+        if (frameActions.contains("START_SWIMMING")) trackedPoseState = trackedPoseState.withSwimming(true);
+        if (frameActions.contains("STOP_SWIMMING") || frame.isStopSwimming()) {
+            trackedPoseState = trackedPoseState.withSwimming(false);
+        }
     }
 
     public BedrockClientPoseState getClientPoseState(BedrockAuthInputFrame frame) {

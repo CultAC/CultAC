@@ -27,12 +27,12 @@ public final class BedrockFrameSystems {
         BedrockRiptideMovement.Step riptide = spinAttack.step();
         velocity = spinAttack.velocity();
 
-        // Start/stop spin requests the shape rebuild before water sensing.
+        // Spin actions take effect before water sensing.
         BedrockFrameFacts facts = BedrockFrameFacts.from(input, riptide.spinActive());
+        var cameraWater = BedrockUnderwaterSensing.update(input.previousState().cameraWater(),
+            facts.context(), input.previousState().physicalFeetPosition(), facts.movementDimensions());
         BedrockLiquidJumpContact liquidContact = BedrockLiquidJumpContact.from(
-            facts,
-            input.previousState().physicalFeetPosition()
-        );
+            facts, input.previousState().physicalFeetPosition(), cameraWater.headInWater());
 
 
         boolean actorSprinting = intent.sprint().currentTickActorSprinting(
@@ -124,7 +124,9 @@ public final class BedrockFrameSystems {
             );
         }
 
-        // Evaluate dolphin boost after swim actions and before travel.
+        cameraWater = BedrockCameraMovement.afterActions(input, cameraWater,
+            swimming.actorStateAfterActions(), gliding.activeAfterActions(), riptide.spinActive());
+
         BedrockDolphinBoost dolphinBoost = input.previousState().dolphinBoost().tick(
             swimming.actorStateAfterActions(), facts.context().dolphinBoostAvailable());
         facts = facts.withContext(BedrockFluidStateResolver.withSwimSpeedMultiplier(
@@ -155,7 +157,8 @@ public final class BedrockFrameSystems {
             velocity,
             mobJump,
             dolphinBoost,
-            groundJumpApplied
+            groundJumpApplied,
+            cameraWater
         );
     }
 

@@ -55,15 +55,17 @@ public record BedrockFrameFacts(
             spinActive
         );
         PlayerDimensionsState movementDimensions = resolvedDimensions.dimensions();
+        // Water sensing precedes input pose changes; spin actions have already applied.
+        PlayerDimensionsState sensingDimensions = spinActive ? movementDimensions : current.playerDimensions();
         boolean inWaterFlag = BedrockLiquidSensing.inWaterFlag(
             context,
             current.physicalFeetPosition(),
-            movementDimensions
+            sensingDimensions
         );
         boolean lavaTravelFlag = BedrockLiquidSensing.lavaTravelFlag(
             context,
             current.physicalFeetPosition(),
-            movementDimensions
+            sensingDimensions
         );
         return new BedrockFrameFacts(
             context,

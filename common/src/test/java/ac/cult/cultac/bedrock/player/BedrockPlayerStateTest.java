@@ -113,44 +113,39 @@ public final class BedrockPlayerStateTest {
     }
 
     @Test
-    public void oneShotActionsConsumeOnce() {
+    public void actionSnapshotIsStableAcrossPredictionAttemptsAndStopsAtTheFrameBoundary() {
         BedrockPlayerState state = new BedrockPlayerState(PLAYER_UUID);
-        BedrockAuthInputFrame frame = frame(20L, 20.0D);
-
-        state.recordItemReleaseAction();
+        BedrockAuthInputFrame first = frame(20L, 20.0D);
         state.recordStartSpinAttackAction();
         state.recordStopSpinAttackAction();
+        state.offerAuthInputFrame(first);
+        var firstActions = state.actionInputFor(first);
+        assertTrue(firstActions.contains("START_SPIN_ATTACK"));
+        assertTrue(firstActions.contains("STOP_SPIN_ATTACK"));
+        assertSame(firstActions, state.actionInputFor(first));
 
-        assertTrue(state.consumeItemReleaseFor(frame));
-        assertFalse(state.consumeItemReleaseFor(frame));
-        assertTrue(state.consumeStartSpinAttackFor(frame));
-        assertFalse(state.consumeStartSpinAttackFor(frame));
-        assertTrue(state.consumeStopSpinAttackFor(frame));
-        assertFalse(state.consumeStopSpinAttackFor(frame));
+        state.recordItemReleaseAction();
+        assertFalse(state.actionInputFor(first).contains("RELEASE_USING_ITEM"));
+        BedrockAuthInputFrame second = frame(21L, 20.0D);
+        state.offerAuthInputFrame(second);
+        assertTrue(state.actionInputFor(second).contains("RELEASE_USING_ITEM"));
+        assertFalse(state.actionInputFor(second).contains("START_SPIN_ATTACK"));
+        assertSame(firstActions, state.actionInputFor(first));
+        assertTrue(state.actionInputFor(frame(22L, 20.0D)).isEmpty());
     }
 
     @Test
-    public void riptideChargeStartsOnTheObservedUseTickOnlyOnce() {
+    public void eachObservedUseInitializationHasAReusableChargeStart() {
         BedrockPlayerState state = new BedrockPlayerState(PLAYER_UUID);
-        BedrockAuthInputFrame use = frameBuilder(20L, 20.0D)
-                .usingItem(true)
-                .rawInputFlags(1L << PlayerAuthInputData.START_USING_ITEM.ordinal())
-                .build();
-        state.offerAuthInputFrame(use);
-
-        assertTrue(state.shouldStartRiptideCharge(use, true));
-        assertFalse(state.shouldStartRiptideCharge(use, true));
-
-        BedrockAuthInputFrame restart = frameBuilder(21L, 20.0D)
-                .usingItem(true)
-                .rawInputFlags(1L << PlayerAuthInputData.START_USING_ITEM.ordinal())
-                .build();
-        state.offerAuthInputFrame(restart);
-        assertTrue(state.shouldStartRiptideCharge(restart, true));
-        assertFalse(state.shouldStartRiptideCharge(restart, true));
-
-        state.clearRiptideUseTracking();
-        assertTrue(state.shouldStartRiptideCharge(restart, true));
+        for (long tick = 20L; tick <= 21L; tick++) {
+            BedrockAuthInputFrame use = frameBuilder(tick, 20.0D)
+                    .usingItem(true)
+                    .rawInputFlags(1L << PlayerAuthInputData.START_USING_ITEM.ordinal())
+                    .build();
+            state.offerAuthInputFrame(use);
+            assertTrue(state.actionInputFor(use).contains("RIPTIDE_CHARGE_START"));
+            assertTrue(state.actionInputFor(use).contains("RIPTIDE_CHARGE_START"));
+        }
     }
 
     @Test
@@ -158,7 +153,25 @@ public final class BedrockPlayerStateTest {
         BedrockPlayerState state = new BedrockPlayerState(PLAYER_UUID);
         BedrockAuthInputFrame interaction = frameBuilder(20L, 20.0D).usingItem(true).build();
         state.offerAuthInputFrame(interaction);
-        assertFalse(state.shouldStartRiptideCharge(interaction, true));
+        assertFalse(state.actionInputFor(interaction).contains("RIPTIDE_CHARGE_START"));
+    }
+
+    @Test
+    public void partialAcknowledgedMetadataRetainsCameraPoseAndFrameSnapshot() {
+        BedrockPlayerState state = new BedrockPlayerState(PLAYER_UUID);
+        state.applyAcknowledgedPoseMetadata(null, null, true, true, true);
+        BedrockAuthInputFrame first = frame(1L, 0.0D);
+        state.offerAuthInputFrame(first);
+        var snapshot = state.getClientPoseState(first);
+        state.applyAcknowledgedPoseMetadata(null, null, null, null, null);
+        assertEquals(snapshot, state.getClientPoseState(null));
+        state.applyAcknowledgedPoseMetadata(null, null, false, false, false);
+        assertEquals(snapshot, state.getClientPoseState(first));
+        BedrockAuthInputFrame next = frame(2L, 0.0D);
+        state.offerAuthInputFrame(next);
+        assertFalse(state.getClientPoseState(next).sneaking());
+        assertFalse(state.getClientPoseState(next).spinning());
+        assertFalse(state.getClientPoseState(next).sleeping());
     }
 
     @Test
@@ -179,7 +192,7 @@ public final class BedrockPlayerStateTest {
         BedrockMovementState resized = state.applyConfirmedBoundingBoxSize(
                 movementState(1.8D, false), BedrockInputFrame.idle(2L));
         assertEquals((double) 0.6F, resized.playerDimensions().height(), 0.0D);
-        assertFalse(state.consumeItemReleaseFor(next));
+        assertFalse(state.actionInputFor(next).contains("RELEASE_USING_ITEM"));
     }
 
     @Test

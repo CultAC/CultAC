@@ -34,22 +34,12 @@ public final class BedrockRiptideMovement {
         SpinState spin = nextSpinState(current, intent, releaseStartsSpinAttack);
         Vec3d nextVelocity = startingVelocity;
         if (releaseStartsSpinAttack) {
-            BedrockActorDimensions.Resolved dimensions = BedrockActorDimensions.resolve(
-                current,
-                context.playerDimensionsState(),
-                frame
-            );
-            boolean headInWater = BedrockLiquidSensing.waterHeadInWater(
-                context,
-                current.physicalFeetPosition(),
-                dimensions.dimensions()
-            );
             nextVelocity = nextVelocity.add(BedrockAerialMovement.riptideImpulse(
                 frame,
                 level,
                 current.collisionFlags().onGround(),
                 current.wasInWaterFlag(),
-                headInWater
+                current.cameraWater().headInWater()
             ));
         }
 

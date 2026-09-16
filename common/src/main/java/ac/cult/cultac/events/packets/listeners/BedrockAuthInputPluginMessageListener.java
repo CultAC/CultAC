@@ -33,6 +33,11 @@ public final class BedrockAuthInputPluginMessageListener {
         }
 
         byte[] data = NmsPacketUtil.payloadData(event);
+        var creation = BedrockAuthInputPluginMessage.decodeActorCreated(data);
+        if (creation != null && player.playerUUID.equals(creation.playerUuid())) {
+            player.checkManager.getSimulationProcessor().handleBedrockActorCreation(creation.runtimeEntityId());
+            return;
+        }
         BedrockAuthInputFrame frame = BedrockAuthInputPluginMessage.decode(data);
         if (frame != null && player.playerUUID.equals(frame.getPlayerUuid())) {
             processAuthInputFrame(player, frame);
@@ -68,7 +73,8 @@ public final class BedrockAuthInputPluginMessageListener {
                 BedrockAuthInputPluginMessage.decodeAcknowledgedMetadata(data);
         if (metadata != null && player.playerUUID.equals(metadata.playerUuid())) {
             player.checkManager.getSimulationProcessor().applyAcknowledgedBedrockMetadata(
-                    metadata.width(), metadata.height(), metadata.gliding(), metadata.crawling(), metadata.swimming());
+                    metadata.width(), metadata.height(), metadata.gliding(), metadata.crawling(), metadata.swimming(),
+                    metadata.sneaking(), metadata.spinning(), metadata.sleeping());
             return;
         }
 
@@ -148,13 +154,7 @@ public final class BedrockAuthInputPluginMessageListener {
     }
 
     private void processClientAction(CultPlayer player, BedrockClientAction action) {
-        switch (action) {
-            case ITEM_RELEASE -> player.bedrockState.recordItemReleaseAction();
-            case START_SPIN_ATTACK -> player.bedrockState.recordStartSpinAttackAction();
-            case STOP_SPIN_ATTACK -> player.bedrockState.recordStopSpinAttackAction();
-            case START_GLIDING -> player.bedrockState.recordStartGlidingAction();
-            case STOP_GLIDING -> player.bedrockState.recordStopGlidingAction();
-        }
+        player.bedrockState.recordClientAction(action);
     }
 
 }

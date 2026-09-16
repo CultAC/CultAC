@@ -84,7 +84,7 @@ public final class BedrockRiptideContinuationTest {
             new EquipmentState(0, 0, 0, 1, false, false),
             EntityContactState.NONE,
             new MovementModifierState(
-                true, true, false, 0.05D, false, true, false, false, 0.35D, 0L),
+                true, true, false, false, 0.05D, false, true, false, false, 0.35D, 0L),
             PlayerDimensionsState.DEFAULT);
         BedrockTravelInput input = new BedrockTravelInput(
             state,

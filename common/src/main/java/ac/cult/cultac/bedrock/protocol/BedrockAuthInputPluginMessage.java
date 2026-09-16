@@ -14,15 +14,45 @@ public final class BedrockAuthInputPluginMessage {
     public static final String CHANNEL_NAMESPACE = "cultac";
     public static final String CHANNEL_PATH = "bedrock_auth_input/" + newSecret();
     public static final String CHANNEL = CHANNEL_NAMESPACE + ":" + CHANNEL_PATH;
-    private static final int VERSION = 17;
+    private static final int VERSION = 18;
     private static final int TYPE_AUTH_INPUT = 0;
     private static final int TYPE_CLIENT_ACTION = 1;
     private static final int TYPE_MOVE_FRAME = 2;
     private static final int TYPE_METADATA_ACKNOWLEDGED = 7;
     private static final int TYPE_PROJECTION_SUPPRESSED = 8;
+    private static final int TYPE_ACTOR_CREATED = 9;
     private static final int MAX_STRING_LENGTH = 128;
 
     private BedrockAuthInputPluginMessage() {
+    }
+
+    public static byte[] encodeActorCreated(UUID playerUuid, long runtimeEntityId) {
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(29);
+            DataOutputStream out = new DataOutputStream(bytes);
+            out.writeInt(VERSION);
+            out.writeByte(TYPE_ACTOR_CREATED);
+            out.writeLong(playerUuid.getMostSignificantBits());
+            out.writeLong(playerUuid.getLeastSignificantBits());
+            out.writeLong(runtimeEntityId);
+            return bytes.toByteArray();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to encode Bedrock actor creation", exception);
+        }
+    }
+
+    public static ActorCreatedMessage decodeActorCreated(byte[] data) {
+        try {
+            DataInputStream in = new DataInputStream(new ByteArrayInputStream(data));
+            if (in.readInt() != VERSION || in.readUnsignedByte() != TYPE_ACTOR_CREATED) return null;
+            var message = new ActorCreatedMessage(new UUID(in.readLong(), in.readLong()), in.readLong());
+            return in.available() == 0 ? message : null;
+        } catch (IOException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    public record ActorCreatedMessage(UUID playerUuid, long runtimeEntityId) {
     }
 
     private static String newSecret() {
@@ -104,7 +134,8 @@ public final class BedrockAuthInputPluginMessage {
     public static SuppressedProjection decodeSuppressedProjection(byte[] data) {
         try {
             DataInputStream in = new DataInputStream(new ByteArrayInputStream(data));
-            if (in.readInt() != VERSION || in.readUnsignedByte() != TYPE_PROJECTION_SUPPRESSED) return null;
+            int version = in.readInt();
+            if (version < 17 || version > VERSION || in.readUnsignedByte() != TYPE_PROJECTION_SUPPRESSED) return null;
             SuppressedProjection value = new SuppressedProjection(new UUID(in.readLong(), in.readLong()), in.readLong());
             return in.available() == 0 ? value : null;
         } catch (IOException | RuntimeException exception) { return null; }
@@ -159,6 +190,12 @@ public final class BedrockAuthInputPluginMessage {
             Boolean crawling,
             Boolean swimming
     ) {
+        return encodeAcknowledgedMetadata(playerUuid, width, height, gliding, crawling, swimming, null, null, null);
+    }
+
+    public static byte[] encodeAcknowledgedMetadata(UUID playerUuid, Float width, Float height,
+            Boolean gliding, Boolean crawling, Boolean swimming,
+            Boolean sneaking, Boolean spinning, Boolean sleeping) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(40);
             DataOutputStream out = new DataOutputStream(bytes);
@@ -171,6 +208,9 @@ public final class BedrockAuthInputPluginMessage {
             writeNullableBoolean(out, gliding);
             writeNullableBoolean(out, crawling);
             writeNullableBoolean(out, swimming);
+            writeNullableBoolean(out, sneaking);
+            writeNullableBoolean(out, spinning);
+            writeNullableBoolean(out, sleeping);
             out.flush();
             return bytes.toByteArray();
         } catch (IOException exception) {
@@ -327,7 +367,10 @@ public final class BedrockAuthInputPluginMessage {
                     readNullableFloat(in),
                     readNullableBoolean(in),
                     readNullableBoolean(in),
-                    readNullableBoolean(in));
+                    readNullableBoolean(in),
+                    version >= 18 ? readNullableBoolean(in) : null,
+                    version >= 18 ? readNullableBoolean(in) : null,
+                    version >= 18 ? readNullableBoolean(in) : null);
             if (in.available() != 0
                     || message.width() != null && (!Float.isFinite(message.width()) || message.width() <= 0.0F)
                     || message.height() != null && (!Float.isFinite(message.height()) || message.height() <= 0.0F)) {
@@ -348,7 +391,10 @@ public final class BedrockAuthInputPluginMessage {
             Float height,
             Boolean gliding,
             Boolean crawling,
-            Boolean swimming
+            Boolean swimming,
+            Boolean sneaking,
+            Boolean spinning,
+            Boolean sleeping
     ) {
     }
 

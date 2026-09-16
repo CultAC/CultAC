@@ -114,6 +114,11 @@ public interface MovementEngine {
         return carry;
     }
 
+    default PredictionCarry applyAcknowledgedPoseToCarry(PredictionCarry carry,
+            Boolean crawling, Boolean swimming, Boolean spinning) {
+        return carry;
+    }
+
     /** Applies an immobile tick without accepting the packet position. */
     default PredictionCommit applyImmobileStateToCarry(
             CultPlayer player,

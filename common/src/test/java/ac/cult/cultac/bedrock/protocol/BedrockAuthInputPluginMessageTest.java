@@ -1,6 +1,8 @@
 package ac.cult.cultac.bedrock.protocol;
 
 import java.util.UUID;
+import java.util.Arrays;
+import java.nio.ByteBuffer;
 import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
@@ -80,6 +82,38 @@ public final class BedrockAuthInputPluginMessageTest {
         assertEquals(Boolean.FALSE, standing.gliding());
         assertEquals(Boolean.FALSE, standing.crawling());
         assertEquals(Boolean.FALSE, standing.swimming());
+    }
+
+    @Test
+    public void cameraPoseMetadataPreservesUnknownFieldsInOlderCaptures() {
+        byte[] encoded = BedrockAuthInputPluginMessage.encodeAcknowledgedMetadata(
+                PLAYER_UUID, null, null, null, null, null, true, false, true);
+        var current = BedrockAuthInputPluginMessage.decodeAcknowledgedMetadata(encoded);
+        assertNotNull(current);
+        assertEquals(Boolean.TRUE, current.sneaking());
+        assertEquals(Boolean.FALSE, current.spinning());
+        assertEquals(Boolean.TRUE, current.sleeping());
+        assertEquals(null, current.crawling());
+        for (int version : new int[] {16, 17}) {
+            byte[] older = Arrays.copyOf(encoded, encoded.length - 3);
+            ByteBuffer.wrap(older).putInt(version);
+            var decoded = BedrockAuthInputPluginMessage.decodeAcknowledgedMetadata(older);
+            assertNotNull(decoded);
+            assertEquals(null, decoded.sneaking());
+            assertEquals(null, decoded.spinning());
+            assertEquals(null, decoded.sleeping());
+        }
+    }
+
+    @Test
+    public void actorCreationIsAnExplicitBoundary() {
+        var decoded = BedrockAuthInputPluginMessage.decodeActorCreated(
+            BedrockAuthInputPluginMessage.encodeActorCreated(PLAYER_UUID, 91L));
+        assertNotNull(decoded);
+        assertEquals(PLAYER_UUID, decoded.playerUuid());
+        assertEquals(91L, decoded.runtimeEntityId());
+        assertEquals(null, BedrockAuthInputPluginMessage.decodeActorCreated(
+            BedrockAuthInputPluginMessage.encodeAcknowledgedMetadata(PLAYER_UUID, null, null, null, null, null)));
     }
 
 }

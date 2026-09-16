@@ -4,6 +4,7 @@ public record MovementModifierState(
     boolean elytraGlideAvailable,
     boolean movementAbilityMayFly,
     boolean movementAbilityFlying,
+    boolean movementAbilityInstabuild,
     double movementAbilityFlySpeed,
     boolean navigationCanWalkInLava,
     boolean riptideAvailable,
@@ -16,6 +17,7 @@ public record MovementModifierState(
     private static final double DEFAULT_MOVEMENT_ABILITY_FLY_SPEED = 0.05D;
     public static final MovementModifierState NONE =
         new MovementModifierState(
+            false,
             false,
             false,
             false,

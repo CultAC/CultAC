@@ -6,19 +6,9 @@ import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 
 public final class BedrockActorDimensions {
-    private static final double DEFAULT_CAMERA_OFFSET = 1.6200100183486938D;
-    private static final double LOW_POSE_CAMERA_OFFSET = 0.4000000059604645D;
-    private static final double LOW_POSE_HEIGHT = 0.6D;
     private static final double BEDROCK_LOW_POSE_HEIGHT = 0.6F;
 
     private BedrockActorDimensions() {
-    }
-
-    public static double cameraOffset(PlayerDimensionsState dimensions) {
-        if (dimensions.height() <= LOW_POSE_HEIGHT + 1.0E-6D) {
-            return LOW_POSE_CAMERA_OFFSET;
-        }
-        return Math.min(DEFAULT_CAMERA_OFFSET, Math.max(LOW_POSE_CAMERA_OFFSET, dimensions.height() - 0.18D));
     }
 
     public static PlayerDimensionsState committedMovementDimensions(
@@ -38,14 +28,16 @@ public final class BedrockActorDimensions {
             return spinAttackDimensions(previousState.playerDimensions());
         }
         BedrockBoundingBoxMode mode = BedrockBoundingBoxMode.resolve(previousState, currentFrame);
+        // Geyser supplies collision dimensions separately from pose flags.
+        // Preserve the acknowledged size until new dimensions arrive.
+        if (previousState.explicitPlayerDimensions()) {
+            return new Resolved(mode, previousState.playerDimensions());
+        }
         if (mode == BedrockBoundingBoxMode.HORIZONTAL) {
             return horizontalPoseDimensions(currentDimensions);
         }
         if (previousState.boundingBoxMode() == BedrockBoundingBoxMode.HORIZONTAL) {
             return new Resolved(mode, currentDimensions);
-        }
-        if (previousState.explicitPlayerDimensions()) {
-            return new Resolved(mode, previousState.playerDimensions());
         }
         return new Resolved(mode, currentDimensions);
     }

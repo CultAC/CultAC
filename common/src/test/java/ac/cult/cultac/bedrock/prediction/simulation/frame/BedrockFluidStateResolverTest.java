@@ -154,10 +154,27 @@ public class BedrockFluidStateResolverTest {
         BedrockMovementContext context = contextWithWorld(new BlockCollisionWorld(List.of(
                 waterBlock(new BlockPosition(297, 83, -100), "minecraft:flowing_water", 3))));
 
-        assertFalse(BedrockLiquidSensing.waterHeadInWater(
-                context,
+        assertFalse(BedrockUnderwaterSensing.update(
+                ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState.INITIAL, context,
                 new Vec3d(297.8619079589844D, 83.50765991210938D, -99.51327514648438D),
-                new PlayerDimensionsState(0.6D, 0.6D)));
+                new PlayerDimensionsState(0.6D, 0.6D)).headInWater());
+    }
+
+    @Test
+    public void cameraHistoryIsIndependentOfExplicitCollisionHeight() {
+        BedrockMovementContext context = contextWithWorld(new BlockCollisionWorld(List.of(
+                waterBlock(new BlockPosition(0, 64, 0), "minecraft:water", 0))));
+        var feet = new Vec3d(0.5D, 64.0D, 0.5D);
+        var standingCamera = ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState.INITIAL;
+        assertFalse(BedrockUnderwaterSensing.update(standingCamera, context, feet,
+                new PlayerDimensionsState(0.6F, 0.6F)).headInWater());
+        var recoveringCamera = new ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState(
+                0.610005F, 1.22001F, false, false);
+        var sensed = BedrockUnderwaterSensing.update(recoveringCamera, context, feet,
+                new PlayerDimensionsState(0.6F, 1.8F));
+        assertTrue(sensed.headInWater());
+        assertEquals(recoveringCamera.previousOffset(), sensed.previousOffset(), 0.0F);
+        assertEquals(recoveringCamera.currentOffset(), sensed.currentOffset(), 0.0F);
     }
 
     @Test

@@ -34,7 +34,8 @@ final class BedrockMovementInputFactory {
             return null;
         }
         BedrockMovementState profilePreviousState = BedrockProfileState.previousState(context);
-        boolean actorGliding = profilePreviousState != null && profilePreviousState.gliding();
+        boolean actorGliding = profilePreviousState != null ? profilePreviousState.gliding()
+                : player.bedrockState.getClientPoseState(frame).gliding();
         BedrockCollisionOverrideCatalog geometry = geometryCatalog();
         BedrockPlayerContext playerContext = BedrockPlayerContext.from(player, context, frame, actorGliding);
         BedrockWorldSnapshot worldSnapshot = worldSnapshots.create(player, context, geometry, frame, playerContext);
@@ -46,6 +47,10 @@ final class BedrockMovementInputFactory {
                 worldSnapshot.movementContext(),
                 frame,
                 profilePreviousState);
+        if (profilePreviousState == null) {
+            previousState = previousState.withAcknowledgedPose(null, null, playerContext.pose().spinning())
+                .withGliding(actorGliding);
+        }
         if (player.bedrockState != null) {
             previousState = player.bedrockState.applyConfirmedBoundingBoxSize(
                     previousState, tickInput.inputFrame());

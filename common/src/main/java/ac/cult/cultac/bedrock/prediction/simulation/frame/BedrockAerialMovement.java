@@ -23,7 +23,6 @@ public final class BedrockAerialMovement {
     private static final float GLIDE_INPUT_WANT_UP_BOOST = 0.1F;
     private static final long MIN_GLIDE_TICKS_FOR_WANT_UP_BOOST = 10L;
     private static final double RIPTIDE_IMPULSE_PER_LEVEL_PLUS_ONE = 0.75D;
-    private static final float GROUNDED_RIPTIDE_WATER_EXIT_MULTIPLIER = 0.98F / 0.8F;
     private static final float GROUNDED_RIPTIDE_VERTICAL_BOOST = 0.08F;
 
     private BedrockAerialMovement() {
@@ -99,8 +98,9 @@ public final class BedrockAerialMovement {
         BedrockMovementContext context,
         boolean actorGlidingAfterActions
     ) {
+        // The upward glide boost requires Instabuild, independently of MayFly.
         if (!actorGlidingAfterActions
-            || !context.movementAbilityMayFly()
+            || !context.movementAbilityInstabuild()
             || current.fallFlyTicks() <= MIN_GLIDE_TICKS_FOR_WANT_UP_BOOST
             || !intent.vertical().wantUp()) {
             return currentVelocity;
@@ -131,7 +131,7 @@ public final class BedrockAerialMovement {
         float impulseY = directionY * scale;
         if (onGround) {
             impulseY = wasInWater && !headInWater
-                ? impulseY * GROUNDED_RIPTIDE_WATER_EXIT_MULTIPLIER
+                ? (impulseY / 0.8F) * 0.98F
                 : impulseY + GROUNDED_RIPTIDE_VERTICAL_BOOST;
         }
         return new Vec3d(

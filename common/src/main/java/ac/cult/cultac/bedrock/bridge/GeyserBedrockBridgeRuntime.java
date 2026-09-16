@@ -54,6 +54,7 @@ import org.cloudburstmc.protocol.bedrock.packet.PlayerActionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SetEntityMotionPacket;
+import org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
 import org.cloudburstmc.protocol.common.PacketSignal;
 import org.geysermc.geyser.api.GeyserApi;
 import org.geysermc.geyser.api.connection.GeyserConnection;
@@ -319,6 +320,7 @@ public final class GeyserBedrockBridgeRuntime {
         private Vec3 lastAuthInputPosition;
         private Vector3f latestTrustedMotion;
         private float lastWrittenDeltaY;
+        private Long actorCreationRuntimeId;
 
         private PacketTapHandler(GeyserSession connection, BedrockSession bedrockSession, BedrockPacketHandler delegate, GeyserQueue latencyQueue) {
             this.connection = connection;
@@ -447,19 +449,16 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private void recordOutboundMetadata(
-                ChannelHandlerContext context,
-                BedrockPacketWrapper source,
-                Float width,
-                Float height,
-                Boolean gliding,
-                Boolean crawling,
-                Boolean swimming
+                ChannelHandlerContext context, BedrockPacketWrapper source,
+                Float width, Float height, Boolean gliding, Boolean crawling, Boolean swimming,
+                Boolean sneaking, Boolean spinning, Boolean sleeping
         ) {
             if (!isCurrentConnection()) {
                 return;
             }
             if ((width == null && height == null && gliding == null
-                    && crawling == null && swimming == null)
+                    && crawling == null && swimming == null && sneaking == null
+                    && spinning == null && sleeping == null)
                     || (width != null && (!Float.isFinite(width) || width <= 0.0F))
                     || (height != null && (!Float.isFinite(height) || height <= 0.0F))) {
                 return;
@@ -471,7 +470,7 @@ public final class GeyserBedrockBridgeRuntime {
                     // Sending through Geyser's downstream client channel again
                     // could put this state behind an already queued auth input.
                     player.checkManager.getSimulationProcessor().applyAcknowledgedBedrockMetadata(
-                            width, height, gliding, crawling, swimming);
+                            width, height, gliding, crawling, swimming, sneaking, spinning, sleeping);
                 }
             });
         }
@@ -552,13 +551,24 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private void processAuthInput(PlayerAuthInputPacket packet) {
-            if (detached.get() || !installFloatingPoints(connection, true)) {
+            if (detached.get()) {
                 return;
             }
-            if (!isCurrentConnection()) {
+            if (!installFloatingPoints(connection, true) || !isCurrentConnection()) {
+                // A later frame cannot reconstruct the camera ticks omitted
+                // before Java login/the coordinate hook became available.
+                actorCreationRuntimeId = null;
                 return;
             }
             try {
+                if (actorCreationRuntimeId != null) {
+                    // The first auth packet is causal evidence that StartGame
+                    // created the local actor. Publish its initialization before
+                    // that frame, even when Java login finished after StartGame.
+                    connection.sendDownstreamGamePacket(createPayloadPacket(
+                            BedrockAuthInputPluginMessage.encodeActorCreated(connection.javaUuid(), actorCreationRuntimeId)));
+                    actorCreationRuntimeId = null;
+                }
                 submitAuthInput(packet);
             } catch (RuntimeException error) {
                 LogUtil.warn("Unable to record Bedrock movement packet for CultAC: "
@@ -661,6 +671,18 @@ public final class GeyserBedrockBridgeRuntime {
                 submitClientAction(uuid, BedrockClientAction.START_GLIDING);
             } else if (action == PlayerActionType.STOP_GLIDE) {
                 submitClientAction(uuid, BedrockClientAction.STOP_GLIDING);
+            } else if (action == PlayerActionType.START_SNEAK) {
+                submitClientAction(uuid, BedrockClientAction.START_SNEAKING);
+            } else if (action == PlayerActionType.STOP_SNEAK) {
+                submitClientAction(uuid, BedrockClientAction.STOP_SNEAKING);
+            } else if (action == PlayerActionType.START_SWIMMING) {
+                submitClientAction(uuid, BedrockClientAction.START_SWIMMING);
+            } else if (action == PlayerActionType.STOP_SWIMMING) {
+                submitClientAction(uuid, BedrockClientAction.STOP_SWIMMING);
+            } else if (action == PlayerActionType.START_CRAWLING) {
+                submitClientAction(uuid, BedrockClientAction.START_CRAWLING);
+            } else if (action == PlayerActionType.STOP_CRAWLING) {
+                submitClientAction(uuid, BedrockClientAction.STOP_CRAWLING);
             }
         }
 
@@ -783,6 +805,9 @@ public final class GeyserBedrockBridgeRuntime {
             }
 
             BedrockPacket packet = wrapper.getPacket();
+            if (packet instanceof StartGamePacket startGame) {
+                owner.actorCreationRuntimeId = startGame.getRuntimeEntityId();
+            }
             GeyserFloatingPointsAdapter adapter = GFP_ADAPTERS.get(owner.connection);
             BedrockOriginDispatch.Emission emission = adapter == null ? null : adapter.takeEmission(packet);
             if (packet instanceof NetworkStackLatencyPacket latencyPacket && latencyPacket.isFromServer()) {
@@ -845,12 +870,19 @@ public final class GeyserBedrockBridgeRuntime {
             Boolean swimming = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
                     ? null
                     : metadata.getMetadata().getFlag(EntityFlag.SWIMMING);
+            Boolean sneaking = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
+                    ? null : metadata.getMetadata().getFlag(EntityFlag.SNEAKING);
+            Boolean spinning = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
+                    ? null : metadata.getMetadata().getFlag(EntityFlag.DAMAGE_NEARBY_MOBS);
+            Boolean sleeping = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
+                    ? null : metadata.getMetadata().getFlag(EntityFlag.SLEEPING);
 
             context.write(message, promise);
             if (width != null || height != null || gliding != null
-                    || crawling != null || swimming != null) {
+                    || crawling != null || swimming != null || sneaking != null
+                    || spinning != null || sleeping != null) {
                 owner.recordOutboundMetadata(context, (BedrockPacketWrapper) message,
-                        width, height, gliding, crawling, swimming);
+                        width, height, gliding, crawling, swimming, sneaking, spinning, sleeping);
             }
         }
 

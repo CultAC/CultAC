@@ -94,6 +94,7 @@ final class BedrockMovementResultBuilder {
             .withWasInWaterFlag(BedrockFallDistance.wasInWaterAfterMove(plan, collision))
             .withWaterTravelFlag(postMoveEffects.waterTravelActive())
             .withMovementBranch(postMoveEffects.movementBranch())
+            .withCameraWater(BedrockFallDistance.cameraWaterAfterMove(plan, collision))
             .withDolphinBoost(state.dolphinBoost().endTick());
         return new BedrockMovementResult(
             current,

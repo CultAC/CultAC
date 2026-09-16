@@ -10,17 +10,13 @@ record BedrockLiquidJumpContact(
 ) {
     static BedrockLiquidJumpContact from(
         BedrockFrameFacts frameFacts,
-        Vec3d feetPosition
+        Vec3d feetPosition,
+        boolean headInWater
     ) {
 
         boolean waterSwimUpApplies = frameFacts.inWater()
             && frameFacts.context().liquidMovementMedium() != Medium.LAVA;
-        boolean waterHeadInWater = waterSwimUpApplies
-            && BedrockLiquidSensing.waterHeadInWater(
-                frameFacts.context(),
-                feetPosition,
-                frameFacts.movementDimensions()
-            );
+        boolean waterHeadInWater = headInWater;
         boolean lavaSwimUpApplies = lavaTravel(frameFacts)
             && BedrockLiquidSensing.lavaSwimUpApplies(
                 frameFacts.context(),

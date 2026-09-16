@@ -10,6 +10,7 @@ import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
@@ -28,6 +29,26 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
 public final class BedrockImmobileCarryTest {
+    @Test
+    public void sleepAndCoordinateRebasePreserveCameraHistory() {
+        var camera = new BedrockCameraWaterState(0.61F, 1.22F, true, false);
+        var initial = state(new Vec3d(1, 64, 2), Vec3d.ZERO, BedrockCollisionFlags.ON_GROUND).withCameraWater(camera);
+        var rebased = initial.withCoordinateFrame(new BedrockCoordinateFrame(32, -32, 1))
+            .afterServerTeleport(new Vec3d(33, 64, -30), Vec3d.ZERO).afterImmobileBoundary();
+        assertSame(camera, rebased.cameraWater());
+        var frame = new BedrockInputFrame(12L, 0, 0, false, false, false,
+            Set.of("ACTOR_POSE_SNAPSHOT", "ACTOR_SLEEPING"));
+        var carry = new BedrockNextTickStates(List.of(
+            new BedrockProfileState.Entry(rebased, BedrockMobJumpComponentState.DEFAULT)));
+        assertSame(carry, BedrockMovementEngine.INSTANCE.applyImmobileStateToCarry(carry, frame, false, null).carry());
+        var commit = BedrockMovementEngine.INSTANCE.applyImmobileStateToCarry(carry, frame, false,
+            BedrockWorldSnapshot.fromContext(airContext()));
+        var next = ((BedrockNextTickStates) commit.carry()).profileEntries().getFirst().state();
+        var expected = camera.sense(false, false).advanceCamera(false, false, true, 1.62001F, 0, 0.35F);
+        assertEquals(expected, next.cameraWater());
+        assertEquals(rebased.simulationTick() + 1L, next.simulationTick());
+    }
+
     @Test
     public void immobileTransformAdvancesEveryBoundedCandidateAndPreImmobileState() {
         BedrockMovementState first = state(
@@ -124,7 +145,7 @@ public final class BedrockImmobileCarryTest {
                 EquipmentState.NONE,
                 EntityContactState.NONE,
                 new MovementModifierState(
-                        false, false, false, 0.05D, false,
+                        false, false, false, false, 0.05D, false,
                         false, false, false, 0.35D, 0L),
                 PlayerDimensionsState.DEFAULT);
     }

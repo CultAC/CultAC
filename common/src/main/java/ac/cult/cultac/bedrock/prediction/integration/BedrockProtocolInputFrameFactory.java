@@ -51,6 +51,9 @@ final class BedrockProtocolInputFrameFactory {
         add(inputData, poseState.swimming(), BedrockPoseInputData.SWIMMING);
         add(inputData, poseState.crawling(), BedrockPoseInputData.HORIZONTAL_POSE);
         add(inputData, actorGliding, BedrockPoseInputData.GLIDING);
+        inputData.add(BedrockPoseInputData.ACTOR_POSE_SNAPSHOT);
+        add(inputData, poseState.sneaking(), BedrockPoseInputData.ACTOR_SNEAKING);
+        add(inputData, poseState.sleeping(), BedrockPoseInputData.ACTOR_SLEEPING);
         add(inputData, frame.isSwimming(), BedrockPoseInputData.START_SWIMMING);
         add(inputData, frame.isStopSwimming(), BedrockPoseInputData.STOP_SWIMMING);
         add(inputData, frame.isStartCrawling(), BedrockPoseInputData.START_CRAWLING);

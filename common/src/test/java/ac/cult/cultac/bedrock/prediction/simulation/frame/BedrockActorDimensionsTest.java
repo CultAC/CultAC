@@ -58,7 +58,7 @@ public final class BedrockActorDimensionsTest {
     }
 
     @Test
-    public void authenticatedSwimmingPoseRebuildsStaleAcknowledgedStandingHeight() {
+    public void swimmingPosePreservesAcknowledgedHeight() {
         BedrockInputFrame sneaking = new BedrockInputFrame(1L, 0.0F, 0.0F, false, true, false);
         BedrockMovementState geyserSized = state(sneaking, 1.5D, true);
         BedrockInputFrame swimming = new BedrockInputFrame(
@@ -67,26 +67,26 @@ public final class BedrockActorDimensionsTest {
         PlayerDimensionsState dimensions = BedrockActorDimensions.committedMovementDimensions(
                 geyserSized, PlayerDimensionsState.DEFAULT, swimming);
 
-        assertEquals(0.6000000238418579D, dimensions.height(), 0.0D);
+        assertEquals(1.5D, dimensions.height(), 0.0D);
     }
 
     @Test
-    public void sustainedSwimmingCannotCarryStaleAcknowledgedStandingHeight() {
+    public void sustainedSwimmingPreservesAcknowledgedStandingHeight() {
         BedrockInputFrame swimming = new BedrockInputFrame(
                 1L, 0.0F, 0.0F, false, false, false, Set.of(BedrockPoseInputData.SWIMMING));
-        BedrockMovementState staleStandingSize = state(swimming, 1.8D, true);
+        BedrockMovementState standingSize = state(swimming, 1.8D, true);
         BedrockInputFrame nextSwimming = new BedrockInputFrame(
                 2L, 0.0F, 0.0F, false, false, false, Set.of(BedrockPoseInputData.SWIMMING));
 
         BedrockActorDimensions.Resolved resolved = BedrockActorDimensions.resolve(
-                staleStandingSize, PlayerDimensionsState.DEFAULT, nextSwimming);
+                standingSize, PlayerDimensionsState.DEFAULT, nextSwimming);
 
         assertEquals(BedrockBoundingBoxMode.HORIZONTAL, resolved.mode());
-        assertEquals(0.6000000238418579D, resolved.dimensions().height(), 0.0D);
+        assertEquals(1.8D, resolved.dimensions().height(), 0.0D);
     }
 
     @Test
-    public void authenticatedGlidingPoseRebuildsStaleAcknowledgedStandingHeight() {
+    public void glideStartPreservesAcknowledgedStandingHeight() {
         BedrockMovementState standing = state(BedrockInputFrame.idle(1L), 1.8D, true);
         BedrockInputFrame gliding = new BedrockInputFrame(
                 2L, 0.0F, 0.0F, false, false, false, Set.of(BedrockPoseInputData.START_GLIDING_ACTION));
@@ -95,11 +95,11 @@ public final class BedrockActorDimensionsTest {
                 standing, PlayerDimensionsState.DEFAULT, gliding);
 
         assertEquals(BedrockBoundingBoxMode.HORIZONTAL, resolved.mode());
-        assertEquals(0.6000000238418579D, resolved.dimensions().height(), 0.0D);
+        assertEquals(1.8D, resolved.dimensions().height(), 0.0D);
     }
 
     @Test
-    public void leavingHorizontalPoseRebuildsCurrentStandingHeight() {
+    public void leavingHorizontalPoseKeepsSizeUntilMetadataChanges() {
         BedrockInputFrame swimming = new BedrockInputFrame(
                 1L, 0.0F, 0.0F, false, false, false, Set.of(BedrockPoseInputData.SWIMMING));
         BedrockMovementState horizontal = state(swimming, 0.6D, true);
@@ -108,6 +108,12 @@ public final class BedrockActorDimensionsTest {
                 horizontal, PlayerDimensionsState.DEFAULT, BedrockInputFrame.idle(2L));
 
         assertEquals(BedrockBoundingBoxMode.DEFAULT, resolved.mode());
+        assertEquals(0.6D, resolved.dimensions().height(), 0.0D);
+
+        BedrockMovementState acknowledgedStanding = horizontal.withPlayerDimensions(
+                BedrockBoundingBoxMode.DEFAULT, PlayerDimensionsState.DEFAULT, true);
+        resolved = BedrockActorDimensions.resolve(
+                acknowledgedStanding, PlayerDimensionsState.DEFAULT, BedrockInputFrame.idle(3L));
         assertEquals(1.8D, resolved.dimensions().height(), 0.0D);
     }
 

@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.prediction.integration;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
+import org.bukkit.GameMode;
 
 final class BedrockMovementModifierFactory {
     private BedrockMovementModifierFactory() {
@@ -18,6 +19,7 @@ final class BedrockMovementModifierFactory {
                 playerContext.wearingElytra(),
                 mayFly,
                 player != null && mayFly && player.isFlying,
+                player != null && player.gamemode == GameMode.CREATIVE,
                 trustedFlySpeed(player),
                 false,
                 playerContext.riptideLevel() > 0
