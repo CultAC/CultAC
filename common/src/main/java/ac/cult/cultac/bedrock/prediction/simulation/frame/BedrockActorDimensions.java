@@ -24,10 +24,22 @@ public final class BedrockActorDimensions {
         PlayerDimensionsState currentDimensions,
         BedrockInputFrame currentFrame
     ) {
-        if (previousState.riptideSpinActive()) {
-            return spinAttackDimensions(previousState.playerDimensions());
+        return resolve(previousState, currentDimensions, currentFrame, previousState.riptideSpinActive(), false);
+    }
+
+    static Resolved resolve(
+        BedrockMovementState previousState,
+        PlayerDimensionsState currentDimensions,
+        BedrockInputFrame currentFrame,
+        boolean spinActive,
+        boolean spinAttackStarted
+    ) {
+        // A local launch requests a resize; synchronized spin metadata alone does not.
+        if (spinAttackStarted) {
+            return horizontalPoseDimensions(currentDimensions);
         }
-        BedrockBoundingBoxMode mode = BedrockBoundingBoxMode.resolve(previousState, currentFrame);
+        BedrockBoundingBoxMode mode = spinActive ? BedrockBoundingBoxMode.HORIZONTAL
+            : BedrockBoundingBoxMode.resolve(previousState, currentFrame);
         // Geyser supplies collision dimensions separately from pose flags.
         // Preserve the acknowledged size until new dimensions arrive.
         if (previousState.explicitPlayerDimensions()) {
@@ -36,32 +48,7 @@ public final class BedrockActorDimensions {
         if (mode == BedrockBoundingBoxMode.HORIZONTAL) {
             return horizontalPoseDimensions(currentDimensions);
         }
-        if (previousState.boundingBoxMode() == BedrockBoundingBoxMode.HORIZONTAL) {
-            return new Resolved(mode, currentDimensions);
-        }
         return new Resolved(mode, currentDimensions);
-    }
-
-    static Resolved resolve(
-        BedrockMovementState previousState,
-        PlayerDimensionsState currentDimensions,
-        BedrockInputFrame currentFrame,
-        boolean spinActive
-    ) {
-        if (spinActive) {
-            return spinAttackDimensions(currentDimensions);
-        }
-        if (!previousState.riptideSpinActive()) {
-            return resolve(previousState, currentDimensions, currentFrame);
-        }
-        return new Resolved(
-            BedrockBoundingBoxMode.resolve(previousState, currentFrame),
-            currentDimensions
-        );
-    }
-
-    private static Resolved spinAttackDimensions(PlayerDimensionsState dimensions) {
-        return horizontalPoseDimensions(dimensions);
     }
 
     private static Resolved horizontalPoseDimensions(PlayerDimensionsState dimensions) {

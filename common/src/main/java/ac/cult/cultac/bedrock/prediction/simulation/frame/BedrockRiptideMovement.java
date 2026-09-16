@@ -49,7 +49,8 @@ public final class BedrockRiptideMovement {
                 spin.active(),
                 spin.ticks()
             ),
-            nextVelocity
+            nextVelocity,
+            releaseStartsSpinAttack
         );
     }
 
@@ -95,7 +96,7 @@ public final class BedrockRiptideMovement {
         return new SpinState(true, current.riptideSpinTicks() + 1L);
     }
 
-    record ActorNormalTick(Step step, Vec3d velocity) {
+    record ActorNormalTick(Step step, Vec3d velocity, boolean spinAttackStarted) {
     }
 
     public record Step(

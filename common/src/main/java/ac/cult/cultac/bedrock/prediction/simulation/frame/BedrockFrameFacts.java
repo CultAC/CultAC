@@ -40,7 +40,7 @@ public record BedrockFrameFacts(
         standingSurfaceState = Objects.requireNonNull(standingSurfaceState, "standingSurfaceState");
     }
 
-    public static BedrockFrameFacts from(BedrockTravelInput input, boolean spinActive) {
+    public static BedrockFrameFacts from(BedrockTravelInput input, boolean spinActive, boolean spinAttackStarted) {
         BedrockMovementState current = input.previousState();
         BedrockInputFrame frame = input.inputFrame();
         BedrockMovementContext context = input.worldSnapshot().movementContext();
@@ -48,15 +48,8 @@ public record BedrockFrameFacts(
         boolean inPowderSnow = powderSnowContact.actorIntersection();
         boolean powderSnowSurfaceSink = powderSnowContact.feetSurface();
         boolean travelOnGround = current.movementGrounded();
-        BedrockActorDimensions.Resolved resolvedDimensions = BedrockActorDimensions.resolve(
-            current,
-            context.playerDimensionsState(),
-            frame,
-            spinActive
-        );
-        PlayerDimensionsState movementDimensions = resolvedDimensions.dimensions();
-        // Water sensing precedes input pose changes; spin actions have already applied.
-        PlayerDimensionsState sensingDimensions = spinActive ? movementDimensions : current.playerDimensions();
+        // Liquid sensing precedes this tick's pose-driven resize, including Riptide.
+        PlayerDimensionsState sensingDimensions = current.playerDimensions();
         boolean inWaterFlag = BedrockLiquidSensing.inWaterFlag(
             context,
             current.physicalFeetPosition(),
@@ -67,6 +60,14 @@ public record BedrockFrameFacts(
             current.physicalFeetPosition(),
             sensingDimensions
         );
+        BedrockActorDimensions.Resolved resolvedDimensions = BedrockActorDimensions.resolve(
+            current,
+            context.playerDimensionsState(),
+            frame,
+            spinActive,
+            spinAttackStarted
+        );
+        PlayerDimensionsState movementDimensions = resolvedDimensions.dimensions();
         return new BedrockFrameFacts(
             context,
             resolvedDimensions.mode(),

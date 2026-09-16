@@ -27,10 +27,10 @@ public final class BedrockFrameSystems {
         BedrockRiptideMovement.Step riptide = spinAttack.step();
         velocity = spinAttack.velocity();
 
-        // Spin actions take effect before water sensing.
-        BedrockFrameFacts facts = BedrockFrameFacts.from(input, riptide.spinActive());
+        // Launch velocity uses carried water state; sensing precedes the requested resize.
+        BedrockFrameFacts facts = BedrockFrameFacts.from(input, riptide.spinActive(), spinAttack.spinAttackStarted());
         var cameraWater = BedrockUnderwaterSensing.update(input.previousState().cameraWater(),
-            facts.context(), input.previousState().physicalFeetPosition(), facts.movementDimensions());
+            facts.context(), input.previousState().physicalFeetPosition(), input.previousState().playerDimensions());
         BedrockLiquidJumpContact liquidContact = BedrockLiquidJumpContact.from(
             facts, input.previousState().physicalFeetPosition(), cameraWater.headInWater());
 
