@@ -4,32 +4,10 @@ on:
   push:
     branches:
       - "main"
-      - "3.0"
   workflow_dispatch:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-      - labeled
-    branches:
-      - "main"
-      - "3.0"
-  pull_request_target:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-      - labeled
-    branches:
-      - "main"
-      - "3.0"
 
 permissions:
   contents: read
-  pull-requests: read
 
 env:
   MCP_REBORN_CLIENT_VERSION: "26.2"
@@ -46,86 +24,22 @@ env:
 
 jobs:
   smoketest:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     steps:
-      - name: Authorize smoketest run
+      - name: Mark protected-branch run
         id: decision
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_ACTION: ${{ github.event.action }}
-          # Manual approval is per label event. Re-review and re-add this label
-          # after untrusted PR authors push new commits.
-          APPROVAL_LABEL: smoketest-approved
-          LABEL_NAME: ${{ github.event.label.name }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_DRAFT: ${{ github.event.pull_request.draft }}
-          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          REPOSITORY: ${{ github.repository }}
-          WORKFLOW_ACTOR: ${{ github.actor }}
         run: |
-          set -euo pipefail
-
-          allowed=false
-          trusted_source=false
-          reason=requires-approval
-
-          has_write_permission() {
-            local user="$1"
-            local permission
-            permission="$(gh api "repos/$REPOSITORY/collaborators/$user/permission" --jq '.permission' 2>/dev/null || echo none)"
-            case "$permission" in
-              admin|maintain|write)
-                return 0
-                ;;
-              *)
-                return 1
-                ;;
-            esac
-          }
-
-          if [ "$EVENT_NAME" != "pull_request_target" ]; then
-            if [ "$EVENT_NAME" != "pull_request" ]; then
-              allowed=true
-              trusted_source=true
-              reason=trusted-event
-            elif [ "$PR_DRAFT" = "true" ]; then
-              reason=draft-pr
-            elif [ "$PR_HEAD_REPOSITORY" = "$REPOSITORY" ] && has_write_permission "$PR_AUTHOR"; then
-              allowed=true
-              trusted_source=true
-              reason=trusted-same-repo-pr
-            else
-              reason=requires-pull-request-target-approval
-            fi
-          elif [ "$PR_DRAFT" = "true" ]; then
-            reason=draft-pr
-          elif has_write_permission "$PR_AUTHOR"; then
-            allowed=true
-            trusted_source=true
-            reason=trusted-pr-author
-          elif [ "$EVENT_ACTION" = "labeled" ] && [ "$LABEL_NAME" = "$APPROVAL_LABEL" ]; then
-            if has_write_permission "$WORKFLOW_ACTOR"; then
-              allowed=true
-              reason=manual-approval-label
-            else
-              reason=approval-label-requires-maintainer
-            fi
-          fi
-
-          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
-          echo "trusted_source=$trusted_source" >> "$GITHUB_OUTPUT"
-          echo "reason=$reason" >> "$GITHUB_OUTPUT"
-          echo "Smoketest authorization: $allowed ($reason)"
+          echo "allowed=true" >> "$GITHUB_OUTPUT"
+          echo "trusted_source=true" >> "$GITHUB_OUTPUT"
 
       - name: Check out CultAC
         if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true'
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           path: cultac
           persist-credentials: false
           fetch-depth: 1
@@ -214,22 +128,8 @@ jobs:
 
       - name: Cache MCP-Reborn client toolchain
         id: cache-mcp-reborn-client
-        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true' && github.event_name != 'pull_request_target'
+        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true'
         uses: actions/cache@v4
-        with:
-          path: |
-            mcp-client-smoketest/.real-validation/toolchains/MCP-Reborn
-            mcp-client-smoketest/.real-validation/lwjgl-natives/linux-x64
-            ~/.gradle/caches/forge_gradle/maven_downloader
-          key: mcp-reborn-client-${{ env.MCP_REBORN_CACHE_VERSION }}-${{ env.MCP_REBORN_CLIENT_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mcp-client-smoketest/settings.gradle.kts', 'mcp-client-smoketest/build.gradle.kts', 'mcp-client-smoketest/gradle.properties', 'mcp-client-smoketest/gradle/libs.versions.toml') }}
-          restore-keys: |
-            mcp-reborn-client-${{ env.MCP_REBORN_CACHE_VERSION }}-${{ env.MCP_REBORN_CLIENT_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
-            mcp-reborn-client-${{ env.MCP_REBORN_RESTORE_CACHE_VERSION }}-${{ env.MCP_REBORN_CLIENT_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Restore MCP-Reborn client toolchain
-        id: restore-mcp-reborn-client
-        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true' && github.event_name == 'pull_request_target'
-        uses: actions/cache/restore@v4
         with:
           path: |
             mcp-client-smoketest/.real-validation/toolchains/MCP-Reborn
@@ -299,20 +199,8 @@ jobs:
 
       - name: Cache smoketest server runtime
         id: cache-smoketest-runtime
-        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true' && github.event_name != 'pull_request_target'
+        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true'
         uses: actions/cache@v4
-        with:
-          path: |
-            mcp-client-smoketest/.real-validation/paper
-            mcp-client-smoketest/.real-validation/plugins/Geyser-Spigot.jar
-          key: smoketest-runtime-${{ env.SMOKETEST_RUNTIME_CACHE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mcp-client-smoketest/build.gradle.kts') }}
-          restore-keys: |
-            smoketest-runtime-${{ env.SMOKETEST_RUNTIME_CACHE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Restore smoketest server runtime
-        id: restore-smoketest-runtime
-        if: steps.decision.outputs.allowed == 'true' && env.ACT != 'true' && github.event_name == 'pull_request_target'
-        uses: actions/cache/restore@v4
         with:
           path: |
             mcp-client-smoketest/.real-validation/paper

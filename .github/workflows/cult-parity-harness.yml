@@ -32,6 +32,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Run parity harness contract tests
         run: ./gradlew :parity:test --no-daemon --console=plain

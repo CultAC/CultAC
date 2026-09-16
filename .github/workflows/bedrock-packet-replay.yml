@@ -4,11 +4,6 @@ on:
   push:
     branches:
       - "main"
-      - "3.0"
-  pull_request:
-    branches:
-      - "main"
-      - "3.0"
   workflow_dispatch:
     inputs:
       scenario:
@@ -25,6 +20,7 @@ env:
 
 jobs:
   small-scenarios:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
