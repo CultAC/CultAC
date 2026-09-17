@@ -35,5 +35,5 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
-      - name: Run parity harness contract tests
-        run: ./gradlew :parity:test --no-daemon --console=plain
+      - name: Build CultAC and run parity harness contract tests
+        run: ./gradlew :bukkit:shadowJar :common:compileTestJava :parity:test --no-daemon --console=plain

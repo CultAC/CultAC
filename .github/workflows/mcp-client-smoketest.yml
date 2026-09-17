@@ -269,7 +269,7 @@ jobs:
           ./gradlew setupSmoketestServer writeSmoketestWorkspaceManifest \
             --no-daemon --console=plain --stacktrace \
             --max-workers="$SMOKETEST_MAX_WORKERS" \
-            -Psmoketest.cult.devJar="$CULT_JAR" \
+            -Psmoketest.grim.devJar="$CULT_JAR" \
             -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac"
 
       - name: Compile smoketest harness
@@ -283,7 +283,7 @@ jobs:
           ./gradlew classes packetControlPluginJar \
             --no-daemon --console=plain --stacktrace \
             --max-workers="$SMOKETEST_MAX_WORKERS" \
-            -Psmoketest.cult.devJar="$CULT_JAR" \
+            -Psmoketest.grim.devJar="$CULT_JAR" \
             -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac"
 
       - name: Run smoketest sections
@@ -331,7 +331,7 @@ jobs:
           java_common=(
             "-Xmx${SMOKETEST_JVM_HEAP}"
             "-Dsmoketest.workspace.manifest=$PWD/.real-validation/smoketest-workspace.properties"
-            "-Dsmoketest.cult.devJar=$CULT_JAR"
+            "-Dsmoketest.grim.devJar=$CULT_JAR"
             "-Dsmoketest.cultac.repoRoot=$GITHUB_WORKSPACE/cultac"
             "-Dsmoketest.packetControlPluginJar=$PWD/build/libs/smoketest-packet-control-plugin.jar"
             "-Dorg.lwjgl.librarypath=$PWD/.real-validation/lwjgl-natives/linux-x64"
@@ -393,11 +393,11 @@ jobs:
             ./gradlew test verifyVanillaMovementSources verifyVanillaHarnessSources verifyNoHardcodedSmoketestAbsolutePaths \
             --no-daemon --console=plain --stacktrace \
             --max-workers="$SMOKETEST_MAX_WORKERS" \
-            -Psmoketest.cult.devJar="$CULT_JAR" \
+            -Psmoketest.grim.devJar="$CULT_JAR" \
             -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac" || section_status=1
 
           scenario_catalog_classpath="build/classes/java/main:build/resources/main"
-          scenario_count="$(java -cp "$scenario_catalog_classpath" ac.cult.movementvalidation.ScenarioCatalogListMain --suite ci-full --count)"
+          scenario_count="$(java -cp "$scenario_catalog_classpath" ac.grim.movementvalidation.ScenarioCatalogListMain --suite ci-full --count)"
           case "$scenario_count" in
             ''|*[!0-9]*) echo "could not read ci-full scenario count: $scenario_count" >&2; exit 1 ;;
           esac
@@ -414,9 +414,9 @@ jobs:
                 REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
               xvfb-run -a -s "-screen 0 1280x720x24" \
               java "${java_common[@]}" \
-                ac.cult.movementvalidation.RealServerValidationMain \
+                ac.grim.movementvalidation.RealServerValidationMain \
                 "$RUN_ROOT/$key" "$base_port" \
-                --target cult-dev \
+                --target grim-dev \
                 --suite "$suite_selector"
           }
 
@@ -431,9 +431,9 @@ jobs:
                 REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
               xvfb-run -a -s "-screen 0 1280x720x24" \
               java "${java_common[@]}" \
-                ac.cult.movementvalidation.RealServerValidationMain \
+                ac.grim.movementvalidation.RealServerValidationMain \
                 "$RUN_ROOT/$key" "$base_port" \
-                --target cult-dev \
+                --target grim-dev \
                 --scenario "$scenario_selector"
           }
 
@@ -469,7 +469,7 @@ jobs:
             xvfb-run -a -s "-screen 0 1280x720x24" \
             java "${java_common[@]}" \
               -Dcult.dedupVerification.port=25580 \
-              ac.cult.movementvalidation.DeduplicationVerificationMain
+              ac.grim.movementvalidation.DeduplicationVerificationMain
 
           run_background "combat-reach" "Combat reach smoketest" 8 \
             env REAL_VALIDATION_SERVER_JVM_XMS="$SMOKETEST_SERVER_JVM_XMS" \
@@ -479,9 +479,9 @@ jobs:
               -Dcult.validation.reach.minSamples=24 \
               -Dcult.validation.reach.bundled.maxReachExcess=0.005 \
               -Dcult.validation.reach.unbundled.meanTrackingError=0.25 \
-              ac.cult.movementvalidation.RealServerCombatReachValidationMain \
+              ac.grim.movementvalidation.RealServerCombatReachValidationMain \
               "$RUN_ROOT/combat-reach" 25620 \
-              --target cult-dev \
+              --target grim-dev \
               --bot-count 8 \
               --segments 1 \
               --ticks-per-segment 1000 \

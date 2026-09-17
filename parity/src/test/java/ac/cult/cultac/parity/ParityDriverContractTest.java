@@ -92,16 +92,22 @@ class ParityDriverContractTest {
     }
 
     @Test
-    void twoZeroWorkflowsAndDedicatedHarnessTestsCoverTheParityBranch() throws Exception {
+    void workflowsAndDedicatedHarnessTestsCoverMainBranch() throws Exception {
         String bedrock = Files.readString(repositoryPath(".github/workflows/bedrock-packet-replay.yml"));
         String mcp = Files.readString(repositoryPath(".github/workflows/mcp-client-smoketest.yml"));
         String harness = Files.readString(repositoryPath(".github/workflows/cult-parity-harness.yml"));
 
-        assertTrue(bedrock.contains("- \"2.0\""));
-        assertTrue(mcp.contains("- \"2.0\""));
-        assertTrue(harness.contains("- \"2.0\""));
-        assertTrue(harness.contains("./gradlew :parity:test"));
+        assertTrue(bedrock.contains("- \"main\""));
+        assertTrue(mcp.contains("- \"main\""));
+        assertTrue(harness.contains("- \"main\""));
+        assertTrue(harness.contains("./gradlew :bukkit:shadowJar :common:compileTestJava :parity:test"));
         assertTrue(harness.contains("fetch-depth: 0"));
+        assertTrue(mcp.contains("-Psmoketest.grim.devJar="));
+        assertTrue(mcp.contains("ac.grim.movementvalidation.RealServerValidationMain"));
+        assertTrue(mcp.contains("--target grim-dev"));
+        assertFalse(mcp.contains("smoketest.cult.devJar"));
+        assertFalse(mcp.contains("ac.cult.movementvalidation"));
+        assertFalse(mcp.contains("--target cult-dev"));
     }
 
     private static Path repositoryPath(String relative) {
