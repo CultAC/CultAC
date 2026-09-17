@@ -55,6 +55,7 @@ public final class NmsBlockPlaceResolver {
     // Shields were hard-coded by AxeItem through 1.21.3. Newer clients moved the same
     // decision to the blocks_attacks component, which is absent from the old runtime ABI.
     private static final DataComponentType<?> BLOCKS_ATTACKS_COMPONENT = findDataComponent("BLOCKS_ATTACKS");
+    private static final DataComponentType<?> BLOCK_TRANSFORMER_COMPONENT = findDataComponent("BLOCK_TRANSFORMER");
     private static final net.minecraft.tags.TagKey<Block> CONVERTIBLE_TO_MUD = convertibleToMudTag();
     private static final Holder<Potion> WATER_POTION = waterPotion();
 
@@ -209,7 +210,7 @@ public final class NmsBlockPlaceResolver {
         PlacementSnapshot snapshot = PlacementSnapshot.capture(player, place);
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(
                 ac.cult.cultac.network.protocol.ClientVersion.V_26_3)
-                && findDataComponent("BLOCK_TRANSFORMER") != null
+                && BLOCK_TRANSFORMER_COMPONENT != null
                 && BlockTransformations.usesTransformer(snapshot.getItemStack().getItem(),
                         player.compensatedWorld.getBlockState(snapshot.getClickedBlockPos()))) {
             return BlockTransformations.apply(player, place, snapshot);
@@ -1029,11 +1030,12 @@ public final class NmsBlockPlaceResolver {
         }
 
         static boolean apply(CultPlayer player, BlockPlace place, PlacementSnapshot snapshot) {
-            var component = player.registryState == null ? snapshot.getItemStack().get(DataComponents.BLOCK_TRANSFORMER)
+            var component = player.registryState == null ? blockTransformer(snapshot.getItemStack())
                     : player.registryState.transformer(snapshot.getItemStack());
             if (component == null || snapshot.isOutsideBuildHeight(snapshot.getClickedBlockPos())) return false;
             if (snapshot.getHand() == InteractionHand.MAIN_HAND && !snapshot.isSecondaryUse()
-                    && snapshot.getOffHandItemStack().has(DataComponents.BLOCKS_ATTACKS)) return false;
+                    && BLOCKS_ATTACKS_COMPONENT != null
+                    && snapshot.getOffHandItemStack().has(BLOCKS_ATTACKS_COMPONENT)) return false;
             var world = PlacementWorldFactory.create(PlacementBlockAccess.fromCompensatedWorld(player.compensatedWorld), snapshot);
             var position = snapshot.getClickedBlockPos();
             for (var transform : component.value().transforms()) {
@@ -1056,6 +1058,13 @@ public final class NmsBlockPlaceResolver {
                 return true;
             }
             return false;
+        }
+
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        private static Holder<net.minecraft.core.component.BlockTransformer> blockTransformer(ItemStack stack) {
+            if (BLOCK_TRANSFORMER_COMPONENT == null) return null;
+            return (Holder<net.minecraft.core.component.BlockTransformer>)
+                    stack.get((DataComponentType) BLOCK_TRANSFORMER_COMPONENT);
         }
 
     }

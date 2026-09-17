@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
+import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.component.UseEffects;
@@ -9,7 +10,7 @@ import org.bukkit.inventory.ItemStack;
 
 public class IsUsingItem {
     /** Servers older than 1.21.11 have no UseEffects item component. */
-    private static final boolean USE_EFFECTS_AVAILABLE = hasUseEffects();
+    private static final DataComponentType<UseEffects> USE_EFFECTS_COMPONENT = useEffectsComponent();
 
     public static boolean isUsingItem(CultPlayer player) {
         if (player.bukkitPlayer == null) return false;
@@ -23,7 +24,7 @@ public class IsUsingItem {
         if (activeItem == null || activeItem.getType().isAir()) {
             return false;
         }
-        if (USE_EFFECTS_AVAILABLE) {
+        if (USE_EFFECTS_COMPONENT != null) {
             return !getUseEffects(activeItem).canSprint();
         }
         // Before the UseEffects component existed, the client slowed while using
@@ -39,7 +40,7 @@ public class IsUsingItem {
         if (activeItem == null || activeItem.getType().isAir()) {
             return 1.0F;
         }
-        if (USE_EFFECTS_AVAILABLE) {
+        if (USE_EFFECTS_COMPONENT != null) {
             return getUseEffects(activeItem).speedMultiplier();
         }
         ItemUseAnimation animation = SpigotConversionUtil.toNmsItemStack(activeItem).getUseAnimation();
@@ -59,15 +60,15 @@ public class IsUsingItem {
     }
 
     private static UseEffects getUseEffects(ItemStack item) {
-        return SpigotConversionUtil.toNmsItemStack(item).getOrDefault(DataComponents.USE_EFFECTS, UseEffects.DEFAULT);
+        return SpigotConversionUtil.toNmsItemStack(item).getOrDefault(USE_EFFECTS_COMPONENT, UseEffects.DEFAULT);
     }
 
-    private static boolean hasUseEffects() {
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static DataComponentType<UseEffects> useEffectsComponent() {
         try {
-            DataComponents.class.getField("USE_EFFECTS");
-            return true;
-        } catch (NoSuchFieldException ignored) {
-            return false;
+            return (DataComponentType) DataComponents.class.getField("USE_EFFECTS").get(null);
+        } catch (ReflectiveOperationException ignored) {
+            return null;
         }
     }
 }

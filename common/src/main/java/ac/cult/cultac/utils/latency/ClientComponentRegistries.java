@@ -5,6 +5,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.RegistrySynchronization;
 import net.minecraft.core.component.BlockTransformer;
+import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.protocol.configuration.ClientboundRegistryDataPacket;
@@ -21,6 +22,8 @@ import java.util.Map;
 
 /** Received component definitions; tag membership deliberately uses the server registry. */
 public final class ClientComponentRegistries {
+    private static final DataComponentType<Holder<BlockTransformer>> BLOCK_TRANSFORMER_COMPONENT = blockTransformerComponent();
+
     private final Map<ResourceKey<? extends Registry<?>>, List<RegistrySynchronization.PackedRegistryEntry>> entries = new HashMap<>();
     private RegistryAccess.Frozen received;
 
@@ -44,17 +47,27 @@ public final class ClientComponentRegistries {
     }
 
     public Holder<BlockTransformer> transformer(ItemStack stack) {
-        Holder<BlockTransformer> component = stack.get(DataComponents.BLOCK_TRANSFORMER);
+        if (BLOCK_TRANSFORMER_COMPONENT == null) return null;
+        Holder<BlockTransformer> component = stack.get(BLOCK_TRANSFORMER_COMPONENT);
         if (component == null || received == null) return component;
         var registry = received.lookup(Registries.BLOCK_TRANSFORMER);
         if (registry.isEmpty()) return component;
-        if (stack.getComponentsPatch().split().added().has(DataComponents.BLOCK_TRANSFORMER)) {
+        if (stack.getComponentsPatch().split().added().has(BLOCK_TRANSFORMER_COMPONENT)) {
             // Explicit item components are serialized by the connection registry ID.
             int id = MinecraftServer.getServer().registryAccess().lookupOrThrow(Registries.BLOCK_TRANSFORMER).getId(component.value());
             return registry.get().get(id).orElse(null);
         }
         // Default item components are initialized by key after configuration.
         return component.unwrapKey().flatMap(registry.get()::get).orElse(null);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static DataComponentType<Holder<BlockTransformer>> blockTransformerComponent() {
+        try {
+            return (DataComponentType) DataComponents.class.getField("BLOCK_TRANSFORMER").get(null);
+        } catch (ReflectiveOperationException ignored) {
+            return null;
+        }
     }
 
     private static boolean isRelevant(ResourceKey<? extends Registry<?>> key) {

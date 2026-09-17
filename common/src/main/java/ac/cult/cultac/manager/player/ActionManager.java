@@ -13,6 +13,7 @@ import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.GameMode;
 import lombok.Getter;
+import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
@@ -31,6 +32,8 @@ import org.bukkit.Material;
 
 @Getter
 public class ActionManager extends CultProcessor implements CheckListener, ClientTickEndListener {
+    private static final DataComponentType<?> BLOCKS_ATTACKS_COMPONENT = findDataComponent("BLOCKS_ATTACKS");
+
     private boolean attacking = false;
     private boolean digging = false;
     private boolean blocking = false;
@@ -129,7 +132,8 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
             Equippable equippable = nms.get(DataComponents.EQUIPPABLE);
             return (equippable == null || !equippable.swappable())
-                    && nms.has(DataComponents.BLOCKS_ATTACKS);
+                    && BLOCKS_ATTACKS_COMPONENT != null
+                    && nms.has(BLOCKS_ATTACKS_COMPONENT);
         }
 
         // The compact legacy path retained by this fork. These are the baseline
@@ -153,6 +157,14 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         return consumable != null && consumable.consumeSeconds() > 0.0F
                 && (food == null || food.canAlwaysEat() || player.food < 20
                 || player.gamemode == GameMode.CREATIVE);
+    }
+
+    private static DataComponentType<?> findDataComponent(String fieldName) {
+        try {
+            return (DataComponentType<?>) DataComponents.class.getField(fieldName).get(null);
+        } catch (ReflectiveOperationException ignored) {
+            return null;
+        }
     }
 
     @CultPacketHandler

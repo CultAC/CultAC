@@ -11,6 +11,7 @@ import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
@@ -22,6 +23,7 @@ import org.jetbrains.annotations.NotNull;
 @CheckData(name = "AirLiquidBreak", stableKey = "cult.breaking.air_liquid_break", description = "Breaking a block that cannot be broken")
 public class AirLiquidBreak extends Check implements BlockBreakListener {
     private static final Verbose V = Verbose.of("block={block}, type={digging}");
+    private static final DataComponentType<?> PIERCING_WEAPON_COMPONENT = findDataComponent("PIERCING_WEAPON");
 
     public final boolean noFireHitbox = player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_15_2);
     private int lastTick;
@@ -68,7 +70,8 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
                 || block.defaultDestroyTime() == -1.0f && blockBreak.action == ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK
                 // or the player is holding a spear
                 || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)
-                && SpigotConversionUtil.toNmsItemStack(player.getInventory().getHeldItem()).has(DataComponents.PIERCING_WEAPON);
+                && PIERCING_WEAPON_COMPONENT != null
+                && SpigotConversionUtil.toNmsItemStack(player.getInventory().getHeldItem()).has(PIERCING_WEAPON_COMPONENT);
 
         if (invalid && flag(V.write(verbose())
                 .sint(BuiltInRegistries.BLOCK.getId(block))
@@ -77,6 +80,14 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
             blockBreak.cancel();
         } else {
             didLastFlag = false;
+        }
+    }
+
+    private static DataComponentType<?> findDataComponent(String fieldName) {
+        try {
+            return (DataComponentType<?>) DataComponents.class.getField(fieldName).get(null);
+        } catch (ReflectiveOperationException ignored) {
+            return null;
         }
     }
 }
