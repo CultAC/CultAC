@@ -421,7 +421,7 @@ public final class CompensatedWorldPistons {
             CollisionBox collision = LegacyPistonCollision.pushing(player, state.movedState, state.pos,
                     state.direction, state.extending, Math.min(1.0F, progress + 0.5F));
             if (!(collision instanceof SimpleCollisionBox box)) continue;
-            boolean launch = state.extending && state.movedState.is(Blocks.SLIME_BLOCK)
+            boolean launch = state.extending && state.movedState.getBlock() == Blocks.SLIME_BLOCK
                     && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8);
             lastLegacyPistonMovements.add(new LegacyPistonMovement(box, toBlockFace(state.direction),
                     progress >= 1.0F ? 0.25D : 0.5625D, launch));

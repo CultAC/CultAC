@@ -38,7 +38,7 @@ public final class NativeBlockCollisionHelper {
             return NoCollisionBox.INSTANCE;
         }
 
-        if (state.is(Blocks.MOVING_PISTON) && player.compensatedWorld.pistons.usesLegacyCollision()) {
+        if (state.getBlock() == Blocks.MOVING_PISTON && player.compensatedWorld.pistons.usesLegacyCollision()) {
             // VoxelShape discards degenerate boxes, but 1.8's AABB collision loop
             // can clip movement crossing a zero-thickness piston face.
             return player.compensatedWorld.pistons.getLegacyMovingPistonCollisionBox(new BlockPos(x, y, z));

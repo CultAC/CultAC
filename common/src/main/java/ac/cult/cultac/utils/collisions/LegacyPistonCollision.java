@@ -32,12 +32,12 @@ public final class LegacyPistonCollision {
 
     private static CollisionBox bounds(CultPlayer player, BlockState movedState, BlockPos pos,
                                        Direction facing, float amount) {
-        if (movedState.isAir() || movedState.is(Blocks.MOVING_PISTON)) {
+        if (movedState.isAir() || movedState.getBlock() == Blocks.MOVING_PISTON) {
             return NoCollisionBox.INSTANCE;
         }
 
         SimpleCollisionBox bounds;
-        if (movedState.is(Blocks.PISTON_HEAD)) {
+        if (movedState.getBlock() == Blocks.PISTON_HEAD) {
             // BlockPistonExtension#addCollisionBoxesToList restores the block bounds
             // to a cube. The moving block calls getCollisionBoundingBox directly,
             // not the head's two-piece addCollisionBoxesToList implementation.

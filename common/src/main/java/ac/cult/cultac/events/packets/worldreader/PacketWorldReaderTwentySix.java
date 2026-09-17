@@ -1,11 +1,13 @@
 package ac.cult.cultac.events.packets.worldreader;
 
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.utils.latency.CompensatedWorld.ClientboundDimensionData;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.latency.CompensatedGeysers;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
+import net.minecraft.SharedConstants;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
@@ -23,6 +25,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
+
+    private static final ClientVersion SERVER_VERSION =
+            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+
     // Mojang includes lighting with the chunk packet. Decode only the chunk payload and ignore the light payload here.
     @Override
     public void handleMapChunk(CultPlayer player, PacketSendEvent event, ClientboundLevelChunkWithLightPacket packet) {
@@ -46,12 +52,14 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
         }
 
         List<BlockPos> geyserTickers = new ArrayList<>();
-        forEachBlockEntity(payload, chunkX, chunkZ, (position, type, tag) -> {
-            if ("potent_sulfur".equals(BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(type).getPath())
-                    && hasGeyserTicker(chunks, dimensionData.minHeight(), position)) {
-                geyserTickers.add(position.immutable());
-            }
-        });
+        if (SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_26_2)) {
+            forEachBlockEntity(payload, chunkX, chunkZ, (position, type, tag) -> {
+                if ("potent_sulfur".equals(BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(type).getPath())
+                        && hasGeyserTicker(chunks, dimensionData.minHeight(), position)) {
+                    geyserTickers.add(position.immutable());
+                }
+            });
+        }
 
         addChunkToCache(event, player, chunks, true, dimensionData.dimension(), chunkX, chunkZ, geyserTickers);
     }
