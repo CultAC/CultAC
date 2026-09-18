@@ -40,7 +40,8 @@ public class NoFall implements EngineCheck {
         // The player is off the ground and can collide to the ground
         if (!result.getSimulationContext().isOnGround() && downCollide != null && downCollide.isLikelyCollide()
                 && valid.maxY + 0.001 < result.getTarget().y // And their valid Y is below their actual movement
-                && downCollide.getResult() + 0.001 >= result.getTarget().y) { // And they recovered by colliding
+                && downCollide.inMovementSpace(result.getSimulationContext().getLastStuckSpeed().y) + 0.001
+                        >= result.getTarget().y) { // And they recovered by colliding
             result.addFlag(noFallPseudo, () -> "false", 0.1);
             flaggedNoFall = true;
         }

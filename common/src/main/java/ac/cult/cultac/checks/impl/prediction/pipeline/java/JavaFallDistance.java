@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
@@ -60,8 +61,7 @@ public final class JavaFallDistance {
         Vec3 movement = result.hasEffectiveFlags()
                 ? result.getLegacyLikePredictionVector().multiply(context.getLastStuckSpeed()) : acceptedDiff;
         var down = result.getCollideAxisData().getYNeg();
-        boolean landed = down != null && down.isLikelyCollide()
-                && Math.abs(movement.y - down.getResult() * context.getLastStuckSpeed().y) <= 1.0E-7;
+        boolean landed = landsOnClip(down, movement.y, context.getLastStuckSpeed().y);
         if (distance != 0 && movement.lengthSqr() >= 1 && crossesResetBlock(player, context, movement)) distance = 0;
         boolean water = context.getWorldData().getInWater().determinePessimistically();
         Vec3 end = context.getStart().add(movement);
@@ -105,8 +105,7 @@ public final class JavaFallDistance {
         var world = context.getWorldData();
         boolean water = world.getInWater().determinePessimistically();
         var down = result.getCollideAxisData().getYNeg();
-        boolean landed = down != null && down.isLikelyCollide()
-                && Math.abs(movement.y - down.getResult()) <= 1.0E-7;
+        boolean landed = landsOnClip(down, movement.y, context.getLastStuckSpeed().y);
         // Entity#move's fall-damage-reset ray is after collision, before checkFallDamage.
         if (distance != 0.0 && movement.lengthSqr() >= 1.0 && crossesResetBlock(player, context, movement)) distance = 0.0;
         distance = afterMove(distance, movement.y, water, landed);
@@ -121,6 +120,16 @@ public final class JavaFallDistance {
         // 26.2 Entity#checkFallDamage promotes the FLOAT delta into its double accumulator.
         if (!water && resolvedY < 0.0) distance -= (float) resolvedY;
         return landed ? 0.0 : distance;
+    }
+
+    /**
+     * True when this tick's packet-visible Y movement is exactly the probed downward clip, i.e. the
+     * client landed on it. {@code movementY} is client space, so the clip (stored divided by
+     * Entity#stuckSpeedMultiplier) must be scaled back first - see CollideAxisData.CollideResult.
+     */
+    static boolean landsOnClip(CollideAxisData.CollideResult down, double movementY, double stuckSpeedY) {
+        return down != null && down.isLikelyCollide()
+                && Math.abs(movementY - down.inMovementSpace(stuckSpeedY)) <= 1.0E-7D;
     }
 
     private static boolean crossesResetBlock(CultPlayer player, SimulationContext context, Vec3 movement) {

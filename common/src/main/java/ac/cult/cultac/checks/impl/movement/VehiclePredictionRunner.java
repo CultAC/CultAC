@@ -115,7 +115,8 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             if ((!vehicleUpdate.isHasOnGround() || !reality.getSimulationContext().isOnGround())
                     && downCollide != null && downCollide.isLikelyCollide()
                     && valid.maxY + 0.001 < reality.getTarget().y // And their valid Y is below their actual movement
-                    && downCollide.getResult() + 0.001 >= reality.getTarget().y) { // And they recovered by colliding
+                    && downCollide.inMovementSpace(reality.getSimulationContext().getLastStuckSpeed().y) + 0.001
+                            >= reality.getTarget().y) { // And they recovered by colliding
                 // Must be on the ground
                 lastOnGround = lastOnGround == null ? DesyncStatus.TRUE : lastOnGround.addBoolean(true);
             }

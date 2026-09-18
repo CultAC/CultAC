@@ -68,31 +68,17 @@ public class CollisionModifier implements UncertaintyHandler {
         if (collide.getYNeg() != null
                 && collide.getYNeg().isLikelyCollide()
                 && start.y < collide.getYNeg().getResult()
-                && end.y > start.y) {
-            if (end.y <= collide.getYNeg().getResult() + SimpleCollisionBox.COLLISION_EPSILON) {
-                double clamped = CultMath.clamp(end.y, start.y, collide.getYNeg().getResult());
-                start = start.withY(clamped, "collide -y");
-            } else {
-                PredVector clipped = start.withY(collide.getYNeg().getResult(), "collide -y");
-                if (positionCommitGuardCanProduceTargetY(context, attempted, clipped, end)) {
-                    start = clipped;
-                }
-            }
+                && end.y <= 0 && end.y > start.y) {
+            double clamped = CultMath.clamp(end.y, start.y, collide.getYNeg().getResult());
+            start = start.withY(clamped, "collide -y");
         }
 
         if (collide.getYPos() != null
                 && collide.getYPos().isLikelyCollide()
                 && start.y > collide.getYPos().getResult()
-                && end.y < start.y) {
-            if (end.y >= collide.getYPos().getResult() - SimpleCollisionBox.COLLISION_EPSILON) {
-                double clamped = CultMath.clamp(end.y, start.y, collide.getYPos().getResult());
-                start = start.withY(clamped, "collide +y");
-            } else {
-                PredVector clipped = start.withY(collide.getYPos().getResult(), "collide +y");
-                if (positionCommitGuardCanProduceTargetY(context, attempted, clipped, end)) {
-                    start = clipped;
-                }
-            }
+                && end.y >= 0 && end.y < start.y) {
+            double clamped = CultMath.clamp(end.y, start.y, collide.getYPos().getResult());
+            start = start.withY(clamped, "collide +y");
         }
 
         // Legacy Entity#moveEntity always commits the clipped bounding box.
@@ -102,16 +88,6 @@ public class CollisionModifier implements UncertaintyHandler {
                 start,
                 attempted.collisionStuckSpeedMultiplier(context));
         return packetVisibleMovement == start ? start : start.with(packetVisibleMovement, "Entity#move setPos guard");
-    }
-
-    private static boolean positionCommitGuardCanProduceTargetY(SimulationContext context, PredVector attempted, PredVector clipped, Vec3 target) {
-        if (context != null && context.getVersion() != null && context.getVersion().isOlderThan(ClientVersion.V_1_14)) return false;
-        Vec3 visible = applyEntityMovePositionCommitGuard(
-                attempted,
-                clipped,
-                attempted.collisionStuckSpeedMultiplier(context));
-        return visible.distanceToSqr(clipped) > 1.0E-14D
-                && Math.abs(visible.y - target.y) <= SimpleCollisionBox.COLLISION_EPSILON;
     }
 
     private static Vec3 applyEntityMovePositionCommitGuard(Vec3 attemptedMovement, Vec3 clippedMovement, Vec3 stuckSpeed) {

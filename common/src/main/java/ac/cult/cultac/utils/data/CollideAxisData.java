@@ -57,5 +57,9 @@ public class CollideAxisData {
             result = areWeGreater ? newResult.result : result;
             return this;
         }
+
+        public double inMovementSpace(double stuckSpeedMultiplier) {
+            return result * stuckSpeedMultiplier;
+        }
     }
 }
