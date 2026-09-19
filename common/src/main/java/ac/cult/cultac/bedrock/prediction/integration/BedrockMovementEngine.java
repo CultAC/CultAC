@@ -1,19 +1,18 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockVerticalCollisionVerdict;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementInputFactory.Input;
-import ac.cult.cultac.bedrock.prediction.integration.BedrockNextTickVelocityDerivation.Derived;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.Entry;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockImmobileTick;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockImmobileTick.Result;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
+import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation.Candidate;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
@@ -140,19 +139,21 @@ public final class BedrockMovementEngine implements MovementEngine {
                     selectedInput.mobJumpComponent(),
                     selectedInput.actorMovementTick(),
                     context.isBedrockTeleportTick(),
-                    selectedInput.previousState().isBoat()
-                        ? BedrockControlInput.control(selectedInput.authFrame(), selectedInput.previousState()) : null,
+                    BedrockControlInput.control(selectedInput.authFrame(), selectedInput.previousState()),
                     !selectedInput.previousState().isVehicle() && player.bedrockState.movementEffects.glideBoost(
                         selectedInput.authFrame(), selectedInput.actorMovementTick())
                 );
-                for (Candidate movementCandidate : BedrockSimulation.candidates(simulationInput)) {
+                simulationInput = player.bedrockState.movementCorrections.prepareInput(simulationInput);
+                selectedInput = selectedInput.withPreviousState(simulationInput.previousState(), simulationInput.mobJumpComponent());
+                for (Candidate movementCandidate : BedrockForwardTick.simulate(simulationInput)) {
                     BedrockMovementResult movementResult = movementCandidate.movementResult();
-                    addCandidate(output, selectedInput, movementCandidate, vector, movementResult, candidateDelta(movementResult));
+                    addCandidate(output, selectedInput, simulationInput, movementCandidate, vector, movementResult, candidateDelta(movementResult));
                     if (!movementResult.steppedUp()) {
                         Vec3d previous = movementResult.previousState().physicalFeetPosition();
                         addCandidate(
                             output,
                             selectedInput,
+                            simulationInput,
                             movementCandidate,
                             vector,
                             movementResult,
@@ -170,13 +171,14 @@ public final class BedrockMovementEngine implements MovementEngine {
     private static void addCandidate(
         LinkedHashMap<CandidateKey, PredVector> output,
         Input selectedInput,
+        BedrockSimulation.Input simulationInput,
         Candidate movementCandidate,
         PredVector source,
         BedrockMovementResult movementResult,
         Vec3 delta
     ) {
         BedrockPredVector candidate = new BedrockPredVector(
-            selectedInput, movementResult, movementCandidate.mobJumpComponent(), source, delta
+            selectedInput, simulationInput, movementResult, movementCandidate.mobJumpComponent(), source, delta
         );
         CandidateKey key = new CandidateKey(
             candidate.x, candidate.y, candidate.z, movementResult.horizontalInputLimit(),
@@ -273,58 +275,23 @@ public final class BedrockMovementEngine implements MovementEngine {
             ? null
             : (BedrockPredictionResult) result.getProfileResult(BedrockPredictionResult.class);
         if (bedrockResult != null && bedrockResult.nextTickBaseState() != null) {
-            // Keep the normal accepted-displacement commit flow. Only rejected
-            // movement needs a simulated endpoint for authoritative correction.
-            if (bedrockResult.observation() != null && !result.getFlags().isEmpty()) {
-                bedrockResult = bedrockResult.withNextTickBaseState(BedrockValidationSelectedState.candidateBase(
-                    bedrockResult.movementResult(), BedrockValidationSelection.from(result, bedrockResult.movementResult())));
+            var movement = bedrockResult.movementResult();
+            var state = bedrockResult.nextTickBaseState();
+            List<Entry> entries = BedrockForwardTick.finish(movement, state).stream()
+                .map(next -> new Entry(next, bedrockResult.nextTickBaseMobJumpComponent())).toList();
+            var frame = result.getSimulationContext().getBedrockInput();
+            if (entries.size() > 1 && frame.getReportedEndOfTickVelocity() != null) {
+                var reported = BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity());
+                entries = entries.stream().sorted(java.util.Comparator.comparingDouble(
+                    entry -> entry.state().velocity().subtract(reported).length())).toList();
             }
-            List<Entry> baseEntries = List.of(
-                new Entry(bedrockResult.nextTickBaseState(), bedrockResult.nextTickBaseMobJumpComponent())
-            );
-            if (player != null && bedrockResult.movementResult() != null && acceptedDiff != null) {
-                // Finalize the selected simulation endpoint through the same contact and velocity derivation.
-                acceptedDiff = BedrockVectorAdapter.toJava(bedrockResult.nextTickBaseState().physicalFeetPosition()
-                    .subtract(bedrockResult.movementResult().previousState().physicalFeetPosition()));
-                recordEndTickBlockPush(result, bedrockResult.movementResult(), acceptedDiff);
-                boolean claimedVerticalCollision = result.getSimulationContext().getBedrockInput()
-                    .hasRawInputFlag(PlayerAuthInputData.VERTICAL_COLLISION);
-                baseEntries = BedrockVerticalCollisionSelection.apply(
-                    baseEntries, bedrockResult.movementResult(), claimedVerticalCollision, bedrockResult.verticalCollisionVerdict()
-                );
-                Derived derived = BedrockNextTickVelocityDerivation.fromAcceptedDiff(
-                    bedrockResult.movementResult(),
-                    baseEntries,
-                    acceptedDiff,
-                    likelyHorizontalCollision(result.getCollideAxisData(), true),
-                    likelyHorizontalCollision(result.getCollideAxisData(), false),
-                    selectedStep(result)
-                );
-                List<Entry> carriedEntries = derived.entries().isEmpty() ? baseEntries : derived.entries();
-                carriedEntries = BedrockRejectedVerticalFlags.apply(
-                    bedrockResult, carriedEntries,
-                    CultAPI.INSTANCE.getConfigManager().getBedrockMovementPositionFlagThreshold()
-                );
-                var frame = result.getSimulationContext() == null ? null : result.getSimulationContext().getBedrockInput();
-                if (carriedEntries.size() > 1 && frame != null && frame.getReportedEndOfTickVelocity() != null) {
-                    var reported = BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity());
-                    Entry selected = carriedEntries.stream().min(java.util.Comparator.comparingDouble(
-                        entry -> entry.state().velocity().subtract(reported).length())).orElseThrow();
-                    if (selected != carriedEntries.getFirst()) {
-                        carriedEntries = new java.util.ArrayList<>(carriedEntries);
-                        carriedEntries.remove(selected);
-                        carriedEntries.addFirst(selected);
-                    }
-                }
-                result.setProfileResult(bedrockResult.withNextTickBaseState(carriedEntries.getFirst().state()));
-                return new PredictionCommit(new BedrockNextTickStates(carriedEntries), derived.startingVelocities());
-            } else {
-                return new PredictionCommit(
-                    new BedrockNextTickStates(baseEntries),
-                    BedrockNextTickVelocityDerivation.profileStateVelocities(baseEntries)
-                );
-            }
+            recordEndTickBlockPush(result, movement, BedrockVectorAdapter.toJava(
+                state.physicalFeetPosition().subtract(movement.previousState().physicalFeetPosition())));
+            result.setProfileResult(bedrockResult.withNextTickBaseState(entries.getFirst().state()));
+            return new PredictionCommit(new BedrockNextTickStates(entries),
+                BedrockNextTickVelocityDerivation.profileStateVelocities(entries));
         }
+
         return new PredictionCommit(null, Set.of());
     }
 
@@ -366,21 +333,8 @@ public final class BedrockMovementEngine implements MovementEngine {
             return null;
         }
         BedrockMovementState continuation = bedrockResult.movementResult().predictedState();
-        Entry entry = new Entry(continuation, bedrockResult.nextTickBaseMobJumpComponent());
-        Vec3 predictedDiff = BedrockVectorAdapter.toJava(
-            continuation.physicalFeetPosition().subtract(bedrockResult.movementResult().previousState().physicalFeetPosition())
-        );
-        BedrockCollisionFlags predictedFlags = continuation.collisionFlags();
-
-        Derived derived = BedrockNextTickVelocityDerivation.fromAcceptedDiff(
-            bedrockResult.movementResult(),
-            List.of(entry),
-            predictedDiff,
-            predictedFlags.xCollision(),
-            predictedFlags.zCollision(),
-            bedrockResult.movementResult().steppedUp()
-        );
-        List<Entry> entries = derived.entries().isEmpty() ? List.of(entry) : derived.entries();
+        List<Entry> entries = BedrockForwardTick.finish(bedrockResult.movementResult(), continuation).stream()
+            .map(state -> new Entry(state, bedrockResult.nextTickBaseMobJumpComponent())).toList();
         PredictionCommit commit = new PredictionCommit(
             new BedrockNextTickStates(entries),
             BedrockNextTickVelocityDerivation.profileStateVelocities(entries)
@@ -530,19 +484,6 @@ public final class BedrockMovementEngine implements MovementEngine {
         return state.afterServerTeleport(position, velocity);
     }
 
-    private static boolean likelyHorizontalCollision(CollideAxisData collision, boolean xAxis) {
-        if (collision == null) {
-            return false;
-        }
-        CollideResult axis = xAxis ? collision.getX() : collision.getZ();
-        return axis != null && axis.isLikelyCollide();
-    }
-
-    private static boolean selectedStep(PredictionResult result) {
-        PredVector selected = selectedPredictionVector(result);
-        return selected != null && selected.isBoundedStep();
-    }
-
     private static boolean attachCandidateMetadata(PredictionResult result) {
         PredVector selected = selectedPredictionVector(result);
         BedrockPredVector candidate = selected == null ? null : (BedrockPredVector) selected.firstInLineage(BedrockPredVector.class);
@@ -550,7 +491,7 @@ public final class BedrockMovementEngine implements MovementEngine {
             return false;
         }
         BedrockMovementResult movementResult = candidate.movementResult();
-        BedrockMovementState nextTickBaseState = BedrockValidationSelectedState.nextTickBase(
+        BedrockMovementState nextTickBaseState = BedrockValidationSelectedState.candidateBase(
             movementResult, BedrockValidationSelection.from(result, movementResult)
         );
         boolean claimedVerticalCollision = result.getSimulationContext().getBedrockInput()

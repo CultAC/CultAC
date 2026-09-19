@@ -566,6 +566,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    public void handleBedrockSleepingStateChange(boolean sleeping) {
       if (this.player.isBedrockMovement() && this.bedrockSleepingStateObserved != sleeping) {
          this.bedrockSleepingStateObserved = sleeping;
+         this.player.bedrockState.movementCorrections.clear();
          this.player.bedrockState.applyAcknowledgedPoseMetadata(null, null, null, null, sleeping);
          if (sleeping) {
             this.player.packetStateData.clearBedrockTranslatedMovementPermit();
@@ -687,11 +688,29 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       this.recordProcessedBedrockAuthInputFrame(frame, trigger);
       MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
       var horse = this.player.isBedrockMovement() ? BedrockVehicleControl.controlledVehicle(this.player) : null;
+      if (frame instanceof BedrockAuthInputFrame bedrockFrame) {
+         PredictionCommit current = this.getCurrentPredictionCommit();
+         PredictionCommit replayed = this.player.bedrockState.movementCorrections.prepareFrame(this.player, bedrockFrame, current);
+         if (replayed != current) {
+            this.applyProfileCommit(replayed);
+            this.lastPrediction = null;
+            var state = BedrockProfileState.previousState(replayed.carry());
+            if (state != null) {
+               this.lastOnGround = DesyncStatus.fromBoolean(state.movementGrounded());
+               this.player.onGround = state.movementGrounded();
+               if (horse != null) BedrockVehiclePredictionState.commitTransform(horse, replayed.carry());
+               else this.commitPlayerPosition(BedrockVectorAdapter.toJava(state.physicalFeetPosition()));
+            }
+         }
+      }
       Vec3 previousPosition = movementProfile.authoredPredictionStart(
          this.player, frame, horse != null
             ? horse.clientPhysicalPosition
             : new Vec3(this.player.x, this.player.y, this.player.z), this.profileCarry
       );
+      if (frame instanceof BedrockAuthInputFrame) {
+         previousPosition = this.player.bedrockState.movementCorrections.predictionStart(previousPosition);
+      }
       boolean onGround = this.movementPacketOnGround(this.player.onGround, frame);
       float xRot = frame.hasRotation() ? frame.getYaw() : this.player.xRot;
       float yRot = frame.hasRotation() ? frame.getPitch() : this.player.yRot;
@@ -1409,7 +1428,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       Vec3 vehicleInputs = new Vec3(player.boatData.vehicleHoriz, 0.0, player.boatData.vehicleForward);
       SimulationContext context = new SimulationContext(
          start,
-         player.isBedrockMovement() && authoredMovementFrame != null ? start : end,
+         end,
          target,
          player.getClientVersion(),
          player.trigHandler,

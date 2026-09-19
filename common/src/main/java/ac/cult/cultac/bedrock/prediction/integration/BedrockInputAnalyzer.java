@@ -35,11 +35,9 @@ public final class BedrockInputAnalyzer implements EngineCheck {
         if (selection == null || selection.packetPosition() == null) {
             return bedrockResult;
         }
-        BedrockMovementObservation observation = BedrockMovementObservationFactory.fromValidationSelection(
-                movementResult,
-                selection.packetPosition(),
-                selection.validationSelectedPosition(),
-                selection.validationSelectedPosition(),
+        BedrockMovementObservation observation = BedrockMovementObservationFactory.fromForwardSelection(
+                movementResult, selection.packetPosition(), bedrockResult.nextTickBaseState(),
+                selection.authFrame() == null ? null : selection.authFrame().getReportedEndOfTickVelocity(),
                 selection.authFrame() == null ? null : selection.authFrame().getMoveVector());
         BedrockPredictionResult updated = bedrockResult.withObservation(observation);
         result.setProfileResult(updated);

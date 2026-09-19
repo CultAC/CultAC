@@ -41,6 +41,16 @@ record GeyserBoatMetadata(Float width, Float height, Boolean buoyant, Boolean ou
                 offset == null ? null : new Vec3d(offset.getX(), offset.getY(), offset.getZ()));
     }
 
+    ac.cult.cultac.bedrock.prediction.integration.BedrockReplayBoatMetadata replayable() {
+        return new ac.cult.cultac.bedrock.prediction.integration.BedrockReplayBoatMetadata(
+                width, height, null, outOfControl, leashed, null, null, null, seat);
+    }
+
+    ac.cult.cultac.bedrock.prediction.integration.BedrockReplayBoatMetadata immediate() {
+        return new ac.cult.cultac.bedrock.prediction.integration.BedrockReplayBoatMetadata(
+                null, null, buoyant, null, null, gravity, baseBuoyancy, liquids, null);
+    }
+
     boolean isEmpty() {
         return width == null && height == null && buoyant == null && outOfControl == null && leashed == null
                 && gravity == null && baseBuoyancy == null && liquids == null && seat == null;

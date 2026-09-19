@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
+import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
@@ -14,7 +15,8 @@ import net.minecraft.world.phys.Vec3;
 /** One outstanding correction on the owning movement loop. */
 public final class BedrockMovementCorrections {
     private static final int CORRECTION_INTERVAL_TICKS = 5;
-    public static final int CLIENT_HISTORY_SIZE = 40;
+    public static final int CLIENT_HISTORY_SIZE = BedrockActorHistory.CAPACITY;
+    private final BedrockMovementRewind rewind = new BedrockMovementRewind();
     private long lastTick = -1;
     private long processedTicks;
     private PacketEntity controlled;
@@ -49,6 +51,7 @@ public final class BedrockMovementCorrections {
                 || correction.vehicle() != (controlled != null)
                 || controlled != null && (controlled.getEntityId() != correction.vehicleId() || runtimeId != correction.runtimeId())) return;
         pending = new Pending(correction, processedTicks);
+        rewind.correction(player, correction);
     }
 
     public void acknowledge(long sequence) {
@@ -60,6 +63,27 @@ public final class BedrockMovementCorrections {
         if (vehicle != null && vehicle.getEntityId() == vehicleId) bind(vehicle, actorRuntimeId);
     }
 
+    public void queueUpdate(long expectedGeneration, int vehicleId, long actorRuntimeId,
+                            long tick, boolean historical, BedrockReplayEvent event) {
+        if (expectedGeneration != generation) return;
+        if (vehicleId < 0 ? controlled != null
+                : controlled == null || controlled.getEntityId() != vehicleId || runtimeId != actorRuntimeId) return;
+        rewind.queue(tick, historical, event);
+    }
+
+    public PredictionCommit prepareFrame(CultPlayer player, BedrockAuthInputFrame frame, PredictionCommit current) {
+        var vehicle = BedrockVehicleControl.controlledVehicle(player);
+        bind(vehicle, vehicle == null ? -1 : frame.getPredictedVehicleId());
+        return rewind.apply(player, current);
+    }
+
+    public BedrockSimulation.Input prepareInput(
+            BedrockSimulation.Input input) {
+        return rewind.prepareInput(input);
+    }
+
+    public Vec3 predictionStart(Vec3 fallback) { return rewind.predictionStart(fallback); }
+
     private void bind(PacketEntity vehicle, long actorRuntimeId) {
         if (runtimeId != Long.MIN_VALUE && (vehicle != controlled || runtimeId != actorRuntimeId)) clear();
         controlled = vehicle;
@@ -70,6 +94,7 @@ public final class BedrockMovementCorrections {
                        PredictionResult result, PredictionCommit commit) {
         bind(vehicle, vehicle == null ? -1 : frame.getPredictedVehicleId());
         if (commit == null || frame.getClientTick() <= lastTick) return;
+        if (result != null) rewind.record(player, result, commit);
         lastTick = frame.getClientTick();
         processedTicks++;
         var state = BedrockProfileState.previousState(commit.carry());
@@ -81,8 +106,11 @@ public final class BedrockMovementCorrections {
                 && BedrockProfileState.profileEntries(commit.carry()).stream().anyMatch(entry ->
                     entry.state().physicalFeetPosition().subtract(BedrockVectorAdapter.toBedrock(frame.getPosition())).length() <= positionLimit
                     && entry.state().velocity().subtract(BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity())).length() <= velocityLimit);
-        if (converged && pending != null && pending.received
-                && player.getSetbackTeleportUtil().completeBedrockMovementCorrection(pending.correction)) pending = null;
+        if (converged && pending != null && pending.received && frame.getClientTick() > pending.correction.tick()
+                && player.getSetbackTeleportUtil().completeBedrockMovementCorrection(pending.correction)) {
+            pending = null;
+            rewind.converged();
+        }
         if (frame.getClientTick() == 0 || requestedTransaction < 0 && (converged
                 || pending != null && (!pending.received || processedTicks - pending.sentAt < CORRECTION_INTERVAL_TICKS))) return;
         int transaction = requestedTransaction >= 0 ? requestedTransaction
@@ -99,6 +127,7 @@ public final class BedrockMovementCorrections {
 
     public void clear() {
         generation++;
+        rewind.clear();
         lastTick = -1;
         processedTicks = 0;
         controlled = null;

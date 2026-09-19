@@ -15,6 +15,7 @@ import net.minecraft.world.phys.Vec3;
 final class BedrockPredVector extends PredVector {
     private final BedrockMovementInputFactory.Input input;
     private final BedrockMovementResult movementResult;
+    private final BedrockSimulation.Input simulationInput;
     private final BedrockMobJumpComponentState mobJumpComponent;
 
     BedrockPredVector(
@@ -24,11 +25,18 @@ final class BedrockPredVector extends PredVector {
             PredVector source,
             Vec3 candidateDelta
     ) {
+        this(input, null, movementResult, mobJumpComponent, source, candidateDelta);
+    }
+
+    BedrockPredVector(BedrockMovementInputFactory.Input input, BedrockSimulation.Input simulationInput,
+            BedrockMovementResult movementResult, BedrockMobJumpComponentState mobJumpComponent,
+            PredVector source, Vec3 candidateDelta) {
         super(
                 Objects.requireNonNull(candidateDelta, "candidateDelta"),
                 Objects.requireNonNull(source, "source"),
                 "bedrock travel candidate");
         this.input = Objects.requireNonNull(input, "input");
+        this.simulationInput = simulationInput;
         this.movementResult = Objects.requireNonNull(movementResult, "movementResult");
         this.mobJumpComponent = mobJumpComponent == null
                 ? BedrockMobJumpComponentState.DEFAULT
@@ -41,6 +49,8 @@ final class BedrockPredVector extends PredVector {
     BedrockMovementInputFactory.Input input() {
         return input;
     }
+
+    BedrockSimulation.Input simulationInput() { return simulationInput; }
 
     BedrockMovementResult movementResult() {
         return movementResult;

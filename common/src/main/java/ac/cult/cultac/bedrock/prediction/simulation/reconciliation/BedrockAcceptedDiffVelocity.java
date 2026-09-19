@@ -117,7 +117,7 @@ final class BedrockAcceptedDiffVelocity {
         return states.stream().map(next -> new AcceptedState(next, evidence)).toList();
     }
 
-    private static List<BedrockMovementState> withAcceptedEndpointClimbableContacts(
+    static List<BedrockMovementState> withAcceptedEndpointClimbableContacts(
         BedrockMovementResult movementResult,
         BedrockMovementState state,
         BedrockAcceptedEndpointEvidence evidence

@@ -11,6 +11,19 @@ public final class BedrockNextTickStateDeriver {
     private BedrockNextTickStateDeriver() {
     }
 
+    /** Carry a complete forward tick without reconstructing velocity from a packet position. */
+    public static List<DerivedState> fromSimulated(BedrockMovementResult result, BedrockMovementState state) {
+        if (!result.travelActive() || state.isBoat() || result.selectedGlidingTravel() && state.gliding()) {
+            return List.of(new DerivedState(state, state));
+        }
+        var evidence = new BedrockAcceptedEndpointEvidence(result, state,
+                state.physicalFeetPosition().subtract(result.previousState().physicalFeetPosition()),
+                state.playerDimensions(), result.postMoveContext(), result.steppedUp(), null);
+        return BedrockAcceptedDiffVelocity.withAcceptedEndpointClimbableContacts(result, state, evidence).stream()
+                .flatMap(contact -> BedrockEndTickVelocityBranches.fromAcceptedDiff(evidence, contact, state).stream())
+                .distinct().toList();
+    }
+
     public static List<DerivedState> withAcceptedDiff(
             BedrockMovementResult movementResult,
             List<BedrockMovementState> sourceStates,

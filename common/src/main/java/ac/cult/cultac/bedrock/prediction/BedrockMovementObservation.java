@@ -36,6 +36,15 @@ public record BedrockMovementObservation(
             double verticalOffset,
             double validationOffset
     ) {
+        return create(result, actualPhysicalFeet, predictedPosition, requiredHorizontalInput,
+                observedHorizontalInput, horizontalInputLimit, horizontalInputExcess, verticalOffset, validationOffset, 0.0D);
+    }
+
+    public static BedrockMovementObservation create(
+            BedrockMovementResult result, Vec3 actualPhysicalFeet, Vec3d predictedPosition,
+            Vec3d requiredHorizontalInput, Vec3d observedHorizontalInput, double horizontalInputLimit,
+            double horizontalInputExcess, double verticalOffset, double validationOffset, double velocityOffset
+    ) {
         if (result == null || actualPhysicalFeet == null || predictedPosition == null
                 || requiredHorizontalInput == null || observedHorizontalInput == null) {
             return null;
@@ -54,7 +63,6 @@ public record BedrockMovementObservation(
         Vec3d rawPredictedDelta = rawPredictedPosition.subtract(previous.physicalFeetPosition()).scale(1.0D / tickDelta);
         Vec3d positionDelta = predictedPosition.subtract(actualPosition);
         Vec3d rawPositionDelta = rawPredictedPosition.subtract(actualPosition);
-        double velocityOffset = result.predictedVelocity().subtract(actualDelta).length();
         double requiredHorizontalInputMagnitude = Math.sqrt(requiredHorizontalInput.x() * requiredHorizontalInput.x()
                 + requiredHorizontalInput.z() * requiredHorizontalInput.z());
         double observedHorizontalInputMagnitude = Math.sqrt(observedHorizontalInput.x() * observedHorizontalInput.x()

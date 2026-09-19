@@ -394,6 +394,32 @@ public final class BedrockNextTickStateDeriverTest {
     }
 
     @Test
+    public void forwardCarryKeepsFluidHopBesideTheCompleteSimulatedVelocity() {
+        Vec3d velocity = new Vec3d(0.08, -0.03, 0.02);
+        var state = state(POSITION, velocity, BedrockCollisionFlags.AIR.withLiquidClimbOut(true), Medium.WATER);
+        var result = movementResult(state, state, context(Medium.WATER, BlockCollisionWorld.EMPTY));
+        var states = BedrockNextTickStateDeriver.fromSimulated(result, state);
+        assertEquals(2, states.size());
+        assertTrue(states.stream().anyMatch(value -> value.state().velocity().equals(velocity)));
+        assertTrue(hasVelocityY(states, BedrockLiquidClimbOutMovement.CLIMB_OUT_VELOCITY_Y));
+        assertTrue(states.stream().allMatch(value -> value.state().velocity().x() == velocity.x()
+                && value.state().velocity().z() == velocity.z()));
+    }
+
+    @Test
+    public void forwardCarryPreservesTheExistingClimbableContactBoundary() {
+        var world = new BlockCollisionWorld(List.of(PlacedBlockCollision.manual(
+                new BlockPosition(1, 64, 0), "minecraft:ladder", "minecraft:ladder", List.of())));
+        var previous = state(POSITION, ZERO, BedrockCollisionFlags.AIR, Medium.AIR);
+        var next = state(new Vec3d(1.5, 64, 0.5), new Vec3d(0.08, -0.0784, 0), BedrockCollisionFlags.AIR, Medium.AIR);
+        var states = BedrockNextTickStateDeriver.fromSimulated(movementResult(previous, next, context(Medium.AIR, world)), next);
+        assertEquals(2, states.size());
+        assertTrue(states.stream().anyMatch(value -> value.state().climbableContact().climbing()));
+        assertTrue(states.stream().anyMatch(value -> !value.state().climbableContact().climbing()));
+        assertTrue(states.stream().allMatch(value -> value.state().velocity().equals(next.velocity())));
+    }
+
+    @Test
     public void freshClimbableBoundaryProducesOneCycleContactCarry() {
         BlockCollisionWorld ladderWorld = new BlockCollisionWorld(List.of(
                 PlacedBlockCollision.manual(
