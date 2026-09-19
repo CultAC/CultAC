@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -14,8 +15,7 @@ final class BedrockOriginDispatch {
     private final Map<BedrockPacket, Emission> emissions = new IdentityHashMap<>();
     private final List<Pending> pending = new ArrayList<>();
     private int depth;
-    private BedrockTeleportProvenance provenance = BedrockTeleportProvenance.GEYSER;
-    private Integer javaTeleportId;
+    private BedrockTeleportOperation operation;
 
     void begin() { depth++; }
 
@@ -23,27 +23,25 @@ final class BedrockOriginDispatch {
         if (depth != 0) {
             pending.add(new Pending(packet, write));
         } else {
-            emit(packet, write, new Emission(frame, provenance, javaTeleportId));
+            emit(packet, write, new Emission(frame, operation));
         }
     }
 
-    void withContext(BedrockTeleportProvenance source, Integer teleportId, Runnable action) {
-        BedrockTeleportProvenance previousSource = provenance;
-        Integer previousId = javaTeleportId;
-        provenance = source;
-        javaTeleportId = teleportId;
+    void withOperation(BedrockTeleportOperation next, Runnable action) {
+        BedrockTeleportOperation previous = operation;
+        operation = next;
         try { action.run(); }
-        finally { provenance = previousSource; javaTeleportId = previousId; }
+        finally { operation = previous; }
     }
 
-    void finish(int originX, int originZ, BedrockTeleportProvenance provenance, Integer teleportId) {
+    void finish(int originX, int originZ, BedrockTeleportOperation operation) {
         if (--depth != 0) return;
         if (originX != frame.originX() || originZ != frame.originZ()) {
             frame = new BedrockCoordinateFrame(originX, originZ, Math.incrementExact(frame.revision()));
         }
         List<Pending> writes = List.copyOf(pending);
         pending.clear();
-        Emission emission = new Emission(frame, provenance, teleportId);
+        Emission emission = new Emission(frame, operation);
         for (Pending write : writes) emit(write.packet(), write.write(), emission);
     }
 
@@ -56,6 +54,14 @@ final class BedrockOriginDispatch {
     BedrockCoordinateFrame frame() { return frame; }
     void clear() { pending.clear(); emissions.clear(); depth = 0; }
 
-    record Emission(BedrockCoordinateFrame frame, BedrockTeleportProvenance provenance, Integer javaTeleportId) { }
+    record Emission(BedrockCoordinateFrame frame, BedrockTeleportOperation operation) {
+        BedrockTeleportProvenance provenance() {
+            return operation == null ? BedrockTeleportProvenance.GEYSER : operation.provenance();
+        }
+
+        Integer javaTeleportId() {
+            return operation == null ? null : operation.javaTeleportId();
+        }
+    }
     private record Pending(BedrockPacket packet, Runnable write) { }
 }

@@ -321,7 +321,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.tryToAchievePointThree(new Vec3(this.player.x, this.player.y, this.player.z), this.player.xRot, this.player.yRot);
          }
 
-         boolean packetOnGround = this.movementPacketOnGround(positionUpdate.isOnGround(), positionUpdate.getAuthoredMovementFrame());
+         boolean packetOnGround = positionUpdate.isOnGround();
          PredictionResult result = this.callPrediction(
             positionUpdate.getTo(), positionUpdate.getFrom(), packetOnGround, this.player.xRot, this.player.yRot, positionUpdate.getAuthoredMovementFrame()
          );
@@ -354,7 +354,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       PredictionResult result = new PredictionResult(this.player, null, null, null, teleportData, new ArrayList(), new ArrayList());
       result.setTeleport(true);
       var carried = this.player.isBedrockMovement() ? BedrockProfileState.previousState(this.profileCarry) : null;
-      Vec3 position = carried != null && teleportData.isBedrockTransportOnly()
+      Vec3 position = carried != null && teleportData.preservesBedrockWorldPosition()
          ? BedrockVectorAdapter.toJava(carried.physicalFeetPosition()) : teleportData.getLocation();
       this.player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(this.player, position.x, position.y, position.z);
       if (!this.player.compensatedEntities.getSelf().inVehicle()) {
@@ -409,12 +409,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.profileCarry = null;
          }
       }
-
-      // Bedrock actions and item-use clocks belong to the next actor tick.
-      // Chunk filtering can defer that tick past the teleport acknowledgement.
-      if (!this.player.isBedrockMovement()) {
-         MovementProfiles.forPlayer(this.player).resetQueuedAuthoredInput(this.player);
-      }
    }
 
    public void applyAcceptedJavaTeleport(TeleportAcceptData accepted) {
@@ -429,7 +423,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          this.handleTeleport(teleportAcceptData);
          TeleportData teleport = teleportAcceptData.getTeleportData();
          var carried = BedrockProfileState.previousState(this.profileCarry);
-         this.commitPlayerPosition(teleport.isBedrockTransportOnly() && carried != null
+         this.commitPlayerPosition(teleport.preservesBedrockWorldPosition() && carried != null
             ? BedrockVectorAdapter.toJava(carried.physicalFeetPosition()) : teleport.getLocation());
       }
    }
@@ -482,7 +476,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       this.player.bedrockState.tickRidingJump(frame, vehicle instanceof PacketEntityHorse);
       if (vehicle != null) {
          if (!BedrockVehicleControl.matches(frame, vehicle)) {
-            this.player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
+            this.player.packetStateData.rejectBedrockTranslatedMovement();
             return null;
          }
          return this.processBedrockVehicleFrame(frame, trigger, vehicle);
@@ -492,7 +486,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          // until control is established, including unmapped or unsupported vehicle IDs.
          if (frame.getPredictedVehicleId() != null && frame.getPredictedVehicleId() != -1L
                || frame.hasRawInputFlag(PlayerAuthInputData.IN_CLIENT_PREDICTED_IN_VEHICLE)) {
-            this.player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
+            this.player.packetStateData.rejectBedrockTranslatedMovement();
          } else if (this.player.compensatedEntities.getSelf().getRiding() != null) {
             this.recordProcessedBedrockAuthInputFrame(frame, trigger);
             this.advanceBedrockPassenger(frame, this.player.compensatedEntities.getSelf().clientPhysicalPosition);
@@ -500,7 +494,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          return null;
       }
       if (frame.getPredictedVehicleId() != null && frame.getPredictedVehicleId() != -1L) {
-         this.player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
+         this.player.packetStateData.rejectBedrockTranslatedMovement();
          return null;
       }
       if (this.bedrockSleepingStateObserved) {
@@ -616,65 +610,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    }
 
    @Nullable
-   public PredictionResult processQueuedAuthoredInput() {
-      MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
-      if (!this.player.compensatedEntities.vehicles.hasPlayerPassengerState()
-         && movementProfile.shouldProcessQueuedAuthoredInputWithoutPosition(this.player)
-         && movementProfile.hasQueuedAuthoredInput(this.player)) {
-         PredictionResult latestResult = null;
-         int processed = 0;
-
-         while (movementProfile.hasQueuedAuthoredInput(this.player) && processed++ < 32) {
-            AuthoredMovementFrame frame = movementProfile.pollQueuedAuthoredInput(this.player);
-            if (frame == null) {
-               return latestResult;
-            }
-
-            PredictionResult result = this.processAuthoredInputFrame(frame);
-            if (result != null) {
-               latestResult = result;
-            }
-         }
-
-         return latestResult;
-      } else {
-         return null;
-      }
-   }
-
-   @Nullable
-   public PredictionResult processQueuedAuthoredInputBefore(AuthoredMovementFrame boundaryFrame) {
-      MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
-      if (boundaryFrame != null && !this.player.compensatedEntities.vehicles.hasPlayerPassengerState() && movementProfile.hasQueuedAuthoredInput(this.player)) {
-         PredictionResult latestResult = null;
-         int processed = 0;
-
-         while (processed++ < 32) {
-            AuthoredMovementFrame frame = movementProfile.pollQueuedAuthoredInputBefore(this.player, boundaryFrame);
-            if (frame == null) {
-               return latestResult;
-            }
-
-            if (movementProfile.shouldProcessQueuedAuthoredInputBeforeBoundary(this.player, boundaryFrame)) {
-               PredictionResult result = this.processAuthoredInputFrame(frame);
-               if (result != null) {
-                  latestResult = result;
-               }
-            }
-         }
-
-         return latestResult;
-      } else {
-         return null;
-      }
-   }
-
-   @Nullable
-   private PredictionResult processAuthoredInputFrame(AuthoredMovementFrame frame) {
-      return this.processAuthoredInputFrame(frame, null);
-   }
-
-   @Nullable
    private PredictionResult processAuthoredInputFrame(AuthoredMovementFrame frame, BedrockPredictionTrigger trigger) {
       if (frame == null) {
          return null;
@@ -711,7 +646,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       if (frame instanceof BedrockAuthInputFrame) {
          previousPosition = this.player.bedrockState.movementCorrections.predictionStart(previousPosition);
       }
-      boolean onGround = this.movementPacketOnGround(this.player.onGround, frame);
+      boolean onGround = this.player.onGround;
       float xRot = frame.hasRotation() ? frame.getYaw() : this.player.xRot;
       float yRot = frame.hasRotation() ? frame.getPitch() : this.player.yRot;
       PredictionResult result = frame instanceof BedrockAuthInputFrame bedrock
@@ -740,7 +675,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          observed.subtract(start), start, observed, this.lastTickSkip, false, yaw, pitch, frame, profile);
       PredictionCommit commit = this.prepareBedrockCommit(result, observed.subtract(start), profile);
       if (commit == null || BedrockProfileState.previousState(commit.carry()) == null) {
-         this.player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
+         this.player.packetStateData.rejectBedrockTranslatedMovement();
          return null;
       }
       result.getSimulationContext().setEnd(BedrockVectorAdapter.toJava(
@@ -776,10 +711,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          Set.of(velocity));
       vehicle.bedrockPrediction = new BedrockVehiclePredictionState(commit, null);
       BedrockVehiclePredictionState.commitTransform(vehicle, commit.carry());
-   }
-
-   private boolean movementPacketOnGround(boolean fallback, AuthoredMovementFrame frame) {
-      return frame instanceof BedrockAuthInputFrame ? fallback : fallback;
    }
 
    private static boolean canonicalBedrockGround(PredictionResult result, boolean fallback) {
@@ -1187,7 +1118,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       if (!this.player.isBedrockMovement()) {
          this.bedrockSleepingStateObserved = false;
          this.profileCarry = null;
-         MovementProfiles.forPlayer(this.player).resetQueuedAuthoredInput(this.player);
       }
    }
 

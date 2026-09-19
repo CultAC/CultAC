@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import java.util.ArrayList;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityDeltaPacket;
@@ -18,7 +19,7 @@ public final class GeyserImmediatePacketQueueTest {
         queue.add(first);
 
         dispatch.begin();
-        dispatch.finish(512, -256, BedrockTeleportProvenance.GFP_REBASE, null);
+        dispatch.finish(512, -256, new BedrockTeleportOperation(1, BedrockTeleportProvenance.GFP_REBASE, null));
         var second = new MoveEntityDeltaPacket();
         queue.add(second);
 
@@ -40,8 +41,34 @@ public final class GeyserImmediatePacketQueueTest {
         dispatch.begin();
         queue.add(packet);
         assertTrue(queue.isEmpty());
-        dispatch.finish(1024, 0, BedrockTeleportProvenance.GFP_REBASE, null);
+        dispatch.finish(1024, 0, new BedrockTeleportOperation(1, BedrockTeleportProvenance.GFP_REBASE, null));
         assertSame(packet, queue.getFirst());
         assertEquals(1024, dispatch.take(packet).frame().originX());
     }
+    @Test
+    public void nestedRebaseAndRetryRetainTheirOwnOperationAndEnqueueFrame() {
+        var dispatch = new BedrockOriginDispatch();
+        var queue = new GeyserImmediatePacketQueue(new ArrayList<>(), dispatch::enqueue);
+        var teleport = new BedrockTeleportOperation(1, BedrockTeleportProvenance.JAVA_TELEPORT, 7);
+        var rebase = new BedrockTeleportOperation(2, BedrockTeleportProvenance.GFP_REBASE, null);
+        var first = new MoveEntityDeltaPacket();
+        var nested = new MoveEntityDeltaPacket();
+        var retry = new MoveEntityDeltaPacket();
+        dispatch.withOperation(teleport, () -> {
+            queue.add(first);
+            dispatch.begin();
+            queue.add(nested);
+            dispatch.finish(4096, 0, rebase);
+        });
+        dispatch.withOperation(rebase, () -> queue.add(retry));
+        assertEquals(0, dispatch.take(first).frame().originX());
+        var nestedEmission = dispatch.take(nested);
+        var retryEmission = dispatch.take(retry);
+        assertEquals(rebase, nestedEmission.operation());
+        assertEquals(nestedEmission, retryEmission);
+        var ordinary = new MoveEntityDeltaPacket();
+        queue.add(ordinary);
+        assertNull(dispatch.take(ordinary).operation());
+    }
+
 }

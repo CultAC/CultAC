@@ -5,7 +5,7 @@ import ac.cult.cultac.events.packets.PacketPlayerJoinQuit;
 import ac.cult.cultac.events.packets.PacketPluginMessage;
 import ac.cult.cultac.events.packets.PacketServerPlayerRotation;
 import ac.cult.cultac.events.packets.PacketServerRegistries;
-import ac.cult.cultac.events.packets.listeners.BedrockAuthInputPluginMessageListener;
+import ac.cult.cultac.events.packets.listeners.GeyserTranslationListener;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.listeners.PacketConfigurationListener;
@@ -40,8 +40,8 @@ public class PacketManager implements StartableInitable {
         CheckManagerListener checkManagerListener = new CheckManagerListener();
         checkManagerListener.registerForwardingEarlyReceivePackets(registrar, PacketListenerPriority.LOW);
 
-        BedrockAuthInputPluginMessageListener bedrockAuthInputPluginMessageListener = new BedrockAuthInputPluginMessageListener();
-        registrar.registerReceiveListener(PacketListenerPriority.LOWEST, bedrockAuthInputPluginMessageListener);
+        GeyserTranslationListener geyserTranslationListener = new GeyserTranslationListener();
+        registrar.registerReceiveListener(PacketListenerPriority.LOWEST, geyserTranslationListener);
 
         PacketConfigurationListener configurationListener = new PacketConfigurationListener();
         registrar.registerReceiveListener(PacketListenerPriority.NORMAL, configurationListener);

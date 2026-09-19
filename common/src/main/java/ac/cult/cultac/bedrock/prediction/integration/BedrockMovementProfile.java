@@ -21,8 +21,8 @@ public final class BedrockMovementProfile implements MovementProfile {
     @Override
     public SimulationContext createContext(CultPlayer player, SimulationContext context, AuthoredMovementFrame authoredMovementFrame) {
         context.attachAuthoredInput(authoredMovementFrame);
-        if (player.bedrockState != null && authoredMovementFrame instanceof ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame frame) {
-            context.setBedrockAuthoritativeInputTick(player.bedrockState.authoritativeInputTick(frame));
+        if (player.bedrockState != null && authoredMovementFrame instanceof BedrockAuthInputFrame) {
+            context.setBedrockAuthoritativeInputTick(player.bedrockState.authoritativeInputTick());
         }
         return context;
     }

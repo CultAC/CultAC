@@ -147,10 +147,6 @@ public class SimulationContext {
         return hasTrustedAuthoredInput;
     }
 
-    public long getAuthoredInputTick() {
-        return bedrockInputTick;
-    }
-
     public void cacheEntityCollisionBoxesForMovementTick(List<SimpleCollisionBox> entityCollisionBoxesForMovementTick) {
         this.entityCollisionBoxesForMovementTick = entityCollisionBoxesForMovementTick;
     }

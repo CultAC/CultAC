@@ -13,9 +13,9 @@ import java.util.Set;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import java.util.UUID;
-import java.util.WeakHashMap;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
+/** Prediction and pose state belong to the player's packet executor (the local Geyser tick loop). */
 public final class BedrockPlayerState {
     public boolean acknowledgedSprinting;
     public final BedrockMovementEffects movementEffects = new BedrockMovementEffects();
@@ -28,17 +28,17 @@ public final class BedrockPlayerState {
     private BedrockProtocolVersion protocolVersion = BedrockProtocolVersion.UNKNOWN;
     private boolean setbacksEnabled = true;
     private BedrockAuthInputFrame lastOfferedFrame;
-    private long offeredAuthInputSequence;
     private BedrockAuthInputFrame lastProcessedFrame;
     private long processedAuthInputSequence;
     private long lastMovementTick = -1;
+
+    public long lastMovementTick() { return lastMovementTick; }
 
     public boolean acceptMovementTick(long tick) {
         if (tick <= lastMovementTick) return false;
         lastMovementTick = tick;
         return true;
     }
-    private final WeakHashMap<BedrockAuthInputFrame, Long> authoritativeInputSequences = new WeakHashMap<>();
     private BedrockMoveFrame lastMoveFrame;
     private String lastAuthInputMatchStatus = "no auth input processed";
     private BedrockAuthInputFrame lastPoseAppliedFrame;
@@ -93,9 +93,7 @@ public final class BedrockPlayerState {
             protocolVersion = frame.getProtocolVersion();
         }
         lastOfferedFrame = frame;
-        offeredAuthInputSequence++;
-        authoritativeInputSequences.put(frame, offeredAuthInputSequence);
-        lastAuthInputMatchStatus = "observed auth input tick=" + frame.getClientTick() + " sequence=" + offeredAuthInputSequence;
+        lastAuthInputMatchStatus = "observed auth input tick=" + frame.getClientTick();
         actions.forFrame(frame);
         applyClientPoseFrame(frame);
     }
@@ -112,7 +110,6 @@ public final class BedrockPlayerState {
         }
         lastProcessedFrame = frame;
         processedAuthInputSequence++;
-        authoritativeInputSequences.put(frame, processedAuthInputSequence);
         if (frame.isSwimming()) {
             swimmingRequested = true;
         }
@@ -127,18 +124,9 @@ public final class BedrockPlayerState {
         return processedAuthInputSequence;
     }
 
-    public long authoritativeInputTick(BedrockAuthInputFrame frame) {
-        Long sequence = authoritativeInputSequences.get(frame);
-        if (sequence != null) {
-            return sequence;
-        }
-        if (frame != null && frame == lastProcessedFrame) {
-            return processedAuthInputSequence;
-        }
-        if (frame != null && frame == lastOfferedFrame) {
-            return offeredAuthInputSequence;
-        }
-        return Math.max(processedAuthInputSequence, offeredAuthInputSequence);
+    /** Prediction runs synchronously after recordProcessedAuthInputFrame; raw client ticks cannot advance it. */
+    public long authoritativeInputTick() {
+        return processedAuthInputSequence;
     }
 
     public void clearMovementInputState() {
@@ -155,7 +143,6 @@ public final class BedrockPlayerState {
     public void clearTransientMovementInputState() {
         lastOfferedFrame = null;
         lastProcessedFrame = null;
-        authoritativeInputSequences.clear();
         lastMoveFrame = null;
         lastPoseAppliedFrame = null;
         lastPoseAppliedState = null;
@@ -163,7 +150,7 @@ public final class BedrockPlayerState {
         lastAuthInputMatchStatus = "transient auth input state cleared";
     }
 
-    public synchronized void applyAcknowledgedBoundingBoxMetadata(Float width, Float height) {
+    public void applyAcknowledgedBoundingBoxMetadata(Float width, Float height) {
         if (width == null && height == null
                 || width != null && (!Float.isFinite(width) || width <= 0.0F)
                 || height != null && (!Float.isFinite(height) || height <= 0.0F)) {
@@ -180,16 +167,16 @@ public final class BedrockPlayerState {
         }
     }
 
-    public synchronized void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming) {
+    public void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming) {
         applyAcknowledgedPoseMetadata(crawling, swimming, null, null, null);
     }
 
-    public synchronized void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming,
+    public void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming,
                                                           Boolean sneaking, Boolean spinning, Boolean sleeping) {
         applyAcknowledgedPoseMetadata(crawling, swimming, sneaking, spinning, sleeping, null);
     }
 
-    public synchronized void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming,
+    public void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming,
             Boolean sneaking, Boolean spinning, Boolean sleeping, Boolean gliding) {
         if (crawling != null) {
             trackedPoseState = trackedPoseState.withCrawling(crawling);
@@ -210,7 +197,7 @@ public final class BedrockPlayerState {
         return swimmingRequested;
     }
 
-    public synchronized BedrockMovementState applyConfirmedBoundingBoxSize(
+    public BedrockMovementState applyConfirmedBoundingBoxSize(
             BedrockMovementState source,
             BedrockInputFrame currentFrame
     ) {
@@ -222,7 +209,7 @@ public final class BedrockPlayerState {
         return source.withPlayerDimensions(currentMode, confirmedBoundingBoxSize, true);
     }
 
-    public synchronized String boundingBoxStatus() {
+    public String boundingBoxStatus() {
         return "confirmedSize=" + confirmedBoundingBoxSize;
     }
 

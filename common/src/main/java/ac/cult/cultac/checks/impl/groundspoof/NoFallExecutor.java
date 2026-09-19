@@ -24,22 +24,6 @@ public class NoFallExecutor extends Check implements CheckListener {
 
     private void handleMovePlayer(PacketReceiveEvent event, ServerboundMovePlayerPacket packet) {
         boolean forceGroundFalse = player.packetStateData.lastPacketWasTeleport;
-        Boolean bedrockCanonicalGround = player.packetStateData.consumeBedrockTranslatedCanonicalGround();
-        if (bedrockCanonicalGround != null) {
-            // Bedrock packet normalization is independent of violation level:
-            // the client authored only VERTICAL_COLLISION, while this Java bit
-            // is Geyser's projection. Forward the canonical simulated state
-            // even when the authored collision claim was legal.
-            boolean desiredGround = forceGroundFalse ? false : bedrockCanonicalGround;
-            if (desiredGround != packet.isOnGround()
-                    && !player.isDisabled()
-                    && !player.noModifyPacketPermission) {
-                event.setNmsPacket(NmsPacketUtil.withOnGround(packet, player, desiredGround));
-                event.markForReEncode(true);
-            }
-            return;
-        }
-
         // The prediction based NoFall check (that runs before us without the packet)
         // has asked us to set the player's onGround status to the ground state the
         // simulation derived, instead of blindly inverting the client's claim.

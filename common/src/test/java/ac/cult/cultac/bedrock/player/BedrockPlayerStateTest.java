@@ -27,15 +27,15 @@ public final class BedrockPlayerStateTest {
         var start = frameBuilder(1L, 0.0D).startSwimming(true).build();
         state.offerAuthInputFrame(start);
         assertFalse(state.isSwimmingRequested());
-        state.recordProcessedAuthInputFrame(start, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+        state.recordProcessedAuthInputFrame(start, BedrockPredictionTrigger.OFFLINE_REPLAY);
         assertTrue(state.isSwimmingRequested());
-        state.recordProcessedAuthInputFrame(frame(2L, 0.0D), BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+        state.recordProcessedAuthInputFrame(frame(2L, 0.0D), BedrockPredictionTrigger.OFFLINE_REPLAY);
         assertTrue(state.isSwimmingRequested());
 
         var stop = frameBuilder(3L, 0.0D).stopSwimming(true).build();
         state.offerAuthInputFrame(stop);
         assertTrue(state.isSwimmingRequested());
-        state.recordProcessedAuthInputFrame(stop, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+        state.recordProcessedAuthInputFrame(stop, BedrockPredictionTrigger.OFFLINE_REPLAY);
         assertFalse(state.isSwimmingRequested());
     }
 
@@ -102,14 +102,21 @@ public final class BedrockPlayerStateTest {
     }
 
     @Test
-    public void processedAuthInputStatusUsesPluginTrigger() {
+    public void processedAuthInputCountsMovementOnceRegardlessOfClientTick() {
         BedrockPlayerState state = new BedrockPlayerState(PLAYER_UUID);
         BedrockAuthInputFrame frame = frame(10L, 10.0D);
 
         state.offerAuthInputFrame(frame);
-        state.recordProcessedAuthInputFrame(frame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+        state.recordProcessedAuthInputFrame(frame, BedrockPredictionTrigger.OFFLINE_REPLAY);
 
-        assertTrue(state.getLastAuthInputMatchStatus().contains("processed auth input tick=10 via AUTH_INPUT_PLUGIN_MESSAGE"));
+        assertTrue(state.getLastAuthInputMatchStatus().contains("processed auth input tick=10 via OFFLINE_REPLAY"));
+        assertEquals(1L, state.authoritativeInputTick());
+        state.recordProcessedAuthInputFrame(frame, BedrockPredictionTrigger.OFFLINE_REPLAY);
+        assertEquals(1L, state.authoritativeInputTick());
+        BedrockAuthInputFrame next = frame(1000L, 10.0D);
+        state.offerAuthInputFrame(next);
+        state.recordProcessedAuthInputFrame(next, BedrockPredictionTrigger.OFFLINE_REPLAY);
+        assertEquals(2L, state.authoritativeInputTick());
     }
 
     @Test

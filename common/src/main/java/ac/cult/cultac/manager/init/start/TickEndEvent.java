@@ -20,7 +20,6 @@ public class TickEndEvent implements StartableInitable {
     private static void fireEndOfTick() {
         for (CultPlayer player : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
             if (player.isDisabled()) { continue; } // If we aren't active don't spam extra transactions
-            player.runSafely(() -> player.checkManager.getSimulationProcessor().processQueuedAuthoredInput());
             player.runSafely(() -> player.onEndOfTickEvent());
             final GhostBlockMitigator ghostBlockMitigator = player.getGhostBlockMitigator();
             ghostBlockMitigator.onEndOfTickEvent(); player.getServerStateNoSlow().tick();

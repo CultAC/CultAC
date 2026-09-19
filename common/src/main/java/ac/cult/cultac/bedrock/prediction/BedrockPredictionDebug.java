@@ -7,10 +7,12 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveVector;
+import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
+import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -20,7 +22,19 @@ import net.minecraft.world.phys.Vec3;
 import org.bukkit.ChatColor;
 
 public final class BedrockPredictionDebug {
+
     private BedrockPredictionDebug() {
+    }
+
+    public static void reportCorrectionSent(CultPlayer player, BedrockMovementCorrection correction, Vec3 reportedVelocity) {
+        var alerts = CultAPI.INSTANCE.getAlertManager();
+        if (!alerts.hasVerboseListeners()) return;
+        Vec3 difference = reportedVelocity == null ? null : correction.velocity().subtract(reportedVelocity);
+        String details = difference == null ? "rewind (unknown)" : String.format(Locale.ROOT,
+                "rewind (%.3f,%.3f,%.3f)",
+                difference.x, difference.y, difference.z);
+        alerts.sendVerbose(MessageUtil.miniMessage(MessageUtil.replacePlaceholders(player, "%prefix% "))
+                .append(net.kyori.adventure.text.Component.text(player.getName() + " " + details)), null);
     }
 
     public static BedrockMovementObservation currentObservation(CultPlayer player, PredictionResult result) {

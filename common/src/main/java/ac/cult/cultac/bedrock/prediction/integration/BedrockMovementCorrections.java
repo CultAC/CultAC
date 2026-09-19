@@ -99,6 +99,7 @@ public final class BedrockMovementCorrections {
         processedTicks++;
         var state = BedrockProfileState.previousState(commit.carry());
         if (state == null) return;
+        if (player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport()) return;
         double positionLimit = CultAPI.INSTANCE.getConfigManager().getBedrockMovementPositionFlagThreshold();
         double velocityLimit = CultAPI.INSTANCE.getConfigManager().getBedrockMovementVelocityFlagThreshold();
         boolean converged = result != null && result.getFlags().isEmpty()
@@ -121,7 +122,7 @@ public final class BedrockMovementCorrections {
                 state.collisionFlags().onGround(), state.coordinateFrame(), transaction,
                 state.isBoat() ? state.boat().angularVelocity() : null, state.isVehicle());
         pending = new Pending(correction, processedTicks);
-        if (GeyserBedrockBridgeRuntime.sendMovementCorrection(player.user, correction)) requestedTransaction = -1;
+        if (GeyserBedrockBridgeRuntime.sendMovementCorrection(player.user, correction, frame.getReportedEndOfTickVelocity())) requestedTransaction = -1;
         else pending = null;
     }
 

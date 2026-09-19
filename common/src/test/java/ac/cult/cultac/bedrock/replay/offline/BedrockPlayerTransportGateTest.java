@@ -35,7 +35,7 @@ public final class BedrockPlayerTransportGateTest {
             listener.onMovePlayer(nextTick, player, rotation);
             assertFalse(nextTick.isCancelled());
 
-            player.packetStateData.rejectBedrockTranslatedMovement(21L);
+            player.packetStateData.rejectBedrockTranslatedMovement();
             PacketReceiveEvent rejected = receiveEvent(player, rotation);
             listener.onMovePlayer(rejected, player, rotation);
             assertTrue(rejected.isCancelled());

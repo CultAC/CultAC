@@ -9,7 +9,6 @@ import org.geysermc.geyser.api.extension.Extension;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.UpstreamSession;
 import org.geysermc.mcprotocollib.network.event.session.SessionListener;
-import org.geysermc.mcprotocollib.network.event.session.PacketSendingEvent;
 import org.geysermc.mcprotocollib.network.packet.Packet;
 
 /** The only class that knows GFP Build 5's private implementation names. No GFP dependency is shaded. */
@@ -83,14 +82,6 @@ final class GfpReflection {
             (sending ? onSend : onReceived).invoke(listener, user, packetEvent);
         }
         return new Rewrite((Packet) getPacket.invoke(packetEvent), (boolean) cancelled.invoke(packetEvent));
-    }
-
-    Rewrite sending(Object user, PacketSendingEvent event, List<SessionListener> delegates) throws ReflectiveOperationException {
-        Rewrite result = rewrite(user, event.getPacket(), true);
-        event.setPacket(result.packet());
-        if (result.cancelled()) event.setCancelled(true);
-        else delegates.forEach(listener -> listener.packetSending(event));
-        return result;
     }
 
     private static Field field(Class<?> type, String name) throws NoSuchFieldException {

@@ -1,22 +1,21 @@
 package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.bedrock.protocol.BedrockAuthInputPluginMessage;
 import ac.cult.cultac.network.protocol.player.User;
 import io.netty.util.ReferenceCountUtil;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundCustomPayloadPacket;
 
-/** Keeps translated actions ahead of the next original input without blocking either transport. */
+/** Owned by Geyser's tick loop. Translation still crosses the downstream I/O loop and Java connection;
+ * the marker waits for those packets and their post-tasks before starting the next original input. */
 final class GeyserInputQueue {
-    static final String CHANNEL = BedrockAuthInputPluginMessage.CHANNEL + "/end";
-    private static final AtomicLong MARKERS = new AtomicLong();
+    // Keep this local control channel unguessable; it must never be supplied by the Bedrock client.
+    static final String CHANNEL = "cultac:geyser_translation/" + java.util.UUID.randomUUID();
     private static final int CAPACITY = 1024;
     private final GeyserSession session;
     private final Supplier<User> user;
@@ -25,6 +24,7 @@ final class GeyserInputQueue {
     private final ArrayDeque<DeferredWrite> writes = new ArrayDeque<>();
     private enum State { NEW, BINDING, READY, CLOSED }
     private State state = State.NEW;
+    private long sequence;
     private long awaiting;
 
     GeyserInputQueue(GeyserSession session, Supplier<User> user, Consumer<BedrockPacket> translate) {
@@ -36,6 +36,7 @@ final class GeyserInputQueue {
     boolean ready() { return state == State.READY; }
 
     void deferWrite(Runnable write, Runnable cancel) {
+        requireOwner();
         if (state == State.CLOSED || writes.size() >= CAPACITY) {
             cancel.run();
             if (state != State.CLOSED) fail("Bedrock initialization exceeded its queue limit");
@@ -46,17 +47,15 @@ final class GeyserInputQueue {
     }
 
     void offer(BedrockPacket packet) {
+        requireOwner();
+        if (state == State.CLOSED || pending.size() >= CAPACITY) {
+            if (state != State.CLOSED) fail("Bedrock input processing exceeded its queue limit");
+            return;
+        }
         ReferenceCountUtil.retain(packet);
-        session.ensureInEventLoop(() -> {
-            if (state == State.CLOSED || pending.size() >= CAPACITY) {
-                ReferenceCountUtil.release(packet);
-                if (state != State.CLOSED) fail("Bedrock input processing exceeded its queue limit");
-                return;
-            }
-            pending.addLast(packet);
-            bind();
-            drain();
-        });
+        pending.addLast(packet);
+        bind();
+        drain();
     }
 
     void bind() {
@@ -76,7 +75,7 @@ final class GeyserInputQueue {
         if (state != State.READY || awaiting != 0 || pending.isEmpty()) return;
         BedrockPacket packet = pending.removeFirst();
         try {
-            awaiting = MARKERS.incrementAndGet();
+            awaiting = ++sequence;
             translate.accept(packet);
             byte[] payload = ByteBuffer.allocate(8).putLong(awaiting).array();
             session.sendDownstreamPacket(markerPacket(payload));
@@ -102,7 +101,7 @@ final class GeyserInputQueue {
     }
 
     void complete(User source, byte[] payload) {
-        if (!session.getTickEventLoop().inEventLoop()) throw new IllegalStateException("Incorrect Bedrock executor");
+        requireOwner();
         if (state != State.READY || source != user.get() || payload.length != 8) return;
         ByteBuffer buffer = ByteBuffer.wrap(payload);
         long completed = buffer.getLong();
@@ -118,9 +117,14 @@ final class GeyserInputQueue {
     }
 
     void close() {
+        requireOwner();
         state = State.CLOSED;
         while (!pending.isEmpty()) ReferenceCountUtil.release(pending.removeFirst());
         while (!writes.isEmpty()) writes.removeFirst().cancel().run();
+    }
+
+    private void requireOwner() {
+        if (!session.getTickEventLoop().inEventLoop()) throw new IllegalStateException("Incorrect Bedrock executor");
     }
 
     private record DeferredWrite(Runnable write, Runnable cancel) { }

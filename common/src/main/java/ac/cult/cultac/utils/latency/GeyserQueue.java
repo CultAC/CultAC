@@ -1,6 +1,8 @@
 package ac.cult.cultac.utils.latency;
 
-/** Geyser's callback FIFO, with a cursor separating written packets from queued packets. */
+/** Geyser's callback FIFO, with a cursor separating written packets from queued packets.
+ * Geyser can register callbacks off the tick loop. Registration also precedes Cloudburst's
+ * queued write, so a shared executor alone does not establish the callback's wire order. */
 public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
     private static final class Entry {
         final Runnable callback;

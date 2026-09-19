@@ -32,17 +32,14 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
             if (authorization == null
                     || authorization.decision() == PacketStateData.BedrockTranslatedMovementDecision.REJECT) {
                 event.setCancelled(true);
-            } else if (authorization.expectedProjectedGround() != movePacket.isOnGround()) {
-                // The client cannot author this Java packet; a mismatch means
-                // the pinned Geyser projection semantics changed or ordering
-                // was corrupted. Fail the integration closed without turning
-                // server drift into a player violation.
-                event.setCancelled(true);
-                LogUtil.warn("Discarded mismatched Geyser movement projection for "
-                        + player.getName() + " at Bedrock tick " + authorization.clientTick());
             } else {
-                player.packetStateData.stageBedrockTranslatedCanonicalGround(
-                        authorization.canonicalGround());
+                // Bedrock authored collision flags, not this Java ground bit. Normalize
+                // Geyser's velocity-based projection from the already simulated frame here.
+                boolean onGround = !player.packetStateData.lastPacketWasTeleport && authorization.canonicalGround();
+                if (onGround != movePacket.isOnGround() && !player.isDisabled() && !player.noModifyPacketPermission) {
+                    event.setNmsPacket(NmsPacketUtil.withOnGround(movePacket, player, onGround));
+                    event.markForReEncode(true);
+                }
             }
         }
 

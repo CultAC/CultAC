@@ -1,5 +1,10 @@
 package ac.cult.cultac.bedrock.replay.offline;
 
+import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -191,6 +196,81 @@ public final class BedrockTransportAuthorityTest {
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
+    }
+
+    @Test
+    public void gfpTeleportRetryKeepsOriginalAuthorityAndReceiptInEitherOrder() {
+        // Capture 1789858615390: HANDLE_TELEPORT at tick 867 preceded the origin receipt;
+        // the retry at tick 876 must still complete the original Java teleport.
+        OfflineCultTestBootstrap.installConfig();
+        for (boolean receiptBeforeRetry : new boolean[]{false, true}) {
+            CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+            try {
+                var teleports = player.getSetbackTeleportUtil();
+                var origin = new BedrockCoordinateFrame(16528, 0, 3);
+                var operation = new BedrockTeleportOperation(4, BedrockTeleportProvenance.JAVA_TELEPORT, 3);
+                Vec3 localFeet = new Vec3(24.5, 62, 2.5);
+                Vec3 target = origin.toWorld(localFeet);
+                Vec3 localPacket = localFeet.add(0, 1.6200103759765625, 0);
+                teleports.addSentTeleport(target, 10, new RelativeFlag(0), true, 3);
+                var required = teleports.getRequiredSetBack();
+                player.lastTransactionReceived.set(10);
+                long first = teleports.addImmediateBedrockTransportTeleport(target, false, origin, localPacket, operation, 10);
+                var input = teleportInput(player, localFeet, localPacket);
+                assertFalse(teleports.acknowledgeBedrockTeleportFrame(teleports.resolveBedrockCoordinates(input)).isTeleport());
+                if (receiptBeforeRetry) teleports.confirmBedrockOrigin(first, operation, origin, localPacket);
+                teleports.addImmediateBedrockTransportTeleport(target, false, origin, localPacket, operation, 11);
+                if (!receiptBeforeRetry) teleports.confirmBedrockOrigin(first, operation, origin, localPacket);
+
+                var accepted = teleports.acknowledgeBedrockTeleportFrame(teleports.resolveBedrockCoordinates(input));
+                assertTrue(accepted.isTeleport());
+                assertEquals(required, accepted.getSetback());
+                assertTrue(required.isComplete());
+                assertEquals(10, accepted.getTeleportData().getTransaction());
+                assertEquals(target, accepted.getTeleportData().getLocation());
+                assertFalse(accepted.getTeleportData().preservesBedrockWorldPosition());
+                assertFalse(teleports.hasPendingBedrockTransportTeleport());
+                player.checkManager.getSimulationProcessor().applyAcceptedBedrockTeleport(accepted);
+                assertEquals(target.x, player.x, 0.001);
+                assertEquals(target.y, player.y, 0.001);
+                assertEquals(target.z, player.z, 0.001);
+            } finally {
+                OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+            }
+        }
+    }
+
+    @Test
+    public void gfpReceiptCannotProveDifferentOperationOrDestination() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            var teleports = player.getSetbackTeleportUtil();
+            var origin = new BedrockCoordinateFrame(4096, 0, 1);
+            var firstOperation = new BedrockTeleportOperation(1, BedrockTeleportProvenance.GFP_REBASE, null);
+            var secondOperation = new BedrockTeleportOperation(2, BedrockTeleportProvenance.GFP_REBASE, null);
+            Vec3 local = new Vec3(8.5, 64, 2.5);
+            Vec3 packet = local.add(0, 1.6200103759765625, 0);
+            long first = teleports.addImmediateBedrockTransportTeleport(origin.toWorld(local), false, origin, packet, firstOperation, 0);
+            // The first operation's revised target must not inherit a proof for its old target.
+            long changed = teleports.addImmediateBedrockTransportTeleport(origin.toWorld(local.add(1, 0, 0)), false,
+                    origin, packet.add(1, 0, 0), firstOperation, 0);
+            teleports.addImmediateBedrockTransportTeleport(origin.toWorld(local), false, origin, packet, secondOperation, 0);
+            teleports.confirmBedrockOrigin(first, firstOperation, origin, packet);
+            var input = teleportInput(player, local, packet);
+            assertFalse(teleports.acknowledgeBedrockTeleportFrame(teleports.resolveBedrockCoordinates(input)).isTeleport());
+            var changedInput = teleportInput(player, local.add(1, 0, 0), packet.add(1, 0, 0));
+            assertFalse(teleports.acknowledgeBedrockTeleportFrame(teleports.resolveBedrockCoordinates(changedInput)).isTeleport());
+            teleports.confirmBedrockOrigin(changed, firstOperation, origin, packet.add(1, 0, 0));
+            assertTrue(teleports.acknowledgeBedrockTeleportFrame(teleports.resolveBedrockCoordinates(changedInput)).isTeleport());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    private static BedrockAuthInputFrame teleportInput(CultPlayer player, Vec3 localFeet, Vec3 localPacket) {
+        return BedrockAuthInputFrame.builder(player.playerUUID).clientTick(876).position(localFeet)
+                .packetPosition(localPacket).rawInputFlags(1L << PlayerAuthInputData.HANDLE_TELEPORT.ordinal()).build();
     }
 
     private static void enableTransactionPackets(CultPlayer player) throws ReflectiveOperationException {

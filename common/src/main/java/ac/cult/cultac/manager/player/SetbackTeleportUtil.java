@@ -2,6 +2,7 @@ package ac.cult.cultac.manager.player;
 
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
@@ -738,6 +739,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                         && pending.getBedrockTransportRevision() >= 0L);
     }
 
+    public boolean isBedrockSetbackTransport(long revision) {
+        if (requiredSetBack == null || requiredSetBack.isPlugin()) return false;
+        return pendingTeleports.stream().anyMatch(pending -> pending.getBedrockTransportRevision() == revision
+                && !pending.isBedrockTransportOnly() && isRequiredSetbackTeleport(pending));
+    }
+
     public boolean mustAcknowledgeBedrockTransportTeleport() {
         return pendingTeleports.stream().anyMatch(pending -> !pending.isRotationOnly()
                 && pending.getBedrockTransportRevision() >= 0L
@@ -1305,30 +1312,46 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
     public long addImmediateBedrockTransportTeleport(Vec3 physicalFeetPosition, boolean onGround) {
         return addImmediateBedrockTransportTeleport(physicalFeetPosition, onGround, BedrockCoordinateFrame.IDENTITY,
-                null, BedrockTeleportProvenance.GEYSER, null, player.lastTransactionSent.get());
+                null, null, player.lastTransactionSent.get());
     }
 
     public long addImmediateBedrockTransportTeleport(Vec3 physicalFeetPosition, boolean onGround,
-            BedrockCoordinateFrame frame, Vec3 localPacketTarget, BedrockTeleportProvenance provenance,
-            Integer javaTeleportId, int proofTransaction) {
+            BedrockCoordinateFrame frame, Vec3 localPacketTarget, BedrockTeleportOperation operation,
+            int proofTransaction) {
         long revision = bedrockTeleportRevision.incrementAndGet();
-        // The Geyser write observer runs on a different event loop. Publish the entire
-        // boundary on the player's packet thread before its receipt or later auth input.
+        // Keep the complete boundary on the owning packet executor before its receipt
+        // or later auth input, including callers outside the local Geyser bridge.
         player.runSafely(() -> registerBedrockTransportTeleport(revision, physicalFeetPosition, onGround,
-                frame, localPacketTarget, provenance, javaTeleportId, proofTransaction));
+                frame, localPacketTarget, operation, proofTransaction));
         return revision;
     }
 
     private void registerBedrockTransportTeleport(long revision, Vec3 physicalFeetPosition, boolean onGround,
-            BedrockCoordinateFrame frame, Vec3 localPacketTarget, BedrockTeleportProvenance provenance,
-            Integer javaTeleportId, int proofTransaction) {
+            BedrockCoordinateFrame frame, Vec3 localPacketTarget, BedrockTeleportOperation operation,
+            int proofTransaction) {
+        BedrockTeleportProvenance provenance = operation == null ? BedrockTeleportProvenance.GEYSER : operation.provenance();
+        Integer javaTeleportId = operation == null ? null : operation.javaTeleportId();
         Vec3 clamped = VectorUtils.clampVector(physicalFeetPosition);
+        // A retry is another emission of the same operation, not a new transport-only move.
+        if (operation != null) {
+            for (TeleportData pending : pendingTeleports) {
+                if (operation.equals(pending.getBedrockOperation())) {
+                    boolean confirmed = pending.isBedrockOriginConfirmed()
+                            && sameBedrockDestination(pending, frame, localPacketTarget);
+                    pending.applyBedrockTransportBoundary(clamped, onGround, revision);
+                    applyBedrockOrigin(pending, frame, localPacketTarget);
+                    if (confirmed) pending.setBedrockOriginConfirmed(true);
+                    return;
+                }
+            }
+        }
         for (TeleportData pending : pendingTeleports) {
             if ((localPacketTarget == null || provenance == BedrockTeleportProvenance.JAVA_TELEPORT)
                     && !pending.isRotationOnly() && pending.getBedrockTransportRevision() < 0L
                     && (javaTeleportId == null || pending.getTeleportId() == javaTeleportId)) {
                 pending.applyBedrockTransportBoundary(clamped, onGround, revision);
-                applyBedrockOrigin(pending, frame, localPacketTarget, provenance);
+                pending.setBedrockOperation(operation);
+                applyBedrockOrigin(pending, frame, localPacketTarget);
                 return;
             }
         }
@@ -1343,8 +1366,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             TeleportData requiredTeleport = requiredSetBack.getTeleportData();
             TeleportData data = requiredTeleport.copyWithLocation(clamped);
             data.applyBedrockTransportBoundary(clamped, onGround, revision);
+            data.setBedrockOperation(operation);
             data.setBedrockTransportOnly(false);
-            applyBedrockOrigin(data, frame, localPacketTarget, provenance);
+            applyBedrockOrigin(data, frame, localPacketTarget);
             pendingTeleports.add(data);
             return;
         }
@@ -1362,25 +1386,36 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 0
         );
         data.setPositionOnly(true);
+        data.setBedrockOperation(operation);
         data.setBedrockOnGround(onGround);
         data.setBedrockTransportOnly(true);
         data.setBedrockTransportRevision(revision);
-        applyBedrockOrigin(data, frame, localPacketTarget, provenance);
+        applyBedrockOrigin(data, frame, localPacketTarget);
         pendingTeleports.add(data);
     }
 
-    public void confirmBedrockOrigin(long transportRevision) {
+    public void confirmBedrockOrigin(long transportRevision, BedrockTeleportOperation operation,
+                                    BedrockCoordinateFrame frame, Vec3 localPacketTarget) {
         for (TeleportData pending : pendingTeleports) {
-            if (pending.getBedrockTransportRevision() == transportRevision) pending.setBedrockOriginConfirmed(true);
+            // A receipt for an earlier identical emission still proves this operation's origin.
+            // Operation identity alone is insufficient if a later emission changed its destination.
+            if ((pending.getBedrockTransportRevision() == transportRevision
+                    || operation != null && operation.equals(pending.getBedrockOperation()))
+                    && sameBedrockDestination(pending, frame, localPacketTarget)) {
+                pending.setBedrockOriginConfirmed(true);
+            }
         }
     }
 
-    private static void applyBedrockOrigin(TeleportData data, BedrockCoordinateFrame frame, Vec3 localPacketTarget,
-                                            BedrockTeleportProvenance provenance) {
+    private static boolean sameBedrockDestination(TeleportData data, BedrockCoordinateFrame frame, Vec3 localPacketTarget) {
+        return data.getBedrockCoordinateFrame().equals(frame)
+                && java.util.Objects.equals(data.getBedrockLocalPacketTarget(), localPacketTarget);
+    }
+
+    private static void applyBedrockOrigin(TeleportData data, BedrockCoordinateFrame frame, Vec3 localPacketTarget) {
         data.setBedrockOriginConfirmed(localPacketTarget == null);
         data.setBedrockCoordinateFrame(frame);
         data.setBedrockLocalPacketTarget(localPacketTarget);
-        data.setBedrockProvenance(provenance);
     }
 
     public void addImmediatePlayerRotationTeleport(RelativeFlag flags, int proofTransaction,

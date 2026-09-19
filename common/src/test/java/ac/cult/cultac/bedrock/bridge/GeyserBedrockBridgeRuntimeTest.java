@@ -208,28 +208,6 @@ public final class GeyserBedrockBridgeRuntimeTest {
     }
 
     @Test
-    public void projectedGroundMatchesGeyserPreviousVelocityRule() {
-        assertTrue(GeyserBedrockBridgeRuntime.projectedOnGround(
-                true, false, false, false, false, false, false, -0.08F, 0.42F));
-        assertFalse(GeyserBedrockBridgeRuntime.projectedOnGround(
-                true, false, false, false, false, false, false, 0.0F, 0.42F));
-        assertFalse(GeyserBedrockBridgeRuntime.projectedOnGround(
-                false, false, false, false, false, false, false, -0.08F, 0.42F));
-    }
-
-    @Test
-    public void projectedGroundAppliesGeyserJumpVehicleAndNoClipOrdering() {
-        assertFalse(GeyserBedrockBridgeRuntime.projectedOnGround(
-                true, false, false, true, true, false, false, -0.08F, 0.42F));
-        assertFalse(GeyserBedrockBridgeRuntime.projectedOnGround(
-                true, false, false, false, false, true, true, -0.08F, 0.42F));
-        assertFalse(GeyserBedrockBridgeRuntime.projectedOnGround(
-                true, true, false, false, false, false, false, -0.08F, 0.42F));
-        assertFalse(GeyserBedrockBridgeRuntime.projectedOnGround(
-                true, false, true, false, false, false, false, -0.08F, 0.42F));
-    }
-
-    @Test
     public void everyClientVisibleMovePlayerTeleportCreatesPositionBoundary() {
         assertTrue(GeyserBedrockBridgeRuntime.isGeyserPositionTeleport(
                 MovePlayerPacket.Mode.RESPAWN));

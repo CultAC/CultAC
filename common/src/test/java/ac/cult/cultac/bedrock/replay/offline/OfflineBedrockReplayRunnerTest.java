@@ -115,7 +115,7 @@ public final class OfflineBedrockReplayRunnerTest {
     }
 
     @Test
-    public void translatedBedrockMovementRequiresEarlierAuthPluginMessage() {
+    public void translatedBedrockMovementRequiresAcceptedAuthInput() {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = offlinePlayer();
         player.x = 10.0D;
@@ -130,7 +130,7 @@ public final class OfflineBedrockReplayRunnerTest {
         new CheckManagerListener().onMovePlayer(outOfOrder, player, translatedMove);
         assertTrue(outOfOrder.isCancelled());
 
-        player.packetStateData.grantBedrockTranslatedMovementPermit(1L, true, true);
+        player.packetStateData.grantBedrockTranslatedMovementPermit(true);
         PacketReceiveEvent ordered = translatedMovementEvent(player, translatedMove);
         new CheckManagerListener().onMovePlayer(ordered, player, translatedMove);
         assertFalse(ordered.isCancelled());
@@ -139,8 +139,8 @@ public final class OfflineBedrockReplayRunnerTest {
         new CheckManagerListener().onMovePlayer(duplicated, player, translatedMove);
         assertTrue(duplicated.isCancelled());
 
-        player.packetStateData.grantBedrockTranslatedMovementPermit(2L, true, true);
-        player.packetStateData.grantBedrockTranslatedMovementPermit(2L, true, true);
+        player.packetStateData.grantBedrockTranslatedMovementPermit(true);
+        player.packetStateData.grantBedrockTranslatedMovementPermit(true);
         PacketReceiveEvent afterDuplicateProof = translatedMovementEvent(player, translatedMove);
         new CheckManagerListener().onMovePlayer(afterDuplicateProof, player, translatedMove);
         assertFalse(afterDuplicateProof.isCancelled());
@@ -168,7 +168,7 @@ public final class OfflineBedrockReplayRunnerTest {
                 new ServerboundMovePlayerPacket.StatusOnly(true, false));
 
         for (ServerboundMovePlayerPacket projection : geyserProjectionShapes) {
-            player.packetStateData.grantBedrockTranslatedMovementPermit(3L, true, true);
+            player.packetStateData.grantBedrockTranslatedMovementPermit(true);
             PacketReceiveEvent permitted = translatedMovementEvent(player, projection);
             listener.onMovePlayer(permitted, player, projection);
             assertFalse(permitted.isCancelled());
@@ -178,7 +178,7 @@ public final class OfflineBedrockReplayRunnerTest {
             assertTrue(replayed.isCancelled());
         }
 
-        player.packetStateData.grantBedrockTranslatedMovementPermit(4L, true, true);
+        player.packetStateData.grantBedrockTranslatedMovementPermit(true);
         ServerboundMovePlayerPacket.Rot rotation = new ServerboundMovePlayerPacket.Rot(
                 90.0F, 15.0F, true, false);
         PacketReceiveEvent permittedRotation = translatedMovementEvent(player, rotation);
@@ -207,7 +207,7 @@ public final class OfflineBedrockReplayRunnerTest {
         ServerboundMovePlayerPacket.Pos translatedMove = new ServerboundMovePlayerPacket.Pos(
                 10.25D, 64.0D, 20.0D, true, false);
 
-        player.packetStateData.grantBedrockTranslatedMovementPermit(5L, true, true);
+        player.packetStateData.grantBedrockTranslatedMovementPermit(true);
         PacketReceiveEvent tickEnd = new PacketReceiveEvent(
                 player.user,
                 ServerboundClientTickEndPacket.INSTANCE,
@@ -226,35 +226,21 @@ public final class OfflineBedrockReplayRunnerTest {
         CultPlayer player = offlinePlayer();
         player.getSetbackTeleportUtil().hasFullyLoaded = true;
         player.getSetbackTeleportUtil().hasFullyJoined = true;
-        ServerboundMovePlayerPacket.StatusOnly projection =
-                new ServerboundMovePlayerPacket.StatusOnly(false, false);
+        for (boolean canonicalGround : new boolean[]{false, true}) {
+            for (boolean noModify : new boolean[]{false, true}) {
+                player.noModifyPacketPermission = noModify;
+                var projection = new ServerboundMovePlayerPacket.StatusOnly(!canonicalGround, false);
+                player.packetStateData.grantBedrockTranslatedMovementPermit(canonicalGround);
+                PacketReceiveEvent event = translatedMovementEvent(player, projection);
+                new CheckManagerListener().onMovePlayer(event, player, projection);
 
-        player.packetStateData.grantBedrockTranslatedMovementPermit(42L, false, true);
-        PacketReceiveEvent event = translatedMovementEvent(player, projection);
-        new CheckManagerListener().onMovePlayer(event, player, projection);
-
-        assertFalse(event.isCancelled());
-        assertTrue(event.shouldReEncode());
-        assertTrue(((ServerboundMovePlayerPacket) event.getNmsPacket()).isOnGround());
-        closeOfflinePlayer(player);
-    }
-
-    @Test
-    public void mismatchedGeyserProjectionFailsClosedWithoutStagingCorrection() {
-        OfflineCultTestBootstrap.installConfig();
-        CultPlayer player = offlinePlayer();
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
-        player.getSetbackTeleportUtil().hasFullyJoined = true;
-        ServerboundMovePlayerPacket.StatusOnly projection =
-                new ServerboundMovePlayerPacket.StatusOnly(true, false);
-
-        player.packetStateData.grantBedrockTranslatedMovementPermit(43L, false, false);
-        PacketReceiveEvent event = translatedMovementEvent(player, projection);
-        new CheckManagerListener().onMovePlayer(event, player, projection);
-
-        assertTrue(event.isCancelled());
-        assertFalse(event.shouldReEncode());
-        assertEquals(null, player.packetStateData.consumeBedrockTranslatedCanonicalGround());
+                assertFalse(event.isCancelled());
+                assertEquals(!noModify, event.shouldReEncode());
+                assertEquals(noModify ? !canonicalGround : canonicalGround,
+                        ((ServerboundMovePlayerPacket) event.getNmsPacket()).isOnGround());
+                assertFalse(player.packetStateData.hasPendingBedrockTranslatedMovementDecision());
+            }
+        }
         closeOfflinePlayer(player);
     }
 
@@ -412,7 +398,7 @@ public final class OfflineBedrockReplayRunnerTest {
             applySprintingAttributeTransition(player, frame);
             player.bedrockState.offerAuthInputFrame(frame);
             PredictionResult result = player.checkManager.getSimulationProcessor()
-                    .processBedrockAuthInputFrame(frame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+                    .processBedrockAuthInputFrame(frame, BedrockPredictionTrigger.OFFLINE_REPLAY);
 
             assertNotNull(result);
             printReplayDebug(frame, result);
@@ -1543,15 +1529,14 @@ public final class OfflineBedrockReplayRunnerTest {
                     },
                     pillarTop, groundY));
 
-            // Technique 6: Jump with projectedOnGround=true at top
+            // Technique 6: Report a jump directly at the pillar top
             outcomes.add(attemptPillarAscent(
-                    "projected-on-ground-at-top",
+                    "jump-at-top",
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, groundPosition);
                         bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
                         BedrockAuthInputFrame frame = syntheticPillarFrameBuilder(baseTick, pillarTop, false, true, false)
-                                .projectedOnGround(true)
                                 .build();
                         p.bedrockState.offerAuthInputFrame(frame);
                         return captureAscentResult(p, frame, pillarTop, groundY);
@@ -1732,7 +1717,7 @@ public final class OfflineBedrockReplayRunnerTest {
             double groundY
     ) {
         PredictionResult result = p.checkManager.getSimulationProcessor()
-                .processBedrockAuthInputFrame(frame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+                .processBedrockAuthInputFrame(frame, BedrockPredictionTrigger.OFFLINE_REPLAY);
 
         Vec3 pos = new Vec3(p.x, p.y, p.z);
         PredictionResult.Flag movementFlag = result == null ? null : result.getFlag(BedrockMovement.class);
@@ -1847,7 +1832,7 @@ public final class OfflineBedrockReplayRunnerTest {
             BedrockAuthInputFrame acceptedFrame = syntheticPillarFrame(100, groundPos, false, false, false);
             player.bedrockState.offerAuthInputFrame(acceptedFrame);
             PredictionResult accepted = player.checkManager.getSimulationProcessor()
-                    .processBedrockAuthInputFrame(acceptedFrame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+                    .processBedrockAuthInputFrame(acceptedFrame, BedrockPredictionTrigger.OFFLINE_REPLAY);
             assertNotNull(accepted);
             // The first frame may or may not flag, depending on ground state.
             // Accept it even if flagged for the exploit test.
@@ -1869,7 +1854,7 @@ public final class OfflineBedrockReplayRunnerTest {
             BedrockAuthInputFrame exploitFrame = syntheticPillarFrame(100, pillarTop, false, true, true);
             player.bedrockState.offerAuthInputFrame(exploitFrame);
             PredictionResult exploitResult = player.checkManager.getSimulationProcessor()
-                    .processBedrockAuthInputFrame(exploitFrame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+                    .processBedrockAuthInputFrame(exploitFrame, BedrockPredictionTrigger.OFFLINE_REPLAY);
             assertNotNull(exploitResult);
 
             Vec3 postExploitPos = new Vec3(player.x, player.y, player.z);
@@ -1969,7 +1954,7 @@ public final class OfflineBedrockReplayRunnerTest {
             BedrockAuthInputFrame exploitFrame = syntheticPillarFrame(100, pillarTop, false, true, true);
             player.bedrockState.offerAuthInputFrame(exploitFrame);
             PredictionResult exploitResult = player.checkManager.getSimulationProcessor()
-                    .processBedrockAuthInputFrame(exploitFrame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+                    .processBedrockAuthInputFrame(exploitFrame, BedrockPredictionTrigger.OFFLINE_REPLAY);
             assertNotNull(exploitResult);
 
             Vec3 postExploitPos = new Vec3(player.x, player.y, player.z);
@@ -2020,7 +2005,7 @@ public final class OfflineBedrockReplayRunnerTest {
             BedrockAuthInputFrame seedFrame = syntheticPillarFrame(0, groundPos, false, false, false);
             player.bedrockState.offerAuthInputFrame(seedFrame);
             player.checkManager.getSimulationProcessor()
-                    .processBedrockAuthInputFrame(seedFrame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+                    .processBedrockAuthInputFrame(seedFrame, BedrockPredictionTrigger.OFFLINE_REPLAY);
 
             // authorityMode is bridge metadata, not simulation input. Even a
             // missing label must run the same movement prediction.
@@ -2030,7 +2015,7 @@ public final class OfflineBedrockReplayRunnerTest {
 
             player.bedrockState.offerAuthInputFrame(exploitFrame);
             PredictionResult exploitResult = player.checkManager.getSimulationProcessor()
-                    .processBedrockAuthInputFrame(exploitFrame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE);
+                    .processBedrockAuthInputFrame(exploitFrame, BedrockPredictionTrigger.OFFLINE_REPLAY);
             assertNotNull(exploitResult);
             assertTrue(exploitResult.hasFlag(BedrockMovement.class));
             assertTrue(player.getSetbackTeleportUtil().isPendingSetback());

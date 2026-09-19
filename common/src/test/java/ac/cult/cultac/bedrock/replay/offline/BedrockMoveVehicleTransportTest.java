@@ -37,7 +37,7 @@ public final class BedrockMoveVehicleTransportTest {
             assertTrue(fallback.isCancelled());
             assertFalse(player.packetStateData.hasPendingBedrockTranslatedMovementDecision());
 
-            player.packetStateData.grantBedrockVehicleMovementPermit(42, 71, position, true);
+            player.packetStateData.grantBedrockVehicleMovementPermit(71, position);
             var accepted = receiveEvent(player, packet);
             new CheckManagerListener().onMoveVehicle(accepted, player, packet);
             assertFalse(accepted.isCancelled());
@@ -60,20 +60,20 @@ public final class BedrockMoveVehicleTransportTest {
             var listener = new CheckManagerListener();
             Vec3 position = new Vec3(2.0F, 64.0F, 3.0F);
             var packet = vehiclePacket(position);
-            player.packetStateData.grantBedrockVehicleMovementPermit(42, 71, position, true);
+            player.packetStateData.grantBedrockVehicleMovementPermit(71, position);
             var tickEnd = ServerboundClientTickEndPacket.INSTANCE;
             listener.onClientTickEnd(new PacketReceiveEvent(player.user, tickEnd, ConnectionProtocol.PLAY), player, tickEnd);
             var nextTick = receiveEvent(player, packet);
             listener.onMoveVehicle(nextTick, player, packet);
             assertTrue(nextTick.isCancelled());
 
-            player.packetStateData.grantBedrockVehicleMovementPermit(43, 72, position, true);
+            player.packetStateData.grantBedrockVehicleMovementPermit(72, position);
             var wrongHorse = receiveEvent(player, packet);
             listener.onMoveVehicle(wrongHorse, player, packet);
             assertTrue(wrongHorse.isCancelled());
             assertFalse(player.packetStateData.hasPendingBedrockTranslatedMovementDecision());
 
-            player.packetStateData.grantBedrockVehicleMovementPermit(43, 71, position, true);
+            player.packetStateData.grantBedrockVehicleMovementPermit(71, position);
             var displacedPacket = vehiclePacket(position.add(1.0D, 0.0D, 0.0D));
             var wrongPosition = receiveEvent(player, displacedPacket);
             listener.onMoveVehicle(wrongPosition, player, displacedPacket);
@@ -125,7 +125,7 @@ public final class BedrockMoveVehicleTransportTest {
             assertTrue(unvalidated.isCancelled());
 
             Vec3 position = NmsPacketUtil.readMoveVehicle(packet).position();
-            player.packetStateData.grantBedrockVehicleMovementPermit(42, 71, position, true);
+            player.packetStateData.grantBedrockVehicleMovementPermit(71, position);
             var validated = receiveEvent(player, packet);
             new CheckManagerListener().onMoveVehicle(validated, player, packet);
             assertFalse(validated.isCancelled());
@@ -194,7 +194,7 @@ public final class BedrockMoveVehicleTransportTest {
                     .predictedVehicleId(-1L)
                     .build();
             assertNull(player.checkManager.getSimulationProcessor().processBedrockAuthInputFrame(
-                    frame, BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE));
+                    frame, BedrockPredictionTrigger.OFFLINE_REPLAY));
             assertTrue(player.packetStateData.hasPendingRejectedBedrockTranslatedMovement());
 
             ServerboundMoveVehiclePacket packet = vehiclePacket(new Vec3(0.0D, 80.0D, 0.0D));
@@ -267,7 +267,7 @@ public final class BedrockMoveVehicleTransportTest {
             int vehicleId = 53;
             player.compensatedEntities.vehicles.setServerVehicle(
                     vehicleId, new int[]{player.entityID}, player.lastTransactionSent.get());
-            player.packetStateData.rejectBedrockTranslatedMovement(42L);
+            player.packetStateData.rejectBedrockTranslatedMovement();
             ServerboundMoveVehiclePacket packet = vehiclePacket(
                     new Vec3(2.0D, 64.0D, 3.0D));
             PacketReceiveEvent event = receiveEvent(player, packet);

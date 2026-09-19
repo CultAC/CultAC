@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -13,6 +14,7 @@ import org.geysermc.geyser.api.GeyserApi;
 import org.geysermc.geyser.api.extension.Extension;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.UpstreamSession;
+import org.geysermc.geyser.session.cache.TeleportCache;
 import org.geysermc.mcprotocollib.network.Session;
 import org.geysermc.mcprotocollib.network.event.session.*;
 import org.geysermc.mcprotocollib.network.packet.Packet;
@@ -21,7 +23,9 @@ import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.level.Serve
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.ServerboundMovePlayerPosPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.ServerboundMovePlayerPosRotPacket;
 
-/** Optional local-Geyser integration for oryxel1 GFP 2.0 Build 5 (9f242a3). */
+/** Optional local-Geyser integration for oryxel1 GFP 2.0 Build 5 (9f242a3).
+ * The tick loop receives/translates packets, but MCProtocolLib's packetSending hook runs on
+ * the downstream I/O loop. The adapter lock protects dispatch metadata across that boundary. */
 final class GeyserFloatingPointsAdapter {
     private final GeyserSession session;
     private final GfpReflection reflection;
@@ -35,6 +39,35 @@ final class GeyserFloatingPointsAdapter {
     private UpstreamHook upstreamHook;
     private JavaHook javaHook;
     private boolean closed;
+    private long operationSequence;
+    private TeleportCache teleportCache;
+    private BedrockTeleportOperation cacheOperation;
+
+    private BedrockTeleportOperation newOperation(BedrockTeleportProvenance source, Integer javaId) {
+        return new BedrockTeleportOperation(++operationSequence, source, javaId);
+    }
+
+    private void bindTeleportCache(TeleportCache before, BedrockTeleportOperation operation) {
+        TeleportCache after = session.getUnconfirmedTeleport();
+        // A nested rewrite may already have installed and associated a newer cache.
+        if (after != before && after != teleportCache) {
+            teleportCache = after;
+            cacheOperation = after == null ? null : operation;
+        }
+    }
+
+    synchronized void withTeleportRetry(Runnable action) {
+        TeleportCache current = session.getUnconfirmedTeleport();
+        if (current != teleportCache) {
+            teleportCache = null;
+            cacheOperation = null;
+        }
+        dispatch.withOperation(current == null ? null : cacheOperation, action);
+        if (session.getUnconfirmedTeleport() == null) {
+            teleportCache = null;
+            cacheOperation = null;
+        }
+    }
 
     static boolean present() {
         return ac.cult.cultac.utils.floodgate.GeyserUtil.isGeyserAvailable()
@@ -126,6 +159,8 @@ final class GeyserFloatingPointsAdapter {
 
     synchronized void close() {
         closed = true;
+        teleportCache = null;
+        cacheOperation = null;
         dispatch.clear();
         try {
             if (session.getQueuedImmediatelyPackets() == immediatePacketsHook) {
@@ -218,18 +253,20 @@ final class GeyserFloatingPointsAdapter {
             session.ensureInEventLoop(() -> {
                 synchronized (GeyserFloatingPointsAdapter.this) {
                     if (closed) return;
+                    TeleportCache beforeCache = session.getUnconfirmedTeleport();
+                    Integer id = packet instanceof ClientboundPlayerPositionPacket teleport ? teleport.getId() : null;
+                    BedrockTeleportOperation operation = id == null ? null
+                            : newOperation(BedrockTeleportProvenance.JAVA_TELEPORT, id);
                     dispatch.begin();
                     try {
                         GfpReflection.Rewrite result = reflection.rewrite(user, packet, false);
                         Vector3i offset = reflection.offset(user);
-                        Integer id = packet instanceof ClientboundPlayerPositionPacket teleport ? teleport.getId() : null;
-                        BedrockTeleportProvenance source = id == null
-                                ? BedrockTeleportProvenance.GEYSER : BedrockTeleportProvenance.JAVA_TELEPORT;
-                        dispatch.finish(offset.getX(), offset.getZ(), source, id);
+                        dispatch.finish(offset.getX(), offset.getZ(), operation);
                         // Rewriting has completed. Geyser may synchronously send a Java echo which
                         // triggers another GFP rebase; earlier emissions must retain this origin.
-                        if (!result.cancelled()) dispatch.withContext(source, id,
+                        if (!result.cancelled()) dispatch.withOperation(operation,
                                 () -> delegates.forEach(l -> l.packetReceived(downstream, result.packet())));
+                        bindTeleportCache(beforeCache, operation);
                     } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
                         dispatch.clear();
                         fail(failure);
@@ -241,17 +278,25 @@ final class GeyserFloatingPointsAdapter {
         @Override public void packetSending(PacketSendingEvent event) {
             synchronized (GeyserFloatingPointsAdapter.this) {
                 if (closed) { event.setCancelled(true); return; }
+                TeleportCache beforeCache = session.getUnconfirmedTeleport();
                 dispatch.begin();
                 try {
                     Packet originalPacket = event.getPacket();
+                    Vector3i beforeOffset = reflection.offset(user);
                     // Build 5 omits this propagation and otherwise leaks cancelled, unshifted projections.
-                    GfpReflection.Rewrite result = reflection.sending(user, event, delegates);
+                    GfpReflection.Rewrite result = reflection.rewrite(user, originalPacket, true);
+                    event.setPacket(result.packet());
+                    if (result.cancelled()) event.setCancelled(true);
                     Vector3i offset = reflection.offset(user);
-                    boolean rebase = result.cancelled() && (originalPacket instanceof ServerboundMovePlayerPosPacket
+                    boolean rebase = !offset.equals(beforeOffset) && result.cancelled() && (originalPacket instanceof ServerboundMovePlayerPosPacket
                             || originalPacket instanceof ServerboundMovePlayerPosRotPacket
                             || originalPacket instanceof ServerboundMoveVehiclePacket);
-                    dispatch.finish(offset.getX(), offset.getZ(), rebase
-                            ? BedrockTeleportProvenance.GFP_REBASE : BedrockTeleportProvenance.GEYSER, null);
+                    BedrockTeleportOperation operation = rebase
+                            ? newOperation(BedrockTeleportProvenance.GFP_REBASE, null) : null;
+                    dispatch.finish(offset.getX(), offset.getZ(), operation);
+                    bindTeleportCache(beforeCache, operation);
+                    // Finalize this rewrite before a delegate can synchronously cause another one.
+                    if (!result.cancelled()) delegates.forEach(listener -> listener.packetSending(event));
                 } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
                     event.setCancelled(true);
                     dispatch.clear();

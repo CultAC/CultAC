@@ -16,37 +16,6 @@ public interface MovementProfile {
         return defaultStart;
     }
 
-    default void resetQueuedAuthoredInput(CultPlayer player) {
-    }
-
-    default boolean hasQueuedAuthoredInput(CultPlayer player) {
-        return false;
-    }
-
-    default AuthoredMovementFrame pollQueuedAuthoredInput(CultPlayer player) {
-        return null;
-    }
-
-    default AuthoredMovementFrame pollQueuedAuthoredInputBefore(CultPlayer player, AuthoredMovementFrame boundaryFrame) {
-        return null;
-    }
-
-    default AuthoredMovementFrame peekQueuedAuthoredInputFor(CultPlayer player, Vec3 translatedPosition) {
-        return null;
-    }
-
-    default AuthoredMovementFrame pollQueuedAuthoredInputFor(CultPlayer player, Vec3 translatedPosition) {
-        return null;
-    }
-
-    default boolean shouldProcessQueuedAuthoredInputWithoutPosition(CultPlayer player) {
-        return false;
-    }
-
-    default boolean shouldProcessQueuedAuthoredInputBeforeBoundary(CultPlayer player, AuthoredMovementFrame boundaryFrame) {
-        return true;
-    }
-
     default boolean shouldRunPseudoCheck(Class<?> checkClass) {
         return true;
     }

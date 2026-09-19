@@ -1,6 +1,9 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
@@ -149,6 +152,26 @@ public final class BedrockMovementEngineTest {
         assertEquals(Vec3d.ZERO, entries.get(0).state().velocity());
         assertEquals(Vec3d.ZERO, entries.get(1).state().velocity());
         assertEquals(Set.of(Vec3.ZERO), rebased.startingVelocities());
+    }
+
+    @Test
+    public void gfpRebasePreservesWorldPositionButJavaTeleportAppliesItsDestination() {
+        var original = state(new Vec3d(10, 64, 20), new Vec3d(0.1, 0, 0), BedrockCollisionFlags.ON_GROUND);
+        var origin = new BedrockCoordinateFrame(4096, 0, 1);
+        for (var source : new BedrockTeleportProvenance[]{
+                BedrockTeleportProvenance.GFP_REBASE,
+                BedrockTeleportProvenance.JAVA_TELEPORT}) {
+            var teleport = new TeleportData(new Vec3(4106, 64, 20), new RelativeFlag(0), Vec3.ZERO, 1, 7);
+            teleport.setBedrockTransportOnly(true);
+            teleport.setBedrockCoordinateFrame(origin);
+            teleport.setBedrockOperation(new BedrockTeleportOperation(1, source, 7));
+            var commit = BedrockMovementEngine.INSTANCE.applyTeleportToCarry(commit(original).carry(), teleport);
+            var result = ((BedrockNextTickStates) commit.carry()).profileEntries().getFirst().state();
+            assertEquals(source == BedrockTeleportProvenance.GFP_REBASE
+                    ? original.physicalFeetPosition() : new Vec3d(4106, 64, 20), result.physicalFeetPosition());
+            assertEquals(origin, result.coordinateFrame());
+            assertEquals(Vec3d.ZERO, result.velocity());
+        }
     }
 
     private static PredictionCommit commit(BedrockMovementState... states) {

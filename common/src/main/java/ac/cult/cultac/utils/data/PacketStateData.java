@@ -18,7 +18,6 @@ public class PacketStateData {
     // Geyser forwards each auth frame before its movement. A horse move
     // precedes the rider's rotation; tick-end closes frames without movement.
     private BedrockTranslatedMovementAuthorization bedrockTranslatedMovementAuthorization;
-    private Boolean bedrockTranslatedCanonicalGround;
     private Boolean desiredOnGround;
     // ServerboundPlayerLoadedPacket is the client-visible post-load boundary for modern clients.
     public boolean playerLoadedIntoLevel = false;
@@ -61,41 +60,28 @@ public class PacketStateData {
         return vehicleMovementFromClientTick;
     }
 
-    public void grantBedrockTranslatedMovementPermit(
-            long clientTick,
-            boolean expectedProjectedGround,
-            boolean canonicalGround
-    ) {
+    public void grantBedrockTranslatedMovementPermit(boolean canonicalGround) {
         offerBedrockTranslatedMovementDecision(new BedrockTranslatedMovementAuthorization(
-                clientTick,
-                BedrockTranslatedMovementDecision.ACCEPT,
-                expectedProjectedGround,
-                canonicalGround));
+                BedrockTranslatedMovementDecision.ACCEPT, canonicalGround, null, null));
     }
 
-    public void rejectBedrockTranslatedMovement(long clientTick) {
+    public void rejectBedrockTranslatedMovement() {
         offerBedrockTranslatedMovementDecision(new BedrockTranslatedMovementAuthorization(
-                clientTick,
-                BedrockTranslatedMovementDecision.REJECT,
-                false,
-                false));
+                BedrockTranslatedMovementDecision.REJECT, false, null, null));
     }
 
-    public void grantBedrockVehicleMovementPermit(long clientTick, int entityId, Vec3 position, boolean onGround) {
+    public void grantBedrockVehicleMovementPermit(int entityId, Vec3 position) {
         offerBedrockTranslatedMovementDecision(new BedrockTranslatedMovementAuthorization(
-                clientTick, BedrockTranslatedMovementDecision.ACCEPT, false, onGround, entityId, position));
+                BedrockTranslatedMovementDecision.ACCEPT, false, entityId, position));
     }
 
-    private boolean offerBedrockTranslatedMovementDecision(
+    private void offerBedrockTranslatedMovementDecision(
             BedrockTranslatedMovementAuthorization authorization
     ) {
         // Preserve the first decision until movement or the next frame boundary.
         if (bedrockTranslatedMovementAuthorization == null) {
             bedrockTranslatedMovementAuthorization = authorization;
-            bedrockTranslatedCanonicalGround = null;
-            return true;
         }
-        return false;
     }
 
     public BedrockTranslatedMovementAuthorization consumeBedrockTranslatedMovementPermit() {
@@ -114,20 +100,6 @@ public class PacketStateData {
         return bedrockTranslatedMovementAuthorization != null;
     }
 
-    public void stageBedrockTranslatedCanonicalGround(boolean canonicalGround) {
-        bedrockTranslatedCanonicalGround = canonicalGround;
-    }
-
-    public Boolean consumeBedrockTranslatedCanonicalGround() {
-        Boolean canonicalGround = bedrockTranslatedCanonicalGround;
-        bedrockTranslatedCanonicalGround = null;
-        return canonicalGround;
-    }
-
-    public void clearBedrockTranslatedCanonicalGround() {
-        bedrockTranslatedCanonicalGround = null;
-    }
-
     public void stageDesiredOnGround(boolean onGround) {
         desiredOnGround = onGround;
     }
@@ -144,21 +116,14 @@ public class PacketStateData {
 
     public void clearBedrockTranslatedMovementPermit() {
         bedrockTranslatedMovementAuthorization = null;
-        bedrockTranslatedCanonicalGround = null;
     }
 
     public record BedrockTranslatedMovementAuthorization(
-            long clientTick,
             BedrockTranslatedMovementDecision decision,
-            boolean expectedProjectedGround,
             boolean canonicalGround,
             Integer vehicleEntityId,
             Vec3 vehiclePosition
     ) {
-        public BedrockTranslatedMovementAuthorization(long tick, BedrockTranslatedMovementDecision decision,
-                                                      boolean projectedGround, boolean canonicalGround) {
-            this(tick, decision, projectedGround, canonicalGround, null, null);
-        }
     }
 
     public enum BedrockTranslatedMovementDecision {

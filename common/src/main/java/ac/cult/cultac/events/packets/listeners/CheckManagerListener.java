@@ -1153,7 +1153,6 @@ public class CheckManagerListener {
         player.packetStateData.lastPacketWasOnePointSeventeenDuplicate = false;
         player.packetStateData.lastPacketMatchedTeleportPosition = false;
         player.packetStateData.lastPacketProvenVehiclePhysicalMovement = null;
-        player.packetStateData.clearBedrockTranslatedCanonicalGround();
         player.packetStateData.clearDesiredOnGround();
     }
 

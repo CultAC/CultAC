@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
@@ -17,7 +18,17 @@ public class TeleportData {
     @Setter
     Vec3 bedrockLocalPacketTarget;
     @Setter
-    BedrockTeleportProvenance bedrockProvenance = BedrockTeleportProvenance.GEYSER;
+    BedrockTeleportOperation bedrockOperation;
+
+    public BedrockTeleportProvenance getBedrockProvenance() {
+        return bedrockOperation == null ? BedrockTeleportProvenance.GEYSER : bedrockOperation.provenance();
+    }
+
+    public boolean preservesBedrockWorldPosition() {
+        // An unowned Geyser correction can only reset the validated carry. A server teleport,
+        // including its retries, must apply its emitted destination even if its Java echo was consumed.
+        return bedrockOperation == null ? bedrockTransportOnly : !bedrockOperation.changesWorldPosition();
+    }
     Vec3 location;
     RelativeFlag flags;
     Vec3 deltaMovement;
@@ -76,7 +87,6 @@ public class TeleportData {
         copy.bedrockOriginConfirmed = bedrockOriginConfirmed;
         copy.bedrockCoordinateFrame = bedrockCoordinateFrame;
         copy.bedrockLocalPacketTarget = bedrockLocalPacketTarget;
-        copy.bedrockProvenance = bedrockProvenance;
         copy.positionOnly = positionOnly;
         copy.rotationOnly = rotationOnly;
         copy.sentWhileVehicle = sentWhileVehicle;
@@ -84,6 +94,7 @@ public class TeleportData {
         copy.bedrockOnGround = bedrockOnGround;
         copy.bedrockTransportOnly = bedrockTransportOnly;
         copy.bedrockTransportRevision = bedrockTransportRevision;
+        copy.bedrockOperation = bedrockOperation;
         return copy;
     }
 

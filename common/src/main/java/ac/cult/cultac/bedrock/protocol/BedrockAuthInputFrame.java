@@ -26,7 +26,6 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
     private final BedrockMoveVector moveVector;
     private final long rawInputFlags;
     private final long rawInputFlagsHigh;
-    private final boolean projectedOnGround;
     private final boolean jumping;
     private final boolean jumpStarted;
     private final boolean jumpPressedRaw;
@@ -71,7 +70,6 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         this.moveVector = builder.moveVector;
         this.rawInputFlags = builder.rawInputFlags;
         this.rawInputFlagsHigh = builder.rawInputFlagsHigh;
-        this.projectedOnGround = builder.projectedOnGround;
         this.jumping = builder.jumping;
         this.jumpStarted = builder.jumpStarted;
         this.jumpPressedRaw = builder.jumpPressedRaw;
@@ -116,7 +114,6 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         this.moveVector = source.moveVector;
         this.rawInputFlags = source.rawInputFlags;
         this.rawInputFlagsHigh = source.rawInputFlagsHigh;
-        this.projectedOnGround = source.projectedOnGround;
         this.jumping = source.jumping;
         this.jumpStarted = source.jumpStarted;
         this.jumpPressedRaw = source.jumpPressedRaw;
@@ -229,10 +226,6 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
 
     public long getRawInputFlagsHigh() {
         return rawInputFlagsHigh;
-    }
-
-    public boolean isProjectedOnGround() {
-        return projectedOnGround;
     }
 
     public boolean hasRawInputFlag(PlayerAuthInputData input) {
@@ -359,7 +352,6 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
                 && Objects.equals(moveVector, other.moveVector)
                 && rawInputFlags == other.rawInputFlags
                 && rawInputFlagsHigh == other.rawInputFlagsHigh
-                && projectedOnGround == other.projectedOnGround
                 && jumping == other.jumping
                 && jumpStarted == other.jumpStarted
                 && jumpPressedRaw == other.jumpPressedRaw
@@ -404,7 +396,6 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         private BedrockMoveVector moveVector;
         private long rawInputFlags;
         private long rawInputFlagsHigh;
-        private boolean projectedOnGround;
         private boolean jumping;
         private boolean jumpStarted;
         private boolean jumpPressedRaw;
@@ -505,11 +496,6 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
 
         public Builder rawInputFlagsHigh(long rawInputFlagsHigh) {
             this.rawInputFlagsHigh = rawInputFlagsHigh;
-            return this;
-        }
-
-        public Builder projectedOnGround(boolean projectedOnGround) {
-            this.projectedOnGround = projectedOnGround;
             return this;
         }
 

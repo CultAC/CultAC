@@ -374,8 +374,8 @@ public final class BedrockMovementEngine implements MovementEngine {
             // enters through the existing packet modifiers, not Java teleport delta flags.
             Vec3d velocity = Vec3d.ZERO;
             BedrockMovementState rebased = restoreCorrectedState(state,
-                teleport.isBedrockTransportOnly() ? state.physicalFeetPosition() : position, velocity);
-            if (!teleport.isBedrockTransportOnly() && teleport.getBedrockOnGround() != null) {
+                teleport.preservesBedrockWorldPosition() ? state.physicalFeetPosition() : position, velocity);
+            if (!teleport.preservesBedrockWorldPosition() && teleport.getBedrockOnGround() != null) {
 
                 rebased = rebased.withVelocityAndCollisionFlags(
                     rebased.velocity(), rebased.collisionFlags().withTeleportOnGround(teleport.getBedrockOnGround())

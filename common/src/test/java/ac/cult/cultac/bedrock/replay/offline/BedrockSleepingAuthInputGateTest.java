@@ -33,7 +33,7 @@ public final class BedrockSleepingAuthInputGateTest {
 
         assertNull(simulation.processBedrockAuthInputFrame(
                 frame,
-                BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE));
+                BedrockPredictionTrigger.OFFLINE_REPLAY));
         assertEquals(3.0D, player.x, 0.0D);
         assertEquals(64.0D, player.y, 0.0D);
         assertEquals(-2.0D, player.z, 0.0D);
