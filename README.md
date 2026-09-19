@@ -53,7 +53,7 @@ Install JDK 25 and Git, and set `JAVA_HOME` to the JDK 25 installation.
 
 1. `git clone https://github.com/CultAC/CultAC.git`
 2. `cd` into the cloned directory
-3. `./gradlew build`
+3. `./gradlew shadowJar`
 4. The final jar is at `bukkit/build/libs/`
 
 Normal builds use the checked-in Bedrock collision catalog. Generator code is maintained
