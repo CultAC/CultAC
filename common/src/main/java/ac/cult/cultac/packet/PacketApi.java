@@ -1,5 +1,6 @@
 package ac.cult.cultac.packet;
 
+import ac.cult.cultac.network.protocol.util.FoliaCompatUtil;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import net.kyori.adventure.key.Key;
@@ -258,12 +259,21 @@ public final class PacketApi {
                     if (kickForPacketErrors && plugin != null) {
                         plugin.getLogger().log(Level.SEVERE,
                                 "Error handling packet " + packet.getClass().getSimpleName() + ", kicking player!", exception);
-                        Bukkit.getScheduler().callSyncMethod(plugin, () -> {
-                            context.connection().disconnect(
-                                    Component.literal("An error occurred while parsing packets").withStyle(ChatFormatting.RED)
-                            );
-                            return null;
-                        });
+                        Runnable disconnect = () -> context.connection().disconnect(
+                                Component.literal("An error occurred while parsing packets").withStyle(ChatFormatting.RED)
+                        );
+
+                        // Disconnect via the entity's scheduler so this works off the server thread
+                        // on region-threaded servers; Connection#disconnect is Netty-safe when there
+                        // is no player entity to schedule against yet (login phase).
+                        Player player = context.connection().getPlayer() == null
+                                ? null
+                                : context.connection().getPlayer().getBukkitEntity();
+                        if (player == null) {
+                            disconnect.run();
+                        } else {
+                            FoliaCompatUtil.runTaskForEntity(player, plugin, disconnect, null, 0);
+                        }
                         return;
                     }
 
