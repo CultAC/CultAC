@@ -11,7 +11,7 @@ final class BedrockHorizontalSpeedControl {
     private static final double SOUL_SPEED_BASE_BOOST = 0.03D;
     private static final double SOUL_SPEED_BOOST_PER_LEVEL_SCALE = 0.35D;
     private static final double SOUL_SPEED_MOVING_GATE_THRESHOLD = 0.001D;
-    private static final double DRY_AIR_TRAVEL_SPEED = 0.019999999552965164D;
+    private static final float PLAYER_AIR_TRAVEL_SPEED = 0.02F;
     private static final float SOUL_SAND_NO_SOUL_SPEED_FRICTION_MULTIPLIER = 1.225F;
 
     private BedrockHorizontalSpeedControl() {
@@ -20,13 +20,14 @@ final class BedrockHorizontalSpeedControl {
     static double baseMovementSpeed(
         boolean horizontalAttributeSpeed,
         boolean dryAirTravelSpeed,
-        double baseMovementSpeed
+        double baseMovementSpeed,
+        float airMovementSpeed
     ) {
         if (horizontalAttributeSpeed) {
             return baseMovementSpeed;
         }
         return dryAirTravelSpeed
-            ? DRY_AIR_TRAVEL_SPEED
+            ? airMovementSpeed
             : AttributeState.DEFAULT_BASE_MOVEMENT_SPEED;
     }
 
@@ -43,15 +44,20 @@ final class BedrockHorizontalSpeedControl {
         int soulSpeedLevel = equipmentState.soulSpeedLevel();
         boolean horizontalAttributeSpeed = !ordinaryAirborne && !inLava;
         boolean dryAirTravelSpeed = !horizontalAttributeSpeed && !inWater && !inLava;
+        float airMovementSpeed = current.isHorse()
+            ? (float) attributeState.baseMovementSpeed() * 0.1F
+            : PLAYER_AIR_TRAVEL_SPEED;
         double movementSpeed = baseMovementSpeed(
             horizontalAttributeSpeed,
             dryAirTravelSpeed,
-            attributeState.baseMovementSpeed()
+            attributeState.baseMovementSpeed(),
+            airMovementSpeed
         );
-        double inputRadiusMovementSpeed = inputRadiusMovementSpeed(
+        double inputRadiusMovementSpeed = baseMovementSpeed(
             horizontalAttributeSpeed,
             dryAirTravelSpeed,
-            attributeState
+            attributeState.horizontalInputBaseMovementSpeed(),
+            airMovementSpeed
         );
         movementSpeed = speedWithSoulSpeedBoost(
             movementSpeed,
@@ -83,19 +89,6 @@ final class BedrockHorizontalSpeedControl {
             horizontalAttributeSpeed,
             dryAirTravelSpeed,
             soulSpeedLevel > 0);
-    }
-
-    private static double inputRadiusMovementSpeed(
-        boolean horizontalAttributeSpeed,
-        boolean dryAirTravelSpeed,
-        AttributeState attributeState
-    ) {
-        if (horizontalAttributeSpeed) {
-            return attributeState.horizontalInputBaseMovementSpeed();
-        }
-        return dryAirTravelSpeed
-            ? DRY_AIR_TRAVEL_SPEED
-            : AttributeState.DEFAULT_BASE_MOVEMENT_SPEED;
     }
 
     static double speedWithSoulSpeedBoost(

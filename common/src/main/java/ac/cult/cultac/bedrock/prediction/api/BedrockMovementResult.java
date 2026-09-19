@@ -57,6 +57,11 @@ public record BedrockMovementResult(
         return predictedState.velocity();
     }
 
+    public double horizontalInputRadius() {
+        // Player input is damped before travel; horse steering is not.
+        return previousState.isHorse() ? horizontalInputLimit : horizontalInputLimit * 0.98F;
+    }
+
     public boolean blockMovementSlowdownClearsVelocity() {
         return currentBlockMovementSlowdownState.clearVelocityAfterMove();
     }

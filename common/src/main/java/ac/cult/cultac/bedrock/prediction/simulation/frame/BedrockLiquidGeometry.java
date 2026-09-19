@@ -106,7 +106,7 @@ public final class BedrockLiquidGeometry {
     }
 
     // Keep each operation in float; rounding only the final result changes boundaries.
-    private static float liquidPointSurfaceY(PlacedBlockCollision block) {
+    public static float liquidPointSurfaceY(PlacedBlockCollision block) {
         int depth = liquidDepth(block).orElse(0);
         float height = (depth < 8 ? depth + 1 : 1) / 9.0F;
         return (float) (block.position().y() + 1) - (height - 1.0F / 9.0F);

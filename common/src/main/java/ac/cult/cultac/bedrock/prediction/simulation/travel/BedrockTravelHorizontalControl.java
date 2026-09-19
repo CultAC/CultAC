@@ -113,13 +113,15 @@ public final class BedrockTravelHorizontalControl {
             false,
             false
         );
-        float control = normalTravelControl(
-            standingSurfaceState,
-            climb,
-            onGroundTravel,
-            inPowderSnow,
-            preparedSpeed
-        );
+        float control = current.isHorse() && preparedSpeed.dryAirTravelSpeed()
+            ? 1.0F
+            : normalTravelControl(
+                standingSurfaceState,
+                climb,
+                onGroundTravel,
+                inPowderSnow,
+                preparedSpeed
+            );
         double horizontalInputLimit = scaledInputLimit(
             preparedSpeed.inputRadiusSpeed() * control,
             moveInputScale,

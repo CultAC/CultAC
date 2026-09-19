@@ -4,8 +4,8 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameFacts;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInputControl;
 
-final class BedrockPlayerAirTravelMovement {
-    private BedrockPlayerAirTravelMovement() {
+final class BedrockAirTravelMovement {
+    private BedrockAirTravelMovement() {
     }
 
     static BedrockTravelHorizontalControl.Step resolveHorizontal(BedrockFrameState frame) {

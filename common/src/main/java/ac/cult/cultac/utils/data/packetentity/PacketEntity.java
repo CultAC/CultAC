@@ -39,6 +39,8 @@ import java.util.List;
 
 // You may not copy this check unless your anticheat is licensed under GPL
 public class PacketEntity {
+    public ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState bedrockPrediction;
+    public ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties bedrockBoat;
     public Vec3 desyncClientPos;
 
     public EntityType type;
@@ -349,6 +351,11 @@ public class PacketEntity {
             clientPhysicalPositionExact = true;
         } else {
             clientPhysicalPositionExact = false;
+        }
+
+        if (player.isBedrockMovement() && isBoat() && bedrockPrediction != null) {
+            ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
+                    this, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
         }
 
         // Handle uncertainty of second transaction spanning over multiple ticks

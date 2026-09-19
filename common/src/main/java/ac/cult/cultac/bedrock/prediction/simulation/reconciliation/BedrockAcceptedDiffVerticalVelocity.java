@@ -148,6 +148,7 @@ final class BedrockAcceptedDiffVerticalVelocity {
     ) {
         double liquidMoveY = state.collisionFlags().verticalCollision() ? 0.0D : acceptedDiff.y();
         if (waterTravelEffects(movementResult)) {
+            if (state.isHorse()) return BedrockLiquidVerticalMovement.mobWaterNextTickVelocityY(liquidMoveY);
             return BedrockLiquidVerticalMovement.waterNextTickVelocityY(
                 liquidMoveY,
                 waterGravityApplies(movementResult, state));
@@ -173,6 +174,9 @@ final class BedrockAcceptedDiffVerticalVelocity {
         Vec3d acceptedDiff
     ) {
         if (waterTravelEffects(movementResult)) {
+            if (state.isHorse()) {
+                return OptionalDouble.of(BedrockLiquidVerticalMovement.mobWaterNextTickVelocityY(acceptedDiff.y()));
+            }
             return OptionalDouble.of(BedrockLiquidVerticalMovement.waterNextTickVelocityY(
                 acceptedDiff.y(),
                 waterGravityApplies(movementResult, state)));

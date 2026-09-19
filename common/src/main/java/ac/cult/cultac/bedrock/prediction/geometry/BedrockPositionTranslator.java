@@ -37,6 +37,16 @@ public final class BedrockPositionTranslator {
         return frame.toWorld(normalizePhysicalFeetPosition(frame.toLocal(worldFeet)));
     }
 
+    public static Vec3d physicalFeetToPacketPosition(Vec3d worldFeet, BedrockCoordinateFrame frame, double yOffset) {
+        Vec3d local = frame.toLocal(worldFeet);
+        return roundTripPacketPosition(new Vec3d(local.x(), local.y() + yOffset, local.z()));
+    }
+
+    public static Vec3d normalizePhysicalFeetPosition(Vec3d worldFeet, BedrockCoordinateFrame frame, double yOffset) {
+        Vec3d packet = physicalFeetToPacketPosition(worldFeet, frame, yOffset);
+        return frame.toWorld(new Vec3d(packet.x(), packet.y() - yOffset, packet.z()));
+    }
+
     public static Vec3d roundTripPacketPosition(Vec3d position) {
         return new Vec3d(packetFloatToDouble(position.x()), packetFloatToDouble(position.y()), packetFloatToDouble(position.z()));
     }

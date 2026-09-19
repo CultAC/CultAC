@@ -23,10 +23,11 @@ final class BedrockFallDistance {
 
     static BedrockCameraWaterState cameraWaterAfterMove(BedrockTravelPlan plan, BedrockCollisionOutput collision) {
         var frame = plan.frame();
+        if (frame.boat() != null) return frame.cameraWater();
         // A move that started outside water can enter it. Resample at the new
         // position after the camera update, without advancing the camera again.
         return !frame.frameFacts().inWater() && frame.input().options().travelActive()
-            ? BedrockUnderwaterSensing.update(frame.cameraWater(), frame.frameFacts().context(),
+            ? BedrockUnderwaterSensing.update(frame.input().previousState(), frame.cameraWater(), frame.frameFacts().context(),
                 collision.blockMove().position(), frame.frameFacts().movementDimensions())
             : frame.cameraWater();
     }

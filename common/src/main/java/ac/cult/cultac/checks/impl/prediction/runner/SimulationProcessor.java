@@ -5,6 +5,11 @@ import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockSetbackJumpGuard;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementEngine;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleCorrections;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CultProcessor;
@@ -86,6 +91,7 @@ import org.bukkit.block.data.BlockData;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffectType;
+import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.jetbrains.annotations.Nullable;
 
 public class SimulationProcessor extends CultProcessor implements PositionListener, ClientTickEndListener {
@@ -187,6 +193,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       if (this.activeBedrockSetbackState != null) {
          return this.activeBedrockSetbackState;
       } else {
+         var vehicle = this.player.isBedrockMovement() ? BedrockVehicleControl.controlledVehicle(this.player) : null;
+         if (vehicle != null && vehicle.bedrockPrediction != null) {
+            return BedrockMovementEngine.INSTANCE.captureSetbackState(vehicle.bedrockPrediction.commit());
+         }
          return this.player.isBedrockMovement() && this.profileCarry != null
             ? MovementEngines.requireForProfile(MovementProfiles.forPlayer(this.player))
                .captureSetbackState(new PredictionCommit(this.profileCarry, this.validPlayerStartingVels))
@@ -450,16 +460,116 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    private PredictionResult processBedrockAuthInputTick(BedrockAuthInputFrame frame, BedrockPredictionTrigger trigger) {
       if (!this.player.isBedrockMovement()
          || this.player.bedrockState == null
-         || this.player.compensatedEntities.vehicles.hasPlayerPassengerState()
          || frame == null) {
          return null;
-      } else if (this.bedrockSleepingStateObserved) {
+      }
+      var vehicle = BedrockVehicleControl.controlledVehicle(this.player);
+      this.player.bedrockState.tickRidingJump(frame, vehicle instanceof PacketEntityHorse);
+      if (vehicle != null) {
+         if (!BedrockVehicleControl.matches(frame, vehicle)) {
+            this.player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
+            return null;
+         }
+         return this.processBedrockVehicleFrame(frame, trigger, vehicle);
+      }
+      if (this.player.compensatedEntities.vehicles.hasPlayerPassengerState()) {
+         // A mount may be pending on the compensated timeline. Reject vehicle movement
+         // until control is established, including unmapped or unsupported vehicle IDs.
+         if (frame.getPredictedVehicleId() != null
+               || frame.hasRawInputFlag(PlayerAuthInputData.IN_CLIENT_PREDICTED_IN_VEHICLE)) {
+            this.player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
+         }
+         return null;
+      }
+      if (frame.getPredictedVehicleId() != null && frame.getPredictedVehicleId() != -1L) {
+         this.player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
+         return null;
+      }
+      if (this.bedrockSleepingStateObserved) {
          this.recordProcessedBedrockAuthInputFrame(frame, trigger);
          this.applyBedrockImmobileState(frame);
          return null;
       } else {
          return this.processAuthoredInputFrame(frame, trigger);
       }
+   }
+
+   private PredictionResult processBedrockVehicleFrame(BedrockAuthInputFrame frame, BedrockPredictionTrigger trigger,
+                                                      PacketEntity vehicle) {
+      PredictionCommit riderCarry = this.getCurrentPredictionCommit();
+      PredictionResult riderPrediction = this.lastPrediction;
+      DesyncStatus riderGround = this.lastOnGround;
+      boolean riderOnGround = this.player.onGround;
+      PredictionResult vehicleResult = null;
+      Vec3 simulatedPassengerPosition = null;
+      try {
+         var previous = vehicle.bedrockPrediction;
+         this.applyProfileCommit(previous == null
+            ? new PredictionCommit(null, Set.of(vehicle.deltaMovement)) : previous.commit());
+         this.lastPrediction = previous == null ? null : previous.previousPrediction();
+         this.lastOnGround = DesyncStatus.fromBoolean(vehicle.onGround);
+         this.player.onGround = vehicle.onGround;
+         var corrections = this.player.bedrockState.vehicleCorrections;
+         this.recordProcessedBedrockAuthInputFrame(frame, trigger);
+         BedrockVehicleCorrections.Tick correctedTick = null;
+         if (corrections.isCorrecting(vehicle)) {
+            Vec3 start = vehicle.clientPhysicalPosition;
+            SimulationContext context = this.createSimulationContext(this.player, this.lastPrediction, Vec3.ZERO,
+               start, start, this.lastTickSkip, false, frame.getYaw(), frame.getPitch(), frame,
+               MovementProfiles.forPlayer(this.player), false);
+            correctedTick = corrections.advance(this.player, context);
+         }
+         PredictionResult result = !corrections.isCorrecting(vehicle)
+            || correctedTick != null && corrections.awaitingValidation(vehicle)
+            ? this.processAuthoredInputFrame(frame, trigger) : null;
+         vehicleResult = result;
+         if (correctedTick != null && corrections.isCorrecting(vehicle)) {
+            this.applyProfileCommit(correctedTick.commit());
+            this.lastPrediction = null;
+            BedrockVehiclePredictionState.commitTransform(vehicle, this.profileCarry);
+            simulatedPassengerPosition = correctedTick.passengerPosition();
+            this.player.packetStateData.grantBedrockVehicleCorrection(frame.getClientTick(), vehicle.getEntityId(),
+               frame.getPosition(), new NmsPacketUtil.MoveVehicleData(
+                  vehicle.clientPhysicalPosition, vehicle.clientPhysicalYaw, vehicle.clientPhysicalPitch, vehicle.onGround, true));
+         } else if (correctedTick == null && corrections.isCorrecting(vehicle)) {
+            this.player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
+         }
+         PredictionCommit commit = this.getCurrentPredictionCommit();
+         vehicle.bedrockPrediction = new BedrockVehiclePredictionState(commit, this.lastPrediction);
+         this.player.bedrockState.vehicleCorrections.record(this.player, frame, vehicle, result, commit);
+         return result;
+      } finally {
+         this.applyProfileCommit(riderCarry);
+         this.lastPrediction = riderPrediction;
+         this.lastOnGround = riderGround;
+         this.player.onGround = riderOnGround;
+         if (simulatedPassengerPosition != null) {
+            this.advanceBedrockPassenger(frame, simulatedPassengerPosition);
+         } else if (vehicleResult != null) {
+            this.advanceBedrockPassenger(frame, vehicleResult);
+         }
+      }
+   }
+
+   private void advanceBedrockPassenger(BedrockAuthInputFrame frame, PredictionResult result) {
+      BedrockPredictionResult vehicle = result.getProfileResult(BedrockPredictionResult.class);
+      if (vehicle == null || vehicle.movementResult() == null) return;
+      Vec3 position = BedrockVehiclePredictionState.passengerPosition(vehicle);
+      this.advanceBedrockPassenger(frame, position);
+   }
+
+   private void advanceBedrockPassenger(BedrockAuthInputFrame frame, Vec3 position) {
+      MovementProfile profile = MovementProfiles.forPlayer(this.player);
+      SimulationContext context = this.createSimulationContext(this.player, this.lastPrediction, Vec3.ZERO,
+         position, position, this.lastTickSkip, false, frame.getYaw(), frame.getPitch(), frame, profile, false, null);
+      this.applyProfileCommit(BedrockMovementEngine.INSTANCE.advancePassenger(this.player, this.profileCarry, context));
+      this.commitAuthoredInputPlayerState(frame, position, frame.getYaw(), frame.getPitch());
+   }
+
+   public void relocateBedrockPassenger(ac.cult.cultac.bedrock.prediction.state.BedrockMovementState vehicle) {
+      Vec3 position = BedrockVehiclePredictionState.passengerPosition(vehicle);
+      this.applyProfileCommit(BedrockMovementEngine.INSTANCE.relocatePassenger(this.profileCarry, position, vehicle.coordinateFrame()));
+      this.commitPlayerPosition(position);
    }
 
    public void handleBedrockSleepingStateChange(boolean sleeping) {
@@ -585,22 +695,34 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
       this.recordProcessedBedrockAuthInputFrame(frame, trigger);
       MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
+      var horse = this.player.isBedrockMovement() ? BedrockVehicleControl.controlledVehicle(this.player) : null;
       Vec3 previousPosition = movementProfile.authoredPredictionStart(
-         this.player, frame, new Vec3(this.player.x, this.player.y, this.player.z), this.profileCarry
+         this.player, frame, horse != null
+            ? horse.clientPhysicalPosition
+            : new Vec3(this.player.x, this.player.y, this.player.z), this.profileCarry
       );
       boolean onGround = this.movementPacketOnGround(this.player.onGround, frame);
       float xRot = frame.hasRotation() ? frame.getYaw() : this.player.xRot;
       float yRot = frame.hasRotation() ? frame.getPitch() : this.player.yRot;
       PredictionResult result = this.callPrediction(currentPosition, previousPosition, onGround, xRot, yRot, frame);
-      if (result != null && (!this.player.isBedrockMovement() || !this.player.getSetbackTeleportUtil().isPendingSetback())) {
+      if (result != null && (!this.player.isBedrockMovement()
+         || !this.player.getSetbackTeleportUtil().isPendingSetback() && !this.player.bedrockState.vehicleCorrections.isCorrecting(horse))) {
          boolean canonicalGround = canonicalBedrockGround(result, onGround);
          if (trigger == BedrockPredictionTrigger.AUTH_INPUT_PLUGIN_MESSAGE && frame instanceof BedrockAuthInputFrame bedrockFrame) {
-            this.player.packetStateData.grantBedrockTranslatedMovementPermit(bedrockFrame.getClientTick(), bedrockFrame.isProjectedOnGround(), canonicalGround);
+            if (horse == null) {
+               this.player.packetStateData.grantBedrockTranslatedMovementPermit(bedrockFrame.getClientTick(), bedrockFrame.isProjectedOnGround(), canonicalGround);
+            } else {
+               this.player.packetStateData.grantBedrockVehicleMovementPermit(bedrockFrame.getClientTick(), horse.getEntityId(), currentPosition, canonicalGround);
+            }
          }
 
          this.lastOnGround = DesyncStatus.fromBoolean(canonicalGround);
          this.player.onGround = canonicalGround;
-         this.commitAuthoredInputPlayerState(frame, currentPosition, xRot, yRot);
+         if (horse != null) {
+            BedrockVehiclePredictionState.commitTransform(horse, this.profileCarry);
+         } else {
+            this.commitAuthoredInputPlayerState(frame, currentPosition, xRot, yRot);
+         }
       }
 
       return result;
@@ -775,7 +897,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    private void commitPredictionState(
       PredictionResult result, Vec3 to, Vec3 diff, float xRot, float yRot, MovementProfile movementProfile, PredictionCommit preparedCommit
    ) {
-      if (preparedCommit == null || !this.player.isBedrockMovement() || !this.player.getSetbackTeleportUtil().isPendingSetback()) {
+      if (this.player.isBedrockMovement() && this.player.bedrockState != null) {
+         this.player.bedrockState.vehicleCorrections.finishPrediction(this.player, result);
+      }
+      if (preparedCommit == null || !this.player.isBedrockMovement()
+         || !this.player.getSetbackTeleportUtil().isPendingSetback()
+            && !this.player.bedrockState.vehicleCorrections.isCorrecting(result.getSimulationContext().getVehicle())) {
          if (!this.player.isBedrockMovement() || BedrockSetbackJumpGuard.advancesTravel(result)) {
             this.lastMovementWasSetback = false;
          }
@@ -944,7 +1071,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          return true;
       }
 
-      if (this.player.getSetbackTeleportUtil().blockOffsets) {
+      if (this.player.getSetbackTeleportUtil().blockOffsets
+         && !(this.player.isBedrockMovement() && result.getSimulationContext() != null
+            && this.player.bedrockState.vehicleCorrections.awaitingValidation(result.getSimulationContext().getVehicle()))) {
          SetbackTeleportUtil setbackUtil = this.player.getSetbackTeleportUtil();
          boolean awaitingSetback = setbackUtil.isPendingSetback();
          if (!awaitingSetback) {
@@ -995,7 +1124,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          && (this.player.isFlying || this.lastFlying.hasOccurredSince(2) || movementProfile.startsFlyingExemptionThisFrame(this.player, context));
       return !this.player.isBedrockMovement() && this.player.isInBed
          || flyingExempt
-         || this.player.getSetbackTeleportUtil().shouldBlockMovement()
+         || this.player.getSetbackTeleportUtil().shouldBlockMovement(this.player.isBedrockMovement() && context != null
+            && this.player.bedrockState.vehicleCorrections.awaitingValidation(context.getVehicle()))
          || this.player.gamemode == GameMode.SPECTATOR;
    }
 
@@ -1242,7 +1372,16 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       MovementProfile movementProfile,
       boolean applyLastRequiredStuckSpeed
    ) {
-      PacketEntity riding = this.currentPredictionVehicle();
+      return this.createSimulationContext(player, lastPrediction, target, start, end, lastTickSkip, testing,
+         xRot, yRot, authoredMovementFrame, movementProfile, applyLastRequiredStuckSpeed, this.currentPredictionVehicle());
+   }
+
+   private SimulationContext createSimulationContext(
+      CultPlayer player, PredictionResult lastPrediction, Vec3 target, Vec3 start, Vec3 end,
+      LastInstance lastTickSkip, boolean testing, float xRot, float yRot,
+      AuthoredMovementFrame authoredMovementFrame, MovementProfile movementProfile,
+      boolean applyLastRequiredStuckSpeed, @Nullable PacketEntity riding
+   ) {
       Vec3 vehicleInputs = new Vec3(player.boatData.vehicleHoriz, 0.0, player.boatData.vehicleForward);
       SimulationContext context = new SimulationContext(
          start,

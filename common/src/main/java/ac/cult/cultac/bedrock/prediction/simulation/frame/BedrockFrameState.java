@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
 import ac.cult.cultac.bedrock.prediction.state.BedrockDolphinBoost;
 import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
 import java.util.Objects;
 
 public record BedrockFrameState(
@@ -20,7 +21,9 @@ public record BedrockFrameState(
     BedrockMobJump mobJump,
     BedrockDolphinBoost dolphinBoost,
     boolean groundJumpApplied,
-    BedrockCameraWaterState cameraWater
+    BedrockCameraWaterState cameraWater,
+    BedrockHorseState horse,
+    BedrockBoatMovement.Step boat
 ) {
     public BedrockFrameState {
         Objects.requireNonNull(input, "input");

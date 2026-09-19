@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
@@ -11,7 +12,9 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
+import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffectType;
@@ -36,6 +39,18 @@ record BedrockPlayerContext(
             BedrockAuthInputFrame frame,
             boolean actorGliding
     ) {
+        if (context.getVehicle() != null && context.getVehicle().isBoat()) {
+            var boat = context.getVehicle();
+            return new BedrockPlayerContext(BedrockClientPoseState.STANDING, false,
+                    boat.bedrockBoat.dimensions(), new AttributeState(0, 0, 0, 0, 0), EquipmentState.NONE, BedrockEffectState.NONE);
+        }
+        if (context.getVehicle() instanceof PacketEntityHorse horse) {
+            return new BedrockPlayerContext(BedrockClientPoseState.STANDING, false,
+                    new PlayerDimensionsState(BoundingBoxSize.getWidth(player, horse), BoundingBoxSize.getHeight(player, horse)),
+                    new AttributeState(horse.movementSpeedAttribute, horse.movementSpeedAttribute,
+                            0.02F, 0.02F, (float) horse.jumpStrength),
+                    EquipmentState.NONE, horseEffects(horse));
+        }
         BedrockClientPoseState pose = player.bedrockState == null
                 ? BedrockClientPoseState.STANDING
                 : player.bedrockState.getClientPoseState(frame);
@@ -61,8 +76,21 @@ record BedrockPlayerContext(
                 movementContext.worldState(),
                 equipment,
                 movementContext.entityContactState(),
-                BedrockMovementModifierFactory.create(this, player, context),
+                context.getVehicle() != null ? MovementModifierState.NONE
+                        : BedrockMovementModifierFactory.create(this, player, context),
                 dimensions);
+    }
+
+    private static BedrockEffectState horseEffects(PacketEntityHorse horse) {
+        return BedrockEffectState.NONE
+                .withJumpBoostLevel(horseEffectLevel(horse, PotionEffectType.JUMP_BOOST))
+                .withLevitationLevel(horseEffectLevel(horse, PotionEffectType.LEVITATION))
+                .withSlowFalling(horseEffectLevel(horse, PotionEffectType.SLOW_FALLING) > 0)
+                .withWeaving(horseEffectLevel(horse, PotionEffectType.WEAVING) > 0);
+    }
+
+    private static int horseEffectLevel(PacketEntityHorse horse, PotionEffectType type) {
+        return horse.potionsMap == null ? 0 : horse.potionsMap.getOrDefault(type, -1) + 1;
     }
 
     int riptideLevel() {

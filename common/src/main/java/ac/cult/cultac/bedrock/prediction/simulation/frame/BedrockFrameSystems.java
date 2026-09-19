@@ -14,6 +14,7 @@ public final class BedrockFrameSystems {
         BedrockTravelInput input,
         BedrockMobJumpComponentState initialMobJumpComponent
     ) {
+        if (input.previousState().isBoat()) return BedrockBoatMovement.prepare(input, initialMobJumpComponent);
         BedrockInputIntent intent = input.inputIntent();
         Vec3d velocity = input.startingVelocity();
 
@@ -29,7 +30,7 @@ public final class BedrockFrameSystems {
 
         // Launch velocity uses carried water state; sensing precedes the requested resize.
         BedrockFrameFacts facts = BedrockFrameFacts.from(input, riptide.spinActive(), spinAttack.spinAttackStarted());
-        var cameraWater = BedrockUnderwaterSensing.update(input.previousState().cameraWater(),
+        var cameraWater = BedrockUnderwaterSensing.update(input.previousState(), input.previousState().cameraWater(),
             facts.context(), input.previousState().physicalFeetPosition(), input.previousState().playerDimensions());
         BedrockLiquidJumpContact liquidContact = BedrockLiquidJumpContact.from(
             facts, input.previousState().physicalFeetPosition(), cameraWater.headInWater());
@@ -124,8 +125,16 @@ public final class BedrockFrameSystems {
             );
         }
 
-        cameraWater = BedrockCameraMovement.afterActions(input, cameraWater,
-            swimming.actorStateAfterActions(), gliding.activeAfterActions(), riptide.spinActive());
+        var horse = input.previousState().horse();
+        if (horse != null) {
+            var jump = BedrockHorseMovement.applyJump(input, facts, velocity);
+            horse = jump.state();
+            velocity = jump.velocity();
+            groundJumpApplied = jump.launched();
+        } else {
+            cameraWater = BedrockCameraMovement.afterActions(input, cameraWater,
+                swimming.actorStateAfterActions(), gliding.activeAfterActions(), riptide.spinActive());
+        }
 
         BedrockDolphinBoost dolphinBoost = input.previousState().dolphinBoost().tick(
             swimming.actorStateAfterActions(), facts.context().dolphinBoostAvailable());
@@ -158,7 +167,8 @@ public final class BedrockFrameSystems {
             mobJump,
             dolphinBoost,
             groundJumpApplied,
-            cameraWater
+            cameraWater,
+            horse, null
         );
     }
 

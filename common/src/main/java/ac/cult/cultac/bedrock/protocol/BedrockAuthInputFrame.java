@@ -12,6 +12,7 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
     private final long clientTick;
     private final int inputMode;
     private final int playMode;
+    private final int interactionModel;
     private final int deviceId;
     private final BedrockCoordinateFrame coordinateFrame;
     private final boolean coordinateProvenance;
@@ -46,6 +47,9 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
     private final String authorityMode;
     private final long rewindCorrectionId;
     private final Vec3 reportedEndOfTickVelocity;
+    private final Long predictedVehicleId;
+    private final Integer predictedVehicleJavaId;
+    private final VehicleRotation vehicleRotation;
 
     private BedrockAuthInputFrame(Builder builder) {
         this.playerUuid = Objects.requireNonNull(builder.playerUuid, "playerUuid");
@@ -53,6 +57,7 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         this.clientTick = builder.clientTick;
         this.inputMode = builder.inputMode;
         this.playMode = builder.playMode;
+        this.interactionModel = builder.interactionModel;
         this.deviceId = builder.deviceId;
         this.coordinateFrame = builder.coordinateFrame;
         this.coordinateProvenance = builder.coordinateProvenance;
@@ -87,6 +92,9 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         this.authorityMode = builder.authorityMode;
         this.rewindCorrectionId = builder.rewindCorrectionId;
         this.reportedEndOfTickVelocity = builder.reportedEndOfTickVelocity;
+        this.predictedVehicleId = builder.predictedVehicleId;
+        this.predictedVehicleJavaId = builder.predictedVehicleJavaId;
+        this.vehicleRotation = builder.vehicleRotation;
     }
 
     private BedrockAuthInputFrame(BedrockAuthInputFrame source, BedrockCoordinateFrame frame, Vec3 worldPosition) {
@@ -94,6 +102,7 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         this.clientTick = source.clientTick;
         this.inputMode = source.inputMode;
         this.playMode = source.playMode;
+        this.interactionModel = source.interactionModel;
         this.deviceId = source.deviceId;
         this.coordinateFrame = frame;
         this.coordinateProvenance = source.coordinateProvenance;
@@ -128,6 +137,9 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         this.authorityMode = source.authorityMode;
         this.rewindCorrectionId = source.rewindCorrectionId;
         this.reportedEndOfTickVelocity = source.reportedEndOfTickVelocity;
+        this.predictedVehicleId = source.predictedVehicleId;
+        this.predictedVehicleJavaId = source.predictedVehicleJavaId;
+        this.vehicleRotation = source.vehicleRotation;
         this.playerUuid = source.playerUuid;
     }
 
@@ -167,6 +179,8 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
     public int getInputMode() {
         return inputMode;
     }
+
+    public int getInteractionModel() { return interactionModel; }
 
     public int getPlayMode() {
         return playMode;
@@ -314,6 +328,16 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         return reportedEndOfTickVelocity;
     }
 
+    /** Null for captures that did not preserve vehicle identity; -1 means no predicted vehicle. */
+    public Long getPredictedVehicleId() { return predictedVehicleId; }
+
+    /** The bridge resolves the runtime ID; mount authority still comes from compensated passengers. */
+    public Integer getPredictedVehicleJavaId() { return predictedVehicleJavaId; }
+
+    public VehicleRotation getVehicleRotation() { return vehicleRotation; }
+
+    public record VehicleRotation(float yaw, float pitch) { }
+
     public boolean samePacketAs(BedrockAuthInputFrame other) {
         return other != null
                 && Objects.equals(playerUuid, other.playerUuid)
@@ -323,6 +347,7 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
                 && clientTick == other.clientTick
                 && inputMode == other.inputMode
                 && playMode == other.playMode
+                && interactionModel == other.interactionModel
                 && deviceId == other.deviceId
                 && Objects.equals(position, other.position)
                 && Objects.equals(packetPosition, other.packetPosition)
@@ -353,6 +378,9 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
                 && usingItem == other.usingItem
                 && blockAction == other.blockAction
                 && Objects.equals(authorityMode, other.authorityMode)
+                && Objects.equals(predictedVehicleId, other.predictedVehicleId)
+                && Objects.equals(predictedVehicleJavaId, other.predictedVehicleJavaId)
+                && Objects.equals(vehicleRotation, other.vehicleRotation)
                 && rewindCorrectionId == other.rewindCorrectionId;
     }
 
@@ -362,6 +390,7 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         private long clientTick = -1L;
         private int inputMode = -1;
         private int playMode = -1;
+        private int interactionModel = -1;
         private int deviceId = -1;
         private BedrockCoordinateFrame coordinateFrame = BedrockCoordinateFrame.IDENTITY;
         private boolean coordinateProvenance = true;
@@ -396,6 +425,9 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         private String authorityMode;
         private long rewindCorrectionId = -1L;
         private Vec3 reportedEndOfTickVelocity;
+        private Long predictedVehicleId;
+        private Integer predictedVehicleJavaId;
+        private VehicleRotation vehicleRotation;
 
         private Builder(UUID playerUuid) {
             this.playerUuid = playerUuid;
@@ -415,6 +447,8 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
             this.inputMode = inputMode;
             return this;
         }
+
+        public Builder interactionModel(int value) { interactionModel = value; return this; }
 
         public Builder playMode(int playMode) {
             this.playMode = playMode;
@@ -581,6 +615,21 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
 
         public Builder reportedEndOfTickVelocity(Vec3 reportedEndOfTickVelocity) {
             this.reportedEndOfTickVelocity = reportedEndOfTickVelocity;
+            return this;
+        }
+
+        public Builder predictedVehicleId(Long value) {
+            this.predictedVehicleId = value;
+            return this;
+        }
+
+        public Builder predictedVehicleJavaId(Integer value) {
+            this.predictedVehicleJavaId = value;
+            return this;
+        }
+
+        public Builder vehicleRotation(VehicleRotation value) {
+            this.vehicleRotation = value;
             return this;
         }
 

@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.anticheat.StringReturner;
@@ -111,12 +112,18 @@ public final class CompensatedVehicleState implements Debuggable {
                                                     Collection<Vec3> startingVelocities) {
         if (vehicle == null || vehicle != getVelocityMovementVehicle()) return false;
         vehicle.deltaMovement = velocity;
-        player.checkManager.getSimulationProcessor().seedStartingVelocities(startingVelocities);
+        if (player.isBedrockMovement() && ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.isSupported(vehicle)) {
+            BedrockVehiclePredictionState.applyVelocity(vehicle, velocity);
+        } else {
+            player.checkManager.getSimulationProcessor().seedStartingVelocities(startingVelocities);
+        }
         return true;
     }
 
     /** Apply at the acknowledged event boundary, after earlier passenger updates. */
     public void applyBoatBubbleColumnEvent(int entityId, byte event) {
+        // Geyser does not translate these Java boat events.
+        if (player.isBedrockMovement()) return;
         PacketEntity boat = entities.getEntity(entityId);
         if ((event != 71 && event != 72) || boat == null || !EntityTypeUtil.isBoat(boat.type)
                 || boat.passengers.isEmpty() || boat.passengers.getFirst() != entities.getSelf()) return;
@@ -140,6 +147,9 @@ public final class CompensatedVehicleState implements Debuggable {
         PacketEntity entity = entities.getEntity(entityId);
         if (entity == null) return;
 
+        if (player.isBedrockMovement() && entity.type == EntityTypesCompat.HORSE && onGround == null) {
+            onGround = false;
+        }
         if (interpolates) {
             if (entity instanceof PacketEntityTrackXRot xRotEntity) {
                 xRotEntity.packetYaw = yaw;
@@ -157,7 +167,10 @@ public final class CompensatedVehicleState implements Debuggable {
             }
         }
 
-        if (entity != null && entity == getVelocityMovementVehicle()) {
+        if (player.isBedrockMovement() && ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.isSupported(entity)) {
+            BedrockVehiclePredictionState.rebase(
+                    entity, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
+        } else if (entity == getVelocityMovementVehicle()) {
             player.checkManager.getSimulationProcessor().seedVehicleStartingVelocity(deltaMovement);
         }
     }
@@ -166,6 +179,11 @@ public final class CompensatedVehicleState implements Debuggable {
                                                   Vec3 deltaMovement) {
         PacketEntity entity = entities.getEntity(entityId);
         if (entity == null) return;
+        if (player.isBedrockMovement() && entity.type == EntityTypesCompat.HORSE) {
+            var frame = player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame();
+            var local = frame.toLocal(position);
+            position = frame.toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));
+        }
         entity.setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, position.x, position.y, position.z, entity), yaw, pitch);
         if (entity == getVelocityMovementVehicle()) {
             entity.deltaMovement = deltaMovement;
@@ -274,7 +292,7 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     public void consumeVehicleSwitchPredictionOffset(PredictionResult result) {
-        if (result == null || result.isTeleport()) {
+        if (player.isBedrockMovement() || result == null || result.isTeleport()) {
             return;
         }
 
@@ -481,6 +499,8 @@ public final class CompensatedVehicleState implements Debuggable {
             return;
         }
 
+        if (player.bedrockState != null) player.bedrockState.vehicleCorrections.clear();
+
         markVehicleSwitchBufferWindow(currentRoot == null ? previousRoot : currentRoot);
         Vec3 rootDeltaMovement = currentRoot == null
                 ? entities.playerEntity.deltaMovement
@@ -587,7 +607,8 @@ public final class CompensatedVehicleState implements Debuggable {
         if (vehicle instanceof PacketEntityHorse horse) return horse.hasSaddle;
         if (vehicle instanceof PacketEntityNautilus nautilus) return nautilus.hasSaddle;
         if (vehicle instanceof PacketEntityHappyGhast happyGhast) return happyGhast.hasBodyArmor && !happyGhast.staysStill;
-        return passengerIndex(vehicle) == 0;
+        // Callers check the controlling passenger, using the incoming list for a mount.
+        return true;
     }
 
     private boolean hasSaddle(PacketEntity vehicle) {

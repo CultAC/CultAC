@@ -59,10 +59,17 @@ public record BedrockMovementState(
     public static BedrockMovementState fromPhysicalFeet(Vec3d physicalFeetPosition, Vec3d velocity,
             BedrockInputFrame inputFrame, BedrockCollisionFlags collisionFlags, Medium movementBranch,
             BedrockCoordinateFrame coordinateFrame) {
+        return fromPhysicalFeet(physicalFeetPosition, velocity, inputFrame, collisionFlags, movementBranch, coordinateFrame, null);
+    }
+
+    public static BedrockMovementState fromPhysicalFeet(Vec3d physicalFeetPosition, Vec3d velocity,
+            BedrockInputFrame inputFrame, BedrockCollisionFlags collisionFlags, Medium movementBranch,
+            BedrockCoordinateFrame coordinateFrame, BedrockHorseState horse) {
         boolean swimming = BedrockSwimmingPoseProgress.initialSwimming(inputFrame);
         return new BedrockMovementState(
             new Motion(
-                BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame),
+                BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame,
+                    horse == null ? BedrockPositionTranslator.PLAYER_PACKET_Y_OFFSET : 0.0D),
                 velocity,
                 0.0D,
                 Vec3d.ZERO,
@@ -79,7 +86,8 @@ public record BedrockMovementState(
                 new TravelMode(false, false, false, movementBranch == Medium.WATER, movementBranch),
                 BedrockBoundingBoxMode.initial(inputFrame),
                 PlayerDimensionsState.DEFAULT,
-                null
+                null,
+                horse
             ),
             new TickMemory(
                 0L,
@@ -98,6 +106,15 @@ public record BedrockMovementState(
     }
 
     public BedrockCoordinateFrame coordinateFrame() { return motion.coordinateFrame(); }
+
+    public BedrockMovementState withRotation(float yaw, float pitch) {
+        BedrockInputFrame frame = inputFrame();
+        BedrockInputFrame rotated = new BedrockInputFrame(frame.clientTick(), yaw, pitch,
+                frame.jumping(), frame.sneaking(), frame.sprinting(), frame.inputData(), frame.swimmingRequested());
+        return new BedrockMovementState(new Motion(physicalFeetPosition(), velocity(),
+                motion.lastPhysicalDisplacementSquared(), motion.lastPhysicalDisplacement(), rotated,
+                collisionFlags(), coordinateFrame()), actor, memory, hasTeleported);
+    }
 
     public BedrockMovementState withCoordinateFrame(BedrockCoordinateFrame frame) {
         return frame.equals(coordinateFrame()) ? this : withMotion(new Motion(physicalFeetPosition(), velocity(),
@@ -149,8 +166,26 @@ public record BedrockMovementState(
     public boolean explicitPlayerDimensions() { return actor.acknowledgedPlayerDimensions() != null; }
     public PlayerDimensionsState acknowledgedPlayerDimensions() { return actor.acknowledgedPlayerDimensions(); }
 
+    public boolean isHorse() { return actor.horse() != null; }
+    public BedrockHorseState horse() { return actor.horse(); }
+    public boolean isBoat() { return actor.boat() != null; }
+    public boolean isVehicle() { return isHorse() || isBoat(); }
+    public BedrockBoatState boat() { return actor.boat(); }
+    public double packetYOffset() { return isBoat() ? BedrockBoatProperties.ORIGIN_HEIGHT
+            : isHorse() ? 0.0D : BedrockPositionTranslator.PLAYER_PACKET_Y_OFFSET; }
+
+    public BedrockMovementState withBoat(BedrockBoatState boat) {
+        return withActor(new ActorState(actor.contacts(), actor.pose(), actor.travel(), boundingBoxMode(),
+                playerDimensions(), acknowledgedPlayerDimensions(), null, boat));
+    }
+
+    public BedrockMovementState withHorse(BedrockHorseState horse) {
+        return withActor(new ActorState(actor.contacts(), actor.pose(), actor.travel(), boundingBoxMode(),
+                playerDimensions(), acknowledgedPlayerDimensions(), horse, null));
+    }
+
     public Vec3d bedrockPacketPosition() {
-        return BedrockPositionTranslator.physicalFeetToPacketPosition(physicalFeetPosition(), coordinateFrame());
+        return BedrockPositionTranslator.physicalFeetToPacketPosition(physicalFeetPosition(), coordinateFrame(), packetYOffset());
     }
 
     public long clientTick() {
@@ -223,7 +258,7 @@ public record BedrockMovementState(
         Vec3d physicalFeetPosition,
         double lastPhysicalDisplacementSquared
     ) {
-        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame());
+        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame(), packetYOffset());
         return withMotion(motion.withPosition(
             position,
             lastPhysicalDisplacementSquared,
@@ -233,7 +268,7 @@ public record BedrockMovementState(
 
     /** Applies an ordered teleport and motion update without restoring older tick state. */
     public BedrockMovementState afterServerTeleport(Vec3d physicalFeetPosition, Vec3d velocity) {
-        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame());
+        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame(), packetYOffset());
         return new BedrockMovementState(
             // bedrock teleports preserve collision
             new Motion(position, velocity, 0.0D, Vec3d.ZERO, motion.inputFrame(), motion.collisionFlags(), coordinateFrame()),
@@ -247,7 +282,7 @@ public record BedrockMovementState(
         Vec3d physicalFeetPosition,
         Vec3d lastPhysicalDisplacement
     ) {
-        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame());
+        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(physicalFeetPosition, coordinateFrame(), packetYOffset());
         return withMotion(motion.withPosition(
             position,
             displacementSquared(lastPhysicalDisplacement),
@@ -299,7 +334,7 @@ public record BedrockMovementState(
     }
 
     public BedrockMovementState advance(BedrockMovementUpdate update) {
-        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(update.physicalFeetPosition(), coordinateFrame());
+        Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(update.physicalFeetPosition(), coordinateFrame(), packetYOffset());
         Vec3d displacement = position.subtract(physicalFeetPosition());
         BedrockInputFrame frame = update.frame();
         boolean horizontalPose = BedrockPoseInputData.committedHorizontalPose(frame);
@@ -318,7 +353,8 @@ public record BedrockMovementState(
                     actor.waterTravelFlag(), actor.movementBranch()),
                 update.boundingBoxMode(),
                 update.playerDimensions(),
-                actor.acknowledgedPlayerDimensions()
+                actor.acknowledgedPlayerDimensions(),
+                actor.horse(), actor.boat()
             ),
             new TickMemory(
                 simulationTick() + 1L,
@@ -348,7 +384,7 @@ public record BedrockMovementState(
                     completed.itemUseSlowdownActive()),
                 new TravelMode(completed.gliding(), completed.glidingRequest(), autoClimbTravel(),
                     waterTravelFlag(), movementBranch()),
-                boundingBoxMode(), playerDimensions(), acknowledgedPlayerDimensions()),
+                boundingBoxMode(), playerDimensions(), acknowledgedPlayerDimensions(), completed.horse(), completed.boat()),
             new TickMemory(
                 completed.simulationTick(),
                 powderSnowTicks(),
@@ -431,8 +467,22 @@ public record BedrockMovementState(
         TravelMode travel,
         BedrockBoundingBoxMode boundingBoxMode,
         PlayerDimensionsState playerDimensions,
-        PlayerDimensionsState acknowledgedPlayerDimensions
+        PlayerDimensionsState acknowledgedPlayerDimensions,
+        BedrockHorseState horse,
+        BedrockBoatState boat
     ) {
+        public ActorState(ContactState contacts, PoseState pose, TravelMode travel,
+                          BedrockBoundingBoxMode mode, PlayerDimensionsState dimensions,
+                          PlayerDimensionsState acknowledged, BedrockHorseState horse) {
+            this(contacts, pose, travel, mode, dimensions, acknowledged, horse, null);
+        }
+
+        public ActorState(ContactState contacts, PoseState pose, TravelMode travel,
+                          BedrockBoundingBoxMode mode, PlayerDimensionsState dimensions,
+                          PlayerDimensionsState acknowledged) {
+            this(contacts, pose, travel, mode, dimensions, acknowledged, null);
+        }
+
         public ActorState {
             Objects.requireNonNull(contacts, "contacts");
             Objects.requireNonNull(pose, "pose");
@@ -466,7 +516,7 @@ public record BedrockMovementState(
         ActorState withClimbableContact(BedrockClimbableContact value) { return copy(contacts.withClimbableContact(value), pose, travel); }
         ActorState withScaffoldingDescendAllowed(boolean value) { return copy(contacts.withDescendAllowed(value), pose, travel); }
         ActorState withPlayerDimensions(PlayerDimensionsState value, PlayerDimensionsState acknowledged) {
-            return new ActorState(contacts, pose, travel, boundingBoxMode, value, acknowledged);
+            return new ActorState(contacts, pose, travel, boundingBoxMode, value, acknowledged, horse, boat);
         }
 
         ActorState withPlayerDimensions(
@@ -474,12 +524,12 @@ public record BedrockMovementState(
             PlayerDimensionsState value,
             PlayerDimensionsState acknowledged
         ) {
-            return new ActorState(contacts, pose, travel, mode, value, acknowledged);
+            return new ActorState(contacts, pose, travel, mode, value, acknowledged, horse, boat);
         }
 
         private ActorState copy(ContactState contacts, PoseState pose, TravelMode travel) {
             return new ActorState(
-                contacts, pose, travel, boundingBoxMode, playerDimensions, acknowledgedPlayerDimensions);
+                contacts, pose, travel, boundingBoxMode, playerDimensions, acknowledgedPlayerDimensions, horse, boat);
         }
     }
 

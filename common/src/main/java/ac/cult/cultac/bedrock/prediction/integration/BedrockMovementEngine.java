@@ -65,6 +65,28 @@ public final class BedrockMovementEngine implements MovementEngine {
     private BedrockMovementEngine() {
     }
 
+    public PredictionCommit relocatePassenger(PredictionCarry carry, Vec3 position,
+            ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame coordinates) {
+        var entries = BedrockProfileState.profileEntries(carry).stream().map(entry -> entry.withState(
+                entry.state().withCoordinateFrame(coordinates)
+                        .withPhysicalFeetPosition(BedrockVectorAdapter.toBedrock(position), 0.0D))).toList();
+        return new PredictionCommit(new BedrockNextTickStates(entries), Set.of(Vec3.ZERO));
+    }
+
+    public PredictionCommit advancePassenger(CultPlayer player, PredictionCarry carry, SimulationContext context) {
+        Input input = inputFactory.create(player, context);
+        if (input == null) return new PredictionCommit(carry, Set.of(Vec3.ZERO));
+        var entries = BedrockProfileState.profileEntries(carry);
+        if (entries.isEmpty()) entries = List.of(new Entry(input.previousState(), input.mobJumpComponent()));
+        final var position = input.previousState().physicalFeetPosition();
+        var relocated = new BedrockNextTickStates(entries.stream().map(entry -> entry.withState(
+                entry.state().withCoordinateFrame(input.previousState().coordinateFrame())
+                        .withPhysicalFeetPosition(position, 0.0D))).toList());
+        return input.actorMovementTick()
+                ? applyImmobileStateToCarry(relocated, input.inputFrame(), trustedMayFly(player), input.worldSnapshot())
+                : new PredictionCommit(relocated, Set.of(Vec3.ZERO));
+    }
+
     public WorldData buildWorld(
         WorldStageBuilder builder,
         CultPlayer player,
@@ -105,7 +127,7 @@ public final class BedrockMovementEngine implements MovementEngine {
         LinkedHashMap<CandidateKey, PredVector> output = new LinkedHashMap<>();
         for (PredVector vector : input) {
             for (Entry previousEntry : BedrockStartingVelocityProfiles.previousEntriesForJavaStartingVelocity(context, bedrockInput, vector)) {
-                BedrockMovementState boundingBoxState = player.bedrockState == null
+                BedrockMovementState boundingBoxState = player.bedrockState == null || previousEntry.state().isVehicle()
                     ? previousEntry.state()
                     : player.bedrockState.applyConfirmedBoundingBoxSize(previousEntry.state(), bedrockInput.inputFrame());
                 Input selectedInput = bedrockInput.withPreviousState(boundingBoxState, previousEntry.mobJumpComponent());
@@ -118,7 +140,9 @@ public final class BedrockMovementEngine implements MovementEngine {
                     selectedInput.maxUpStep(),
                     selectedInput.mobJumpComponent(),
                     selectedInput.actorMovementTick(),
-                    context.isBedrockTeleportTick()
+                    context.isBedrockTeleportTick(),
+                    selectedInput.previousState().isBoat()
+                        ? BedrockVehicleHistory.control(selectedInput.authFrame(), selectedInput.previousState()) : null
                 );
                 for (Candidate movementCandidate : BedrockSimulation.candidates(simulationInput)) {
                     BedrockMovementResult movementResult = movementCandidate.movementResult();
@@ -501,16 +525,17 @@ public final class BedrockMovementEngine implements MovementEngine {
         );
         boolean claimedVerticalCollision = result.getSimulationContext().getBedrockInput()
             .hasRawInputFlag(PlayerAuthInputData.VERTICAL_COLLISION);
-        BedrockVerticalCollisionVerdict verticalCollisionVerdict = BedrockVerticalCollisionClassifier.classify(
-            result, movementResult.predictedState(), claimedVerticalCollision
-        );
+        // Auth collision bits belong to the rider. Vehicle contact is produced by its collision result.
+        BedrockVerticalCollisionVerdict verticalCollisionVerdict = movementResult.previousState().isVehicle()
+            ? BedrockVerticalCollisionVerdict.LEGAL : BedrockVerticalCollisionClassifier.classify(
+                result, movementResult.predictedState(), claimedVerticalCollision);
         result.setProfileResult(new BedrockPredictionResult(
             movementResult,
             null,
             nextTickBaseState,
             candidate.mobJumpComponent(),
             verticalCollisionVerdict,
-            BedrockVerticalCollisionClassifier.claimMatchesCandidate(
+            movementResult.previousState().isVehicle() || BedrockVerticalCollisionClassifier.claimMatchesCandidate(
                 claimedVerticalCollision, movementResult.predictedState()
             )
         ));

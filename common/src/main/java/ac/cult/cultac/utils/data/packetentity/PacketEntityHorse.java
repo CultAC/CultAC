@@ -1,5 +1,7 @@
 package ac.cult.cultac.utils.data.packetentity;
 
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
+
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
@@ -19,6 +21,7 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
     public float movementSpeedAttribute = 0.225f;
     public float standAnim = 0.0F;
     public float standAnimO = 0.0F;
+    public long horseFlagsRevision;
 
     public PacketEntityHorse(CultPlayer player, int entityId, EntityType type, double x, double y, double z, float xRot) { super(player, entityId, type, x, y, z, xRot);
 
@@ -30,12 +33,18 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
         if (type == EntityTypesCompat.ZOMBIE_HORSE || type == EntityTypesCompat.SKELETON_HORSE) {
             movementSpeedAttribute = 0.2f;
         }
+        // Geyser supplies this initial value when spawning a horse.
+        if (player.isBedrockMovement()) jumpStrength = 0.5F;
     }
 
     @Override
     public void onMovement(CultPlayer player, boolean highBound) {
         super.onMovement(player, highBound);
-        tickStandAnimation();
+        if (player.isBedrockMovement() && bedrockPrediction != null) {
+            BedrockVehiclePredictionState.tickRemote(this);
+        } else {
+            tickStandAnimation();
+        }
     }
 
     public void tickClientAnimation() {
@@ -79,6 +88,7 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
     }
 
     public void setRearingFromMetadata(boolean rearing) {
+        horseFlagsRevision++;
         isRearing = rearing;
         // A horse flags metadata packet writes the same client-visible bit that
         // local setStanding()/clearStanding() writes, so the packet result owns

@@ -18,7 +18,7 @@ final class BedrockPacketHorizontalCollisionState {
             BedrockAuthInputFrame authInputFrame,
             Vec3d acceptedDelta
     ) {
-        if (state == null || authInputFrame == null) {
+        if (state == null || state.isVehicle() || authInputFrame == null) {
             return state;
         }
         BedrockCollisionFlags flags = applyEndpointHorizontalContactAxes(

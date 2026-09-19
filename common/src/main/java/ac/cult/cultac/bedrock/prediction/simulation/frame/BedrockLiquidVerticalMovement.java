@@ -40,6 +40,18 @@ public final class BedrockLiquidVerticalMovement {
         return gravityApplies ? applyWaterGravity(velocityY) : velocityY;
     }
 
+    public static float mobWaterDraggedVelocityY(double moveY) {
+        return (float) moveY * 0.8F;
+    }
+
+    public static float applyMobWaterGravity(double velocityY) {
+        return (float) velocityY - 0.02F;
+    }
+
+    public static float mobWaterNextTickVelocityY(double moveY) {
+        return applyMobWaterGravity(mobWaterDraggedVelocityY(moveY));
+    }
+
     public static double lavaNextTickVelocityY(double moveY, boolean gravityApplies) {
         float velocityY = (float) lavaDraggedVelocityY(moveY);
         if (gravityApplies) {

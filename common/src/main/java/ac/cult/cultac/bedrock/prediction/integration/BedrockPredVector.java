@@ -13,7 +13,6 @@ import java.util.Objects;
 import net.minecraft.world.phys.Vec3;
 
 final class BedrockPredVector extends PredVector {
-    private static final double INPUT_FRICTION = 0.98F;
     private final BedrockMovementInputFactory.Input input;
     private final BedrockMovementResult movementResult;
     private final BedrockMobJumpComponentState mobJumpComponent;
@@ -70,7 +69,7 @@ final class BedrockPredVector extends PredVector {
 
     @Override
     public double horizontalInputRadius() {
-        return movementResult.horizontalInputLimit() * INPUT_FRICTION;
+        return movementResult.horizontalInputRadius();
     }
 
     @Override

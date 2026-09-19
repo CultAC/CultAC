@@ -13,6 +13,8 @@ import org.cloudburstmc.protocol.common.PacketSignal;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
+import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
+import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -22,6 +24,16 @@ import static org.junit.Assert.assertTrue;
 
 public final class GeyserBedrockBridgeRuntimeTest {
     private static final float JUMP_VELOCITY = 0.42F;
+
+    @Test
+    public void absentVehicleSectionCannotSelectVehicleCoordinates() {
+        var packet = new PlayerAuthInputPacket();
+        assertEquals(-1L, GeyserBedrockBridgeRuntime.predictedVehicleId(packet));
+        packet.setPredictedVehicle(146L);
+        assertEquals(-1L, GeyserBedrockBridgeRuntime.predictedVehicleId(packet));
+        packet.getInputData().add(PlayerAuthInputData.IN_CLIENT_PREDICTED_IN_VEHICLE);
+        assertEquals(146L, GeyserBedrockBridgeRuntime.predictedVehicleId(packet));
+    }
 
     @Test
     public void latencyQueueInstallsThroughTheUnmodifiedGeyserGetter() throws Exception {

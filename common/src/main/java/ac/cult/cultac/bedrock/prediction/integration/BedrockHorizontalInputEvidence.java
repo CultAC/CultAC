@@ -10,8 +10,6 @@ record BedrockHorizontalInputEvidence(
     double limit,
     double excess
 ) {
-    private static final float INPUT_FRICTION = 0.98F;
-
     static BedrockHorizontalInputEvidence from(
         BedrockMovementResult result,
         Vec3d actualPosition,
@@ -20,12 +18,26 @@ record BedrockHorizontalInputEvidence(
     ) {
         Vec3d requiredInput = requiredHorizontalInput(result, actualPosition, inputReferencePosition);
         double limit = result.horizontalInputLimit();
-        Vec3d observedInput = observedHorizontalInput(observedMoveVector, limit);
+        double radius = result.horizontalInputRadius();
+        Vec3d observedInput = observedHorizontalInput(observedMoveVector, radius);
+        double excess;
+        if (result.previousState().isHorse()) {
+            // Undo the vehicle's direction scales before checking the legal input radius.
+            Vec3d riderInput = new Vec3d(requiredInput.x() * 2.0D, 0.0D,
+                    requiredInput.z() <= 0.0D ? requiredInput.z() * 4.0D : requiredInput.z());
+            excess = Math.max(0.0D, horizontalMagnitude(riderInput) - radius);
+            if (result.groundJumpApplied()) {
+                boolean forward = result.predictedState().horse().forwardJump();
+                excess = Math.max(excess, forward ? -requiredInput.z() : requiredInput.z());
+            }
+        } else {
+            excess = Math.max(0.0D, horizontalMagnitude(requiredInput) - radius);
+        }
         return new BedrockHorizontalInputEvidence(
             requiredInput,
             observedInput,
             limit,
-            Math.max(0.0D, horizontalMagnitude(requiredInput) - limit * INPUT_FRICTION)
+            excess
         );
     }
 
@@ -46,13 +58,12 @@ record BedrockHorizontalInputEvidence(
             result.predictedState().inputFrame().yaw());
     }
 
-    private static Vec3d observedHorizontalInput(BedrockMoveVector observedMoveVector, double horizontalInputLimit) {
+    private static Vec3d observedHorizontalInput(BedrockMoveVector observedMoveVector, double radius) {
         BedrockMoveVector vector = observedMoveVector == null ? BedrockMoveVector.ZERO : observedMoveVector;
-        double scale = horizontalInputLimit * INPUT_FRICTION;
         return new Vec3d(
-            (double) vector.x() * scale,
+            (double) vector.x() * radius,
             0.0D,
-            (double) vector.z() * scale
+            (double) vector.z() * radius
         );
     }
 

@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets;
 
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -1029,14 +1030,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 if (applied) player.getSetbackTeleportUtil().onVehicleMount(transaction);
             }
             if (resyncState != null) {
-                player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
-                        resyncState.vehicleId(),
-                        resyncState.position(),
-                        resyncState.yaw(),
-                        resyncState.pitch(),
-                        resyncState.onGround(),
-                        resyncState.velocity(),
-                        resyncState.interpolates());
+                applyVehicleProtocolResync(transaction, resyncState);
             }
         });
     }
@@ -1055,7 +1049,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private List<Packet<? super ClientGamePacketListener>> resyncPackets(@Nullable VehicleMountResyncState mountResyncState,
                                                                         @Nullable SelfDismountResyncState dismountResyncState) {
         List<Packet<? super ClientGamePacketListener>> packets = new ArrayList<>();
-        if (mountResyncState != null) {
+        if (mountResyncState != null && !isBedrockVehicleResync(mountResyncState.vehicleId())) {
             packets.add(vehicleMovePacket(mountResyncState));
             packets.add(new ClientboundSetEntityMotionPacket(mountResyncState.vehicleId(), mountResyncState.velocity()));
         }
@@ -1107,7 +1101,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void queueVehicleProtocolResync(int transaction, VehicleMountResyncState resyncState) {
-        if (player.isBedrockMovement() || player.getClientVersion() != ClientVersion.V_1_21_2) {
+        if (isBedrockVehicleResync(resyncState.vehicleId())) {
+            player.getSetbackTeleportUtil().addBedrockVehicleTeleport(
+                    resyncState.vehicleId(), transaction, resyncState.position());
+        } else if (player.isBedrockMovement() || player.getClientVersion() != ClientVersion.V_1_21_2) {
             player.getSetbackTeleportUtil().addVehicleTeleport(resyncState.vehicleId(), transaction, resyncState.position());
         }
         // Protocol 768's generated MoveVehicle packet goes through the outbound
@@ -1119,16 +1116,23 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private void queueVehicleProtocolResyncAndApply(int transaction, VehicleMountResyncState resyncState) {
         queueVehicleProtocolResync(transaction, resyncState);
-        player.latencyUtils.addRealTimeTask(transaction, () ->
-                player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
-                        resyncState.vehicleId(),
-                        resyncState.position(),
-                        resyncState.yaw(),
-                        resyncState.pitch(),
-                        resyncState.onGround(),
-                        resyncState.velocity(),
-                        resyncState.interpolates()
-                ));
+        player.latencyUtils.addRealTimeTask(transaction, () -> applyVehicleProtocolResync(transaction, resyncState));
+    }
+
+    private void applyVehicleProtocolResync(int transaction, VehicleMountResyncState resyncState) {
+        if (isBedrockVehicleResync(resyncState.vehicleId())) {
+            player.getSetbackTeleportUtil().sendBedrockVehicleCorrection(resyncState.vehicleId(), resyncState.position(),
+                    resyncState.velocity(), resyncState.yaw(), resyncState.pitch(), Boolean.TRUE.equals(resyncState.onGround()), transaction);
+            return;
+        }
+        player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
+                resyncState.vehicleId(), resyncState.position(), resyncState.yaw(), resyncState.pitch(),
+                resyncState.onGround(), resyncState.velocity(), resyncState.interpolates());
+    }
+
+    private boolean isBedrockVehicleResync(int vehicleId) {
+        return player.isBedrockMovement()
+                && BedrockVehicleControl.isSupported(player.compensatedEntities.getEntity(vehicleId));
     }
 
     @Nullable
@@ -1145,7 +1149,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
         Vec3 position = new Vec3(trackedPosition.getX(), trackedPosition.getY(), trackedPosition.getZ());
         PacketEntity vehicle = player.compensatedEntities.getEntity(vehicleId);
-        if (forceSnapNudge || vehicleMoveWouldNotSnap(vehicle, position)) {
+        if (!isBedrockVehicleResync(vehicleId) && (forceSnapNudge || vehicleMoveWouldNotSnap(vehicle, position))) {
             position = nudgeVehicleMoveResyncPosition(position);
         }
 

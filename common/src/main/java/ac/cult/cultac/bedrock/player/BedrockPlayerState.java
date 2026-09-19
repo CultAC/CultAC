@@ -5,6 +5,7 @@ import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.BedrockBoundingBoxMode;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockRidingJumpState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
 import ac.cult.cultac.bedrock.protocol.BedrockClientAction;
@@ -16,6 +17,8 @@ import java.util.WeakHashMap;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockPlayerState {
+    public final ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleCorrections vehicleCorrections =
+            new ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleCorrections();
     // Accessed under the CultPlayer transaction lock.
     public ac.cult.cultac.player.CultPlayer.BedrockTransaction lastClientboundTransaction;
     private final UUID playerUuid;
@@ -37,6 +40,9 @@ public final class BedrockPlayerState {
     private long lastVerboseMovementLog = Long.MIN_VALUE;
     private PlayerDimensionsState confirmedBoundingBoxSize;
     private Long observedActorRuntimeId;
+    private BedrockRidingJumpState ridingJump = BedrockRidingJumpState.INITIAL;
+    private BedrockAuthInputFrame ridingJumpFrame;
+    private int horseJumpRelease = -1;
 
     public BedrockPlayerState(UUID playerUuid) {
         this.playerUuid = playerUuid;
@@ -48,7 +54,23 @@ public final class BedrockPlayerState {
     }
 
     public void recordActorCreation(long runtimeEntityId) {
+        vehicleCorrections.clear();
         observedActorRuntimeId = runtimeEntityId;
+        ridingJump = BedrockRidingJumpState.INITIAL;
+        ridingJumpFrame = null;
+        horseJumpRelease = -1;
+    }
+
+    public void tickRidingJump(BedrockAuthInputFrame frame, boolean canPowerJump) {
+        if (ridingJumpFrame == frame) return;
+        ridingJumpFrame = frame;
+        var step = ridingJump.tick(frame.isJumpCurrentRaw(), canPowerJump);
+        ridingJump = step.state();
+        horseJumpRelease = step.release();
+    }
+
+    public int horseJumpRelease(BedrockAuthInputFrame frame) {
+        return ridingJumpFrame == frame ? horseJumpRelease : -1;
     }
 
     public void offerAuthInputFrame(BedrockAuthInputFrame frame) {

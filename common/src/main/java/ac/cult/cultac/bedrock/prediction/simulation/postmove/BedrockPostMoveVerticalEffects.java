@@ -55,7 +55,9 @@ final class BedrockPostMoveVerticalEffects {
         return switch (medium(input, effectContext)) {
             case LAVA -> lavaGravity(velocity);
             case AIR -> input.effectState().levitationLevel() > 0 ? velocity : airGravity(input, velocity);
-            case WATER, NONE -> velocity;
+            case WATER -> input.current().isHorse()
+                ? new Vec3d(velocity.x(), BedrockLiquidVerticalMovement.applyMobWaterGravity(velocity.y()), velocity.z()) : velocity;
+            case NONE -> velocity;
         };
     }
 
@@ -78,7 +80,7 @@ final class BedrockPostMoveVerticalEffects {
         BedrockMovementContext effectContext,
         Vec3d velocity
     ) {
-        if (input.playerFlying()) {
+        if (input.playerFlying() || input.current().isHorse()) {
             return velocity;
         }
         return switch (medium(input, effectContext)) {
@@ -109,7 +111,9 @@ final class BedrockPostMoveVerticalEffects {
         return new DragResult(
             new Vec3d(
                 BedrockMath.f(velocity.x() * horizontalFriction),
-                includeVerticalDrag ? velocity.y() * BedrockWaterTravelMovement.FRICTION : velocity.y(),
+                includeVerticalDrag ? (input.current().isHorse()
+                    ? BedrockLiquidVerticalMovement.mobWaterDraggedVelocityY(velocity.y())
+                    : velocity.y() * BedrockWaterTravelMovement.FRICTION) : velocity.y(),
                 BedrockMath.f(velocity.z() * horizontalFriction)
             ),
             horizontalFriction

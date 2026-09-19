@@ -113,6 +113,10 @@ final class GeyserFloatingPointsAdapter {
         return dispatch.take(packet);
     }
 
+    synchronized ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame coordinateFrame() {
+        return dispatch.frame();
+    }
+
     synchronized void close() {
         closed = true;
         dispatch.clear();

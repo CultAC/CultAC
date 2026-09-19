@@ -290,14 +290,18 @@ public class CompensatedEntities {
             }
         }
 
-        if (entity instanceof PacketEntityHorse) {
+        if (entity instanceof PacketEntityHorse horse) {
             for (ClientboundUpdateAttributesPacket.AttributeSnapshot snapshot : objects) {
                 if (matchesAttribute(snapshot, "movement_speed")) {
-                    ((PacketEntityHorse) entity).movementSpeedAttribute = (float) calculateAttribute(snapshot, 0.0, 1024.0);
+                    horse.movementSpeedAttribute = player.isBedrockMovement()
+                            ? calculateBedrockAttributeCurrent(snapshot)
+                            : (float) calculateAttribute(snapshot, 0.0, 1024.0);
                 }
 
                 if (matchesAttribute(snapshot, "jump_strength")) {
-                    ((PacketEntityHorse) entity).jumpStrength = calculateAttribute(snapshot, 0.0, 2.0);
+                    horse.jumpStrength = player.isBedrockMovement()
+                            ? calculateBedrockAttributeCurrent(snapshot)
+                            : calculateAttribute(snapshot, 0.0, 2.0);
                 }
             }
         }

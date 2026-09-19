@@ -46,6 +46,10 @@ public final class BedrockNextTickStateDeriver {
         if (!movementResult.travelActive()) {
             return sourceStates.stream().map(state -> new DerivedState(state, state)).toList();
         }
+        if (movementResult.previousState().isBoat()) {
+            // The boat candidate includes its complete input and both friction applications.
+            return sourceStates.stream().map(state -> new DerivedState(state, state)).toList();
+        }
         ArrayList<DerivedState> states = new ArrayList<>();
         for (BedrockMovementState sourceState : sourceStates) {
             List<BedrockAcceptedDiffVelocity.AcceptedState> acceptedDiffStates = BedrockAcceptedDiffVelocity.apply(

@@ -26,6 +26,24 @@ public final class BedrockSimulation {
     private BedrockSimulation() {
     }
 
+    /** Runs vehicle travel with normalized controls, shared by prediction and correction replay. */
+    public static Candidate vehicleTick(Input input, Vec3d control) {
+        if (!input.previousState().isVehicle()) throw new IllegalArgumentException("Expected a vehicle");
+        if (control.y() != 0.0D || !Double.isFinite(control.x()) || !Double.isFinite(control.z())
+                || Math.abs(control.x()) > 1.0D || Math.abs(control.z()) > 1.0D) {
+            throw new IllegalArgumentException("Invalid vehicle control");
+        }
+        if (!input.actorMovementTick()) return candidates(input).getFirst();
+        var state = input.previousState();
+        if (state.isHorse()) state = state.withHorse(state.horse().withForwardJump(control.z() > 0.0D));
+        var options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
+                .withTravelActive(!state.hasTeleported());
+        var result = BedrockTravelEngine.INSTANCE.travel(new BedrockTravelInput(state, input.frame(), input.intent(),
+                BedrockSnapshotResolver.forState(input.snapshot(), state, input.frame()),
+                BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE, state.velocity(), options, control), input.mobJumpComponent());
+        return new Candidate(result.movementResult(), result.mobJumpComponent());
+    }
+
     public static List<Candidate> candidates(Input input) {
         if (!input.actorMovementTick()) {
             return List.of(new Candidate(
@@ -34,7 +52,14 @@ public final class BedrockSimulation {
                     input.canStep(), input.maxUpStep()),
                 input.mobJumpComponent()));
         }
+        if (input.previousState().isBoat()) {
+            return List.of(vehicleTick(input, input.boatControl() == null ? Vec3d.ZERO : input.boatControl()));
+        }
         ArrayList<Candidate> candidates = new ArrayList<>();
+        if (input.previousState().isHorse()) {
+            addHorseCandidates(candidates, input);
+            return List.copyOf(candidates);
+        }
         if (input.intent().vertical().descendInput()
             && input.previousState().climbableContact().descendAllowed()) {
             addBranchCandidates(candidates, input, BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND);
@@ -43,6 +68,19 @@ public final class BedrockSimulation {
             addBranchCandidates(candidates, input, BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE);
         }
         return List.copyOf(candidates);
+    }
+
+    private static void addHorseCandidates(List<Candidate> candidates, Input input) {
+        var horse = input.previousState().horse();
+        int branches = horse.canLaunch(input.previousState().collisionFlags().onGround()) ? 2 : 1;
+        for (int branch = 0; branch < branches; branch++) {
+            var state = input.previousState().withHorse(horse.withForwardJump(branch == 1));
+            var result = travel(state, input.frame(), input.intent(), input.snapshot(),
+                    BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE,
+                    BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
+                            .withTravelActive(!state.hasTeleported()), input.mobJumpComponent());
+            candidates.add(new Candidate(result.movementResult(), result.mobJumpComponent()));
+        }
     }
 
     public static List<NextState> deriveNextStates(
@@ -201,8 +239,16 @@ public final class BedrockSimulation {
         double maxUpStep,
         BedrockMobJumpComponentState mobJumpComponent,
         boolean actorMovementTick,
-        boolean acceptedTeleport
+        boolean acceptedTeleport,
+        Vec3d boatControl
     ) {
+        public Input(BedrockMovementState previousState, BedrockInputFrame frame, BedrockInputIntent intent,
+                     BedrockWorldSnapshot snapshot, boolean canStep, double maxUpStep,
+                     BedrockMobJumpComponentState mobJumpComponent, boolean actorMovementTick, boolean acceptedTeleport) {
+            this(previousState, frame, intent, snapshot, canStep, maxUpStep, mobJumpComponent,
+                    actorMovementTick, acceptedTeleport, null);
+        }
+
         public Input(
             BedrockMovementState previousState,
             BedrockInputFrame frame,

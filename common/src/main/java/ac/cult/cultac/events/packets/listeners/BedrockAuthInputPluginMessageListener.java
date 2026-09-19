@@ -33,6 +33,16 @@ public final class BedrockAuthInputPluginMessageListener {
         }
 
         byte[] data = NmsPacketUtil.payloadData(event);
+        var correction = BedrockAuthInputPluginMessage.decodeVehicleCorrection(data);
+        if (correction != null && player.playerUUID.equals(correction.playerUuid())) {
+            player.bedrockState.vehicleCorrections.observe(player, correction.correction());
+            return;
+        }
+        var vehicleStart = BedrockAuthInputPluginMessage.decodeVehicleFrameStart(data);
+        if (vehicleStart != null && player.playerUUID.equals(vehicleStart.playerUuid())) {
+            player.bedrockState.vehicleCorrections.beginFrame(player, vehicleStart.tick(), vehicleStart.vehicleId(), vehicleStart.runtimeId());
+            return;
+        }
         var creation = BedrockAuthInputPluginMessage.decodeActorCreated(data);
         if (creation != null && player.playerUUID.equals(creation.playerUuid())) {
             player.checkManager.getSimulationProcessor().handleBedrockActorCreation(creation.runtimeEntityId());
@@ -84,6 +94,9 @@ public final class BedrockAuthInputPluginMessageListener {
     }
 
     private void processAuthInputFrame(CultPlayer player, BedrockAuthInputFrame frame) {
+        // Geyser finishes the preceding translation before this frame. It can
+        // omit movement and tick-end while unspawned, leaving an unused decision.
+        player.packetStateData.clearBedrockTranslatedMovementPermit();
         Vec3 trustedVelocity = null;
         try {
             trustedVelocity = processAuthInputFrameAndSelectVelocity(player, frame);
@@ -93,6 +106,7 @@ public final class BedrockAuthInputPluginMessageListener {
             // prior trusted cache rather than PlayerAuthInputPacket.delta.
             GeyserBedrockBridgeRuntime.completeAuthInput(
                     player.user,
+                    frame,
                     trustedVelocity);
         }
     }
@@ -121,11 +135,8 @@ public final class BedrockAuthInputPluginMessageListener {
         TimerCheck.BedrockAuthInputDecision timerDecision =
                 player.checkManager.getCheck(TimerCheck.class).onBedrockAuthInput();
         if (timerDecision == TimerCheck.BedrockAuthInputDecision.REJECT) {
-            // Client-predicted boats and horses emit one MoveVehicle directly
-            // from each auth packet. The same one-shot rejection is consumed
-            // by that packet (or by the mounted Rot when no vehicle move was
-            // generated); independent 20 Hz Geyser vehicle ticks have no
-            // pending raw-auth rejection and remain untouched.
+            // Reject this frame's translated movement too. For vehicles,
+            // rider rotation or tick-end expires the rejection after MoveVehicle.
             player.packetStateData.rejectBedrockTranslatedMovement(frame.getClientTick());
             return null;
         }
@@ -144,9 +155,12 @@ public final class BedrockAuthInputPluginMessageListener {
                 player.getSetbackTeleportUtil().isPendingSetback())) {
             return null;
         }
-        return BedrockTrustedEndOfTickVelocity.select(
-                simulationProcessor.getCurrentPredictionCommit(),
-                frame.getReportedEndOfTickVelocity());
+        var context = result.getSimulationContext();
+        var vehicle = context == null ? null : context.getVehicle();
+        var commit = vehicle != null
+                ? (vehicle.bedrockPrediction == null ? null : vehicle.bedrockPrediction.commit())
+                : simulationProcessor.getCurrentPredictionCommit();
+        return BedrockTrustedEndOfTickVelocity.select(commit, frame.getReportedEndOfTickVelocity());
     }
 
     static boolean isTrustedVelocityResult(boolean pendingSetback) {

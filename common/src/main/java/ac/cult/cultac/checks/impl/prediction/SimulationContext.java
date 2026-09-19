@@ -271,14 +271,14 @@ public class SimulationContext {
 
     public float getMaxWidth() {
         if (getVehicle() != null) {
-            return BoundingBoxSize.getWidth(getVehicle(), version);
+            return BoundingBoxSize.getWidth(getVehicle(), version, getBedrockInput() != null);
         }
         return 0.6f;
     }
 
     public float getMaxHeight() {
         if (getVehicle() != null) {
-            return BoundingBoxSize.getHeight(getVehicle(), version);
+            return BoundingBoxSize.getHeight(getVehicle(), version, getBedrockInput() != null);
         }
         return 1.8f;
     }

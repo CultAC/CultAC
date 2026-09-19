@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
@@ -25,6 +26,7 @@ import ac.cult.cultac.utils.blockplace.GhostBlock;
 import ac.cult.cultac.utils.blockplace.NmsBlockBreakResolver;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.HeadRotation;
+import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
@@ -499,15 +501,15 @@ public class CheckManagerListener {
 
         if (player.isBedrockMovement()
                 && packet instanceof ServerboundMovePlayerPacket.Rot
-                && player.compensatedEntities.vehicles.hasPlayerPassengerState()
-                && player.packetStateData.hasPendingRejectedBedrockTranslatedMovement()) {
-            // Non-client-predicted vehicles do not emit an auth-derived
-            // MoveVehicle. Their mandatory Rot is therefore the frame boundary
-            // that consumes a rejected raw auth decision.
-            player.packetStateData.consumeBedrockTranslatedMovementPermit();
-            event.setCancelled(true);
-            clearTransientPacketState(player);
-            return;
+                && player.compensatedEntities.vehicles.hasPlayerPassengerState()) {
+            // Geyser sends vehicle movement before rider rotation. Expire an
+            // unused decision here if it omitted the vehicle move.
+            var authorization = player.packetStateData.consumeBedrockTranslatedMovementPermit();
+            if (authorization != null && authorization.decision() == PacketStateData.BedrockTranslatedMovementDecision.REJECT) {
+                event.setCancelled(true);
+                clearTransientPacketState(player);
+                return;
+            }
         }
 
         Vec3 position = VectorUtils.clampVector(new Vec3(
@@ -680,15 +682,7 @@ public class CheckManagerListener {
         NmsPacketUtil.MoveVehicleData vehiclePacket = NmsPacketUtil.readMoveVehicle(packet);
         Vec3 newPos = VectorUtils.clampVector(vehiclePacket.position());
         if (player.isBedrockMovement()) {
-            if (player.packetStateData.hasPendingRejectedBedrockTranslatedMovement()) {
-                // Keep the rejection until the mandatory mounted Rot boundary.
-                // If a fixed-rate Geyser tick interleaves before translation,
-                // failing closed for that boundary packet prevents it from
-                // consuming the decision ahead of the auth-derived move.
-                event.setCancelled(true);
-                clearTransientPacketState(player);
-                return;
-            }
+            var controlledVehicle = BedrockVehicleControl.controlledVehicle(player);
             Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
             PacketEntity packetRoot = currentVehicleRoot(player, false);
             if (packetRoot == null && serverVehicle != null) {
@@ -703,17 +697,53 @@ public class CheckManagerListener {
                             newPos.x,
                             newPos.y,
                             newPos.z);
+            if (player.packetStateData.hasPendingRejectedBedrockTranslatedMovement() && !teleportData.isTeleport()) {
+                // Preserve a rejection until this auth frame's mounted rotation boundary.
+                event.setCancelled(true);
+                clearTransientPacketState(player);
+                return;
+            }
+            var authorization = player.packetStateData.consumeBedrockTranslatedMovementPermit();
+            boolean claimsVehicle = authorization != null && authorization.vehicleEntityId() != null;
+            boolean authorizedVehicleMove = claimsVehicle && controlledVehicle != null && serverVehicle != null
+                    && serverVehicle == controlledVehicle.getEntityId()
+                    && authorization.vehicleEntityId() == controlledVehicle.getEntityId()
+                    && authorization.decision() == PacketStateData.BedrockTranslatedMovementDecision.ACCEPT
+                    && newPos.equals(authorization.vehiclePosition());
+            if ((controlledVehicle != null || claimsVehicle) && !teleportData.isTeleport() && !authorizedVehicleMove) {
+                event.setCancelled(true);
+                clearTransientPacketState(player);
+                return;
+            }
             boolean hasCurrentServerPassengerAuthority = serverVehicle != null
                     && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(serverVehicle);
+            var correction = authorizedVehicleMove ? authorization.vehicleCorrection() : null;
+            boolean blocked = correction == null
+                    ? shouldBlockVehicleMovementForSetback(player, teleportData)
+                    : player.getSetbackTeleportUtil().shouldBlockVehicleMovement(true)
+                        || !player.bedrockState.vehicleCorrections.isCorrecting(controlledVehicle)
+                        || controlledVehicle.isDead || player.isInBed;
             if (!teleportData.isTeleport()
                     && (!hasCurrentServerPassengerAuthority
-                    || shouldBlockVehicleMovementForSetback(player, teleportData))) {
-                // Geyser owns mounted vehicle simulation, but server mount and
-                // Cult-owned correction boundaries still apply.
+                    || blocked)) {
+                // Prediction does not grant server mount or correction authority.
                 event.setCancelled(true);
-            } else if (teleportData.isTeleport() && packetRoot != null) {
+            } else if (teleportData.isTeleport() && packetRoot != null && controlledVehicle == null) {
                 applyAcceptedVehicleTeleportState(
                         player, packetRoot, newPos, vehiclePacket, teleportData);
+            } else if (correction != null) {
+                // Keep the server on the simulated path while the client catches up.
+                event.setNmsPacket(NmsPacketUtil.serverboundMoveVehiclePacket(correction.position(), correction.yaw(),
+                        correction.pitch(), correction.onGround()));
+                event.markForReEncode(true);
+            } else if (authorizedVehicleMove && controlledVehicle.isBoat()) {
+                event.setNmsPacket(NmsPacketUtil.serverboundMoveVehiclePacket(newPos, controlledVehicle.clientPhysicalYaw,
+                        controlledVehicle.clientPhysicalPitch, authorization.canonicalGround()));
+                event.markForReEncode(true);
+            } else if (authorizedVehicleMove && vehiclePacket.hasOnGround()
+                    && vehiclePacket.onGround() != authorization.canonicalGround()) {
+                event.setNmsPacket(NmsPacketUtil.withOnGround(packet, authorization.canonicalGround()));
+                event.markForReEncode(true);
             }
             // Geyser emits MoveVehicle both from client-predicted auth input
             // and from its independent session vehicle tick. Neither path is

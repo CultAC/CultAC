@@ -10,6 +10,8 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFluidMovementSo
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFluidStateResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockPowderSnowContactResolver;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
@@ -41,10 +43,12 @@ final class BedrockInitialStateFactory {
         Vec3d initialVelocity = BedrockFluidMovementSourceResolver.fromContext(
                 fluidContext,
                 start.y()).appliedDelta();
-        boolean onGround = groundedFromBlockWorld(movementContext, start)
-                && !BedrockPowderSnowContactResolver.surfaceSink(movementContext, start, false);
+        boolean onGround = context.getVehicle() != null ? context.getVehicle().onGround
+                : groundedFromBlockWorld(movementContext, start)
+                    && !BedrockPowderSnowContactResolver.surfaceSink(movementContext, start, false);
         Medium medium = fluidContext.worldState().medium();
-        BedrockCollisionFlags initialFlags = medium == Medium.WATER || medium == Medium.LAVA
+        BedrockCollisionFlags initialFlags = context.getVehicle() == null
+                && (medium == Medium.WATER || medium == Medium.LAVA)
                 ? BedrockCollisionFlags.AIR
                 : new BedrockCollisionFlags(onGround, false, onGround);
         BedrockMovementState state = BedrockMovementState.fromPhysicalFeet(
@@ -53,7 +57,8 @@ final class BedrockInitialStateFactory {
                 BedrockInputFrame.idle(Math.max(0L, inputFrame.clientTick() - 1L)),
                 initialFlags,
                 initialMovementBranch(medium, onGround),
-                movementContext.worldState().blockCollisionWorld().coordinateFrame()
+                movementContext.worldState().blockCollisionWorld().coordinateFrame(),
+                context.getVehicle() instanceof PacketEntityHorse horse ? BedrockHorseState.initial(horse) : null
         ).withPlayerDimensions(movementContext.playerDimensionsState(), false)
                 .withClimbableContact(BedrockClimbableContact.fromBlockWorld(
                         movementContext.worldState().blockCollisionWorld(),
@@ -61,7 +66,15 @@ final class BedrockInitialStateFactory {
                         movementContext.playerDimensionsState().width(),
                         movementContext.playerDimensionsState().height(),
                         movementContext.equipmentState().leatherBoots()));
-        state = state.withSprinting(authInputFrame != null && authInputFrame.isSprinting());
+        if (context.getVehicle() != null && context.getVehicle().isBoat()) {
+            state = state.withBoat(ac.cult.cultac.bedrock.prediction.state.BedrockBoatState.initial(context.getVehicle()))
+                    .withPhysicalFeetPosition(start, 0).withRotation(context.getVehicle().clientPhysicalYaw + 90.0F, 0)
+                    .withClimbableContact(BedrockClimbableContact.NONE);
+        }
+        state = state.withSprinting(!state.isVehicle() && authInputFrame != null && authInputFrame.isSprinting());
+        if (context.getVehicle() instanceof PacketEntityHorse horse) {
+            state = state.withRotation(horse.clientPhysicalYaw, horse.clientPhysicalPitch);
+        }
         return state;
     }
 

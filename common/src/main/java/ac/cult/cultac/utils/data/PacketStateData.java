@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.data;
 
+import ac.cult.cultac.network.packet.NmsPacketUtil.MoveVehicleData;
 import net.minecraft.world.phys.Vec3;
 
 // This is to keep all the packet data out of the main player class
@@ -15,8 +16,8 @@ public class PacketStateData {
     public boolean horseInteractCausedForcedRotation = false;
     // Minecraft#tick sends ServerboundClientTickEndPacket after LocalPlayer#tick, proving whether movement happened.
     public boolean receivedMovementThisClientTick = false;
-    // Geyser emits at most one Java MovePlayer projection for each unmounted
-    // PlayerAuthInputPacket before its ClientTickEnd packet.
+    // Geyser forwards each auth frame before its movement. A horse move
+    // precedes the rider's rotation; tick-end closes frames without movement.
     private BedrockTranslatedMovementAuthorization bedrockTranslatedMovementAuthorization;
     private Boolean bedrockTranslatedCanonicalGround;
     private Boolean desiredOnGround;
@@ -81,14 +82,21 @@ public class PacketStateData {
                 false));
     }
 
+    public void grantBedrockVehicleMovementPermit(long clientTick, int entityId, Vec3 position, boolean onGround) {
+        offerBedrockTranslatedMovementDecision(new BedrockTranslatedMovementAuthorization(
+                clientTick, BedrockTranslatedMovementDecision.ACCEPT, false, onGround, entityId, position));
+    }
+
+    public void grantBedrockVehicleCorrection(long clientTick, int entityId, Vec3 reportedPosition, MoveVehicleData simulated) {
+        offerBedrockTranslatedMovementDecision(new BedrockTranslatedMovementAuthorization(
+                clientTick, BedrockTranslatedMovementDecision.ACCEPT, false, simulated.onGround(),
+                entityId, reportedPosition, simulated));
+    }
+
     private boolean offerBedrockTranslatedMovementDecision(
             BedrockTranslatedMovementAuthorization authorization
     ) {
-        // The private auth payload and its Geyser projection are ordered on
-        // the downstream packet stream. If that invariant is ever broken,
-        // preserve the earlier decision and let every extra projection fail
-        // closed after the one-shot slot is consumed. In particular, a later
-        // accepted frame must never overwrite a pending Timer rejection.
+        // Preserve the first decision until movement or the next frame boundary.
         if (bedrockTranslatedMovementAuthorization == null) {
             bedrockTranslatedMovementAuthorization = authorization;
             bedrockTranslatedCanonicalGround = null;
@@ -161,8 +169,21 @@ public class PacketStateData {
             long clientTick,
             BedrockTranslatedMovementDecision decision,
             boolean expectedProjectedGround,
-            boolean canonicalGround
+            boolean canonicalGround,
+            Integer vehicleEntityId,
+            Vec3 vehiclePosition,
+            MoveVehicleData vehicleCorrection
     ) {
+        public BedrockTranslatedMovementAuthorization(long tick, BedrockTranslatedMovementDecision decision,
+                                                      boolean projectedGround, boolean canonicalGround,
+                                                      Integer vehicleEntityId, Vec3 vehiclePosition) {
+            this(tick, decision, projectedGround, canonicalGround, vehicleEntityId, vehiclePosition, null);
+        }
+
+        public BedrockTranslatedMovementAuthorization(long tick, BedrockTranslatedMovementDecision decision,
+                                                      boolean projectedGround, boolean canonicalGround) {
+            this(tick, decision, projectedGround, canonicalGround, null, null);
+        }
     }
 
     public enum BedrockTranslatedMovementDecision {

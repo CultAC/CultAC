@@ -26,7 +26,19 @@ public class BoundingBoxSize {
     }
 
     public static float getWidth(CultPlayer player, PacketEntity packetEntity) {
-        return getWidth(packetEntity, player.getClientVersion());
+        return getWidth(packetEntity, player.getClientVersion(), player.isBedrockMovement());
+    }
+
+    public static float getWidth(PacketEntity packetEntity, ClientVersion version, boolean bedrock) {
+        if (bedrock && packetEntity.isBoat()) {
+            return (float) (packetEntity.bedrockBoat == null
+                    ? ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties.DIMENSIONS.width()
+                    : packetEntity.bedrockBoat.dimensions().width());
+        }
+        if (bedrock && packetEntity.type == EntityTypesCompat.HORSE) {
+            return 1.3965F * ((packetEntity.isBaby ? 0.5F : 1.0F) * packetEntity.scale);
+        }
+        return getWidth(packetEntity, version);
     }
 
     public static float getReachWidth(CultPlayer player, PacketEntity packetEntity) {
@@ -144,7 +156,19 @@ public class BoundingBoxSize {
     }
 
     public static float getHeight(CultPlayer player, PacketEntity packetEntity) {
-        return getHeight(packetEntity, player.getClientVersion());
+        return getHeight(packetEntity, player.getClientVersion(), player.isBedrockMovement());
+    }
+
+    public static float getHeight(PacketEntity packetEntity, ClientVersion version, boolean bedrock) {
+        if (bedrock && packetEntity.isBoat()) {
+            return (float) (packetEntity.bedrockBoat == null
+                    ? ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties.DIMENSIONS.height()
+                    : packetEntity.bedrockBoat.dimensions().height());
+        }
+        if (bedrock && packetEntity.type == EntityTypesCompat.HORSE) {
+            return 1.6F * ((packetEntity.isBaby ? 0.5F : 1.0F) * packetEntity.scale);
+        }
+        return getHeight(packetEntity, version);
     }
 
     public static float getReachHeight(CultPlayer player, PacketEntity packetEntity) {

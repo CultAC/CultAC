@@ -15,6 +15,34 @@ public final class BedrockAuthInputPluginMessageTest {
     private static final UUID PLAYER_UUID = UUID.fromString("7cc5c1f7-4b66-4c7c-bbb6-b1b09478015d");
 
     @Test
+    public void vehicleIdentitySurvivesEncodingAndCoordinateResolution() {
+        var frame = BedrockAuthInputFrame.builder(PLAYER_UUID)
+                .position(new Vec3(8.5F, 64.0F, -3.5F))
+                .packetPosition(new Vec3(8.5F, 64.0F, -3.5F))
+                .predictedVehicleId(146L).predictedVehicleJavaId(51)
+                .vehicleRotation(new BedrockAuthInputFrame.VehicleRotation(90.0F, 10.0F))
+                .rotation(100.0F, 20.0F, 100.0F).build();
+        var decoded = BedrockAuthInputPluginMessage.decode(BedrockAuthInputPluginMessage.encode(frame));
+        assertNotNull(decoded);
+        assertEquals(Long.valueOf(146L), decoded.getPredictedVehicleId());
+        assertEquals(Integer.valueOf(51), decoded.getPredictedVehicleJavaId());
+        assertEquals(frame.getVehicleRotation(), decoded.getVehicleRotation());
+        assertEquals(frame.getPosition(), decoded.resolveCoordinates(BedrockCoordinateFrame.IDENTITY).getPosition());
+    }
+
+    @Test
+    public void olderAuthCapturesKeepVehicleIdentityUnknown() {
+        byte[] encoded = BedrockAuthInputPluginMessage.encode(BedrockAuthInputFrame.builder(PLAYER_UUID).build());
+        byte[] older = Arrays.copyOf(encoded, encoded.length - 3 - Integer.BYTES);
+        ByteBuffer.wrap(older).putInt(19);
+        var decoded = BedrockAuthInputPluginMessage.decode(older);
+        assertNotNull(decoded);
+        assertEquals(null, decoded.getPredictedVehicleId());
+        assertEquals(null, decoded.getPredictedVehicleJavaId());
+        assertEquals(null, decoded.getVehicleRotation());
+    }
+
+    @Test
     public void authInputRoundTripPreservesHighInputFlags() {
         long sneakCurrentRaw = 1L << (PlayerAuthInputData.SNEAK_CURRENT_RAW.ordinal() - Long.SIZE);
         BedrockAuthInputFrame frame = BedrockAuthInputFrame.builder(PLAYER_UUID)

@@ -14,17 +14,96 @@ public final class BedrockAuthInputPluginMessage {
     public static final String CHANNEL_NAMESPACE = "cultac";
     public static final String CHANNEL_PATH = "bedrock_auth_input/" + newSecret();
     public static final String CHANNEL = CHANNEL_NAMESPACE + ":" + CHANNEL_PATH;
-    private static final int VERSION = 19;
+    private static final int VERSION = 22;
     private static final int TYPE_AUTH_INPUT = 0;
     private static final int TYPE_CLIENT_ACTION = 1;
     private static final int TYPE_MOVE_FRAME = 2;
     private static final int TYPE_METADATA_ACKNOWLEDGED = 7;
     private static final int TYPE_PROJECTION_SUPPRESSED = 8;
     private static final int TYPE_ACTOR_CREATED = 9;
+    private static final int TYPE_VEHICLE_CORRECTION = 11;
+    private static final int TYPE_VEHICLE_FRAME_START = 12;
     private static final int MAX_STRING_LENGTH = 128;
 
     private BedrockAuthInputPluginMessage() {
     }
+
+    public static byte[] encodeVehicleCorrection(UUID uuid, BedrockVehicleCorrection correction) {
+        try {
+            var bytes = new ByteArrayOutputStream();
+            var out = new DataOutputStream(bytes);
+            out.writeInt(VERSION);
+            out.writeByte(TYPE_VEHICLE_CORRECTION);
+            out.writeLong(uuid.getMostSignificantBits());
+            out.writeLong(uuid.getLeastSignificantBits());
+            out.writeLong(correction.sequence());
+            out.writeLong(correction.controlGeneration());
+            out.writeInt(correction.vehicleId());
+            out.writeLong(correction.runtimeId());
+            out.writeLong(correction.tick());
+            writeVec3(out, correction.position());
+            writeVec3(out, correction.velocity());
+            out.writeFloat(correction.yaw());
+            out.writeFloat(correction.pitch());
+            out.writeBoolean(correction.onGround());
+            writeCoordinateFrame(out, correction.coordinates());
+            out.writeInt(correction.teleportTransaction());
+            writeNullableFloat(out, correction.angularVelocity());
+            return bytes.toByteArray();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to encode vehicle correction", exception);
+        }
+    }
+
+    public static VehicleCorrectionMessage decodeVehicleCorrection(byte[] data) {
+        try {
+            var in = new DataInputStream(new ByteArrayInputStream(data));
+            int version = in.readInt();
+            if (version < 21 || version > VERSION || in.readUnsignedByte() != TYPE_VEHICLE_CORRECTION) return null;
+            UUID uuid = new UUID(in.readLong(), in.readLong());
+            var correction = new BedrockVehicleCorrection(in.readLong(), in.readLong(), in.readInt(), in.readLong(), in.readLong(),
+                    readVec3(in), readVec3(in), in.readFloat(), in.readFloat(), in.readBoolean(),
+                    readCoordinateFrame(in), in.readInt(), version >= 22 ? readNullableFloat(in) : null);
+            return in.available() == 0 ? new VehicleCorrectionMessage(uuid, correction) : null;
+        } catch (IOException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    public record VehicleCorrectionMessage(UUID playerUuid, BedrockVehicleCorrection correction) { }
+
+    /** Precedes the actions translated from an auth-input packet. */
+    public static byte[] encodeVehicleFrameStart(UUID uuid, long tick, int vehicleId, long runtimeId) {
+        try {
+            var bytes = new ByteArrayOutputStream();
+            var out = new DataOutputStream(bytes);
+            out.writeInt(VERSION);
+            out.writeByte(TYPE_VEHICLE_FRAME_START);
+            out.writeLong(uuid.getMostSignificantBits());
+            out.writeLong(uuid.getLeastSignificantBits());
+            out.writeLong(tick);
+            out.writeInt(vehicleId);
+            out.writeLong(runtimeId);
+            return bytes.toByteArray();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to encode vehicle frame boundary", exception);
+        }
+    }
+
+    public static VehicleFrameStart decodeVehicleFrameStart(byte[] data) {
+        try {
+            var in = new DataInputStream(new ByteArrayInputStream(data));
+            int version = in.readInt();
+            if (version < 21 || version > VERSION || in.readUnsignedByte() != TYPE_VEHICLE_FRAME_START) return null;
+            var frame = new VehicleFrameStart(new UUID(in.readLong(), in.readLong()), in.readLong(), in.readInt(), in.readLong());
+            return in.available() == 0 ? frame : null;
+        } catch (IOException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    public record VehicleFrameStart(UUID playerUuid, long tick, int vehicleId, long runtimeId) { }
+
 
     public static byte[] encodeActorCreated(UUID playerUuid, long runtimeEntityId) {
         try {
@@ -112,6 +191,16 @@ public final class BedrockAuthInputPluginMessage {
             out.writeLong(frame.getRewindCorrectionId());
             writeVec3(out, frame.getReportedEndOfTickVelocity());
             writeCoordinateFrame(out, frame.getCoordinateFrame());
+            out.writeBoolean(frame.getPredictedVehicleId() != null);
+            if (frame.getPredictedVehicleId() != null) out.writeLong(frame.getPredictedVehicleId());
+            out.writeBoolean(frame.getVehicleRotation() != null);
+            if (frame.getVehicleRotation() != null) {
+                out.writeFloat(frame.getVehicleRotation().yaw());
+                out.writeFloat(frame.getVehicleRotation().pitch());
+            }
+            out.writeBoolean(frame.getPredictedVehicleJavaId() != null);
+            if (frame.getPredictedVehicleJavaId() != null) out.writeInt(frame.getPredictedVehicleJavaId());
+            out.writeInt(frame.getInteractionModel());
             out.flush();
             return bytes.toByteArray();
         } catch (IOException exception) {
@@ -305,6 +394,13 @@ public final class BedrockAuthInputPluginMessage {
 
             builder.coordinateProvenance(version >= 17);
             if (version >= 17) builder.coordinateFrame(readCoordinateFrame(in));
+            if (version >= 20) {
+                if (in.readBoolean()) builder.predictedVehicleId(in.readLong());
+                if (in.readBoolean()) builder.vehicleRotation(
+                        new BedrockAuthInputFrame.VehicleRotation(in.readFloat(), in.readFloat()));
+                if (in.readBoolean()) builder.predictedVehicleJavaId(in.readInt());
+            }
+            if (version >= 22) builder.interactionModel(in.readInt());
             if (in.available() != 0) {
                 return null;
             }

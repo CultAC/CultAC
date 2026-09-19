@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -182,6 +183,11 @@ public class PacketServerTeleport {
         Vec3 expectedResponsePosition = snaps || currentSerializedPosition == null ? finalPos : currentSerializedPosition;
 
         if (event.isCancelled()) {
+            return;
+        }
+
+        if (player.isBedrockMovement() && BedrockVehicleControl.isSupported(controlledRoot)) {
+            // Geyser translates this packet normally. Cult tracks its own rewind setbacks when sent.
             return;
         }
 

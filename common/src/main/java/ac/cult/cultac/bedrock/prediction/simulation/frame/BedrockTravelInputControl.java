@@ -43,6 +43,10 @@ public final class BedrockTravelInputControl {
         BedrockMovementContext context,
         BedrockEffectState effectState
     ) {
+        if (current.isHorse()) {
+            return new InputControlState(current.horse().movementSuppressed(current.movementGrounded())
+                    ? 0.0F : 1.0F, false, 0L, false, false);
+        }
         ItemUseSlowdown itemUseSlowdown = itemUseSlowdown(current, intent, context);
         boolean controlsNotSuppressed = !effectState.blindness() && !itemUseSlowdown.active();
 

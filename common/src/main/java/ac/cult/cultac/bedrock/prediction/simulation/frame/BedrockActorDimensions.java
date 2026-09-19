@@ -34,6 +34,9 @@ public final class BedrockActorDimensions {
         boolean spinActive,
         boolean spinAttackStarted
     ) {
+        if (previousState.isVehicle()) {
+            return new Resolved(BedrockBoundingBoxMode.DEFAULT, currentDimensions);
+        }
         // A local launch requests a resize; synchronized spin metadata alone does not.
         if (spinAttackStarted) {
             return horizontalPoseDimensions(currentDimensions);

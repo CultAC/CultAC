@@ -18,7 +18,7 @@ final class BedrockVerticalCollisionSelection {
             boolean claimedCollision,
             BedrockVerticalCollisionVerdict verdict
     ) {
-        if (entries.isEmpty() || movementResult == null || !movementResult.travelActive()
+        if (entries.isEmpty() || movementResult == null || movementResult.previousState().isVehicle() || !movementResult.travelActive()
                 || verdict != BedrockVerticalCollisionVerdict.LEGAL) {
             return entries;
         }

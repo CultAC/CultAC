@@ -144,6 +144,27 @@ public final class NmsPacketUtil {
         );
     }
 
+    public static ServerboundMoveVehiclePacket withOnGround(ServerboundMoveVehiclePacket packet, boolean onGround) {
+        MoveVehicleData move = readMoveVehicle(packet);
+        if (!move.hasOnGround() || move.onGround() == onGround) return packet;
+        return serverboundMoveVehiclePacket(move.position(), move.yaw(), move.pitch(), onGround);
+    }
+
+    public static ServerboundMoveVehiclePacket serverboundMoveVehiclePacket(Vec3 position, float yaw, float pitch, boolean onGround) {
+        FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer(33));
+        try {
+            buffer.writeDouble(position.x);
+            buffer.writeDouble(position.y);
+            buffer.writeDouble(position.z);
+            buffer.writeFloat(yaw);
+            buffer.writeFloat(pitch);
+            buffer.writeBoolean(onGround);
+            return ServerboundMoveVehiclePacket.STREAM_CODEC.decode(buffer);
+        } finally {
+            buffer.release();
+        }
+    }
+
     public static ClientboundMoveVehiclePacket clientboundMoveVehiclePacket(Vec3 position, float yaw, float pitch) {
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer(32));
         try {

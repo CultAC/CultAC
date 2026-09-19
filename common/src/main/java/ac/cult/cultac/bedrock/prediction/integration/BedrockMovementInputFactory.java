@@ -6,6 +6,7 @@ import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
 import ac.cult.cultac.bedrock.prediction.input.BedrockTickInput;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockHorseMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
@@ -15,6 +16,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 
 final class BedrockMovementInputFactory {
     private final BedrockTickInputBuilder tickInputs;
@@ -39,7 +41,11 @@ final class BedrockMovementInputFactory {
         BedrockCollisionOverrideCatalog geometry = geometryCatalog();
         BedrockPlayerContext playerContext = BedrockPlayerContext.from(player, context, frame, actorGliding);
         BedrockWorldSnapshot worldSnapshot = worldSnapshots.create(player, context, geometry, frame, playerContext);
-        BedrockTickInput tickInput = tickInputs.create(player, frame, playerContext);
+        BedrockTickInput tickInput = context.getVehicle() instanceof PacketEntityHorse horse
+                ? tickInputs.createHorse(player, frame, profilePreviousState, horse)
+                 : context.getVehicle() != null && context.getVehicle().isBoat()
+                ? tickInputs.createBoat(player, frame, profilePreviousState, context.getVehicle())
+                : tickInputs.create(player, frame, playerContext);
         BedrockMobJumpComponentState mobJumpComponent = BedrockProfileState.mobJumpComponent(context);
         BedrockMovementState previousState = BedrockInitialStateFactory.resolve(
                 context,
@@ -49,9 +55,17 @@ final class BedrockMovementInputFactory {
                 profilePreviousState);
         if (profilePreviousState == null) {
             previousState = previousState.withAcknowledgedPose(null, null, playerContext.pose().spinning())
-                .withGliding(actorGliding);
+                .withGliding(playerContext.actorGliding());
         }
-        if (player.bedrockState != null) {
+        if (previousState.isHorse()) {
+            var horse = previousState.horse().actor();
+            previousState = previousState.withHorse(previousState.horse().forFrame(
+                    horse.horseFlagsRevision, horse.isRearing, player.bedrockState.horseJumpRelease(frame)));
+        } else if (previousState.isBoat()) {
+            previousState = previousState.withBoat(previousState.boat().withProperties(
+                    previousState.boat().actor().bedrockBoat, analogBoatInput(frame)))
+                    .withPlayerDimensions(previousState.boat().actor().bedrockBoat.dimensions(), true);
+        } else if (player.bedrockState != null) {
             previousState = player.bedrockState.applyConfirmedBoundingBoxSize(
                     previousState, tickInput.inputFrame());
         }
@@ -65,10 +79,21 @@ final class BedrockMovementInputFactory {
                 tickInput,
                 tickInput.inputFrame().intent(),
                 worldSnapshot,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                previousState.isHorse() ? BedrockHorseMovement.maxUpStep(previousState, worldSnapshot.movementContext())
+                        : previousState.isBoat() ? boatStep(previousState) : BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                 mobJumpComponent,
                 hasAcknowledgedStartChunk(player, context)
         );
+    }
+
+    private static boolean analogBoatInput(BedrockAuthInputFrame frame) {
+        return frame.getInputMode() != org.cloudburstmc.protocol.bedrock.data.InputMode.TOUCH.ordinal()
+                || frame.getInteractionModel() != org.cloudburstmc.protocol.bedrock.data.InputInteractionModel.CLASSIC.ordinal();
+    }
+
+    private static double boatStep(BedrockMovementState state) {
+        Double step = state.boat().actor().stepHeightAttribute;
+        return step == null ? 0 : Math.max(0, step);
     }
 
     private static BedrockAuthInputFrame trustedFrame(CultPlayer player, SimulationContext context) {
@@ -159,6 +184,16 @@ final class BedrockMovementInputFactory {
         }
 
         public Input withPreviousState(BedrockMovementState previousState, BedrockMobJumpComponentState mobJumpComponent) {
+            if (previousState.isHorse()) {
+                var snapshot = this.previousState.horse();
+                previousState = previousState.withHorse(previousState.horse().forFrame(
+                        snapshot.metadataRevision(), snapshot.standing(), snapshot.release()));
+            }
+            if (previousState.isBoat()) {
+                previousState = previousState.withBoat(previousState.boat().withProperties(
+                        this.previousState.boat().properties(), this.previousState.boat().analogPaddles()))
+                        .withPlayerDimensions(this.previousState.boat().properties().dimensions(), true);
+            }
             if (java.util.Objects.equals(this.previousState, previousState)) {
                 if (java.util.Objects.equals(this.mobJumpComponent, mobJumpComponent)) {
                     return this;
@@ -170,7 +205,7 @@ final class BedrockMovementInputFactory {
                     tickInput,
                     inputIntent,
                     BedrockSnapshotResolver.forState(worldSnapshot, previousState, tickInput.inputFrame()),
-                    maxUpStep,
+                    previousState.isHorse() ? BedrockHorseMovement.maxUpStep(previousState, movementContext()) : maxUpStep,
                     mobJumpComponent,
                     actorMovementTick);
         }

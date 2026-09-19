@@ -106,9 +106,9 @@ record BedrockPostMoveContext(
             movementDimensions()
         );
         BedrockPostMoveFrame next = frame.withPostMoveContext(postMoveContext);
-        if (postMoveContext.inWater()
+        if (!current().isVehicle() && (postMoveContext.inWater()
             || postMoveContext.inLava()
-            || postMoveContext.liquidMovementMedium() == Medium.LAVA) {
+            || postMoveContext.liquidMovementMedium() == Medium.LAVA)) {
             return next.withFlags(next.flags().withOnGround(false));
         }
         return next;

@@ -46,7 +46,8 @@ public final class BedrockMoveSystems {
             !frame.branch().glidingTravel() && frame.input().options().canStep(),
             frame.input().options().maxUpStep()
         );
-        BedrockClimbableContact nextClimbableContact = frame.input().worldSnapshot().climbableContactAt(
+        BedrockClimbableContact nextClimbableContact = frame.boat() != null ? BedrockClimbableContact.NONE
+                : frame.input().worldSnapshot().climbableContactAt(
             blockMove.position(), facts.movementDimensions()
         );
         return new BedrockCollisionOutput(blockMove, nextClimbableContact, request);

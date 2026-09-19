@@ -88,6 +88,13 @@ final class BedrockAcceptedDiffVelocity {
             : state.collisionFlags();
         boolean waterTravelActive = evidence.waterTravelActive();
         Medium movementBranch = evidence.movementBranch(flags, waterTravelActive);
+        if (state.isHorse() && flags.onGround() != state.collisionFlags().onGround()) {
+            // Landing belongs to the selected collision result, including a step.
+            var horse = movementResult.previousState().horse().requestJump();
+            if (movementResult.groundJumpApplied()) horse = horse.launched();
+            state = state.withHorse(horse.withForwardJump(state.horse().forwardJump()).afterTravel(
+                    movementResult.previousState().collisionFlags().onGround(), flags.onGround()));
+        }
         Set<BedrockMovementState> states = new LinkedHashSet<>();
         for (BedrockAcceptedDiffHorizontalVelocity.AxisVelocity horizontalVelocity : horizontalVelocities) {
             Vec3d velocity = applyAcceptedEndpointStandingSurfaceHorizontalSlowdown(
@@ -164,7 +171,7 @@ final class BedrockAcceptedDiffVelocity {
 
     private static boolean acceptedEndpointLiquidClearsGround(BedrockAcceptedEndpointEvidence evidence) {
         BedrockMovementResult movementResult = evidence.movementResult();
-        if (movementResult.movementContext().inWater() || movementResult.movementContext().inLava()) {
+        if (evidence.state().isHorse() || movementResult.movementContext().inWater() || movementResult.movementContext().inLava()) {
             return false;
         }
         BedrockMovementContext endpointContext = evidence.fluidContext();
@@ -251,7 +258,8 @@ final class BedrockAcceptedDiffVelocity {
     private static Vec3d packetVisibleRawMove(BedrockMovementResult movementResult) {
         Vec3d previous = movementResult.previousState().physicalFeetPosition();
         Vec3d rawPacketEndpoint = BedrockPositionTranslator.normalizePhysicalFeetPosition(
-            movementResult.rawPredictedPhysicalFeetPosition(), movementResult.previousState().coordinateFrame());
+            movementResult.rawPredictedPhysicalFeetPosition(), movementResult.previousState().coordinateFrame(),
+            movementResult.previousState().packetYOffset());
         return rawPacketEndpoint.subtract(previous);
     }
 

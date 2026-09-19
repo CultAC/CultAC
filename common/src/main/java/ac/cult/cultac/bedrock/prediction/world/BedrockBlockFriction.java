@@ -4,6 +4,7 @@ import java.util.Objects;
 
 public final class BedrockBlockFriction {
     public static final double DEFAULT = 0.6F;
+    public static final double AIR = 0.9F;
     public static final double ICE = 0.98F;
     public static final double BLUE_ICE = 0.989F;
     public static final double SLIME = 0.8F;
@@ -21,6 +22,9 @@ public final class BedrockBlockFriction {
 
         String javaIdentifier = baseIdentifier(block.javaState());
         String bedrockId = baseIdentifier(block.bedrockIdentifier());
+        if ("minecraft:air".equals(bedrockId)) {
+            return AIR;
+        }
         if (isBlueIce(javaIdentifier) || isBlueIce(bedrockId)) {
             return BLUE_ICE;
         }

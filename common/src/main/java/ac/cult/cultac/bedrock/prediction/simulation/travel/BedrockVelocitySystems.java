@@ -6,6 +6,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMov
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameFacts;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockLiquidVerticalMovement;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMath;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelBranch;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInputControl;
 
@@ -23,6 +24,9 @@ public final class BedrockVelocitySystems {
                 new BedrockMoveRequest(new BedrockResolvedMove(false, Vec3d.ZERO, Vec3d.ZERO),
                     frame.input().previousState().physicalFeetPosition()));
         }
+        if (frame.boat() != null) {
+            return plan(frame, velocity, new BedrockTravelHorizontalControl.Step(0.0D, 1.0D), false);
+        }
         if (branch.glidingTravel()) {
             velocity = BedrockBlockSurfaceMovement.applyHoneySlideBeforeMove(
                 velocity,
@@ -35,6 +39,7 @@ public final class BedrockVelocitySystems {
         }
 
         BedrockTravelHorizontalControl.Step horizontal = horizontal(frame);
+        velocity = applyReplayControl(frame, velocity, horizontal);
         if (branch.defaultMoveSystems()) {
             velocity = BedrockDefaultMoveClimbVertical.apply(
                 velocity,
@@ -81,6 +86,26 @@ public final class BedrockVelocitySystems {
         return new BedrockTravelPlan(frame, velocity, horizontal, request);
     }
 
+    private static Vec3d applyReplayControl(BedrockFrameState frame, Vec3d velocity,
+                                           BedrockTravelHorizontalControl.Step horizontal) {
+        Vec3d control = frame.input().replayControl();
+        if (control == null) return velocity;
+        float side = (float) control.x() * 0.5F;
+        float forward = (float) control.z();
+        if (forward <= 0.0F) forward *= 0.25F;
+        float lengthSquared = side * side + forward * forward;
+        if (lengthSquared < 0.01F * 0.01F) return velocity;
+        float length = (float) Math.sqrt(lengthSquared);
+        float scale = (float) horizontal.horizontalInputLimit() / Math.max(1.0F, length);
+        side *= scale;
+        forward *= scale;
+        float radians = frame.input().inputFrame().yaw() * BedrockMath.DEGREES_TO_RADIANS;
+        float sin = (float) Math.sin(radians);
+        float cos = (float) Math.cos(radians);
+        return new Vec3d((float) velocity.x() + (side * cos - forward * sin), velocity.y(),
+                (float) velocity.z() + (side * sin + forward * cos));
+    }
+
     private static BedrockTravelHorizontalControl.Step horizontal(BedrockFrameState frame) {
         BedrockTravelBranch branch = frame.branch();
         BedrockFrameFacts facts = frame.frameFacts();
@@ -89,7 +114,7 @@ public final class BedrockVelocitySystems {
             return BedrockFlyingTravelMovement.speed(facts.context(), control.moveInputScale());
         }
         if (branch.airTravel()) {
-            return BedrockPlayerAirTravelMovement.resolveHorizontal(frame);
+            return BedrockAirTravelMovement.resolveHorizontal(frame);
         }
         if (branch.waterTravel()) {
             return BedrockTravelHorizontalControl.resolveWaterTravel(
