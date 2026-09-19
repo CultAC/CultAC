@@ -28,7 +28,6 @@ import ac.cult.cultac.manager.player.PluginChannelManager;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.manager.player.features.FeatureManagerImpl;
 import ac.cult.cultac.manager.player.handlers.NoOpResyncHandler;
-import ac.cult.cultac.network.netty.channel.ChannelHelper;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.FoliaCompatUtil;
@@ -394,7 +393,7 @@ public class CultPlayer implements GrimUser {
     }
 
     public void onRemove() {
-        ChannelHelper.runInEventLoop(user.getChannel(), () -> {
+        user.execute(() -> {
             nettyScheduler.removeScheduler();
             compensatedWorld.clearChunks();
             FairReach fairReach = checkManager.getListener(FairReach.class);
@@ -509,7 +508,7 @@ public class CultPlayer implements GrimUser {
     public void sendTransaction(boolean async) {
         if (async) {
             // Re-enter on the connection's event loop so the id is allocated in send order
-            ChannelHelper.runInEventLoop(user.getChannel(), () -> sendTransaction(false));
+            user.execute(() -> sendTransaction(false));
             return;
         }
 
@@ -1063,7 +1062,7 @@ public class CultPlayer implements GrimUser {
     @Override
     public void runSafely(Runnable runnable) {
         Objects.requireNonNull(runnable, "runnable");
-        ChannelHelper.runInEventLoop(this.user.getChannel(), runnable);
+        this.user.execute(runnable);
     }
 
     @Override

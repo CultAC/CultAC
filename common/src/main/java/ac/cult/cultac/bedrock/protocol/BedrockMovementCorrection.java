@@ -3,20 +3,27 @@ package ac.cult.cultac.bedrock.protocol;
 import java.util.Objects;
 import net.minecraft.world.phys.Vec3;
 
-/** A vehicle correction observed at the Bedrock write boundary. Positions are in world coordinates. */
-public record BedrockVehicleCorrection(
+/** An actor correction observed at the Bedrock write boundary. Positions are in world coordinates. */
+public record BedrockMovementCorrection(
         long sequence, long controlGeneration, int vehicleId, long runtimeId, long tick,
         Vec3 position, Vec3 velocity, float yaw, float pitch, boolean onGround,
-        BedrockCoordinateFrame coordinates, int teleportTransaction, Float angularVelocity
+        BedrockCoordinateFrame coordinates, int teleportTransaction, Float angularVelocity, boolean vehicle
 ) {
-    public BedrockVehicleCorrection(long sequence, long controlGeneration, int vehicleId, long runtimeId, long tick,
+    public BedrockMovementCorrection(long sequence, long controlGeneration, int vehicleId, long runtimeId, long tick,
+            Vec3 position, Vec3 velocity, float yaw, float pitch, boolean onGround,
+            BedrockCoordinateFrame coordinates, int teleportTransaction, Float angularVelocity) {
+        this(sequence, controlGeneration, vehicleId, runtimeId, tick, position, velocity, yaw, pitch, onGround,
+                coordinates, teleportTransaction, angularVelocity, true);
+    }
+
+    public BedrockMovementCorrection(long sequence, long controlGeneration, int vehicleId, long runtimeId, long tick,
             Vec3 position, Vec3 velocity, float yaw, float pitch, boolean onGround,
             BedrockCoordinateFrame coordinates, int teleportTransaction) {
         this(sequence, controlGeneration, vehicleId, runtimeId, tick, position, velocity, yaw, pitch, onGround,
                 coordinates, teleportTransaction, null);
     }
 
-    public BedrockVehicleCorrection {
+    public BedrockMovementCorrection {
         Objects.requireNonNull(coordinates, "coordinates");
         requireFinite(position);
         requireFinite(velocity);

@@ -222,6 +222,15 @@ public final class NmsPacketUtil {
                 new Class<?>[]{boolean.class});
     }
 
+    public static ServerboundMovePlayerPacket positionedPacket(ServerboundMovePlayerPacket packet, Vec3 position,
+                                                              CultPlayer player, boolean onGround) {
+        if (!packet.hasRotation()) return positionPacket(position.x, position.y, position.z, onGround, false);
+        return constructMovePacket(PosRot.class,
+                new Class<?>[]{double.class, double.class, double.class, float.class, float.class, boolean.class, boolean.class},
+                new Object[]{position.x, position.y, position.z, packet.getYRot(player.xRot), packet.getXRot(player.yRot), onGround, false},
+                new Class<?>[]{double.class, double.class, double.class, float.class, float.class, boolean.class});
+    }
+
     public static ServerboundMovePlayerPacket positionPacket(
             double x, double y, double z, boolean onGround, boolean horizontalCollision
     ) {

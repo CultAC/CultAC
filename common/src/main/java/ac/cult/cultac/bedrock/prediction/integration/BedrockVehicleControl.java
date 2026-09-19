@@ -16,7 +16,7 @@ public final class BedrockVehicleControl {
         return isSupported(riding) && !riding.isDead
                 && (!riding.isBoat() || riding.bedrockBoat != null)
                 && (!(riding instanceof PacketEntityHorse vehicle) || vehicle.hasSaddle)
-                && player.compensatedEntities.vehicles.passengerIndex(riding) == 0 ? riding : null;
+                && riding.passengers.indexOf(player.compensatedEntities.getSelf()) == 0 ? riding : null;
     }
 
     public static boolean isSupported(PacketEntity entity) {

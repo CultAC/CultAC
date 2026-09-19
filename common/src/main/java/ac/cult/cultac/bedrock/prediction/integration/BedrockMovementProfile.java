@@ -39,8 +39,7 @@ public final class BedrockMovementProfile implements MovementProfile {
 
     @Override
     public boolean shouldRunPseudoCheck(Class<?> checkClass) {
-        return checkClass == BedrockMovement.class
-                || checkClass == NoFallPseudo.class;
+        return checkClass == BedrockMovement.class || checkClass == NoFallPseudo.class;
     }
 
     @Override

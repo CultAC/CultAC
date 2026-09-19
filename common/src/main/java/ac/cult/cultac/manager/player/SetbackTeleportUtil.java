@@ -4,7 +4,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
-import ac.cult.cultac.bedrock.protocol.BedrockVehicleCorrection;
+import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -492,9 +492,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     int transaction = data.getTeleportData().getTransaction();
                     addBedrockVehicleTeleport(vehicleEntityId, transaction, position);
                     if (simulateVehicle) {
-                        player.runSafely(() -> player.bedrockState.vehicleCorrections.requestSetback(vehicleEntityId, transaction));
+                        player.runSafely(() -> player.bedrockState.movementCorrections.requestSetback(vehicleEntityId, transaction));
                     } else {
-                        sendBedrockVehicleCorrection(vehicleEntityId, position, data.getVelocity() == null ? Vec3.ZERO : data.getVelocity(),
+                        sendBedrockMovementCorrection(vehicleEntityId, position, data.getVelocity() == null ? Vec3.ZERO : data.getVelocity(),
                                 player.xRot, player.yRot, data.isExpectedOnGround(), transaction, data.getProfileState());
                     }
                 } else {
@@ -1080,26 +1080,26 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         vehicleTeleports.add(new VehicleTeleport(vehicleId, transaction, position, null, 0.0D, true));
     }
 
-    public void sendBedrockVehicleCorrection(int vehicleId, Vec3 position, Vec3 velocity,
+    public void sendBedrockMovementCorrection(int vehicleId, Vec3 position, Vec3 velocity,
             float yaw, float pitch, boolean onGround, int transaction) {
-        sendBedrockVehicleCorrection(vehicleId, position, velocity, yaw, pitch, onGround, transaction, null);
+        sendBedrockMovementCorrection(vehicleId, position, velocity, yaw, pitch, onGround, transaction, null);
     }
 
-    private void sendBedrockVehicleCorrection(int vehicleId, Vec3 position, Vec3 velocity,
+    private void sendBedrockMovementCorrection(int vehicleId, Vec3 position, Vec3 velocity,
             float yaw, float pitch, boolean onGround, int transaction, PredictionSetbackState setback) {
-        player.runSafely(() -> player.bedrockState.vehicleCorrections.request(player, vehicleId,
+        player.runSafely(() -> player.bedrockState.movementCorrections.request(player, vehicleId,
                 position, velocity, yaw, pitch, onGround, transaction, setback));
     }
 
-    public int bedrockVehicleCorrectionTransaction(BedrockVehicleCorrection correction) {
+    public int bedrockVehicleCorrectionTransaction(BedrockMovementCorrection correction) {
         for (VehicleTeleport teleport : vehicleTeleports) {
-            if (matchesBedrockVehicleCorrection(teleport, correction)) return teleport.transaction();
+            if (matchesBedrockMovementCorrection(teleport, correction)) return teleport.transaction();
         }
         return -1;
     }
 
     /** Receipt alone cannot complete a rewind. Called only after movement from the corrected state passes. */
-    public boolean completeBedrockVehicleCorrection(BedrockVehicleCorrection correction) {
+    public boolean completeBedrockMovementCorrection(BedrockMovementCorrection correction) {
         if (!player.isBedrockMovement()) return false;
         if (correction.teleportTransaction() < 0) return true;
         if (player.lastTransactionReceived.get() < correction.teleportTransaction()) return false;
@@ -1117,7 +1117,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 || requiredSetBack.getTeleportData().getTransaction() != correction.teleportTransaction();
     }
 
-    private boolean matchesBedrockVehicleCorrection(VehicleTeleport teleport, BedrockVehicleCorrection correction) {
+    private boolean matchesBedrockMovementCorrection(VehicleTeleport teleport, BedrockMovementCorrection correction) {
         if (teleport.vehicleId() != correction.vehicleId() || !teleport.rewind()) return false;
         Vec3 local = correction.coordinates().toLocal(teleport.position());
         Vec3 expected = correction.coordinates().toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));
@@ -1127,7 +1127,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     public void clearVehicleTeleports() {
         vehicleTeleports.clear();
         if (player.bedrockState != null) {
-            player.runSafely(() -> player.bedrockState.vehicleCorrections.clear());
+            player.runSafely(() -> player.bedrockState.movementCorrections.clear());
         }
     }
 

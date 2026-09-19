@@ -41,6 +41,7 @@ public record BedrockFrameState(
     }
 
     public boolean postMoveActorSprinting() {
-        return inputIntent.sprint().nextActorSprinting(input.previousState().sprinting());
+        return input.control() != null ? travelActorSprinting
+            : inputIntent.sprint().nextActorSprinting(input.previousState().sprinting());
     }
 }

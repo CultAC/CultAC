@@ -17,6 +17,11 @@ public class PacketEntityTrackXRot extends PacketEntity {
     @Override
     public void onMovement(CultPlayer player, boolean highBound) {
         super.onMovement(player, highBound);
+        if (player.isBedrockMovement() && bedrockRuntimeId != -1) {
+            packetYaw = interpYaw = clientPhysicalYaw;
+            steps = 0;
+            return;
+        }
         if (steps > 0) {
             // MCP-Reborn InterpolationHandler#interpolate uses Mth.rotLerp, which wraps yaw deltas.
             interpYaw = interpYaw + (Mth.wrapDegrees(packetYaw - interpYaw) / steps--);

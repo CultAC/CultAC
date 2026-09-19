@@ -199,10 +199,6 @@ record BedrockPlayerContext(
                 continue;
             }
             Integer amplifier = entities == null ? null : entities.getPotionLevelForPlayer(type);
-            if (amplifier == null && player != null && player.bukkitPlayer != null) {
-                org.bukkit.potion.PotionEffect liveEffect = player.bukkitPlayer.getPotionEffect(type);
-                amplifier = liveEffect == null ? null : liveEffect.getAmplifier();
-            }
             if (amplifier != null) {
                 return Math.max(0, amplifier + 1);
             }

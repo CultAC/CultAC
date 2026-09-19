@@ -1,7 +1,6 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.network.netty.channel.ChannelHelper;
 
 public class LatencyUtils {
     private final LatencyTaskQueue transactionMap = new LatencyTaskQueue();
@@ -45,13 +44,13 @@ public class LatencyUtils {
     }
 
     public void addRealTimeTask(int transaction, boolean async, Runnable task) {
+        if (async) {
+            player.user.execute(() -> addRealTimeTask(transaction, false, task));
+            return;
+        }
         assertNettyThread();
         if (player.lastTransactionReceived.get() >= transaction) { // If the player already responded to this transaction
-            if (async) {
-                ChannelHelper.runInEventLoop(player.user.getChannel(), task);
-            } else {
-                task.run();
-            }
+            task.run();
             return;
         }
         transactionMap.add(transaction, task);

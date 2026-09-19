@@ -1,6 +1,5 @@
 package ac.cult.cultac.utils.data;
 
-import ac.cult.cultac.network.packet.NmsPacketUtil.MoveVehicleData;
 import net.minecraft.world.phys.Vec3;
 
 // This is to keep all the packet data out of the main player class
@@ -87,12 +86,6 @@ public class PacketStateData {
                 clientTick, BedrockTranslatedMovementDecision.ACCEPT, false, onGround, entityId, position));
     }
 
-    public void grantBedrockVehicleCorrection(long clientTick, int entityId, Vec3 reportedPosition, MoveVehicleData simulated) {
-        offerBedrockTranslatedMovementDecision(new BedrockTranslatedMovementAuthorization(
-                clientTick, BedrockTranslatedMovementDecision.ACCEPT, false, simulated.onGround(),
-                entityId, reportedPosition, simulated));
-    }
-
     private boolean offerBedrockTranslatedMovementDecision(
             BedrockTranslatedMovementAuthorization authorization
     ) {
@@ -149,17 +142,6 @@ public class PacketStateData {
         desiredOnGround = null;
     }
 
-    /** The local GFP dispatch suppressed this exact projection before it reached the server. */
-    public BedrockTranslatedMovementAuthorization consumeSuppressedBedrockProjection(long clientTick) {
-        if (bedrockTranslatedMovementAuthorization != null
-                && bedrockTranslatedMovementAuthorization.clientTick() == clientTick) {
-            BedrockTranslatedMovementAuthorization authorization = bedrockTranslatedMovementAuthorization;
-            clearBedrockTranslatedMovementPermit();
-            return authorization;
-        }
-        return null;
-    }
-
     public void clearBedrockTranslatedMovementPermit() {
         bedrockTranslatedMovementAuthorization = null;
         bedrockTranslatedCanonicalGround = null;
@@ -171,15 +153,8 @@ public class PacketStateData {
             boolean expectedProjectedGround,
             boolean canonicalGround,
             Integer vehicleEntityId,
-            Vec3 vehiclePosition,
-            MoveVehicleData vehicleCorrection
+            Vec3 vehiclePosition
     ) {
-        public BedrockTranslatedMovementAuthorization(long tick, BedrockTranslatedMovementDecision decision,
-                                                      boolean projectedGround, boolean canonicalGround,
-                                                      Integer vehicleEntityId, Vec3 vehiclePosition) {
-            this(tick, decision, projectedGround, canonicalGround, vehicleEntityId, vehiclePosition, null);
-        }
-
         public BedrockTranslatedMovementAuthorization(long tick, BedrockTranslatedMovementDecision decision,
                                                       boolean projectedGround, boolean canonicalGround) {
             this(tick, decision, projectedGround, canonicalGround, null, null);

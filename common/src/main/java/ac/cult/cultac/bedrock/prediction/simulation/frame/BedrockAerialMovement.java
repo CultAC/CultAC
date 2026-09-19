@@ -49,6 +49,10 @@ public final class BedrockAerialMovement {
     }
 
     public static Vec3d glideVelocity(Vec3d currentVelocity, BedrockInputFrame frame) {
+        return glideVelocity(currentVelocity, frame, false);
+    }
+
+    public static Vec3d glideVelocity(Vec3d currentVelocity, BedrockInputFrame frame, boolean boost) {
         float pitchRadians = frame.pitch() * BedrockMath.DEGREES_TO_RADIANS;
         float viewPitchRadians = frame.pitch() * -BedrockMath.DEGREES_TO_RADIANS;
         float viewYawRadians = frame.yaw() * -BedrockMath.DEGREES_TO_RADIANS - BedrockMath.PI;
@@ -83,6 +87,11 @@ public final class BedrockAerialMovement {
         if (horizontalViewLength > 0.0F) {
             velocityX += (horizontalVelocityLength * viewX / horizontalViewLength - velocityX) * GLIDE_HORIZONTAL_ALIGNMENT;
             velocityZ += (horizontalVelocityLength * viewZ / horizontalViewLength - velocityZ) * GLIDE_HORIZONTAL_ALIGNMENT;
+        }
+        if (boost) {
+            velocityX += (viewX * 1.5F - velocityX) * 0.5F + viewX * 0.1F;
+            velocityY += (viewY * 1.5F - velocityY) * 0.5F + viewY * 0.1F;
+            velocityZ += (viewZ * 1.5F - velocityZ) * 0.5F + viewZ * 0.1F;
         }
         return new Vec3d(
             velocityX * GLIDE_HORIZONTAL_DRAG,

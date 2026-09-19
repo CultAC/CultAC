@@ -31,7 +31,9 @@ import org.bukkit.Material;
 @Getter
 @ToString
 public class SimulationContext {
-    Vec3 start, end;
+    Vec3 start;
+    @Setter
+    Vec3 end;
     @Setter
     Vec3 target;
     @ToString.Exclude

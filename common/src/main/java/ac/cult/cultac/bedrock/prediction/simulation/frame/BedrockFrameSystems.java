@@ -39,6 +39,17 @@ public final class BedrockFrameSystems {
         boolean actorSprinting = intent.sprint().currentTickActorSprinting(
             input.previousState().sprinting()
         );
+        if (input.control() != null && !input.previousState().isVehicle()) {
+            // Held sprint input does not override a stop action or acknowledged actor state.
+            actorSprinting = intent.sprint().afterActionEdges(input.previousState().sprinting());
+            float side = (float) input.control().x();
+            float forward = (float) input.control().z();
+            if (!input.previousState().swimming() && !facts.context().actorSwimming()
+                && (forward <= 0.0F || Math.abs(side) > 0.70710677F
+                    || (float) Math.sqrt(side * side + forward * forward) < 0.70710677F)) {
+                actorSprinting = false;
+            }
+        }
         BedrockTravelInputControl.InputControlState control = BedrockTravelInputControl.resolve(
             input.previousState(),
             input.inputFrame(),

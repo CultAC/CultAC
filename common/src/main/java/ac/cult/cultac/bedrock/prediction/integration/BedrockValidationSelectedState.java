@@ -30,6 +30,12 @@ final class BedrockValidationSelectedState {
                 nextTickBasePosition.subtract(selection.previousPosition()));
     }
 
+    static BedrockMovementState candidateBase(BedrockMovementResult movementResult, BedrockValidationSelection selection) {
+        Vec3d position = selection.validationSelectedPosition();
+        return movementResult.predictedState()
+                .withPhysicalFeetPosition(position, displacementSquared(selection, position));
+    }
+
     static Vec3d nextTickBasePosition(BedrockValidationSelection selection) {
         return selection.packetPosition() == null
                 ? selection.validationSelectedPosition()

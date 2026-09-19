@@ -23,6 +23,8 @@ public class PacketEntityAction {
     //LOW
     @CultPacketHandler
     public void onPlayerCommand(PacketReceiveEvent event, CultPlayer player, ServerboundPlayerCommandPacket packet) {
+        // Bedrock commands have already been consumed at their movement phase.
+        if (player.isBedrockMovement()) return;
         switch (packet.getAction()) {
                 case START_SPRINTING:
                     player.isSprinting = true;

@@ -17,8 +17,10 @@ import java.util.WeakHashMap;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockPlayerState {
-    public final ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleCorrections vehicleCorrections =
-            new ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleCorrections();
+    public boolean acknowledgedSprinting;
+    public final BedrockMovementEffects movementEffects = new BedrockMovementEffects();
+    public final ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections movementCorrections =
+            new ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections();
     // Accessed under the CultPlayer transaction lock.
     public ac.cult.cultac.player.CultPlayer.BedrockTransaction lastClientboundTransaction;
     private final UUID playerUuid;
@@ -29,6 +31,13 @@ public final class BedrockPlayerState {
     private long offeredAuthInputSequence;
     private BedrockAuthInputFrame lastProcessedFrame;
     private long processedAuthInputSequence;
+    private long lastMovementTick = -1;
+
+    public boolean acceptMovementTick(long tick) {
+        if (tick <= lastMovementTick) return false;
+        lastMovementTick = tick;
+        return true;
+    }
     private final WeakHashMap<BedrockAuthInputFrame, Long> authoritativeInputSequences = new WeakHashMap<>();
     private BedrockMoveFrame lastMoveFrame;
     private String lastAuthInputMatchStatus = "no auth input processed";
@@ -54,7 +63,9 @@ public final class BedrockPlayerState {
     }
 
     public void recordActorCreation(long runtimeEntityId) {
-        vehicleCorrections.clear();
+        movementCorrections.clear();
+        lastMovementTick = -1;
+        movementEffects.clear();
         observedActorRuntimeId = runtimeEntityId;
         ridingJump = BedrockRidingJumpState.INITIAL;
         ridingJumpFrame = null;
@@ -134,6 +145,7 @@ public final class BedrockPlayerState {
         clearTransientMovementInputState();
         actions.applyAcknowledgedItemUse(false);
         trackedPoseState = BedrockClientPoseState.STANDING;
+        acknowledgedSprinting = false;
         swimmingRequested = false;
         confirmedBoundingBoxSize = null;
         lastAuthInputMatchStatus = "auth input state cleared";

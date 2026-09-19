@@ -130,6 +130,7 @@ final class BedrockMovementResultBuilder {
     }
 
     private static double horizontalInputLimit(BedrockTravelPlan plan) {
+        if (plan.frame().input().control() != null) return 0.0D;
 
         double limit = plan.horizontal().horizontalInputLimit();
         double moveInputScale = plan.frame().control().moveInputScale();

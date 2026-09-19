@@ -6,8 +6,6 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
-import java.util.function.LongConsumer;
-import java.util.function.LongSupplier;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
@@ -30,9 +28,10 @@ final class GeyserFloatingPointsAdapter {
     private final Object user;
     private final Field upstreamField;
     private final Field postStartGamePackets;
+    private final Field immediatePacketsField;
+    private final List<BedrockPacket> immediatePackets;
+    private final GeyserImmediatePacketQueue immediatePacketsHook;
     private final BedrockOriginDispatch dispatch = new BedrockOriginDispatch();
-    private final LongSupplier authTick;
-    private final LongConsumer suppressedProjection;
     private UpstreamHook upstreamHook;
     private JavaHook javaHook;
     private boolean closed;
@@ -42,9 +41,9 @@ final class GeyserFloatingPointsAdapter {
                 && GeyserApi.api().extensionManager().extension("geyserfloatingpoints") != null;
     }
 
-    GeyserFloatingPointsAdapter(GeyserSession session, LongSupplier authTick, LongConsumer suppressedProjection)
+    GeyserFloatingPointsAdapter(GeyserSession session)
             throws ReflectiveOperationException {
-        this(session, enabledReflection(), authTick, suppressedProjection);
+        this(session, enabledReflection());
     }
 
     private static GfpReflection enabledReflection() throws ReflectiveOperationException {
@@ -53,12 +52,9 @@ final class GeyserFloatingPointsAdapter {
         return new GfpReflection(extension);
     }
 
-    GeyserFloatingPointsAdapter(GeyserSession session, GfpReflection reflection,
-            LongSupplier authTick, LongConsumer suppressedProjection) throws ReflectiveOperationException {
+    GeyserFloatingPointsAdapter(GeyserSession session, GfpReflection reflection) throws ReflectiveOperationException {
         this.session = session;
         this.reflection = reflection;
-        this.authTick = authTick;
-        this.suppressedProjection = suppressedProjection;
         user = reflection.user(session.getUpstream(), session);
         if (!Vector3i.ZERO.equals(reflection.offset(user))) {
             throw new IllegalStateException("GFP origin changed before CultAC attached");
@@ -68,6 +64,17 @@ final class GeyserFloatingPointsAdapter {
         postStartGamePackets = UpstreamSession.class.getDeclaredField("postStartGamePackets");
         postStartGamePackets.setAccessible(true);
         refresh(false);
+        immediatePacketsField = GeyserSession.class.getDeclaredField("queuedImmediatelyPackets");
+        immediatePacketsField.setAccessible(true);
+        immediatePackets = session.getQueuedImmediatelyPackets();
+        if (!immediatePackets.isEmpty()) throw new IllegalStateException("GFP tick-end packets queued before CultAC attached");
+        immediatePacketsHook = new GeyserImmediatePacketQueue(immediatePackets, (packet, write) -> {
+            synchronized (GeyserFloatingPointsAdapter.this) {
+                if (closed) write.run();
+                else dispatch.enqueue(packet, write);
+            }
+        });
+        immediatePacketsField.set(session, immediatePacketsHook);
     }
 
     synchronized void refresh(boolean requireJavaHook) throws ReflectiveOperationException {
@@ -121,6 +128,9 @@ final class GeyserFloatingPointsAdapter {
         closed = true;
         dispatch.clear();
         try {
+            if (session.getQueuedImmediatelyPackets() == immediatePacketsHook) {
+                immediatePacketsField.set(session, immediatePackets);
+            }
             if (session.getUpstream() == upstreamHook) upstreamField.set(session, upstreamHook.delegate);
             if (javaHook != null && session.getDownstream() != null) {
                 var downstream = session.getDownstream().getSession();
@@ -183,8 +193,7 @@ final class GeyserFloatingPointsAdapter {
             synchronized (GeyserFloatingPointsAdapter.this) {
                 if (isClosed()) return;
                 try {
-                    // UpstreamSession drains directly to BedrockServerSession; keep those writes inside
-                    // the same origin enqueue boundary as ordinary packets, including queued packets.
+                    // Queued startup packets must use the same coordinate boundary as ordinary sends.
                     Queue<BedrockPacket> packets = (Queue<BedrockPacket>) postStartGamePackets.get(delegate);
                     BedrockPacket packet;
                     while ((packet = packets.poll()) != null) sendPacket(packet);
@@ -234,7 +243,6 @@ final class GeyserFloatingPointsAdapter {
                 if (closed) { event.setCancelled(true); return; }
                 dispatch.begin();
                 try {
-                    long tick = authTick.getAsLong();
                     Packet originalPacket = event.getPacket();
                     // Build 5 omits this propagation and otherwise leaks cancelled, unshifted projections.
                     GfpReflection.Rewrite result = reflection.sending(user, event, delegates);
@@ -244,7 +252,6 @@ final class GeyserFloatingPointsAdapter {
                             || originalPacket instanceof ServerboundMoveVehiclePacket);
                     dispatch.finish(offset.getX(), offset.getZ(), rebase
                             ? BedrockTeleportProvenance.GFP_REBASE : BedrockTeleportProvenance.GEYSER, null);
-                    if (rebase) suppressedProjection.accept(tick);
                 } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
                     event.setCancelled(true);
                     dispatch.clear();

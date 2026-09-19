@@ -1,6 +1,7 @@
 package ac.cult.cultac.packet;
 
 import io.netty.channel.Channel;
+import io.netty.util.concurrent.EventExecutor;
 import net.minecraft.network.Connection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +39,14 @@ final class PlayerConnectionHandler {
                 key,
                 new ChannelPacketHandler(packetApi, connection)
         );
+    }
+
+    void bindExecutor(EventExecutor executor) {
+        if (!channel.eventLoop().inEventLoop()) throw new IllegalStateException("Binding outside connection loop");
+        if (!registered) throw new IllegalStateException("Connection interceptor is not installed");
+        channel.pipeline().remove(key);
+        channel.pipeline().addBefore(executor, MINECRAFT_PACKET_HANDLER_KEY, key,
+                new ChannelPacketHandler(packetApi, connection));
     }
 
     /** Unregisters this handler, removing the interceptor from the pipeline if not on disconnect. */

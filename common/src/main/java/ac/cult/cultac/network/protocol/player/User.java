@@ -3,6 +3,7 @@ package ac.cult.cultac.network.protocol.player;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.protocol.util.FoliaCompatUtil;
 import io.netty.channel.Channel;
+import io.netty.util.concurrent.EventExecutor;
 import net.kyori.adventure.text.Component;
 import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.Connection;
@@ -25,10 +26,9 @@ public final class User {
     private final Channel channel;
     private final Profile profile;
     private final AtomicBoolean closeRequested = new AtomicBoolean();
-    // Bound lazily by the private embedded-Geyser payload on this User's
-    // server-side Netty event loop. Kept untyped so User remains loadable when
-    // the optional Geyser classes are absent.
-    private Object bedrockBridgeConnection;
+    // Kept untyped so Java connections do not require the optional Geyser classes.
+    private volatile Object bedrockBridgeConnection;
+    private volatile EventExecutor packetExecutor;
     private volatile ConnectionProtocol connectionState;
     private volatile ConnectionProtocol encoderState;
 
@@ -42,6 +42,7 @@ public final class User {
         this.handle = handle;
         this.connection = connection;
         this.channel = channel;
+        this.packetExecutor = channel.eventLoop();
         this.connectionState = ConnectionProtocol.PLAY;
         this.encoderState = ConnectionProtocol.PLAY;
     }
@@ -74,6 +75,26 @@ public final class User {
 
     public Object getChannel() {
         return channel;
+    }
+
+    public EventExecutor getPacketExecutor() {
+        return packetExecutor;
+    }
+
+    public void bindPacketExecutor(EventExecutor executor) {
+        if (!channel.eventLoop().inEventLoop()) throw new IllegalStateException("Binding outside connection loop");
+        packetExecutor = java.util.Objects.requireNonNull(executor);
+    }
+
+    /** State tasks follow the owner even if ownership changed while they were queued. */
+    public void execute(Runnable task) {
+        EventExecutor executor = packetExecutor;
+        if (executor.inEventLoop()) task.run();
+        else executor.execute(() -> execute(task));
+    }
+
+    public void executeLater(Runnable task) {
+        packetExecutor.execute(() -> execute(task));
     }
 
     @Nullable

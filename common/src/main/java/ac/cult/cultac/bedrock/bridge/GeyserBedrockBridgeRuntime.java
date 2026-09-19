@@ -5,28 +5,24 @@ import ac.cult.cultac.bedrock.logging.BedrockPacketLogger;
 import ac.cult.cultac.bedrock.logging.BedrockPacketLogOutboundHandler;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockPositionTranslator;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
-import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleHistory;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
-import ac.cult.cultac.bedrock.protocol.BedrockAuthInputPluginMessage;
 import ac.cult.cultac.bedrock.protocol.BedrockClientAction;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveVector;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
-import ac.cult.cultac.bedrock.protocol.BedrockVehicleCorrection;
+import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
 import ac.cult.cultac.utils.floodgate.GeyserUtil;
 import ac.cult.cultac.utils.latency.GeyserQueue;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
-import java.nio.charset.StandardCharsets;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -74,7 +70,6 @@ import org.geysermc.geyser.api.event.bedrock.SessionJoinEvent;
 import org.geysermc.geyser.api.event.bedrock.SessionLoginEvent;
 import org.geysermc.geyser.api.event.lifecycle.GeyserPostReloadEvent;
 import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundCustomPayloadPacket;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket;
 
 public final class GeyserBedrockBridgeRuntime {
@@ -176,6 +171,7 @@ public final class GeyserBedrockBridgeRuntime {
         if (subscriptions != null) subscriptions.close();
 
         for (PacketTapHandler tap : Set.copyOf(PACKET_TAPS.values())) {
+            tap.connection.disconnect("CultAC movement bridge stopped. Please reconnect.");
             tap.detach();
         }
         // Resolve optional Geyser classes only when there is an attached session.
@@ -252,6 +248,11 @@ public final class GeyserBedrockBridgeRuntime {
             return;
         }
         if (installedTap != null) {
+            if (installedTap.inputs.ready()) {
+                session.disconnect("CultAC movement handler changed. Please reconnect.");
+                installedTap.detach();
+                return;
+            }
             installedTap.detach();
         }
 
@@ -301,13 +302,7 @@ public final class GeyserBedrockBridgeRuntime {
             GeyserSession session, GeyserEventSubscriptions generation) {
         if (!started || eventSubscriptions != generation || session.isClosed()) return null;
         try {
-            return new GeyserFloatingPointsAdapter(session,
-                    () -> {
-                        PacketTapHandler tap = PACKET_TAPS.get(session);
-                        return tap == null || tap.authInputOrder == null ? -1 : tap.authInputOrder.lastAuthInputTick();
-                    },
-                    tick -> session.sendDownstreamGamePacket(createPayloadPacket(
-                            BedrockAuthInputPluginMessage.encodeSuppressedProjection(session.javaUuid(), tick))));
+            return new GeyserFloatingPointsAdapter(session);
         } catch (ReflectiveOperationException failure) {
             throw new IllegalStateException("Unable to install GFP session hooks", failure);
         }
@@ -338,15 +333,10 @@ public final class GeyserBedrockBridgeRuntime {
         private final AtomicBoolean detached = new AtomicBoolean();
         private final String outboundHandlerName;
         private final String packetLogHandlerName;
-        private volatile GeyserAuthInputOrder authInputOrder;
-        private Vec3 lastAuthInputPosition;
-        private long lastAuthInputVehicle = -1L;
-        private Vector3f latestTrustedMotion;
-        private long latestTrustedMotionVehicle = -1L;
-        private long lastCompletedAuthTick = -1L;
-        private long vehicleCorrectionSequence;
-        private final Map<CorrectPlayerMovePredictionPacket, BedrockVehicleCorrection> vehicleCorrectionSources = new IdentityHashMap<>();
-        private float lastWrittenDeltaY;
+        private final GeyserInputQueue inputs;
+        private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
+        private long movementCorrectionSequence;
+        private final Map<CorrectPlayerMovePredictionPacket, BedrockMovementCorrection> movementCorrectionSources = new IdentityHashMap<>();
         private Long actorCreationRuntimeId;
 
         private PacketTapHandler(GeyserSession connection, BedrockSession bedrockSession, BedrockPacketHandler delegate, GeyserQueue latencyQueue) {
@@ -356,6 +346,10 @@ public final class GeyserBedrockBridgeRuntime {
             this.latencyQueue = latencyQueue;
             this.outboundHandlerName = "cultac-outbound-packet-" + Integer.toHexString(System.identityHashCode(this));
             this.packetLogHandlerName = outboundHandlerName + "-log";
+            this.inputs = new GeyserInputQueue(connection, () -> {
+                CultPlayer player = currentPlayer();
+                return player == null ? null : player.user;
+            }, this::translateInput);
         }
 
         @Override
@@ -375,8 +369,7 @@ public final class GeyserBedrockBridgeRuntime {
 
         @Override
         public PacketSignal handle(MovementPredictionSyncPacket packet) {
-            logPacket("C->S", packet);
-            return delegate.handlePacket(packet);
+            return handleTapped(packet);
         }
 
         @Override
@@ -401,43 +394,34 @@ public final class GeyserBedrockBridgeRuntime {
 
         private PacketSignal handleTapped(BedrockPacket packet) {
             logPacket("C->S", packet);
-            if (packet instanceof PlayerAuthInputPacket authInputPacket) {
-                return scheduleBeforeTranslation(
-                        connection::ensureInEventLoop,
-                        () -> processAuthInput(authInputPacket),
-                        error -> LogUtil.warn("Unable to record Bedrock movement packet for CultAC: "
-                                + error.getClass().getSimpleName()),
-                        () -> {
-                            try {
-                                return delegate.handlePacket(packet);
-                            } finally {
-                                if (authInputOrder != null) authInputOrder.finishTranslation(authInputPacket.getTick());
-                            }
-                        });
-            }
+            io.netty.util.ReferenceCountUtil.retain(packet);
+            connection.ensureInEventLoop(() -> {
+                try {
+                    if (detached.get()) return;
+                    if (currentPlayer() == null) {
+                        // Login traffic must establish the Java connection before ownership can bind.
+                        delegate.handlePacket(packet);
+                    } else inputs.offer(packet);
+                } finally {
+                    io.netty.util.ReferenceCountUtil.release(packet);
+                }
+            });
+            return PacketSignal.HANDLED;
+        }
 
-            if (packet instanceof MovePlayerPacket || packet instanceof InventoryTransactionPacket
-                    || packet instanceof PlayerActionPacket) {
-                return scheduleBeforeTranslation(
-                        connection::ensureInEventLoop,
-                        () -> {
-                            var vehicle = connection.getPlayerEntity().getVehicle();
-                            if ((vehicle instanceof HorseEntity || vehicle instanceof BoatEntity) && isCurrentConnection()) {
-                                submitVehicleFrameStart(connection.getClientTicks() + 1, vehicle.getEntityId(), vehicle.geyserId());
-                            }
-                            if (packet instanceof MovePlayerPacket movePlayerPacket) {
-                                submitMove(movePlayerPacket);
-                            } else if (packet instanceof InventoryTransactionPacket inventoryTransactionPacket) {
-                                submitInventoryTransaction(inventoryTransactionPacket);
-                            } else if (packet instanceof PlayerActionPacket playerActionPacket) {
-                                submitPlayerAction(playerActionPacket);
-                            }
-                        },
-                        error -> LogUtil.warn("Unable to record Bedrock action packet for CultAC: "
-                                + error.getClass().getSimpleName()),
-                        () -> delegate.handlePacket(packet));
+        private void translateInput(BedrockPacket packet) {
+            CultPlayer player = currentPlayer();
+            if (player == null || detached.get()) return;
+            if (packet instanceof PlayerAuthInputPacket authInput) {
+                if (!processAuthInput(authInput)) return;
+            } else if (packet instanceof MovePlayerPacket move) {
+                submitMove(move);
+            } else if (packet instanceof InventoryTransactionPacket transaction) {
+                submitInventoryTransaction(transaction);
+            } else if (packet instanceof PlayerActionPacket action) {
+                submitPlayerAction(action);
             }
-            return delegate.handlePacket(packet);
+            delegate.handlePacket(packet);
         }
 
         private void logPacket(String direction, BedrockPacket packet) {
@@ -450,7 +434,7 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
             PACKET_TAPS.remove(connection, this);
-            if (authInputOrder != null) authInputOrder.close();
+            connection.ensureInEventLoop(() -> { inputs.close(); entityPositions.clear(); });
             if (connection.isClosed()) latencyQueue.clear();
             else latencyQueue.stopTrackingWrites();
             if (bedrockSession.getPacketHandler() == this) {
@@ -482,14 +466,14 @@ public final class GeyserBedrockBridgeRuntime {
         private void recordOutboundMetadata(
                 ChannelHandlerContext context, BedrockPacketWrapper source,
                 Float width, Float height, Boolean gliding, Boolean crawling, Boolean swimming,
-                Boolean sneaking, Boolean spinning, Boolean sleeping, Boolean usingItem
+                Boolean sneaking, Boolean spinning, Boolean sleeping, Boolean usingItem, Boolean sprinting
         ) {
             if (!isCurrentConnection()) {
                 return;
             }
             if ((width == null && height == null && gliding == null
                     && crawling == null && swimming == null && sneaking == null
-                    && spinning == null && sleeping == null && usingItem == null)
+                    && spinning == null && sleeping == null && usingItem == null && sprinting == null)
                     || (width != null && (!Float.isFinite(width) || width <= 0.0F))
                     || (height != null && (!Float.isFinite(height) || height <= 0.0F))) {
                 return;
@@ -497,11 +481,9 @@ public final class GeyserBedrockBridgeRuntime {
 
             writeLatencyBoundary(context, source, player -> {
                 if (isCurrentConnection()) {
-                    // Already on the server channel's acknowledgement boundary.
-                    // Sending through Geyser's downstream client channel again
-                    // could put this state behind an already queued auth input.
+                    // Apply at the acknowledged wire boundary before the next input.
                     player.checkManager.getSimulationProcessor().applyAcknowledgedBedrockMetadata(
-                            width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem);
+                            width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem, sprinting);
                 }
             });
         }
@@ -576,71 +558,50 @@ public final class GeyserBedrockBridgeRuntime {
             marker.setTimestamp(transaction.id());
             latencyQueue.insert(nativeLatencyCallback(connection, transaction.id()), () -> {
                 player.markBedrockTransactionClientbound(transaction.id());
+                entityPositions.boundary(player, transaction);
                 context.write(BedrockPacketWrapper.create(0, source.getSenderSubClientId(),
                         source.getTargetSubClientId(), marker, null), context.voidPromise());
             });
         }
 
-        private void processAuthInput(PlayerAuthInputPacket packet) {
-            if (detached.get()) {
-                return;
-            }
-            if (!installFloatingPoints(connection, true) || !isCurrentConnection()) {
-                // A later frame cannot reconstruct the camera ticks omitted
-                // before Java login/the coordinate hook became available.
+        private boolean processAuthInput(PlayerAuthInputPacket packet) {
+            CultPlayer player = currentPlayer();
+            if (player == null || !installFloatingPoints(connection, true)) return false;
+            if (actorCreationRuntimeId != null) {
+                player.checkManager.getSimulationProcessor().handleBedrockActorCreation(actorCreationRuntimeId);
                 actorCreationRuntimeId = null;
-                return;
             }
-            try {
-                if (actorCreationRuntimeId != null) {
-                    // The first auth packet is causal evidence that StartGame
-                    // created the local actor. Publish its initialization before
-                    // that frame, even when Java login finished after StartGame.
-                    connection.sendDownstreamGamePacket(createPayloadPacket(
-                            BedrockAuthInputPluginMessage.encodeActorCreated(connection.javaUuid(), actorCreationRuntimeId)));
-                    actorCreationRuntimeId = null;
-                }
-                submitAuthInput(packet);
-            } catch (RuntimeException error) {
-                LogUtil.warn("Unable to record Bedrock movement packet for CultAC: "
-                        + error.getClass().getSimpleName());
+            BedrockAuthInputFrame frame = captureAuthInput(packet);
+            var state = ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor.process(player, frame,
+                    ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger.BEDROCK_THREAD);
+            player.packetStateData.clearBedrockTranslatedMovementPermit();
+            if (state == null) return false;
+            var adapter = GFP_ADAPTERS.get(connection);
+            var coordinates = adapter == null ? BedrockCoordinateFrame.IDENTITY : adapter.coordinateFrame();
+            var vehicle = state.isVehicle() ? connection.getPlayerEntity().getVehicle() : null;
+            if (state.isVehicle() && (vehicle == null || frame.getPredictedVehicleJavaId() == null
+                    || vehicle.getEntityId() != frame.getPredictedVehicleJavaId())) return false;
+            Vec3 position = ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter.toJava(state.physicalFeetPosition());
+            packet.setPosition(toVector3f(coordinates.toLocal(position)).up(vehicle == null ? ownerPlayerOffset() : vehicle.getOffset()));
+            packet.setDelta(toVector3f(ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter.toJava(state.velocity())));
+            setInputFlag(packet, PlayerAuthInputData.HORIZONTAL_COLLISION, state.collisionFlags().horizontalCollision());
+            setInputFlag(packet, PlayerAuthInputData.VERTICAL_COLLISION, state.collisionFlags().verticalCollision());
+            if (state.isBoat()) packet.setVehicleRotation(Vector2f.from(state.inputFrame().pitch(), state.inputFrame().yaw()));
+            if (vehicle == null) {
+                player.packetStateData.grantBedrockTranslatedMovementPermit(frame.getClientTick(),
+                        projectedOnGround(connection, packet), state.movementGrounded());
+            } else {
+                // Compare against precisely the float-to-double conversion Geyser will forward.
+                Vector3f projected = packet.getPosition().down(vehicle.getOffset());
+                player.packetStateData.grantBedrockVehicleMovementPermit(frame.getClientTick(), vehicle.getEntityId(),
+                        coordinates.toWorld(rawPosition(projected)), state.movementGrounded());
             }
-
-            Vector3f rewritten = rewriteDelta(packet.getDelta(),
-                    predictedVehicleId(packet) == latestTrustedMotionVehicle ? latestTrustedMotion : null);
-            if (rewritten != null) {
-                packet.setDelta(rewritten);
-                lastWrittenDeltaY = rewritten.getY();
-            }
+            return true;
         }
 
-        private void acceptAuthInputCompletion(AuthInputCompletion completion) {
-            connection.ensureInEventLoop(() -> applyAuthInputCompletion(completion));
-        }
-
-        private void applyAuthInputCompletion(AuthInputCompletion completion) {
-            if (detached.get()) {
-                return;
-            }
-            if (!isFinite(completion.trustedVelocity())) {
-                return;
-            }
-            if (completion.clientTick() < lastCompletedAuthTick
-                    || completion.vehicleId() != lastAuthInputVehicle) return;
-            lastCompletedAuthTick = completion.clientTick();
-            Vector3f trusted = toVector3f(completion.trustedVelocity());
-            latestTrustedMotion = trusted;
-            latestTrustedMotionVehicle = completion.vehicleId();
-            if (completion.vehicleId() != -1L) {
-                var vehicle = connection.getPlayerEntity().getVehicle();
-                if (vehicle != null && vehicle.geyserId() == completion.vehicleId()) vehicle.setMotion(trusted);
-                return;
-            }
-            connection.getPlayerEntity().setMotion(trusted);
-
-            if ((trusted.getY() < 0.0F) == (lastWrittenDeltaY < 0.0F)) {
-                connection.getPlayerEntity().setLastTickEndVelocity(trusted);
-            }
+        private static void setInputFlag(PlayerAuthInputPacket packet, PlayerAuthInputData flag, boolean enabled) {
+            if (enabled) packet.getInputData().add(flag);
+            else packet.getInputData().remove(flag);
         }
 
         private boolean matchesJavaUser(User user) {
@@ -649,26 +610,22 @@ public final class GeyserBedrockBridgeRuntime {
                     downstream.getSession().getChannel(), user.getChannel());
         }
 
-        private void submitAuthInput(PlayerAuthInputPacket packet) {
+        private BedrockAuthInputFrame captureAuthInput(PlayerAuthInputPacket packet) {
             UUID uuid = connection.javaUuid();
-            if (!isCurrentConnection()) {
-                return;
-            }
 
             long vehicleId = predictedVehicleId(packet);
             var vehicle = vehicleId == -1L ? null : connection.getEntityCache().getEntityByGeyserId(vehicleId);
             if (vehicle instanceof HorseEntity || vehicle instanceof BoatEntity) {
-                submitVehicleFrameStart(packet.getTick(), vehicle.getEntityId(), vehicleId);
+                currentPlayer().bedrockState.movementCorrections.beginFrame(currentPlayer(), packet.getTick(), vehicle.getEntityId(), vehicleId);
             }
             Vec3 position = vehicleId == -1L ? toJavaPosition(packet.getPosition()) : rawPosition(
                     vehicle instanceof BoatEntity ? packet.getPosition().down(vehicle.getOffset()) : packet.getPosition());
             // HANDLE_TELEPORT is a correction-only tick. This diagnostic displacement must not
             // include the change of local origin; authorization still requires the transport echo.
-            Vec3 delta = lastAuthInputPosition == null || lastAuthInputVehicle != vehicleId
+            var previous = currentPlayer().bedrockState.getLastOfferedFrame();
+            Vec3 delta = previous == null || !java.util.Objects.equals(previous.getPredictedVehicleId(), vehicleId)
                     || packet.getInputData().contains(PlayerAuthInputData.HANDLE_TELEPORT)
-                    ? Vec3.ZERO : position.subtract(lastAuthInputPosition);
-            lastAuthInputPosition = position;
-            lastAuthInputVehicle = vehicleId;
+                    ? Vec3.ZERO : position.subtract(previous.getCoordinateFrame().toLocal(previous.getPosition()));
             BedrockAuthInputFrame frame = createAuthInputFrame(
                     uuid,
                     connection.protocolVersion(),
@@ -677,15 +634,7 @@ public final class GeyserBedrockBridgeRuntime {
                     delta,
                     projectedOnGround(connection, packet),
                     vehicle == null ? null : vehicle.getEntityId());
-            if (authInputOrder == null) {
-                authInputOrder = new GeyserAuthInputOrder(connection);
-            }
-            authInputOrder.submit(createAuthInputPayloadPacket(frame), frame.getClientTick());
-        }
-
-        private void submitVehicleFrameStart(long tick, int vehicleId, long runtimeId) {
-            connection.sendDownstreamGamePacket(createPayloadPacket(BedrockAuthInputPluginMessage.encodeVehicleFrameStart(
-                    connection.javaUuid(), tick, vehicleId, runtimeId)));
+            return frame;
         }
 
         private void submitMove(MovePlayerPacket packet) {
@@ -695,7 +644,8 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
 
-            connection.sendDownstreamGamePacket(createMoveFramePayloadPacket(
+            CultPlayer player = currentPlayer();
+            player.bedrockState.setLastMoveFrame(player.getSetbackTeleportUtil().resolveBedrockCoordinates(
                     createMoveFrame(uuid, connection.protocolVersion(), packet)));
         }
 
@@ -743,7 +693,7 @@ public final class GeyserBedrockBridgeRuntime {
 
         private void submitClientAction(UUID uuid, BedrockClientAction action) {
             if (isCurrentConnection()) {
-                connection.sendDownstreamGamePacket(createClientActionPayloadPacket(uuid, action));
+                currentPlayer().bedrockState.recordClientAction(action);
             }
         }
 
@@ -760,44 +710,50 @@ public final class GeyserBedrockBridgeRuntime {
         }
     }
 
-    public static void completeAuthInput(
-            User user,
-            BedrockAuthInputFrame frame,
-            Vec3 trustedVelocity
-    ) {
-        if (user == null) {
-            return;
-        }
+    public static boolean finishTranslation(User user, String channel, Supplier<byte[]> payload) {
+        if (!GeyserInputQueue.CHANNEL.equals(channel)) return false;
         PacketTapHandler tap = packetTapForUser(user);
-        if (tap != null) {
-            tap.acceptAuthInputCompletion(new AuthInputCompletion(frame.getClientTick(),
-                    frame.getPredictedVehicleId() == null ? -1L : frame.getPredictedVehicleId(), trustedVelocity));
-        }
+        if (tap != null) tap.inputs.complete(user, payload.get());
+        return true;
     }
 
-    public static boolean sendVehicleCorrection(User user, BedrockVehicleCorrection correction) {
+    private static float ownerPlayerOffset() {
+        return (float) BedrockPositionTranslator.PLAYER_PACKET_Y_OFFSET;
+    }
+
+    public static boolean sendMovementCorrection(User user, BedrockMovementCorrection correction) {
         PacketTapHandler tap = packetTapForUser(user);
         if (tap == null) return false;
-        tap.connection.ensureInEventLoop(() -> {
+        if (!tap.connection.getTickEventLoop().inEventLoop()) throw new IllegalStateException("Correction outside movement loop");
+        {
             CultPlayer player = tap.currentPlayer();
             var vehicle = tap.connection.getPlayerEntity().getVehicle();
             if (player == null || !tap.matchesJavaUser(user)
-                    || player.bedrockState.vehicleCorrections.generation() != correction.controlGeneration()
-                    || !(vehicle instanceof HorseEntity || vehicle instanceof BoatEntity)
-                    || vehicle.getEntityId() != correction.vehicleId() || vehicle.geyserId() != correction.runtimeId()) return;
+                    || player.bedrockState.movementCorrections.generation() != correction.controlGeneration()
+                    || correction.vehicle() && (!(vehicle instanceof HorseEntity || vehicle instanceof BoatEntity)
+                        || vehicle.getEntityId() != correction.vehicleId() || vehicle.geyserId() != correction.runtimeId())
+                    || !correction.vehicle() && vehicle != null) return false;
             var adapter = GFP_ADAPTERS.get(tap.connection);
             var coordinates = adapter == null ? BedrockCoordinateFrame.IDENTITY : adapter.coordinateFrame();
             var packet = new CorrectPlayerMovePredictionPacket();
-            packet.setPredictionType(PredictionType.VEHICLE);
+            packet.setPredictionType(correction.vehicle() ? PredictionType.VEHICLE : PredictionType.PLAYER);
             packet.setTick(correction.tick());
-            packet.setPosition(toVector3f(coordinates.toLocal(correction.position())).up(vehicle.getOffset()));
+            packet.setPosition(toVector3f(coordinates.toLocal(correction.position())).up(
+                    correction.vehicle() ? vehicle.getOffset() : ownerPlayerOffset()));
             packet.setDelta(toVector3f(correction.velocity()));
             packet.setOnGround(correction.onGround());
-            packet.setVehicleRotation(Vector2f.from(correction.pitch(), correction.yaw()));
-            packet.setVehicleAngularVelocity(correction.angularVelocity());
-            tap.vehicleCorrectionSources.put(packet, correction);
+            // Modern codecs serialize this field for both prediction types.
+            packet.setVehicleRotation(Vector2f.ZERO);
+            if (correction.vehicle()) {
+                packet.setVehicleRotation(Vector2f.from(correction.pitch(), correction.yaw()));
+                packet.setVehicleAngularVelocity(correction.angularVelocity());
+            }
+            tap.movementCorrectionSources.put(packet, new BedrockMovementCorrection(correction.sequence(), correction.controlGeneration(),
+                    correction.vehicleId(), correction.runtimeId(), correction.tick(), correction.position(), correction.velocity(),
+                    correction.yaw(), correction.pitch(), correction.onGround(), coordinates, correction.teleportTransaction(),
+                    correction.angularVelocity(), correction.vehicle()));
             tap.connection.sendUpstreamPacket(packet);
-        });
+        }
         return true;
     }
 
@@ -817,35 +773,6 @@ public final class GeyserBedrockBridgeRuntime {
             }
         }
         return null;
-    }
-
-    private record AuthInputCompletion(long clientTick, long vehicleId, Vec3 trustedVelocity) {
-    }
-
-    static <T> T forwardBeforeTranslation(
-            Runnable forwardAuthInput,
-            Consumer<RuntimeException> forwardingFailure,
-            Supplier<T> translateMovement
-    ) {
-        try {
-            forwardAuthInput.run();
-        } catch (RuntimeException error) {
-            forwardingFailure.accept(error);
-        }
-        return translateMovement.get();
-    }
-
-    static PacketSignal scheduleBeforeTranslation(
-            Consumer<Runnable> tickLoopScheduler,
-            Runnable forwardAuthInput,
-            Consumer<RuntimeException> forwardingFailure,
-            Supplier<PacketSignal> translateMovement
-    ) {
-        tickLoopScheduler.accept(() -> forwardBeforeTranslation(
-                forwardAuthInput,
-                forwardingFailure,
-                translateMovement));
-        return PacketSignal.HANDLED;
     }
 
     static void removeHandlerIfPresent(ChannelPipeline pipeline, String handlerName) {
@@ -887,24 +814,61 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
 
+            if (owner.currentPlayer() != null && !owner.inputs.ready()) {
+                owner.inputs.deferWrite(() -> {
+                    try { write(context, message, promise); }
+                    catch (Exception failure) {
+                        io.netty.util.ReferenceCountUtil.release(message);
+                        promise.tryFailure(failure);
+                        owner.connection.disconnect("CultAC: Bedrock initialization failed");
+                    }
+                }, () -> {
+                    io.netty.util.ReferenceCountUtil.release(message);
+                    promise.tryFailure(new java.nio.channels.ClosedChannelException());
+                });
+                return;
+            }
             BedrockPacket packet = wrapper.getPacket();
             if (packet instanceof StartGamePacket startGame) {
                 // Newer protocols omit the movement mode but still transmit the history size.
                 startGame.setAuthoritativeMovementMode(AuthoritativeMovementMode.SERVER_WITH_REWIND);
-                startGame.setRewindHistorySize(BedrockVehicleHistory.CAPACITY);
+                startGame.setRewindHistorySize(BedrockMovementCorrections.CLIENT_HISTORY_SIZE);
                 owner.actorCreationRuntimeId = startGame.getRuntimeEntityId();
             }
             GeyserFloatingPointsAdapter adapter = GFP_ADAPTERS.get(owner.connection);
             BedrockOriginDispatch.Emission emission = adapter == null ? null : adapter.takeEmission(packet);
-            if (packet instanceof CorrectPlayerMovePredictionPacket correction
-                    && correction.getPredictionType() == PredictionType.VEHICLE) {
-                writeVehicleCorrection(context, message, promise, wrapper, correction, emission);
+            CultPlayer observedPlayer = owner.currentPlayer();
+            if (adapter != null && emission == null && GeyserEntityPositions.hasPosition(packet)) {
+                io.netty.util.ReferenceCountUtil.release(message);
+                promise.tryFailure(new IllegalStateException("Missing entity coordinate origin"));
+                owner.connection.disconnect("CultAC: entity update bypassed the coordinate hook. Please reconnect.");
+                return;
+            }
+            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) owner.entityPositions.clear();
+            if (observedPlayer != null) owner.entityPositions.capture(owner.connection, observedPlayer, packet,
+                    emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame());
+            if (packet instanceof CorrectPlayerMovePredictionPacket correction) {
+                writeMovementCorrection(context, message, promise, wrapper, correction, emission);
+                return;
+            }
+            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.MovementEffectPacket effect
+                    && effect.getEntityRuntimeId() == owner.connection.getPlayerEntity().geyserId()
+                    && effect.getEffectType() == org.cloudburstmc.protocol.bedrock.data.MovementEffectType.GLIDE_BOOST) {
+                int duration = effect.getDuration();
+                context.write(message, promise);
+                owner.writeLatencyBoundary(context, wrapper,
+                        player -> player.bedrockState.movementEffects.setGlideBoost(duration));
                 return;
             }
             if (packet instanceof NetworkStackLatencyPacket latencyPacket && latencyPacket.isFromServer()) {
                 CultPlayer player = owner.currentPlayer();
                 owner.latencyQueue.write(() -> {
-                    if (player != null) player.markBedrockTransactionClientbound(latencyPacket.getTimestamp());
+                    if (player != null) {
+                        player.markBedrockTransactionClientbound(latencyPacket.getTimestamp());
+                        var boundary = player.getLastClientboundBedrockTransaction();
+                        if (boundary != null && boundary.id() == latencyPacket.getTimestamp())
+                            owner.entityPositions.boundary(player, boundary);
+                    }
                     context.write(message, promise);
                 });
                 return;
@@ -928,8 +892,10 @@ public final class GeyserBedrockBridgeRuntime {
                 var spawnMotion = packet instanceof AddEntityPacket spawn ? spawn.getMotion() : null;
                 float spawnYaw = packet instanceof AddEntityPacket spawn ? spawn.getRotation().getY() : 0;
                 var coordinates = emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame();
+                var tracked = observedPlayer == null ? null : observedPlayer.compensatedEntities.getTrackedEntity(javaId);
+                int spawnTransaction = tracked == null ? 0 : tracked.getLastTransactionHung();
                 context.write(message, promise);
-                owner.writeLatencyBoundary(context, wrapper, player -> {
+                owner.writeLatencyBoundary(context, wrapper, player -> player.latencyUtils.addRealTimeTask(spawnTransaction, () -> {
                     var boat = player.compensatedEntities.getEntity(javaId);
                     if (boat != null && boat.isBoat()) {
                         if (spawnPosition == null && boat.bedrockBoat != null
@@ -945,7 +911,7 @@ public final class GeyserBedrockBridgeRuntime {
                                     spawnYaw, coordinates);
                         }
                     }
-                });
+                }));
                 return;
             }
 
@@ -987,33 +953,34 @@ public final class GeyserBedrockBridgeRuntime {
             context.write(message, promise);
         }
 
-        private void writeVehicleCorrection(ChannelHandlerContext context, Object message, ChannelPromise promise,
+        private void writeMovementCorrection(ChannelHandlerContext context, Object message, ChannelPromise promise,
                 BedrockPacketWrapper wrapper, CorrectPlayerMovePredictionPacket packet, BedrockOriginDispatch.Emission emission) {
             CultPlayer player = owner.currentPlayer();
-            var source = owner.vehicleCorrectionSources.remove(packet);
+            var source = owner.movementCorrectionSources.remove(packet);
             var vehicle = owner.connection.getPlayerEntity().getVehicle();
+            boolean isVehicle = packet.getPredictionType() == PredictionType.VEHICLE;
             if (source != null && (player == null
-                    || source.controlGeneration() != player.bedrockState.vehicleCorrections.generation()
-                    || vehicle == null || vehicle.geyserId() != source.runtimeId())) {
+                    || source.controlGeneration() != player.bedrockState.movementCorrections.generation()
+                    || isVehicle && (vehicle == null || vehicle.geyserId() != source.runtimeId())
+                    || !isVehicle && vehicle != null)) {
                 io.netty.util.ReferenceCountUtil.release(message);
                 promise.trySuccess();
                 return;
             }
-            if (player == null || !(vehicle instanceof HorseEntity || vehicle instanceof BoatEntity)) {
+            if (player == null || source == null) {
                 context.write(message, promise);
                 return;
             }
-            BedrockCoordinateFrame coordinates = emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame();
-            var rotation = packet.getVehicleRotation();
-            var correction = new BedrockVehicleCorrection(++owner.vehicleCorrectionSequence,
-                    source == null ? -1 : source.controlGeneration(), vehicle.getEntityId(), vehicle.geyserId(), packet.getTick(),
-                    coordinates.toWorld(rawPosition(packet.getPosition().down(vehicle.getOffset()))), rawPosition(packet.getDelta()),
-                    rotation.getY(), rotation.getX(), packet.isOnGround(), coordinates, source == null ? -1 : source.teleportTransaction(), packet.getVehicleAngularVelocity());
-            owner.connection.sendDownstreamGamePacket(createPayloadPacket(
-                    BedrockAuthInputPluginMessage.encodeVehicleCorrection(owner.connection.javaUuid(), correction)));
+            BedrockCoordinateFrame coordinates = emission == null ? source.coordinates() : emission.frame();
+            var correction = new BedrockMovementCorrection(++owner.movementCorrectionSequence,
+                    source.controlGeneration(), source.vehicleId(), isVehicle ? vehicle.geyserId() : owner.connection.getPlayerEntity().geyserId(), packet.getTick(),
+                    coordinates.toWorld(rawPosition(packet.getPosition().down(isVehicle ? vehicle.getOffset() : ownerPlayerOffset()))),
+                    rawPosition(packet.getDelta()), source.yaw(), source.pitch(), packet.isOnGround(), coordinates,
+                    source.teleportTransaction(), packet.getVehicleAngularVelocity(), isVehicle);
+            player.bedrockState.movementCorrections.observe(player, correction);
             context.write(message, promise);
             owner.writeLatencyBoundary(context, wrapper,
-                    acknowledged -> acknowledged.bedrockState.vehicleCorrections.acknowledge(correction.sequence()));
+                    acknowledged -> acknowledged.bedrockState.movementCorrections.acknowledge(correction.sequence()));
         }
 
         private void writeSelfMetadata(ChannelHandlerContext context, Object message, ChannelPromise promise,
@@ -1029,6 +996,8 @@ public final class GeyserBedrockBridgeRuntime {
             Boolean swimming = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
                     ? null
                     : metadata.getMetadata().getFlag(EntityFlag.SWIMMING);
+            Boolean sprinting = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
+                    ? null : metadata.getMetadata().getFlag(EntityFlag.SPRINTING);
             Boolean sneaking = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
                     ? null : metadata.getMetadata().getFlag(EntityFlag.SNEAKING);
             Boolean spinning = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
@@ -1055,9 +1024,9 @@ public final class GeyserBedrockBridgeRuntime {
             }
             if (width != null || height != null || gliding != null
                     || crawling != null || swimming != null || sneaking != null
-                    || spinning != null || sleeping != null || usingItem != null) {
+                    || spinning != null || sleeping != null || usingItem != null || sprinting != null) {
                 owner.recordOutboundMetadata(context, (BedrockPacketWrapper) message,
-                        width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem);
+                        width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem, sprinting);
             }
         }
 
@@ -1242,23 +1211,6 @@ public final class GeyserBedrockBridgeRuntime {
                 && Double.isFinite(vector.z);
     }
 
-    static Vector3f rewriteDelta(Vector3f reported, Vector3f lastKnownGood) {
-        if (reported == null || lastKnownGood == null) {
-            return reported;
-        }
-        if ((lastKnownGood.getY() < 0.0F) == (reported.getY() < 0.0F)) {
-            return lastKnownGood;
-        }
-        return Vector3f.from(
-                lastKnownGood.getX(),
-                clampSignPreservingY(reported.getY()),
-                lastKnownGood.getZ());
-    }
-
-    static float clampSignPreservingY(float reportedY) {
-        return reportedY < 0.0F ? -0.01F : 0.01F;
-    }
-
     static boolean sameJavaConnection(
             io.netty.channel.Channel geyserDownstreamChannel,
             Object userChannel
@@ -1304,45 +1256,4 @@ public final class GeyserBedrockBridgeRuntime {
         return flags;
     }
 
-    private static ServerboundCustomPayloadPacket createAuthInputPayloadPacket(BedrockAuthInputFrame frame) {
-        return createPayloadPacket(BedrockAuthInputPluginMessage.encode(frame));
-    }
-
-    private static ServerboundCustomPayloadPacket createClientActionPayloadPacket(UUID uuid, BedrockClientAction action) {
-        return createPayloadPacket(BedrockAuthInputPluginMessage.encode(uuid, action));
-    }
-
-    private static ServerboundCustomPayloadPacket createMoveFramePayloadPacket(BedrockMoveFrame frame) {
-        return createPayloadPacket(BedrockAuthInputPluginMessage.encode(frame));
-    }
-
-    static ServerboundCustomPayloadPacket createPayloadPacket(byte[] data) {
-        byte[] channel = BedrockAuthInputPluginMessage.CHANNEL.getBytes(StandardCharsets.UTF_8);
-        ByteBuf buffer = Unpooled.buffer(varIntSize(channel.length) + channel.length + data.length);
-        try {
-            writeVarInt(buffer, channel.length);
-            buffer.writeBytes(channel);
-            buffer.writeBytes(data);
-            return new ServerboundCustomPayloadPacket(buffer);
-        } finally {
-            buffer.release();
-        }
-    }
-
-    private static void writeVarInt(ByteBuf buffer, int value) {
-        while ((value & -128) != 0) {
-            buffer.writeByte(value & 127 | 128);
-            value >>>= 7;
-        }
-        buffer.writeByte(value);
-    }
-
-    private static int varIntSize(int value) {
-        int size = 1;
-        while ((value & -128) != 0) {
-            size++;
-            value >>>= 7;
-        }
-        return size;
-    }
 }

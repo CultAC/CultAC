@@ -55,7 +55,8 @@ final class BedrockMovementInputFactory {
                 profilePreviousState);
         if (profilePreviousState == null) {
             previousState = previousState.withAcknowledgedPose(null, null, playerContext.pose().spinning())
-                .withGliding(playerContext.actorGliding());
+                .withGliding(playerContext.actorGliding())
+                .withSprinting(!previousState.isVehicle() && player.bedrockState.acknowledgedSprinting);
         }
         if (previousState.isHorse()) {
             var horse = previousState.horse().actor();
@@ -73,6 +74,7 @@ final class BedrockMovementInputFactory {
                 worldSnapshot,
                 previousState,
                 tickInput.inputFrame());
+        player.bedrockState.movementEffects.glideBoost(frame, hasAcknowledgedStartChunk(player, context));
         return new Input(
                 frame,
                 previousState,

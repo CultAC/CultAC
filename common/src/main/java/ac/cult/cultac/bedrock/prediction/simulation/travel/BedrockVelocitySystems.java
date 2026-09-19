@@ -34,12 +34,12 @@ public final class BedrockVelocitySystems {
                 frame.input().previousState().physicalFeetPosition(),
                 facts.movementDimensions()
             );
-            velocity = BedrockAerialMovement.glideVelocity(velocity, frame.input().inputFrame());
+            velocity = BedrockAerialMovement.glideVelocity(velocity, frame.input().inputFrame(), frame.input().glideBoost());
             return plan(frame, velocity, new BedrockTravelHorizontalControl.Step(0.0D, 1.0D), false);
         }
 
         BedrockTravelHorizontalControl.Step horizontal = horizontal(frame);
-        velocity = applyReplayControl(frame, velocity, horizontal);
+        velocity = applyControl(frame, velocity, horizontal);
         if (branch.defaultMoveSystems()) {
             velocity = BedrockDefaultMoveClimbVertical.apply(
                 velocity,
@@ -86,13 +86,28 @@ public final class BedrockVelocitySystems {
         return new BedrockTravelPlan(frame, velocity, horizontal, request);
     }
 
-    private static Vec3d applyReplayControl(BedrockFrameState frame, Vec3d velocity,
+    private static Vec3d applyControl(BedrockFrameState frame, Vec3d velocity,
                                            BedrockTravelHorizontalControl.Step horizontal) {
-        Vec3d control = frame.input().replayControl();
+        Vec3d control = frame.input().control();
         if (control == null) return velocity;
-        float side = (float) control.x() * 0.5F;
+        float side = (float) control.x();
         float forward = (float) control.z();
-        if (forward <= 0.0F) forward *= 0.25F;
+        if (frame.input().previousState().isHorse()) {
+            side *= 0.5F;
+            if (forward <= 0.0F) forward *= 0.25F;
+        } else {
+            // The packet vector already includes input slowdown. Bound its magnitude
+            // by the permitted scale instead of applying that slowdown a second time.
+            float magnitude = (float) Math.sqrt(side * side + forward * forward);
+            float permitted = frame.control().moveInputScale();
+            if (magnitude > permitted) {
+                float clamp = permitted / magnitude;
+                side *= clamp;
+                forward *= clamp;
+            }
+            side *= 0.98F;
+            forward *= 0.98F;
+        }
         float lengthSquared = side * side + forward * forward;
         if (lengthSquared < 0.01F * 0.01F) return velocity;
         float length = (float) Math.sqrt(lengthSquared);
@@ -110,8 +125,10 @@ public final class BedrockVelocitySystems {
         BedrockTravelBranch branch = frame.branch();
         BedrockFrameFacts facts = frame.frameFacts();
         BedrockTravelInputControl.InputControlState control = frame.control();
+        float moveInputScale = frame.input().control() != null && !frame.input().previousState().isVehicle()
+            ? 1.0F : control.moveInputScale();
         if (branch.playerFlyingTravel()) {
-            return BedrockFlyingTravelMovement.speed(facts.context(), control.moveInputScale());
+            return BedrockFlyingTravelMovement.speed(facts.context(), moveInputScale);
         }
         if (branch.airTravel()) {
             return BedrockAirTravelMovement.resolveHorizontal(frame);
@@ -120,19 +137,19 @@ public final class BedrockVelocitySystems {
             return BedrockTravelHorizontalControl.resolveWaterTravel(
                 frame.input().previousState(), frame.input().inputFrame(), facts.context(),
                 facts.effectState(), facts.standingSurfaceState(), control.sprintSpeedInput(),
-                control.moveInputScale()
+                moveInputScale
             );
         }
         if (branch.lavaTravel()) {
             return BedrockTravelHorizontalControl.resolveLavaTravel(
                 facts.context(), facts.standingSurfaceState(), facts.navigationCanWalkInLava(),
-                control.moveInputScale(), frame.input().previousState().movementGrounded()
+                moveInputScale, frame.input().previousState().movementGrounded()
             );
         }
         return BedrockTravelHorizontalControl.resolveNormalTravel(
             frame.input().previousState(), frame.input().inputFrame(), facts.context(),
             facts.effectState(), facts.standingSurfaceState(), facts.climb(), facts.inPowderSnow(),
-            control.sprintSpeedInput(), control.moveInputScale(), true
+            control.sprintSpeedInput(), moveInputScale, true
         );
     }
 }

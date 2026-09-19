@@ -23,7 +23,7 @@ public class NettyScheduler {
     public NettyScheduler(CultPlayer player) {
         this.player = player;
         watchdogTask = channel().eventLoop().scheduleAtFixedRate(
-                this::tick, WATCHDOG_PERIOD_MS, WATCHDOG_PERIOD_MS, TimeUnit.MILLISECONDS);
+                () -> player.runSafely(this::tick), WATCHDOG_PERIOD_MS, WATCHDOG_PERIOD_MS, TimeUnit.MILLISECONDS);
     }
 
     private Channel channel() {
@@ -36,7 +36,7 @@ public class NettyScheduler {
     }
 
     public ScheduledFuture<?> runTaskInMs(Runnable runnable, int ms) {
-        return channel().eventLoop().schedule(runnable, ms, TimeUnit.MILLISECONDS);
+        return player.user.getPacketExecutor().schedule(() -> player.runSafely(runnable), ms, TimeUnit.MILLISECONDS);
     }
 
     private void watchdogKnockbackLatency() {

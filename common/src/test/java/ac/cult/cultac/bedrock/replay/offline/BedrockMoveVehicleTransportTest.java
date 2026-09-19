@@ -10,7 +10,7 @@ import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
-import ac.cult.cultac.bedrock.protocol.BedrockVehicleCorrection;
+import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
@@ -102,18 +102,18 @@ public final class BedrockMoveVehicleTransportTest {
 
             player.lastTransactionReceived.set(sent - 1);
             assertFalse(teleports.checkVehicleTeleportQueue(71, target.x, target.y, target.z).isTeleport());
-            teleports.completeBedrockVehicleCorrection(new BedrockVehicleCorrection(
+            teleports.completeBedrockMovementCorrection(new BedrockMovementCorrection(
                     1, 0, 71, 71, 42, target, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
             assertTrue(teleports.isPendingSetback());
             assertTrue(teleports.hasUnacknowledgedSetbackVehicleTeleport());
 
             player.lastTransactionReceived.set(sent);
-            teleports.completeBedrockVehicleCorrection(new BedrockVehicleCorrection(
+            teleports.completeBedrockMovementCorrection(new BedrockMovementCorrection(
                     1, 0, 72, 72, 42, target, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
             assertTrue(teleports.isPendingSetback());
             player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
                     71, target, 0.0F, 0.0F, false, Vec3.ZERO, false);
-            teleports.completeBedrockVehicleCorrection(new BedrockVehicleCorrection(
+            teleports.completeBedrockMovementCorrection(new BedrockMovementCorrection(
                     1, 0, 71, 71, 42, target, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
             assertFalse(teleports.isPendingSetback());
             assertFalse(teleports.blockOffsets);
@@ -156,14 +156,14 @@ public final class BedrockMoveVehicleTransportTest {
             teleports.addBedrockVehicleTeleport(71, newer, Vec3.ZERO);
 
             player.lastTransactionReceived.set(sent);
-            teleports.completeBedrockVehicleCorrection(new BedrockVehicleCorrection(
+            teleports.completeBedrockMovementCorrection(new BedrockMovementCorrection(
                     1, 0, 71, 71, 42, Vec3.ZERO, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
             assertTrue(teleports.isPendingSetback());
             assertTrue(teleports.blockOffsets);
             assertEquals(1, teleports.queuedVehicleTeleportCount());
 
             player.lastTransactionReceived.set(newer);
-            teleports.completeBedrockVehicleCorrection(new BedrockVehicleCorrection(
+            teleports.completeBedrockMovementCorrection(new BedrockMovementCorrection(
                     2, 0, 71, 71, 43, Vec3.ZERO, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, newer));
             assertFalse(teleports.isPendingSetback());
         } finally {

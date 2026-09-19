@@ -46,14 +46,6 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
             }
         }
 
-        // A pending Bedrock correction must contain every projected position,
-        // including packets already queued by Geyser before the flag occurred.
-        if (translatedBedrockMovement
-                && movePacket.hasPosition()
-                && player.getSetbackTeleportUtil().isPendingSetback()) {
-            event.setCancelled(true);
-        }
-
         // Protocol integrity is independent of check/setback configuration.
         // LocalPlayer#tick emits only Rot (and, for a locally authoritative
         // root, MoveVehicle) while mounted. Combine the immediate local mount
@@ -74,7 +66,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         NmsPacketUtil.MovePlayerData wrapper = NmsPacketUtil.readMovePlayer(movePacket, player);
         // The player must obey setbacks
         if (!teleport && wrapper.hasPositionChanged()
-                && player.getSetbackTeleportUtil().shouldBlockMovement()) {
+                && player.getSetbackTeleportUtil().shouldBlockMovement(translatedBedrockMovement)) {
             if (player.getSetbackTeleportUtil().isDebug()) { LogUtil.info(player.getName() + " movement has been blocked! : " + player.getSetbackTeleportUtil().getDebugStrings()); }
             event.setCancelled(true);
         }
@@ -147,8 +139,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
     /**
      * Applies the shared movement gate to Geyser's Java projection without
      * treating that projection as a second prediction input. The raw auth-input
-     * plugin message must already have completed on this client tick, and a
-     * pending setback always blocks position updates even in an unloaded chunk.
+     * frame must already have been validated before Geyser translated it.
      */
     public void onTranslatedBedrockMove(PacketReceiveEvent event, ServerboundMovePlayerPacket packet) {
         handleMovePlayer(event, packet, true);

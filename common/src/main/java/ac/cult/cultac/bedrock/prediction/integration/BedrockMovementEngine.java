@@ -31,7 +31,6 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Fireworks;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.InsideBlock;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.PistonShulkerPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.StepTransform;
@@ -58,7 +57,7 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 public final class BedrockMovementEngine implements MovementEngine {
     public static final BedrockMovementEngine INSTANCE = new BedrockMovementEngine();
     static final List<UncertaintyHandler> UNCERTAINTY_HANDLERS = List.of(
-        new PistonShulkerPush(), new CollisionModifier(), new StepTransform(), new Fireworks(), new InsideBlock()
+        new PistonShulkerPush(), new CollisionModifier(), new StepTransform(), new InsideBlock()
     );
     private final BedrockMovementInputFactory inputFactory = new BedrockMovementInputFactory();
 
@@ -142,7 +141,9 @@ public final class BedrockMovementEngine implements MovementEngine {
                     selectedInput.actorMovementTick(),
                     context.isBedrockTeleportTick(),
                     selectedInput.previousState().isBoat()
-                        ? BedrockVehicleHistory.control(selectedInput.authFrame(), selectedInput.previousState()) : null
+                        ? BedrockControlInput.control(selectedInput.authFrame(), selectedInput.previousState()) : null,
+                    !selectedInput.previousState().isVehicle() && player.bedrockState.movementEffects.glideBoost(
+                        selectedInput.authFrame(), selectedInput.actorMovementTick())
                 );
                 for (Candidate movementCandidate : BedrockSimulation.candidates(simulationInput)) {
                     BedrockMovementResult movementResult = movementCandidate.movementResult();
@@ -272,10 +273,19 @@ public final class BedrockMovementEngine implements MovementEngine {
             ? null
             : (BedrockPredictionResult) result.getProfileResult(BedrockPredictionResult.class);
         if (bedrockResult != null && bedrockResult.nextTickBaseState() != null) {
+            // Keep the normal accepted-displacement commit flow. Only rejected
+            // movement needs a simulated endpoint for authoritative correction.
+            if (bedrockResult.observation() != null && !result.getFlags().isEmpty()) {
+                bedrockResult = bedrockResult.withNextTickBaseState(BedrockValidationSelectedState.candidateBase(
+                    bedrockResult.movementResult(), BedrockValidationSelection.from(result, bedrockResult.movementResult())));
+            }
             List<Entry> baseEntries = List.of(
                 new Entry(bedrockResult.nextTickBaseState(), bedrockResult.nextTickBaseMobJumpComponent())
             );
             if (player != null && bedrockResult.movementResult() != null && acceptedDiff != null) {
+                // Finalize the selected simulation endpoint through the same contact and velocity derivation.
+                acceptedDiff = BedrockVectorAdapter.toJava(bedrockResult.nextTickBaseState().physicalFeetPosition()
+                    .subtract(bedrockResult.movementResult().previousState().physicalFeetPosition()));
                 recordEndTickBlockPush(result, bedrockResult.movementResult(), acceptedDiff);
                 boolean claimedVerticalCollision = result.getSimulationContext().getBedrockInput()
                     .hasRawInputFlag(PlayerAuthInputData.VERTICAL_COLLISION);
@@ -295,6 +305,17 @@ public final class BedrockMovementEngine implements MovementEngine {
                     bedrockResult, carriedEntries,
                     CultAPI.INSTANCE.getConfigManager().getBedrockMovementPositionFlagThreshold()
                 );
+                var frame = result.getSimulationContext() == null ? null : result.getSimulationContext().getBedrockInput();
+                if (carriedEntries.size() > 1 && frame != null && frame.getReportedEndOfTickVelocity() != null) {
+                    var reported = BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity());
+                    Entry selected = carriedEntries.stream().min(java.util.Comparator.comparingDouble(
+                        entry -> entry.state().velocity().subtract(reported).length())).orElseThrow();
+                    if (selected != carriedEntries.getFirst()) {
+                        carriedEntries = new java.util.ArrayList<>(carriedEntries);
+                        carriedEntries.remove(selected);
+                        carriedEntries.addFirst(selected);
+                    }
+                }
                 result.setProfileResult(bedrockResult.withNextTickBaseState(carriedEntries.getFirst().state()));
                 return new PredictionCommit(new BedrockNextTickStates(carriedEntries), derived.startingVelocities());
             } else {
@@ -398,8 +419,9 @@ public final class BedrockMovementEngine implements MovementEngine {
             // MovePlayer TELEPORT resets velocity; any subsequent SetEntityMotion
             // enters through the existing packet modifiers, not Java teleport delta flags.
             Vec3d velocity = Vec3d.ZERO;
-            BedrockMovementState rebased = restoreCorrectedState(state, position, velocity);
-            if (teleport.getBedrockOnGround() != null) {
+            BedrockMovementState rebased = restoreCorrectedState(state,
+                teleport.isBedrockTransportOnly() ? state.physicalFeetPosition() : position, velocity);
+            if (!teleport.isBedrockTransportOnly() && teleport.getBedrockOnGround() != null) {
 
                 rebased = rebased.withVelocityAndCollisionFlags(
                     rebased.velocity(), rebased.collisionFlags().withTeleportOnGround(teleport.getBedrockOnGround())
@@ -449,6 +471,14 @@ public final class BedrockMovementEngine implements MovementEngine {
                     .map(entry -> entry.withState(entry.state().withGliding(actorGliding)))
                     .toList()
             )
+            : carry;
+    }
+
+    public PredictionCarry applyAcknowledgedSprintingToCarry(PredictionCarry carry, boolean sprinting) {
+        return carry instanceof BedrockNextTickStates states
+            ? new BedrockNextTickStates(states.profileEntries().stream()
+                .map(entry -> entry.state().isVehicle() ? entry : entry.withState(entry.state().withSprinting(sprinting)))
+                .toList())
             : carry;
     }
 

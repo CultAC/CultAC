@@ -549,9 +549,9 @@ public class CheckManagerListener {
             player.checkManager.getListener(SetbackBlocker.class)
                     .onTranslatedBedrockMove(event, packet);
             dispatchReceiveHandlers(event, player);
-            if (!event.isCancelled() && packet.hasPosition()) {
-                // Capture only positions accepted by Paper.
-                player.getSetbackTeleportUtil().setBedrockPaperVisiblePosition(position);
+            if (!event.isCancelled() && event.getNmsPacket() instanceof ServerboundMovePlayerPacket projected && projected.hasPosition()) {
+                player.getSetbackTeleportUtil().setBedrockPaperVisiblePosition(new Vec3(
+                        projected.getX(player.x), projected.getY(player.y), projected.getZ(player.z)));
             }
             clearTransientPacketState(player);
             return;
@@ -717,33 +717,14 @@ public class CheckManagerListener {
             }
             boolean hasCurrentServerPassengerAuthority = serverVehicle != null
                     && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(serverVehicle);
-            var correction = authorizedVehicleMove ? authorization.vehicleCorrection() : null;
-            boolean blocked = correction == null
-                    ? shouldBlockVehicleMovementForSetback(player, teleportData)
-                    : player.getSetbackTeleportUtil().shouldBlockVehicleMovement(true)
-                        || !player.bedrockState.vehicleCorrections.isCorrecting(controlledVehicle)
-                        || controlledVehicle.isDead || player.isInBed;
-            if (!teleportData.isTeleport()
-                    && (!hasCurrentServerPassengerAuthority
-                    || blocked)) {
-                // Prediction does not grant server mount or correction authority.
+            boolean blocked = authorizedVehicleMove
+                    ? player.getSetbackTeleportUtil().shouldBlockVehicleMovement(true)
+                        || controlledVehicle.isDead || player.isInBed
+                    : shouldBlockVehicleMovementForSetback(player, teleportData);
+            if (!teleportData.isTeleport() && (!hasCurrentServerPassengerAuthority || blocked)) {
                 event.setCancelled(true);
             } else if (teleportData.isTeleport() && packetRoot != null && controlledVehicle == null) {
-                applyAcceptedVehicleTeleportState(
-                        player, packetRoot, newPos, vehiclePacket, teleportData);
-            } else if (correction != null) {
-                // Keep the server on the simulated path while the client catches up.
-                event.setNmsPacket(NmsPacketUtil.serverboundMoveVehiclePacket(correction.position(), correction.yaw(),
-                        correction.pitch(), correction.onGround()));
-                event.markForReEncode(true);
-            } else if (authorizedVehicleMove && controlledVehicle.isBoat()) {
-                event.setNmsPacket(NmsPacketUtil.serverboundMoveVehiclePacket(newPos, controlledVehicle.clientPhysicalYaw,
-                        controlledVehicle.clientPhysicalPitch, authorization.canonicalGround()));
-                event.markForReEncode(true);
-            } else if (authorizedVehicleMove && vehiclePacket.hasOnGround()
-                    && vehiclePacket.onGround() != authorization.canonicalGround()) {
-                event.setNmsPacket(NmsPacketUtil.withOnGround(packet, authorization.canonicalGround()));
-                event.markForReEncode(true);
+                applyAcceptedVehicleTeleportState(player, packetRoot, newPos, vehiclePacket, teleportData);
             }
             // Geyser emits MoveVehicle both from client-predicted auth input
             // and from its independent session vehicle tick. Neither path is

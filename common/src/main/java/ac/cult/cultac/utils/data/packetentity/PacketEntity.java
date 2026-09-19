@@ -39,6 +39,8 @@ import java.util.List;
 
 // You may not copy this check unless your anticheat is licensed under GPL
 public class PacketEntity {
+    public long bedrockRuntimeId = -1;
+    public ac.cult.cultac.bedrock.prediction.integration.BedrockEntityInterpolation bedrockInterpolation;
     public ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState bedrockPrediction;
     public ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties bedrockBoat;
     public Vec3 desyncClientPos;
@@ -334,6 +336,14 @@ public class PacketEntity {
 
     // If the old and new packet location are split, we need to combine bounding boxes
     public void onMovement(CultPlayer player, boolean tickingReliably) {
+        if (player.isBedrockMovement() && bedrockRuntimeId != -1) {
+            if (bedrockInterpolation != null) bedrockInterpolation.tick(player, this);
+            if (isBoat() && bedrockPrediction != null) {
+                ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
+                        this, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
+            }
+            return;
+        }
         carryInterpolationTargetByLocalPhysics(player);
         SimpleCollisionBox exactAfterClientTick = exactInterpolatedLocationAfterClientTick(player);
         float exactYawAfterClientTick = exactYawAfterClientTick();

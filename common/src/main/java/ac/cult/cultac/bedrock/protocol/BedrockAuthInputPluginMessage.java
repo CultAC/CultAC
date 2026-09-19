@@ -14,7 +14,7 @@ public final class BedrockAuthInputPluginMessage {
     public static final String CHANNEL_NAMESPACE = "cultac";
     public static final String CHANNEL_PATH = "bedrock_auth_input/" + newSecret();
     public static final String CHANNEL = CHANNEL_NAMESPACE + ":" + CHANNEL_PATH;
-    private static final int VERSION = 22;
+    private static final int VERSION = 24;
     private static final int TYPE_AUTH_INPUT = 0;
     private static final int TYPE_CLIENT_ACTION = 1;
     private static final int TYPE_MOVE_FRAME = 2;
@@ -28,7 +28,38 @@ public final class BedrockAuthInputPluginMessage {
     private BedrockAuthInputPluginMessage() {
     }
 
-    public static byte[] encodeVehicleCorrection(UUID uuid, BedrockVehicleCorrection correction) {
+    private static final int TYPE_GLIDE_BOOST = 13;
+
+    public static byte[] encodeGlideBoost(UUID uuid, long runtimeId, int duration) {
+        try {
+            var bytes = new ByteArrayOutputStream();
+            var out = new DataOutputStream(bytes);
+            out.writeInt(VERSION);
+            out.writeByte(TYPE_GLIDE_BOOST);
+            out.writeLong(uuid.getMostSignificantBits());
+            out.writeLong(uuid.getLeastSignificantBits());
+            out.writeLong(runtimeId);
+            out.writeInt(duration);
+            return bytes.toByteArray();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to encode glide boost", exception);
+        }
+    }
+
+    public static GlideBoostMessage decodeGlideBoost(byte[] data) {
+        try {
+            var in = new DataInputStream(new ByteArrayInputStream(data));
+            if (in.readInt() != VERSION || in.readUnsignedByte() != TYPE_GLIDE_BOOST) return null;
+            var message = new GlideBoostMessage(new UUID(in.readLong(), in.readLong()), in.readLong(), in.readInt());
+            return in.available() == 0 && message.duration() >= -1 ? message : null;
+        } catch (IOException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    public record GlideBoostMessage(UUID playerUuid, long runtimeId, int duration) { }
+
+    public static byte[] encodeVehicleCorrection(UUID uuid, BedrockMovementCorrection correction) {
         try {
             var bytes = new ByteArrayOutputStream();
             var out = new DataOutputStream(bytes);
@@ -49,6 +80,7 @@ public final class BedrockAuthInputPluginMessage {
             writeCoordinateFrame(out, correction.coordinates());
             out.writeInt(correction.teleportTransaction());
             writeNullableFloat(out, correction.angularVelocity());
+            out.writeBoolean(correction.vehicle());
             return bytes.toByteArray();
         } catch (IOException exception) {
             throw new IllegalStateException("Unable to encode vehicle correction", exception);
@@ -61,16 +93,17 @@ public final class BedrockAuthInputPluginMessage {
             int version = in.readInt();
             if (version < 21 || version > VERSION || in.readUnsignedByte() != TYPE_VEHICLE_CORRECTION) return null;
             UUID uuid = new UUID(in.readLong(), in.readLong());
-            var correction = new BedrockVehicleCorrection(in.readLong(), in.readLong(), in.readInt(), in.readLong(), in.readLong(),
+            var correction = new BedrockMovementCorrection(in.readLong(), in.readLong(), in.readInt(), in.readLong(), in.readLong(),
                     readVec3(in), readVec3(in), in.readFloat(), in.readFloat(), in.readBoolean(),
-                    readCoordinateFrame(in), in.readInt(), version >= 22 ? readNullableFloat(in) : null);
+                    readCoordinateFrame(in), in.readInt(), version >= 22 ? readNullableFloat(in) : null,
+                    version < 23 || in.readBoolean());
             return in.available() == 0 ? new VehicleCorrectionMessage(uuid, correction) : null;
         } catch (IOException | RuntimeException ignored) {
             return null;
         }
     }
 
-    public record VehicleCorrectionMessage(UUID playerUuid, BedrockVehicleCorrection correction) { }
+    public record VehicleCorrectionMessage(UUID playerUuid, BedrockMovementCorrection correction) { }
 
     /** Precedes the actions translated from an auth-input packet. */
     public static byte[] encodeVehicleFrameStart(UUID uuid, long tick, int vehicleId, long runtimeId) {
@@ -293,6 +326,13 @@ public final class BedrockAuthInputPluginMessage {
     public static byte[] encodeAcknowledgedMetadata(UUID playerUuid, Float width, Float height,
             Boolean gliding, Boolean crawling, Boolean swimming,
             Boolean sneaking, Boolean spinning, Boolean sleeping, Boolean usingItem) {
+        return encodeAcknowledgedMetadata(playerUuid, width, height, gliding, crawling, swimming,
+                sneaking, spinning, sleeping, usingItem, null);
+    }
+
+    public static byte[] encodeAcknowledgedMetadata(UUID playerUuid, Float width, Float height,
+            Boolean gliding, Boolean crawling, Boolean swimming,
+            Boolean sneaking, Boolean spinning, Boolean sleeping, Boolean usingItem, Boolean sprinting) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(40);
             DataOutputStream out = new DataOutputStream(bytes);
@@ -309,6 +349,7 @@ public final class BedrockAuthInputPluginMessage {
             writeNullableBoolean(out, spinning);
             writeNullableBoolean(out, sleeping);
             writeNullableBoolean(out, usingItem);
+            writeNullableBoolean(out, sprinting);
             out.flush();
             return bytes.toByteArray();
         } catch (IOException exception) {
@@ -476,7 +517,8 @@ public final class BedrockAuthInputPluginMessage {
                     version >= 18 ? readNullableBoolean(in) : null,
                     version >= 18 ? readNullableBoolean(in) : null,
                     version >= 18 ? readNullableBoolean(in) : null,
-                    version >= 19 ? readNullableBoolean(in) : null);
+                    version >= 19 ? readNullableBoolean(in) : null,
+                    version >= 24 ? readNullableBoolean(in) : null);
             if (in.available() != 0
                     || message.width() != null && (!Float.isFinite(message.width()) || message.width() <= 0.0F)
                     || message.height() != null && (!Float.isFinite(message.height()) || message.height() <= 0.0F)) {
@@ -501,8 +543,13 @@ public final class BedrockAuthInputPluginMessage {
             Boolean sneaking,
             Boolean spinning,
             Boolean sleeping,
-            Boolean usingItem
+            Boolean usingItem,
+            Boolean sprinting
     ) {
+        public MetadataMessage(UUID playerUuid, Float width, Float height, Boolean gliding, Boolean crawling,
+                Boolean swimming, Boolean sneaking, Boolean spinning, Boolean sleeping, Boolean usingItem) {
+            this(playerUuid, width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem, null);
+        }
     }
 
     private static void writeNullableFloat(DataOutputStream out, Float value) throws IOException {

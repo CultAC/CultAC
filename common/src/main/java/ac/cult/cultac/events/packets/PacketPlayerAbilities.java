@@ -23,6 +23,7 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
 
     @CultPacketHandler
     public void onPlayerAbilities(PacketReceiveEvent event, CultPlayer player, ServerboundPlayerAbilitiesPacket packet) {
+        if (player.isBedrockMovement()) return;
         player.isFlying = packet.isFlying() && player.canFly;
     }
 

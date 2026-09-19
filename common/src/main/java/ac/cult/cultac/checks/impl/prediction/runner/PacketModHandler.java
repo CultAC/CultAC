@@ -114,6 +114,17 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             return;
         }
 
+        if (player.isBedrockMovement() && predictionComplete.getPreparedCommit() != null) {
+            // The server applies the selected velocity; client convergence is tracked separately.
+            var selected = predictionComplete.getPredictionResult().getInitialStartingVel();
+            if (firstBread != null && selected.hasPacketModifier(firstBread)) {
+                firstBread.setConsumed(true);
+                firstBread = null;
+            }
+            handleAllDoneWithVels();
+            return;
+        }
+
         final boolean possibleSkip = this.canTickSkip;
         // If there is a velocity going to 0, and the player moved slow enough to reach 0, assume movement skipped.
         if (this.canTickSkip) {

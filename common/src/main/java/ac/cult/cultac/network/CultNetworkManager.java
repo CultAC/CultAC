@@ -170,6 +170,22 @@ public final class CultNetworkManager implements Listener {
         return uuid == null ? null : currentUsersByUuid.get(uuid);
     }
 
+    public void bindPacketExecutor(User user, io.netty.util.concurrent.EventExecutor executor, Runnable ready) {
+        Channel channel = (Channel) user.getChannel();
+        channel.eventLoop().execute(() -> {
+            if (!channel.isActive() || getUser(user.getUUID()) != user) return;
+            try {
+                packetApi.bindExecutor(user.getConnection(), executor);
+                user.bindPacketExecutor(executor);
+                // Drain tasks scheduled on the previous owner before accepting raw inputs.
+                channel.eventLoop().execute(() -> user.executeLater(ready));
+            } catch (RuntimeException failure) {
+                LogUtil.warn("Unable to bind Bedrock packet executor: " + failure);
+                user.closeConnection();
+            }
+        });
+    }
+
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
@@ -787,7 +803,7 @@ public final class CultNetworkManager implements Listener {
             task.run();
             return;
         }
-        channel.eventLoop().execute(task);
+        user.executeLater(task);
     }
 
     private void schedulePostReceiveTasks(User user, List<Runnable> postTasks) {
@@ -806,7 +822,7 @@ public final class CultNetworkManager implements Listener {
             task.run();
             return;
         }
-        channel.eventLoop().execute(task);
+        user.executeLater(task);
     }
 
     static void runDeferredPacketTask(String phase, Runnable runnable) {
@@ -842,10 +858,12 @@ public final class CultNetworkManager implements Listener {
             nettyChannel.writeAndFlush(nmsPacket);
         };
 
-        if (nettyChannel.eventLoop().inEventLoop()) {
+        var interceptor = nettyChannel.pipeline().context(HANDLER_NAME);
+        var executor = interceptor == null ? nettyChannel.eventLoop() : interceptor.executor();
+        if (executor.inEventLoop()) {
             task.run();
         } else {
-            nettyChannel.eventLoop().execute(task);
+            executor.execute(task);
         }
     }
 
@@ -865,10 +883,12 @@ public final class CultNetworkManager implements Listener {
             nettyChannel.writeAndFlush(nmsPacket);
         };
 
-        if (nettyChannel.eventLoop().inEventLoop()) {
+        var interceptor = nettyChannel.pipeline().context(HANDLER_NAME);
+        var executor = interceptor == null ? nettyChannel.eventLoop() : interceptor.executor();
+        if (executor.inEventLoop()) {
             task.run();
         } else {
-            nettyChannel.eventLoop().execute(task);
+            executor.execute(task);
         }
     }
 

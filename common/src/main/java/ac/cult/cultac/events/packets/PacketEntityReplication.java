@@ -330,7 +330,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         boolean tickingReliably = player.isTickingReliablyFor(3);
         PacketEntity velocityVehicle = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
         java.util.function.Consumer<PacketEntity> tick = entity -> {
-            if (entity == velocityVehicle
+            if (player.isBedrockMovement() && entity == ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(player)) return;
+            if (!player.isBedrockMovement() && entity == velocityVehicle
                     && (player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(entity)
                     || player.packetStateData.clientTickVehicleMovePacketsThisClientTick > 0
                     || player.packetStateData.localAuthoritativeVehicleMovePacketsThisClientTick > 0)) {
@@ -484,6 +485,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private void handleSetEntityMotion(PacketSendEvent event, ClientboundSetEntityMotionPacket packet) {
         NmsPacketUtil.EntityMotionData motion = NmsPacketUtil.readEntityMotion(packet);
+        if (player.isBedrockMovement() && motion.entityId() != player.entityID) return;
         int velocityTransaction = player.checkManager.getKnockbackHandler().handleEntityVelocity(event, packet);
         if (velocityTransaction <= 0) {
             CultPlayer.TrackedTransaction afterVelocity = appendTrailingProofTransaction(event);
@@ -1121,7 +1123,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private void applyVehicleProtocolResync(int transaction, VehicleMountResyncState resyncState) {
         if (isBedrockVehicleResync(resyncState.vehicleId())) {
-            player.getSetbackTeleportUtil().sendBedrockVehicleCorrection(resyncState.vehicleId(), resyncState.position(),
+            player.getSetbackTeleportUtil().sendBedrockMovementCorrection(resyncState.vehicleId(), resyncState.position(),
                     resyncState.velocity(), resyncState.yaw(), resyncState.pitch(), Boolean.TRUE.equals(resyncState.onGround()), transaction);
             return;
         }
@@ -1221,7 +1223,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         Runnable removeTask = () -> {
             boolean wasPassenger = player.compensatedEntities.getSelf().inVehicle();
             for (int integer : destroyEntityIds) {
-                player.compensatedEntities.removeEntity(integer);
+                if (!player.isBedrockMovement()) player.compensatedEntities.removeEntity(integer);
                 player.compensatedFireworks.removeFirework(integer);
             }
             if (wasPassenger && !player.compensatedEntities.getSelf().inVehicle()
@@ -1397,6 +1399,13 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             if (!useDelimiterProof && data.getLastTransactionHung() == player.lastTransactionSent.get()) {
                 player.sendTransaction();
             }
+        }
+
+        // Geyser may emit several client positions over later ticks. Java packets update
+        // server authority here; the outgoing Bedrock stream owns visible transforms.
+        if (player.isBedrockMovement()) {
+            clearPacketHandlerDeltaMovement(movement);
+            return;
         }
 
         CultPlayer.TrackedTransaction proof = useDelimiterProof
@@ -1765,11 +1774,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     channel.writeAndFlush(packet);
                 }
             };
-            if (channel.eventLoop().inEventLoop()) {
-                write.run();
-            } else {
-                channel.eventLoop().execute(write);
-            }
+            player.user.execute(write);
             return;
         }
         for (Packet<?> packet : packets) {

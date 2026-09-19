@@ -71,6 +71,12 @@ public final class PacketApi {
         return key;
     }
 
+    public void bindExecutor(Connection connection, io.netty.util.concurrent.EventExecutor executor) {
+        PlayerConnectionHandler handler = connectionHandlers.get(connection);
+        if (handler == null) throw new IllegalStateException("Connection interceptor is unavailable");
+        handler.bindExecutor(executor);
+    }
+
     public boolean isKickForPacketErrors() {
         return kickForPacketErrors;
     }

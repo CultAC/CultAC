@@ -8,7 +8,8 @@ public class ResetTick implements Tickable {
     @Override
     public void tick() {
         for (CultPlayer player : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
-            player.packetEntityReplication.tickStartTick();
+            if (player.isBedrockMovement()) player.runSafely(player.packetEntityReplication::tickStartTick);
+            else player.packetEntityReplication.tickStartTick();
         }
     }
 }

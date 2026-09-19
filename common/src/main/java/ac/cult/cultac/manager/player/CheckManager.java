@@ -354,7 +354,8 @@ public class CheckManager {
     // configuration without inventing behavior.
     private static ClassToInstanceMap<CheckListener> buildIdentityChecks(CultPlayer player) {
         return listenerMap(List.<CheckListener>of(
-                new VehicleC(player)));
+                new VehicleC(player),
+                new BedrockMovement(player)));
     }
 
     private static ClassToInstanceMap<PostPredictionListener> buildPostPredictionChecks(CultPlayer player) {
@@ -367,7 +368,6 @@ public class CheckManager {
                 new Phase(player),
                 new PostCheck(player),
                 new NegativeTimerCheck(player),
-                new BedrockMovement(player),
                 new OffsetHandler(player),
                 new DebugHandler(player),
                 new EntityControl(player), // registered listener is currently a no-op

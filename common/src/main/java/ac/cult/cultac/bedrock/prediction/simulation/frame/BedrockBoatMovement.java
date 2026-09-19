@@ -147,12 +147,12 @@ public final class BedrockBoatMovement {
         var world = input.worldSnapshot().blockCollisionWorld();
         var step = control(current, liquidVelocity(current, input.startingVelocity(), input.worldSnapshot().movementContext()),
                 surface(current, world),
-                input.replayControl() == null ? Vec3d.ZERO : input.replayControl());
+                input.control() == null ? Vec3d.ZERO : input.control());
         var frame = current.withRotation(step.yaw(), input.inputFrame().pitch()).inputFrame();
         frame = new ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame(input.inputFrame().clientTick(),
                 frame.yaw(), frame.pitch(), false, false, false);
         input = new BedrockTravelInput(current, frame, frame.intent(), input.worldSnapshot(),
-                input.scaffoldingVerticalBranch(), input.startingVelocity(), input.options(), input.replayControl());
+                input.scaffoldingVerticalBranch(), input.startingVelocity(), input.options(), input.control());
         var context = input.worldSnapshot().movementContext();
         var facts = new BedrockFrameFacts(context, current.boundingBoxMode(), current.playerDimensions(),
                 new BedrockSwimmingMovement.SwimmingState(false, false, 0),

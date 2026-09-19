@@ -10,7 +10,6 @@ import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
-import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
@@ -38,18 +37,6 @@ final class BedrockBlockCollisionWorldSampler {
         SimpleCollisionBox query = actorQuery.queryBox();
         return sample(player, geometry, actorBox, query, playerContext.wearingLeatherBoots(),
                 collisionFallDistance(BedrockProfileState.previousState(context), playerContext, player));
-    }
-
-    BedrockWorldSnapshot replayWorld(CultPlayer player, BedrockMovementState state, BedrockWorldSnapshot snapshot) {
-        Vec3d feet = state.physicalFeetPosition();
-        var dimensions = state.playerDimensions();
-        double radius = dimensions.radius();
-        var box = new SimpleCollisionBox(feet.x() - radius, feet.y(), feet.z() - radius,
-                feet.x() + radius, feet.y() + dimensions.height(), feet.z() + radius);
-        var world = sample(player, ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings.catalog(),
-                box, box.copy().expand(Math.max(2.0D, Math.min(16.0D, state.velocity().length() + 2.0D))),
-                snapshot.movementContext().equipmentState().leatherBoots(), state.fallDistance()).world();
-        return snapshot.withBlockCollisionWorld(world.withCoordinateFrame(state.coordinateFrame()));
     }
 
     private BedrockSampledBlockWorld sample(CultPlayer player, BedrockCollisionOverrideCatalog geometry,

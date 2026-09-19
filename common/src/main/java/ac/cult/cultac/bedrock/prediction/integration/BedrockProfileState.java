@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-final class BedrockProfileState {
+public final class BedrockProfileState {
     private BedrockProfileState() {
     }
 
@@ -78,7 +78,7 @@ final class BedrockProfileState {
                     : mobJumpComponent;
         }
 
-        Entry withState(BedrockMovementState state) {
+        public Entry withState(BedrockMovementState state) {
             if (Objects.equals(this.state, state)) {
                 return this;
             }

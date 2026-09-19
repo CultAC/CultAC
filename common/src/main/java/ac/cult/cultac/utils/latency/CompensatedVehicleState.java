@@ -65,7 +65,7 @@ public final class CompensatedVehicleState implements Debuggable {
 
     public void onClientTickEnd() {
         PacketEntity root = getVelocityMovementVehicle();
-        if (root != null
+        if (!player.isBedrockMovement() && root != null
                 && !canClientAuthoritativelyMoveVisibleRoot(root)
                 && !canServerPlayerVehicleBeLocalAuthoritative()
                 && !hasActiveInterpolationTarget(root)) {
@@ -499,7 +499,7 @@ public final class CompensatedVehicleState implements Debuggable {
             return;
         }
 
-        if (player.bedrockState != null) player.bedrockState.vehicleCorrections.clear();
+        if (player.bedrockState != null) player.bedrockState.movementCorrections.clear();
 
         markVehicleSwitchBufferWindow(currentRoot == null ? previousRoot : currentRoot);
         Vec3 rootDeltaMovement = currentRoot == null

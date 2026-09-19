@@ -15,8 +15,17 @@ public record BedrockTravelInput(
         ScaffoldingVerticalBranch scaffoldingVerticalBranch,
         Vec3d startingVelocity,
         BedrockTravelOptions options,
-        Vec3d replayControl
+        Vec3d control,
+        boolean glideBoost
 ) {
+    public BedrockTravelInput(BedrockMovementState previousState, BedrockInputFrame inputFrame,
+            BedrockInputIntent inputIntent, BedrockWorldSnapshot worldSnapshot,
+            ScaffoldingVerticalBranch scaffoldingVerticalBranch, Vec3d startingVelocity,
+            BedrockTravelOptions options, Vec3d control) {
+        this(previousState, inputFrame, inputIntent, worldSnapshot, scaffoldingVerticalBranch,
+                startingVelocity, options, control, false);
+    }
+
     public BedrockTravelInput(BedrockMovementState previousState, BedrockInputFrame inputFrame,
             BedrockInputIntent inputIntent, BedrockWorldSnapshot worldSnapshot,
             ScaffoldingVerticalBranch scaffoldingVerticalBranch, Vec3d startingVelocity,
@@ -33,9 +42,6 @@ public record BedrockTravelInput(
         scaffoldingVerticalBranch = Objects.requireNonNull(scaffoldingVerticalBranch, "scaffoldingVerticalBranch");
         startingVelocity = Objects.requireNonNull(startingVelocity, "startingVelocity");
         options = Objects.requireNonNull(options, "options");
-        if (replayControl != null && !previousState.isVehicle()) {
-            throw new IllegalArgumentException("Replay controls require a supported vehicle");
-        }
     }
 
     public enum ScaffoldingVerticalBranch {
