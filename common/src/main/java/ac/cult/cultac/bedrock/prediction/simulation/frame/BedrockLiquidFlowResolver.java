@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.simulation.frame;
 
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
+import ac.cult.cultac.bedrock.prediction.world.BedrockBlockMaterials;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import java.util.Map;
 import java.util.Optional;
@@ -133,11 +134,11 @@ final class BedrockLiquidFlowResolver {
     }
 
     private static boolean blocksMotion(PlacedBlockCollision block) {
-        return block != null && !block.collisionBoxes().isEmpty();
+        return BedrockBlockMaterials.bundled().blocksMotion(block);
     }
 
     private static boolean isSolid(PlacedBlockCollision block) {
-        return blocksMotion(block);
+        return BedrockBlockMaterials.bundled().isSolid(block);
     }
 
     private static OptionalInt neighborDepth(

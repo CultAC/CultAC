@@ -261,6 +261,14 @@ public record PlacedBlockCollision(
         return contactBehaviors.contains(Objects.requireNonNull(behavior, "behavior"));
     }
 
+    public boolean isEntityCollision() {
+        return switch (bedrockIdentifier) {
+            case "minecraft:boat_entity_collision", "minecraft:minecart_entity_collision",
+                 "minecraft:hard_entity_collision" -> true;
+            default -> false;
+        };
+    }
+
     public static PlacedBlockCollision sampled(
         BlockPosition position,
         String javaIdentifier,

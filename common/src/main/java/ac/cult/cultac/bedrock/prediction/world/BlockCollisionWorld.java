@@ -129,7 +129,9 @@ public final class BlockCollisionWorld {
             List<WorldCollisionBox> boxes = new ArrayList<>();
             List<BlockCollision> collisions = new ArrayList<>();
             for (PlacedBlockCollision block : blocks) {
-                byPosition.putIfAbsent(block.position(), block);
+                if (!block.isEntityCollision()) {
+                    byPosition.putIfAbsent(block.position(), block);
+                }
                 LiquidKind kind = liquidKind(block.bedrockIdentifier());
                 if (kind == LiquidKind.WATER) {
                     liquidsByPosition.put(block.position(), block);

@@ -10,8 +10,8 @@ import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.Fluids;
-import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 
 final class BedrockFluidBlockSampler {
     boolean isFluid(BlockState state) {
@@ -41,12 +41,6 @@ final class BedrockFluidBlockSampler {
                 : depth == 0 ? "minecraft:lava" : "minecraft:flowing_lava";
         Map<String, Object> bedrockState = new HashMap<>();
         bedrockState.put("liquid_depth", depth);
-        Vec3 flow = fluid.getFlow(player.compensatedWorld, new net.minecraft.core.BlockPos(x, y, z));
-        if (flow.lengthSqr() >= 1.0E-5D) {
-            bedrockState.put("flow_x", flow.x);
-            bedrockState.put("flow_y", flow.y);
-            bedrockState.put("flow_z", flow.z);
-        }
         return PlacedBlockCollision.sampled(
                 new BlockPosition(x, y, z),
                 javaState,
@@ -71,7 +65,7 @@ final class BedrockFluidBlockSampler {
     }
 
     private static int liquidDepth(net.minecraft.world.level.material.FluidState fluid) {
-
-        return fluid.isSource() ? 0 : Math.max(1, Math.min(8, 8 - fluid.getAmount()));
+        return fluid.isSource() ? 0 : 8 - Math.min(fluid.getAmount(), 8)
+                + (fluid.getValue(BlockStateProperties.FALLING) ? 8 : 0);
     }
 }
