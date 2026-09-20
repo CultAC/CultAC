@@ -50,6 +50,7 @@ import org.cloudburstmc.protocol.bedrock.netty.BedrockPacketWrapper;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler;
 import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
+import org.cloudburstmc.protocol.bedrock.packet.InteractPacket;
 import org.cloudburstmc.protocol.bedrock.packet.CorrectPlayerMovePredictionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityAbsolutePacket;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
@@ -439,6 +440,8 @@ public final class GeyserBedrockBridgeRuntime {
         private void translateInput(BedrockPacket packet) {
             CultPlayer player = currentPlayer();
             if (player == null) return;
+            if (packet instanceof InteractPacket interaction
+                    && !GeyserVehicleInput.acceptsInteraction(connection, player, interaction)) return;
             if (packet instanceof PlayerAuthInputPacket authInput) {
                 if (!processAuthInput(player, authInput)) return;
             } else if (packet instanceof MovePlayerPacket move) {
@@ -635,7 +638,8 @@ public final class GeyserBedrockBridgeRuntime {
             BedrockAuthInputFrame frame = captureAuthInput(player, packet);
             long previousTick = player.bedrockState.lastMovementTick();
             var state = ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor.process(player, frame,
-                    ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger.BEDROCK_THREAD);
+                    ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger.BEDROCK_THREAD,
+                    () -> GeyserVehicleInput.translateRejectedMovement(connection, player, packet));
             // Recovery must run even when the pending teleport rejects movement before Geyser's translator.
             teleportRecovery.input(player.bedrockState.lastMovementTick(),
                     player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport());
