@@ -70,7 +70,7 @@ public final class BedrockActorHistoryTest {
         assertEquals(BedrockActorHistory.CAPACITY, history.frames().size());
         assertEquals(7, history.oldestTick());
         history.apply(1, new BedrockReplayEvent.Motion(Vec3d.ZERO), (state, world) -> world);
-        assertEquals(1, history.frames().getFirst().events().size());
+        assertEquals(0, history.frames().getFirst().events().size());
         long steps = history.current().getFirst().state().simulationTick();
         history.apply(1000, new BedrockReplayEvent.Motion(Vec3d.ZERO), (state, world) -> world);
         assertEquals(steps, history.current().getFirst().state().simulationTick());
@@ -113,7 +113,7 @@ public final class BedrockActorHistoryTest {
         var state = BedrockMovementState.fromPhysicalFeet(new Vec3d(289.4287F, 82, -86.09165F),
                 new Vec3d(-0.08224659F, -0.0784F, 0.011113953F),
                 new BedrockInputFrame(740, 82.30463F, 5.652817F, false, false, true), BedrockCollisionFlags.ON_GROUND)
-                .withSprinting(true);
+                .applySprintAction(true);
         var entry = new Entry(state, BedrockMobJumpComponentState.DEFAULT);
         double[][] endpoints = {{288.98013F, -86.03104F, -0.13109092F, 0.017713573F},
                 {288.72278F, -85.99626F, -0.1405096F, 0.018986221F},

@@ -207,8 +207,7 @@ public final class BedrockSimulation {
 
     private static List<BedrockTravelOptions.SprintTravelSpeedMode> sprintSpeedModes() {
         return List.of(
-            BedrockTravelOptions.SprintTravelSpeedMode.FORCE_NOT_SPRINTING,
-            BedrockTravelOptions.SprintTravelSpeedMode.FORCE_SPRINTING
+            BedrockTravelOptions.SprintTravelSpeedMode.ORDERED_ACTOR_FLAG
         );
     }
 

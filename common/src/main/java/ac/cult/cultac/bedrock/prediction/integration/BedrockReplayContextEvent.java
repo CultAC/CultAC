@@ -4,13 +4,49 @@ import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import java.util.Map;
 
 /** Patches only the fields supplied by an update, retaining all other historical inputs. */
 public record BedrockReplayContextEvent(Map<String, Float> attributes, Integer effectId, Integer effectLevel,
-        int duration, Integer gameType, Boolean usingItem) implements BedrockReplayEvent {
-    public BedrockReplayContextEvent { attributes = Map.copyOf(attributes); }
+        int duration, Integer gameType, Boolean usingItem,
+        BedrockMovementAttributeState movementAttribute,
+        boolean historicalAttribute) implements BedrockReplayEvent {
+    public BedrockReplayContextEvent {
+        // Movement is represented by the complete attribute, not also by a second numeric entry.
+        var other = new java.util.LinkedHashMap<>(attributes);
+        other.remove("minecraft:movement");
+        attributes = Map.copyOf(other);
+    }
+
+    public BedrockReplayContextEvent(Map<String, Float> attributes, Integer effectId, Integer effectLevel,
+            int duration, Integer gameType, Boolean usingItem) {
+        this(attributes, effectId, effectLevel, duration, gameType, usingItem,
+                attributes.containsKey("minecraft:movement")
+                    ? new BedrockMovementAttributeState(
+                        attributes.get("minecraft:movement"), 0, 1024, 0, 1024, 0.1F, java.util.List.of())
+                    : null, false);
+    }
+
+    @Override public BedrockMovementState state(BedrockMovementState state) {
+        if (movementAttribute == null || state.isVehicle()) return state;
+        // Historical confirmation compares current values, not modifier lists or defaults.
+        if (historicalAttribute && state.movementAttribute().current() == movementAttribute.current()) return state;
+        return state.withMovementAttribute(state.movementAttribute().replace(movementAttribute));
+    }
+
+    @Override public boolean matchesHistory(BedrockMovementState state) {
+        return historicalAttribute && movementAttribute != null && !state.isVehicle()
+                && attributes.isEmpty() && effectId == null && gameType == null && usingItem == null
+                && state.movementAttribute().current() == movementAttribute.current();
+    }
+
+    @Override public BedrockReplayEvent ordinary() {
+        return new BedrockReplayContextEvent(attributes, effectId, effectLevel, duration, gameType,
+                usingItem, movementAttribute, false);
+    }
 
     @Override public BedrockSimulation.Input input(BedrockSimulation.Input input, long elapsed) {
         return apply(input, elapsed, null);
@@ -23,15 +59,13 @@ public record BedrockReplayContextEvent(Map<String, Float> attributes, Integer e
     private BedrockSimulation.Input apply(BedrockSimulation.Input input, long elapsed, BedrockMovementContext recorded) {
         var c = input.snapshot().movementContext();
         var a = c.attributeState();
-        double speed = attributes.containsKey("minecraft:movement") ? attributes.get("minecraft:movement") : a.horizontalInputBaseMovementSpeed();
-        a = new AttributeState(attributes.containsKey("minecraft:movement") ? speed : a.baseMovementSpeed(), speed,
+        a = new AttributeState(a.baseMovementSpeed(), a.horizontalInputBaseMovementSpeed(),
                 attributes.getOrDefault("minecraft:underwater_movement", a.underwaterMovementSpeed()),
                 attributes.getOrDefault("minecraft:lava_movement", a.lavaMovementSpeed()),
                 attributes.getOrDefault("minecraft:horse.jump_strength", a.jumpStrength()), a.frictionModifier());
         if (recorded != null) {
             var original = recorded.attributeState();
-            a = new AttributeState(attributes.containsKey("minecraft:movement") ? original.baseMovementSpeed() : a.baseMovementSpeed(),
-                    attributes.containsKey("minecraft:movement") ? original.horizontalInputBaseMovementSpeed() : a.horizontalInputBaseMovementSpeed(),
+            a = new AttributeState(a.baseMovementSpeed(), a.horizontalInputBaseMovementSpeed(),
                     attributes.containsKey("minecraft:underwater_movement") ? original.underwaterMovementSpeed() : a.underwaterMovementSpeed(),
                     attributes.containsKey("minecraft:lava_movement") ? original.lavaMovementSpeed() : a.lavaMovementSpeed(),
                     attributes.containsKey("minecraft:horse.jump_strength") ? original.jumpStrength() : a.jumpStrength(), a.frictionModifier());

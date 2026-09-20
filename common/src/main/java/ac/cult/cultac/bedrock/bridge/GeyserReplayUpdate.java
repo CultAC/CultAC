@@ -14,7 +14,9 @@ record GeyserReplayUpdate(long actorId, long tick, BedrockReplayEvent event) {
     static GeyserReplayUpdate capture(BedrockPacket packet) {
         if (packet instanceof UpdateAttributesPacket attributes) {
             Map<String, Float> values = new LinkedHashMap<>();
+            ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState movement = null;
             for (var value : attributes.getAttributes()) {
+                if (value.getName().equals("minecraft:movement")) movement = GeyserMovementAttributeCodec.capture(value);
                 if (switch (value.getName()) {
                     case "minecraft:movement", "minecraft:underwater_movement", "minecraft:lava_movement",
                          "minecraft:horse.jump_strength" -> true;
@@ -22,7 +24,7 @@ record GeyserReplayUpdate(long actorId, long tick, BedrockReplayEvent event) {
                 }) values.put(value.getName(), Math.max(value.getMinimum(), Math.min(value.getMaximum(), value.getValue())));
             }
             return values.isEmpty() ? null : new GeyserReplayUpdate(attributes.getRuntimeEntityId(), attributes.getTick(),
-                    new BedrockReplayContextEvent(values, null, null, -1, null, null));
+                    new BedrockReplayContextEvent(values, null, null, -1, null, null, movement, attributes.getTick() != 0));
         }
         if (packet instanceof MobEffectPacket effect && effect.getEvent() != MobEffectPacket.Event.NONE) {
             int level = effect.getEvent() == MobEffectPacket.Event.REMOVE ? 0 : effect.getAmplifier() + 1;

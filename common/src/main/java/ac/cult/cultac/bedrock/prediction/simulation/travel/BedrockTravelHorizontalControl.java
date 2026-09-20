@@ -125,7 +125,7 @@ public final class BedrockTravelHorizontalControl {
         double horizontalInputLimit = scaledInputLimit(
             preparedSpeed.inputRadiusSpeed() * control,
             moveInputScale,
-            sprintSpeedInput
+            sprintSpeedInput && !preparedSpeed.horizontalAttributeSpeed()
         );
         double horizontalFriction = groundOrAirFriction(standingSurfaceState, onGroundTravel)
             * context.attributeState().frictionModifier();

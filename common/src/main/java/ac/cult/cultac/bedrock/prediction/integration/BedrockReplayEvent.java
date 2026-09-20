@@ -11,6 +11,9 @@ public sealed interface BedrockReplayEvent permits BedrockReplayEvent.Motion,
         BedrockReplayEvent.Transform, BedrockReplayEvent.Reposition, BedrockReplayEvent.Metadata, BedrockReplayEvent.Boost,
         BedrockReplayEvent.HorseMetadata, BedrockReplayBoatMetadata, BedrockReplayContextEvent {
     default BedrockMovementState state(BedrockMovementState state) { return state; }
+    /** Packet-family fallback when the timestamp is older than retained client history. */
+    default BedrockReplayEvent ordinary() { return this; }
+    default boolean matchesHistory(BedrockMovementState state) { return false; }
     default BedrockSimulation.Input input(BedrockSimulation.Input input, long elapsed) { return input; }
 
     default BedrockSimulation.Input restoreInput(BedrockSimulation.Input input, BedrockSimulation.Input recorded) { return input; }

@@ -22,8 +22,10 @@ public final class GeyserReplayUpdateTest {
         assertEquals(53, captured.tick());
         assertEquals(12, captured.actorId());
         var update = (BedrockReplayContextEvent) captured.event();
-        assertEquals(1, update.attributes().size());
-        assertEquals(0.2F, update.attributes().get("minecraft:movement"), 0);
+        assertTrue(update.attributes().isEmpty());
+        assertEquals(0.2F, update.movementAttribute().current(), 0);
+        assertEquals(0.1F, update.movementAttribute().defaultValue(), 0);
+        assertTrue(update.historicalAttribute());
         assertNull(GeyserReplayUpdate.capture(packet));
     }
 

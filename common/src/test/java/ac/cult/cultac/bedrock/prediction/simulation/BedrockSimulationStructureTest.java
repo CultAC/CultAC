@@ -59,7 +59,7 @@ public final class BedrockSimulationStructureTest {
     }
 
     @Test
-    public void idleInputBruteForcesWalkAndSprintTravelSpeed() {
+    public void idleInputUsesOnlyTheResolvedTravelSpeed() {
         BedrockInputFrame frame = BedrockInputFrame.idle(1L);
         BedrockMovementState state = BedrockMovementState.fromPhysicalFeet(
             new Vec3d(1.0D, 2.0D, 3.0D), Vec3d.ZERO, frame, BedrockCollisionFlags.AIR
@@ -78,13 +78,12 @@ public final class BedrockSimulationStructureTest {
             BedrockMobJumpComponentState.DEFAULT
         ));
 
-        assertEquals(2, candidates.size());
+        assertEquals(1, candidates.size());
         var inputLimits = candidates.stream()
             .map(candidate -> candidate.movementResult().horizontalInputLimit())
             .sorted()
             .toList();
         assertEquals(0.02D, inputLimits.get(0), 1.0E-8D);
-        assertEquals(0.026D, inputLimits.get(1), 1.0E-8D);
         assertTrue(candidates.stream().allMatch(candidate ->
             candidate.movementResult().previousState().equals(state)));
     }

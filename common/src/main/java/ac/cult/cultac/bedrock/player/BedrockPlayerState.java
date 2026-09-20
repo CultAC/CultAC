@@ -129,6 +129,11 @@ public final class BedrockPlayerState {
         return processedAuthInputSequence;
     }
 
+    /** Wire timestamp paired with the latest processed input, not the simulation sequence. */
+    public long processedClientTick() {
+        return lastProcessedFrame == null ? 0L : lastProcessedFrame.getClientTick();
+    }
+
     public void clearMovementInputState() {
         clearTransientMovementInputState();
         actions.applyAcknowledgedItemUse(false);

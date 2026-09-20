@@ -63,6 +63,10 @@ public record AttributeState(
         this(baseMovementSpeed, horizontalInputBaseMovementSpeed, underwaterMovementSpeed, lavaMovementSpeed, jumpStrength, DEFAULT_FRICTION_MODIFIER);
     }
 
+    public AttributeState withMovementSpeed(float current) {
+        return new AttributeState(current, current, underwaterMovementSpeed, lavaMovementSpeed, jumpStrength, frictionModifier);
+    }
+
     public AttributeState {
         if (!Double.isFinite(baseMovementSpeed) || baseMovementSpeed < 0.0D) {
             throw new IllegalArgumentException("base movement speed must be finite and non-negative");

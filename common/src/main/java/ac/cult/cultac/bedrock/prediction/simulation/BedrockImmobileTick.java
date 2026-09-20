@@ -86,7 +86,7 @@ public final class BedrockImmobileTick {
                                 snapshot.initialClimbableContact(),
                                 facts.inWater()),
                         new BedrockMovementState.PoseState(
-                                intent.sprint().afterActionEdges(current.sprinting()),
+                                prepared.postMoveActorSprinting(),
                                 facts.swimming().nextActorSwimming(),
                                 nextCrawling,
                                 prepared.control().itemUseSlowdownActive()),
@@ -110,7 +110,8 @@ public final class BedrockImmobileTick {
                         prepared.riptide().spinTicks(),
                         nextSneaking ? current.sneakingTicks() + 1L : 0L,
                         prepared.control().itemUseSlowdownTicks(),
-                        prepared.dolphinBoost().endTick(), prepared.cameraWater()));
+                        prepared.dolphinBoost().endTick(), prepared.cameraWater()), false,
+                prepared.input().previousState().movementAttribute());
         return new Result(next, prepared.mobJumpComponent());
     }
 

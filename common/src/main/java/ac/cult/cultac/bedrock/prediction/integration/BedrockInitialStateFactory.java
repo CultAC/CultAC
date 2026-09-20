@@ -71,7 +71,6 @@ final class BedrockInitialStateFactory {
                     .withPhysicalFeetPosition(start, 0).withRotation(context.getVehicle().clientPhysicalYaw + 90.0F, 0)
                     .withClimbableContact(BedrockClimbableContact.NONE);
         }
-        state = state.withSprinting(!state.isVehicle() && authInputFrame != null && authInputFrame.isSprinting());
         if (context.getVehicle() instanceof PacketEntityHorse horse) {
             state = state.withRotation(horse.clientPhysicalYaw, horse.clientPhysicalPitch);
         }

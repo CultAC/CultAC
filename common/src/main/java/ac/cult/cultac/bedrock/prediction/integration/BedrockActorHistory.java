@@ -28,6 +28,12 @@ public final class BedrockActorHistory {
         return copy;
     }
 
+    boolean matches(long tick, BedrockReplayEvent event) {
+        return frames.stream().filter(frame -> frame.tick() == tick).findFirst()
+                .map(frame -> frame.end().stream().allMatch(entry -> event.matchesHistory(entry.state())))
+                .orElse(false);
+    }
+
     public void record(Frame frame) {
         if (frame.tick() <= newestTick()) return;
         // Missing inputs cannot be manufactured into movement ticks.
@@ -49,9 +55,10 @@ public final class BedrockActorHistory {
     public List<Entry> apply(long tick, BedrockReplayEvent event,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world) {
         if (frames.isEmpty()) return List.of();
-        long anchorTick = Long.compareUnsigned(tick, oldestTick()) < 0 ? oldestTick() : tick;
-        int anchor = frames.size() - 1;
-        for (int i = 0; i < frames.size(); i++) if (frames.get(i).tick() == anchorTick) { anchor = i; break; }
+        int anchor = -1;
+        for (int i = 0; i < frames.size(); i++) if (frames.get(i).tick() == tick) { anchor = i; break; }
+        if (anchor < 0) return List.of();
+        if (matches(tick, event)) return current();
         Frame original = frames.get(anchor);
         var events = new ArrayList<>(original.events());
         events.add(new Event(++sequence, original.tick(), original.end().getFirst().state().simulationTick(), newestTick(), event));

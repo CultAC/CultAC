@@ -15,6 +15,27 @@ public final class BedrockFrameSystems {
         BedrockMobJumpComponentState initialMobJumpComponent
     ) {
         if (input.previousState().isBoat()) return BedrockBoatMovement.prepare(input, initialMobJumpComponent);
+        if (!input.previousState().isVehicle()) {
+            var state = input.previousState().applySprintActions(input.inputIntent().sprint());
+            var context = input.worldSnapshot().movementContext();
+            if (input.control() != null && !state.swimming() && !context.actorSwimming()) {
+                // Preserve the existing directional restriction on sprint input.
+                // Cancellation uses the same attribute transition as STOP, never just the flag.
+                float side = (float) input.control().x();
+                float forward = (float) input.control().z();
+                if (forward <= 0 || Math.abs(side) > 0.70710677F
+                        || (float) Math.sqrt(side * side + forward * forward) < 0.70710677F) {
+                    state = state.applySprintAction(false);
+                }
+            }
+            var attributes = context.attributeState().withMovementSpeed(state.movementAttribute().current());
+            context = new ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext(
+                context.effectState(), attributes, context.worldState(), context.equipmentState(),
+                context.entityContactState(), context.modifierState(), context.playerDimensionsState());
+            input = new BedrockTravelInput(state, input.inputFrame(), input.inputIntent(),
+                input.worldSnapshot().withMovementContext(context), input.scaffoldingVerticalBranch(),
+                input.startingVelocity(), input.options(), input.control(), input.glideBoost());
+        }
         BedrockInputIntent intent = input.inputIntent();
         Vec3d velocity = input.startingVelocity();
 
@@ -36,20 +57,7 @@ public final class BedrockFrameSystems {
             facts, input.previousState().physicalFeetPosition(), cameraWater.headInWater());
 
 
-        boolean actorSprinting = intent.sprint().currentTickActorSprinting(
-            input.previousState().sprinting()
-        );
-        if (input.control() != null && !input.previousState().isVehicle()) {
-            // Held sprint input does not override a stop action or acknowledged actor state.
-            actorSprinting = intent.sprint().afterActionEdges(input.previousState().sprinting());
-            float side = (float) input.control().x();
-            float forward = (float) input.control().z();
-            if (!input.previousState().swimming() && !facts.context().actorSwimming()
-                && (forward <= 0.0F || Math.abs(side) > 0.70710677F
-                    || (float) Math.sqrt(side * side + forward * forward) < 0.70710677F)) {
-                actorSprinting = false;
-            }
-        }
+        boolean actorSprinting = input.previousState().sprinting();
         BedrockTravelInputControl.InputControlState control = BedrockTravelInputControl.resolve(
             input.previousState(),
             input.inputFrame(),

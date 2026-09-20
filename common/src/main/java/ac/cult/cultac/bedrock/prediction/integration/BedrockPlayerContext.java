@@ -119,12 +119,12 @@ record BedrockPlayerContext(
 
     static AttributeState attributes(CultPlayer player) {
         CompensatedEntities entities = player.compensatedEntities;
-        double movementSpeed = entities == null
-                ? AttributeState.DEFAULT_BASE_MOVEMENT_SPEED
-                : entities.getPlayerMovementSpeed();
-        double horizontalInputBaseMovementSpeed = entities == null
-                ? AttributeState.DEFAULT_BASE_MOVEMENT_SPEED
-                : entities.getBedrockPlayerMovementSpeed();
+        var commit = player.checkManager == null ? null
+                : player.checkManager.getSimulationProcessor().getCurrentPredictionCommit();
+        var state = commit == null ? null : BedrockProfileState.previousState(commit.carry());
+        double movementSpeed = state == null ? AttributeState.DEFAULT_BASE_MOVEMENT_SPEED
+                : state.movementAttribute().current();
+        double horizontalInputBaseMovementSpeed = movementSpeed;
         float underwaterMovementSpeed = AttributeState.DEFAULT_UNDERWATER_MOVEMENT_SPEED;
         float lavaMovementSpeed = AttributeState.DEFAULT_LAVA_MOVEMENT_SPEED;
         float jumpStrength = entities == null

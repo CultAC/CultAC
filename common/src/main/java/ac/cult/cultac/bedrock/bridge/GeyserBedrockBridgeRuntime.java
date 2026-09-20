@@ -71,6 +71,7 @@ import org.geysermc.geyser.api.event.bedrock.SessionDisconnectEvent;
 import org.geysermc.geyser.api.event.bedrock.SessionInitializeEvent;
 import org.geysermc.geyser.api.event.bedrock.SessionJoinEvent;
 import org.geysermc.geyser.api.event.bedrock.SessionLoginEvent;
+import org.geysermc.geyser.api.event.lifecycle.GeyserPostInitializeEvent;
 import org.geysermc.geyser.api.event.lifecycle.GeyserPostReloadEvent;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket;
@@ -81,6 +82,7 @@ public final class GeyserBedrockBridgeRuntime {
 
     private static volatile GeyserEventSubscriptions eventSubscriptions;
     private static volatile boolean started;
+    private static GeyserSprintAttributeTranslator sprintTranslator;
     private static volatile BedrockPacketLogger packetLogger;
 
     private GeyserBedrockBridgeRuntime() {
@@ -129,7 +131,9 @@ public final class GeyserBedrockBridgeRuntime {
         GeyserEventSubscriptions subscriptions = new GeyserEventSubscriptions(GeyserApi.api().eventBus(), owner);
         eventSubscriptions = subscriptions;
 
+        subscriptions.subscribe(GeyserPostInitializeEvent.class, event -> installSprintTranslator());
         subscriptions.subscribe(GeyserPostReloadEvent.class, event -> {
+            installSprintTranslator();
             BedrockPacketLogger logger = packetLogger;
             if (logger != null) logger.stopAll("Geyser reload");
             GeyserUtil.forceForwardPlayerPing();
@@ -139,6 +143,9 @@ public final class GeyserBedrockBridgeRuntime {
             }
         });
         subscriptions.subscribe(SessionInitializeEvent.class, event -> {
+            // The listener can accept a session before the post-initialize event is fired.
+            // Packet registries are already populated before Geyser binds its listener.
+            installSprintTranslator();
             installPacketTap(event.connection());
             BedrockPacketLogger logger = packetLogger;
             if (logger != null && event.connection() instanceof GeyserSession session) {
@@ -161,11 +168,25 @@ public final class GeyserBedrockBridgeRuntime {
         });
         subscriptions.subscribe(SessionDisconnectEvent.class, GeyserBedrockBridgeRuntime::onSessionDisconnect);
 
+        // Spigot enables Geyser before its ServerLoadEvent populates packet translators.
+        // Subscribe first so startup cannot be missed; install now only for an already-ready Geyser.
+        if (GeyserSprintAttributeTranslator.available()) installSprintTranslator();
         LogUtil.info("Geyser Bedrock movement bridge enabled.");
+    }
+
+    private static synchronized void installSprintTranslator() {
+        if (!started || sprintTranslator != null && sprintTranslator.isInstalled()) return;
+        sprintTranslator = new GeyserSprintAttributeTranslator((session, attribute) -> {
+            var tap = PACKET_TAPS.get(session);
+            if (tap == null) throw new IllegalStateException("Missing Cult movement tap");
+            tap.initializeActor(tap.currentPlayer());
+            tap.sprintAttributes.source(attribute, tap.sprintBoundary(), session.getPlayerEntity().geyserId(), tap::sendSprintAttribute);
+        });
     }
 
     public static synchronized void stop() {
         started = false;
+        if (sprintTranslator != null) { sprintTranslator.close(); sprintTranslator = null; }
         BedrockPacketLogger logger = packetLogger;
         packetLogger = null;
         if (logger != null) logger.close();
@@ -337,6 +358,7 @@ public final class GeyserBedrockBridgeRuntime {
         private final String outboundHandlerName;
         private final String packetLogHandlerName;
         private final GeyserInputQueue inputs;
+        private final GeyserSprintAttributes sprintAttributes = new GeyserSprintAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
         private long movementCorrectionSequence;
         private record CorrectionSource(BedrockMovementCorrection correction, Vec3 reportedVelocity) { }
@@ -442,7 +464,7 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
             PACKET_TAPS.remove(connection, this);
-            connection.ensureInEventLoop(() -> { inputs.close(); entityPositions.clear(); });
+            connection.ensureInEventLoop(() -> { inputs.close(); entityPositions.clear(); sprintAttributes.close(); });
             if (connection.isClosed()) latencyQueue.clear();
             else latencyQueue.stopTrackingWrites();
             if (bedrockSession.getPacketHandler() == this) {
@@ -498,7 +520,7 @@ public final class GeyserBedrockBridgeRuntime {
                             new BedrockReplayContextEvent(Map.of(), null, null, -1, null, usingItem));
                     // Apply at the acknowledged wire boundary before the next input.
                     player.checkManager.getSimulationProcessor().applyAcknowledgedBedrockMetadata(
-                            width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem, sprinting);
+                            width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem, tick == 0 ? sprinting : null);
                 }
             });
         }
@@ -580,12 +602,36 @@ public final class GeyserBedrockBridgeRuntime {
             });
         }
 
+        private void initializeActor(CultPlayer player) {
+            if (actorCreationRuntimeId == null || player == null) return;
+            player.checkManager.getSimulationProcessor().handleBedrockActorCreation(actorCreationRuntimeId);
+            actorCreationRuntimeId = null;
+        }
+
+        private GeyserSprintAttributes.Boundary sprintBoundary() {
+            CultPlayer player = currentPlayer();
+            if (player == null) return new GeyserSprintAttributes.Boundary(-1, 0, false);
+            var commit = player.checkManager.getSimulationProcessor().getCurrentPredictionCommit();
+            var state = commit == null ? null
+                    : ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.previousState(commit.carry());
+            // The simulation frame's clientTick is a processed-input sequence. Only the
+            // paired PlayerAuthInput timestamp addresses the client's rewind history.
+            return new GeyserSprintAttributes.Boundary(player.bedrockState.movementCorrections.generation(),
+                    state == null ? 0 : player.bedrockState.processedClientTick(),
+                    state != null && !state.isVehicle() && state.sprinting());
+        }
+
+        private void sendSprintAttribute(org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket packet) {
+            // Geyser resends this cache for effects, respawns, and dimension changes.
+            connection.getPlayerEntity().getAttributes().put(
+                    org.geysermc.geyser.entity.attribute.GeyserAttributeType.MOVEMENT_SPEED, packet.getAttributes().getFirst());
+            connection.sendUpstreamPacket(packet);
+        }
+
         private boolean processAuthInput(CultPlayer player, PlayerAuthInputPacket packet) {
             if (!installFloatingPoints(connection, true)) return false;
-            if (actorCreationRuntimeId != null) {
-                player.checkManager.getSimulationProcessor().handleBedrockActorCreation(actorCreationRuntimeId);
-                actorCreationRuntimeId = null;
-            }
+            initializeActor(player);
+            var beforeSprint = sprintBoundary();
             BedrockAuthInputFrame frame = captureAuthInput(player, packet);
             long previousTick = player.bedrockState.lastMovementTick();
             var state = ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor.process(player, frame,
@@ -601,6 +647,11 @@ public final class GeyserBedrockBridgeRuntime {
                 else retryAdapter.withTeleportRetry(() -> GeyserTeleportRecovery.retryGeyserTeleport(connection));
             }
             if (state == null) return false;
+            var boundary = sprintBoundary();
+            if (!state.isVehicle() && (boundary.generation() != beforeSprint.generation()
+                    || boundary.sprinting() != beforeSprint.sprinting())) {
+                sprintAttributes.confirm(boundary, connection.getPlayerEntity().geyserId(), this::sendSprintAttribute);
+            }
             var adapter = GFP_ADAPTERS.get(connection);
             var coordinates = adapter == null ? BedrockCoordinateFrame.IDENTITY : adapter.coordinateFrame();
             var vehicle = state.isVehicle() ? connection.getPlayerEntity().getVehicle() : null;
@@ -828,11 +879,56 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
             BedrockPacket packet = wrapper.getPacket();
+            owner.initializeActor(owner.currentPlayer());
+            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket attributes
+                    && attributes.getRuntimeEntityId() == owner.connection.getPlayerEntity().geyserId()) {
+                // Keep unrelated attributes at their original boundary when movement receives a tick.
+                var others = attributes.getAttributes().stream().filter(a -> !a.getName().equals("minecraft:movement")).toList();
+                if (!others.isEmpty() && others.size() != attributes.getAttributes().size()) {
+                    var separate = new org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket();
+                    separate.setRuntimeEntityId(attributes.getRuntimeEntityId());
+                    separate.setTick(attributes.getTick());
+                    separate.setAttributes(others);
+                    write(context, BedrockPacketWrapper.create(0, wrapper.getSenderSubClientId(),
+                            wrapper.getTargetSubClientId(), separate, null), context.newPromise());
+                    attributes.setAttributes(attributes.getAttributes().stream()
+                            .filter(a -> a.getName().equals("minecraft:movement")).toList());
+                }
+                if (!owner.sprintAttributes.rewrite(attributes, owner.sprintBoundary())) {
+                    io.netty.util.ReferenceCountUtil.release(message);
+                    promise.trySuccess();
+                    return;
+                }
+                for (var attribute : attributes.getAttributes()) {
+                    if (attribute.getName().equals("minecraft:movement")) owner.connection.getPlayerEntity().getAttributes().put(
+                            org.geysermc.geyser.entity.attribute.GeyserAttributeType.MOVEMENT_SPEED, attribute);
+                }
+            }
+            if (packet instanceof SetEntityDataPacket metadata
+                    && metadata.getRuntimeEntityId() == owner.connection.getPlayerEntity().geyserId()
+                    && metadata.getMetadata().get(EntityDataTypes.FLAGS) != null) {
+                var other = new SetEntityDataPacket();
+                other.setRuntimeEntityId(metadata.getRuntimeEntityId());
+                other.setTick(metadata.getTick());
+                other.getMetadata().putAll(metadata.getMetadata());
+                other.getMetadata().remove(EntityDataTypes.FLAGS);
+                other.getMetadata().remove(EntityDataTypes.FLAGS_2);
+                if (!other.getMetadata().isEmpty()) {
+                    write(context, BedrockPacketWrapper.create(0, wrapper.getSenderSubClientId(),
+                            wrapper.getTargetSubClientId(), other, null), context.newPromise());
+                    for (var key : other.getMetadata().keySet()) metadata.getMetadata().remove(key);
+                }
+                var boundary = owner.sprintBoundary();
+                metadata.getMetadata().putFlags(metadata.getMetadata().getFlags().clone());
+                metadata.getMetadata().setFlag(EntityFlag.SPRINTING, boundary.sprinting());
+                metadata.setTick(boundary.tick());
+            }
             if (packet instanceof StartGamePacket startGame) {
                 // Newer protocols omit the movement mode but still transmit the history size.
                 startGame.setAuthoritativeMovementMode(AuthoritativeMovementMode.SERVER_WITH_REWIND);
                 startGame.setRewindHistorySize(BedrockMovementCorrections.CLIENT_HISTORY_SIZE);
                 owner.actorCreationRuntimeId = startGame.getRuntimeEntityId();
+                owner.initializeActor(owner.currentPlayer());
             }
             GeyserFloatingPointsAdapter adapter = GFP_ADAPTERS.get(owner.connection);
             BedrockOriginDispatch.Emission emission = adapter == null ? null : adapter.takeEmission(packet);

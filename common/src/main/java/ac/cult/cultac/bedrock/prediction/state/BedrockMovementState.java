@@ -18,8 +18,13 @@ public record BedrockMovementState(
     Motion motion,
     ActorState actor,
     TickMemory memory,
-    boolean hasTeleported
+    boolean hasTeleported,
+    BedrockMovementAttributeState movementAttribute
 ) {
+    public BedrockMovementState(Motion motion, ActorState actor, TickMemory memory, boolean hasTeleported) {
+        this(motion, actor, memory, hasTeleported, BedrockMovementAttributeState.DEFAULT);
+    }
+
     public BedrockMovementState(Motion motion, ActorState actor, TickMemory memory) {
         this(motion, actor, memory, false);
     }
@@ -28,6 +33,7 @@ public record BedrockMovementState(
         Objects.requireNonNull(motion, "motion");
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(memory, "memory");
+        Objects.requireNonNull(movementAttribute, "movementAttribute");
     }
 
     public static BedrockMovementState fromPhysicalFeet(
@@ -113,7 +119,7 @@ public record BedrockMovementState(
                 frame.jumping(), frame.sneaking(), frame.sprinting(), frame.inputData(), frame.swimmingRequested());
         return new BedrockMovementState(new Motion(physicalFeetPosition(), velocity(),
                 motion.lastPhysicalDisplacementSquared(), motion.lastPhysicalDisplacement(), rotated,
-                collisionFlags(), coordinateFrame()), actor, memory, hasTeleported);
+                collisionFlags(), coordinateFrame()), actor, memory, hasTeleported, movementAttribute);
     }
 
     public BedrockMovementState withCoordinateFrame(BedrockCoordinateFrame frame) {
@@ -149,7 +155,7 @@ public record BedrockMovementState(
             swimming == null ? pose.swimming() : swimming,
             crawling == null ? pose.horizontal() : crawling, pose.itemUseSlowdownActive()), actor.travel());
         return new BedrockMovementState(motion, nextActor,
-            spinning == null ? memory : memory.withSpin(spinning), hasTeleported);
+            spinning == null ? memory : memory.withSpin(spinning), hasTeleported, movementAttribute);
     }
     public long riptideChargeTicks() { return memory.riptideChargeTicks(); }
     public boolean riptideSpinActive() { return memory.riptideSpinActive(); }
@@ -188,6 +194,7 @@ public record BedrockMovementState(
         return BedrockPositionTranslator.physicalFeetToPacketPosition(physicalFeetPosition(), coordinateFrame(), packetYOffset());
     }
 
+    /** Simulation input index; live integration supplies its processed sequence, not a wire timestamp. */
     public long clientTick() {
         return inputFrame().clientTick();
     }
@@ -198,15 +205,15 @@ public record BedrockMovementState(
 
 
     public BedrockMovementState withDolphinBoost(BedrockDolphinBoost value) {
-        return new BedrockMovementState(motion, actor, memory.withDolphinBoost(value), hasTeleported);
+        return new BedrockMovementState(motion, actor, memory.withDolphinBoost(value), hasTeleported, movementAttribute);
     }
 
     public BedrockMovementState withCameraWater(BedrockCameraWaterState value) {
-        return new BedrockMovementState(motion, actor, memory.withCameraWater(value), hasTeleported);
+        return new BedrockMovementState(motion, actor, memory.withCameraWater(value), hasTeleported, movementAttribute);
     }
 
     public BedrockMovementState withTeleportPending() {
-        return hasTeleported ? this : new BedrockMovementState(motion, actor, memory, true);
+        return hasTeleported ? this : new BedrockMovementState(motion, actor, memory, true, movementAttribute);
     }
 
     public BedrockMovementState withMovementBranch(Medium movementBranch) {
@@ -223,6 +230,24 @@ public record BedrockMovementState(
         return actor.wasInWaterFlag() == wasInWaterFlag
             ? this
             : withActor(actor.withWasInWaterFlag(wasInWaterFlag));
+    }
+
+    public BedrockMovementState withMovementAttribute(BedrockMovementAttributeState attribute) {
+        return new BedrockMovementState(motion, actor, memory, hasTeleported, attribute);
+    }
+
+    /** A sprint transition changes the attribute only when the actor flag changes. */
+    public BedrockMovementState applySprintAction(boolean sprinting) {
+        if (sprinting() == sprinting) return this;
+        return withSprinting(sprinting).withMovementAttribute(sprinting
+                ? movementAttribute.addSprint() : movementAttribute.removeSprint());
+    }
+
+    public BedrockMovementState applySprintActions(BedrockInputIntent.SprintIntent intent) {
+        BedrockMovementState result = this;
+        if (intent.start()) result = result.applySprintAction(true);
+        if (intent.stop()) result = result.applySprintAction(false);
+        return result;
     }
 
     public BedrockMovementState withSprinting(boolean sprinting) {
@@ -274,7 +299,7 @@ public record BedrockMovementState(
             new Motion(position, velocity, 0.0D, Vec3d.ZERO, motion.inputFrame(), motion.collisionFlags(), coordinateFrame()),
             actor,
             memory.withFallDistance(0.0F),
-            true
+            true, movementAttribute
         );
     }
 
@@ -295,7 +320,7 @@ public record BedrockMovementState(
             motion,
             actor.withItemUseSlowdownActive(active),
             memory.withItemUseSlowdownTicks(ticks),
-            hasTeleported
+            hasTeleported, movementAttribute
         );
     }
 
@@ -304,7 +329,7 @@ public record BedrockMovementState(
             motion,
             actor.withGliding(gliding, gliding),
             memory.withFallFlyTicks(gliding ? fallFlyTicks() : 0L),
-            hasTeleported
+            hasTeleported, movementAttribute
         );
     }
 
@@ -347,7 +372,7 @@ public record BedrockMovementState(
                     BlockMovementSlowdownState.NONE,
                     actor.climbableContact(),
                     actor.wasInWaterFlag()),
-                new PoseState(nextSprinting(frame), update.swimming(), horizontalPose,
+                new PoseState(sprinting(), update.swimming(), horizontalPose,
                     update.itemUse().slowdownActive()),
                 new TravelMode(update.glide().active(), update.glide().requested(), false,
                     actor.waterTravelFlag(), actor.movementBranch()),
@@ -369,7 +394,7 @@ public record BedrockMovementState(
                 update.itemUse().slowdownTicks(),
                 dolphinBoost(),
                 cameraWater()
-            )
+            ), false, movementAttribute
         );
     }
 
@@ -397,20 +422,15 @@ public record BedrockMovementState(
                 completed.sneakingTicks(),
                 completed.itemUseSlowdownTicks(),
                 completed.dolphinBoost(), completed.cameraWater()),
-            hasTeleported);
+            hasTeleported, completed.movementAttribute());
     }
 
     private BedrockMovementState withMotion(Motion motion) {
-        return new BedrockMovementState(motion, actor, memory, hasTeleported);
+        return new BedrockMovementState(motion, actor, memory, hasTeleported, movementAttribute);
     }
 
     private BedrockMovementState withActor(ActorState actor) {
-        return new BedrockMovementState(motion, actor, memory, hasTeleported);
-    }
-
-    private boolean nextSprinting(BedrockInputFrame frame) {
-        BedrockInputIntent.SprintIntent sprintIntent = frame.intent().sprint();
-        return sprintIntent.nextActorSprinting(sprinting());
+        return new BedrockMovementState(motion, actor, memory, hasTeleported, movementAttribute);
     }
 
     private static long initialSneakingTicks(BedrockInputFrame frame) {
