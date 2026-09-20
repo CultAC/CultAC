@@ -379,23 +379,23 @@ public final class BedrockCollisionWorldBuilder {
         boolean positiveZ = booleanProperty(state, BlockStateProperties.SOUTH);
 
         List<BlockAabb> localBoxes = new ArrayList<>(2);
+        if (negativeX || positiveX) {
+            localBoxes.add(new BlockAabb(
+                    negativeX ? 0.0D : 0.5D,
+                    0.0D,
+                    0.4375D,
+                    positiveX ? 1.0D : 0.5D,
+                    1.0D,
+                    0.5625D));
+        }
         if (negativeZ || positiveZ) {
             localBoxes.add(new BlockAabb(
                     0.4375D,
                     0.0D,
-                    negativeZ ? 0.0D : 0.4375D,
+                    negativeZ ? 0.0D : 0.5D,
                     0.5625D,
                     1.0D,
-                    positiveZ ? 1.0D : 0.5625D));
-        }
-        if (negativeX || positiveX) {
-            localBoxes.add(new BlockAabb(
-                    negativeX ? 0.0D : 0.4375D,
-                    0.0D,
-                    0.4375D,
-                    positiveX ? 1.0D : 0.5625D,
-                    1.0D,
-                    0.5625D));
+                    positiveZ ? 1.0D : 0.5D));
         }
         if (localBoxes.isEmpty()) {
             localBoxes.add(new BlockAabb(0.4375D, 0.0D, 0.4375D, 0.5625D, 1.0D, 0.5625D));
