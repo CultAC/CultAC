@@ -2,7 +2,6 @@ package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.Entry;
-import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
@@ -12,17 +11,18 @@ import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.world.phys.Vec3;
 
-/** Outgoing corrections replay the correction history; outbound updates can change the continuing model. */
+/** Ordered client-visible updates publish a replayed continuation once its following frame exists. */
 final class BedrockMovementRewind {
     private final BedrockBlockCollisionWorldSampler worlds = new BedrockBlockCollisionWorldSampler();
-    private final BedrockActorHistory authoritative = new BedrockActorHistory();
-    private BedrockActorHistory correctionHistory;
+    private final BedrockActorHistory authoritative;
     private final List<Update> updates = new ArrayList<>();
     private boolean initialUpdates;
 
+    BedrockMovementRewind() { this(new BedrockActorHistory()); }
+    BedrockMovementRewind(BedrockActorHistory history) { authoritative = history; }
+
     void clear() {
         authoritative.clear();
-        correctionHistory = null;
         updates.clear();
         initialUpdates = false;
     }
@@ -36,20 +36,39 @@ final class BedrockMovementRewind {
         List<Entry> entries = BedrockProfileState.profileEntries(current.carry());
         if (entries.isEmpty()) { initialUpdates = true; return current; }
         var live = entries.getFirst().state();
-        for (Update update : updates) {
-            long tick = update.historical() ? update.tick() : authoritative.newestTick();
+        var deferred = new ArrayList<Update>();
+        // Ordinary attribute delivery precedes the corrected-frame processing phase. A replay
+        // published at that phase can supersede it even when the packet followed the correction.
+        var ordered = java.util.stream.Stream.concat(
+                updates.stream().filter(this::ordinaryMovement),
+                updates.stream().filter(update -> !ordinaryMovement(update))).toList();
+        for (Update update : ordered) {
+            if (update.historical() && update.tick() >= authoritative.newestTick()) {
+                deferred.add(update);
+                continue;
+            }
+            boolean stale = update.historical() && update.tick() < authoritative.oldestTick();
+            var event = stale ? update.event().ordinary() : update.event();
+            if (ordinaryMovement(update)) {
+                // Tick-zero attribute replacement changes the live entity, not a replay event.
+                // Replaying an earlier sprint start can consequently recreate its modifier
+                entries = entries.stream().map(entry -> entry.withState(event.state(entry.state()))).toList();
+                continue;
+            }
+            long tick = update.historical() && !stale ? update.tick() : authoritative.newestTick();
+            // A matching confirmation must neither replay actions nor overwrite a later live replacement.
+            if (authoritative.matches(tick, event)) continue;
             if (update.event() instanceof BedrockReplayEvent.Boost boost) {
                 int remaining = boost.duration() < 0 ? boost.duration()
                         : (int) Math.max(0, boost.duration() - authoritative.elapsedActorTicks(tick));
                 player.bedrockState.movementEffects.setGlideBoost(remaining);
             }
-            var replayed = authoritative.apply(tick, update.event(), (state, world) -> worlds.replayWorld(player, state, world));
+            var replayed = authoritative.apply(tick, event, (state, world) -> worlds.replayWorld(player, state, world));
             entries = replayed.isEmpty() ? entries.stream()
-                    .map(entry -> entry.withState(update.event().state(entry.state()))).toList() : replayed;
-            if (correctionHistory != null) correctionHistory.apply(update.historical() ? update.tick() : correctionHistory.newestTick(),
-                    update.event(), (state, world) -> worlds.replayWorld(player, state, world));
+                    .map(entry -> entry.withState(event.state(entry.state()))).toList() : replayed;
         }
         updates.clear();
+        updates.addAll(deferred);
         initialUpdates = false;
         entries = entries.stream().map(entry -> entry.withState(BedrockReplaySnapshot.attach(entry.state(), live))).toList();
         if (entries.equals(BedrockProfileState.profileEntries(current.carry()))) return current;
@@ -57,10 +76,16 @@ final class BedrockMovementRewind {
                 BedrockNextTickVelocityDerivation.profileStateVelocities(entries));
     }
 
+    private boolean ordinaryMovement(Update update) {
+        return update.event() instanceof BedrockReplayContextEvent context && context.movementAttribute() != null
+                && (!update.historical() || update.tick() < authoritative.oldestTick());
+    }
+
     BedrockSimulation.Input prepareInput(
             BedrockSimulation.Input input) {
         if (!initialUpdates) return input;
         for (Update update : updates) {
+            if (update.historical()) continue;
             input = BedrockReplaySnapshot.withState(input, update.event().state(input.previousState()));
             input = update.event().input(input, 0);
         }
@@ -70,16 +95,11 @@ final class BedrockMovementRewind {
     Vec3 predictionStart(Vec3 fallback) {
         if (!initialUpdates) return fallback;
         for (Update update : updates) {
+            if (update.historical()) continue;
             if (update.event() instanceof BedrockReplayEvent.Transform transform) fallback = transform.correction().position();
             else if (update.event() instanceof BedrockReplayEvent.Reposition move) fallback = BedrockVectorAdapter.toJava(move.position());
         }
         return fallback;
-    }
-
-    void correction(CultPlayer player, BedrockMovementCorrection correction) {
-        if (correctionHistory == null) correctionHistory = authoritative.copy();
-        correctionHistory.apply(correction.tick(), new BedrockReplayEvent.Transform(correction),
-                (state, world) -> worlds.replayWorld(player, state, world));
     }
 
     void record(CultPlayer player, PredictionResult result, PredictionCommit commit) {
@@ -101,13 +121,9 @@ final class BedrockMovementRewind {
                     ? null : BedrockVectorAdapter.toBedrock(auth.getReportedEndOfTickVelocity()), List.of());
         authoritative.record(frame);
         if (initialUpdates) {
-            updates.clear();
+            updates.removeIf(update -> !update.historical());
             initialUpdates = false;
         }
-        if (correctionHistory != null) correctionHistory.advance(frame, (state, world) -> worlds.replayWorld(player, state, world));
     }
-
-    void converged() { correctionHistory = null; }
-
     private record Update(long tick, boolean historical, BedrockReplayEvent event) { }
 }

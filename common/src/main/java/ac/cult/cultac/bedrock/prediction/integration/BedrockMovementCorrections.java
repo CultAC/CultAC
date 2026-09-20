@@ -51,11 +51,13 @@ public final class BedrockMovementCorrections {
                 || correction.vehicle() != (controlled != null)
                 || controlled != null && (controlled.getEntityId() != correction.vehicleId() || runtimeId != correction.runtimeId())) return;
         pending = new Pending(correction, processedTicks);
-        rewind.correction(player, correction);
     }
 
     public void acknowledge(long sequence) {
-        if (pending != null && pending.correction.sequence() == sequence) pending.received = true;
+        if (pending != null && pending.correction.sequence() == sequence && !pending.received) {
+            pending.received = true;
+            rewind.queue(pending.correction.tick(), true, new BedrockReplayEvent.Transform(pending.correction));
+        }
     }
 
     public void beginFrame(CultPlayer player, long tick, int vehicleId, long actorRuntimeId) {
@@ -110,7 +112,6 @@ public final class BedrockMovementCorrections {
         if (converged && pending != null && pending.received && frame.getClientTick() > pending.correction.tick()
                 && player.getSetbackTeleportUtil().completeBedrockMovementCorrection(pending.correction)) {
             pending = null;
-            rewind.converged();
         }
         if (frame.getClientTick() == 0 || requestedTransaction < 0 && (converged
                 || pending != null && (!pending.received || processedTicks - pending.sentAt < CORRECTION_INTERVAL_TICKS))) return;
