@@ -41,6 +41,11 @@ record BedrockPostMoveFrame(
             climbVelocityApplied, standingSurfaceHorizontalSlowdownApplied, horizontalFriction);
     }
 
+    BedrockPostMoveFrame withVelocityAndBounce(Vec3d velocity, boolean bounced) {
+        return copy(velocity, flags, postMoveContext, bounced,
+            climbVelocityApplied, standingSurfaceHorizontalSlowdownApplied, horizontalFriction);
+    }
+
     BedrockPostMoveFrame withPostMoveContext(BedrockMovementContext postMoveContext) {
         return copy(velocity, flags, postMoveContext, standingBounceBounced,
             climbVelocityApplied, standingSurfaceHorizontalSlowdownApplied, horizontalFriction);

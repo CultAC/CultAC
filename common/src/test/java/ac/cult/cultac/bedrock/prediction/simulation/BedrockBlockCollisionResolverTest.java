@@ -409,7 +409,49 @@ public final class BedrockBlockCollisionResolverTest {
     }
 
     @Test
-    public void bedCollisionCandidateDefersBounceUntilSelection() {
+    public void forwardSlimeLandingCarriesReboundIntoNextTick() {
+        BlockCollisionWorld world = collisionWorld(List.of(PlacedBlockCollision.manual(
+            new BlockPosition(0, 0, 0), "minecraft:slime_block", "minecraft:slime_block",
+            List.of(new WorldCollisionBox(0, 0, 0, 1, 1, 1)))));
+        BedrockMovementState previous = state(new Vec3d(0.5, 1.25, 0.5),
+            new Vec3d(0.1, -0.5, 0), BedrockCollisionFlags.AIR);
+        var frame = BedrockInputFrame.idle(1);
+        var input = new BedrockSimulation.Input(previous, frame, frame.intent(),
+            ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot.fromContext(airContext(world)),
+            true, BedrockSimulation.DEFAULT_MAX_AUTO_STEP, null, true, false, Vec3d.ZERO);
+        var result = BedrockForwardTick.simulate(input).getFirst().movementResult();
+        assertEquals(1.0, result.predictedPosition().y(), 1.0E-6);
+        assertEquals(0.44934615199, result.predictedVelocity().y(), 1.0E-6);
+        assertEquals(0.091, result.predictedVelocity().x(), 1.0E-6);
+        assertTrue(result.standingBounceBounced());
+        var carried = BedrockForwardTick.finish(result, result.predictedState()).getFirst();
+        assertEquals(result.predictedVelocity(), carried.velocity());
+        var nextFrame = BedrockInputFrame.idle(2);
+        var next = BedrockForwardTick.simulate(new BedrockSimulation.Input(carried, nextFrame,
+            nextFrame.intent(), input.snapshot(), true, input.maxUpStep(), null, true, false, Vec3d.ZERO))
+            .getFirst().movementResult();
+        assertEquals(1.44934615199, next.predictedPosition().y(), 1.0E-6);
+        assertFalse(next.standingBounceBounced());
+    }
+
+    @Test
+    public void sneakingSuppressesForwardSlimeRebound() {
+        BlockCollisionWorld world = collisionWorld(List.of(PlacedBlockCollision.manual(
+            new BlockPosition(0, 0, 0), "minecraft:slime_block", "minecraft:slime_block",
+            List.of(new WorldCollisionBox(0, 0, 0, 1, 1, 1)))));
+        var previous = state(new Vec3d(0.5, 1.25, 0.5), new Vec3d(0, -0.5, 0), BedrockCollisionFlags.AIR);
+        var frame = new BedrockInputFrame(1, 0, 0, false, true, false);
+        var result = BedrockForwardTick.simulate(new BedrockSimulation.Input(previous, frame, frame.intent(),
+            ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot.fromContext(airContext(world)),
+            true, BedrockSimulation.DEFAULT_MAX_AUTO_STEP, null, true, false, Vec3d.ZERO))
+            .getFirst().movementResult();
+        assertEquals(1.0, result.predictedPosition().y(), 1.0E-6);
+        assertEquals(-0.07840000092983246, result.predictedVelocity().y(), 1.0E-6);
+        assertFalse(result.standingBounceBounced());
+    }
+
+    @Test
+    public void bedLandingAppliesReboundBeforeForwardCarry() {
         BlockCollisionWorld world = collisionWorld(List.of(
             PlacedBlockCollision.manual(
                 new BlockPosition(302, 82, -91),
@@ -451,12 +493,13 @@ public final class BedrockBlockCollisionResolverTest {
         assertTrue(collisionResult.verticalCollision());
         assertFalse(collisionResult.standingBounceBounced());
         assertEquals(82.5625D, result.predictedPosition().y(), 1.0E-6D);
-        assertEquals(-0.07840000092983246D, result.predictedVelocity().y(), 1.0E-6D);
-        assertFalse(result.standingBounceBounced());
+        assertEquals(0.3203887939453125D, result.predictedVelocity().y(), 1.0E-6D);
+        assertTrue(result.standingBounceBounced());
+        assertEquals(result.predictedVelocity(), BedrockForwardTick.finish(result, result.predictedState()).getFirst().velocity());
     }
 
     @Test
-    public void bedReplayTick39CandidateDefersPostMoveBounceCarry() {
+    public void bedReplayTick39CarriesPostMoveBounce() {
         BlockCollisionWorld world = collisionWorld(List.of(
             PlacedBlockCollision.manual(
                 new BlockPosition(303, 82, -93),
@@ -486,8 +529,9 @@ public final class BedrockBlockCollisionResolverTest {
         );
 
         assertEquals(82.5625D, result.predictedPosition().y(), 1.0E-6D);
-        assertEquals(-0.07840000092983246D, result.predictedVelocity().y(), 1.0E-6D);
-        assertFalse(result.standingBounceBounced());
+        assertEquals(0.1301727294921875D, result.predictedVelocity().y(), 1.0E-6D);
+        assertTrue(result.standingBounceBounced());
+        assertEquals(result.predictedVelocity(), BedrockForwardTick.finish(result, result.predictedState()).getFirst().velocity());
     }
 
     @Test

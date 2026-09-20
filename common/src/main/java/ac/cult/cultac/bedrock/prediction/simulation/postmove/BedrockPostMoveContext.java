@@ -14,6 +14,8 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockClimbState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFluidStateResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockGlideState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJump;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockStandingBlockResolver;
+import ac.cult.cultac.bedrock.prediction.world.BounceBlockState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelTypeResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockMoveRequest;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockTravelHorizontalControl;
@@ -72,6 +74,19 @@ record BedrockPostMoveContext(
             return frame.withFlags(frame.flags().withOnGround(false));
         }
         return frame;
+    }
+
+    BedrockPostMoveFrame applyStandingBounce(BedrockPostMoveFrame frame, Vec3d nextPosition) {
+        if (!frame.flags().verticalCollision() || !frame.flags().onGround() || moveRequest.move().y() >= 0.0D) {
+            return frame;
+        }
+        var block = BedrockStandingBlockResolver.resolve(nextPosition, blockCollisionWorld(), movementDimensions())
+            .flatMap(support -> BounceBlockState.fromCollisionBlock(support.block(), support.surfaceY()));
+        if (block.isEmpty()) return frame;
+        var bounce = BedrockBounceBlockMovement.applyAfterVerticalReset(
+            current().physicalFeetPosition(), frame.velocity(), moveRequest.move().y(),
+            frame(), block.get(), !gliding().activeAtTravelSensing());
+        return bounce.applied() ? frame.withVelocityAndBounce(bounce.velocity(), bounce.bounced()) : frame;
     }
 
     BedrockPostMoveFrame applyStandingSurface(BedrockPostMoveFrame frame, Vec3d nextPosition) {
