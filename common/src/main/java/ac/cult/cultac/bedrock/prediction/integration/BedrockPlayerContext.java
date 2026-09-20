@@ -47,8 +47,7 @@ record BedrockPlayerContext(
         if (context.getVehicle() instanceof PacketEntityHorse horse) {
             return new BedrockPlayerContext(BedrockClientPoseState.STANDING, false,
                     new PlayerDimensionsState(BoundingBoxSize.getWidth(player, horse), BoundingBoxSize.getHeight(player, horse)),
-                    new AttributeState(horse.movementSpeedAttribute, horse.movementSpeedAttribute,
-                            0.02F, 0.02F, (float) horse.jumpStrength),
+                    horse.bedrockAttributes.apply(new AttributeState(0.225F, 0.225F, 0.02F, 0.02F, 0.7F)),
                     EquipmentState.NONE, horseEffects(horse));
         }
         BedrockClientPoseState pose = player.bedrockState == null
@@ -118,25 +117,13 @@ record BedrockPlayerContext(
     }
 
     static AttributeState attributes(CultPlayer player) {
-        CompensatedEntities entities = player.compensatedEntities;
         var commit = player.checkManager == null ? null
                 : player.checkManager.getSimulationProcessor().getCurrentPredictionCommit();
         var state = commit == null ? null : BedrockProfileState.previousState(commit.carry());
-        double movementSpeed = state == null ? AttributeState.DEFAULT_BASE_MOVEMENT_SPEED
-                : state.movementAttribute().current();
-        double horizontalInputBaseMovementSpeed = movementSpeed;
-        float underwaterMovementSpeed = AttributeState.DEFAULT_UNDERWATER_MOVEMENT_SPEED;
-        float lavaMovementSpeed = AttributeState.DEFAULT_LAVA_MOVEMENT_SPEED;
-        float jumpStrength = entities == null
-                ? AttributeState.DEFAULT_JUMP_STRENGTH
-                : entities.getBedrockPlayerJumpStrength();
-        return new AttributeState(
-                movementSpeed,
-                horizontalInputBaseMovementSpeed,
-                underwaterMovementSpeed,
-                lavaMovementSpeed,
-                jumpStrength,
-                AttributeState.DEFAULT_FRICTION_MODIFIER);
+        var attributes = state != null ? state.attributes() : player.compensatedEntities == null
+                ? ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY
+                : player.compensatedEntities.getSelf().bedrockAttributes;
+        return attributes.apply(AttributeState.DEFAULT);
     }
 
     private static EquipmentState equipment(CultPlayer player, SimulationContext context) {

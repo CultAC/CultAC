@@ -77,8 +77,9 @@ final class BedrockMovementRewind {
     }
 
     private boolean ordinaryMovement(Update update) {
-        return update.event() instanceof BedrockReplayContextEvent context && context.movementAttribute() != null
-                && (!update.historical() || update.tick() < authoritative.oldestTick());
+        boolean attributes = update.event() instanceof BedrockReplayAttributeEvent
+                || update.event() instanceof BedrockReplayContextEvent context && context.movementAttribute() != null;
+        return attributes && (!update.historical() || update.tick() < authoritative.oldestTick());
     }
 
     BedrockSimulation.Input prepareInput(

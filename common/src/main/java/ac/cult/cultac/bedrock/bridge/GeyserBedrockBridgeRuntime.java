@@ -361,6 +361,7 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserInputQueue inputs;
         private final GeyserSprintAttributes sprintAttributes = new GeyserSprintAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
+        private final GeyserEntityAttributes entityAttributes = new GeyserEntityAttributes();
         private long movementCorrectionSequence;
         private record CorrectionSource(BedrockMovementCorrection correction, Vec3 reportedVelocity, int debugId) { }
         private final Map<CorrectPlayerMovePredictionPacket, CorrectionSource> movementCorrectionSources = new IdentityHashMap<>();
@@ -467,7 +468,7 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
             PACKET_TAPS.remove(connection, this);
-            connection.ensureInEventLoop(() -> { inputs.close(); entityPositions.clear(); sprintAttributes.close(); });
+            connection.ensureInEventLoop(() -> { inputs.close(); entityPositions.clear(); entityAttributes.clear(); sprintAttributes.close(); });
             if (connection.isClosed()) latencyQueue.clear();
             else latencyQueue.stopTrackingWrites();
             if (bedrockSession.getPacketHandler() == this) {
@@ -600,6 +601,7 @@ public final class GeyserBedrockBridgeRuntime {
             latencyQueue.insert(nativeLatencyCallback(connection, transaction.id()), () -> {
                 player.markBedrockTransactionClientbound(transaction.id());
                 entityPositions.boundary(player, transaction);
+                entityAttributes.boundary(player, transaction);
                 context.write(BedrockPacketWrapper.create(0, source.getSenderSubClientId(),
                         source.getTargetSubClientId(), marker, null), context.voidPromise());
             });
@@ -949,6 +951,10 @@ public final class GeyserBedrockBridgeRuntime {
             }
             if (observedPlayer != null) owner.entityPositions.capture(owner.connection, observedPlayer, packet,
                     emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame());
+            var replayUpdate = GeyserReplayUpdate.capture(packet);
+            if (observedPlayer != null && replayUpdate != null) {
+                owner.entityAttributes.capture(owner.connection, observedPlayer, replayUpdate);
+            }
             if (packet instanceof CorrectPlayerMovePredictionPacket correction) {
                 writeMovementCorrection(context, message, promise, wrapper, correction, emission);
                 return;
@@ -973,8 +979,10 @@ public final class GeyserBedrockBridgeRuntime {
                     if (player != null) {
                         player.markBedrockTransactionClientbound(latencyPacket.getTimestamp());
                         var boundary = player.getLastClientboundBedrockTransaction();
-                        if (boundary != null && boundary.id() == latencyPacket.getTimestamp())
+                        if (boundary != null && boundary.id() == latencyPacket.getTimestamp()) {
                             owner.entityPositions.boundary(player, boundary);
+                            owner.entityAttributes.boundary(player, boundary);
+                        }
                     }
                     context.write(message, promise);
                 });
@@ -1039,11 +1047,12 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
             long selfRuntimeId = owner.connection.getPlayerEntity().geyserId();
-            var replayUpdate = GeyserReplayUpdate.capture(packet);
             if (replayUpdate != null) {
-                var replay = captureReplayUpdate(replayUpdate.actorId(), replayUpdate.tick(), replayUpdate.tick() != 0, replayUpdate.event());
+                var replay = replayUpdate.event() instanceof ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent
+                        ? null : captureReplayUpdate(replayUpdate.actorId(), replayUpdate.tick(), replayUpdate.tick() != 0, replayUpdate.event());
                 context.write(message, promise);
-                if (replay != null) owner.writeLatencyBoundary(context, wrapper, replay);
+                // Attribute callbacks are batched after entity creation at this same boundary.
+                owner.writeLatencyBoundary(context, wrapper, player -> { if (replay != null) replay.accept(player); });
                 return;
             }
             if (packet instanceof SetEntityMotionPacket motion && motion.getMotion() != null && motion.getTick() != 0) {

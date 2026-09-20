@@ -169,6 +169,11 @@ public class PacketPlayerRespawn {
 
             player.compensatedEntities.vehicles.clearServerVehicle(); // All entities get removed on respawn
             final PacketEntitySelf respawnedSelf = new PacketEntitySelf(player, player.compensatedEntities.playerEntity);
+            if (player.isBedrockMovement()) {
+                // Java replaces its player here; the Bedrock actor keeps attributes until wire updates replace them.
+                respawnedSelf.bedrockRuntimeId = player.compensatedEntities.playerEntity.bedrockRuntimeId;
+                respawnedSelf.bedrockAttributes = player.compensatedEntities.playerEntity.bedrockAttributes;
+            }
             player.compensatedEntities.playerEntity = respawnedSelf;
             // Same self-instance replacement as login: re-seed the identity-compared camera
             // deque from the new self or isSelf() is permanently false after respawn.
@@ -180,12 +185,6 @@ public class PacketPlayerRespawn {
             player.vehicleData.camelSprintingState = SprintingState.STOPPED;
             badPacketsF.lastSprinting = false;
             player.compensatedEntities.hasSprintingAttributeEnabled = false;
-            player.compensatedEntities.resetBedrockMovementSpeedAttribute();
-            // Preserve the last translated jump-strength value. The Java client copies
-            // attribute base values into its replacement player on respawn
-            // (ClientPacketListener.java:1342-1346), and Geyser resetAttributes
-            // only sends MOVEMENT_SPEED (SessionPlayerEntity.java:462-471), not
-            // a replacement Bedrock jump-strength attribute.
             player.refreshPlayerPose();
             player.gamemode = switch (spawnInfo.gameType()) {
                 case CREATIVE -> org.bukkit.GameMode.CREATIVE;

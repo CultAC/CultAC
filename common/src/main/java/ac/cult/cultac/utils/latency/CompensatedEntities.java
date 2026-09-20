@@ -44,7 +44,6 @@ public class CompensatedEntities {
     private static final long LOCAL_PLAYER_CLIENT_TICK_ORDER = 0L;
     private static final boolean USES_SADDLE_EQUIPMENT_SLOT = Arrays.stream(EquipmentSlot.values())
             .anyMatch(slot -> slot.name().equals("SADDLE"));
-    private static final float DEFAULT_BEDROCK_PLAYER_JUMP_STRENGTH = 0.42F;
     public final Int2ObjectOpenHashMap<PacketEntity> entityMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
     // Team checks use these profiles to resolve player names to UUIDs.
     public final Object2ObjectOpenHashMap<UUID, User.Profile> profiles = new Object2ObjectOpenHashMap<>();
@@ -53,8 +52,6 @@ public class CompensatedEntities {
     private final Int2ObjectOpenHashMap<List<Pair<EquipmentSlot, net.minecraft.world.item.ItemStack>>> pendingEquipment = new Int2ObjectOpenHashMap<>(10, 0.7f);
     public final CompensatedVehicleState vehicles;
     public boolean hasSprintingAttributeEnabled = false;
-    private double bedrockPlayerMovementSpeed = 0.1f;
-    private float bedrockPlayerJumpStrength = DEFAULT_BEDROCK_PLAYER_JUMP_STRENGTH;
     public List<SimpleCollisionBox> fishingRodPulls = new EvictingQueue<>(100); // sanity limit to prevent leaks.
     private long nextClientEntityTickOrder = 1L;
 
@@ -105,7 +102,6 @@ public class CompensatedEntities {
 
         if (removedSelfVehicle) {
             hasSprintingAttributeEnabled = false;
-            resetBedrockMovementSpeedAttribute();
         }
     }
 
@@ -153,18 +149,6 @@ public class CompensatedEntities {
         return CultMath.clampFloat((float) speed, 0.0F, 1024.0F);
     }
 
-    public double getBedrockPlayerMovementSpeed() {
-        return CultMath.clampFloat((float) bedrockPlayerMovementSpeed, 0.0F, 1024.0F);
-    }
-
-    public float getBedrockPlayerJumpStrength() {
-        return bedrockPlayerJumpStrength;
-    }
-
-    public void resetBedrockMovementSpeedAttribute() {
-        bedrockPlayerMovementSpeed = 0.1f;
-    }
-
     // NetHandlerPlayClient#handleEntityProperties only updates attributes present
     // in the client's attribute map. Via drops attributes older clients lack.
     private boolean supportsAttributes(ClientVersion since) {
@@ -185,27 +169,13 @@ public class CompensatedEntities {
                     }
 
                     // The server can set the player's sprinting attribute
-                    hasSprintingAttributeEnabled = foundSprintingModifier;
-                    bedrockPlayerMovementSpeed = calculateAttribute(
-                            snapshot,
-                            0.0,
-                            1024.0,
-                            Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID)
-                    );
+                    if (!player.isBedrockMovement()) hasSprintingAttributeEnabled = foundSprintingModifier;
                     player.compensatedEntities.getSelf().playerSpeed = calculateAttribute(
                             snapshot,
                             0.0,
                             1024.0,
                             Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID)
                     );
-                }
-
-                if (matchesAttribute(snapshot, "jump_strength")) {
-                    // Geyser translates Java's transaction-ordered
-                    // JUMP_STRENGTH snapshot to Bedrock's jump-strength
-                    // attribute. Use that server-authored value, never the
-                    // client-to-server MovementPredictionSync echo.
-                    bedrockPlayerJumpStrength = calculateBedrockAttributeCurrent(snapshot);
                 }
 
                 if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "scale")) {
@@ -293,15 +263,11 @@ public class CompensatedEntities {
         if (entity instanceof PacketEntityHorse horse) {
             for (ClientboundUpdateAttributesPacket.AttributeSnapshot snapshot : objects) {
                 if (matchesAttribute(snapshot, "movement_speed")) {
-                    horse.movementSpeedAttribute = player.isBedrockMovement()
-                            ? calculateBedrockAttributeCurrent(snapshot)
-                            : (float) calculateAttribute(snapshot, 0.0, 1024.0);
+                    horse.movementSpeedAttribute = (float) calculateAttribute(snapshot, 0.0, 1024.0);
                 }
 
                 if (matchesAttribute(snapshot, "jump_strength")) {
-                    horse.jumpStrength = player.isBedrockMovement()
-                            ? calculateBedrockAttributeCurrent(snapshot)
-                            : calculateAttribute(snapshot, 0.0, 2.0);
+                    horse.jumpStrength = calculateAttribute(snapshot, 0.0, 2.0);
                 }
             }
         }
@@ -389,15 +355,6 @@ public class CompensatedEntities {
                 (float) calculateAttributeValue(snapshot, excludedModifierIds),
                 (float) minValue,
                 (float) maxValue);
-    }
-
-    private float calculateBedrockAttributeCurrent(ClientboundUpdateAttributesPacket.AttributeSnapshot snapshot) {
-        // Geyser applies every modifier, casts the calculated double to float, and
-        // puts that value into AttributeData without clamping it to the advertised
-        // attribute bounds (LivingEntity.java:673,734-735; AttributeUtils.java:39-57;
-        // GeyserAttributeType.java:78-87). vanilla likewise stores the supplied current
-        // value directly .
-        return (float) calculateAttributeValue(snapshot, Set.of());
     }
 
     private double calculateAttributeValue(

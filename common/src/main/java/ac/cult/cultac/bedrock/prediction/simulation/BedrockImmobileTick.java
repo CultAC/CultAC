@@ -111,7 +111,7 @@ public final class BedrockImmobileTick {
                         nextSneaking ? current.sneakingTicks() + 1L : 0L,
                         prepared.control().itemUseSlowdownTicks(),
                         prepared.dolphinBoost().endTick(), prepared.cameraWater()), false,
-                prepared.input().previousState().movementAttribute());
+                prepared.input().previousState().attributes());
         return new Result(next, prepared.mobJumpComponent());
     }
 

@@ -133,6 +133,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       return new PredictionCommit(this.profileCarry, this.validPlayerStartingVels);
    }
 
+   public void applyInactiveBedrockAttributes(ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent event) {
+      if (!this.player.isBedrockMovement()) return;
+      this.applyProfileCommit(((ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent) event.ordinary())
+         .apply(this.getCurrentPredictionCommit()));
+   }
+
    public void applyAcknowledgedBedrockGliding(boolean gliding) {
       if (this.player.isBedrockMovement() && this.profileCarry != null) {
          this.profileCarry = MovementEngines.requireForProfile(MovementProfiles.forPlayer(this.player))
@@ -145,6 +151,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       // Start fresh camera history before the new actor's first frame, while
       // retaining metadata already acknowledged for that actor.
       this.player.bedrockState.recordActorCreation(runtimeEntityId);
+      this.player.compensatedEntities.getSelf().bedrockRuntimeId = runtimeEntityId;
+      this.player.compensatedEntities.getSelf().bedrockAttributes =
+         ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
       this.profileCarry = null;
       this.validPlayerStartingVels = new HashSet<>(Set.of(Vec3.ZERO));
    }

@@ -40,6 +40,9 @@ import java.util.List;
 // You may not copy this check unless your anticheat is licensed under GPL
 public class PacketEntity {
     public long bedrockRuntimeId = -1;
+    // Final Bedrock wire attributes, retained even before this actor is locally controlled.
+    public ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes bedrockAttributes =
+            ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
     public ac.cult.cultac.bedrock.prediction.integration.BedrockEntityInterpolation bedrockInterpolation;
     public ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState bedrockPrediction;
     public ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties bedrockBoat;

@@ -74,7 +74,9 @@ final class BedrockInitialStateFactory {
         if (context.getVehicle() instanceof PacketEntityHorse horse) {
             state = state.withRotation(horse.clientPhysicalYaw, horse.clientPhysicalPitch);
         }
-        return state;
+        var entity = context.getVehicle() != null ? context.getVehicle()
+                : context.getEntities() == null ? null : context.getEntities().getSelf();
+        return entity == null ? state : state.withAttributes(entity.bedrockAttributes);
     }
 
     private static Medium initialMovementBranch(Medium medium, boolean onGround) {

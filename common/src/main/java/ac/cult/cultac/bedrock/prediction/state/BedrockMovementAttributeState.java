@@ -6,7 +6,6 @@ import java.util.Objects;
 
 /**
  * Movement attribute state, independent of the actor sprint flag.
- * See docs/bedrock-sprint-attributes.md for replacement and replay behavior.
  */
 public record BedrockMovementAttributeState(float current, float minimum, float maximum,
         float defaultMinimum, float defaultMaximum, float defaultValue,

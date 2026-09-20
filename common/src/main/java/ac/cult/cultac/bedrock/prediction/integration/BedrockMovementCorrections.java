@@ -74,6 +74,22 @@ public final class BedrockMovementCorrections {
         rewind.queue(tick, historical, event);
     }
 
+    /** Attribute lifetime follows the actor, not the currently mounted vehicle or correction generation. */
+    public void attributes(CultPlayer player, PacketEntity entity, long tick, BedrockReplayAttributeEvent event) {
+        boolean self = entity == player.compensatedEntities.getSelf();
+        var active = BedrockVehicleControl.controlledVehicle(player);
+        if ((self && active == null || entity == active)
+                && (runtimeId == Long.MIN_VALUE || controlled == active)) {
+            rewind.queue(tick, event.historical(), event);
+        } else if (self) {
+            player.checkManager.getSimulationProcessor().applyInactiveBedrockAttributes(event);
+        } else if (entity.bedrockPrediction != null) {
+            var previous = entity.bedrockPrediction;
+            entity.bedrockPrediction = new BedrockVehiclePredictionState(
+                    ((BedrockReplayAttributeEvent) event.ordinary()).apply(previous.commit()), previous.previousPrediction());
+        }
+    }
+
     public PredictionCommit prepareFrame(CultPlayer player, BedrockAuthInputFrame frame, PredictionCommit current) {
         var vehicle = BedrockVehicleControl.controlledVehicle(player);
         bind(vehicle, vehicle == null ? -1 : frame.getPredictedVehicleId());

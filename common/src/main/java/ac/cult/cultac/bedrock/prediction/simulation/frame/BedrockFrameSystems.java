@@ -15,9 +15,10 @@ public final class BedrockFrameSystems {
         BedrockMobJumpComponentState initialMobJumpComponent
     ) {
         if (input.previousState().isBoat()) return BedrockBoatMovement.prepare(input, initialMobJumpComponent);
-        if (!input.previousState().isVehicle()) {
-            var state = input.previousState().applySprintActions(input.inputIntent().sprint());
-            var context = input.worldSnapshot().movementContext();
+        var state = input.previousState();
+        var context = input.worldSnapshot().movementContext();
+        if (!state.isVehicle()) {
+            state = state.applySprintActions(input.inputIntent().sprint());
             if (input.control() != null && !state.swimming() && !context.actorSwimming()) {
                 // Preserve the existing directional restriction on sprint input.
                 // Cancellation uses the same attribute transition as STOP, never just the flag.
@@ -28,14 +29,15 @@ public final class BedrockFrameSystems {
                     state = state.applySprintAction(false);
                 }
             }
-            var attributes = context.attributeState().withMovementSpeed(state.movementAttribute().current());
-            context = new ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext(
-                context.effectState(), attributes, context.worldState(), context.equipmentState(),
-                context.entityContactState(), context.modifierState(), context.playerDimensionsState());
-            input = new BedrockTravelInput(state, input.inputFrame(), input.inputIntent(),
-                input.worldSnapshot().withMovementContext(context), input.scaffoldingVerticalBranch(),
-                input.startingVelocity(), input.options(), input.control(), input.glideBoost());
         }
+        var attributes = state.attributes().apply(context.attributeState());
+        if (!state.isVehicle()) attributes = attributes.withMovementSpeed(state.movementAttribute().current());
+        context = new ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext(
+            context.effectState(), attributes, context.worldState(), context.equipmentState(),
+            context.entityContactState(), context.modifierState(), context.playerDimensionsState());
+        input = new BedrockTravelInput(state, input.inputFrame(), input.inputIntent(),
+            input.worldSnapshot().withMovementContext(context), input.scaffoldingVerticalBranch(),
+            input.startingVelocity(), input.options(), input.control(), input.glideBoost());
         BedrockInputIntent intent = input.inputIntent();
         Vec3d velocity = input.startingVelocity();
 

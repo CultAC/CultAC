@@ -7,7 +7,7 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 
 /** Value-only, ordered changes to a historical movement frame. */
-public sealed interface BedrockReplayEvent permits BedrockReplayEvent.Motion,
+public sealed interface BedrockReplayEvent permits BedrockReplayAttributeEvent, BedrockReplayEvent.Motion,
         BedrockReplayEvent.Transform, BedrockReplayEvent.Reposition, BedrockReplayEvent.Metadata, BedrockReplayEvent.Boost,
         BedrockReplayEvent.HorseMetadata, BedrockReplayBoatMetadata, BedrockReplayContextEvent {
     default BedrockMovementState state(BedrockMovementState state) { return state; }

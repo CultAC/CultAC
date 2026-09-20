@@ -31,14 +31,14 @@ public record BedrockReplayContextEvent(Map<String, Float> attributes, Integer e
     }
 
     @Override public BedrockMovementState state(BedrockMovementState state) {
-        if (movementAttribute == null || state.isVehicle()) return state;
+        if (movementAttribute == null) return state;
         // Historical confirmation compares current values, not modifier lists or defaults.
         if (historicalAttribute && state.movementAttribute().current() == movementAttribute.current()) return state;
         return state.withMovementAttribute(state.movementAttribute().replace(movementAttribute));
     }
 
     @Override public boolean matchesHistory(BedrockMovementState state) {
-        return historicalAttribute && movementAttribute != null && !state.isVehicle()
+        return historicalAttribute && movementAttribute != null
                 && attributes.isEmpty() && effectId == null && gameType == null && usingItem == null
                 && state.movementAttribute().current() == movementAttribute.current();
     }
