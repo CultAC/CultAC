@@ -49,9 +49,9 @@ final class BedrockMovementRewind {
             }
             boolean stale = update.historical() && update.tick() < authoritative.oldestTick();
             var event = stale ? update.event().ordinary() : update.event();
-            if (ordinaryMovement(update)) {
-                // Tick-zero attribute replacement changes the live entity, not a replay event.
-                // Replaying an earlier sprint start can consequently recreate its modifier
+            if (ordinaryMovement(update)
+                    || !update.historical() && event instanceof BedrockReplayEvent.HorseMetadata) {
+                // Apply ordinary updates to live state; replaying metadata would restore stale attributes.
                 entries = entries.stream().map(entry -> entry.withState(event.state(entry.state()))).toList();
                 continue;
             }

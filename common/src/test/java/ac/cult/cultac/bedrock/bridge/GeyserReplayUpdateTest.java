@@ -10,6 +10,18 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class GeyserReplayUpdateTest {
+    @Test public void resistanceDoesNotCreateAMovementReplay() {
+        var packet = new MobEffectPacket();
+        packet.setRuntimeEntityId(9);
+        packet.setEffectId(11);
+        packet.setAmplifier(3);
+        packet.setDuration(100);
+        packet.setEvent(MobEffectPacket.Event.ADD);
+        assertNull(GeyserReplayUpdate.capture(packet));
+        packet.setEvent(MobEffectPacket.Event.REMOVE);
+        assertNull(GeyserReplayUpdate.capture(packet));
+    }
+
     @Test
     public void attributeCaptureKeepsTimestampAndOwnsOnlySuppliedValues() {
         var packet = new UpdateAttributesPacket();

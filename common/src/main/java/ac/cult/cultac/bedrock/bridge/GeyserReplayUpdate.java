@@ -19,6 +19,11 @@ record GeyserReplayUpdate(long actorId, long tick, BedrockReplayEvent event) {
             return attributes(spawn.getRuntimeEntityId(), 0, spawn.getAttributes());
         }
         if (packet instanceof MobEffectPacket effect && effect.getEvent() != MobEffectPacket.Event.NONE) {
+            // Unmodeled effects must not replay an older movement snapshot.
+            if (switch (effect.getEffectId()) {
+                case 1, 2, 8, 15, 24, 27, 33 -> false;
+                default -> true;
+            }) return null;
             int level = effect.getEvent() == MobEffectPacket.Event.REMOVE ? 0 : effect.getAmplifier() + 1;
             return new GeyserReplayUpdate(effect.getRuntimeEntityId(), effect.getTick(),
                     new BedrockReplayContextEvent(Map.of(), effect.getEffectId(), level,

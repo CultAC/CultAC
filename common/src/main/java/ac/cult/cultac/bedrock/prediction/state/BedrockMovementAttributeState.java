@@ -49,7 +49,7 @@ public record BedrockMovementAttributeState(float current, float minimum, float 
         return sprinting ? base.addSprint() : base;
     }
 
-    private BedrockMovementAttributeState recalculate(List<Modifier> next) {
+    public BedrockMovementAttributeState recalculate(List<Modifier> next) {
         float[] added = {defaultMinimum, defaultMaximum, defaultValue};
         for (Modifier modifier : next) {
             if (modifier.operation == 0 && modifier.validOperand()) added[modifier.operand] += modifier.amount;

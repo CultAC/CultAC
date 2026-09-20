@@ -14,6 +14,29 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class BedrockActorAttributesTest {
+    @Test public void effectClearMetadataCannotRestoreOldHorseSpeed() {
+        for (Boolean standing : new Boolean[] {null, false, true}) {
+            var history = new BedrockActorHistory();
+            history.record(BedrockActorHistoryTest.forward(entry(attributes(0.35245588F, false).state(horse())),
+                    1, BedrockActorHistoryTest.ground(), Vec3d.ZERO));
+            var rewind = new BedrockMovementRewind(history);
+            // Capture 1789933585258: effect clear, visible-effect metadata, Java attribute echo.
+            rewind.queue(0, false, attributes(0.2961814F, false));
+            rewind.queue(0, false, new BedrockReplayEvent.HorseMetadata(standing, null, null));
+            rewind.queue(0, false, attributes(0.2961814F, false));
+            var result = rewind.apply(null, commit(history.current()));
+            var state = BedrockProfileState.previousState(result.carry());
+            assertEquals(0.2961814F, state.movementAttribute().current(), 0);
+            if (standing != null) assertEquals(standing, state.horse().standing());
+            if (!Boolean.TRUE.equals(standing)) {
+                var next = BedrockActorHistoryTest.forward(entry(state), 2,
+                        BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
+                assertEquals(0.2961814, next.end().getFirst().state().physicalFeetPosition()
+                        .subtract(state.physicalFeetPosition()).length(), 0.001);
+            }
+        }
+    }
+
     @Test public void vehicleTravelUsesWireCurrentWithoutPlayerSprintOrContextSpeed() {
         var horse = horse();
         var updated = attributes(0.35245588F, false).state(horse);

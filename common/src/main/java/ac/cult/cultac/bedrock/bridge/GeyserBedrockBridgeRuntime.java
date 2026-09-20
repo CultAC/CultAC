@@ -182,6 +182,13 @@ public final class GeyserBedrockBridgeRuntime {
             if (tap == null) throw new IllegalStateException("Missing Cult movement tap");
             tap.initializeActor(tap.currentPlayer());
             tap.sprintAttributes.source(attribute, tap.sprintBoundary(), session.getPlayerEntity().geyserId(), tap::sendSprintAttribute);
+        }, (session, entity, attribute) -> {
+            var tap = PACKET_TAPS.get(session);
+            if (tap == null) throw new IllegalStateException("Missing Cult movement tap");
+            var packet = tap.vehicleAttributes.source(entity.geyserId(), attribute);
+            ((org.geysermc.geyser.entity.vehicle.ClientVehicle) entity).getVehicleComponent()
+                    .setMoveSpeed(packet.getAttributes().getFirst().getValue());
+            session.sendUpstreamPacket(packet);
         });
     }
 
@@ -360,6 +367,7 @@ public final class GeyserBedrockBridgeRuntime {
         private final String packetLogHandlerName;
         private final GeyserInputQueue inputs;
         private final GeyserSprintAttributes sprintAttributes = new GeyserSprintAttributes();
+        private final GeyserVehicleAttributes vehicleAttributes = new GeyserVehicleAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
         private final GeyserEntityAttributes entityAttributes = new GeyserEntityAttributes();
         private long movementCorrectionSequence;
@@ -468,7 +476,7 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
             PACKET_TAPS.remove(connection, this);
-            connection.ensureInEventLoop(() -> { inputs.close(); entityPositions.clear(); entityAttributes.clear(); sprintAttributes.close(); });
+            connection.ensureInEventLoop(() -> { inputs.close(); entityPositions.clear(); entityAttributes.clear(); sprintAttributes.close(); vehicleAttributes.clear(); });
             if (connection.isClosed()) latencyQueue.clear();
             else latencyQueue.stopTrackingWrites();
             if (bedrockSession.getPacketHandler() == this) {
@@ -886,6 +894,26 @@ public final class GeyserBedrockBridgeRuntime {
             }
             BedrockPacket packet = wrapper.getPacket();
             owner.initializeActor(owner.currentPlayer());
+            boolean normalizedVehicleEffect = false;
+            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket attributes) {
+                owner.vehicleAttributes.written(attributes);
+            } else if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.RemoveEntityPacket removed) {
+                owner.vehicleAttributes.remove(removed.getUniqueEntityId());
+            } else if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
+                owner.vehicleAttributes.clear();
+            } else if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.MobEffectPacket effect
+                    && effect.getTick() == 0) {
+                var attributes = owner.vehicleAttributes.beforeEffect(effect);
+                if (attributes != null) {
+                    var entity = owner.connection.getEntityCache().getEntityByGeyserId(effect.getRuntimeEntityId());
+                    if (entity instanceof org.geysermc.geyser.entity.vehicle.ClientVehicle vehicle) {
+                        vehicle.getVehicleComponent().setMoveSpeed(attributes.getAttributes().getFirst().getValue());
+                    }
+                    write(context, BedrockPacketWrapper.create(0, wrapper.getSenderSubClientId(),
+                            wrapper.getTargetSubClientId(), attributes, null), context.newPromise());
+                    normalizedVehicleEffect = true;
+                }
+            }
             if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket attributes
                     && attributes.getRuntimeEntityId() == owner.connection.getPlayerEntity().geyserId()) {
                 // Keep unrelated attributes at their original boundary when movement receives a tick.
@@ -951,7 +979,8 @@ public final class GeyserBedrockBridgeRuntime {
             }
             if (observedPlayer != null) owner.entityPositions.capture(owner.connection, observedPlayer, packet,
                     emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame());
-            var replayUpdate = GeyserReplayUpdate.capture(packet);
+            // The preceding attribute packet already includes this effect's speed change.
+            var replayUpdate = normalizedVehicleEffect ? null : GeyserReplayUpdate.capture(packet);
             if (observedPlayer != null && replayUpdate != null) {
                 owner.entityAttributes.capture(owner.connection, observedPlayer, replayUpdate);
             }
