@@ -1,5 +1,6 @@
 package ac.cult.cultac.manager.player;
 
+import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
@@ -503,12 +504,18 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 }
             } else {
                 // Track the correction before sending; its outbound packet is silenced below.
-                addSentTeleport(position, data.getTeleportData().getTransaction(), new RelativeFlag(0b11000), false, teleportId);
+                if (!player.isBedrockMovement()) addSentTeleport(position, data.getTeleportData().getTransaction(), new RelativeFlag(0b11000), false, teleportId);
                 // Receive the player's position packet to make setbacks appear smooth for other players (and to stop vanilla ac setbacks)
                 player.user.receivePacketSilently(ServerSetbackPosition.wrap(NmsPacketUtil.positionPacket(
                         position.x, position.y, position.z, data.isExpectedOnGround(), false)));
-                sendPlayerSetbackPackets(teleportId, position,
-                        data.getTeleportData().getFlags().getMask(), data.isExpectedOnGround());
+                if (player.isBedrockMovement()) {
+                    requiredSetBack = data;
+                    GeyserBedrockBridgeRuntime.sendPlayerTeleport(player.user, position, player.xRot, player.yRot,
+                            data.isExpectedOnGround(), data.getTeleportData().getTransaction());
+                } else {
+                    sendPlayerSetbackPackets(teleportId, position,
+                            data.getTeleportData().getFlags().getMask(), data.isExpectedOnGround());
+                }
             }
 
             // required setback applies for both our own vehicle teleports and regular teleports
@@ -582,35 +589,6 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
      */
     public TeleportAcceptData checkTeleportQueue(double px, double py, double pz) {
         return checkTeleportQueue(new Vec3(px, py, pz));
-    }
-
-    public boolean matchesPendingBedrockTeleportPosition(Vec3 physicalFeetPosition) {
-        if (!player.isBedrockMovement()) {
-            return false;
-        }
-
-        for (TeleportData teleport : pendingTeleports) {
-            // This allowance is only for a Java server teleport's generated PosRot echo.
-            // Geyser/GFP corrections can contain client-derived positions and require raw-auth
-            // authorization, including the normal Timer and pending-setback gates.
-            if (teleport.isRotationOnly() || teleport.isBedrockTransportOnly()) {
-                continue;
-            }
-
-            Vec3 expected = VectorUtils.clampVector(new Vec3(
-                    (teleport.isRelativeX() ? player.x : 0.0D) + teleport.getLocation().x,
-                    (teleport.isRelativeY() ? player.y : 0.0D) + teleport.getLocation().y,
-                    (teleport.isRelativeZ() ? player.z : 0.0D) + teleport.getLocation().z));
-            double xTolerance = teleport.isRelativeX() ? player.getMovementThreshold() : 0.0D;
-            double yTolerance = teleport.isRelativeY() ? player.getMovementThreshold() : 0.0D;
-            double zTolerance = teleport.isRelativeZ() ? player.getMovementThreshold() : 0.0D;
-            if (Math.abs(expected.x - physicalFeetPosition.x) <= xTolerance
-                    && Math.abs(expected.y - physicalFeetPosition.y) <= yTolerance
-                    && Math.abs(expected.z - physicalFeetPosition.z) <= zTolerance) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** Resolve only from an already active origin or an emitted, transaction-proven exact local echo. */
@@ -697,37 +675,29 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             return accepted;
         }
 
-        // The ordered reliable channel plus this exact echo proves the client
-        // processed every earlier packet too. Earlier still-pending transport
-        // entries can never be echoed once the client's proven position has
-        // moved past this teleport, so they are superseded and dropped in
-        // queue order. This does not relax violation enforcement: a Cult
-        // setback's requiredSetBack survives the drop and keeps blocking
-        // movement until its own transaction-matching completion.
+        // An acknowledged teleport supersedes earlier transport-only targets.
+        // Cult setbacks remain pending until their own validated response.
         long matchedRevision = matching.getBedrockTransportRevision();
-        pendingTeleports.removeIf(pending -> pending.getBedrockTransportRevision() >= 0L
+        pendingTeleports.removeIf(pending -> pending.isBedrockTransportOnly()
+                && pending.getBedrockTransportRevision() >= 0L
                 && pending.getBedrockTransportRevision() < matchedRevision);
 
         if (!pendingTeleports.remove(matching)) {
             return accepted;
         }
 
-        // This is the existing Java teleport proof: its pre-teleport Cult ping
-        // has been answered and Geyser supplied the exact Bedrock echo. Consume
-        // the echo as a correction boundary without applying movement.
+        // The Bedrock receipt and exact HANDLE_TELEPORT frame prove this boundary.
         activeBedrockCoordinateFrame = matching.getBedrockCoordinateFrame();
         return completeTeleport(matching, actual, true);
     }
 
-    public void onVehicleMount(int transaction) {
-        if (!player.isBedrockMovement() || player.lastTransactionReceived.get() < transaction || isPendingSetback()) {
-            return;
-        }
-        // A confirmed mount supersedes earlier player positions. Mounted Bedrock auth input
-        // reports the vehicle position, so those player targets cannot receive position echoes.
+    public void onBedrockVehicleMount(long revision) {
+        // A received Bedrock rider link supersedes earlier ordinary player teleports.
+        // A Cult setback still requires its own validated response.
         pendingTeleports.removeIf(pending -> {
-            if (pending.isRotationOnly() || pending.isBedrockTransportOnly()
-                    || pending.getTransaction() >= transaction) return false;
+            if (!pending.isBedrockTransportOnly() || pending.getBedrockTransportRevision() < 0
+                    || pending.getBedrockTransportRevision() > revision) return false;
+            activeBedrockCoordinateFrame = pending.getBedrockCoordinateFrame();
             completeTeleport(pending, pending.getLocation(), false);
             return true;
         });
@@ -768,12 +738,22 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     private TeleportAcceptData completeTeleport(TeleportData teleport, Vec3 location,
                                                 boolean matchedPosition) {
         TeleportAcceptData accepted = new TeleportAcceptData();
+        boolean initialSpawn = !hasFullyLoaded;
         accepted.setMatchedTeleportPosition(matchedPosition);
+        if (player.isBedrockMovement() && teleport.getBedrockTransportRevision() >= 0
+                && teleport.getBedrockProvenance() != BedrockTeleportProvenance.GFP_REBASE) {
+            accepted.setInitialSpawnTeleport(initialSpawn);
+            hasFullyLoaded = true;
+            hasFullyJoined = true;
+            if (!isPendingSetback()) lastKnownGoodPosition = new SetbackPosWithVector(
+                    location, Vec3.ZERO, player.totalFlyingPacketsSent);
+        }
+
         if (!teleport.isBedrockTransportOnly() && requiredSetBack != null
                 && requiredSetBack.getTeleportData().getTransaction() == teleport.getTransaction()) {
             blockOffsets = false;
             accepted.setSetback(requiredSetBack);
-            accepted.setInitialSpawnTeleport(!hasFullyLoaded);
+            accepted.setInitialSpawnTeleport(initialSpawn);
             requiredSetBack.setComplete(true);
             this.hasFullyLoaded = true;
             this.hasFullyJoined = true;
@@ -1330,7 +1310,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             BedrockCoordinateFrame frame, Vec3 localPacketTarget, BedrockTeleportOperation operation,
             int proofTransaction) {
         BedrockTeleportProvenance provenance = operation == null ? BedrockTeleportProvenance.GEYSER : operation.provenance();
-        Integer javaTeleportId = operation == null ? null : operation.javaTeleportId();
+        Integer setbackTransaction = operation == null ? null : operation.setbackTransaction();
         Vec3 clamped = VectorUtils.clampVector(physicalFeetPosition);
         // A retry is another emission of the same operation, not a new transport-only move.
         if (operation != null) {
@@ -1345,24 +1325,11 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 }
             }
         }
-        for (TeleportData pending : pendingTeleports) {
-            if ((localPacketTarget == null || provenance == BedrockTeleportProvenance.JAVA_TELEPORT)
-                    && !pending.isRotationOnly() && pending.getBedrockTransportRevision() < 0L
-                    && (javaTeleportId == null || pending.getTeleportId() == javaTeleportId)) {
-                pending.applyBedrockTransportBoundary(clamped, onGround, revision);
-                pending.setBedrockOperation(operation);
-                applyBedrockOrigin(pending, frame, localPacketTarget);
-                return;
-            }
-        }
-
-        // Cult's internal Java-side move can consume the Java queue entry
-        // before Geyser writes the translated Bedrock packet. Packet order,
-        // not coordinate proximity, associates the next outbound position
-        // boundary with the still-pending required teleport.
-        if ((localPacketTarget == null || provenance == BedrockTeleportProvenance.JAVA_TELEPORT)
+        // Only a Cult-owned native emission may satisfy a pending Cult setback.
+        if (provenance == BedrockTeleportProvenance.CULT_SETBACK
                 && requiredSetBack != null && !requiredSetBack.isComplete()
-                && (javaTeleportId == null || requiredSetBack.getTeleportData().getTeleportId() == javaTeleportId)) {
+                && setbackTransaction != null
+                && requiredSetBack.getTeleportData().getTransaction() == setbackTransaction) {
             TeleportData requiredTeleport = requiredSetBack.getTeleportData();
             TeleportData data = requiredTeleport.copyWithLocation(clamped);
             data.applyBedrockTransportBoundary(clamped, onGround, revision);
@@ -1373,11 +1340,6 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             return;
         }
 
-        // Geyser can author a client-visible position boundary without a Java
-        // ClientboundPlayerPositionPacket. Keep that boundary in the normal
-        // FIFO so the exact HANDLE_TELEPORT frame rebases Bedrock simulation,
-        // but do not promote it to an authoritative rollback target. Only the
-        // Java teleport paths above may own requiredSetBack/lastKnownGoodPosition.
         TeleportData data = new TeleportData(
                 clamped,
                 new RelativeFlag(0),

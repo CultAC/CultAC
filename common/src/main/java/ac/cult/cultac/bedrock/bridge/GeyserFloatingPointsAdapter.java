@@ -18,7 +18,6 @@ import org.geysermc.geyser.session.cache.TeleportCache;
 import org.geysermc.mcprotocollib.network.Session;
 import org.geysermc.mcprotocollib.network.event.session.*;
 import org.geysermc.mcprotocollib.network.packet.Packet;
-import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundPlayerPositionPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.level.ServerboundMoveVehiclePacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.ServerboundMovePlayerPosPacket;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.ServerboundMovePlayerPosRotPacket;
@@ -28,6 +27,7 @@ import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.Serv
  * the downstream I/O loop. The adapter lock protects dispatch metadata across that boundary. */
 final class GeyserFloatingPointsAdapter {
     private final GeyserSession session;
+    private final GeyserServerResponses responses;
     private final GfpReflection reflection;
     private final Object user;
     private final Field upstreamField;
@@ -43,8 +43,8 @@ final class GeyserFloatingPointsAdapter {
     private TeleportCache teleportCache;
     private BedrockTeleportOperation cacheOperation;
 
-    private BedrockTeleportOperation newOperation(BedrockTeleportProvenance source, Integer javaId) {
-        return new BedrockTeleportOperation(++operationSequence, source, javaId);
+    private BedrockTeleportOperation newOperation(BedrockTeleportProvenance source, Integer setbackTransaction) {
+        return new BedrockTeleportOperation(++operationSequence, source, setbackTransaction);
     }
 
     private void bindTeleportCache(TeleportCache before, BedrockTeleportOperation operation) {
@@ -87,6 +87,7 @@ final class GeyserFloatingPointsAdapter {
 
     GeyserFloatingPointsAdapter(GeyserSession session, GfpReflection reflection) throws ReflectiveOperationException {
         this.session = session;
+        this.responses = new GeyserServerResponses(session);
         this.reflection = reflection;
         user = reflection.user(session.getUpstream(), session);
         if (!Vector3i.ZERO.equals(reflection.offset(user))) {
@@ -254,9 +255,7 @@ final class GeyserFloatingPointsAdapter {
                 synchronized (GeyserFloatingPointsAdapter.this) {
                     if (closed) return;
                     TeleportCache beforeCache = session.getUnconfirmedTeleport();
-                    Integer id = packet instanceof ClientboundPlayerPositionPacket teleport ? teleport.getId() : null;
-                    BedrockTeleportOperation operation = id == null ? null
-                            : newOperation(BedrockTeleportProvenance.JAVA_TELEPORT, id);
+                    BedrockTeleportOperation operation = newOperation(BedrockTeleportProvenance.GEYSER, null);
                     dispatch.begin();
                     try {
                         GfpReflection.Rewrite result = reflection.rewrite(user, packet, false);
@@ -265,7 +264,7 @@ final class GeyserFloatingPointsAdapter {
                         // Rewriting has completed. Geyser may synchronously send a Java echo which
                         // triggers another GFP rebase; earlier emissions must retain this origin.
                         if (!result.cancelled()) dispatch.withOperation(operation,
-                                () -> delegates.forEach(l -> l.packetReceived(downstream, result.packet())));
+                                () -> responses.translate(() -> delegates.forEach(l -> l.packetReceived(downstream, result.packet()))));
                         bindTeleportCache(beforeCache, operation);
                     } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
                         dispatch.clear();
@@ -297,6 +296,7 @@ final class GeyserFloatingPointsAdapter {
                     bindTeleportCache(beforeCache, operation);
                     // Finalize this rewrite before a delegate can synchronously cause another one.
                     if (!result.cancelled()) delegates.forEach(listener -> listener.packetSending(event));
+                    responses.sending(event);
                 } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
                     event.setCancelled(true);
                     dispatch.clear();

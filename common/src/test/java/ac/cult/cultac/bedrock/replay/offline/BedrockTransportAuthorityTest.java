@@ -147,28 +147,16 @@ public final class BedrockTransportAuthorityTest {
             enableTransactionPackets(player);
             var teleports = player.getSetbackTeleportUtil();
             Vec3 earlier = new Vec3(2, 64, 3);
-            teleports.addSentTeleport(earlier, player.lastTransactionSent.get(), new RelativeFlag(0), true, 7);
-            teleports.addImmediateBedrockTransportTeleport(earlier, false);
-            player.compensatedEntities.addEntity(43, EntityTypesCompat.OAK_BOAT, earlier, 0, 0, 0);
-            var packet = passengersPacket(43, player.entityID);
-            player.packetEntityReplication.onSetPassengers(sendEvent(player, packet), player, packet);
-            int proof = player.compensatedEntities.vehicles.serverPlayerVehicleTransaction;
-            assertTrue(teleports.hasPendingBedrockTransportTeleport());
-
-            player.lastTransactionReceived.set(proof - 1);
-            player.latencyUtils.handleNettySyncTransaction(proof - 1);
-            assertTrue(teleports.hasPendingBedrockTransportTeleport());
-
-            // This later server teleport cannot be retired by the earlier mount's receipt.
+            long mountRevision = teleports.addImmediateBedrockTransportTeleport(earlier, false);
             Vec3 later = earlier.add(5, 0, 0);
-            teleports.addSentTeleport(later, proof + 1, new RelativeFlag(0), true, 8);
-            var required = teleports.getRequiredSetBack();
-            player.lastTransactionReceived.set(proof);
-            player.latencyUtils.handleNettySyncTransaction(proof);
+            teleports.addImmediateBedrockTransportTeleport(later, false);
+            teleports.onBedrockVehicleMount(mountRevision);
+            assertTrue(teleports.hasPendingBedrockTransportTeleport());
+            assertEquals(1, teleports.pendingTeleports.size());
+            assertEquals(later, teleports.pendingTeleports.peek().getLocation());
+            teleports.onBedrockVehicleMount(teleports.getBedrockTeleportRevision());
             assertFalse(teleports.hasPendingBedrockTransportTeleport());
-            assertTrue(teleports.hasPendingPlayerPositionTeleport());
-            assertFalse(required.isComplete());
-            assertEquals(later, teleports.lastKnownGoodPosition.getPos());
+
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -182,7 +170,9 @@ public final class BedrockTransportAuthorityTest {
             enableTransactionPackets(player);
             var teleports = player.getSetbackTeleportUtil();
             teleports.addSentTeleport(Vec3.ZERO, player.lastTransactionSent.get(), new RelativeFlag(0), false, 7);
-            teleports.addImmediateBedrockTransportTeleport(Vec3.ZERO, false);
+            teleports.addImmediateBedrockTransportTeleport(Vec3.ZERO, false, BedrockCoordinateFrame.IDENTITY, null,
+                    new BedrockTeleportOperation(1, BedrockTeleportProvenance.CULT_SETBACK,
+                            teleports.getRequiredSetBack().getTeleportData().getTransaction()), 0);
             var required = teleports.getRequiredSetBack();
             player.compensatedEntities.addEntity(43, EntityTypesCompat.OAK_BOAT, Vec3.ZERO, 0, 0, 0);
             var packet = passengersPacket(43, player.entityID);
@@ -190,6 +180,8 @@ public final class BedrockTransportAuthorityTest {
             int proof = player.compensatedEntities.vehicles.serverPlayerVehicleTransaction;
             player.lastTransactionReceived.set(proof);
             player.latencyUtils.handleNettySyncTransaction(proof);
+            assertTrue(teleports.hasPendingBedrockTransportTeleport());
+            teleports.onBedrockVehicleMount(teleports.getBedrockTeleportRevision());
             assertTrue(teleports.hasPendingBedrockTransportTeleport());
             assertTrue(teleports.isPendingSetback());
             assertFalse(required.isComplete());
@@ -201,19 +193,18 @@ public final class BedrockTransportAuthorityTest {
     @Test
     public void gfpTeleportRetryKeepsOriginalAuthorityAndReceiptInEitherOrder() {
         // Capture 1789858615390: HANDLE_TELEPORT at tick 867 preceded the origin receipt;
-        // the retry at tick 876 must still complete the original Java teleport.
+        // the retry at tick 876 must still complete the original Bedrock teleport.
         OfflineCultTestBootstrap.installConfig();
         for (boolean receiptBeforeRetry : new boolean[]{false, true}) {
             CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
             try {
                 var teleports = player.getSetbackTeleportUtil();
                 var origin = new BedrockCoordinateFrame(16528, 0, 3);
-                var operation = new BedrockTeleportOperation(4, BedrockTeleportProvenance.JAVA_TELEPORT, 3);
+                var operation = new BedrockTeleportOperation(4, BedrockTeleportProvenance.GEYSER, null);
                 Vec3 localFeet = new Vec3(24.5, 62, 2.5);
                 Vec3 target = origin.toWorld(localFeet);
                 Vec3 localPacket = localFeet.add(0, 1.6200103759765625, 0);
-                teleports.addSentTeleport(target, 10, new RelativeFlag(0), true, 3);
-                var required = teleports.getRequiredSetBack();
+
                 player.lastTransactionReceived.set(10);
                 long first = teleports.addImmediateBedrockTransportTeleport(target, false, origin, localPacket, operation, 10);
                 var input = teleportInput(player, localFeet, localPacket);
@@ -224,8 +215,7 @@ public final class BedrockTransportAuthorityTest {
 
                 var accepted = teleports.acknowledgeBedrockTeleportFrame(teleports.resolveBedrockCoordinates(input));
                 assertTrue(accepted.isTeleport());
-                assertEquals(required, accepted.getSetback());
-                assertTrue(required.isComplete());
+                assertTrue(teleports.hasFullyLoaded);
                 assertEquals(10, accepted.getTeleportData().getTransaction());
                 assertEquals(target, accepted.getTeleportData().getLocation());
                 assertFalse(accepted.getTeleportData().preservesBedrockWorldPosition());
@@ -263,6 +253,41 @@ public final class BedrockTransportAuthorityTest {
             assertFalse(teleports.acknowledgeBedrockTeleportFrame(teleports.resolveBedrockCoordinates(changedInput)).isTeleport());
             teleports.confirmBedrockOrigin(changed, firstOperation, origin, packet.add(1, 0, 0));
             assertTrue(teleports.acknowledgeBedrockTeleportFrame(teleports.resolveBedrockCoordinates(changedInput)).isTeleport());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void ownedNativeSetbackSurvivesOtherTeleportsAndRequiresItsExactReceipt() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            var teleports = player.getSetbackTeleportUtil();
+            Vec3 target = new Vec3(527.2020263671875, 64.84375, -78.90235137939453);
+            teleports.addSentTeleport(target, 10, new RelativeFlag(0), false, 0);
+            teleports.pendingTeleports.clear();
+            var operation = new BedrockTeleportOperation(1, BedrockTeleportProvenance.CULT_SETBACK, 10);
+            var origin = new BedrockCoordinateFrame(512, 0, 1);
+            Vec3 local = origin.toLocal(target);
+            Vec3 packet = local.add(0, 1.6200103759765625, 0);
+            var input = teleportInput(player, local, packet).resolveCoordinates(origin);
+            long revision = teleports.addImmediateBedrockTransportTeleport(target, false,
+                    origin, packet, operation, 10);
+            player.lastTransactionReceived.set(10);
+            assertFalse(teleports.acknowledgeBedrockTeleportFrame(input).isTeleport());
+            Vec3 unrelated = target.add(5, 0, 0);
+            teleports.addImmediateBedrockTransportTeleport(unrelated, false);
+            assertTrue(teleports.acknowledgeBedrockTeleportFrame(unrelated).isTeleport());
+            assertTrue(teleports.isPendingSetback());
+            assertTrue(teleports.hasPendingBedrockTransportTeleport());
+            teleports.onBedrockVehicleMount(teleports.getBedrockTeleportRevision());
+            assertTrue(teleports.hasPendingBedrockTransportTeleport());
+            teleports.confirmBedrockOrigin(revision, operation, origin, packet);
+            assertFalse(teleports.acknowledgeBedrockTeleportFrame(teleportInput(player, local.add(0.001, 0, 0), packet.add(0.001, 0, 0)).resolveCoordinates(origin)).isTeleport());
+            assertTrue(teleports.acknowledgeBedrockTeleportFrame(input).isTeleport());
+            assertFalse(teleports.isPendingSetback());
+            assertFalse(teleports.hasPendingBedrockTransportTeleport());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

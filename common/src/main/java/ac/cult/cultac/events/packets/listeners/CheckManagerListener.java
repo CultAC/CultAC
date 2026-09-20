@@ -113,6 +113,7 @@ public class CheckManagerListener {
 
     @CultPacketHandler
     public void onAcceptTeleportation(PacketReceiveEvent event, CultPlayer player, ServerboundAcceptTeleportationPacket packet) {
+        if (player.isBedrockMovement()) return;
         if (event.getConnectionState() != ConnectionProtocol.PLAY) return;
         // PacketServerTeleport already consumed the real ID and armed its paired
         // PosRot. This packet interrupts Rot -> MoveVehicle, but not its own echo.
@@ -498,6 +499,12 @@ public class CheckManagerListener {
 
     private void processMovePlayerReceive(PacketReceiveEvent event, CultPlayer player, ServerboundMovePlayerPacket packet) {
         if (event.getConnectionState() != ConnectionProtocol.PLAY) return;
+        if (player.isBedrockMovement() && player.packetStateData.bedrockServerResponse) {
+            if (packet.hasPosition()) player.getSetbackTeleportUtil().setBedrockPaperVisiblePosition(
+                    new Vec3(packet.getX(player.x), packet.getY(player.y), packet.getZ(player.z)));
+            return;
+        }
+
 
         if (player.isBedrockMovement()
                 && packet instanceof ServerboundMovePlayerPacket.Rot
@@ -517,22 +524,6 @@ public class CheckManagerListener {
                 packet.getY(player.y),
                 packet.getZ(player.z)
         ));
-
-        if (!player.packetStateData.hasPendingBedrockTranslatedMovementDecision()
-                && packet instanceof ServerboundMovePlayerPacket.PosRot
-                && player.getSetbackTeleportUtil().matchesPendingBedrockTeleportPosition(position)) {
-            // Geyser's exact Java echo does not prove Bedrock processed the teleport.
-            player.packetStateData.lastPacketWasTeleport = true;
-            player.packetStateData.lastPacketMatchedTeleportPosition = false;
-            dispatchPrePredictionReceive(event, player);
-            dispatchReceiveHandlers(event, player);
-            if (!event.isCancelled()) {
-                // Keep the Paper-visible anchor in step with the accepted echo.
-                player.getSetbackTeleportUtil().setBedrockPaperVisiblePosition(position);
-            }
-            clearTransientPacketState(player);
-            return;
-        }
 
         if (player.isBedrockMovement()
                 && player.compensatedEntities.vehicles.hasPlayerPassengerState()
@@ -678,6 +669,7 @@ public class CheckManagerListener {
 
     private void processMoveVehicleReceive(PacketReceiveEvent event, CultPlayer player, ServerboundMoveVehiclePacket packet) {
         if (event.getConnectionState() != ConnectionProtocol.PLAY) return;
+        if (player.isBedrockMovement() && player.packetStateData.bedrockServerResponse) return;
 
         NmsPacketUtil.MoveVehicleData vehiclePacket = NmsPacketUtil.readMoveVehicle(packet);
         Vec3 newPos = VectorUtils.clampVector(vehiclePacket.position());

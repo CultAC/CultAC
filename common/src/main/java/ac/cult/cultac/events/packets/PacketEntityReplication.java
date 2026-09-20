@@ -630,6 +630,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void handleRemovedPlayerVehicleTeleport(PacketSendEvent event, TeleportChange change, RelativeFlag packetFlags) {
+        if (player.isBedrockMovement()) return;
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
             // 26.3 ClientPacketListener#handleTeleportEntity still remaps a removed
             // vehicle's teleport onto the player, but no longer sends a PosRot echo.
@@ -1026,10 +1027,9 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             queueVehicleProtocolResync(transaction, resyncState);
         }
         player.latencyUtils.addRealTimeTask(transaction, () -> {
-            boolean applied = player.compensatedEntities.vehicles.applyVehiclePassengers(vehicleId, passengers);
+            player.compensatedEntities.vehicles.applyVehiclePassengers(vehicleId, passengers);
             if (mountsLocalPlayer) {
                 player.vehicleData.wasVehicleSwitch = true;
-                if (applied) player.getSetbackTeleportUtil().onVehicleMount(transaction);
             }
             if (resyncState != null) {
                 applyVehicleProtocolResync(transaction, resyncState);

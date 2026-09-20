@@ -18,6 +18,7 @@ public class PacketStateData {
     // Geyser forwards each auth frame before its movement. A horse move
     // precedes the rider's rotation; tick-end closes frames without movement.
     private BedrockTranslatedMovementAuthorization bedrockTranslatedMovementAuthorization;
+    public boolean bedrockServerResponse;
     private Boolean desiredOnGround;
     // ServerboundPlayerLoadedPacket is the client-visible post-load boundary for modern clients.
     public boolean playerLoadedIntoLevel = false;

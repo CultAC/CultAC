@@ -49,7 +49,7 @@ public final class GeyserImmediatePacketQueueTest {
     public void nestedRebaseAndRetryRetainTheirOwnOperationAndEnqueueFrame() {
         var dispatch = new BedrockOriginDispatch();
         var queue = new GeyserImmediatePacketQueue(new ArrayList<>(), dispatch::enqueue);
-        var teleport = new BedrockTeleportOperation(1, BedrockTeleportProvenance.JAVA_TELEPORT, 7);
+        var teleport = new BedrockTeleportOperation(1, BedrockTeleportProvenance.GEYSER, 7);
         var rebase = new BedrockTeleportOperation(2, BedrockTeleportProvenance.GFP_REBASE, null);
         var first = new MoveEntityDeltaPacket();
         var nested = new MoveEntityDeltaPacket();

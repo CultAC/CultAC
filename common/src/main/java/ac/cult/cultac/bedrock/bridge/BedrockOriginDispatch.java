@@ -59,9 +59,6 @@ final class BedrockOriginDispatch {
             return operation == null ? BedrockTeleportProvenance.GEYSER : operation.provenance();
         }
 
-        Integer javaTeleportId() {
-            return operation == null ? null : operation.javaTeleportId();
-        }
     }
     private record Pending(BedrockPacket packet, Runnable write) { }
 }

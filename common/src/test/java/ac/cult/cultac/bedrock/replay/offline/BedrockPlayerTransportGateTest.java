@@ -66,21 +66,18 @@ public final class BedrockPlayerTransportGateTest {
     }
 
     @Test
-    public void bedrockMountedTeleportEchoUsesTheExistingTeleportQueue() {
+    public void serverResponseDoesNotAcknowledgeRoundedBedrockTeleport() {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             mountImmediately(player, 79);
             seedSetbackAnchor(player, new Vec3(0.5D, 64.0D, 0.5D));
-            Vec3 expected = new Vec3(4.0D, 70.0D, -3.0D);
+            Vec3 expected = new Vec3(527.2019975614745, 64.84375002384186, -78.90235218181445);
             int pendingBefore = player.getSetbackTeleportUtil().pendingTeleports.size();
             int teleportId = 37;
-            player.getSetbackTeleportUtil().addSentTeleport(
-                    expected,
-                    player.lastTransactionSent.get(),
-                    new RelativeFlag(0),
-                    true,
-                    teleportId);
+            player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(
+                    new Vec3(527.2020263671875, 64.84375, -78.90235137939453), false);
+            player.packetStateData.bedrockServerResponse = true;
 
             ServerboundAcceptTeleportationPacket accept =
                     new ServerboundAcceptTeleportationPacket(teleportId, player.x, player.y, player.z, player.xRot, player.yRot);
@@ -94,7 +91,8 @@ public final class BedrockPlayerTransportGateTest {
             new CheckManagerListener().onMovePlayer(event, player, acknowledgement);
 
             assertFalse(event.isCancelled());
-            assertTrue(player.getSetbackTeleportUtil().matchesPendingBedrockTeleportPosition(expected));
+            assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
+            assertTrue(player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport());
             assertTrue(player.getSetbackTeleportUtil().pendingTeleports.size() > pendingBefore);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);

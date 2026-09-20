@@ -252,14 +252,14 @@ public final class OfflineBedrockReplayEventsTest {
             assertFalse(accepted.getTeleportData().isRelativeDeltaY());
             assertFalse(accepted.getTeleportData().isRelativeDeltaZ());
             assertNull(player.getSetbackTeleportUtil().getRequiredSetBack());
-            assertSame(rollbackBefore, player.getSetbackTeleportUtil().lastKnownGoodPosition);
+            assertEquals(target, player.getSetbackTeleportUtil().lastKnownGoodPosition.getPos());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
     }
 
     @Test
-    public void geyserTransportMarkerPreservesObservedJavaTeleportVelocity() throws Exception {
+    public void bedrockTeleportDoesNotInheritJavaRelativeVelocity() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
@@ -274,13 +274,13 @@ public final class OfflineBedrockReplayEventsTest {
             long revision = player.getSetbackTeleportUtil()
                     .addImmediateBedrockTransportTeleport(target, false);
 
-            assertEquals(1, player.getSetbackTeleportUtil().pendingTeleports.size());
+            assertEquals(2, player.getSetbackTeleportUtil().pendingTeleports.size());
             var accepted = player.getSetbackTeleportUtil()
                     .acknowledgeBedrockTeleportFrame(target);
             assertTrue(accepted.isTeleport());
-            assertEquals(flags.getMask(), accepted.getTeleportData().getFlags().getMask());
-            assertEquals(deltaMovement, accepted.getTeleportData().getDeltaMovement());
-            assertEquals(new Vec3(1.25D, 0.5D, 0.875D),
+            assertEquals(0, accepted.getTeleportData().getFlags().getMask());
+            assertEquals(Vec3.ZERO, accepted.getTeleportData().getDeltaMovement());
+            assertEquals(Vec3.ZERO,
                     accepted.getTeleportData().applyToVelocity(new Vec3(1.0D, 1.0D, 1.0D)));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -288,7 +288,7 @@ public final class OfflineBedrockReplayEventsTest {
     }
 
     @Test
-    public void outboundBedrockMarkerRestoresJavaTeleportConsumedByInternalMove() throws Exception {
+    public void unrelatedNativeTeleportCannotCompleteCultSetback() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
@@ -310,13 +310,14 @@ public final class OfflineBedrockReplayEventsTest {
             assertNotNull(queued);
             assertEquals(transaction, queued.getTransaction());
             assertTrue(queued.getTransaction() != Integer.MAX_VALUE);
-            assertEquals(deltaMovement, queued.getDeltaMovement());
+            assertEquals(Vec3.ZERO, queued.getDeltaMovement());
 
             player.lastTransactionReceived.set(transaction);
             var accepted = player.getSetbackTeleportUtil()
                     .acknowledgeBedrockTeleportFrame(target);
             assertTrue(accepted.isTeleport());
-            assertNotNull(accepted.getSetback());
+            assertNull(accepted.getSetback());
+            assertTrue(player.getSetbackTeleportUtil().isPendingSetback());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

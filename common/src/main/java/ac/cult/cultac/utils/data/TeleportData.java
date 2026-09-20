@@ -25,9 +25,7 @@ public class TeleportData {
     }
 
     public boolean preservesBedrockWorldPosition() {
-        // An unowned Geyser correction can only reset the validated carry. A server teleport,
-        // including its retries, must apply its emitted destination even if its Java echo was consumed.
-        return bedrockOperation == null ? bedrockTransportOnly : !bedrockOperation.changesWorldPosition();
+        return bedrockOperation != null && !bedrockOperation.changesWorldPosition();
     }
     Vec3 location;
     RelativeFlag flags;

@@ -160,7 +160,7 @@ public final class BedrockMovementEngineTest {
         var origin = new BedrockCoordinateFrame(4096, 0, 1);
         for (var source : new BedrockTeleportProvenance[]{
                 BedrockTeleportProvenance.GFP_REBASE,
-                BedrockTeleportProvenance.JAVA_TELEPORT}) {
+                BedrockTeleportProvenance.GEYSER}) {
             var teleport = new TeleportData(new Vec3(4106, 64, 20), new RelativeFlag(0), Vec3.ZERO, 1, 7);
             teleport.setBedrockTransportOnly(true);
             teleport.setBedrockCoordinateFrame(origin);

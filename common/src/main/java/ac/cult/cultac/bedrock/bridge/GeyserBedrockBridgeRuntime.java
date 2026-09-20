@@ -11,6 +11,8 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayEvent;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayContextEvent;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.bedrock.protocol.BedrockClientAction;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveVector;
@@ -164,6 +166,7 @@ public final class GeyserBedrockBridgeRuntime {
         });
         subscriptions.subscribe(SessionJoinEvent.class, event -> {
             installPacketTap(event.connection());
+            if (event.connection() instanceof GeyserSession session) installFloatingPoints(session, true);
             BedrockPacketLogger logger = packetLogger;
             if (logger != null) logger.identity(event.connection(), event.connection().javaUuid());
         });
@@ -309,7 +312,11 @@ public final class GeyserBedrockBridgeRuntime {
     }
 
     private static boolean installFloatingPoints(GeyserSession session, boolean requireJavaHook) {
-        if (!GeyserFloatingPointsAdapter.present()) return true;
+        if (!GeyserFloatingPointsAdapter.present()) {
+            PacketTapHandler tap = PACKET_TAPS.get(session);
+            if (tap != null) tap.serverResponses.install();
+            return true;
+        }
         GeyserEventSubscriptions generation = eventSubscriptions;
         try {
             GeyserFloatingPointsAdapter adapter = GFP_ADAPTERS.computeIfAbsent(session,
@@ -366,6 +373,9 @@ public final class GeyserBedrockBridgeRuntime {
         private final String outboundHandlerName;
         private final String packetLogHandlerName;
         private final GeyserInputQueue inputs;
+        private final GeyserServerResponses serverResponses;
+        private final Map<BedrockPacket, BedrockTeleportOperation> playerSetbackSources = new IdentityHashMap<>();
+        private long playerTeleportSequence;
         private final GeyserSprintAttributes sprintAttributes = new GeyserSprintAttributes();
         private final GeyserVehicleAttributes vehicleAttributes = new GeyserVehicleAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
@@ -378,6 +388,7 @@ public final class GeyserBedrockBridgeRuntime {
 
         private PacketTapHandler(GeyserSession connection, BedrockSession bedrockSession, BedrockPacketHandler delegate, GeyserQueue latencyQueue) {
             this.connection = connection;
+            this.serverResponses = new GeyserServerResponses(connection);
             this.bedrockSession = bedrockSession;
             this.delegate = delegate;
             this.latencyQueue = latencyQueue;
@@ -472,6 +483,7 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private void detach() {
+            serverResponses.close();
             if (!detached.compareAndSet(false, true)) {
                 return;
             }
@@ -579,7 +591,7 @@ public final class GeyserBedrockBridgeRuntime {
                     emission.operation(), proof);
             BedrockPacketLogger logger = packetLogger;
             if (logger != null) logger.origin(connection, revision, emission.frame(), localTarget,
-                    emission.provenance(), emission.javaTeleportId(), proof);
+                    emission.provenance(), emission.operation() == null ? null : emission.operation().setbackTransaction(), proof);
             return revision;
         }
 
@@ -774,6 +786,13 @@ public final class GeyserBedrockBridgeRuntime {
     }
 
     public static boolean finishTranslation(User user, String channel, Supplier<byte[]> payload) {
+        if (GeyserServerResponses.CHANNEL.equals(channel)) {
+            PacketTapHandler tap = packetTapForUser(user);
+            byte[] value = payload.get();
+            CultPlayer player = tap == null ? null : tap.currentPlayer();
+            if (player != null && value.length == 1) player.packetStateData.bedrockServerResponse = value[0] == 1;
+            return true;
+        }
         if (!GeyserInputQueue.CHANNEL.equals(channel)) return false;
         PacketTapHandler tap = packetTapForUser(user);
         if (tap != null) tap.inputs.complete(user, payload.get());
@@ -782,6 +801,31 @@ public final class GeyserBedrockBridgeRuntime {
 
     private static float ownerPlayerOffset() {
         return (float) BedrockPositionTranslator.PLAYER_PACKET_Y_OFFSET;
+    }
+
+    public static boolean sendPlayerTeleport(User user, Vec3 position, float yaw, float pitch,
+                                              boolean onGround, int setbackTransaction) {
+        PacketTapHandler tap = packetTapForUser(user);
+        if (tap == null) return false;
+        tap.connection.ensureInEventLoop(() -> {
+            if (!tap.matchesJavaUser(user)) return;
+            var adapter = GFP_ADAPTERS.get(tap.connection);
+            var coordinates = adapter == null ? BedrockCoordinateFrame.IDENTITY : adapter.coordinateFrame();
+            // Cult owns retries for this teleport; discard Geyser's previous retry target.
+            tap.connection.setUnconfirmedTeleport(null);
+            tap.connection.getPlayerEntity().setPosition(toVector3f(coordinates.toLocal(position)));
+            MovePlayerPacket packet = new MovePlayerPacket();
+            packet.setRuntimeEntityId(tap.connection.getPlayerEntity().geyserId());
+            packet.setPosition(toVector3f(coordinates.toLocal(position)).up(ownerPlayerOffset()));
+            packet.setRotation(Vector3f.from(pitch, yaw, yaw));
+            packet.setMode(MovePlayerPacket.Mode.TELEPORT);
+            packet.setTeleportationCause(MovePlayerPacket.TeleportationCause.UNKNOWN);
+            packet.setOnGround(onGround);
+            tap.playerSetbackSources.put(packet, new BedrockTeleportOperation(++tap.playerTeleportSequence,
+                    BedrockTeleportProvenance.CULT_SETBACK, setbackTransaction));
+            tap.connection.sendUpstreamPacket(packet);
+        });
+        return true;
     }
 
     public static boolean sendMovementCorrection(User user, BedrockMovementCorrection correction, Vec3 reportedVelocity, int debugId) {
@@ -965,12 +1009,26 @@ public final class GeyserBedrockBridgeRuntime {
                 owner.initializeActor(owner.currentPlayer());
             }
             GeyserFloatingPointsAdapter adapter = GFP_ADAPTERS.get(owner.connection);
-            BedrockOriginDispatch.Emission emission = adapter == null ? null : adapter.takeEmission(packet);
+            BedrockOriginDispatch.Emission capturedOrigin = adapter == null
+                    ? new BedrockOriginDispatch.Emission(BedrockCoordinateFrame.IDENTITY, null) : adapter.takeEmission(packet);
+            BedrockTeleportOperation ownTeleport = owner.playerSetbackSources.remove(packet);
+            BedrockOriginDispatch.Emission emission = ownTeleport == null ? capturedOrigin
+                    : new BedrockOriginDispatch.Emission(capturedOrigin == null ? BedrockCoordinateFrame.IDENTITY : capturedOrigin.frame(), ownTeleport);
             CultPlayer observedPlayer = owner.currentPlayer();
             if (adapter != null && emission == null && GeyserEntityPositions.hasPosition(packet)) {
                 io.netty.util.ReferenceCountUtil.release(message);
                 promise.tryFailure(new IllegalStateException("Missing entity coordinate origin"));
                 owner.connection.disconnect("CultAC: entity update bypassed the coordinate hook. Please reconnect.");
+                return;
+            }
+            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.SetEntityLinkPacket link
+                    && observedPlayer != null
+                    && link.getEntityLink().getTo() == owner.connection.getPlayerEntity().geyserId()
+                    && link.getEntityLink().getType() != org.cloudburstmc.protocol.bedrock.data.entity.EntityLinkData.Type.REMOVE) {
+                long revision = observedPlayer.getSetbackTeleportUtil().getBedrockTeleportRevision();
+                context.write(message, promise);
+                owner.writeLatencyBoundary(context, wrapper,
+                        player -> player.getSetbackTeleportUtil().onBedrockVehicleMount(revision));
                 return;
             }
             if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) owner.entityPositions.clear();
@@ -1295,7 +1353,7 @@ public final class GeyserBedrockBridgeRuntime {
                 }
             };
             if (!player.getSetbackTeleportUtil().isBedrockSetbackTransport(revision)) {
-                owner.teleportRecovery.clear();
+                if (!player.getSetbackTeleportUtil().isPendingSetback()) owner.teleportRecovery.clear();
                 if (player.bedrockState.lastMovementTick() > 0) {
                     writer.accept(GeyserTeleportRecovery.reset(source.getPacket(), player.bedrockState.lastMovementTick()));
                 }

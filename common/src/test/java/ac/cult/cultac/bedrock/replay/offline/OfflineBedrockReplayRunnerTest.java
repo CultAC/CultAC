@@ -51,6 +51,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -108,8 +109,6 @@ public final class OfflineBedrockReplayRunnerTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = offlinePlayer();
         Vec3 target = new Vec3(10.0D, 64.0D, 20.0D);
-        player.getSetbackTeleportUtil().addSentTeleport(
-                target, 10, new RelativeFlag(0), false, -1);
         long revision = player.getSetbackTeleportUtil()
                 .addImmediateBedrockTransportTeleport(target, false);
 
@@ -1933,21 +1932,11 @@ public final class OfflineBedrockReplayRunnerTest {
             player.onGround = onGround;
             player.lastOnGround = onGround;
 
-            // Login position is authoritative because it originates from the
-            // Java position packet. The following Geyser packet binds the exact
-            // Bedrock wire target to that existing rollback owner.
-            player.getSetbackTeleportUtil().addSentTeleport(
-                    groundPos,
-                    player.lastTransactionSent.get(),
-                    new RelativeFlag(0),
-                    true,
-                    1);
-            long revision = player.getSetbackTeleportUtil()
-                    .addImmediateBedrockTransportTeleport(groundPos, onGround);
-            assertNotNull(player.getSetbackTeleportUtil().getRequiredSetBack());
-            assertEquals(groundPos, player.getSetbackTeleportUtil()
-                    .getRequiredSetBack().getTeleportData().getLocation());
-            assertEquals(groundPos, player.getSetbackTeleportUtil().lastKnownGoodPosition.getPos());
+            // The final native spawn teleport is the authority, independent of Java packets.
+            player.getSetbackTeleportUtil().hasFullyLoaded = false;
+            player.getSetbackTeleportUtil().hasFullyJoined = false;
+            player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(groundPos, onGround);
+            assertNull(player.getSetbackTeleportUtil().getRequiredSetBack());
 
             TeleportAcceptData accepted = player.getSetbackTeleportUtil()
                     .acknowledgeBedrockTeleportFrame(groundPos);
@@ -1956,7 +1945,8 @@ public final class OfflineBedrockReplayRunnerTest {
             player.checkManager.getSimulationProcessor().applyAcceptedBedrockTeleport(accepted);
             assertTrue(player.getSetbackTeleportUtil().hasFullyLoaded);
             assertTrue(player.getSetbackTeleportUtil().hasFullyJoined);
-            assertTrue(player.getSetbackTeleportUtil().getRequiredSetBack().isComplete());
+            assertNull(player.getSetbackTeleportUtil().getRequiredSetBack());
+            assertEquals(groundPos, player.getSetbackTeleportUtil().lastKnownGoodPosition.getPos());
 
             // The first movement after the acknowledged spawn boundary is an
             // impossible pillar teleport and must be corrected to that boundary.

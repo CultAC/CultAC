@@ -88,11 +88,15 @@ final class GeyserInputQueue {
     }
 
     static ServerboundCustomPayloadPacket markerPacket(byte[] payload) {
+        return markerPacket(CHANNEL, payload);
+    }
+
+    static ServerboundCustomPayloadPacket markerPacket(String channel, byte[] payload) {
         // Geyser-Spigot relocates Adventure's Key type. Decode the wire form so
         // this bridge works with both its shaded runtime and unshaded Geyser.
         var buffer = io.netty.buffer.Unpooled.buffer();
         try {
-            org.geysermc.mcprotocollib.protocol.codec.MinecraftTypes.writeString(buffer, CHANNEL);
+            org.geysermc.mcprotocollib.protocol.codec.MinecraftTypes.writeString(buffer, channel);
             buffer.writeBytes(payload);
             return new ServerboundCustomPayloadPacket(buffer);
         } finally {

@@ -94,11 +94,11 @@ public final class BedrockPacketLogger implements AutoCloseable {
     }
 
     public void origin(Object connection, long transport, BedrockCoordinateFrame frame, Vec3 localTarget,
-                       BedrockTeleportProvenance provenance, Integer javaTeleportId, int proofTransaction) {
+                       BedrockTeleportProvenance provenance, Integer setbackTransaction, int proofTransaction) {
         PacketLogCapture capture = captures.get(connection);
         if (capture != null) capture.record(() -> "ORIGIN transport=" + transport
                 + " revision=" + frame.revision() + " origin_x=" + frame.originX() + " origin_z=" + frame.originZ()
-                + " local_target=" + localTarget + " source=" + provenance + " java_teleport=" + javaTeleportId
+                + " local_target=" + localTarget + " source=" + provenance + " setback_transaction=" + setbackTransaction
                 + " proof_transaction=" + proofTransaction);
     }
 

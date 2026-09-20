@@ -43,16 +43,19 @@ public class PacketServerTeleport {
 
     @CultPacketHandler
     public void onPlayerPosition(PacketSendEvent event, CultPlayer player, ClientboundPlayerPositionPacket packet) {
+        if (player.isBedrockMovement()) return;
         handlePlayerPosition(event, player, packet);
     }
 
     @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ClientboundPlayerRotationPacket")
     public void onPlayerRotation(PacketSendEvent event, CultPlayer player, Packet<?> packet) {
+        if (player.isBedrockMovement()) return;
         handlePlayerRotation(event, player, packet);
     }
 
     @CultPacketHandler
     public void onMoveVehicle(PacketSendEvent event, CultPlayer player, ClientboundMoveVehiclePacket packet) {
+        if (player.isBedrockMovement()) return;
         handleMoveVehicle(event, player, packet);
     }
 
