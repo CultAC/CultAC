@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
+import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import net.minecraft.world.phys.Vec3;
@@ -123,7 +124,8 @@ public final class BedrockMovementCorrections {
                 state.collisionFlags().onGround(), state.coordinateFrame(), transaction,
                 state.isBoat() ? state.boat().angularVelocity() : null, state.isVehicle());
         pending = new Pending(correction, processedTicks);
-        if (GeyserBedrockBridgeRuntime.sendMovementCorrection(player.user, correction, frame.getReportedEndOfTickVelocity())) requestedTransaction = -1;
+        int debugId = SuperDebug.ensureBedrockCorrectionLog(player, result);
+        if (GeyserBedrockBridgeRuntime.sendMovementCorrection(player.user, correction, frame.getReportedEndOfTickVelocity(), debugId)) requestedTransaction = -1;
         else pending = null;
     }
 

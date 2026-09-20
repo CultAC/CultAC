@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.type.PostPredictionListener;
@@ -39,6 +40,25 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         return flags[flagId];
     }
 
+    public static int ensureBedrockCorrectionLog(CultPlayer player, PredictionResult result) {
+        if (result.getIdentifier() == 0) {
+            result.setIdentifier(SimulationProcessor.nextDebugIdentifier());
+            flags[result.getIdentifier()] = formatBedrockLog(player, result).toString();
+        }
+        return result.getIdentifier();
+    }
+
+    private static StringBuilder formatBedrockLog(CultPlayer player, PredictionResult result) {
+        StringBuilder sb = new StringBuilder(2048);
+        sb.append("Cult Version: ").append(CultAPI.INSTANCE.getExternalAPI().getGrimVersion())
+                .append("\nTime: ").append(System.currentTimeMillis())
+                .append("\nPlayer Name: ").append(player.user.getName());
+        BedrockPredictionDebug.appendDetails(player, sb, result);
+        sb.append("\n\n");
+        appendFlagDetails(sb, result);
+        return sb;
+    }
+
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
         PredictionResult result = predictionComplete.getPredictionResult();
@@ -46,14 +66,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             if (predictionComplete.isTeleport() || result == null || result.getIdentifier() == 0) {
                 return;
             }
-            StringBuilder sb = new StringBuilder(2048);
-            sb.append("Cult Version: ").append(CultAPI.INSTANCE.getExternalAPI().getGrimVersion())
-                    .append("\nTime: ").append(System.currentTimeMillis())
-                    .append("\nPlayer Name: ").append(player.user.getName());
-            BedrockPredictionDebug.appendDetails(player, sb, result);
-            sb.append("\n\n");
-            appendFlagDetails(sb, result);
-            storeDebugLog(sb, result);
+            storeDebugLog(formatBedrockLog(player, result), result);
             return;
         }
 

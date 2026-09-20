@@ -683,7 +683,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       this.handlePossibleRealities(result);
       boolean verbose = profile.shouldCreateVerboseLog(this.player, result);
       if (verbose || BedrockPredictionDebug.shouldRecordMovementDebug(this.player, result)) {
-         result.setIdentifier(this.nextDebugIdentifier());
+         result.setIdentifier(nextDebugIdentifier());
          result.setProfileVerboseLog(verbose);
       }
       this.callPredictionEndListeners(result, commit);
@@ -832,13 +832,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.player.getSetbackTeleportUtil().resyncWorld();
             boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);
             if (this.player.shouldEnforceMovementSetbacks() || createProfileVerboseLog || bedrockMovementFlag) {
-               result.setIdentifier(this.nextDebugIdentifier());
+               result.setIdentifier(nextDebugIdentifier());
                result.setProfileVerboseLog(createProfileVerboseLog);
             }
          }
 
          if (result.getIdentifier() == 0 && (createProfileVerboseLog || recordProfileDebug)) {
-            result.setIdentifier(this.nextDebugIdentifier());
+            result.setIdentifier(nextDebugIdentifier());
             result.setProfileVerboseLog(createProfileVerboseLog);
          }
 
@@ -934,7 +934,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       this.validPlayerStartingVels = new HashSet<>(velocities);
    }
 
-   private int nextDebugIdentifier() {
+   public static int nextDebugIdentifier() {
       return flags.getAndIncrement() % 128 + 1;
    }
 

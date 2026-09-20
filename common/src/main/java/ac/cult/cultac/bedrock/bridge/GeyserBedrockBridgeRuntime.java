@@ -361,7 +361,7 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserSprintAttributes sprintAttributes = new GeyserSprintAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
         private long movementCorrectionSequence;
-        private record CorrectionSource(BedrockMovementCorrection correction, Vec3 reportedVelocity) { }
+        private record CorrectionSource(BedrockMovementCorrection correction, Vec3 reportedVelocity, int debugId) { }
         private final Map<CorrectPlayerMovePredictionPacket, CorrectionSource> movementCorrectionSources = new IdentityHashMap<>();
         private Long actorCreationRuntimeId;
         private final GeyserTeleportRecovery teleportRecovery = new GeyserTeleportRecovery();
@@ -770,7 +770,7 @@ public final class GeyserBedrockBridgeRuntime {
         return (float) BedrockPositionTranslator.PLAYER_PACKET_Y_OFFSET;
     }
 
-    public static boolean sendMovementCorrection(User user, BedrockMovementCorrection correction, Vec3 reportedVelocity) {
+    public static boolean sendMovementCorrection(User user, BedrockMovementCorrection correction, Vec3 reportedVelocity, int debugId) {
         PacketTapHandler tap = packetTapForUser(user);
         if (tap == null) return false;
         if (!tap.connection.getTickEventLoop().inEventLoop()) throw new IllegalStateException("Correction outside movement loop");
@@ -801,7 +801,7 @@ public final class GeyserBedrockBridgeRuntime {
             tap.movementCorrectionSources.put(packet, new PacketTapHandler.CorrectionSource(new BedrockMovementCorrection(correction.sequence(), correction.controlGeneration(),
                     correction.vehicleId(), correction.runtimeId(), correction.tick(), correction.position(), correction.velocity(),
                     correction.yaw(), correction.pitch(), correction.onGround(), coordinates, correction.teleportTransaction(),
-                    correction.angularVelocity(), correction.vehicle()), reportedVelocity));
+                    correction.angularVelocity(), correction.vehicle()), reportedVelocity, debugId));
             tap.connection.sendUpstreamPacket(packet);
         }
         return true;
@@ -1143,7 +1143,7 @@ public final class GeyserBedrockBridgeRuntime {
             player.bedrockState.movementCorrections.observe(player, correction);
             ChannelPromise writePromise = promise.unvoid();
             writePromise.addListener(future -> {
-                if (future.isSuccess()) BedrockPredictionDebug.reportCorrectionSent(player, correction, captured.reportedVelocity());
+                if (future.isSuccess()) BedrockPredictionDebug.reportCorrectionSent(player, correction, captured.reportedVelocity(), captured.debugId());
             });
             context.write(message, writePromise);
             owner.writeLatencyBoundary(context, wrapper,

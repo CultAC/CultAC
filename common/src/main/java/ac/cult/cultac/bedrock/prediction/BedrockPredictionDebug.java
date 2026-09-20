@@ -26,7 +26,7 @@ public final class BedrockPredictionDebug {
     private BedrockPredictionDebug() {
     }
 
-    public static void reportCorrectionSent(CultPlayer player, BedrockMovementCorrection correction, Vec3 reportedVelocity) {
+    public static void reportCorrectionSent(CultPlayer player, BedrockMovementCorrection correction, Vec3 reportedVelocity, int debugId) {
         var alerts = CultAPI.INSTANCE.getAlertManager();
         if (!alerts.hasVerboseListeners()) return;
         Vec3 difference = reportedVelocity == null ? null : correction.velocity().subtract(reportedVelocity);
@@ -34,7 +34,7 @@ public final class BedrockPredictionDebug {
                 "rewind (%.3f,%.3f,%.3f)",
                 difference.x, difference.y, difference.z);
         alerts.sendVerbose(MessageUtil.miniMessage(MessageUtil.replacePlaceholders(player, "%prefix% "))
-                .append(net.kyori.adventure.text.Component.text(player.getName() + " " + details)), null);
+                .append(net.kyori.adventure.text.Component.text(player.getName() + " " + details + " [" + debugId + "]")), null);
     }
 
     public static BedrockMovementObservation currentObservation(CultPlayer player, PredictionResult result) {
