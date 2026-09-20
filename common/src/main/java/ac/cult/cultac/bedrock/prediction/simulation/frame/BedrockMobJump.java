@@ -30,7 +30,8 @@ public record BedrockMobJump(
         this(
             branch,
             component.swimUpImpulse(),
-            component.afterSwimUpImpulseSelection()
+            (branch == Branch.GROUND_JUMP_REQUEST || branch == Branch.SCAFFOLDING_OR_ASCENDABLE_BLOCK
+                ? component.afterJumpRequest() : component).afterSwimUpImpulseSelection()
         );
     }
 
@@ -38,15 +39,14 @@ public record BedrockMobJump(
         BedrockMobJumpInput input,
         BedrockMobJumpComponentState component
     ) {
+        // Decrement the carried cooldown before deciding whether held jump
+        // can launch. Rewind must make that decision against its corrected ground state.
+        component = component.beginTick(input.jumping());
         if (!input.jumping()) {
             return none(component);
         }
         Branch branch = firstMatchingBranch(input, component);
-        return new BedrockMobJump(
-            branch,
-            component.swimUpImpulse(),
-            component.afterSwimUpImpulseSelection()
-        );
+        return new BedrockMobJump(branch, component);
     }
 
     public boolean active() {
@@ -117,7 +117,7 @@ public record BedrockMobJump(
         if (input.lavaSwimUp()) {
             return Branch.LAVA_SWIM_UP;
         }
-        if (input.groundJumpRequest()) {
+        if (input.groundJumpRequest() && component.jumpCooldownTicks() == 0) {
             return Branch.GROUND_JUMP_REQUEST;
         }
         return Branch.NONE;

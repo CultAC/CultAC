@@ -15,7 +15,6 @@ record BedrockMobJumpInput(
 
     static BedrockMobJumpInput from(
         BedrockTravelInput input,
-        ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent intent,
         BedrockFrameFacts frameFacts,
         BedrockLiquidJumpContact liquidJumpContact
     ) {
@@ -35,7 +34,7 @@ record BedrockMobJumpInput(
             nonSwimmerSwimUp(liquidJumpContact),
             liquidJumpContact.lavaSwimUpApplies(),
             BedrockLocalPlayerJumpMovement.requestedLaunch(
-                input.previousState(), input.inputFrame(), intent, inWater, inLava, climb.inScaffolding())
+                input.previousState(), input.inputFrame(), inWater, inLava, climb.inScaffolding())
         );
     }
 

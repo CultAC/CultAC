@@ -108,7 +108,7 @@ public final class BedrockFrameSystems {
             velocity = new Vec3d(velocity.x(), scaffoldingAction.moveY(), velocity.z());
         }
 
-        BedrockMobJumpInput mobJumpInput = BedrockMobJumpInput.from(input, intent, facts, liquidContact);
+        BedrockMobJumpInput mobJumpInput = BedrockMobJumpInput.from(input, facts, liquidContact);
         BedrockMobJumpComponentState mobJumpComponent = initialMobJumpComponent;
         BedrockMobJump mobJump = BedrockMobJump.resolve(mobJumpInput, mobJumpComponent);
         mobJumpComponent = mobJump.componentAfterMobJump();
