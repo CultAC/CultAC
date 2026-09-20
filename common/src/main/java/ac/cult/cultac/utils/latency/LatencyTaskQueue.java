@@ -28,12 +28,10 @@ final class LatencyTaskQueue {
         TaskNode readyLast = null;
 
         while (current != null) {
-            if (transaction + 1 < current.transaction) {
-                break;
-            }
-
             TaskNode next = current.next;
-            if (transaction == current.transaction - 1) {
+            // Receipt callbacks can append earlier transactions behind later ones.
+            // Keep scanning so future tasks cannot hide ready work.
+            if (transaction < current.transaction) {
                 previous = current;
                 current = next;
                 continue;
