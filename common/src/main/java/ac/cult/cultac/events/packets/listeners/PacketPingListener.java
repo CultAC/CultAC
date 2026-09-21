@@ -10,6 +10,13 @@ import net.minecraft.network.protocol.common.ClientboundPingPacket;
 import net.minecraft.network.protocol.common.ServerboundPongPacket;
 
 public class PacketPingListener {
+    public static boolean acceptBedrockResponse(CultPlayer player, int id) {
+        if (!player.addTransactionResponse(id)) return false;
+        player.checkManager.getCheck(ac.cult.cultac.checks.impl.movement.timer.TimerCheck.class).onTransactionResponse();
+        Channels.RECEIVED.fire(player, id, true, System.currentTimeMillis());
+        return true;
+    }
+
     private static final class Channels {
         private static final GrimTransactionReceivedEvent.Channel RECEIVED =
                 CultAPI.INSTANCE.getEventBus().get(GrimTransactionReceivedEvent.class);

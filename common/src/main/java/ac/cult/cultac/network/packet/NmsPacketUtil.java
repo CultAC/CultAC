@@ -7,6 +7,7 @@ import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import org.bukkit.block.BlockFace;
 import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
+import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.player.CultPlayer;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -532,14 +533,14 @@ public final class NmsPacketUtil {
         );
     }
 
-    public static ContainerClickData readContainerClick(ServerboundContainerClickPacket packet) {
+    public static InventoryClick readContainerClick(ServerboundContainerClickPacket packet) {
         Map<Integer, ItemStack> changedSlots = new HashMap<>();
         Map<?, ?> slots = (Map<?, ?>) invokeNoArg(packet, "changedSlots", "getChangedSlots");
         slots.forEach((slot, stack) -> changedSlots.put(((Number) slot).intValue(), containerItem(stack)));
         // 1.21.3 sends full ItemStacks with getter accessors; later packets carry
         // HashedStacks. ClickType was renamed ContainerInput without changing its values.
         Enum<?> input = (Enum<?>) invokeNoArg(packet, "containerInput", "clickType", "getClickType");
-        return new ContainerClickData(
+        return new InventoryClick(
                 intValue(packet, "containerId", "getContainerId"),
                 intValue(packet, "stateId", "getStateId"),
                 intValue(packet, "slotNum", "getSlotNum"),
@@ -708,17 +709,6 @@ public final class NmsPacketUtil {
     }
 
     public record MoveVehicleData(Vec3 position, float yaw, float pitch, boolean onGround, boolean hasOnGround) {
-    }
-
-    public record ContainerClickData(
-            int windowId,
-            int stateId,
-            int slot,
-            int button,
-            WindowClickType clickType,
-            Map<Integer, ItemStack> changedSlots,
-            ItemStack carriedItem
-    ) {
     }
 
     public record ContainerSetContentData(int windowId, int stateId, List<ItemStack> items, ItemStack carriedItem) {

@@ -170,20 +170,8 @@ public final class CultNetworkManager implements Listener {
         return uuid == null ? null : currentUsersByUuid.get(uuid);
     }
 
-    public void bindPacketExecutor(User user, io.netty.util.concurrent.EventExecutor executor, Runnable ready) {
-        Channel channel = (Channel) user.getChannel();
-        channel.eventLoop().execute(() -> {
-            if (!channel.isActive() || getUser(user.getUUID()) != user) return;
-            try {
-                packetApi.bindExecutor(user.getConnection(), executor);
-                user.bindPacketExecutor(executor);
-                // Drain tasks scheduled on the previous owner before accepting raw inputs.
-                channel.eventLoop().execute(() -> user.executeLater(ready));
-            } catch (RuntimeException failure) {
-                LogUtil.warn("Unable to bind Bedrock packet executor: " + failure);
-                user.closeConnection();
-            }
-        });
+    public void setPacketOwnerResolver(java.util.function.Function<Channel, io.netty.util.concurrent.EventExecutor> resolver) {
+        packetApi.setOwnerResolver(resolver);
     }
 
     @EventHandler
@@ -347,6 +335,20 @@ public final class CultNetworkManager implements Listener {
 
         PacketFlow flow = packet.type().flow();
         if (flow == PacketFlow.SERVERBOUND) {
+            if (user.getBedrockBridgeConnection() != null && user.getConnectionState() == ConnectionProtocol.PLAY
+                    && !(packet instanceof net.minecraft.network.protocol.game.ServerboundConfigurationAcknowledgedPacket)
+                    && !(packet instanceof net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket)) {
+                if (packet instanceof net.minecraft.network.protocol.game.ServerboundMovePlayerPacket move && move.hasPosition()) {
+                    var player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(user);
+                    if (player != null) {
+                        // Paper's setback anchor must use the position it actually receives after
+                        // Geyser/Via/GFP adjustments. A higher anchor would reset fall distance.
+                        player.getSetbackTeleportUtil().setBedrockPaperVisiblePosition(
+                                new net.minecraft.world.phys.Vec3(move.getX(0), move.getY(0), move.getZ(0)));
+                    }
+                }
+                return List.of(packet);
+            }
             return handleServerboundPacket(user, packet);
         }
         return handleClientboundPacket(user, packet, context.insideBundle());
@@ -561,7 +563,7 @@ public final class CultNetworkManager implements Listener {
             }
 
             String name = playerName == null ? playerUUID.toString() : playerName;
-            User user = new User(new User.Profile(playerUUID, name), null, null, connection, channel);
+            User user = new User(new User.Profile(playerUUID, name), null, null, connection, channel, packetApi.packetExecutor(channel));
             user.setConnectionState(ConnectionProtocol.CONFIGURATION);
             user.setEncoderState(ConnectionProtocol.CONFIGURATION);
 

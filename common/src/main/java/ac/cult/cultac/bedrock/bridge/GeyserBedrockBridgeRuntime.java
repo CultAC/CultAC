@@ -36,7 +36,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.math.vector.Vector2f;
 import org.cloudburstmc.math.vector.Vector3f;
@@ -77,7 +76,6 @@ import org.geysermc.geyser.api.event.bedrock.SessionLoginEvent;
 import org.geysermc.geyser.api.event.lifecycle.GeyserPostInitializeEvent;
 import org.geysermc.geyser.api.event.lifecycle.GeyserPostReloadEvent;
 import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket;
 
 public final class GeyserBedrockBridgeRuntime {
     private static final Map<GeyserConnection, GeyserFloatingPointsAdapter> GFP_ADAPTERS = new ConcurrentHashMap<>();
@@ -86,6 +84,8 @@ public final class GeyserBedrockBridgeRuntime {
     private static volatile GeyserEventSubscriptions eventSubscriptions;
     private static volatile boolean started;
     private static GeyserSprintAttributeTranslator sprintTranslator;
+    private static GeyserPingTranslator pingTranslator;
+    private static GeyserKeepAliveTranslator keepAliveTranslator;
     private static volatile BedrockPacketLogger packetLogger;
 
     private GeyserBedrockBridgeRuntime() {
@@ -155,6 +155,7 @@ public final class GeyserBedrockBridgeRuntime {
                 logger.onInitialize(session, session.bedrockUsername(), session.protocolVersion());
             }
         });
+        CultAPI.INSTANCE.getNetworkManager().setPacketOwnerResolver(GeyserBedrockBridgeRuntime::packetOwner);
         subscriptions.subscribeLast(SessionLoginEvent.class, event -> {
             if (event.connection() instanceof GeyserSession session) {
                 // GFP installs its upstream wrapper at NORMAL priority. Geyser creates and
@@ -179,7 +180,10 @@ public final class GeyserBedrockBridgeRuntime {
     }
 
     private static synchronized void installSprintTranslator() {
-        if (!started || sprintTranslator != null && sprintTranslator.isInstalled()) return;
+        if (!started) return;
+        if (pingTranslator == null || !pingTranslator.isInstalled()) pingTranslator = new GeyserPingTranslator();
+        if (keepAliveTranslator == null || !keepAliveTranslator.isInstalled()) keepAliveTranslator = new GeyserKeepAliveTranslator();
+        if (sprintTranslator != null && sprintTranslator.isInstalled()) return;
         sprintTranslator = new GeyserSprintAttributeTranslator((session, attribute) -> {
             var tap = PACKET_TAPS.get(session);
             if (tap == null) throw new IllegalStateException("Missing Cult movement tap");
@@ -197,7 +201,10 @@ public final class GeyserBedrockBridgeRuntime {
 
     public static synchronized void stop() {
         started = false;
+        CultAPI.INSTANCE.getNetworkManager().setPacketOwnerResolver(channel -> null);
         if (sprintTranslator != null) { sprintTranslator.close(); sprintTranslator = null; }
+        if (pingTranslator != null) { pingTranslator.close(); pingTranslator = null; }
+        if (keepAliveTranslator != null) { keepAliveTranslator.close(); keepAliveTranslator = null; }
         BedrockPacketLogger logger = packetLogger;
         packetLogger = null;
         if (logger != null) logger.close();
@@ -283,7 +290,7 @@ public final class GeyserBedrockBridgeRuntime {
             return;
         }
         if (installedTap != null) {
-            if (installedTap.inputs.ready()) {
+            if (session.getDownstream() != null) {
                 session.disconnect("CultAC movement handler changed. Please reconnect.");
                 installedTap.detach();
                 return;
@@ -308,13 +315,18 @@ public final class GeyserBedrockBridgeRuntime {
         PacketTapHandler tap = new PacketTapHandler(session, bedrockSession, currentHandler, latencyQueue);
         bedrockSession.setPacketHandler(tap);
         PACKET_TAPS.put(connection, tap);
+        try {
+            GeyserBlockActions.install(session, () -> playerForSession(session));
+        } catch (RuntimeException | LinkageError failure) {
+            session.disconnect("CultAC could not initialize native block tracking.");
+            tap.detach();
+            throw failure;
+        }
         tap.attachOutboundTap();
     }
 
     private static boolean installFloatingPoints(GeyserSession session, boolean requireJavaHook) {
         if (!GeyserFloatingPointsAdapter.present()) {
-            PacketTapHandler tap = PACKET_TAPS.get(session);
-            if (tap != null) tap.serverResponses.install();
             return true;
         }
         GeyserEventSubscriptions generation = eventSubscriptions;
@@ -361,7 +373,47 @@ public final class GeyserBedrockBridgeRuntime {
     }
 
     static Runnable nativeLatencyCallback(GeyserSession session, int id) {
-        return () -> session.ensureInEventLoop(() -> session.sendDownstreamPacket(new ServerboundPongPacket(id)));
+        return () -> session.ensureInEventLoop(() -> acceptTransaction(session, id));
+    }
+
+    private static CultPlayer playerForSession(GeyserSession session) {
+        var tap = PACKET_TAPS.get(session);
+        return tap == null ? null : tap.currentPlayer();
+    }
+
+    static boolean acceptTransaction(GeyserSession session, int id) {
+        CultPlayer player = playerForSession(session);
+        return player != null && ac.cult.cultac.events.packets.listeners.PacketPingListener.acceptBedrockResponse(player, id);
+    }
+
+    static void acceptKeepAlive(GeyserSession session, long id) {
+        CultPlayer player = playerForSession(session);
+        if (player != null) player.checkManager.getListener(ac.cult.cultac.utils.latency.KeepAliveProcessor.class).acceptResponse(id);
+    }
+
+    static void correctCollisions(PlayerAuthInputPacket packet,
+                                  ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags collision) {
+        // Bedrock delta is next-tick velocity; collision flags describe the simulated move just completed.
+        PacketTapHandler.setInputFlag(packet, PlayerAuthInputData.HORIZONTAL_COLLISION, collision.horizontalCollision());
+        PacketTapHandler.setInputFlag(packet, PlayerAuthInputData.VERTICAL_COLLISION, collision.verticalCollision());
+    }
+
+    static boolean hasFiniteMovement(PlayerAuthInputPacket packet) {
+        return finite(packet.getPosition()) && finite(packet.getDelta()) && finite(packet.getRotation())
+                && packet.getMotion() != null && Float.isFinite(packet.getMotion().getX())
+                && Float.isFinite(packet.getMotion().getY());
+    }
+
+    private static boolean finite(Vector3f vector) {
+        return vector != null && Float.isFinite(vector.getX()) && Float.isFinite(vector.getY())
+                && Float.isFinite(vector.getZ());
+    }
+
+    static net.minecraft.core.BlockPos worldBlock(GeyserSession session, org.cloudburstmc.math.vector.Vector3i position) {
+        var adapter = GFP_ADAPTERS.get(session);
+        var frame = adapter == null ? BedrockCoordinateFrame.IDENTITY : adapter.coordinateFrame();
+        var world = frame.toWorld(new Vec3(position.getX(), position.getY(), position.getZ()));
+        return net.minecraft.core.BlockPos.containing(world);
     }
 
     private static final class PacketTapHandler implements BedrockPacketHandler {
@@ -372,8 +424,6 @@ public final class GeyserBedrockBridgeRuntime {
         private final AtomicBoolean detached = new AtomicBoolean();
         private final String outboundHandlerName;
         private final String packetLogHandlerName;
-        private final GeyserInputQueue inputs;
-        private final GeyserServerResponses serverResponses;
         private final Map<BedrockPacket, BedrockTeleportOperation> playerSetbackSources = new IdentityHashMap<>();
         private long playerTeleportSequence;
         private final GeyserSprintAttributes sprintAttributes = new GeyserSprintAttributes();
@@ -388,16 +438,12 @@ public final class GeyserBedrockBridgeRuntime {
 
         private PacketTapHandler(GeyserSession connection, BedrockSession bedrockSession, BedrockPacketHandler delegate, GeyserQueue latencyQueue) {
             this.connection = connection;
-            this.serverResponses = new GeyserServerResponses(connection);
             this.bedrockSession = bedrockSession;
             this.delegate = delegate;
             this.latencyQueue = latencyQueue;
             this.outboundHandlerName = "cultac-outbound-packet-" + Integer.toHexString(System.identityHashCode(this));
             this.packetLogHandlerName = outboundHandlerName + "-log";
-            this.inputs = new GeyserInputQueue(connection, () -> {
-                CultPlayer player = currentPlayer();
-                return player == null ? null : player.user;
-            }, this::translateInput);
+
         }
 
         @Override
@@ -449,7 +495,7 @@ public final class GeyserBedrockBridgeRuntime {
                     if (currentPlayer() == null) {
                         // Login traffic must establish the Java connection before ownership can bind.
                         delegate.handlePacket(packet);
-                    } else inputs.offer(packet);
+                    } else translateInput(packet);
                 } finally {
                     io.netty.util.ReferenceCountUtil.release(packet);
                 }
@@ -460,21 +506,42 @@ public final class GeyserBedrockBridgeRuntime {
         private void translateInput(BedrockPacket packet) {
             CultPlayer player = currentPlayer();
             if (player == null) return;
-            if (packet instanceof InteractPacket interaction
-                    && !GeyserVehicleInput.acceptsInteraction(connection, player, interaction)) return;
-            if (packet instanceof PlayerAuthInputPacket authInput) {
-                if (!processAuthInput(player, authInput)) return;
-            } else if (packet instanceof MovePlayerPacket move) {
-                submitMove(player, move);
-            } else if (packet instanceof InventoryTransactionPacket transaction) {
-                submitInventoryTransaction(player, transaction);
-            } else if (packet instanceof PlayerActionPacket action) {
-                submitPlayerAction(player, action);
-            }
-            var adapter = GFP_ADAPTERS.get(connection);
-            if (adapter != null && packet instanceof PlayerAuthInputPacket) {
-                adapter.withTeleportRetry(() -> delegate.handlePacket(packet));
-            } else delegate.handlePacket(packet);
+            GeyserInventoryActions.translate(connection, player, packet, () -> {
+                if (packet instanceof InteractPacket interaction
+                        && !GeyserVehicleInput.acceptsInteraction(connection, player, interaction)) return;
+                int sequence = GeyserBlockActions.sequence(connection);
+                if (packet instanceof PlayerAuthInputPacket authInput) {
+                    if (!processAuthInput(player, authInput)) {
+                        // Inventory requests share the auth-input envelope but do not authorize movement.
+                        if (authInput.getInputData().contains(PlayerAuthInputData.PERFORM_ITEM_STACK_REQUEST)
+                                && authInput.getItemStackRequest() != null) {
+                            connection.getPlayerInventoryHolder().translateRequests(java.util.List.of(authInput.getItemStackRequest()));
+                        }
+                        return;
+                    }
+                } else if (packet instanceof MovePlayerPacket move) {
+                    submitMove(player, move);
+                } else if (packet instanceof InventoryTransactionPacket transaction) {
+                    if (!GeyserItemUse.allow(connection, player, transaction)) return;
+                    submitInventoryTransaction(player, transaction);
+                } else if (packet instanceof PlayerActionPacket action) {
+                    submitPlayerAction(player, action);
+                }
+                var adapter = GFP_ADAPTERS.get(connection);
+                if (adapter != null && packet instanceof PlayerAuthInputPacket) {
+                    adapter.withTeleportRetry(() -> delegate.handlePacket(packet));
+                } else delegate.handlePacket(packet);
+                if (packet instanceof InventoryTransactionPacket transaction) {
+                    GeyserItemUse.observe(connection, player, transaction, sequence);
+                } else if (packet instanceof PlayerAuthInputPacket input) {
+                    GeyserVehicleInput.observe(connection, player, input);
+                    player.actionManager.endClientTick();
+                    player.packetStateData.acceptedClientTick++;
+                    player.packetStateData.lastClientTickEndTransaction = player.lastTransactionReceived.get();
+                    player.packetStateData.carriedItemChangedThisClientTick = false;
+                    player.serverOpenedInventoryThisTick = false;
+                }
+            });
         }
 
         private void logPacket(String direction, BedrockPacket packet) {
@@ -483,12 +550,11 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private void detach() {
-            serverResponses.close();
             if (!detached.compareAndSet(false, true)) {
                 return;
             }
             PACKET_TAPS.remove(connection, this);
-            connection.ensureInEventLoop(() -> { inputs.close(); entityPositions.clear(); entityAttributes.clear(); sprintAttributes.close(); vehicleAttributes.clear(); });
+            connection.ensureInEventLoop(() -> { entityPositions.clear(); entityAttributes.clear(); sprintAttributes.close(); vehicleAttributes.clear(); });
             if (connection.isClosed()) latencyQueue.clear();
             else latencyQueue.stopTrackingWrites();
             if (bedrockSession.getPacketHandler() == this) {
@@ -654,6 +720,7 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private boolean processAuthInput(CultPlayer player, PlayerAuthInputPacket packet) {
+            if (!hasFiniteMovement(packet)) return false;
             if (!installFloatingPoints(connection, true)) return false;
             initializeActor(player);
             var beforeSprint = sprintBoundary();
@@ -673,6 +740,8 @@ public final class GeyserBedrockBridgeRuntime {
                 else retryAdapter.withTeleportRetry(() -> GeyserTeleportRecovery.retryGeyserTeleport(connection));
             }
             if (state == null) return false;
+            if (state.isVehicle() && !GeyserVehicleInput.acceptsMovement(connection, player)) return false;
+            if (player.compensatedEntities.getSelf().isDead) return false;
             var boundary = sprintBoundary();
             if (!state.isVehicle() && (boundary.generation() != beforeSprint.generation()
                     || boundary.sprinting() != beforeSprint.sprinting())) {
@@ -686,17 +755,8 @@ public final class GeyserBedrockBridgeRuntime {
             Vec3 position = ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter.toJava(state.physicalFeetPosition());
             packet.setPosition(toVector3f(coordinates.toLocal(position)).up(vehicle == null ? ownerPlayerOffset() : vehicle.getOffset()));
             packet.setDelta(toVector3f(ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter.toJava(state.velocity())));
-            setInputFlag(packet, PlayerAuthInputData.HORIZONTAL_COLLISION, state.collisionFlags().horizontalCollision());
-            setInputFlag(packet, PlayerAuthInputData.VERTICAL_COLLISION, state.collisionFlags().verticalCollision());
+            correctCollisions(packet, state.collisionFlags());
             if (state.isBoat()) packet.setVehicleRotation(Vector2f.from(state.inputFrame().pitch(), state.inputFrame().yaw()));
-            if (vehicle == null) {
-                player.packetStateData.grantBedrockTranslatedMovementPermit(state.movementGrounded());
-            } else {
-                // Compare against precisely the float-to-double conversion Geyser will forward.
-                Vector3f projected = packet.getPosition().down(vehicle.getOffset());
-                player.packetStateData.grantBedrockVehicleMovementPermit(vehicle.getEntityId(),
-                        coordinates.toWorld(rawPosition(projected)));
-            }
             return true;
         }
 
@@ -785,18 +845,14 @@ public final class GeyserBedrockBridgeRuntime {
         }
     }
 
-    public static boolean finishTranslation(User user, String channel, Supplier<byte[]> payload) {
-        if (GeyserServerResponses.CHANNEL.equals(channel)) {
-            PacketTapHandler tap = packetTapForUser(user);
-            byte[] value = payload.get();
-            CultPlayer player = tap == null ? null : tap.currentPlayer();
-            if (player != null && value.length == 1) player.packetStateData.bedrockServerResponse = value[0] == 1;
-            return true;
+    private static io.netty.util.concurrent.EventExecutor packetOwner(io.netty.channel.Channel channel) {
+        for (PacketTapHandler tap : PACKET_TAPS.values()) {
+            var downstream = tap.connection.getDownstream();
+            if (downstream != null && sameJavaConnection(downstream.getSession().getChannel(), channel)) {
+                return tap.connection.getTickEventLoop();
+            }
         }
-        if (!GeyserInputQueue.CHANNEL.equals(channel)) return false;
-        PacketTapHandler tap = packetTapForUser(user);
-        if (tap != null) tap.inputs.complete(user, payload.get());
-        return true;
+        return null;
     }
 
     private static float ownerPlayerOffset() {
@@ -922,20 +978,6 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
 
-            if (owner.currentPlayer() != null && !owner.inputs.ready()) {
-                owner.inputs.deferWrite(() -> {
-                    try { write(context, message, promise); }
-                    catch (Exception failure) {
-                        io.netty.util.ReferenceCountUtil.release(message);
-                        promise.tryFailure(failure);
-                        owner.connection.disconnect("CultAC: Bedrock initialization failed");
-                    }
-                }, () -> {
-                    io.netty.util.ReferenceCountUtil.release(message);
-                    promise.tryFailure(new java.nio.channels.ClosedChannelException());
-                });
-                return;
-            }
             BedrockPacket packet = wrapper.getPacket();
             owner.initializeActor(owner.currentPlayer());
             boolean normalizedVehicleEffect = false;

@@ -71,10 +71,28 @@ public final class PacketApi {
         return key;
     }
 
-    public void bindExecutor(Connection connection, io.netty.util.concurrent.EventExecutor executor) {
-        PlayerConnectionHandler handler = connectionHandlers.get(connection);
+    private volatile java.util.function.Function<Channel, io.netty.util.concurrent.EventExecutor> ownerResolver = channel -> null;
+
+    public void setOwnerResolver(java.util.function.Function<Channel, io.netty.util.concurrent.EventExecutor> resolver) {
+        ownerResolver = java.util.Objects.requireNonNull(resolver);
+    }
+
+    io.netty.util.concurrent.EventExecutor resolveOwner(Channel channel) {
+        return ownerResolver.apply(channel);
+    }
+
+    io.netty.channel.ChannelHandlerContext bindOwner(io.netty.channel.ChannelHandlerContext context, Connection connection) {
+        var owner = resolveOwner(context.channel());
+        if (owner == null || owner == context.executor()) return null;
+        var handler = connectionHandlers.get(connection);
         if (handler == null) throw new IllegalStateException("Connection interceptor is unavailable");
-        handler.bindExecutor(executor);
+        handler.bindExecutor(owner);
+        return context.pipeline().context(key);
+    }
+
+    public io.netty.util.concurrent.EventExecutor packetExecutor(Channel channel) {
+        var context = channel.pipeline().context(key);
+        return context == null ? channel.eventLoop() : context.executor();
     }
 
     public boolean isKickForPacketErrors() {

@@ -28,7 +28,7 @@ public final class User {
     private final AtomicBoolean closeRequested = new AtomicBoolean();
     // Kept untyped so Java connections do not require the optional Geyser classes.
     private volatile Object bedrockBridgeConnection;
-    private volatile EventExecutor packetExecutor;
+    private final EventExecutor packetExecutor;
     private volatile ConnectionProtocol connectionState;
     private volatile ConnectionProtocol encoderState;
 
@@ -37,12 +37,17 @@ public final class User {
     }
 
     public User(Profile profile, @Nullable Player player, @Nullable ServerPlayer handle, Connection connection, Channel channel) {
+        this(profile, player, handle, connection, channel, channel.eventLoop());
+    }
+
+    public User(Profile profile, @Nullable Player player, @Nullable ServerPlayer handle, Connection connection,
+                Channel channel, EventExecutor packetExecutor) {
         this.profile = profile;
         this.player = player;
         this.handle = handle;
         this.connection = connection;
         this.channel = channel;
-        this.packetExecutor = channel.eventLoop();
+        this.packetExecutor = java.util.Objects.requireNonNull(packetExecutor);
         this.connectionState = ConnectionProtocol.PLAY;
         this.encoderState = ConnectionProtocol.PLAY;
     }
@@ -81,20 +86,13 @@ public final class User {
         return packetExecutor;
     }
 
-    public void bindPacketExecutor(EventExecutor executor) {
-        if (!channel.eventLoop().inEventLoop()) throw new IllegalStateException("Binding outside connection loop");
-        packetExecutor = java.util.Objects.requireNonNull(executor);
-    }
-
-    /** State tasks follow the owner even if ownership changed while they were queued. */
     public void execute(Runnable task) {
-        EventExecutor executor = packetExecutor;
-        if (executor.inEventLoop()) task.run();
-        else executor.execute(() -> execute(task));
+        if (packetExecutor.inEventLoop()) task.run();
+        else packetExecutor.execute(task);
     }
 
     public void executeLater(Runnable task) {
-        packetExecutor.execute(() -> execute(task));
+        packetExecutor.execute(task);
     }
 
     @Nullable

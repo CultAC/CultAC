@@ -23,7 +23,10 @@ public class KeepAliveProcessor extends CultProcessor implements CheckListener {
 
     @CultPacketHandler
     public void onKeepAlive(PacketReceiveEvent event, CultPlayer player, ServerboundKeepAlivePacket packet) {
-        long id = packet.getId();
+        acceptResponse(packet.getId());
+    }
+
+    public void acceptResponse(long id) {
         final KeepAliveData data = this.pingMap.get(id);
         if (data != null && data.getTimeReceived() == 0) { final long time = System.currentTimeMillis();
             this.lastKeepAlivePing = Math.max(1, time - data.getTimeSent()); data.setTimeReceived(time);

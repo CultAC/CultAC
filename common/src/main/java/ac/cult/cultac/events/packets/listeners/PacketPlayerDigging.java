@@ -69,7 +69,10 @@ public class PacketPlayerDigging {
 
     @CultPacketHandler
     public void onSetCarriedItem(PacketReceiveEvent event, CultPlayer player, ServerboundSetCarriedItemPacket packet) {
-        int slotId = packet.getSlot();
+        selectHotbarSlot(player, packet.getSlot());
+    }
+
+    public static void selectHotbarSlot(CultPlayer player, int slotId) {
         // Stop people from spamming the server with out of bounds exceptions
         if (slotId > 8 || slotId < 0) return; //TODO: flag?
 

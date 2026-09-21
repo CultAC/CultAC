@@ -17,17 +17,22 @@ import net.minecraft.world.InteractionHand;
 
 public class PlaceHandler {
     public static void handleQueuedUseItem(CultPlayer player, ServerboundUseItemPacket packet) {
-        NmsPacketUtil.UseItemData place = NmsPacketUtil.readUseItem(packet);
+        handleNativeUseItem(player, NmsPacketUtil.readUseItem(packet));
+    }
+
+    public static void handleNativeUseItem(CultPlayer player, NmsPacketUtil.UseItemData place) {
         handleQueuedPlace(player, true, place.yaw(), place.pitch(), place.sequence(), () -> handleUseItem(player, place));
     }
 
     public static void handleQueuedUseItemOn(CultPlayer player, ServerboundUseItemOnPacket packet) {
-        NmsPacketUtil.UseItemOnData place = NmsPacketUtil.readUseItemOn(packet);
+        handleNativeUseItemOn(player, NmsPacketUtil.readUseItemOn(packet));
+    }
+
+    public static void handleNativeUseItemOn(CultPlayer player, NmsPacketUtil.UseItemOnData place) {
         handleQueuedPlace(player, false, 0, 0, place.sequence(), () -> handleUseItemOn(player, place));
     }
 
     private static void handleQueuedPlace(CultPlayer player, boolean updateRotation, float yaw, float pitch, int sequence, Runnable action) {
-        // Handle queue'd block places
         double lastX = player.x;
         double lastY = player.y;
         double lastZ = player.z;

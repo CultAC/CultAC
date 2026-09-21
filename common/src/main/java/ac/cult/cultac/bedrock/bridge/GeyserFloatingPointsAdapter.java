@@ -25,9 +25,9 @@ import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.Serv
 /** Optional local-Geyser integration for oryxel1 GFP 2.0 Build 5 (9f242a3).
  * The tick loop receives/translates packets, but MCProtocolLib's packetSending hook runs on
  * the downstream I/O loop. The adapter lock protects dispatch metadata across that boundary. */
+ // TODO: This class needs a rewrite now that we are on the same thread as gfp
 final class GeyserFloatingPointsAdapter {
     private final GeyserSession session;
-    private final GeyserServerResponses responses;
     private final GfpReflection reflection;
     private final Object user;
     private final Field upstreamField;
@@ -87,7 +87,6 @@ final class GeyserFloatingPointsAdapter {
 
     GeyserFloatingPointsAdapter(GeyserSession session, GfpReflection reflection) throws ReflectiveOperationException {
         this.session = session;
-        this.responses = new GeyserServerResponses(session);
         this.reflection = reflection;
         user = reflection.user(session.getUpstream(), session);
         if (!Vector3i.ZERO.equals(reflection.offset(user))) {
@@ -264,7 +263,7 @@ final class GeyserFloatingPointsAdapter {
                         // Rewriting has completed. Geyser may synchronously send a Java echo which
                         // triggers another GFP rebase; earlier emissions must retain this origin.
                         if (!result.cancelled()) dispatch.withOperation(operation,
-                                () -> responses.translate(() -> delegates.forEach(l -> l.packetReceived(downstream, result.packet()))));
+                                () -> delegates.forEach(l -> l.packetReceived(downstream, result.packet())));
                         bindTeleportCache(beforeCache, operation);
                     } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
                         dispatch.clear();
@@ -296,7 +295,6 @@ final class GeyserFloatingPointsAdapter {
                     bindTeleportCache(beforeCache, operation);
                     // Finalize this rewrite before a delegate can synchronously cause another one.
                     if (!result.cancelled()) delegates.forEach(listener -> listener.packetSending(event));
-                    responses.sending(event);
                 } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
                     event.setCancelled(true);
                     dispatch.clear();

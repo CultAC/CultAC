@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -77,6 +78,18 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     private void setClientCarried(ItemStack stack) {
         menu.setCarried(stack == null ? ItemStack.empty() : stack);
+    }
+
+    public void applyBedrockSlots(int windowId, java.util.Map<Integer, ItemStack> changed) {
+        if (windowId != 0 && windowId != openWindowID) return;
+        var target = windowId == 0 ? inventory : menu;
+        changed.forEach((index, item) -> {
+            if (index >= 0 && index < target.getSlots().size()) target.getSlot(index).set(item);
+        });
+    }
+
+    public void applyBedrockCursor(ItemStack item) {
+        setClientCarried(item);
     }
 
     private void deferClientboundInventoryTask(PacketSendEvent event, Runnable task) {
@@ -181,7 +194,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     private boolean isClientClickClaimSane(
-            NmsPacketUtil.ContainerClickData click,
+            InventoryClick click,
             List<ItemStack> beforeSlots,
             ItemStack beforeCarried,
             List<ItemStack> afterSlots,
@@ -211,13 +224,13 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         );
     }
 
-    static boolean permitsCreativeCreation(NmsPacketUtil.ContainerClickData click, GameMode gameMode) {
+    static boolean permitsCreativeCreation(InventoryClick click, GameMode gameMode) {
         return gameMode == GameMode.CREATIVE
                 && (click.clickType() == WindowClickType.CLONE
                 || click.clickType() == WindowClickType.QUICK_CRAFT && (click.button() >> 2 & 3) == 2);
     }
 
-    private boolean isImplicitOffhandSwap(NmsPacketUtil.ContainerClickData click, int menuSlotCount) {
+    private boolean isImplicitOffhandSwap(InventoryClick click, int menuSlotCount) {
         return click.clickType() == WindowClickType.SWAP
                 && click.button() == NMS_OFFHAND_SWAP_BUTTON
                 && click.slot() >= 0
@@ -235,9 +248,10 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     private List<ItemStack> resolveChangedSlots(
-            NmsPacketUtil.ContainerClickData click,
+            InventoryClick click,
             List<ItemStack> beforeSlots,
-            ItemStack beforeCarried
+            ItemStack beforeCarried,
+            java.util.function.BiPredicate<Integer, ItemStack> matches
     ) {
         List<ItemStack> afterSlots = new ArrayList<>(beforeSlots);
         ItemStack clickedSource = click.slot() >= 0 && click.slot() < beforeSlots.size()
@@ -248,20 +262,19 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             if (slot < 0 || slot >= afterSlots.size()) {
                 return null;
             }
-            afterSlots.set(slot, resolveClaimedStack(
-                    entry.getValue(),
-                    beforeSlots.get(slot),
-                    beforeSlots,
-                    clickedSource,
-                    beforeCarried));
+            ItemStack resolved = resolveClaimedStack(entry.getValue(), beforeSlots.get(slot), beforeSlots,
+                    clickedSource, beforeCarried, candidate -> matches.test(slot, candidate));
+            if (resolved == null) return null;
+            afterSlots.set(slot, resolved);
         }
         return afterSlots;
     }
 
     private ItemStack resolveAfterCarried(
-            NmsPacketUtil.ContainerClickData click,
+            InventoryClick click,
             List<ItemStack> beforeSlots,
-            ItemStack beforeCarried
+            ItemStack beforeCarried,
+            java.util.function.BiPredicate<Integer, ItemStack> matches
     ) {
         ItemStack clickedSource = click.slot() >= 0 && click.slot() < beforeSlots.size()
                 ? beforeSlots.get(click.slot())
@@ -271,7 +284,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 beforeCarried,
                 beforeSlots,
                 clickedSource,
-                ItemStack.empty());
+                ItemStack.empty(), candidate -> matches.test(-1, candidate));
     }
 
     private ItemStack resolveClaimedStack(
@@ -279,7 +292,8 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             ItemStack previous,
             List<ItemStack> beforeSlots,
             ItemStack primarySource,
-            ItemStack secondarySource
+            ItemStack secondarySource,
+            java.util.function.Predicate<ItemStack> matches
     ) {
         if (claim == null || claim.isEmpty()) {
             return ItemStack.empty();
@@ -287,19 +301,19 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
         for (ItemStack candidate : new ItemStack[]{previous, primarySource, secondarySource}) {
             ItemStack resolved = copyWithAmountIfMaterialMatches(candidate, claim.getType(), claim.getAmount());
-            if (!resolved.isEmpty()) {
+            if (!resolved.isEmpty() && matches.test(resolved)) {
                 return resolved;
             }
         }
 
         for (ItemStack candidate : beforeSlots) {
             ItemStack candidateCopy = copyWithAmountIfMaterialMatches(candidate, claim.getType(), claim.getAmount());
-            if (!candidateCopy.isEmpty()) {
+            if (!candidateCopy.isEmpty() && matches.test(candidateCopy)) {
                 return candidateCopy;
             }
         }
 
-        return ItemUtil.copy(claim);
+        return matches.test(claim) ? ItemUtil.copy(claim) : null;
     }
 
     private static ItemStack copyWithAmountIfMaterialMatches(ItemStack source, Material material, int amount) {
@@ -317,24 +331,27 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             return;
         }
 
-        NmsPacketUtil.ContainerClickData click = NmsPacketUtil.readContainerClick(packet);
+        applyContainerClick(NmsPacketUtil.readContainerClick(packet));
+    }
 
-        // How is this possible? Maybe transaction splitting.
+    public boolean applyContainerClick(InventoryClick click) {
+        var matches = click.matches();
         if (click.windowId() != openWindowID) {
-            return;
+            return false;
         }
 
         if (mirrorBundleClick(click)) {
-            return;
+            return true;
         }
 
         List<ItemStack> beforeSlots = copyMenuSlots(menu);
         ItemStack beforeCarried = ItemUtil.copy(menu.getCarried());
-        List<ItemStack> afterSlots = resolveChangedSlots(click, beforeSlots, beforeCarried);
+        List<ItemStack> afterSlots = resolveChangedSlots(click, beforeSlots, beforeCarried, matches);
         if (afterSlots == null) {
-            return;
+            return false;
         }
-        ItemStack afterCarried = resolveAfterCarried(click, beforeSlots, beforeCarried);
+        ItemStack afterCarried = resolveAfterCarried(click, beforeSlots, beforeCarried, matches);
+        if (afterCarried == null) return false;
 
         PredictedResultSlotValidator.ResultAllowance allowance = PredictedResultSlotValidator.dialogResultAllowance(
                 serverContainerType,
@@ -352,7 +369,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 afterSlots,
                 afterCarried,
                 allowance)) {
-            return;
+            return false;
         }
 
         // The client already ran the same menu click code and sent the changed slot set.
@@ -375,9 +392,10 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         if (serverContainerType == MenuType.MERCHANT && click.slot() != 2) {
             PredictedMerchantInventory.mirrorTrade(menu, merchantOffers, selectedMerchantOffer);
         }
+        return true;
     }
 
-    private boolean mirrorBundleClick(NmsPacketUtil.ContainerClickData click) {
+    private boolean mirrorBundleClick(InventoryClick click) {
         if (click.clickType() != WindowClickType.PICKUP
                 || (click.button() != 0 && click.button() != 1)
                 || click.slot() < 0) {
@@ -453,7 +471,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         return null;
     }
 
-    private boolean bundlePredictionMatchesPacket(NmsPacketUtil.ContainerClickData click, BundleClickResult result) {
+    private boolean bundlePredictionMatchesPacket(InventoryClick click, BundleClickResult result) {
         ItemStack changedSlot = click.changedSlots().get(click.slot());
         boolean slotChanged = !sameStack(menu.getSlot(click.slot()).getItem(), result.slot());
         if (slotChanged != click.changedSlots().containsKey(click.slot())) {
@@ -485,16 +503,17 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     @CultPacketHandler(packetClass = "net.minecraft.network.protocol.game.ServerboundSelectBundleItemPacket")
     public void onSelectBundleItem(PacketReceiveEvent event, CultPlayer player, Packet<?> packet) {
-        mirrorSelectedBundleItem(packet);
+        selectBundleItem(NmsPacketUtil.intValue(packet, "slotId"), NmsPacketUtil.intValue(packet, "selectedItemIndex"));
     }
 
     @CultPacketHandler
     public void onSelectTrade(PacketReceiveEvent event, CultPlayer player, ServerboundSelectTradePacket packet) {
-        if (event.isCancelled() || serverContainerType != MenuType.MERCHANT) {
-            return;
-        }
+        if (!event.isCancelled()) selectTrade(packet.getItem());
+    }
 
-        selectedMerchantOffer = packet.getItem();
+    public void selectTrade(int offer) {
+        if (serverContainerType != MenuType.MERCHANT) return;
+        selectedMerchantOffer = offer;
         PredictedMerchantInventory.mirrorTradeSelection(menu, merchantOffers, selectedMerchantOffer);
     }
 
@@ -505,12 +524,12 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         }
 
         NmsPacketUtil.UseItemData item = NmsPacketUtil.readUseItem(packet);
-        ItemStack use = item.hand() == InteractionHand.MAIN_HAND ? player.getInventory().getHeldItem() : player.getInventory().getOffHand();
-        if (mirrorEquipmentUse(item.hand(), use)) {
-            return;
-        }
+        useItem(item.hand(), item.yaw(), item.pitch());
+    }
 
-        NmsBlockPlaceResolver.applyClientSideUseItem(player, item.hand(), item.yaw(), item.pitch());
+    public void useItem(InteractionHand hand, float yaw, float pitch) {
+        if (mirrorEquipmentUse(hand, getHandItem(hand))) return;
+        NmsBlockPlaceResolver.applyClientSideUseItem(player, hand, yaw, pitch);
     }
 
     @CultPacketHandler
@@ -661,59 +680,59 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     @CultPacketHandler
     public void onPlayerAction(PacketReceiveEvent event, CultPlayer player, ServerboundPlayerActionPacket packet) {
-        NmsPacketUtil.PlayerActionData dig = NmsPacketUtil.readPlayerAction(packet);
+        Action action = NmsPacketUtil.readPlayerAction(packet).action();
+        if (action == Action.DROP_ITEM || action == Action.DROP_ALL_ITEMS) dropHeldItem(action == Action.DROP_ALL_ITEMS);
+    }
 
-        if (dig.action() == Action.DROP_ITEM) {
-            ItemStack heldItem = ItemUtil.copy(getHeldItem());
-            if (heldItem != null) {
-                heldItem.setAmount(heldItem.getAmount() - 1);
-                if (heldItem.getAmount() <= 0) {
-                    heldItem = null;
-                }
-            }
-            inventory.setHeldItem(heldItem);
-        }
-
-        if (dig.action() == Action.DROP_ALL_ITEMS) {
+    public void dropHeldItem(boolean wholeStack) {
+        ItemStack held = ItemUtil.copy(getHeldItem());
+        if (wholeStack || held.isEmpty() || held.getAmount() <= 1) {
             inventory.setHeldItem(null);
+        } else {
+            held.setAmount(held.getAmount() - 1);
+            inventory.setHeldItem(held);
         }
     }
 
     @CultPacketHandler
     public void onSetCarriedItem(PacketReceiveEvent event, CultPlayer player, ServerboundSetCarriedItemPacket packet) {
-        // Stop people from spamming the server with an out-of-bounds exception
-        if (packet.getSlot() < 0 || packet.getSlot() > 8) return;
-        if (inventory.selected != packet.getSlot()) {
-            player.packetStateData.carriedItemChangedThisClientTick = true;
-        }
-        inventory.selected = packet.getSlot();
-        player.packetStateData.lastSlotSelected = packet.getSlot();
+        selectHotbarSlot(packet.getSlot());
+    }
+
+    public void selectHotbarSlot(int slot) {
+        if (slot < 0 || slot > 8) return;
+        if (inventory.selected != slot) player.packetStateData.carriedItemChangedThisClientTick = true;
+        inventory.selected = slot;
+        player.packetStateData.lastSlotSelected = slot;
         player.compensatedEntities.vehicles.markItemControlledVehicleControlSwitch();
     }
 
     @CultPacketHandler
     public void onSetCreativeModeSlot(PacketReceiveEvent event, CultPlayer player, ServerboundSetCreativeModeSlotPacket packet) {
-        if (event.isCancelled() || player.gamemode != GameMode.CREATIVE) return;
+        if (!event.isCancelled()) setCreativeSlot(packet.slotNum(), SpigotConversionUtil.fromNmsItemStack(packet.itemStack()));
+    }
 
-        boolean valid = packet.slotNum() >= 1 && packet.slotNum() <= 45;
-
-        if (valid) {
-            ItemStack itemStack = SpigotConversionUtil.fromNmsItemStack(packet.itemStack());
-            player.getInventory().inventory.getSlot(packet.slotNum()).set(itemStack);
+    public void setCreativeSlot(int slot, ItemStack stack) {
+        if (player.gamemode == GameMode.CREATIVE && slot >= 1 && slot <= 45) {
+            inventory.getSlot(slot).set(ItemUtil.copy(stack));
         }
     }
 
     @CultPacketHandler
     public void onContainerClose(PacketReceiveEvent event, CultPlayer player, ServerboundContainerClosePacket packet) {
+        closeContainer();
+    }
+
+    public void closeContainer() {
         menu = inventory;
         openWindowID = 0;
         serverContainerType = MenuType.CRAFTING;
-        menu.setCarried(ItemStack.empty()); // Reset carried item
+        menu.setCarried(ItemStack.empty());
         merchantOffers = List.of();
         selectedMerchantOffer = 0;
     }
 
-    private void mirrorImplicitOffhandSwap(NmsPacketUtil.ContainerClickData click, ItemStack clickedBefore, ItemStack offhandBefore) {
+    private void mirrorImplicitOffhandSwap(InventoryClick click, ItemStack clickedBefore, ItemStack offhandBefore) {
         if (click.clickType() != WindowClickType.SWAP || click.button() != NMS_OFFHAND_SWAP_BUTTON || click.slot() < 0) {
             return;
         }
@@ -731,8 +750,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         inventory.getInventoryStorage().setItem(Inventory.SLOT_OFFHAND, offhandAfter);
     }
 
-    private void mirrorSelectedBundleItem(Packet<?> packet) {
-        int slotId = NmsPacketUtil.intValue(packet, "slotId");
+    public void selectBundleItem(int slotId, int selectedItemIndex) {
         if (slotId < 0 || slotId >= menu.getSlots().size()) {
             return;
         }
@@ -747,7 +765,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             return;
         }
 
-        BundleItem.toggleSelectedItem(item, NmsPacketUtil.intValue(packet, "selectedItemIndex"));
+        BundleItem.toggleSelectedItem(item, selectedItemIndex);
         slot.set(SpigotConversionUtil.fromNmsItemStack(item));
     }
 

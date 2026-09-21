@@ -47,6 +47,19 @@ final class PlayerConnectionHandler {
         channel.pipeline().remove(key);
         channel.pipeline().addBefore(executor, MINECRAFT_PACKET_HANDLER_KEY, key,
                 new ChannelPacketHandler(packetApi, connection));
+        // Connection.setupInboundProtocol waits on the I/O thread. Decoder changes
+        // do not inspect packets or change the outbound encoder, so keep them there.
+        channel.pipeline().addAfter(key, key + "-inbound-protocol", new io.netty.channel.ChannelOutboundHandlerAdapter() {
+            @Override
+            public void write(io.netty.channel.ChannelHandlerContext ctx, Object message,
+                              io.netty.channel.ChannelPromise promise) {
+                if (message instanceof net.minecraft.network.UnconfiguredPipelineHandler.InboundConfigurationTask) {
+                    ctx.pipeline().context(key).writeAndFlush(message, promise);
+                } else {
+                    ctx.write(message, promise);
+                }
+            }
+        });
     }
 
     /** Unregisters this handler, removing the interceptor from the pipeline if not on disconnect. */
@@ -63,6 +76,9 @@ final class PlayerConnectionHandler {
         if (!disconnect) {
             try {
                 channel.pipeline().remove(key);
+                if (channel.pipeline().get(key + "-inbound-protocol") != null) {
+                    channel.pipeline().remove(key + "-inbound-protocol");
+                }
             } catch (Exception exception) {
                 if (!(exception instanceof NoSuchElementException)) {
                     LOGGER.error("An unknown error occurred whilst removing a packet handler from a player", exception);

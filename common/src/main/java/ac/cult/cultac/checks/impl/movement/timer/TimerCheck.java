@@ -48,6 +48,10 @@ public class TimerCheck extends AbstractTimerCheck {
         recordTimerEvent(event, true, false);
     }
 
+    public void onTransactionResponse() {
+        recordTimerEventForPacketDecision(true, false);
+    }
+
     public BedrockAuthInputDecision onBedrockAuthInput() {
         return recordTimerEventForPacketDecision(false, true)
                 ? BedrockAuthInputDecision.REJECT

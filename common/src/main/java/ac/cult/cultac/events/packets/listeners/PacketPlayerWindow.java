@@ -91,7 +91,7 @@ public class PacketPlayerWindow {
     }
 
 
-    private void handleInventory(CultPlayer cultPlayer, boolean nowOpen) {
+    public static void handleInventory(CultPlayer cultPlayer, boolean nowOpen) {
 
         if (!cultPlayer.hasInventoryOpen && nowOpen) {
             cultPlayer.lastOpenedInventory = System.currentTimeMillis();

@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.crash;
 
+import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
 import ac.cult.cultac.checks.Check;
@@ -44,7 +45,7 @@ public class CrashD extends Check implements CheckListener {
     @CultPacketHandler
     public void onContainerClick(PacketReceiveEvent event, CultPlayer player, ServerboundContainerClickPacket packet) {
         if (!isApplicable()) return;
-        NmsPacketUtil.ContainerClickData click = NmsPacketUtil.readContainerClick(packet);
+        InventoryClick click = NmsPacketUtil.readContainerClick(packet);
         int clickType = VerboseTags.enumId(click.clickType());
         int button = click.button();
         int windowId = click.windowId();

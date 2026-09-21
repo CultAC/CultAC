@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.badpackets;
 
+import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
 import ac.cult.cultac.checks.Check;
@@ -35,7 +36,7 @@ public class BadPacketsP extends Check implements CheckListener {
 
     @CultPacketHandler
     public void onContainerClick(PacketReceiveEvent event, CultPlayer player, ServerboundContainerClickPacket packet) {
-        final NmsPacketUtil.ContainerClickData data = NmsPacketUtil.readContainerClick(packet);
+        final InventoryClick data = NmsPacketUtil.readContainerClick(packet);
         final WindowClickType clickType = data.clickType();
         final int button = data.button();
 

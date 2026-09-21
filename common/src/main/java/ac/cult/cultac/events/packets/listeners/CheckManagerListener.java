@@ -1122,7 +1122,7 @@ public class CheckManagerListener {
         clearTransientPacketState(player);
     }
 
-    private void clearPendingVehicleMoveForInterveningPacket(CultPlayer player) {
+    private static void clearPendingVehicleMoveForInterveningPacket(CultPlayer player) {
         if (player.packetStateData.isAwaitingVehicleMoveAfterPassengerRotation()) {
             // LocalPlayer#tick sends the mounted Rot and vehicle move consecutively.
             player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
@@ -1139,7 +1139,7 @@ public class CheckManagerListener {
         player.checkManager.dispatchReceiveHandlers(event);
     }
 
-    private void clearTransientPacketState(CultPlayer player) {
+    private static void clearTransientPacketState(CultPlayer player) {
         // Finally, remove the packet state variables on this packet
         player.packetStateData.lastPacketWasTeleport = false;
         player.packetStateData.lastPacketWasOnePointSeventeenDuplicate = false;

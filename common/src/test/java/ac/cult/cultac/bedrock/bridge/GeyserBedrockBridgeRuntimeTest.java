@@ -24,19 +24,34 @@ import static org.junit.Assert.assertTrue;
 public final class GeyserBedrockBridgeRuntimeTest {
 
     @Test
-    public void inputCompletionMarkerPreservesChannelAndSequenceOnTheWire() {
-        byte[] payload = java.nio.ByteBuffer.allocate(8).putLong(0x123456789ABCDEFL).array();
-        var packet = GeyserInputQueue.markerPacket(payload);
-        var buffer = io.netty.buffer.Unpooled.buffer();
-        try {
-            packet.serialize(buffer);
-            assertEquals(GeyserInputQueue.CHANNEL,
-                    org.geysermc.mcprotocollib.protocol.codec.MinecraftTypes.readString(buffer));
-            assertEquals(0x123456789ABCDEFL, buffer.readLong());
-            assertEquals(0, buffer.readableBytes());
-        } finally {
-            buffer.release();
-        }
+    public void invalidMovementIsRejectedBeforeFrameCapture() {
+        var packet = new PlayerAuthInputPacket();
+        packet.setPosition(org.cloudburstmc.math.vector.Vector3f.ZERO);
+        packet.setDelta(org.cloudburstmc.math.vector.Vector3f.ZERO);
+        packet.setRotation(org.cloudburstmc.math.vector.Vector3f.ZERO);
+        packet.setMotion(org.cloudburstmc.math.vector.Vector2f.ZERO);
+        assertTrue(GeyserBedrockBridgeRuntime.hasFiniteMovement(packet));
+        packet.setPosition(org.cloudburstmc.math.vector.Vector3f.from(Float.NaN, 64, 0));
+        assertFalse(GeyserBedrockBridgeRuntime.hasFiniteMovement(packet));
+        packet.setPosition(org.cloudburstmc.math.vector.Vector3f.ZERO);
+        packet.setDelta(org.cloudburstmc.math.vector.Vector3f.from(0, Float.POSITIVE_INFINITY, 0));
+        assertFalse(GeyserBedrockBridgeRuntime.hasFiniteMovement(packet));
+    }
+
+    @Test
+    public void simulatedCollisionsReplaceBothForgedAndMissingClientFlags() {
+        var packet = new PlayerAuthInputPacket();
+        packet.getInputData().add(PlayerAuthInputData.VERTICAL_COLLISION);
+        packet.getInputData().add(PlayerAuthInputData.HORIZONTAL_COLLISION);
+        packet.getInputData().add(PlayerAuthInputData.PERFORM_ITEM_STACK_REQUEST);
+        GeyserBedrockBridgeRuntime.correctCollisions(packet,
+                ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags.AIR);
+        assertFalse(packet.getInputData().contains(PlayerAuthInputData.VERTICAL_COLLISION));
+        assertFalse(packet.getInputData().contains(PlayerAuthInputData.HORIZONTAL_COLLISION));
+        assertTrue(packet.getInputData().contains(PlayerAuthInputData.PERFORM_ITEM_STACK_REQUEST));
+        GeyserBedrockBridgeRuntime.correctCollisions(packet,
+                ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags.ON_GROUND);
+        assertTrue(packet.getInputData().contains(PlayerAuthInputData.VERTICAL_COLLISION));
     }
 
     @Test
@@ -62,7 +77,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
     }
 
     @Test
-    public void originalJavaPingCallbacksAndNativeCallbacksUseTheSameReplyPath() throws Exception {
+    public void nativeReceiptsDoNotEmitJavaPongs() throws Exception {
         var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class, Mockito.CALLS_REAL_METHODS);
         var cache = org.geysermc.geyser.session.GeyserSession.class.getDeclaredField("latencyPingCache");
         cache.setAccessible(true);
@@ -97,7 +112,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
         for (int i = 0; i < 3; i++) translator.translate(session, reply);
         assertTrue(pongs.isEmpty());
         while (!eventLoop.isEmpty()) eventLoop.removeFirst().run();
-        assertEquals(List.of(101, 999, 102), pongs);
+        assertEquals(List.of(101, 102), pongs);
         assertTrue(queue.isEmpty());
     }
 
@@ -133,7 +148,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
     }
 
     @Test
-    public void nativeReceiptForwardsItsServerAssignedPongOnGeysersEventLoop() {
+    public void nativeReceiptDoesNotForwardSyntheticPong() {
         var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class);
         Deque<Runnable> eventLoop = new ArrayDeque<>();
         Mockito.doAnswer(invocation -> { eventLoop.add(invocation.getArgument(0)); return null; })
@@ -141,8 +156,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
         GeyserBedrockBridgeRuntime.nativeLatencyCallback(session, 123).run();
         Mockito.verify(session, Mockito.never()).sendDownstreamPacket(Mockito.any());
         eventLoop.removeFirst().run();
-        Mockito.verify(session).sendDownstreamPacket(
-                new org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket(123));
+        Mockito.verify(session, Mockito.never()).sendDownstreamPacket(Mockito.any());
     }
 
     @Test

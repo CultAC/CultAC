@@ -61,19 +61,17 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     private void handleInteract(NmsPacketUtil.InteractData interact) {
         if (interact != null) {
             if (interact.action() == NmsPacketUtil.InteractAction.ATTACK) {
-                this.lastAction = interact.action();
-                this.lastTargetId = this.targetId;
-                this.targetId = interact.entityId();
-                this.target = player.compensatedEntities.getEntity(this.targetId);
-                this.flyingPacketsSinceAttack = 0;
-                this.attacking = true;
-                this.lastAttack = System.currentTimeMillis();
+                attack(interact.entityId());
             }
         }
     }
 
     private void handleUseItem(ServerboundUseItemPacket packet) {
-        hand = NmsPacketUtil.readUseItem(packet).hand();
+        useItem(NmsPacketUtil.readUseItem(packet).hand());
+    }
+
+    public void useItem(InteractionHand usedHand) {
+        hand = usedHand;
         ItemStack heldStack = player.getInventory().getHandItem(hand);
         if (heldStack == null) heldStack = ItemStack.empty();
 
@@ -92,10 +90,24 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
     private void handlePlayerAction(ServerboundPlayerActionPacket packet) {
         if (NmsPacketUtil.readPlayerAction(packet).action() == Action.RELEASE_USE_ITEM) {
-            this.releasing = true;
-            this.blocking = false;
-            player.packetStateData.setSlowedByUsingItem(false);
+            releaseItem();
         }
+    }
+
+    public void releaseItem() {
+        this.releasing = true;
+        this.blocking = false;
+        player.packetStateData.setSlowedByUsingItem(false);
+    }
+
+    public void attack(int entityId) {
+        this.lastAction = NmsPacketUtil.InteractAction.ATTACK;
+        this.lastTargetId = this.targetId;
+        this.targetId = entityId;
+        this.target = player.compensatedEntities.getEntity(this.targetId);
+        this.flyingPacketsSinceAttack = 0;
+        this.attacking = true;
+        this.lastAttack = System.currentTimeMillis();
     }
 
     private boolean canStartUsingItem(ItemStack stack) {
@@ -197,6 +209,10 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
     @CultPacketHandler
     public void onSetCarriedItem(PacketReceiveEvent event, CultPlayer player, ServerboundSetCarriedItemPacket packet) {
+        selectHotbarSlot();
+    }
+
+    public void selectHotbarSlot() {
         if (hand != null && hand != InteractionHand.OFF_HAND) {
             this.blocking = false;
         }
@@ -224,6 +240,10 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
     @Override
     public void onPlayerTickEnd(final PacketReceiveEvent event) {
+        endClientTick();
+    }
+
+    public void endClientTick() {
         clearMainHandUseAfterSlotChange();
         ++player.totalFlyingPacketsSent;
         ++this.flyingPacketsSinceAttack;

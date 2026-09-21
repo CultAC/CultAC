@@ -18,6 +18,16 @@ final class ChannelPacketHandler extends ChannelDuplexHandler {
     private final PacketApi packetApi;
     private final Connection connection;
     private BundleWrite bundleWrite;
+    private boolean ownerSelected;
+    private ChannelHandlerContext replacement;
+
+    private ChannelHandlerContext selectOwner(ChannelHandlerContext ctx) {
+        if (!ownerSelected && connection.getPacketListener() instanceof net.minecraft.server.network.ServerConfigurationPacketListenerImpl) {
+            ownerSelected = true;
+            replacement = packetApi.bindOwner(ctx, connection);
+        }
+        return replacement;
+    }
 
     ChannelPacketHandler(PacketApi packetApi, Connection connection) {
         this.packetApi = packetApi;
@@ -29,6 +39,19 @@ final class ChannelPacketHandler extends ChannelDuplexHandler {
         // Hidden packets can be sent as direct byte buffers instead of packet instances.
         if (!(msg instanceof Packet<?> packet)) {
             super.write(ctx, msg, promise);
+            return;
+        }
+
+        ChannelHandlerContext next = selectOwner(ctx);
+        if (next != null) {
+            next.executor().execute(() -> {
+                try {
+                    ((ChannelPacketHandler) next.handler()).write(next, msg, promise);
+                } catch (Exception failure) {
+                    promise.tryFailure(failure);
+                    next.fireExceptionCaught(failure);
+                }
+            });
             return;
         }
 
@@ -109,6 +132,17 @@ final class ChannelPacketHandler extends ChannelDuplexHandler {
 
     @Override
     public void flush(ChannelHandlerContext ctx) throws Exception {
+        if (replacement != null) {
+            ChannelHandlerContext next = replacement;
+            next.executor().execute(() -> {
+                try {
+                    ((ChannelPacketHandler) next.handler()).flush(next);
+                } catch (Exception failure) {
+                    next.fireExceptionCaught(failure);
+                }
+            });
+            return;
+        }
         if (bundleWrite != null) {
             bundleWrite.flush = true;
         } else {
@@ -128,6 +162,17 @@ final class ChannelPacketHandler extends ChannelDuplexHandler {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        ChannelHandlerContext next = selectOwner(ctx);
+        if (next != null) {
+            next.executor().execute(() -> {
+                try {
+                    ((ChannelPacketHandler) next.handler()).channelRead(next, msg);
+                } catch (Exception failure) {
+                    next.fireExceptionCaught(failure);
+                }
+            });
+            return;
+        }
         if (!(msg instanceof Packet<?> packet)) {
             super.channelRead(ctx, msg);
             return;
