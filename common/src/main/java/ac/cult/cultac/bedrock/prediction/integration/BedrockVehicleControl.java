@@ -1,10 +1,10 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
+import ac.cult.cultac.bedrock.prediction.state.BedrockHorseProperties;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockVehicleControl {
@@ -20,7 +20,7 @@ public final class BedrockVehicleControl {
     }
 
     public static boolean isSupported(PacketEntity entity) {
-        return entity != null && (entity instanceof PacketEntityHorse && entity.type == EntityTypesCompat.HORSE
+        return entity != null && (entity instanceof PacketEntityHorse && BedrockHorseProperties.supports(entity.type)
                 || entity.isBoat());
     }
 

@@ -63,7 +63,6 @@ import org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SetEntityMotionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
 import org.cloudburstmc.protocol.common.PacketSignal;
-import org.geysermc.geyser.entity.type.living.animal.horse.HorseEntity;
 import org.geysermc.geyser.entity.type.BoatEntity;
 import org.cloudburstmc.protocol.bedrock.packet.AddEntityPacket;
 import org.geysermc.geyser.api.GeyserApi;
@@ -774,7 +773,7 @@ public final class GeyserBedrockBridgeRuntime {
         private BedrockAuthInputFrame captureAuthInput(CultPlayer player, PlayerAuthInputPacket packet) {
             long vehicleId = predictedVehicleId(packet);
             var vehicle = vehicleId == -1L ? null : connection.getEntityCache().getEntityByGeyserId(vehicleId);
-            if (vehicle instanceof HorseEntity || vehicle instanceof BoatEntity) {
+            if (isPredictedHorse(vehicle) || vehicle instanceof BoatEntity) {
                 player.bedrockState.movementCorrections.beginFrame(player, packet.getTick(), vehicle.getEntityId(), vehicleId);
             }
             Vec3 position = vehicleId == -1L ? toJavaPosition(packet.getPosition()) : rawPosition(
@@ -894,7 +893,7 @@ public final class GeyserBedrockBridgeRuntime {
             if (player == null || !tap.matchesJavaUser(user)
                     || player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport()
                     || player.bedrockState.movementCorrections.generation() != correction.controlGeneration()
-                    || correction.vehicle() && (!(vehicle instanceof HorseEntity || vehicle instanceof BoatEntity)
+                    || correction.vehicle() && (!(isPredictedHorse(vehicle) || vehicle instanceof BoatEntity)
                         || vehicle.getEntityId() != correction.vehicleId() || vehicle.geyserId() != correction.runtimeId())
                     || !correction.vehicle() && vehicle != null) return false;
             var adapter = GFP_ADAPTERS.get(tap.connection);
@@ -1166,7 +1165,7 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
 
-            if (packet instanceof SetEntityDataPacket metadata && entity instanceof HorseEntity) {
+            if (packet instanceof SetEntityDataPacket metadata && isPredictedHorse(entity)) {
                 var data = metadata.getMetadata();
                 Boolean standing = data.get(EntityDataTypes.FLAGS) == null ? null : data.getFlag(EntityFlag.STANDING);
                 var replay = captureReplayUpdate(metadataId, metadata.getTick(), metadata.getTick() != 0,
@@ -1463,6 +1462,15 @@ public final class GeyserBedrockBridgeRuntime {
                 .blockAction(inputData.contains(PlayerAuthInputData.PERFORM_BLOCK_ACTIONS))
                 .authorityMode("client-auth-input")
                 .build();
+    }
+
+    static boolean isPredictedHorse(org.geysermc.geyser.entity.type.Entity entity) {
+        // donkey and mule use ChestedHorseEntity, as do excluded llamas.
+        return entity instanceof org.geysermc.geyser.entity.type.living.animal.horse.HorseEntity
+                || entity instanceof org.geysermc.geyser.entity.type.living.animal.horse.SkeletonHorseEntity
+                || entity instanceof org.geysermc.geyser.entity.type.living.animal.horse.ZombieHorseEntity
+                || entity instanceof org.geysermc.geyser.entity.type.living.animal.horse.ChestedHorseEntity
+                    && !(entity instanceof org.geysermc.geyser.entity.type.living.animal.horse.LlamaEntity);
     }
 
     static long predictedVehicleId(PlayerAuthInputPacket packet) {

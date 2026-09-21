@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
+import ac.cult.cultac.bedrock.prediction.state.BedrockHorseProperties;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
@@ -116,7 +117,8 @@ public record BedrockVehiclePredictionState(PredictionCommit commit, PredictionR
         }
         float animation = vehicle.horse().standAmount();
         float yaw = vehicle.inputFrame().yaw() * BedrockMath.DEGREES_TO_RADIANS;
-        float seat = ((float) vehicle.playerDimensions().height() * 0.75F - 0.35F) + 1.62001F;
+        float seat = BedrockHorseProperties.riderSeatHeight(vehicle.horse().actor().type,
+                (float) vehicle.playerDimensions().height());
         float x = (float) local.x() + 0.7F * animation * (float) Math.sin(yaw);
         float y = ((float) local.y() + seat) + 0.15F * animation;
         float z = (float) local.z() - 0.7F * animation * (float) Math.cos(yaw);

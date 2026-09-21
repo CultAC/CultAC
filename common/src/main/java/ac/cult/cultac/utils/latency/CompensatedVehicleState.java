@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.cultac.bedrock.prediction.state.BedrockHorseProperties;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
 import ac.cult.cultac.player.CultPlayer;
@@ -147,7 +148,7 @@ public final class CompensatedVehicleState implements Debuggable {
         PacketEntity entity = entities.getEntity(entityId);
         if (entity == null) return;
 
-        if (player.isBedrockMovement() && entity.type == EntityTypesCompat.HORSE && onGround == null) {
+        if (player.isBedrockMovement() && BedrockHorseProperties.supports(entity.type) && onGround == null) {
             onGround = false;
         }
         if (interpolates) {
@@ -179,7 +180,7 @@ public final class CompensatedVehicleState implements Debuggable {
                                                   Vec3 deltaMovement) {
         PacketEntity entity = entities.getEntity(entityId);
         if (entity == null) return;
-        if (player.isBedrockMovement() && entity.type == EntityTypesCompat.HORSE) {
+        if (player.isBedrockMovement() && BedrockHorseProperties.supports(entity.type)) {
             var frame = player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame();
             var local = frame.toLocal(position);
             position = frame.toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));

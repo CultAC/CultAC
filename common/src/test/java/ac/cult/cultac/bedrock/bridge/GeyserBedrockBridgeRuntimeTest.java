@@ -65,6 +65,30 @@ public final class GeyserBedrockBridgeRuntimeTest {
     }
 
     @Test
+    public void predictedEquinesDoNotRequireDefinitionAccessor() {
+        assertFalse(GeyserBedrockBridgeRuntime.isPredictedHorse(null));
+        for (var type : List.of(
+                org.geysermc.geyser.entity.type.living.animal.horse.HorseEntity.class,
+                org.geysermc.geyser.entity.type.living.animal.horse.ChestedHorseEntity.class,
+                org.geysermc.geyser.entity.type.living.animal.horse.SkeletonHorseEntity.class,
+                org.geysermc.geyser.entity.type.living.animal.horse.ZombieHorseEntity.class)) {
+            var entity = Mockito.mock(type);
+            assertTrue(GeyserBedrockBridgeRuntime.isPredictedHorse(entity));
+            Mockito.verifyZeroInteractions(entity);
+        }
+        for (var type : List.of(
+                org.geysermc.geyser.entity.type.living.animal.horse.LlamaEntity.class,
+                org.geysermc.geyser.entity.type.living.animal.horse.TraderLlamaEntity.class,
+                org.geysermc.geyser.entity.type.living.animal.horse.CamelEntity.class,
+                org.geysermc.geyser.entity.type.living.animal.horse.CamelHuskEntity.class,
+                org.geysermc.geyser.entity.type.BoatEntity.class)) {
+            var entity = Mockito.mock(type);
+            assertFalse(GeyserBedrockBridgeRuntime.isPredictedHorse(entity));
+            Mockito.verifyZeroInteractions(entity);
+        }
+    }
+
+    @Test
     public void latencyQueueInstallsThroughTheUnmodifiedGeyserGetter() throws Exception {
         var session = Mockito.mock(org.geysermc.geyser.session.GeyserSession.class, Mockito.CALLS_REAL_METHODS);
         var cache = org.geysermc.geyser.session.GeyserSession.class.getDeclaredField("latencyPingCache");

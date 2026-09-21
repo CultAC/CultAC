@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.cultac.bedrock.prediction.state.BedrockHorseProperties;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -35,7 +36,7 @@ public class BoundingBoxSize {
                     ? ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties.DIMENSIONS.width()
                     : packetEntity.bedrockBoat.dimensions().width());
         }
-        if (bedrock && packetEntity.type == EntityTypesCompat.HORSE) {
+        if (bedrock && BedrockHorseProperties.supports(packetEntity.type)) {
             return 1.3965F * ((packetEntity.isBaby ? 0.5F : 1.0F) * packetEntity.scale);
         }
         return getWidth(packetEntity, version);
@@ -165,7 +166,7 @@ public class BoundingBoxSize {
                     ? ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties.DIMENSIONS.height()
                     : packetEntity.bedrockBoat.dimensions().height());
         }
-        if (bedrock && packetEntity.type == EntityTypesCompat.HORSE) {
+        if (bedrock && BedrockHorseProperties.supports(packetEntity.type)) {
             return 1.6F * ((packetEntity.isBaby ? 0.5F : 1.0F) * packetEntity.scale);
         }
         return getHeight(packetEntity, version);

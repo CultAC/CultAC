@@ -25,6 +25,41 @@ import static org.junit.Assert.assertTrue;
 
 public final class BedrockMoveVehicleTransportTest {
     @Test
+    public void equineVariantsRequireSaddleAndValidatedMovement() {
+        OfflineCultTestBootstrap.installConfig();
+        for (var type : java.util.List.of(EntityTypesCompat.DONKEY, EntityTypesCompat.MULE,
+                EntityTypesCompat.SKELETON_HORSE, EntityTypesCompat.ZOMBIE_HORSE)) {
+            CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+            try {
+                mountHorse(player, 71, type);
+                var horse = (PacketEntityHorse) player.compensatedEntities.getEntity(71);
+                assertEquals(horse, ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(player));
+                assertEquals(1.3965F, ac.cult.cultac.utils.nmsutil.BoundingBoxSize.getWidth(player, horse), 0);
+                assertEquals(1.6F, ac.cult.cultac.utils.nmsutil.BoundingBoxSize.getHeight(player, horse), 0);
+                horse.hasSaddle = false;
+                assertNull(ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(player));
+                horse.hasSaddle = true;
+
+                var listener = new CheckManagerListener();
+                Vec3 position = new Vec3(2.0F, 64.0F, 3.0F);
+                var packet = vehiclePacket(position);
+                var unchecked = receiveEvent(player, packet);
+                listener.onMoveVehicle(unchecked, player, packet);
+                assertTrue(unchecked.isCancelled());
+                player.packetStateData.grantBedrockVehicleMovementPermit(71, position);
+                var checked = receiveEvent(player, packet);
+                listener.onMoveVehicle(checked, player, packet);
+                assertFalse(checked.isCancelled());
+                var reused = receiveEvent(player, packet);
+                listener.onMoveVehicle(reused, player, packet);
+                assertTrue(reused.isCancelled());
+            } finally {
+                OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+            }
+        }
+    }
+
+    @Test
     public void horseProjectionRequiresItsOwnAcceptedAuthFrameAndCannotBeReused() {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
@@ -207,8 +242,12 @@ public final class BedrockMoveVehicleTransportTest {
     }
 
     private static void mountHorse(CultPlayer player, int entityId) {
+        mountHorse(player, entityId, EntityTypesCompat.HORSE);
+    }
+
+    private static void mountHorse(CultPlayer player, int entityId, net.minecraft.world.entity.EntityType<?> type) {
         player.bedrockState.offerAuthInputFrame(BedrockAuthInputFrame.builder(player.playerUUID).protocolVersion(944).build());
-        player.compensatedEntities.addEntity(entityId, EntityTypesCompat.HORSE, Vec3.ZERO, 0.0F, 0.0F, 0);
+        player.compensatedEntities.addEntity(entityId, type, Vec3.ZERO, 0.0F, 0.0F, 0);
         ((PacketEntityHorse) player.compensatedEntities.getEntity(entityId)).hasSaddle = true;
         player.compensatedEntities.vehicles.setServerVehicle(entityId, new int[]{player.entityID}, player.lastTransactionSent.get());
         player.compensatedEntities.vehicles.applyVehiclePassengers(entityId, new int[]{player.entityID});
