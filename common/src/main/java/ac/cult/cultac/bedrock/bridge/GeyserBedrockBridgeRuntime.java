@@ -314,13 +314,6 @@ public final class GeyserBedrockBridgeRuntime {
         PacketTapHandler tap = new PacketTapHandler(session, bedrockSession, currentHandler, latencyQueue);
         bedrockSession.setPacketHandler(tap);
         PACKET_TAPS.put(connection, tap);
-        try {
-            GeyserBlockActions.install(session, () -> playerForSession(session));
-        } catch (RuntimeException | LinkageError failure) {
-            session.disconnect("CultAC could not initialize native block tracking.");
-            tap.detach();
-            throw failure;
-        }
         tap.attachOutboundTap();
     }
 
@@ -508,7 +501,7 @@ public final class GeyserBedrockBridgeRuntime {
             GeyserInventoryActions.translate(connection, player, packet, () -> {
                 if (packet instanceof InteractPacket interaction
                         && !GeyserVehicleInput.acceptsInteraction(connection, player, interaction)) return;
-                int sequence = GeyserBlockActions.sequence(connection);
+                int sequence = GeyserItemUse.sequence(connection);
                 if (packet instanceof PlayerAuthInputPacket authInput) {
                     if (!processAuthInput(player, authInput)) {
                         // Inventory requests share the auth-input envelope but do not authorize movement.
@@ -727,7 +720,13 @@ public final class GeyserBedrockBridgeRuntime {
             long previousTick = player.bedrockState.lastMovementTick();
             var state = ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor.process(player, frame,
                     ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger.BEDROCK_THREAD,
-                    () -> GeyserVehicleInput.translateRejectedMovement(connection, player, packet));
+                    () -> GeyserVehicleInput.translateRejectedMovement(connection, player, packet),
+                    resolved -> {
+                        if (packet.getInputData().contains(PlayerAuthInputData.PERFORM_BLOCK_ACTIONS)) {
+                            player.bedrockState.blockBreakActions.apply(player,
+                                    resolved.getCoordinateFrame(), packet.getPlayerActions());
+                        }
+                    });
             // Recovery must run even when the pending teleport rejects movement before Geyser's translator.
             teleportRecovery.input(player.bedrockState.lastMovementTick(),
                     player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport());

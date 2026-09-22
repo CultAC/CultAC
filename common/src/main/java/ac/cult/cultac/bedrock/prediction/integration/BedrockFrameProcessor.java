@@ -17,6 +17,12 @@ public final class BedrockFrameProcessor {
 
     public static BedrockMovementState process(CultPlayer player, BedrockAuthInputFrame original,
                                                BedrockPredictionTrigger trigger, Runnable rejectedMovementControls) {
+        return process(player, original, trigger, rejectedMovementControls, frame -> { });
+    }
+
+    public static BedrockMovementState process(CultPlayer player, BedrockAuthInputFrame original,
+                                               BedrockPredictionTrigger trigger, Runnable rejectedMovementControls,
+                                               java.util.function.Consumer<BedrockAuthInputFrame> localBlockActions) {
         player.packetStateData.clearBedrockTranslatedMovementPermit();
         if (!original.hasMinimumStrictData() || !finite(original.getPosition())
                 || !finite(original.getReportedEndOfTickVelocity())
@@ -28,7 +34,7 @@ public final class BedrockFrameProcessor {
         // TODO: Check timer interactions with blocking sneaking and blocking teleports
         if (player.checkManager.getCheck(TimerCheck.class).onBedrockAuthInput()
                 == TimerCheck.BedrockAuthInputDecision.REJECT) return null;
-        var state = processMovement(player, original, trigger);
+        var state = processMovement(player, original, trigger, localBlockActions);
         if (state == null) {
             player.packetStateData.rejectBedrockTranslatedMovement();
             rejectedMovementControls.run();
@@ -37,13 +43,15 @@ public final class BedrockFrameProcessor {
     }
 
     private static BedrockMovementState processMovement(CultPlayer player, BedrockAuthInputFrame original,
-                                                        BedrockPredictionTrigger trigger) {
+                                                        BedrockPredictionTrigger trigger,
+                                                        java.util.function.Consumer<BedrockAuthInputFrame> localBlockActions) {
         BedrockAuthInputFrame frame = player.getSetbackTeleportUtil().resolveBedrockCoordinates(original);
         if (frame == null) return null;
         var processor = player.checkManager.getSimulationProcessor();
         var teleport = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(frame);
         if (teleport.isTeleport()) processor.applyAcceptedBedrockTeleport(teleport);
         else if (player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport()) return null;
+        localBlockActions.accept(frame);
         player.bedrockState.offerAuthInputFrame(frame);
         if (frame.hasRawInputFlag(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.START_FLYING)
                 && player.canFly) player.isFlying = true;

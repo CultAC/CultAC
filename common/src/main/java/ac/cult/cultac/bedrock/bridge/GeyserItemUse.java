@@ -13,6 +13,16 @@ import org.geysermc.geyser.util.BlockUtils;
 
 final class GeyserItemUse {
     private GeyserItemUse() { }
+
+    static int sequence(GeyserSession session) {
+        try {
+            var field = org.geysermc.geyser.session.cache.WorldCache.class.getDeclaredField("currentSequence");
+            field.setAccessible(true);
+            return field.getInt(session.getWorldCache());
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Unsupported Geyser prediction sequence", failure);
+        }
+    }
     private static final BlockFace[] FACES = {BlockFace.DOWN, BlockFace.UP, BlockFace.NORTH, BlockFace.SOUTH, BlockFace.WEST, BlockFace.EAST};
 
     static boolean allow(GeyserSession session, CultPlayer player, InventoryTransactionPacket packet) {
@@ -32,7 +42,7 @@ final class GeyserItemUse {
             case ITEM_RELEASE -> { if (packet.getActionType() == 0) player.actionManager.releaseItem(); }
             case ITEM_USE_ON_ENTITY -> GeyserEntityInteractions.observe(session, player, packet);
             case ITEM_USE -> {
-                int sequence = GeyserBlockActions.sequence(session);
+                int sequence = sequence(session);
                 if (sequence == previousSequence) return; // Geyser rejected or consumed the action locally.
                 player.lastBlockPlaceUseItem = System.currentTimeMillis();
                 if (packet.getActionType() == 0 && packet.getBlockFace() >= 0 && packet.getBlockFace() < FACES.length) {

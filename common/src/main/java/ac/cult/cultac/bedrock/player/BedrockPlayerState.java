@@ -18,6 +18,7 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 /** Prediction and pose state belong to the player's packet executor (the local Geyser tick loop). */
 public final class BedrockPlayerState {
     public boolean acknowledgedSprinting;
+    public final BedrockBlockBreakActions blockBreakActions = new BedrockBlockBreakActions();
     public final BedrockMovementEffects movementEffects = new BedrockMovementEffects();
     public final ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections movementCorrections =
             new ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections();
@@ -135,6 +136,7 @@ public final class BedrockPlayerState {
     }
 
     public void clearMovementInputState() {
+        blockBreakActions.clear();
         clearTransientMovementInputState();
         actions.applyAcknowledgedItemUse(false);
         trackedPoseState = BedrockClientPoseState.STANDING;

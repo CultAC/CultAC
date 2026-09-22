@@ -337,6 +337,7 @@ public class CompensatedWorld implements BlockGetter {
     }
 
     public void advanceClientPredictionSequence() {
+        if (player.isBedrockMovement()) return;
         clientPredictionSequence++;
     }
 
@@ -521,6 +522,7 @@ public class CompensatedWorld implements BlockGetter {
     }
 
     public void markForBlockPrediction(BlockPos pos) {
+        if (player.isBedrockMovement()) return;
         currentlyChangedBlocks.add(pos);
     }
 
@@ -725,7 +727,7 @@ public class CompensatedWorld implements BlockGetter {
         BlockPrediction prediction = originalServerBlocks.get(asVector.asLong());
         BlockData original = getBlockDataAt(asVector);
 
-        if (isCurrentlyPredicting) {
+        if (isCurrentlyPredicting && !player.isBedrockMovement()) {
             if (prediction == null) {
                 boolean isPlayerTryingToDisableCult = player.getSetbackTeleportUtil().shouldBlockMovement();
                 int serverState = Block.getId(getBlockStateAt(asVector));
