@@ -1149,7 +1149,7 @@ public class CheckManagerListener {
     /** Applies a transaction-matched teleport response without producing a movement tick. */
     public static void applyTeleportResponse(CultPlayer player, TeleportAcceptData accepted, float yaw, float pitch) {
         Vec3 previous = new Vec3(player.x, player.y, player.z);
-        applyTeleportAcknowledgementLook(player, yaw, pitch);
+        applyTeleportAcknowledgementLook(player, yaw, pitch, accepted);
         if (accepted.isMatchedTeleportPosition()) {
             if (player.compensatedEntities.vehicles.hasPendingServerDismount()) {
                 player.compensatedEntities.vehicles.applyClientVisibleDismount();
@@ -1162,6 +1162,10 @@ public class CheckManagerListener {
 
     /** 26.3's coordinate-bearing acknowledgement carries the old teleport PosRot's look state. */
     public static void applyTeleportAcknowledgementLook(CultPlayer player, float yaw, float pitch) {
+        applyTeleportAcknowledgementLook(player, yaw, pitch, null);
+    }
+
+    private static void applyTeleportAcknowledgementLook(CultPlayer player, float yaw, float pitch, TeleportAcceptData accepted) {
         boolean previous = player.packetStateData.lastPacketWasTeleport;
         player.packetStateData.lastPacketWasTeleport = true;
         try {
@@ -1169,14 +1173,25 @@ public class CheckManagerListener {
                 player.lastTickXRot = player.xRot;
                 player.lastTickYRot = player.yRot;
             }
-            applyRotation(player, yaw, pitch);
+            applyRotation(player, yaw, pitch, accepted);
         } finally {
             player.packetStateData.lastPacketWasTeleport = previous;
         }
     }
 
-    private static void applyRotation(CultPlayer player, float yaw, float pitch) {
-        HeadRotation from = new HeadRotation(player.xRot, player.yRot);
+    static HeadRotation rotationOrigin(float previousYaw, float previousPitch, float yaw, float pitch, TeleportAcceptData accepted) {
+        var sent = accepted == null ? null : accepted.getTeleportData();
+        if (accepted != null && accepted.isTeleport() && sent != null
+                && (!sent.isSentWhileVehicle() || sent.isRotationOnly())
+                && yaw == sent.getFinalYaw() && pitch == sent.getFinalPitch()) {
+            return new HeadRotation(sent.getFinalYaw(), sent.getFinalPitch());
+        }
+        return new HeadRotation(previousYaw, previousPitch);
+    }
+
+    private static void applyRotation(CultPlayer player, float yaw, float pitch, TeleportAcceptData accepted) {
+        boolean changed = player.xRot != yaw || player.yRot != pitch;
+        HeadRotation from = rotationOrigin(player.xRot, player.yRot, yaw, pitch, player.isBedrockMovement() ? null : accepted);
         player.xRot = yaw; player.yRot = pitch;
         RotationUpdate update = new RotationUpdate(
                 from,
@@ -1184,7 +1199,7 @@ public class CheckManagerListener {
                 player.xRot - from.yaw(),
                 player.yRot - from.pitch()
         );
-        if (update.getDeltaXRot() != 0 || update.getDeltaYRot() != 0) {
+        if (changed) {
             player.lastRotated = System.currentTimeMillis();
         }
         player.checkManager.onRotationUpdate(update);
@@ -1211,7 +1226,7 @@ public class CheckManagerListener {
         }
 
         if (hasLook) {
-            applyRotation(player, yaw, pitch);
+            applyRotation(player, yaw, pitch, teleportData);
         }
 
         player.checkManager.doChecksWithKnownLook();

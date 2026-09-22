@@ -8,7 +8,11 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.CultMath;
 import io.papermc.paper.math.Position;
 import net.minecraft.core.BlockPos;
+import org.bukkit.Bukkit;
+import org.bukkit.World;
 import org.bukkit.block.data.BlockData;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -31,45 +35,53 @@ public class ResyncWorldUtil {
             ex.printStackTrace();
         } }
         // Check the 4 corners of the player world for loaded chunks before calling event
+        // all merge requests to delete this check are nocom exploit backdoors and should be rejected
         if (!player.compensatedWorld.isChunkLoaded(minBlockX >> 4, minBlockZ >> 4) || !player.compensatedWorld.isChunkLoaded(minBlockX >> 4, maxBlockZ >> 4)
                 || !player.compensatedWorld.isChunkLoaded(maxBlockX >> 4, minBlockZ >> 4) || !player.compensatedWorld.isChunkLoaded(maxBlockX >> 4, maxBlockZ >> 4))
             return;
 
-        FoliaCompatUtil.runTaskForEntity(player.bukkitPlayer, CultAPI.INSTANCE.getPlugin(), () -> {
-            if (player.bukkitPlayer == null) return;
-            // Player hasn't spawned, don't spam packets
-            if (!player.getSetbackTeleportUtil().hasFullyLoaded) return;
-
-            // Check the 4 corners of the BB for loaded chunks, don't freeze main thread to load chunks.
-            if (!player.bukkitPlayer.getWorld().isChunkLoaded(minBlockX >> 4, minBlockZ >> 4) || !player.bukkitPlayer.getWorld().isChunkLoaded(minBlockX >> 4, maxBlockZ >> 4)
-                    || !player.bukkitPlayer.getWorld().isChunkLoaded(maxBlockX >> 4, minBlockZ >> 4) || !player.bukkitPlayer.getWorld().isChunkLoaded(maxBlockX >> 4, maxBlockZ >> 4))
-                return;
-
-            // This is based on Tuinity's code, thanks leaf. Now merged into paper.
-            final int minSection = player.compensatedWorld.getMinHeight() >> 4;
-            final int minBlock = minSection << 4;
-            final int maxBlock = player.compensatedWorld.getMaxHeight() - 1;
-
-            int minBlockY = Math.max(minBlock, mY);
-            int maxBlockY = Math.min(maxBlock, mxY);
-
-            int width = Math.max(1, maxBlockX - minBlockX + 1);
-            int height = Math.max(1, maxBlockY - minBlockY + 1);
-            int depth = Math.max(1, maxBlockZ - minBlockZ + 1);
-            Map<Position, BlockData> changes = new HashMap<>(width * height * depth);
-
-            for (int blockX = minBlockX; blockX <= maxBlockX; blockX++) {
-                for (int blockY = minBlockY; blockY <= maxBlockY; blockY++) {
-                    for (int blockZ = minBlockZ; blockZ <= maxBlockZ; blockZ++) {
-                        changes.put(
-                                Position.block(blockX, blockY, blockZ),
-                                player.bukkitPlayer.getWorld().getBlockAt(blockX, blockY, blockZ).getBlockData()
-                        );
-                    }
+        // Snapshot compensated bounds on the calling packet timeline, not in region tasks.
+        if (!player.getSetbackTeleportUtil().hasFullyLoaded) return;
+        int minBlockY = Math.max(player.compensatedWorld.getMinHeight(), mY);
+        int maxBlockY = Math.min(player.compensatedWorld.getMaxHeight() - 1, mxY);
+        Player recipient = player.bukkitPlayer;
+        Plugin plugin = CultAPI.INSTANCE.getPlugin();
+        FoliaCompatUtil.runTaskForEntity(recipient, plugin, () -> {
+            World world = recipient.getWorld();
+            for (int chunkX = minBlockX >> 4; chunkX <= maxBlockX >> 4; chunkX++) {
+                for (int chunkZ = minBlockZ >> 4; chunkZ <= maxBlockZ >> 4; chunkZ++) {
+                    int x1 = Math.max(minBlockX, chunkX << 4);
+                    int x2 = Math.min(maxBlockX, (chunkX << 4) + 15);
+                    int z1 = Math.max(minBlockZ, chunkZ << 4);
+                    int z2 = Math.min(maxBlockZ, (chunkZ << 4) + 15);
+                    Runnable snapshot = () -> snapshotChunk(recipient, plugin, world,
+                            x1, minBlockY, z1, x2, maxBlockY, z2);
+                    // The player may have teleported since the request, or the box
+                    // may straddle a region boundary. Entity ownership is not block ownership.
+                    if (Bukkit.isOwnedByCurrentRegion(world, chunkX, chunkZ)) snapshot.run();
+                    else Bukkit.getRegionScheduler().execute(plugin, world, chunkX, chunkZ, snapshot);
                 }
             }
-
-            player.bukkitPlayer.sendMultiBlockChange(changes, false);
         }, null, 0);
+    }
+
+    private static void snapshotChunk(Player recipient, Plugin plugin, World world,
+                                      int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
+        if (!world.isChunkLoaded(minX >> 4, minZ >> 4)) return;
+        Map<Position, BlockData> changes = new HashMap<>();
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    changes.put(Position.block(x, y, z), world.getBlockAt(x, y, z).getBlockData());
+                }
+            }
+        }
+        if (changes.isEmpty()) return;
+        Runnable send = () -> {
+            // Discard an old world's snapshot if a teleport won the scheduling race.
+            if (recipient.isOnline() && recipient.getWorld() == world) recipient.sendMultiBlockChange(changes, false);
+        };
+        if (Bukkit.isOwnedByCurrentRegion(recipient)) send.run();
+        else FoliaCompatUtil.runTaskForEntity(recipient, plugin, send, null, 0);
     }
 }

@@ -39,6 +39,12 @@ public class CultDebug implements BuildableCommand {
                 .optional("target", arguments.singlePlayerSelectorParser())
                 .handler(this::handleDebug);
 
+        commandManager.command(cultCommand
+                .literal("debug")
+                .literal("places", Description.of("Toggle your processed block-state changes"))
+                .permission("cult.debug")
+                .handler(this::handleDebugPlaces));
+
         // Register "consoledebug" subcommand
         Command.Builder<Sender> consoleDebugCommand = cultCommand
                 .literal("consoledebug", Description.of("Toggle console debug output for a player"))
@@ -83,6 +89,20 @@ public class CultDebug implements BuildableCommand {
         // Register command
         commandManager.command(debugCommand);
         commandManager.command(consoleDebugCommand);
+    }
+
+    private void handleDebugPlaces(@NotNull CommandContext<Sender> context) {
+        Sender sender = context.sender();
+        if (!sender.isPlayer()) {
+            sender.sendMessage(Component.text("Run /grim debug places in-game.", NamedTextColor.RED));
+            return;
+        }
+        CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(sender.getUniqueId());
+        if (player == null) {
+            sender.sendMessage(Component.text("Your player is exempt or not tracked by Cult.", NamedTextColor.RED));
+            return;
+        }
+        player.runSafely(() -> player.compensatedWorld.toggleBlockChangeDebug());
     }
 
     private void handlePoolstats(@NotNull CommandContext<Sender> context) {

@@ -667,7 +667,10 @@ public class Collisions {
             if (step >= budget) return false;
             iteration[0] = step;
             if (!visited.contains(pos.asLong())
-                    && visitor.visit(from, to, pos, movedFar || deflated.intersects(pos))) visited.add(pos.asLong());
+                    && visitor.visit(from, to, pos, movedFar || deflated.intersects(
+                    pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + 1, pos.getZ() + 1))) {
+                visited.add(pos.asLong());
+            }
             return true;
         });
         return iteration[0] + 1;
@@ -693,15 +696,53 @@ public class Collisions {
         }
 
         LongSet visited = new LongOpenHashSet();
-        for (BlockPos pos : BlockPos.betweenCornersInDirection(target.move(travel.scale(-1.0D)), travel)) {
-            if (!visitor.visit(pos, 0)) return false;
+        if (!forEachBlockInDirection26Dot2(target.move(travel.scale(-1.0D)), travel, 0, (pos, step) -> {
+            if (!visitor.visit(pos, step)) return false;
             visited.add(pos.asLong());
-        }
+            return true;
+        })) return false;
 
         int iterations = addBlocksAlongTravel26Dot2(visited, travel, target, visitor);
         if (iterations < 0) return false;
-        for (BlockPos pos : BlockPos.betweenCornersInDirection(target, travel)) {
-            if (visited.add(pos.asLong()) && !visitor.visit(pos, iterations + 1)) return false;
+        return forEachBlockInDirection26Dot2(target, travel, iterations + 1,
+                (pos, step) -> !visited.add(pos.asLong()) || visitor.visit(pos, step));
+    }
+
+    private static boolean forEachBlockInDirection26Dot2(AABB box, Vec3 direction, int iteration,
+                                                         OrderedBlockVisitor visitor) {
+        return forEachBlockInDirection26Dot2(
+                CultMath.floor(box.minX), CultMath.floor(box.minY), CultMath.floor(box.minZ),
+                CultMath.floor(box.maxX), CultMath.floor(box.maxY), CultMath.floor(box.maxZ),
+                direction, iteration, visitor);
+    }
+
+    private static boolean forEachBlockInDirection26Dot2(int firstX, int firstY, int firstZ,
+                                                         int secondX, int secondY, int secondZ,
+                                                         Vec3 direction, int iteration, OrderedBlockVisitor visitor) {
+        // Vanilla 26.2 BlockPos#betweenCornersInDirection, without linking to
+        // that newer server API. Direction#axisStepOrder is YXZ or YZX, with
+        // the last axis visited fastest and ties choosing YXZ.
+        int minX = Math.min(firstX, secondX), maxX = Math.max(firstX, secondX);
+        int minY = Math.min(firstY, secondY), maxY = Math.max(firstY, secondY);
+        int minZ = Math.min(firstZ, secondZ), maxZ = Math.max(firstZ, secondZ);
+        int stepX = direction.x >= 0.0 ? 1 : -1;
+        int stepY = direction.y >= 0.0 ? 1 : -1;
+        int stepZ = direction.z >= 0.0 ? 1 : -1;
+        int startX = stepX > 0 ? minX : maxX;
+        int startY = stepY > 0 ? minY : maxY;
+        int startZ = stepZ > 0 ? minZ : maxZ;
+        boolean xFirst = !(Math.abs(direction.x) < Math.abs(direction.z));
+        int middleMax = xFirst ? maxX - minX : maxZ - minZ;
+        int innerMax = xFirst ? maxZ - minZ : maxX - minX;
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        for (int y = 0; y <= maxY - minY; y++) {
+            for (int middle = 0; middle <= middleMax; middle++) {
+                for (int inner = 0; inner <= innerMax; inner++) {
+                    cursor.set(startX + stepX * (xFirst ? middle : inner), startY + stepY * y,
+                            startZ + stepZ * (xFirst ? inner : middle));
+                    if (!visitor.visit(cursor, iteration)) return false;
+                }
+            }
         }
         return true;
     }
@@ -757,10 +798,8 @@ public class Collisions {
             int oppositeY = CultMath.floor(hitY - target.getYsize() * corner[1]);
             int oppositeZ = CultMath.floor(hitZ - target.getZsize() * corner[2]);
 
-            for (BlockPos pos : BlockPos.betweenCornersInDirection(
-                    new BlockPos(x, y, z), new BlockPos(oppositeX, oppositeY, oppositeZ), travel)) {
-                if (visited.add(pos.asLong()) && !visitor.visit(pos, iterations)) return -1;
-            }
+            if (!forEachBlockInDirection26Dot2(x, y, z, oppositeX, oppositeY, oppositeZ, travel, iterations,
+                    (pos, step) -> !visited.add(pos.asLong()) || visitor.visit(pos, step))) return -1;
         }
         return iterations;
     }

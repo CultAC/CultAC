@@ -161,7 +161,8 @@ public final class SmoketestControlBridge {
             int minX = blockX & ~15;
             int minY = ((blockY - 2) >> 4) << 4;
             int minZ = blockZ & ~15;
-            ResyncWorldUtil.resyncPositions(player, minX, minY, minZ, minX + 15, minY + 15, minZ + 15);
+            player.runSafely(() -> ResyncWorldUtil.resyncPositions(player, minX, minY, minZ,
+                    minX + 15, minY + 15, minZ + 15));
         }, null, 0);
     }
 

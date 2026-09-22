@@ -8,6 +8,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.BucketPickup;
+import net.minecraft.world.level.block.LiquidBlockContainer;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.phys.BlockHitResult;
@@ -23,6 +25,8 @@ public final class NmsBucketUtil {
             Level.class, BlockPos.class, BlockHitResult.class);
     private static final Method PICKUP = resolveUserMethod(BucketPickup.class, "pickupBlock",
             LevelAccessor.class, BlockPos.class, BlockState.class);
+    private static final Method CAN_PLACE = resolveUserMethod(LiquidBlockContainer.class, "canPlaceLiquid",
+            BlockGetter.class, BlockPos.class, BlockState.class, Fluid.class);
 
     static {
         Method getter = null;
@@ -73,6 +77,14 @@ public final class NmsBucketUtil {
             return (boolean) EMPTY.invoke(bucket, null, level, pos, hit);
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Native bucket placement failed", exception);
+        }
+    }
+
+    public static boolean canPlaceLiquid(LiquidBlockContainer container, Level level, BlockPos pos, BlockState state, Fluid fluid) {
+        try {
+            return (boolean) CAN_PLACE.invoke(container, null, level, pos, state, fluid);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to evaluate client liquid placement", exception);
         }
     }
 
