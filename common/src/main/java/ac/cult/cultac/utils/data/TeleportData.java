@@ -24,9 +24,6 @@ public class TeleportData {
         return bedrockOperation == null ? BedrockTeleportProvenance.GEYSER : bedrockOperation.provenance();
     }
 
-    public boolean preservesBedrockWorldPosition() {
-        return bedrockOperation != null && !bedrockOperation.changesWorldPosition();
-    }
     Vec3 location;
     RelativeFlag flags;
     Vec3 deltaMovement;

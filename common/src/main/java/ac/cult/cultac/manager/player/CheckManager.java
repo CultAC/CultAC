@@ -7,7 +7,6 @@ import ac.cult.cultac.checks.impl.aim.*;
 import ac.cult.cultac.checks.impl.aim.processor.AimProcessor;
 import ac.cult.cultac.checks.impl.autoclicker.AutoclickerLimit;
 import ac.cult.cultac.checks.impl.badpackets.*;
-import ac.cult.cultac.checks.impl.baritone.Baritone;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.breaking.*;
 import ac.cult.cultac.checks.impl.chat.*;

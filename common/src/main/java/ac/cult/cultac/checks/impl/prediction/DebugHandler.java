@@ -8,15 +8,20 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import com.google.common.collect.ImmutableSet;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.function.Supplier;
+import net.kyori.adventure.text.Component;
 import net.minecraft.world.phys.Vec3;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
@@ -24,6 +29,22 @@ import org.bukkit.entity.Player;
 
 //@CheckData(name = "Prediction (Debug)")
 public class DebugHandler extends CultProcessor implements PostPredictionListener {
+    private final Map<UUID, Sender> rewindListeners = new ConcurrentHashMap<>();
+
+    public boolean toggleRewindListener(Sender sender) {
+        if (rewindListeners.remove(sender.getUniqueId()) != null) return false;
+        rewindListeners.put(sender.getUniqueId(), sender);
+        return true;
+    }
+
+    public void relayRewind(Supplier<String> details) {
+        rewindListeners.values().removeIf(sender -> !sender.isValid()
+                || sender.getPlatformPlayer() != null && !sender.getPlatformPlayer().isOnline()
+                || !sender.hasPermission("cult.debug"));
+        if (rewindListeners.isEmpty()) return;
+        var message = Component.text(player.getName() + " " + details.get());
+        rewindListeners.values().forEach(sender -> sender.sendMessage(message));
+    }
 
     final static Set<UUID> DEVELOPERS = ImmutableSet.of(
             UUID.fromString("aadd63d0-e545-4cc2-8449-734a6dba0b85"),

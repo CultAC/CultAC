@@ -87,6 +87,7 @@ public class CompensatedEntities {
     }
 
     public void removeEntity(int entityID) {
+        PacketEntity previousRoot = playerEntity.getRiding();
         PacketEntity entity = entityMap.remove(entityID);
         pendingAttributes.remove(entityID);
         pendingEquipment.remove(entityID);
@@ -98,6 +99,10 @@ public class CompensatedEntities {
         }
         for (PacketEntity passenger : new ArrayList<>(entity.passengers)) {
             passenger.eject();
+        }
+        if (player.isBedrockMovement()) {
+            vehicles.seedStartingVelocityIfRootChanged(previousRoot);
+            if (previousRoot == null) player.getSetbackTeleportUtil().transferBedrockVehicleSetback(entityID);
         }
 
         if (removedSelfVehicle) {

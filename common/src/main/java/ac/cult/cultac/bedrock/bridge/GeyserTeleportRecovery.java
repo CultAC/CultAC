@@ -1,5 +1,7 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import java.util.function.Consumer;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityAbsolutePacket;
@@ -8,17 +10,17 @@ import org.cloudburstmc.protocol.bedrock.packet.SetEntityMotionPacket;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.cache.TeleportCache;
 
-/** Final wire coordinates, owned by the movement event loop. Never authorizes movement. */
 final class GeyserTeleportRecovery {
     private static final int RETRY_INPUTS = 20;
-    private BedrockPacket teleport;
+    private BedrockTeleportOperation operation;
+    private BedrockCoordinateFrame origin;
     private SetEntityMotionPacket motion;
-    private Consumer<BedrockPacket> writer;
-    private Runnable flushed;
+    private Consumer<SetEntityMotionPacket> resend;
     private long lastInputTick;
     private int unconfirmedInputs;
 
-    boolean active() { return teleport != null; }
+    boolean active() { return operation != null; }
+    BedrockTeleportOperation operation() { return operation; }
 
     /** Drive Geyser's existing cache without allowing its positional tolerance to acknowledge CultAC. */
     static void retryGeyserTeleport(GeyserSession session) {
@@ -37,46 +39,39 @@ final class GeyserTeleportRecovery {
         }
     }
 
-    void begin(BedrockPacket packet, long inputTick, Consumer<BedrockPacket> writer, Runnable flushed) {
-        this.teleport = packet.clone();
+    void begin(BedrockPacket packet, BedrockTeleportOperation operation, BedrockCoordinateFrame origin,
+               long inputTick, Consumer<BedrockPacket> writer, Consumer<SetEntityMotionPacket> resend) {
+        this.operation = operation;
+        this.origin = origin;
         this.motion = null;
-        this.writer = writer;
-        this.flushed = flushed;
+        this.resend = resend;
         this.lastInputTick = inputTick;
         this.unconfirmedInputs = 0;
-        writeReset(inputTick);
+        if (inputTick > 0) writer.accept(reset(packet, inputTick));
     }
 
     void motion(SetEntityMotionPacket packet) {
-        if (teleport != null) motion = packet.clone();
+        if (active()) motion = packet.clone();
     }
 
-    void input(long tick, boolean pending) {
+    void input(long tick, boolean pending, BedrockCoordinateFrame writtenOrigin) {
         if (!pending) {
             clear();
             return;
         }
-        if (teleport == null || tick <= lastInputTick) return;
+        if (!active() || tick <= lastInputTick) return;
         lastInputTick = tick;
-        if (++unconfirmedInputs < RETRY_INPUTS) return;
+        if (origin.equals(writtenOrigin) && ++unconfirmedInputs < RETRY_INPUTS) return;
         unconfirmedInputs = 0;
-        writeReset(tick);
-        writer.accept(teleport.clone());
-        if (motion != null) writer.accept(motion.clone());
-        flushed.run();
+        resend.accept(motion == null ? null : motion.clone());
     }
 
     void clear() {
-        teleport = null;
+        operation = null;
+        origin = null;
         motion = null;
-        writer = null;
-        flushed = null;
+        resend = null;
         unconfirmedInputs = 0;
-    }
-
-    private void writeReset(long tick) {
-        // No observed movement means no player history to cancel yet. Never invent a future tick.
-        if (tick > 0) writer.accept(reset(teleport, tick));
     }
 
     static MovePlayerPacket reset(BedrockPacket teleport, long tick) {

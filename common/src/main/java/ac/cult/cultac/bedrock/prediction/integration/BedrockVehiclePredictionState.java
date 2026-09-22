@@ -3,6 +3,11 @@ package ac.cult.cultac.bedrock.prediction.integration;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseProperties;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
+import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
+import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockPositionTranslator;
@@ -101,6 +106,35 @@ public record BedrockVehiclePredictionState(PredictionCommit commit, PredictionR
     public static Vec3 passengerPosition(BedrockPredictionResult prediction) {
         // Passenger placement precedes the vehicle movement tick.
         return passengerPosition(prediction.movementResult().previousState());
+    }
+
+    public static Vec3 setbackPassengerPosition(CultPlayer player, PacketEntity vehicle,
+                                                PredictionSetbackState setback, Vec3 position,
+                                                BedrockCoordinateFrame coordinates) {
+        BedrockMovementState state = setback == null ? null : BedrockProfileState.previousState(setback.commit().carry());
+        if (!belongsTo(state, vehicle)) {
+            state = vehicle.bedrockPrediction == null ? null
+                    : BedrockProfileState.previousState(vehicle.bedrockPrediction.commit().carry());
+        }
+        if (!belongsTo(state, vehicle)) {
+            state = BedrockMovementState.fromPhysicalFeet(BedrockVectorAdapter.toBedrock(position), Vec3d.ZERO,
+                    BedrockInputFrame.idle(0), BedrockCollisionFlags.AIR, Medium.AIR, coordinates,
+                    vehicle instanceof PacketEntityHorse horse ? BedrockHorseState.initial(horse) : null);
+            if (vehicle.isBoat()) {
+                state = state.withBoat(BedrockBoatState.initial(vehicle))
+                        .withPlayerDimensions(vehicle.bedrockBoat.dimensions(), true);
+            } else {
+                state = state.withPlayerDimensions(new PlayerDimensionsState(
+                        BoundingBoxSize.getWidth(player, vehicle), BoundingBoxSize.getHeight(player, vehicle)), false);
+            }
+            state = state.withRotation(vehicle.clientPhysicalYaw + (vehicle.isBoat() ? 90.0F : 0), vehicle.clientPhysicalPitch);
+        }
+        return passengerPosition(state.withPhysicalFeetPosition(BedrockVectorAdapter.toBedrock(position), 0));
+    }
+
+    private static boolean belongsTo(BedrockMovementState state, PacketEntity vehicle) {
+        return state != null && (state.isHorse() && state.horse().actor() == vehicle
+                || state.isBoat() && state.boat().actor() == vehicle);
     }
 
     public static Vec3 passengerPosition(BedrockMovementState vehicle) {

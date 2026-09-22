@@ -48,7 +48,7 @@ final class BedrockMovementFlagReporter {
                 observation.horizontalInputExcess(),
                 "REJECTED",
                 "ENGINE_PHYSICS",
-                "SET_POSITION"), Math.max(offset, observation.velocityOffset()));
+                "REWIND"), Math.max(offset, observation.velocityOffset()));
     }
 
     static void addEnginePredictionFailureFlag(CultPlayer player, PredictionResult result) {
@@ -64,6 +64,6 @@ final class BedrockMovementFlagReporter {
                 CultAPI.INSTANCE.getConfigManager().getBedrockMovementVelocityFlagThreshold(),
                 "REJECTED",
                 "ENGINE_PHYSICS",
-                "SET_POSITION"), Math.max(1.0D, positionThreshold));
+                "REWIND"), Math.max(1.0D, positionThreshold));
     }
 }

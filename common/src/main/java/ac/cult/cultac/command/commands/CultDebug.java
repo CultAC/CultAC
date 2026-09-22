@@ -41,6 +41,13 @@ public class CultDebug implements BuildableCommand {
 
         commandManager.command(cultCommand
                 .literal("debug")
+                .literal("rewind", Description.of("Toggle Bedrock rewind positions and offsets"))
+                .permission("cult.debug")
+                .optional("target", arguments.singlePlayerSelectorParser())
+                .handler(this::handleDebugRewind));
+
+        commandManager.command(cultCommand
+                .literal("debug")
                 .literal("places", Description.of("Toggle your processed block-state changes"))
                 .permission("cult.debug")
                 .handler(this::handleDebugPlaces));
@@ -89,6 +96,20 @@ public class CultDebug implements BuildableCommand {
         // Register command
         commandManager.command(debugCommand);
         commandManager.command(consoleDebugCommand);
+    }
+
+    private void handleDebugRewind(@NotNull CommandContext<Sender> context) {
+        Sender sender = context.sender();
+        PlayerSelector selector = context.getOrDefault("target", null);
+        CultPlayer target = parseTarget(sender, selector == null ? null : selector.getSinglePlayer());
+        if (target == null) return;
+        if (!target.isBedrockMovement()) {
+            sender.sendMessage(Component.text("Rewind debugging requires a Bedrock player.", NamedTextColor.RED));
+            return;
+        }
+        boolean enabled = target.checkManager.getDebugHandler().toggleRewindListener(sender);
+        sender.sendMessage(Component.text((enabled ? "Enabled" : "Disabled") + " rewind debugging for "
+                + target.getName() + (enabled ? ": c=client, s=server, o=c-s" : ""), NamedTextColor.GRAY));
     }
 
     private void handleDebugPlaces(@NotNull CommandContext<Sender> context) {

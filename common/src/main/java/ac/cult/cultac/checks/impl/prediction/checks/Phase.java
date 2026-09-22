@@ -53,8 +53,16 @@ public class Phase extends Check implements PostPredictionListener {
 
     @Override
     public void onPredictionComplete(PredictionComplete complete) {
-        if (!player.isBedrockMovement() || complete.getPredictionResult() == null) return;
-        var context = complete.getPredictionResult().getSimulationContext();
+        var result = complete.getPredictionResult();
+        if (result == null) return;
+        if (result.isTeleport()) {
+            if (result.getSetBackData() != null) {
+                oldBox = boxAt(result.getSetBackData().getLocation(), 1.8f, player.isBedrockMovement());
+            }
+            return;
+        }
+        if (!player.isBedrockMovement()) return;
+        var context = result.getSimulationContext();
         if (context == null || !context.hasTrustedAuthoredInput() || context.getBedrockInput() == null) return;
 
         checkMovement(context.getEnd(), true,

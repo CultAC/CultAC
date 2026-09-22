@@ -155,7 +155,7 @@ public final class BedrockMovementEngineTest {
     }
 
     @Test
-    public void gfpRebasePreservesWorldPositionButJavaTeleportAppliesItsDestination() {
+    public void everyNativeTeleportAppliesItsDestinationIncludingDelayedGfpRebases() {
         var original = state(new Vec3d(10, 64, 20), new Vec3d(0.1, 0, 0), BedrockCollisionFlags.ON_GROUND);
         var origin = new BedrockCoordinateFrame(4096, 0, 1);
         for (var source : new BedrockTeleportProvenance[]{
@@ -165,10 +165,11 @@ public final class BedrockMovementEngineTest {
             teleport.setBedrockTransportOnly(true);
             teleport.setBedrockCoordinateFrame(origin);
             teleport.setBedrockOperation(new BedrockTeleportOperation(1, source, 7));
+            teleport.setBedrockOnGround(false);
             var commit = BedrockMovementEngine.INSTANCE.applyTeleportToCarry(commit(original).carry(), teleport);
             var result = ((BedrockNextTickStates) commit.carry()).profileEntries().getFirst().state();
-            assertEquals(source == BedrockTeleportProvenance.GFP_REBASE
-                    ? original.physicalFeetPosition() : new Vec3d(4106, 64, 20), result.physicalFeetPosition());
+            assertEquals(new Vec3d(4106, 64, 20), result.physicalFeetPosition());
+            assertFalse(result.collisionFlags().onGround());
             assertEquals(origin, result.coordinateFrame());
             assertEquals(Vec3d.ZERO, result.velocity());
         }

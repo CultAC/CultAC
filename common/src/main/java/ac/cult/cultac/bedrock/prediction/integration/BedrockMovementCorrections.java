@@ -24,9 +24,12 @@ public final class BedrockMovementCorrections {
     private long runtimeId = Long.MIN_VALUE;
     private volatile long generation;
     private Pending pending;
+    private boolean exemptMovement;
     private int requestedTransaction = -1;
 
     public long generation() { return generation; }
+
+    public boolean hasPendingCorrection() { return pending != null || requestedTransaction >= 0; }
 
     public void request(CultPlayer player, int vehicleId, Vec3 position, Vec3 velocity,
                         float yaw, float pitch, boolean onGround, int transaction) {
@@ -37,6 +40,7 @@ public final class BedrockMovementCorrections {
                         float yaw, float pitch, boolean onGround, int transaction, PredictionSetbackState setback) {
         var vehicle = BedrockVehicleControl.controlledVehicle(player);
         if (vehicle == null || vehicle.getEntityId() != vehicleId) return;
+        player.checkManager.getListener(ac.cult.cultac.checks.impl.bedrock.BedrockMovement.class).onVehicleTeleport();
         clear();
         player.checkManager.getSimulationProcessor().resetBedrockVehicle(vehicle, position, velocity, yaw, pitch, onGround, setback);
         requestedTransaction = transaction;
@@ -48,6 +52,7 @@ public final class BedrockMovementCorrections {
     }
 
     public void observe(CultPlayer player, BedrockMovementCorrection correction) {
+        if (exemptMovement && correction.teleportTransaction() < 0) return;
         if (correction.controlGeneration() != generation || runtimeId == Long.MIN_VALUE
                 || correction.vehicle() != (controlled != null)
                 || controlled != null && (controlled.getEntityId() != correction.vehicleId() || runtimeId != correction.runtimeId())) return;
@@ -57,7 +62,7 @@ public final class BedrockMovementCorrections {
     public void acknowledge(long sequence) {
         if (pending != null && pending.correction.sequence() == sequence && !pending.received) {
             pending.received = true;
-            rewind.queue(pending.correction.tick(), true, new BedrockReplayEvent.Transform(pending.correction));
+            if (!exemptMovement) rewind.queue(pending.correction.tick(), true, new BedrockReplayEvent.Transform(pending.correction));
         }
     }
 
@@ -119,6 +124,14 @@ public final class BedrockMovementCorrections {
                        PredictionResult result, PredictionCommit commit) {
         bind(vehicle, vehicle == null ? -1 : frame.getPredictedVehicleId());
         if (commit == null || frame.getClientTick() <= lastTick) return;
+        exemptMovement = result != null && result.isExempt();
+        if (exemptMovement) {
+            rewind.clear();
+            if (pending != null && pending.correction.teleportTransaction() < 0) pending = null;
+            lastTick = frame.getClientTick();
+            processedTicks++;
+            return;
+        }
         if (result != null) rewind.record(player, result, commit);
         lastTick = frame.getClientTick();
         processedTicks++;
@@ -147,11 +160,12 @@ public final class BedrockMovementCorrections {
                 state.isBoat() ? state.boat().angularVelocity() : null, state.isVehicle());
         pending = new Pending(correction, processedTicks);
         int debugId = SuperDebug.ensureBedrockCorrectionLog(player, result);
-        if (GeyserBedrockBridgeRuntime.sendMovementCorrection(player.user, correction, frame.getReportedEndOfTickVelocity(), debugId)) requestedTransaction = -1;
+        if (GeyserBedrockBridgeRuntime.sendMovementCorrection(player.user, correction, frame.getPosition(), debugId)) requestedTransaction = -1;
         else pending = null;
     }
 
     public void clear() {
+        exemptMovement = false;
         generation++;
         rewind.clear();
         lastTick = -1;

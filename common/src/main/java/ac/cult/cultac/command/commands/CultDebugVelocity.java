@@ -33,7 +33,7 @@ public final class CultDebugVelocity implements BuildableCommand {
     public void register(CommandManager<Sender> manager, CloudPlatformCommandArguments arguments) {
         manager.command(manager.commandBuilder("cult", "cultac", "grim", "grimac")
                 .literal("debug")
-                .literal("velocity", Description.of("Send yourself a velocity after a delay in ticks"))
+                .literal("velocity", Description.of("Send yourself or your vehicle a velocity after a delay in ticks"))
                 .permission("cult.debug")
                 .required("ticks", IntegerParser.integerParser(0))
                 .required("x", DoubleParser.doubleParser())
@@ -99,7 +99,8 @@ public final class CultDebugVelocity implements BuildableCommand {
             }
             // ClientPacketListener#handleSetEntityMotion -> Entity#lerpMotion replaces
             // client velocity. Sending only the packet avoids a second Bukkit velocity broadcast.
-            var packet = new ClientboundSetEntityMotionPacket(player.entityID, velocity);
+            Integer vehicleId = player.compensatedEntities.vehicles.serverPlayerVehicle;
+            var packet = new ClientboundSetEntityMotionPacket(vehicleId == null ? player.entityID : vehicleId, velocity);
             if (silent) player.user.sendPacketSilently(packet);
             else player.user.sendPacket(packet);
             sender.sendMessage(Component.text("Sent " + (silent ? "silent " : "") + "velocity " + velocity + " via a Java packet.",
@@ -120,7 +121,8 @@ public final class CultDebugVelocity implements BuildableCommand {
                         || GeyserApi.api().connectionByUuid(player.playerUUID) != session) return;
                 // Match JavaSetEntityMotionTranslator's runtime ID and float vector.
                 var packet = new SetEntityMotionPacket();
-                packet.setRuntimeEntityId(session.getPlayerEntity().geyserId());
+                var vehicle = session.getPlayerEntity().getVehicle();
+                packet.setRuntimeEntityId(vehicle == null ? session.getPlayerEntity().geyserId() : vehicle.geyserId());
                 packet.setMotion(Vector3f.from(velocity.x, velocity.y, velocity.z));
                 if (!silent) {
                     session.sendUpstreamPacket(packet);

@@ -12,7 +12,6 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
-import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -26,15 +25,16 @@ public final class BedrockPredictionDebug {
     private BedrockPredictionDebug() {
     }
 
-    public static void reportCorrectionSent(CultPlayer player, BedrockMovementCorrection correction, Vec3 reportedVelocity, int debugId) {
-        var alerts = CultAPI.INSTANCE.getAlertManager();
-        if (!alerts.hasVerboseListeners()) return;
-        Vec3 difference = reportedVelocity == null ? null : correction.velocity().subtract(reportedVelocity);
-        String details = difference == null ? "rewind (unknown)" : String.format(Locale.ROOT,
-                "rewind (%.3f,%.3f,%.3f)",
-                difference.x, difference.y, difference.z);
-        alerts.sendVerbose(MessageUtil.miniMessage(MessageUtil.replacePlaceholders(player, "%prefix% "))
-                .append(net.kyori.adventure.text.Component.text(player.getName() + " " + details + " [" + debugId + "]")), null);
+    public static void reportCorrectionSent(CultPlayer player, BedrockMovementCorrection correction, Vec3 claimedPosition, int debugId) {
+        player.checkManager.getDebugHandler().relayRewind(() -> formatRewind(claimedPosition, correction.position(), debugId));
+    }
+
+    static String formatRewind(Vec3 claimed, Vec3 simulated, int debugId) {
+        Vec3 offset = claimed.subtract(simulated);
+        return String.format(Locale.ROOT,
+                "rewind c=(%.5f,%.5f,%.5f) s=(%.5f,%.5f,%.5f) o=(%.5f,%.5f,%.5f) [%d]",
+                claimed.x, claimed.y, claimed.z, simulated.x, simulated.y, simulated.z,
+                offset.x, offset.y, offset.z, debugId);
     }
 
     public static BedrockMovementObservation currentObservation(CultPlayer player, PredictionResult result) {

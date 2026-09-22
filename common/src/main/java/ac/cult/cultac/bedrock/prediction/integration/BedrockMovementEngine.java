@@ -279,6 +279,13 @@ public final class BedrockMovementEngine implements MovementEngine {
             List<Entry> entries = BedrockForwardTick.finish(movement, state).stream()
                 .map(next -> new Entry(next, bedrockResult.nextTickBaseMobJumpComponent())).toList();
             var frame = result.getSimulationContext().getBedrockInput();
+            if (result.isExempt() && frame.getReportedEndOfTickVelocity() != null) {
+                var position = BedrockVectorAdapter.toBedrock(frame.getPosition());
+                var velocity = BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity());
+                entries = List.of(entries.getFirst().withState(entries.getFirst().state()
+                    .withPhysicalFeetPosition(position, position.subtract(movement.previousState().physicalFeetPosition()))
+                    .withVelocityAndCollisionFlags(velocity, entries.getFirst().state().collisionFlags())));
+            }
             if (entries.size() > 1 && frame.getReportedEndOfTickVelocity() != null) {
                 var reported = BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity());
                 entries = entries.stream().sorted(java.util.Comparator.comparingDouble(
@@ -372,9 +379,8 @@ public final class BedrockMovementEngine implements MovementEngine {
             // MovePlayer TELEPORT resets velocity; any subsequent SetEntityMotion
             // enters through the existing packet modifiers, not Java teleport delta flags.
             Vec3d velocity = Vec3d.ZERO;
-            BedrockMovementState rebased = restoreCorrectedState(state,
-                teleport.preservesBedrockWorldPosition() ? state.physicalFeetPosition() : position, velocity);
-            if (!teleport.preservesBedrockWorldPosition() && teleport.getBedrockOnGround() != null) {
+            BedrockMovementState rebased = restoreCorrectedState(state, position, velocity);
+            if (teleport.getBedrockOnGround() != null) {
 
                 rebased = rebased.withVelocityAndCollisionFlags(
                     rebased.velocity(), rebased.collisionFlags().withTeleportOnGround(teleport.getBedrockOnGround())

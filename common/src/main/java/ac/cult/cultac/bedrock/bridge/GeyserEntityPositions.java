@@ -87,10 +87,11 @@ final class GeyserEntityPositions {
                     flags.contains(MoveEntityDeltaPacket.Flag.HAS_Z) ? move.getZ() : (float) local.z);
             yaw = flags.contains(MoveEntityDeltaPacket.Flag.HAS_YAW) ? byteAngle(move.getYaw()) : previous.yaw();
             pitch = flags.contains(MoveEntityDeltaPacket.Flag.HAS_PITCH) ? byteAngle(move.getPitch()) : previous.pitch();
-            ground = flags.contains(MoveEntityDeltaPacket.Flag.ON_GROUND);
-            teleport = flags.contains(MoveEntityDeltaPacket.Flag.TELEPORTING); spawn = false;
-            forceLocal = flags.contains(MoveEntityDeltaPacket.Flag.FORCE_MOVE_LOCAL_ENTITY);
-            forceCompletion = flags.contains(MoveEntityDeltaPacket.Flag.FORCE_COMPLETION);
+            var semantics = GeyserEntityDeltaFlags.read(move, session.protocolVersion());
+            ground = semantics.onGround();
+            teleport = semantics.teleported(); spawn = false;
+            forceLocal = semantics.forceLocal();
+            forceCompletion = semantics.forceCompletion();
         } else return;
 
         if (runtimeId == session.getPlayerEntity().geyserId()) return;
@@ -114,6 +115,9 @@ final class GeyserEntityPositions {
             if (spawnVelocity != null) entity.deltaMovement = spawnVelocity;
             if (entity == BedrockVehicleControl.controlledVehicle(player)
                     && !spawn && !moveLocal) return;
+            if (!spawn && (teleport || moveLocal) && entity == player.compensatedEntities.getSelf().getRiding()) {
+                player.checkManager.getListener(ac.cult.cultac.checks.impl.bedrock.BedrockMovement.class).onVehicleTeleport();
+            }
             entity.onGround = ground;
             if (teleport || moveLocal || !entity.isLivingEntity() && !entity.isBoat()) {
                 entity.bedrockInterpolation = null;

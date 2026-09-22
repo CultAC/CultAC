@@ -362,9 +362,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       this.player.compensatedWorld.pistons.onLegacyPlayerTeleport();
       PredictionResult result = new PredictionResult(this.player, null, null, null, teleportData, new ArrayList(), new ArrayList());
       result.setTeleport(true);
-      var carried = this.player.isBedrockMovement() ? BedrockProfileState.previousState(this.profileCarry) : null;
-      Vec3 position = carried != null && teleportData.preservesBedrockWorldPosition()
-         ? BedrockVectorAdapter.toJava(carried.physicalFeetPosition()) : teleportData.getLocation();
+      Vec3 position = teleportData.getLocation();
       this.player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(this.player, position.x, position.y, position.z);
       if (!this.player.compensatedEntities.getSelf().inVehicle()) {
          if (this.player.isBedrockMovement() || this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
@@ -431,9 +429,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          this.player.bedrockState.movementCorrections.clear();
          this.handleTeleport(teleportAcceptData);
          TeleportData teleport = teleportAcceptData.getTeleportData();
-         var carried = BedrockProfileState.previousState(this.profileCarry);
-         this.commitPlayerPosition(teleport.preservesBedrockWorldPosition() && carried != null
-            ? BedrockVectorAdapter.toJava(carried.physicalFeetPosition()) : teleport.getLocation());
+         this.commitPlayerPosition(teleport.getLocation());
       }
    }
 
@@ -682,6 +678,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                                BedrockAuthInputFrame frame, MovementProfile profile) {
       PredictionResult result = this.getPredictionResult(this.player, this.validPlayerStartingVels, this.lastPrediction,
          observed.subtract(start), start, observed, this.lastTickSkip, false, yaw, pitch, frame, profile);
+      if (this.isMovementModeExempt(profile, result.getSimulationContext())) {
+         result.exempt();
+      }
       PredictionCommit commit = this.prepareBedrockCommit(result, observed.subtract(start), profile);
       if (commit == null || BedrockProfileState.previousState(commit.carry()) == null) {
          this.player.packetStateData.rejectBedrockTranslatedMovement();
@@ -691,7 +690,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          BedrockProfileState.previousState(commit.carry()).physicalFeetPosition()));
       this.handlePossibleRealities(result);
       boolean verbose = profile.shouldCreateVerboseLog(this.player, result);
-      if (verbose || BedrockPredictionDebug.shouldRecordMovementDebug(this.player, result)) {
+      boolean flagged = !result.isExempt() && result.hasEffectiveFlags();
+      if (flagged || verbose || BedrockPredictionDebug.shouldRecordMovementDebug(this.player, result)) {
          result.setIdentifier(nextDebugIdentifier());
          result.setProfileVerboseLog(verbose);
       }
@@ -1104,11 +1104,15 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
    }
 
    private boolean isExempt(MovementProfile movementProfile, SimulationContext context) {
+      return this.isMovementModeExempt(movementProfile, context)
+         || this.player.getSetbackTeleportUtil().shouldBlockMovement();
+   }
+
+   private boolean isMovementModeExempt(MovementProfile movementProfile, SimulationContext context) {
       boolean flyingExempt = movementProfile.usesFlyingExemption(this.player)
          && (this.player.isFlying || this.lastFlying.hasOccurredSince(2) || movementProfile.startsFlyingExemptionThisFrame(this.player, context));
       return !this.player.isBedrockMovement() && this.player.isInBed
          || flyingExempt
-         || this.player.getSetbackTeleportUtil().shouldBlockMovement()
          || this.player.gamemode == GameMode.SPECTATOR;
    }
 

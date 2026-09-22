@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.CultAPI;
@@ -102,6 +103,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     // This required setback data is the head of the teleport.
     // It is set by both bukkit and netty due to going on the bukkit thread to setback players
     private volatile SetBackData requiredSetBack = null;
+    private volatile BedrockVehicleSetback bedrockVehicleSetback;
     public SetbackPosWithVector lastKnownGoodPosition;
     // The position of the last Bedrock movement packet actually forwarded to
     // Paper (Geyser's Java projection or a teleport echo), captured at the
@@ -465,6 +467,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     }
 
     private void sendSetback(SetBackData data, boolean simulateVehicle) {
+        sendSetback(data, simulateVehicle, false);
+    }
+
+    private void sendSetback(SetBackData data, boolean simulateVehicle, boolean dismounted) {
         isSendingSetback = true;
         Vec3 position = data.getTeleportData().getLocation();
 
@@ -477,7 +483,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             data.getTeleportData().setTeleportId(teleportId);
             data.getTeleportData().setTransaction(player.lastTransactionSent.get());
 
-            final int vehicleEntityId = resolveSetbackVehicleId();
+            final int vehicleEntityId = dismounted ? Integer.MIN_VALUE : resolveSetbackVehicleId();
             boolean bedrockVehicle = player.isBedrockMovement()
                     && BedrockVehicleControl.isSupported(player.compensatedEntities.getEntity(vehicleEntityId));
 
@@ -491,6 +497,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 // PacketServerTeleport observes this packet and queues the exact
                 // vanilla snap/echo response position for the vehicle teleport.
                 if (bedrockVehicle) {
+                    bedrockVehicleSetback = new BedrockVehicleSetback(data, vehicleEntityId,
+                            BedrockVehiclePredictionState.setbackPassengerPosition(
+                                    player, player.compensatedEntities.getEntity(vehicleEntityId), data.getProfileState(),
+                                    position, activeBedrockCoordinateFrame));
                     int transaction = data.getTeleportData().getTransaction();
                     addBedrockVehicleTeleport(vehicleEntityId, transaction, position);
                     if (simulateVehicle) {
@@ -503,6 +513,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     player.user.sendPacket(NmsPacketUtil.clientboundMoveVehiclePacket(position, player.xRot, player.yRot));
                 }
             } else {
+                bedrockVehicleSetback = null;
                 // Track the correction before sending; its outbound packet is silenced below.
                 if (!player.isBedrockMovement()) addSentTeleport(position, data.getTeleportData().getTransaction(), new RelativeFlag(0b11000), false, teleportId);
                 // Receive the player's position packet to make setbacks appear smooth for other players (and to stop vanilla ac setbacks)
@@ -528,7 +539,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             Channels.PLAYER_SETBACK.fire(player, teleportId, position.x, position.y, position.z, now);
 
             final KnockbackHandler knockbackHandler = player.checkManager.getKnockbackHandler();
-            if (!bedrockVehicle && data.getVelocity() != null && (data.getVelocity().lengthSqr() > 0 || vehicleEntityId != Integer.MIN_VALUE)) {
+            if (!bedrockVehicle && data.getVelocity() != null && (dismounted || data.getVelocity().lengthSqr() > 0 || vehicleEntityId != Integer.MIN_VALUE)) {
                 knockbackHandler.setSetbackVal(true);
                 player.user.sendPacket(new ClientboundSetEntityMotionPacket(
                         vehicleEntityId == Integer.MIN_VALUE ? player.entityID : vehicleEntityId,
@@ -691,16 +702,37 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         return completeTeleport(matching, actual, true);
     }
 
-    public void onBedrockVehicleMount(long revision) {
-        // A received Bedrock rider link supersedes earlier ordinary player teleports.
-        // A Cult setback still requires its own validated response.
-        pendingTeleports.removeIf(pending -> {
-            if (!pending.isBedrockTransportOnly() || pending.getBedrockTransportRevision() < 0
-                    || pending.getBedrockTransportRevision() > revision) return false;
-            activeBedrockCoordinateFrame = pending.getBedrockCoordinateFrame();
-            completeTeleport(pending, pending.getLocation(), false);
-            return true;
-        });
+    public Runnable captureBedrockVehicleMount() {
+        long revision = bedrockTeleportRevision.get();
+        SetBackData setback = requiredSetBack;
+        int transaction = setback == null ? -1 : setback.getTeleportData().getTransaction();
+        List<VehicleTeleport> earlierVehicles = List.copyOf(vehicleTeleports);
+        long correctionGeneration = player.bedrockState.movementCorrections.generation();
+        return () -> {
+            pendingTeleports.removeIf(pending -> {
+                boolean preceding = pending.getBedrockTransportRevision() >= 0
+                        && pending.getBedrockTransportRevision() <= revision;
+                boolean owned = setback != null && pending.getTransaction() == transaction
+                        && !pending.isBedrockTransportOnly();
+                if (!preceding && !owned) return false;
+                if (preceding && pending.getBedrockCoordinateFrame().revision() >= activeBedrockCoordinateFrame.revision()) {
+                    activeBedrockCoordinateFrame = pending.getBedrockCoordinateFrame();
+                }
+                return true;
+            });
+            vehicleTeleports.removeAll(earlierVehicles);
+            if (setback != null && requiredSetBack == setback
+                    && setback.getTeleportData().getTransaction() == transaction) {
+                setback.setComplete(true);
+                bedrockVehicleSetback = null;
+                blockOffsets = false;
+            }
+            hasFullyLoaded = hasFullyJoined = true;
+            if (requiredSetBack == setback && (setback == null || setback.getTeleportData().getTransaction() == transaction)
+                    && player.bedrockState.movementCorrections.generation() == correctionGeneration) {
+                player.bedrockState.movementCorrections.clear();
+            }
+        };
     }
 
     public boolean hasPendingBedrockTransportTeleport() {
@@ -713,6 +745,17 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         if (requiredSetBack == null || requiredSetBack.isPlugin()) return false;
         return pendingTeleports.stream().anyMatch(pending -> pending.getBedrockTransportRevision() == revision
                 && !pending.isBedrockTransportOnly() && isRequiredSetbackTeleport(pending));
+    }
+
+    public boolean isCurrentBedrockSetback(int transaction) {
+        return player.isBedrockMovement() && requiredSetBack != null && !requiredSetBack.isPlugin()
+                && !requiredSetBack.isComplete() && requiredSetBack.getTeleportData().getTransaction() == transaction;
+    }
+
+    public boolean isPendingBedrockSetback(BedrockTeleportOperation operation) {
+        return operation != null && operation.provenance() == BedrockTeleportProvenance.CULT_SETBACK
+                && operation.setbackTransaction() != null && isCurrentBedrockSetback(operation.setbackTransaction())
+                && pendingTeleports.stream().anyMatch(pending -> operation.equals(pending.getBedrockOperation()));
     }
 
     public boolean mustAcknowledgeBedrockTransportTeleport() {
@@ -1118,6 +1161,23 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
     }
 
+    public void transferBedrockVehicleSetback(int previousVehicleId) {
+        BedrockVehicleSetback pending = bedrockVehicleSetback;
+        if (pending == null || pending.vehicleId() != previousVehicleId || requiredSetBack != pending.setback()
+                || !isPendingSetback() || player.compensatedEntities.getSelf().inVehicle()) return;
+        Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
+        if (serverVehicle != null && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(serverVehicle)) return;
+
+        clearVehicleTeleports();
+        SetBackData previous = pending.setback();
+        SetBackData replacement = new SetBackData(
+                new TeleportData(pending.ridingPosition(), new RelativeFlag(0b11000), 0, 0),
+                previous.getXRot(), previous.getYRot(), Vec3.ZERO, false, false, false);
+        sendSetback(replacement, false, true);
+    }
+
+    private record BedrockVehicleSetback(SetBackData setback, int vehicleId, Vec3 ridingPosition) { }
+
     private record VehicleTeleport(int vehicleId, int transaction, Vec3 position, VehicleTeleportData state,
                                    double responseDistanceTolerance, boolean rewind) {
     }
@@ -1312,6 +1372,11 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         BedrockTeleportProvenance provenance = operation == null ? BedrockTeleportProvenance.GEYSER : operation.provenance();
         Integer setbackTransaction = operation == null ? null : operation.setbackTransaction();
         Vec3 clamped = VectorUtils.clampVector(physicalFeetPosition);
+        if (provenance == BedrockTeleportProvenance.CULT_SETBACK) {
+            if (setbackTransaction == null || !isCurrentBedrockSetback(setbackTransaction)) return;
+            pendingTeleports.removeIf(pending -> pending.getBedrockProvenance() == BedrockTeleportProvenance.CULT_SETBACK
+                    && !operation.equals(pending.getBedrockOperation()));
+        }
         // A retry is another emission of the same operation, not a new transport-only move.
         if (operation != null) {
             for (TeleportData pending : pendingTeleports) {

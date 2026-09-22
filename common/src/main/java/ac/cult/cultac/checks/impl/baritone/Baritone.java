@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.baritone;
 
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.cult.cultac.checks.Check;
-import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.aim.processor.AimProcessor;
 import ac.cult.cultac.checks.type.RotationListener;
 import ac.cult.cultac.player.CultPlayer;

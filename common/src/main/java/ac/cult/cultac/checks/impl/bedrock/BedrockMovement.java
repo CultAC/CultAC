@@ -5,13 +5,16 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.checks.type.CheckListener;
+import java.util.Locale;
+import org.bukkit.ChatColor;
 
-/** Diagnostic identity for movement differences; the engine owns corrections. */
 @BedrockSupported
 public final class BedrockMovement extends Check implements CheckListener {
     private static final double DEFAULT_IMMEDIATE_FLAG_THRESHOLD = 0.1D;
 
     private double immediateFlagThreshold = DEFAULT_IMMEDIATE_FLAG_THRESHOLD;
+    private Integer lastVehicleTeleportTick;
+    private Integer lastVehicleMountSwitchTick;
 
     public BedrockMovement(CultPlayer player) {
         super(player, CheckInfo.builder()
@@ -30,6 +33,28 @@ public final class BedrockMovement extends Check implements CheckListener {
 
     public boolean shouldEvaluateOffset(double offset, double positionThreshold) {
         return shouldFlag(offset, positionThreshold, immediateFlagThreshold);
+    }
+
+    public void flagMovement(double offset, int debugIdentifier) {
+        if (canFlagMovement()) {
+            flag(String.format(Locale.ROOT, "%.5f", offset) + " " + ChatColor.DARK_GRAY + debugIdentifier);
+        }
+    }
+
+    public void onVehicleTeleport() {
+        lastVehicleTeleportTick = player.packetStateData.acceptedClientTick;
+    }
+
+    public void onVehicleMountSwitch() {
+        lastVehicleMountSwitchTick = player.packetStateData.acceptedClientTick;
+    }
+
+    public boolean canFlagMovement() {
+        int tick = player.packetStateData.acceptedClientTick;
+        return !player.getSetbackTeleportUtil().isPendingSetback()
+                && !player.bedrockState.movementCorrections.hasPendingCorrection()
+                && (lastVehicleTeleportTick == null || tick - lastVehicleTeleportTick >= 5)
+                && (lastVehicleMountSwitchTick == null || tick - lastVehicleMountSwitchTick >= 5);
     }
 
     static double disabledToMax(double value) {

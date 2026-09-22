@@ -148,6 +148,10 @@ public final class CompensatedVehicleState implements Debuggable {
         PacketEntity entity = entities.getEntity(entityId);
         if (entity == null) return;
 
+        if (player.isBedrockMovement() && entity == entities.playerEntity.getRiding()) {
+            player.checkManager.getListener(ac.cult.cultac.checks.impl.bedrock.BedrockMovement.class).onVehicleTeleport();
+        }
+
         if (player.isBedrockMovement() && BedrockHorseProperties.supports(entity.type) && onGround == null) {
             onGround = false;
         }
@@ -491,22 +495,31 @@ public final class CompensatedVehicleState implements Debuggable {
         }
         entities.updatePassengerPositions();
         seedStartingVelocityIfRootChanged(previousRoot);
+        if (player.isBedrockMovement() && previousRoot == null && !containsLocalPlayer(passengerIds)) {
+            player.getSetbackTeleportUtil().transferBedrockVehicleSetback(vehicleId);
+        }
         return true;
     }
 
-    private void seedStartingVelocityIfRootChanged(@Nullable PacketEntity previousRoot) {
+    void seedStartingVelocityIfRootChanged(@Nullable PacketEntity previousRoot) {
         PacketEntity currentRoot = entities.playerEntity.getRiding();
         if (sameRoot(previousRoot, currentRoot)) {
             return;
         }
 
-        if (player.bedrockState != null) player.bedrockState.movementCorrections.clear();
+        if (player.bedrockState != null) {
+            player.bedrockState.movementCorrections.clear();
+            player.checkManager.getListener(ac.cult.cultac.checks.impl.bedrock.BedrockMovement.class).onVehicleMountSwitch();
+        }
 
         markVehicleSwitchBufferWindow(currentRoot == null ? previousRoot : currentRoot);
         Vec3 rootDeltaMovement = currentRoot == null
                 ? entities.playerEntity.deltaMovement
                 : currentRoot.deltaMovement;
         player.checkManager.getSimulationProcessor().seedStartingVelocity(rootDeltaMovement);
+        if (player.isBedrockMovement() && previousRoot != null && currentRoot == null) {
+            player.getSetbackTeleportUtil().transferBedrockVehicleSetback(previousRoot.getEntityId());
+        }
     }
 
     private void markVehicleSwitchBufferWindow(@Nullable PacketEntity vehicle) {

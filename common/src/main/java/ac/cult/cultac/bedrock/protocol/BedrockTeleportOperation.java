@@ -6,8 +6,4 @@ public record BedrockTeleportOperation(long id, BedrockTeleportProvenance proven
     public BedrockTeleportOperation {
         if (id <= 0) throw new IllegalArgumentException("Invalid teleport operation ID");
     }
-
-    public boolean changesWorldPosition() {
-        return provenance != BedrockTeleportProvenance.GFP_REBASE;
-    }
 }
