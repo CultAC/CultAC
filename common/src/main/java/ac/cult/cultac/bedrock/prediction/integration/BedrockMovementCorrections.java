@@ -74,6 +74,12 @@ public final class BedrockMovementCorrections {
         rewind.queue(tick, historical, event);
     }
 
+    public BedrockReplayEvent.Metadata metadata(long expectedGeneration, long tick,
+                                                BedrockReplayEvent.Metadata event) {
+        if (expectedGeneration != generation) return null;
+        return controlled == null ? rewind.metadata(tick, event) : event;
+    }
+
     /** Attribute lifetime follows the actor, not the currently mounted vehicle or correction generation. */
     public void attributes(CultPlayer player, PacketEntity entity, long tick, BedrockReplayAttributeEvent event) {
         boolean self = entity == player.compensatedEntities.getSelf();

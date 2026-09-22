@@ -80,7 +80,7 @@ final class BedrockMovementResultBuilder {
             frameFacts.powderSnowTicks(),
             new BedrockMovementUpdate.Glide(
                 postMoveEffects.gliding(),
-                state.gliding().requestAfterActions() && postMoveEffects.gliding()),
+                state.gliding().requestAfterActions()),
             frameFacts.swimming().nextActorSwimming(),
             frameFacts.swimming().swimAmount(),
             new BedrockMovementUpdate.Riptide(

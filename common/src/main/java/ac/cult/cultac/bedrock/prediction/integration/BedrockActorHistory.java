@@ -34,6 +34,64 @@ public final class BedrockActorHistory {
                 .orElse(false);
     }
 
+    public BedrockReplayEvent.Metadata metadata(long tick, BedrockReplayEvent.Metadata incoming) {
+        long comparisonTick = tick != 0 && !frames.isEmpty() && Long.compareUnsigned(tick, oldestTick()) < 0
+                ? oldestTick() : tick;
+        var historical = tick == 0 ? null : frames.stream().filter(frame -> frame.tick() == comparisonTick)
+                .findFirst().orElse(null);
+        var effective = historical == null ? incoming : new BedrockReplayEvent.Metadata(
+                incoming.width(), incoming.height(),
+                changed(incoming.gliding(), historical, BedrockMovementState::gliding),
+                changed(incoming.crawling(), historical, BedrockMovementState::horizontalPose),
+                changed(incoming.swimming(), historical, BedrockMovementState::swimming),
+                changed(incoming.spinning(), historical, BedrockMovementState::riptideSpinActive),
+                changed(incoming.sprinting(), historical, BedrockMovementState::sprinting));
+        if (!frames.isEmpty()) {
+            var flags = new BedrockReplayEvent.Metadata(null, null, effective.gliding(),
+                    effective.crawling(), effective.swimming(), effective.spinning(), effective.sprinting());
+            if (flags.gliding() != null || flags.crawling() != null || flags.swimming() != null
+                    || flags.spinning() != null || flags.sprinting() != null) {
+                retainMetadata(historical == null ? newestTick() : comparisonTick, flags);
+            }
+            if (effective.width() != null || effective.height() != null) {
+                retainMetadata(newestTick(), new BedrockReplayEvent.Metadata(effective.width(),
+                        effective.height(), null, null, null, null, null));
+            }
+            Frame latest = frames.getLast();
+            var end = latest.end().stream().map(entry -> entry.withState(effective.state(entry.state()))).toList();
+            frames.set(frames.size() - 1, latest.withEnd(latest.beforeEvents(), end, latest.events()));
+        }
+        return effective;
+    }
+
+    private void retainMetadata(long tick, BedrockReplayEvent.Metadata effective) {
+        for (int i = 0; i < frames.size(); i++) {
+            Frame frame = frames.get(i);
+            if (frame.tick() != tick) continue;
+            var events = new ArrayList<>(frame.events());
+            events.add(new Event(++sequence, tick, frame.end().getFirst().state().simulationTick(),
+                    newestTick(), effective));
+            frames.set(i, frame.withEnd(frame.beforeEvents(), frame.end(), events));
+            return;
+        }
+    }
+
+    private static Boolean changed(Boolean value, Frame historical,
+                                   java.util.function.Predicate<BedrockMovementState> flag) {
+        return value != null && historical.end().stream().allMatch(entry -> flag.test(entry.state()) == value)
+                ? null : value;
+    }
+
+    public void ordinary(BedrockReplayEvent event) {
+        if (frames.isEmpty()) return;
+        Frame latest = frames.getLast();
+        var events = new ArrayList<>(latest.events());
+        events.add(new Event(++sequence, latest.tick(), latest.end().getFirst().state().simulationTick(),
+                latest.tick(), event));
+        var end = latest.end().stream().map(entry -> entry.withState(event.state(entry.state()))).toList();
+        frames.set(frames.size() - 1, latest.withEnd(latest.beforeEvents(), end, events));
+    }
+
     public void record(Frame frame) {
         if (frame.tick() <= newestTick()) return;
         // Missing inputs cannot be manufactured into movement ticks.

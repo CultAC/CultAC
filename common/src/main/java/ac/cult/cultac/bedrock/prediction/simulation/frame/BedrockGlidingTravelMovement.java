@@ -16,7 +16,7 @@ final class BedrockGlidingTravelMovement {
         GlideActionState actions = GlideActionState.resolve(current, intent, context);
 
         boolean activeAfterActions = actions.actorStateAfterActions();
-        boolean requestAfterActions = requestAfterActions(current.glidingRequest(), actions, activeAfterActions);
+        boolean requestAfterActions = requestAfterActions(current.glidingRequest(), actions);
         boolean liquidTravel = context.inWater() || context.inLava();
         return new BedrockGlideState(
             activeAfterActions,
@@ -37,14 +37,14 @@ final class BedrockGlidingTravelMovement {
             && !current.collisionFlags().onGround();
     }
 
-    private static boolean shouldApplyStopGlidingAction(BedrockInputIntent intent) {
-        return intent.glide().stopRequest();
+    private static boolean shouldApplyStopGlidingAction(BedrockMovementState current, BedrockInputIntent intent) {
+        return intent.glide().stopRequest()
+            || (current.glidingRequest() && current.collisionFlags().onGround());
     }
 
     private static boolean requestAfterActions(
         boolean glidingRequestAtStart,
-        GlideActionState actions,
-        boolean actorGlidingAfterActions
+        GlideActionState actions
     ) {
         if (actions.stopAction()) {
             return false;
@@ -53,7 +53,7 @@ final class BedrockGlidingTravelMovement {
             return true;
         }
 
-        return glidingRequestAtStart || actorGlidingAfterActions;
+        return glidingRequestAtStart;
     }
 
     private record GlideActionState(
@@ -70,7 +70,7 @@ final class BedrockGlidingTravelMovement {
             boolean actorStateAfterStart = current.gliding() || startIntent;
             return new GlideActionState(
                 startIntent,
-                shouldApplyStopGlidingAction(intent),
+                shouldApplyStopGlidingAction(current, intent),
                 actorStateAfterStart
             );
         }

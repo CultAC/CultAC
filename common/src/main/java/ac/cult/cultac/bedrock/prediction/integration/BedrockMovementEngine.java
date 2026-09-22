@@ -421,7 +421,7 @@ public final class BedrockMovementEngine implements MovementEngine {
         return carry instanceof BedrockNextTickStates states
             ? new BedrockNextTickStates(
                 states.profileEntries().stream()
-                    .map(entry -> entry.withState(entry.state().withGliding(actorGliding)))
+                    .map(entry -> entry.withState(entry.state().withAcknowledgedGliding(actorGliding)))
                     .toList()
             )
             : carry;

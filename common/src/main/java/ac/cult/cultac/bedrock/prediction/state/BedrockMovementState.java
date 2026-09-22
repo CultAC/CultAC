@@ -344,6 +344,10 @@ public record BedrockMovementState(
         );
     }
 
+    public BedrockMovementState withAcknowledgedGliding(boolean gliding) {
+        return withActor(actor.withGliding(gliding, glidingRequest()));
+    }
+
     public BedrockMovementState withPlayerDimensions(PlayerDimensionsState dimensions, boolean explicit) {
         return withActor(actor.withPlayerDimensions(dimensions, explicit ? dimensions : null));
     }

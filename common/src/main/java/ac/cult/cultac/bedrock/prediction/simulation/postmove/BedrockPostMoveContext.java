@@ -250,7 +250,6 @@ record BedrockPostMoveContext(
     BedrockPostMoveResult withPostMoveStateModes(BedrockPostMoveResult result, Vec3d nextPosition) {
         boolean gliding = BedrockGlidePostMoveMovement.activeAfterMove(
             gliding(),
-            result.flags(),
             climb().climbing()
         );
         boolean waterTravelActive = plan.frame().input().options().travelActive() && BedrockTravelTypeResolver.waterActive(

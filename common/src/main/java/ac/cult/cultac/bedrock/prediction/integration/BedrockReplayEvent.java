@@ -47,7 +47,7 @@ public sealed interface BedrockReplayEvent permits BedrockReplayAttributeEvent, 
     record Metadata(Float width, Float height, Boolean gliding, Boolean crawling, Boolean swimming,
                     Boolean spinning, Boolean sprinting) implements BedrockReplayEvent {
         @Override public BedrockMovementState state(BedrockMovementState state) {
-            if (gliding != null) state = state.withGliding(gliding);
+            if (gliding != null) state = state.withAcknowledgedGliding(gliding);
             if (sprinting != null) state = state.withSprinting(sprinting);
             state = state.withAcknowledgedPose(crawling, swimming, spinning);
             if (width != null || height != null) state = state.withPlayerDimensions(new PlayerDimensionsState(
@@ -72,6 +72,9 @@ public sealed interface BedrockReplayEvent permits BedrockReplayAttributeEvent, 
     }
 
     record Boost(int duration) implements BedrockReplayEvent {
+        public Boost {
+            if (duration < -1) duration = 0;
+        }
         @Override public BedrockSimulation.Input restoreInput(BedrockSimulation.Input input, BedrockSimulation.Input recorded) {
             return new BedrockSimulation.Input(input.previousState(), input.frame(), input.intent(), input.snapshot(),
                     input.canStep(), input.maxUpStep(), input.mobJumpComponent(), input.actorMovementTick(),
@@ -80,7 +83,7 @@ public sealed interface BedrockReplayEvent permits BedrockReplayAttributeEvent, 
         @Override public BedrockSimulation.Input input(BedrockSimulation.Input input, long elapsed) {
             return new BedrockSimulation.Input(input.previousState(), input.frame(), input.intent(), input.snapshot(),
                     input.canStep(), input.maxUpStep(), input.mobJumpComponent(), input.actorMovementTick(),
-                    input.acceptedTeleport(), input.control(), duration < 0 || elapsed < duration);
+                    input.acceptedTeleport(), input.control(), duration == -1 || elapsed < Math.max(1, duration));
         }
     }
 }

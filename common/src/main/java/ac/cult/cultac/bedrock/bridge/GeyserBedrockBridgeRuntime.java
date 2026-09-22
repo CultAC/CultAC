@@ -594,15 +594,20 @@ public final class GeyserBedrockBridgeRuntime {
 
             writeLatencyBoundary(context, source, player -> {
                 if (isCurrentConnection()) {
-                    player.bedrockState.movementCorrections.queueUpdate(generation, -1,
-                            connection.getPlayerEntity().geyserId(), tick, tick != 0,
+                    var metadata = player.bedrockState.movementCorrections.metadata(generation, tick,
                             new BedrockReplayEvent.Metadata(width, height, gliding, crawling, swimming, spinning, sprinting));
+                    if (metadata == null) {
+                        if (sleeping != null) player.checkManager.getSimulationProcessor()
+                                .handleBedrockSleepingStateChange(sleeping);
+                        return;
+                    }
                     if (usingItem != null) player.bedrockState.movementCorrections.queueUpdate(generation, -1,
-                            connection.getPlayerEntity().geyserId(), tick, tick != 0,
+                            connection.getPlayerEntity().geyserId(), 0, false,
                             new BedrockReplayContextEvent(Map.of(), null, null, -1, null, usingItem));
                     // Apply at the acknowledged wire boundary before the next input.
                     player.checkManager.getSimulationProcessor().applyAcknowledgedBedrockMetadata(
-                            width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem, tick == 0 ? sprinting : null);
+                            metadata.width(), metadata.height(), metadata.gliding(), metadata.crawling(), metadata.swimming(),
+                            sneaking, metadata.spinning(), sleeping, usingItem, metadata.sprinting());
                 }
             });
         }
@@ -1090,8 +1095,10 @@ public final class GeyserBedrockBridgeRuntime {
                     && effect.getEntityRuntimeId() == owner.connection.getPlayerEntity().geyserId()
                     && effect.getEffectType() == org.cloudburstmc.protocol.bedrock.data.MovementEffectType.GLIDE_BOOST) {
                 int duration = effect.getDuration();
-                long tick = effect.getTick();
-                var replay = captureReplayUpdate(effect.getEntityRuntimeId(), tick, true, new BedrockReplayEvent.Boost(duration));
+                long tick = owner.connection.getClientTicks();
+                effect.setTick(tick);
+                var replay = captureReplayUpdate(effect.getEntityRuntimeId(), tick, true,
+                        new BedrockReplayEvent.Boost(duration));
                 context.write(message, promise);
                 owner.writeLatencyBoundary(context, wrapper,
                         player -> {
@@ -1309,8 +1316,7 @@ public final class GeyserBedrockBridgeRuntime {
                     ? null : metadata.getMetadata().getFlag(EntityFlag.SNEAKING);
             Boolean spinning = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
                     ? null : metadata.getMetadata().getFlag(EntityFlag.DAMAGE_NEARBY_MOBS);
-            Boolean sleeping = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
-                    ? null : metadata.getMetadata().getFlag(EntityFlag.SLEEPING);
+            Boolean sleeping = GeyserPlayerSleepMetadata.sleeping(metadata.getMetadata());
             Boolean usingItem = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
                     ? null : metadata.getMetadata().getFlag(EntityFlag.USING_ITEM);
 
