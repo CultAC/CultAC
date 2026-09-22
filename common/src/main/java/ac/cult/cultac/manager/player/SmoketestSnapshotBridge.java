@@ -14,11 +14,14 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 final class SmoketestSnapshotBridge {
     private static final String CHANNEL = "cult:smoketest_snapshot";
     private static final int MAGIC = 0x47534D31; // GSM1
     private static final int VERSION = 4;
+    private static final Pattern REGISTRY_REFERENCE_IDENTITY = Pattern.compile(
+            "Reference\\{ResourceKey\\[[^\\]]+\\]=[\\w.$]+@([0-9a-fA-F]+)\\}");
 
     private SmoketestSnapshotBridge() {
     }
@@ -186,6 +189,19 @@ final class SmoketestSnapshotBridge {
         boolean escaped = false;
         for (int index = 0; index < value.length(); index++) {
             char current = value.charAt(index);
+            // Holder.Reference's toString includes the value's JVM identity hash
+            // (e.g. Potion@abcd). The registry key, not that per-process hash, is
+            // its protocol identity. Keep the key, value class and all components.
+            // Never normalize user-provided quoted text.
+            if (!quoted && current == 'R') {
+                var reference = REGISTRY_REFERENCE_IDENTITY.matcher(value).region(index, value.length());
+                if (reference.lookingAt()) {
+                    result.append(value, index, reference.start(1)).append("instance")
+                            .append(value, reference.end(1), reference.end());
+                    index = reference.end() - 1;
+                    continue;
+                }
+            }
             if (current == '"' && !escaped) quoted = !quoted;
             if (current != '{' || quoted) {
                 result.append(current);

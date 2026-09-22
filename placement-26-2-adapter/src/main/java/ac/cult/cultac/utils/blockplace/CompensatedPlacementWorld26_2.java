@@ -28,13 +28,9 @@ import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.DoorBlock;
-import net.minecraft.world.level.block.FenceGateBlock;
-import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.FuelValues;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.border.WorldBorder;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkSource;
@@ -59,6 +55,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraft.world.scores.Scoreboard;
 import net.minecraft.world.ticks.BlackholeTickAccess;
 import net.minecraft.world.ticks.LevelTickAccess;
+import net.minecraft.world.ticks.TickPriority;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import sun.misc.Unsafe;
@@ -78,7 +75,7 @@ import org.bukkit.World;
 public final class CompensatedPlacementWorld26_2 extends Level implements PlacementWorldAdapter {
     private static final int SEA_LEVEL = 63;
     private static final int MAX_NEIGHBOR_UPDATES = 512;
-    private static final RegistryAccess.Frozen REGISTRY_ACCESS = RegistryAccess.EMPTY;
+    private static final RegistryAccess.Frozen REGISTRY_ACCESS = RegistryAccess.fromRegistryOfRegistries(net.minecraft.core.registries.BuiltInRegistries.REGISTRY);
     private static final FeatureFlagSet ENABLED_FEATURES = FeatureFlags.DEFAULT_FLAGS;
     private static final Holder<Biome> DEFAULT_BIOME = Holder.direct(createDefaultBiome());
     private static final Unsafe UNSAFE = resolveUnsafe();
@@ -212,6 +209,22 @@ public final class CompensatedPlacementWorld26_2 extends Level implements Placem
     }
 
     @Override
+    public void scheduleTick(BlockPos pos, Block block, int delay, TickPriority priority) {
+    }
+
+    @Override
+    public void scheduleTick(BlockPos pos, Block block, int delay) {
+    }
+
+    @Override
+    public void scheduleTick(BlockPos pos, Fluid fluid, int delay, TickPriority priority) {
+    }
+
+    @Override
+    public void scheduleTick(BlockPos pos, Fluid fluid, int delay) {
+    }
+
+    @Override
     public FluidState getFluidState(BlockPos pos) {
         return getBlockState(pos).getFluidState();
     }
@@ -238,9 +251,9 @@ public final class CompensatedPlacementWorld26_2 extends Level implements Placem
         // block entities, or live-world neighbor updates.
         if ((flags & Block.UPDATE_KNOWN_SHAPE) == 0 && recursionLeft > 0) {
             int neighborFlags = flags & ~(Block.UPDATE_SUPPRESS_DROPS | Block.UPDATE_CLIENTS);
-            oldState.updateIndirectNeighbourShapes(this, pos, neighborFlags, recursionLeft - 1);
+            ClientNeighborShapes.updateIndirect(oldState, this, pos, neighborFlags, recursionLeft - 1);
             state.updateNeighbourShapes(this, pos, neighborFlags, recursionLeft - 1);
-            state.updateIndirectNeighbourShapes(this, pos, neighborFlags, recursionLeft - 1);
+            ClientNeighborShapes.updateIndirect(state, this, pos, neighborFlags, recursionLeft - 1);
         }
         return true;
     }
@@ -272,7 +285,7 @@ public final class CompensatedPlacementWorld26_2 extends Level implements Placem
 
     @Override
     public void neighborShapeChanged(Direction direction, BlockPos pos, BlockPos neighborPos, BlockState neighborState, int updateFlags, int updateLimit) {
-        if (updateLimit <= 0) {
+        if (updateLimit <= 0 || ClientNeighborShapes.update(this, pos, direction, updateFlags, updateLimit - 1)) {
             return;
         }
 
@@ -281,55 +294,24 @@ public final class CompensatedPlacementWorld26_2 extends Level implements Placem
 
     @Override
     public void updateNeighborsAt(BlockPos pos, Block block) {
-        updateNeighborsAt(pos, block, null);
+        // Vanilla ClientLevel inherits no-op redstone notifications from Level.
+        // Client shape updates remain in setBlock and neighborShapeChanged.
     }
 
     @Override
     public void updateNeighborsAt(BlockPos pos, Block block, @Nullable Orientation orientation) {
-        updateNeighborsAtExceptFromFacing(pos, block, null, orientation);
     }
 
     @Override
     public void updateNeighborsAtExceptFromFacing(BlockPos pos, Block block, @Nullable Direction skippedDirection, @Nullable Orientation orientation) {
-        for (Direction direction : NeighborUpdater.UPDATE_ORDER) {
-            if (direction != skippedDirection) {
-                neighborChanged(pos.relative(direction), block, orientation);
-            }
-        }
     }
 
     @Override
     public void neighborChanged(BlockPos pos, Block block, @Nullable Orientation orientation) {
-        if (isOutsideBuildHeight(pos)) {
-            return;
-        }
-
-        neighborChanged(getBlockState(pos), pos, block, orientation, false);
     }
 
     @Override
     public void neighborChanged(BlockState state, BlockPos pos, Block block, @Nullable Orientation orientation, boolean movedByPiston) {
-        applyPaperPatchedRedstoneOpenableUpdate(pos, state);
-    }
-
-    private void applyPaperPatchedRedstoneOpenableUpdate(BlockPos pos, BlockState state) {
-        Block block = state.getBlock();
-        if (!(block instanceof TrapDoorBlock || block instanceof DoorBlock || block instanceof FenceGateBlock)) {
-            return;
-        }
-        if (!state.hasProperty(BlockStateProperties.POWERED) || !state.hasProperty(BlockStateProperties.OPEN)) {
-            return;
-        }
-
-        boolean powered = hasNeighborSignal(pos);
-        if (powered == state.getValue(BlockStateProperties.POWERED)) {
-            return;
-        }
-
-        BlockState updatedState = state
-                .setValue(BlockStateProperties.POWERED, powered)
-                .setValue(BlockStateProperties.OPEN, powered);
-        setBlock(pos, updatedState, Block.UPDATE_CLIENTS, MAX_NEIGHBOR_UPDATES);
     }
 
     @Override

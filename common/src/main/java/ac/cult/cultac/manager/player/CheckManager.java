@@ -340,8 +340,7 @@ public class CheckManager {
                 // AimProcessor attaches itself to the update before dependent checks consume it.
                 new AimProcessor(player),
                 new AimModulo360(player),
-                new AimDuplicateLook(player),
-                new Baritone(player)));
+                new AimDuplicateLook(player)));
     }
 
     private static ClassToInstanceMap<VehicleListener> buildVehicleChecks(CultPlayer player) {

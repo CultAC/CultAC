@@ -11,7 +11,7 @@ import ac.cult.cultac.utils.data.HeadRotation;
 import ac.cult.cultac.utils.math.CultMath;
 
 // This check has been patched by Baritone for a long time, and it also seems to false with cinematic camera now, so it is disabled.
-@CheckData(name = "Baritone", stableKey = "cult.baritone.baritone", description = "Detected Baritone like behavior")
+//@CheckData(name = "Baritone", stableKey = "cult.baritone.baritone", description = "Detected Baritone like behavior")
 public class Baritone extends Check implements RotationListener {
     private static final Verbose V = Verbose.of("divisor={f64}");
 

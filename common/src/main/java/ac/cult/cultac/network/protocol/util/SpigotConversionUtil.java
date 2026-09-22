@@ -9,9 +9,11 @@ import org.bukkit.inventory.ItemStack;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 
 public final class SpigotConversionUtil {
     private static final Method BLOCK_STATE_TO_BLOCK_DATA = resolveBlockStateToBlockData();
+    private static final Method NMS_ITEM_TO_BUKKIT_COPY = resolveNmsItemToBukkitCopy();
 
     private SpigotConversionUtil() {
     }
@@ -25,7 +27,36 @@ public final class SpigotConversionUtil {
             return ItemStack.empty();
         }
 
-        return CraftItemStack.asBukkitCopy(stack);
+        try {
+            return (ItemStack) NMS_ITEM_TO_BUKKIT_COPY.invoke(null, stack);
+        } catch (IllegalAccessException exception) {
+            throw new IllegalStateException("Unable to access the Paper ItemStack copy method", exception);
+        } catch (InvocationTargetException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("Paper ItemStack copy failed", cause);
+        }
+    }
+
+    private static Method resolveNmsItemToBukkitCopy() {
+        // Paper 26.3 replaced asBukkitCopy(ItemStack) with asBukkitCopy(ItemInstance).
+        // Resolve either signature without linking older runtimes to ItemInstance.
+        // Keep copy semantics: a mirror would retain the mutable packet stack.
+        for (Method method : CraftItemStack.class.getMethods()) {
+            if (method.getName().equals("asBukkitCopy")
+                    && Modifier.isStatic(method.getModifiers())
+                    && method.getParameterCount() == 1
+                    && method.getParameterTypes()[0].isAssignableFrom(net.minecraft.world.item.ItemStack.class)
+                    && ItemStack.class.isAssignableFrom(method.getReturnType())) {
+                return method;
+            }
+        }
+        throw new IllegalStateException("Unable to resolve Paper ItemStack to Bukkit copy method");
     }
 
     public static ItemStack fromHashedStack(HashedStack stack) {

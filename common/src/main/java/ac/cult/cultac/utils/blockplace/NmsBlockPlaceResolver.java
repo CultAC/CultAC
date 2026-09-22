@@ -387,9 +387,12 @@ public final class NmsBlockPlaceResolver {
             return PlacementResult.failed("outside build height");
         }
 
-        // Paper's BucketItem#use fires Bukkit events around emptyContents. Calling emptyContents
-        // directly with no entity keeps the vanilla fluid-placement rules without touching Bukkit.
-        if (!NmsBucketUtil.emptyContents(bucketItem, world.level(), placePos, SnapshotBlockPlaceContext.createHitResult(snapshot))) {
+        // Forks also patch emptyContents itself to query live Bukkit world configuration.
+        // Vanilla added sneak-to-bypass-waterlogging in 1.21.9; 1.21.3 ignores it.
+        boolean secondaryUse = snapshot.isSecondaryUse()
+                && snapshot.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_9);
+        if (!ClientBucketPlacement.empty(NmsBucketUtil.content(bucketItem), world.level(), placePos,
+                SnapshotBlockPlaceContext.createHitResult(snapshot), secondaryUse)) {
             return PlacementResult.failed("bucket fluid cannot be placed");
         }
 
@@ -452,11 +455,26 @@ public final class NmsBlockPlaceResolver {
                 pos
         );
         if (result == null) {
-            result = NmsClientInteraction.playerFreeBlockUse(state, world.level(), pos, snapshot);
+            result = ClientBlockItemUse.simulate(state, world.level(), pos, snapshot);
         }
-        if (result == null && snapshot.getItemStack().isEmpty()) {
-            // MCP-Reborn c59f05e DoorBlock.java:200-209, TrapDoorBlock.java:90-98,
-            // and LeverBlock.java:63-68 are player-free client state transitions.
+        if (result == null) {
+            result = NmsClientInteraction.playerFreeBlockUse(
+                    state,
+                    world.level(),
+                    pos,
+                    snapshot,
+                    hitResult,
+                    canUseGameMasterBlocks
+            );
+        }
+        if (result == null) {
+            result = NmsClientInteraction.playerItemUse(state, world.level(), pos, snapshot);
+        }
+        if (result == null && snapshot.getHand() == InteractionHand.MAIN_HAND) {
+            // Doors, trapdoors and levers inherit BlockBehaviour#useItemOn's
+            // TRY_WITH_EMPTY_HAND for any held item. MultiPlayerGameMode then
+            // calls useWithoutItem for the main hand, even while holding a boat,
+            // tool or bucket; it does not require the actual hand to be empty.
             result = NmsClientInteraction.playerFreeEmptyHandUse(state, world.level(), hitResult);
         }
         if (result == null) {
@@ -473,7 +491,13 @@ public final class NmsBlockPlaceResolver {
             InteractionResult itemUse = state.useItemOn(snapshot.getItemStack(), world.level(), null, snapshot.getHand(), hitResult);
             if (itemUse instanceof InteractionResult.TryEmptyHandInteraction
                     && snapshot.getHand() == InteractionHand.MAIN_HAND) {
-                result = state.useWithoutItem(world.level(), null, hitResult);
+                // MultiPlayerGameMode immediately retries this result through its
+                // client-side empty-hand path. Never call the runtime server block
+                // method here: Leaf/Purpur may add fork-owned Level state to it.
+                result = NmsClientInteraction.playerFreeEmptyHandUse(state, world.level(), hitResult);
+                if (result == null) {
+                    result = itemUse;
+                }
             } else if (!itemUse.consumesAction()) {
                 result = itemUse;
             }
@@ -485,7 +509,13 @@ public final class NmsBlockPlaceResolver {
             return BlockUseResult.failed("block use passed");
         }
 
-        return BlockUseResult.success(world.buildResult(pos).getChangedBlocks(), false);
+        return BlockUseResult.success(
+                world.buildResult(pos).getChangedBlocks(),
+                (result == InteractionResult.SUCCESS
+                        && state.getBlock() instanceof net.minecraft.world.level.block.RespawnAnchorBlock
+                        && snapshot.getItemStack().getItem() == Items.GLOWSTONE)
+                        || NmsClientInteraction.consumesHeldItem(state, snapshot)
+        );
     }
 
     private static BlockUseResult simulateVersionedBlockUse(PlacementWorldAdapter world,
@@ -723,7 +753,7 @@ public final class NmsBlockPlaceResolver {
             return PlacementResult.failed("no placement state");
         }
 
-        if (!NmsClientInteraction.place(blockItem, placementContext, resolvedState)) {
+        if (!NmsClientInteraction.place(blockItem, placementContext, resolvedState, snapshot)) {
             return PlacementResult.failed("virtual setBlock failed");
         }
 
@@ -824,6 +854,10 @@ public final class NmsBlockPlaceResolver {
         static ItemUseResult failed(String reason) {
             return new ItemUseResult(false, ItemStack.EMPTY, List.of(), reason);
         }
+    }
+
+    static BlockPlaceContext createPlacementContext(net.minecraft.world.level.Level level, PlacementSnapshot snapshot) {
+        return SnapshotBlockPlaceContext.create(level, snapshot);
     }
 
     private static final class SnapshotBlockPlaceContext extends BlockPlaceContext {

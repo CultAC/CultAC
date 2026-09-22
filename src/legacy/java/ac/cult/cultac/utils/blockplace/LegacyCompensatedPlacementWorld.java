@@ -57,6 +57,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraft.world.scores.Scoreboard;
 import net.minecraft.world.ticks.BlackholeTickAccess;
 import net.minecraft.world.ticks.LevelTickAccess;
+import net.minecraft.world.ticks.TickPriority;
 import org.bukkit.World;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -77,7 +78,8 @@ import java.util.function.Predicate;
 public final class LegacyCompensatedPlacementWorld extends Level implements PlacementWorldAdapter {
     private static final int SEA_LEVEL = 63;
     private static final int MAX_NEIGHBOR_UPDATES = 512;
-    private static final RegistryAccess.Frozen REGISTRY_ACCESS = RegistryAccess.EMPTY;
+    // Frozen built-in block/item registries, never a live server world's registry access.
+    private static final RegistryAccess.Frozen REGISTRY_ACCESS = RegistryAccess.fromRegistryOfRegistries(net.minecraft.core.registries.BuiltInRegistries.REGISTRY);
     private static final FeatureFlagSet ENABLED_FEATURES = FeatureFlags.DEFAULT_FLAGS;
     private static final Unsafe UNSAFE = resolveUnsafe();
     private static final long CLIENT_SIDE_OFFSET = levelFieldOffset("isClientSide");
@@ -198,6 +200,24 @@ public final class LegacyCompensatedPlacementWorld extends Level implements Plac
         return overlay != null ? overlay : blockAccess.getBlockStateAt(pos);
     }
 
+    // ClientLevel discards all scheduled block/fluid ticks via BlackholeTickAccess.
+    // Short-circuit before Folia's createTick reads region-owned redstone time.
+    @Override
+    public void scheduleTick(BlockPos pos, Block block, int delay, TickPriority priority) {
+    }
+
+    @Override
+    public void scheduleTick(BlockPos pos, Block block, int delay) {
+    }
+
+    @Override
+    public void scheduleTick(BlockPos pos, Fluid fluid, int delay, TickPriority priority) {
+    }
+
+    @Override
+    public void scheduleTick(BlockPos pos, Fluid fluid, int delay) {
+    }
+
     @Override
     public FluidState getFluidState(BlockPos pos) {
         return getBlockState(pos).getFluidState();
@@ -213,9 +233,9 @@ public final class LegacyCompensatedPlacementWorld extends Level implements Plac
         if ((flags & Block.UPDATE_NEIGHBORS) != 0) updateNeighborsAt(pos, oldState.getBlock());
         if ((flags & Block.UPDATE_KNOWN_SHAPE) == 0 && recursionLeft > 0) {
             int neighborFlags = flags & ~(Block.UPDATE_SUPPRESS_DROPS | Block.UPDATE_CLIENTS);
-            oldState.updateIndirectNeighbourShapes(this, pos, neighborFlags, recursionLeft - 1);
+            ClientNeighborShapes.updateIndirect(oldState, this, pos, neighborFlags, recursionLeft - 1);
             state.updateNeighbourShapes(this, pos, neighborFlags, recursionLeft - 1);
-            state.updateIndirectNeighbourShapes(this, pos, neighborFlags, recursionLeft - 1);
+            ClientNeighborShapes.updateIndirect(state, this, pos, neighborFlags, recursionLeft - 1);
         }
         return true;
     }
@@ -237,26 +257,23 @@ public final class LegacyCompensatedPlacementWorld extends Level implements Plac
     @Override
     public void neighborShapeChanged(Direction direction, BlockPos pos, BlockPos neighborPos,
                                      BlockState neighborState, int updateFlags, int updateLimit) {
-        if (updateLimit > 0) {
+        if (updateLimit > 0 && !ClientNeighborShapes.update(this, pos, direction, updateFlags, updateLimit - 1)) {
             NeighborUpdater.executeShapeUpdate(this, direction, pos, neighborPos, neighborState, updateFlags, updateLimit - 1);
         }
     }
 
     @Override
     public void updateNeighborsAt(BlockPos pos, Block block) {
-        updateNeighborsAt(pos, block, null);
+        // Vanilla ClientLevel inherits no-op redstone notifications from Level.
+        // Client shape updates remain in setBlock and neighborShapeChanged.
     }
 
     @Override
     public void updateNeighborsAt(BlockPos pos, Block block, @Nullable Orientation orientation) {
-        updateNeighborsAtExceptFromFacing(pos, block, null, orientation);
     }
 
     @Override
     public void updateNeighborsAtExceptFromFacing(BlockPos pos, Block block, @Nullable Direction skipped, @Nullable Orientation orientation) {
-        for (Direction direction : NeighborUpdater.UPDATE_ORDER) {
-            if (direction != skipped) neighborChanged(pos.relative(direction), block, orientation);
-        }
     }
 
     @Override

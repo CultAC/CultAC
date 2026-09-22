@@ -14,6 +14,8 @@ import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import ac.cult.cultac.utils.nmsutil.NmsPalettedContainerUtil;
 import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
 import ac.cult.cultac.network.packet.NmsPacketUtil;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.block.BlockFace;
 import org.bukkit.Material;
 import org.bukkit.block.data.BlockData;
@@ -88,6 +90,8 @@ public class CompensatedWorld implements BlockGetter {
     private final Object2ObjectLinkedOpenHashMap<Pair<BlockPos, Action>, Vec3> unackedActions = new Object2ObjectLinkedOpenHashMap<>();
     private int clientPredictionSequence;
     private boolean isCurrentlyPredicting = false;
+    // Read and toggled only on this player's packet executor.
+    private boolean debugBlockChanges;
     public boolean isRaining = false;
 
     public CompensatedWorld(CultPlayer player) {
@@ -323,6 +327,13 @@ public class CompensatedWorld implements BlockGetter {
 
     public void startPredicting() {
         this.isCurrentlyPredicting = true;
+    }
+
+    public void toggleBlockChangeDebug() {
+        debugBlockChanges = !debugBlockChanges;
+        player.sendMessage(Component.text("[places] ", NamedTextColor.AQUA)
+                .append(Component.text("Block changes " + (debugBlockChanges ? "enabled" : "disabled") + ".",
+                        NamedTextColor.GRAY)));
     }
 
     public void advanceClientPredictionSequence() {
@@ -749,6 +760,14 @@ public class CompensatedWorld implements BlockGetter {
 
         applyBlockChangeRawDANGER(x, y, z, newState);
         geysers.updateBlock(asVector, toNmsState(original), newState);
+        if (debugBlockChanges && isCurrentlyPredicting && getBlockStateAt(asVector).equals(newState)) {
+            String state = ac.cult.cultac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(newState).getAsString(false);
+            if (state.startsWith("minecraft:")) state = state.substring("minecraft:".length());
+            player.sendMessage(Component.text("[places] ", NamedTextColor.AQUA)
+                    .append(Component.text(x + ", " + y + ", " + z, NamedTextColor.GRAY))
+                    .append(Component.text(" → ", NamedTextColor.DARK_GRAY))
+                    .append(Component.text(state, NamedTextColor.GREEN)));
+        }
         return original;
     }
 
