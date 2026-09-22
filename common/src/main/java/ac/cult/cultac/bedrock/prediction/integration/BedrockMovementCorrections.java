@@ -159,7 +159,9 @@ public final class BedrockMovementCorrections {
                 state.collisionFlags().onGround(), state.coordinateFrame(), transaction,
                 state.isBoat() ? state.boat().angularVelocity() : null, state.isVehicle());
         pending = new Pending(correction, processedTicks);
-        int debugId = SuperDebug.ensureBedrockCorrectionLog(player, result);
+        int debugId = player.checkManager.getDebugHandler().hasRewindListeners()
+                ? SuperDebug.ensureBedrockCorrectionLog(player, result)
+                : 0;
         if (GeyserBedrockBridgeRuntime.sendMovementCorrection(player.user, correction, frame.getPosition(), debugId)) requestedTransaction = -1;
         else pending = null;
     }

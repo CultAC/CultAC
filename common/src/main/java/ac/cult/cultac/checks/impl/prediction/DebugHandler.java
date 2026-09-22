@@ -37,13 +37,22 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         return true;
     }
 
+    public boolean hasRewindListeners() {
+        removeInvalidRewindListeners();
+        return !rewindListeners.isEmpty();
+    }
+
     public void relayRewind(Supplier<String> details) {
-        rewindListeners.values().removeIf(sender -> !sender.isValid()
-                || sender.getPlatformPlayer() != null && !sender.getPlatformPlayer().isOnline()
-                || !sender.hasPermission("cult.debug"));
+        removeInvalidRewindListeners();
         if (rewindListeners.isEmpty()) return;
         var message = Component.text(player.getName() + " " + details.get());
         rewindListeners.values().forEach(sender -> sender.sendMessage(message));
+    }
+
+    private void removeInvalidRewindListeners() {
+        rewindListeners.values().removeIf(sender -> !sender.isValid()
+                || sender.getPlatformPlayer() != null && !sender.getPlatformPlayer().isOnline()
+                || !sender.hasPermission("cult.debug"));
     }
 
     final static Set<UUID> DEVELOPERS = ImmutableSet.of(

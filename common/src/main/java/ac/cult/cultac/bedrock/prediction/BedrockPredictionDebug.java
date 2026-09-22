@@ -26,6 +26,7 @@ public final class BedrockPredictionDebug {
     }
 
     public static void reportCorrectionSent(CultPlayer player, BedrockMovementCorrection correction, Vec3 claimedPosition, int debugId) {
+        if (debugId == 0) return;
         player.checkManager.getDebugHandler().relayRewind(() -> formatRewind(claimedPosition, correction.position(), debugId));
     }
 
