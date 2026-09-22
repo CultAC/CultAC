@@ -696,8 +696,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          result.setProfileVerboseLog(verbose);
       }
       this.callPredictionEndListeners(result, commit);
-      this.commitPredictionState(result, observed, observed.subtract(start), yaw, pitch, profile, commit);
-      this.player.bedrockState.movementCorrections.record(this.player, frame, result.getSimulationContext().getVehicle(), result, commit);
+      PredictionCommit reconciledCommit = BedrockMovementEngine.INSTANCE.reconcileCommittedPosition(
+         commit,
+         frame.getPosition(),
+         CultAPI.INSTANCE.getConfigManager().getBedrockMovementPositionReconciliationStep());
+      this.commitPredictionState(result, observed, observed.subtract(start), yaw, pitch, profile, reconciledCommit);
+      this.player.bedrockState.movementCorrections.record(
+         this.player, frame, result.getSimulationContext().getVehicle(), result, reconciledCommit);
       return result;
    }
 

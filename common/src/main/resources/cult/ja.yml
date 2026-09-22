@@ -6,6 +6,10 @@ cult:
       # 垂直移動の誤差と、許容範囲を超えた水平入力を含みます。
       position-flag-threshold: 0.001
 
+      # 次の tick のシミュレーション位置を、移動 tick ごとに最大この距離だけ
+      # クライアント申告位置へ近づけます。0 で無効になります。
+      position-reconciliation-step: 0.0005
+
       # 現在は診断情報への表示にのみ使用されます。この値によって違反が検出されることはありません。
       velocity-flag-threshold: 0.001
 
@@ -115,4 +119,4 @@ cult:
 
 # スキーマ識別子です。変更しないでください。
 config-flavor: V2
-config-version: 1
+config-version: 2

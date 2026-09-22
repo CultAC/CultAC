@@ -63,6 +63,8 @@ public class BaseConfigManager {
     @Getter
     private double bedrockMovementPositionFlagThreshold = 0.001D;
     @Getter
+    private double bedrockMovementPositionReconciliationStep = 0.0005D;
+    @Getter
     private double bedrockMovementVelocityFlagThreshold = 0.001D;
     @Getter
     private boolean bedrockMovementSetbacksEnabled = true;
@@ -70,6 +72,11 @@ public class BaseConfigManager {
     private static double nonNegativeElse(ConfigManager config, String key, double fallback) {
         double value = config.getDoubleElse(key, fallback);
         return value >= 0 ? value : fallback;
+    }
+
+    private static double nonNegativeFiniteElse(ConfigManager config, String key, double fallback) {
+        double value = config.getDoubleElse(key, fallback);
+        return Double.isFinite(value) && value >= 0 ? value : fallback;
     }
 
     // initialize the config
@@ -129,6 +136,8 @@ public class BaseConfigManager {
         verboseBedrockMovementMinOffset = nonNegativeElse(config, "cult.diagnostics.bedrock-movement.min-offset", 1.0E-7D);
         verboseBedrockMovementCooldownSeconds = nonNegativeElse(config, "cult.diagnostics.bedrock-movement.cooldown-seconds", 10.0D);
         bedrockMovementPositionFlagThreshold = nonNegativeElse(config, "cult.checks.bedrock-movement.position-flag-threshold", 0.001D);
+        bedrockMovementPositionReconciliationStep = nonNegativeFiniteElse(
+                config, "cult.checks.bedrock-movement.position-reconciliation-step", 0.0005D);
         bedrockMovementVelocityFlagThreshold = nonNegativeElse(config, "cult.checks.bedrock-movement.velocity-flag-threshold", 0.001D);
         bedrockMovementSetbacksEnabled = config.getBooleanElse("cult.checks.bedrock-movement.enable-setbacks", true);
     }

@@ -6,6 +6,10 @@ cult:
       # Dikey hareket hatasını ve izin verilenden fazla yatay girdiyi kapsar.
       position-flag-threshold: 0.001
 
+      # Sonraki tikin benzetim konumunu, hareket tiki başına en fazla bu mesafe kadar
+      # istemcinin bildirdiği konuma yaklaştırır. 0 devre dışı bırakır.
+      position-reconciliation-step: 0.0005
+
       # Şu anda yalnızca tanılama çıktısında gösterilir; bu değer ihlal oluşturmaz.
       velocity-flag-threshold: 0.001
 
@@ -115,4 +119,4 @@ cult:
 
 # Şema işaretçileri. Değiştirmeyin.
 config-flavor: V2
-config-version: 1
+config-version: 2

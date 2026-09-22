@@ -6,6 +6,10 @@ cult:
       # Include eroarea deplasării verticale și comenzile orizontale care depășesc limita permisă.
       position-flag-threshold: 0.001
 
+      # Apropie poziția simulată pentru următorul tick de poziția raportată de client,
+      # cu cel mult această distanță per tick de mișcare. 0 dezactivează opțiunea.
+      position-reconciliation-step: 0.0005
+
       # În prezent apare doar în diagnosticare; această valoare nu declanșează abateri.
       velocity-flag-threshold: 0.001
 
@@ -115,4 +119,4 @@ cult:
 
 # Marcaje ale schemei. Nu modifica.
 config-flavor: V2
-config-version: 1
+config-version: 2

@@ -6,6 +6,10 @@ cult:
       # Obejmuje błąd ruchu pionowego i nadmiarowe wejście ruchu poziomego.
       position-flag-threshold: 0.001
 
+      # Przybliża pozycję symulacji następnego ticka do pozycji zgłoszonej przez klienta,
+      # maksymalnie o tę odległość na tick ruchu. 0 wyłącza tę opcję.
+      position-reconciliation-step: 0.0005
+
       # Obecnie wartość jest wyświetlana tylko w diagnostyce i nie powoduje zgłaszania naruszeń.
       velocity-flag-threshold: 0.001
 
@@ -115,4 +119,4 @@ cult:
 
 # Znaczniki schematu. Nie edytuj.
 config-flavor: V2
-config-version: 1
+config-version: 2

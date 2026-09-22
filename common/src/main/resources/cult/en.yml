@@ -6,6 +6,10 @@ cult:
       # Includes vertical movement error and excess horizontal input.
       position-flag-threshold: 0.001
 
+      # Move the next-tick simulation position toward the client's reported position
+      # by at most this distance per movement tick. Set to 0 to disable.
+      position-reconciliation-step: 0.0005
+
       # Currently shown in diagnostics only; this value does not trigger flags.
       velocity-flag-threshold: 0.001
 
@@ -115,4 +119,4 @@ cult:
 
 # Schema markers. Do not edit.
 config-flavor: V2
-config-version: 1
+config-version: 2

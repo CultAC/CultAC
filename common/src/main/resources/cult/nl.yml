@@ -6,6 +6,10 @@ cult:
       # Omvat verticale bewegingsfouten en te grote horizontale invoer.
       position-flag-threshold: 0.001
 
+      # Verplaatst de simulatiepositie voor de volgende tick per bewegingstick maximaal
+      # deze afstand naar de gemelde clientpositie. Stel in op 0 om uit te schakelen.
+      position-reconciliation-step: 0.0005
+
       # Wordt momenteel alleen in diagnostiek weergegeven; deze waarde veroorzaakt geen overtredingsmeldingen.
       velocity-flag-threshold: 0.001
 
@@ -115,4 +119,4 @@ cult:
 
 # Schemamarkeringen. Niet wijzigen.
 config-flavor: V2
-config-version: 1
+config-version: 2

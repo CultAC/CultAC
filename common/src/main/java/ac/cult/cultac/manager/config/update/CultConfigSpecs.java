@@ -42,9 +42,9 @@ import java.util.Map;
 @UtilityClass
 public final class CultConfigSpecs {
 
-    /** Cult-only settings in {@code cult.yml}; versioned independently of the upstream files. */
+    /** Cult-only settings in {@code cult.yml}; v2 adds Bedrock position reconciliation. */
     public static @NotNull ConfigUpdater.Spec cultSettings() {
-        return ConfigUpdater.Spec.builder("/cult/", 1, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/cult/", 2, ConfigUpdater.ConfigFlavor.V2)
                 .build();
     }
 

@@ -6,6 +6,10 @@ cult:
       # Include l'errore di movimento verticale e l'eccesso di input orizzontale.
       position-flag-threshold: 0.001
 
+      # Avvicina la posizione simulata del tick successivo a quella dichiarata dal client,
+      # fino a questa distanza per tick di movimento. 0 disattiva l'opzione.
+      position-reconciliation-step: 0.0005
+
       # Attualmente compare solo nella diagnostica; questo valore non genera violazioni.
       velocity-flag-threshold: 0.001
 
@@ -115,4 +119,4 @@ cult:
 
 # Indicatori dello schema. Non modificare.
 config-flavor: V2
-config-version: 1
+config-version: 2

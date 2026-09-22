@@ -301,6 +301,46 @@ public final class BedrockMovementEngine implements MovementEngine {
         return new PredictionCommit(null, Set.of());
     }
 
+    /** Applies the configured, bounded position reconciliation after this frame has been validated. */
+    public PredictionCommit reconcileCommittedPosition(
+        PredictionCommit commit,
+        Vec3 claimedPosition,
+        double maximumStep
+    ) {
+        if (commit == null || claimedPosition == null || !Double.isFinite(maximumStep) || maximumStep <= 0.0D) {
+            return commit;
+        }
+        List<Entry> entries = BedrockProfileState.profileEntries(commit.carry());
+        if (entries.isEmpty()) {
+            return commit;
+        }
+
+        Vec3d target = BedrockVectorAdapter.toBedrock(claimedPosition);
+        List<Entry> reconciled = entries.stream().map(entry -> {
+            BedrockMovementState state = entry.state();
+            Vec3d correction = target.subtract(state.physicalFeetPosition());
+            double distance = correction.length();
+            if (distance == 0.0D) {
+                return entry;
+            }
+
+            Vec3d adjustment = distance <= maximumStep
+                ? correction
+                : correction.scale(maximumStep / distance);
+            Vec3d position = state.physicalFeetPosition().add(adjustment);
+            BedrockMovementState moved = state.withPhysicalFeetPosition(
+                position, state.lastPhysicalDisplacementSquared());
+            return entry.withState(moved);
+        }).toList();
+
+        if (reconciled.equals(entries)) {
+            return commit;
+        }
+        return new PredictionCommit(
+            new BedrockNextTickStates(reconciled),
+            BedrockNextTickVelocityDerivation.profileStateVelocities(reconciled));
+    }
+
     @Override
     public PredictionCommit commitRejectedTick(PredictionResult result, PredictionCarry currentCarry) {
         BedrockPredictionResult bedrockResult = result == null

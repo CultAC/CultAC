@@ -6,6 +6,10 @@ cult:
       # 包含垂直移动误差和超出允许范围的水平输入。
       position-flag-threshold: 0.001
 
+      # 每个移动 tick 最多将下一 tick 的模拟位置向客户端报告的位置移动此距离。
+      # 设置为 0 可禁用。
+      position-reconciliation-step: 0.0005
+
       # 目前仅显示在诊断信息中；此值不会触发违规。
       velocity-flag-threshold: 0.001
 
@@ -111,4 +115,4 @@ cult:
 
 # 配置架构标记。请勿修改。
 config-flavor: V2
-config-version: 1
+config-version: 2

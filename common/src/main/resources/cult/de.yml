@@ -6,6 +6,10 @@ cult:
       # Berücksichtigt vertikale Bewegungsfehler und übermäßige horizontale Eingaben.
       position-flag-threshold: 0.001
 
+      # Bewegt die Simulationsposition des nächsten Ticks pro Bewegungstick höchstens
+      # um diesen Abstand zur gemeldeten Clientposition. 0 deaktiviert dies.
+      position-reconciliation-step: 0.0005
+
       # Wird derzeit nur in Diagnosen angezeigt; dieser Wert löst keine Verstöße aus.
       velocity-flag-threshold: 0.001
 
@@ -115,4 +119,4 @@ cult:
 
 # Schemamarkierungen. Nicht bearbeiten.
 config-flavor: V2
-config-version: 1
+config-version: 2
