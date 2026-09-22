@@ -9,7 +9,8 @@ import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 public record BedrockPostMoveResult(
     VelocityEffects velocityEffects,
     CollisionEffects collisionEffects,
-    StateModes stateModes
+    StateModes stateModes,
+    Vec3d nonHopVelocity
 ) {
     private static final double VELOCITY_EPSILON = 1.0E-12D;
 
@@ -24,7 +25,8 @@ public record BedrockPostMoveResult(
                 frame.standingSurfaceHorizontalSlowdownApplied(), false, false, horizontalFriction),
             new CollisionEffects(flags, frame.postMoveContext(), frame.standingBounceBounced(),
                 frame.climbVelocityApplied(), BlockMovementSlowdownState.NONE),
-            new StateModes(false, Medium.AIR, false)
+            new StateModes(false, Medium.AIR, false),
+            flags.liquidClimbOut() ? frame.velocity() : null
         );
     }
 
@@ -47,7 +49,8 @@ public record BedrockPostMoveResult(
     public BedrockPostMoveResult withEntityInside(
         Vec3d velocity,
         Vec3d preDownwardBubbleColumnVelocity,
-        Vec3d preInsideBlockVelocity
+        Vec3d preInsideBlockVelocity,
+        Vec3d nonHopVelocity
     ) {
         return new BedrockPostMoveResult(
             new VelocityEffects(
@@ -61,7 +64,8 @@ public record BedrockPostMoveResult(
                 horizontalFriction()
             ),
             collisionEffects,
-            stateModes
+            stateModes,
+            nonHopVelocity
         );
     }
 
@@ -69,7 +73,8 @@ public record BedrockPostMoveResult(
         return new BedrockPostMoveResult(
             velocityEffects,
             collisionEffects.withPendingBlockMovementSlowdownState(state),
-            stateModes
+            stateModes,
+            nonHopVelocity
         );
     }
 
@@ -77,7 +82,8 @@ public record BedrockPostMoveResult(
         return new BedrockPostMoveResult(
             velocityEffects,
             collisionEffects,
-            new StateModes(waterTravel, movementBranch, gliding)
+            new StateModes(waterTravel, movementBranch, gliding),
+            nonHopVelocity
         );
     }
 

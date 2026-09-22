@@ -29,7 +29,8 @@ public record BedrockMovementResult(
     boolean canStep,
     double maxUpStep,
     boolean travelActive,
-    boolean groundJumpApplied
+    boolean groundJumpApplied,
+    Vec3d nonHopVelocity
 ) {
     public BedrockMovementResult {
         previousState = Objects.requireNonNull(previousState, "previousState");

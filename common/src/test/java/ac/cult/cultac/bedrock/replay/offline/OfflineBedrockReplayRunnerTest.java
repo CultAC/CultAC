@@ -74,6 +74,15 @@ public final class OfflineBedrockReplayRunnerTest {
         }
     }
 
+    @Test
+    public void forwardMovementKeepsWaterAndSwimHopCarries() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        for (String scenario : List.of("swimhop", "swimming-still-water", "flowing-water-swim")) {
+            ReplayResult replay = runScenario("small-scenarios/" + scenario);
+            assertTrue(scenario + ": " + replay.bedrockMovementFlags(), replay.bedrockMovementFlags().isEmpty());
+        }
+    }
+
     private static final Path SCENARIOS = Path.of("/home/hunter/Downloads/CultAC/bedrock-smoketest-scenarios");
     private static final UUID PLAYER_UUID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final String SMALL_REPLAY_INJECTION_DOMAIN = "cultac-bedrock-small-replay-injection/v1:1";

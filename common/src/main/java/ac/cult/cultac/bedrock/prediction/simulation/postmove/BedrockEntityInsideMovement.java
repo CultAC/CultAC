@@ -13,8 +13,18 @@ public final class BedrockEntityInsideMovement {
         BedrockPostMoveResult effects,
         Vec3d nextPosition
     ) {
-        Vec3d velocity = effects.velocity();
-        Vec3d preDownwardBubbleColumnVelocity = velocity;
+        InsideVelocity hop = applyVelocity(context, effects, nextPosition, effects.velocity());
+        Vec3d nonHop = effects.nonHopVelocity() == null ? null
+            : applyVelocity(context, effects, nextPosition, effects.nonHopVelocity()).velocity();
+        return effects.withEntityInside(hop.velocity(), effects.velocity(), hop.preInsideBlockVelocity(), nonHop);
+    }
+
+    private static InsideVelocity applyVelocity(
+        BedrockPostMoveContext context,
+        BedrockPostMoveResult effects,
+        Vec3d nextPosition,
+        Vec3d velocity
+    ) {
         velocity = applyBubbleColumns(
             effects.postMoveContext(),
             context.gliding().activeAtTravelSensing(),
@@ -35,12 +45,10 @@ public final class BedrockEntityInsideMovement {
         if (context.clearVelocityAfterSlowdownMove()) {
             velocity = new Vec3d(0.0D, velocity.y(), 0.0D);
         }
-        return effects.withEntityInside(
-            velocity,
-            preDownwardBubbleColumnVelocity,
-            preInsideBlockVelocity
-        );
+        return new InsideVelocity(velocity, preInsideBlockVelocity);
     }
+
+    private record InsideVelocity(Vec3d velocity, Vec3d preInsideBlockVelocity) { }
 
     public static Vec3d applyBubbleColumns(
         BedrockMovementContext postMoveContext,

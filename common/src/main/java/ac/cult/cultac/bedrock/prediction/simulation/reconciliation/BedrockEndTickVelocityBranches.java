@@ -22,12 +22,37 @@ final class BedrockEndTickVelocityBranches {
             BedrockMovementState acceptedDiffState,
             BedrockMovementState source
     ) {
+        return derive(evidence, acceptedDiffState, source, null);
+    }
+
+    static List<BedrockNextTickStateDeriver.DerivedState> fromSimulated(
+            BedrockAcceptedEndpointEvidence evidence,
+            BedrockMovementState state,
+            BedrockMovementState source
+    ) {
+        return derive(evidence, state, source, evidence.movementResult().nonHopVelocity());
+    }
+
+    private static List<BedrockNextTickStateDeriver.DerivedState> derive(
+            BedrockAcceptedEndpointEvidence evidence,
+            BedrockMovementState acceptedDiffState,
+            BedrockMovementState source,
+            Vec3d nonHopVelocity
+    ) {
         BedrockMovementResult movementResult = evidence.movementResult();
         ArrayList<BedrockNextTickStateDeriver.DerivedState> states = new ArrayList<>();
         int swimHopStart = states.size();
-        addLiquidClimbOutVelocity(states, evidence, acceptedDiffState, source);
+        boolean simulatedHop = nonHopVelocity != null && acceptedDiffState.collisionFlags().liquidClimbOut();
+        if (simulatedHop) {
+            states.add(new BedrockNextTickStateDeriver.DerivedState(acceptedDiffState, source));
+        } else {
+            addLiquidClimbOutVelocity(states, evidence, acceptedDiffState, source);
+        }
         requireBoundedSource(states, swimHopStart, MAX_SWIM_HOP_VELOCITIES, "swim-hop");
         BedrockMovementState baseState = withoutSwimHopEvent(acceptedDiffState);
+        if (simulatedHop) {
+            baseState = baseState.withVelocityAndCollisionFlags(nonHopVelocity, baseState.collisionFlags());
+        }
         int climbableStart = states.size();
         states.add(new BedrockNextTickStateDeriver.DerivedState(baseState, source));
         addClimbableVelocities(states, movementResult, baseState, source);

@@ -20,7 +20,7 @@ public final class BedrockNextTickStateDeriver {
                 state.physicalFeetPosition().subtract(result.previousState().physicalFeetPosition()),
                 state.playerDimensions(), result.postMoveContext(), result.steppedUp(), null);
         return BedrockAcceptedDiffVelocity.withAcceptedEndpointClimbableContacts(result, state, evidence).stream()
-                .flatMap(contact -> BedrockEndTickVelocityBranches.fromAcceptedDiff(evidence, contact, state).stream())
+                .flatMap(contact -> BedrockEndTickVelocityBranches.fromSimulated(evidence, contact, state).stream())
                 .distinct().toList();
     }
 

@@ -52,7 +52,8 @@ final class BedrockMovementResultBuilder {
             canStep,
             maxUpStep,
             false,
-            false);
+            false,
+            null);
     }
 
     static BedrockMovementResult build(
@@ -125,7 +126,8 @@ final class BedrockMovementResultBuilder {
             state.input().options().canStep(),
             state.input().options().maxUpStep(),
             state.input().options().travelActive(),
-            state.groundJumpApplied()
+            state.groundJumpApplied(),
+            postMoveEffects.nonHopVelocity()
         );
     }
 

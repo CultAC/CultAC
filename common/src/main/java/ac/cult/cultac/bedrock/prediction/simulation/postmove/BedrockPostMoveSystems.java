@@ -31,7 +31,7 @@ public final class BedrockPostMoveSystems {
                     plan.frame().frameFacts().movementDimensions());
             var result = BedrockPostMoveResult.afterLiquidClimbOut(frame, velocity, frame.flags(), 1.0D);
             return new BedrockPostMoveResult(new BedrockPostMoveResult.VelocityEffects(
-                    velocity, velocity, velocity, false, true, true, 1.0D), result.collisionEffects(), result.stateModes());
+                    velocity, velocity, velocity, false, true, true, 1.0D), result.collisionEffects(), result.stateModes(), null);
         }
         boolean travel = plan.frame().input().options().travelActive();
         if (travel) {
