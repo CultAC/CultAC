@@ -258,12 +258,9 @@ public final class PacketApi {
                     if (kickForPacketErrors && plugin != null) {
                         plugin.getLogger().log(Level.SEVERE,
                                 "Error handling packet " + packet.getClass().getSimpleName() + ", kicking player!", exception);
-                        Bukkit.getScheduler().callSyncMethod(plugin, () -> {
-                            context.connection().disconnect(
-                                    Component.literal("An error occurred while parsing packets").withStyle(ChatFormatting.RED)
-                            );
-                            return null;
-                        });
+                        context.connection().disconnect(
+                                Component.literal("An error occurred while parsing packets").withStyle(ChatFormatting.RED)
+                        );
                         return;
                     }
 
