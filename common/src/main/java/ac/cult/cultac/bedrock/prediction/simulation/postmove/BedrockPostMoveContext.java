@@ -120,13 +120,7 @@ record BedrockPostMoveContext(
             nextPosition,
             movementDimensions()
         );
-        BedrockPostMoveFrame next = frame.withPostMoveContext(postMoveContext);
-        if (!current().isVehicle() && (postMoveContext.inWater()
-            || postMoveContext.inLava()
-            || postMoveContext.liquidMovementMedium() == Medium.LAVA)) {
-            return next.withFlags(next.flags().withOnGround(false));
-        }
-        return next;
+        return frame.withPostMoveContext(postMoveContext);
     }
 
     BedrockPostMoveFrame applyLiquidDrag(BedrockPostMoveFrame frame) {
