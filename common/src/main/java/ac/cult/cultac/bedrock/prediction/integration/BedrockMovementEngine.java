@@ -327,7 +327,7 @@ public final class BedrockMovementEngine implements MovementEngine {
                 ? correction
                 : correction.scale(maximumStep / distance);
             Vec3d position = state.physicalFeetPosition().add(adjustment);
-            BedrockMovementState moved = state.withPhysicalFeetPosition(
+            BedrockMovementState moved = state.withObservedPosition(
                 position, state.lastPhysicalDisplacementSquared());
             return entry.withState(moved);
         }).toList();

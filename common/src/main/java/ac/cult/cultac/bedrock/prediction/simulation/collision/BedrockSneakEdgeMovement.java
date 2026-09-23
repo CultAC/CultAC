@@ -95,7 +95,7 @@ public final class BedrockSneakEdgeMovement {
 
     private static WorldCollisionBox supportBox(BedrockMovementState current, PlayerDimensionsState dimensions,
                                                  double maxUpStep, BedrockCoordinateFrame frame) {
-        WorldCollisionBox box = BedrockCollisionSweep.playerBox(current.physicalFeetPosition(), dimensions, frame);
+        WorldCollisionBox box = current.collisionBox(dimensions);
         double minX = frame.roundX(box.minX() + SUPPORT_INSET);
         double maxX = frame.roundX(box.maxX() - SUPPORT_INSET);
         double minZ = frame.roundZ(box.minZ() + SUPPORT_INSET);

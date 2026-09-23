@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.BedrockActorBox;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
@@ -29,20 +30,20 @@ final class BedrockAutoStepResolver {
         }
 
         Vec3d startFeet = current.physicalFeetPosition();
-        WorldCollisionBox startBox = BedrockCollisionSweep.playerBox(startFeet, dimensions, current.coordinateFrame());
+        WorldCollisionBox startBox = current.collisionBox(dimensions);
         List<BlockCollision> stepShapes = shapesIgnoringCeiling(startBox, obstacles);
         BedrockCollisionSweep.MoveResult upMove = BedrockCollisionSweep.sweep(
-            startFeet,
+            startBox,
             new Vec3d(requestedDelta.x(), maxUpStep, requestedDelta.z()),
             stepShapes,
-            dimensions, current.coordinateFrame()
+            current.coordinateFrame(), BedrockCollisionClipper.maximumDepenetration(current)
         );
 
         double acceptedRise = upMove.appliedDelta().y();
         BedrockCollisionClipper.ClipResult downClip = BedrockCollisionClipper.clip(
             upMove.finalBox(),
             new Vec3d(0.0D, -acceptedRise, 0.0D),
-            stepShapes, current.coordinateFrame()
+            stepShapes, current.coordinateFrame(), BedrockCollisionClipper.maximumDepenetration(current)
         );
         Vec3d finalDelta = addFloat(upMove.appliedDelta(), downClip.move());
         WorldCollisionBox finalBox = BedrockCollisionSweep.moveBedrock(
@@ -56,11 +57,7 @@ final class BedrockAutoStepResolver {
             return Optional.empty();
         }
 
-        Vec3d finalPosition = new Vec3d(
-            current.coordinateFrame().roundX(startFeet.x() + finalDelta.x()),
-            BedrockCollisionSweep.f(startFeet.y() + finalDelta.y()),
-            current.coordinateFrame().roundZ(startFeet.z() + finalDelta.z())
-        );
+        Vec3d finalPosition = BedrockActorBox.feet(finalBox, current.coordinateFrame());
         Optional<PlacedBlockCollision> yCollisionBlock = downClip.yCollisionBlock().or(upMove::yCollisionBlock);
         Vec3d requested = new Vec3d(
             BedrockCollisionSweep.f(requestedDelta.x()),

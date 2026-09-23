@@ -1,6 +1,8 @@
 package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
+import ac.cult.cultac.bedrock.prediction.geometry.BedrockActorBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
@@ -64,7 +66,9 @@ public final class BedrockEntityMove {
         double maxUpStep
     ) {
         if (blockCollisionWorld.isEmpty()) {
-            return noCollisionResult(requestedPosition, velocity);
+            WorldCollisionBox box = BedrockActorBox.move(current.collisionBox(dimensions),
+                    requestedPosition.subtract(current.physicalFeetPosition()), current.coordinateFrame());
+            return noCollisionResult(BedrockActorBox.feet(box, current.coordinateFrame()), velocity).withBox(box);
         }
 
         Vec3d requestedDelta = requestedPosition.subtract(current.physicalFeetPosition());
@@ -180,7 +184,7 @@ public final class BedrockEntityMove {
             finalizedMove.stepRetryAllowed(),
             verticalCollision,
             false
-        );
+        ).withBox(collisionMove.selectedMove().finalBox());
     }
 
     public static ActorMove actorMove(
@@ -204,10 +208,10 @@ public final class BedrockEntityMove {
         PlayerDimensionsState dimensions
     ) {
         BedrockCollisionSweep.MoveResult baseMove = BedrockCollisionSweep.sweep(
-            current.physicalFeetPosition(),
+            current.collisionBox(dimensions),
             requestedDelta,
             obstacles,
-            dimensions, current.coordinateFrame()
+            current.coordinateFrame(), BedrockCollisionClipper.maximumDepenetration(current)
         );
         return new ActorMove(requestedDelta, obstacles, baseMove);
     }
@@ -395,7 +399,20 @@ public final class BedrockEntityMove {
         boolean steppedUp,
         boolean stepRetryAllowed,
         boolean verticalCollision,
-        boolean standingBounceBounced
+        boolean standingBounceBounced,
+        WorldCollisionBox collisionBox
     ) {
+        public Result(Vec3d position, Vec3d velocity, boolean xCollision, boolean zCollision,
+                boolean horizontalCollisionFlag, boolean horizontalBlockContact, BedrockCollisionFlags collisionFlags,
+                boolean onGround, boolean steppedUp, boolean stepRetryAllowed, boolean verticalCollision,
+                boolean standingBounceBounced) {
+            this(position, velocity, xCollision, zCollision, horizontalCollisionFlag, horizontalBlockContact,
+                    collisionFlags, onGround, steppedUp, stepRetryAllowed, verticalCollision, standingBounceBounced, null);
+        }
+
+        public Result withBox(WorldCollisionBox box) {
+            return new Result(position, velocity, xCollision, zCollision, horizontalCollisionFlag, horizontalBlockContact,
+                    collisionFlags, onGround, steppedUp, stepRetryAllowed, verticalCollision, standingBounceBounced, box);
+        }
     }
 }

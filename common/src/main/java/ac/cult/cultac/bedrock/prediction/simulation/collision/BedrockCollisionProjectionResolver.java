@@ -19,10 +19,11 @@ public final class BedrockCollisionProjectionResolver {
         }
         Vec3d feet = movementResult.previousState().physicalFeetPosition();
         BedrockCollisionSweep.MoveResult baseMove = BedrockCollisionSweep.sweep(
-                feet,
+                movementResult.previousState().collisionBox(movementResult.movementContext().playerDimensionsState()),
                 requestedDelta,
                 BedrockCollisionSweep.collisionObstacles(blockWorld),
-                movementResult.movementContext().playerDimensionsState());
+                movementResult.previousState().coordinateFrame(),
+                BedrockCollisionClipper.maximumDepenetration(movementResult.previousState()));
         return downwardSupportCollision(feet, requestedDelta, baseMove)
                 ? Optional.of(baseMove.position())
                 : Optional.empty();

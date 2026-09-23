@@ -129,8 +129,7 @@ final class BedrockMovementRewind {
         if (entries.isEmpty()) return;
         var input = vector.simulationInput();
         var auth = result.getSimulationContext().getBedrockInput();
-        Vec3d external = entries.getFirst().state().physicalFeetPosition()
-                .subtract(vector.movementResult().predictedState().physicalFeetPosition());
+        Vec3d external = BedrockVectorAdapter.toBedrock(result.getPositionOnlyDelta());
         var lineage = BedrockProfileState.entryInLineage(vector);
         Vec3d addition = vector.packetModifiersLength() > 0 && !vector.isKnockback() && lineage != null
                 ? input.previousState().velocity().subtract(lineage.state().velocity()) : Vec3d.ZERO;

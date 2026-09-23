@@ -45,11 +45,8 @@ final class BedrockReplayTick {
             for (var candidate : BedrockForwardTick.simulate(request)) {
                 var movement = candidate.movementResult();
                 var end = movement.predictedState();
-                Vec3d position = end.physicalFeetPosition().add(frame.externalDisplacement());
-                Vec3d displacement = position.subtract(state.physicalFeetPosition());
-                end = end.withPhysicalFeetPosition(position, displacement.x() * displacement.x()
-                        + displacement.y() * displacement.y() + displacement.z() * displacement.z());
-                outcomes.add(BedrockForwardTick.finish(movement, end).stream()
+                end = end.withExternalDisplacement(frame.externalDisplacement());
+                outcomes.add(BedrockForwardTick.finish(movement, end, frame.observedVelocity()).stream()
                         .map(next -> new Entry(next, candidate.mobJumpComponent())).toList());
             }
         }

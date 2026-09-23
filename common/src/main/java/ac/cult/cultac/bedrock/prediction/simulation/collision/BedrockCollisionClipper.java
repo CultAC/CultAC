@@ -10,9 +10,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 final class BedrockCollisionClipper {
-    // The ordinary move-request configuration supplies the unit vector as
-    // its per-axis depenetration limit.
-    private static final float MAX_DEPENETRATION = 1.0F;
+    static final float DEFAULT_MAX_DEPENETRATION = 1.0F;
+
+    static float maximumDepenetration(ac.cult.cultac.bedrock.prediction.state.BedrockMovementState state) {
+        return state.isVehicle() ? 0.0F : 0.01F;
+    }
 
     private BedrockCollisionClipper() {
     }
@@ -27,6 +29,11 @@ final class BedrockCollisionClipper {
 
     static ClipResult clip(WorldCollisionBox moving, Vec3d requestedMove, List<BlockCollision> obstacles,
                            BedrockCoordinateFrame frame) {
+        return clip(moving, requestedMove, obstacles, frame, DEFAULT_MAX_DEPENETRATION);
+    }
+
+    static ClipResult clip(WorldCollisionBox moving, Vec3d requestedMove, List<BlockCollision> obstacles,
+                           BedrockCoordinateFrame frame, float maximumDepenetration) {
         FloatMove move = FloatMove.from(requestedMove);
         Optional<PlacedBlockCollision> yCollisionBlock = Optional.empty();
         // The vanilla swept-move consumes shapes in reverse insertion
@@ -34,7 +41,7 @@ final class BedrockCollisionClipper {
         for (int index = obstacles.size() - 1; index >= 0; index--) {
             BlockCollision obstacle = obstacles.get(index);
             AabbClip clip = clipCollide(obstacle.box(), moving, move, frame);
-            FloatMove clippedMove = clip.penetration() <= MAX_DEPENETRATION
+            FloatMove clippedMove = clip.penetration() <= maximumDepenetration
                 ? clip.depenetratedMove()
                 : clip.normalMove();
             if (clippedMove.y() != move.y()) {

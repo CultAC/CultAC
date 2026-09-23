@@ -11,8 +11,13 @@ record BedrockValidationSelection(
         BedrockAuthInputFrame authFrame,
         Vec3 validationSelectedDelta,
         Vec3d validationSelectedPosition,
-        Vec3 packetPosition
+        Vec3 packetPosition,
+        Vec3d externalDisplacement
 ) {
+    BedrockValidationSelection(Vec3d previousPosition, BedrockAuthInputFrame authFrame,
+            Vec3 delta, Vec3d position, Vec3 packetPosition) {
+        this(previousPosition, authFrame, delta, position, packetPosition, Vec3d.ZERO);
+    }
     static BedrockValidationSelection from(PredictionResult result, BedrockMovementResult movementResult) {
         if (result == null || movementResult == null) {
             return null;
@@ -30,7 +35,8 @@ record BedrockValidationSelection(
                 authFrame,
                 validationSelectedDelta,
                 validationSelectedPosition,
-                packetPosition);
+                packetPosition,
+                BedrockVectorAdapter.toBedrock(result.getPositionOnlyDelta()));
     }
 
     private static BedrockAuthInputFrame bedrockInput(PredictionResult result) {

@@ -17,7 +17,8 @@ final class BedrockValidationSelectedState {
         }
         Vec3d nextTickBasePosition = nextTickBasePosition(selection);
         BedrockMovementState selectedState = movementResult.predictedState()
-                .withPhysicalFeetPosition(nextTickBasePosition, displacementSquared(selection, nextTickBasePosition));
+                .withExternalDisplacement(selection.externalDisplacement())
+                .withObservedPosition(nextTickBasePosition, displacementSquared(selection, nextTickBasePosition));
 
         if (!movementResult.travelActive()) {
             return selectedState;
@@ -33,7 +34,8 @@ final class BedrockValidationSelectedState {
     static BedrockMovementState candidateBase(BedrockMovementResult movementResult, BedrockValidationSelection selection) {
         Vec3d position = selection.validationSelectedPosition();
         return movementResult.predictedState()
-                .withPhysicalFeetPosition(position, displacementSquared(selection, position));
+                .withExternalDisplacement(selection.externalDisplacement())
+                .withObservedPosition(position, displacementSquared(selection, position));
     }
 
     static Vec3d nextTickBasePosition(BedrockValidationSelection selection) {

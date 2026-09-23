@@ -33,7 +33,7 @@ final class BedrockInitialStateFactory {
         Vec3d start = vec(context.getStart());
         if (profilePreviousState != null) {
 
-            return profilePreviousState.withCoordinateFrame(movementContext.worldState().blockCollisionWorld().coordinateFrame()).withPhysicalFeetPosition(
+            return profilePreviousState.withCoordinateFrame(movementContext.worldState().blockCollisionWorld().coordinateFrame()).withObservedPosition(
                     start,
                     profilePreviousState.lastPhysicalDisplacementSquared());
         }
