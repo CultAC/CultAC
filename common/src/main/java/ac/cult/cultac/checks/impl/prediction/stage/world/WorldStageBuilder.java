@@ -341,7 +341,7 @@ public class WorldStageBuilder {
     private boolean mightBeSuffocating(CultPlayer player, SimulationContext context) {
         if (player.compensatedEntities.getSelf().inVehicle()) return false;
         Vec3 oldPos = context.getStart();
-        if (player.isBedrockMovement()) return false; // Set from the accepted endpoint at commit.
+        if (player.isBedrockMovement()) return false;
         // TODO: Does 0.03 affect this and if so, how?
         float bbWidth = 0.6f;
         return this.moveToClosestSpace(player, oldPos.x - bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D) ||

@@ -29,7 +29,6 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.InsideBlock;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.PistonShulkerPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.StepTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
@@ -55,7 +54,7 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 public final class BedrockMovementEngine implements MovementEngine {
     public static final BedrockMovementEngine INSTANCE = new BedrockMovementEngine();
     static final List<UncertaintyHandler> UNCERTAINTY_HANDLERS = List.of(
-        new PistonShulkerPush(), new CollisionModifier(), new StepTransform(), new InsideBlock()
+        new PistonShulkerPush(), new CollisionModifier(), new StepTransform()
     );
     private final BedrockMovementInputFactory inputFactory = new BedrockMovementInputFactory();
 
@@ -276,9 +275,11 @@ public final class BedrockMovementEngine implements MovementEngine {
         if (bedrockResult != null && bedrockResult.nextTickBaseState() != null) {
             var movement = bedrockResult.movementResult();
             var state = bedrockResult.nextTickBaseState();
-            List<Entry> entries = BedrockForwardTick.finish(movement, state).stream()
-                .map(next -> new Entry(next, bedrockResult.nextTickBaseMobJumpComponent())).toList();
             var frame = result.getSimulationContext().getBedrockInput();
+            List<Entry> entries = BedrockForwardTick.finish(movement, state,
+                frame.getReportedEndOfTickVelocity() == null ? null
+                    : BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity())).stream()
+                .map(next -> new Entry(next, bedrockResult.nextTickBaseMobJumpComponent())).toList();
             if (result.isExempt() && frame.getReportedEndOfTickVelocity() != null) {
                 var position = BedrockVectorAdapter.toBedrock(frame.getPosition());
                 var velocity = BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity());
@@ -291,8 +292,6 @@ public final class BedrockMovementEngine implements MovementEngine {
                 entries = entries.stream().sorted(java.util.Comparator.comparingDouble(
                     entry -> entry.state().velocity().subtract(reported).length())).toList();
             }
-            recordEndTickBlockPush(result, movement, BedrockVectorAdapter.toJava(
-                state.physicalFeetPosition().subtract(movement.previousState().physicalFeetPosition())));
             result.setProfileResult(bedrockResult.withNextTickBaseState(entries.getFirst().state()));
             return new PredictionCommit(new BedrockNextTickStates(entries),
                 BedrockNextTickVelocityDerivation.profileStateVelocities(entries));

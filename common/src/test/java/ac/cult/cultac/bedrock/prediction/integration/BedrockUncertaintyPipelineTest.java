@@ -62,7 +62,7 @@ public final class BedrockUncertaintyPipelineTest {
          .stream()
          .<Class<? extends UncertaintyHandler>>map(UncertaintyHandler::getClass)
          .toList();
-      Assert.assertEquals(List.of(PistonShulkerPush.class, CollisionModifier.class, StepTransform.class, Fireworks.class, InsideBlock.class), classes);
+      Assert.assertEquals(List.of(PistonShulkerPush.class, CollisionModifier.class, StepTransform.class), classes);
       Assert.assertThrows(UnsupportedOperationException.class, () -> BedrockMovementEngine.UNCERTAINTY_HANDLERS.add(new InsideBlock()));
    }
 
@@ -213,33 +213,7 @@ public final class BedrockUncertaintyPipelineTest {
    }
 
    @Test
-   public void lilyPadEscapeUsesExistingHorizontalAllowance() {
-      double x = 191.81735229492188;
-      double z = -111.4725112915039;
-      SimpleCollisionBox lilyPad = new SimpleCollisionBox(192.0625, 63.0, -111.9375, 192.9375, 63.09375, -111.0625);
-      SimpleCollisionBox standing = new SimpleCollisionBox(x - 0.3, 62.0, z - 0.3, x + 0.3, 63.8, z + 0.3);
-      SimpleCollisionBox swimming = new SimpleCollisionBox(x - 0.3, 62.0, z - 0.3, x + 0.3, 62.6, z + 0.3);
-      Assert.assertTrue(standing.isIntersected(lilyPad));
-      Assert.assertFalse(swimming.isIntersected(lilyPad));
-      Vec3 observed = new Vec3(-0.0521240234375, 0.0, 0.00690460205078125);
-      PredVector predicted = new PredVector(new Vec3(0.0, 0.0, 0.00704193115234375));
-      TestContext previous = context(observed, standing.isIntersected(lilyPad), noPushes(), UNIT_SCALE);
-      TestContext test = context(observed, swimming.isIntersected(lilyPad), noPushes(), UNIT_SCALE);
-      PredictionResult last = result(predicted, previous.context(), observed, neutralCollisions());
-      CultPlayer player = Mockito.mock(CultPlayer.class);
-      Mockito.when(player.isBedrockMovement()).thenReturn(true);
-      InsideBlock handler = new InsideBlock();
-      PredVector allowed = handler.handleUncertainty(player, null, null, test.context(), last, predicted, observed);
-      Assert.assertEquals(observed, new Vec3(allowed.x, allowed.y, allowed.z));
-      Assert.assertTrue(allowed.hasReason("block pushing"));
-      PredictionResult noOverlap = result(predicted, test.context(), observed, neutralCollisions());
-      Assert.assertSame(predicted, handler.handleUncertainty(player, null, null, test.context(), noOverlap, predicted, observed));
-      Mockito.when(player.isBedrockMovement()).thenReturn(false);
-      Assert.assertSame(predicted, handler.handleUncertainty(player, null, null, test.context(), last, predicted, observed));
-   }
-
-   @Test
-   public void endTickOverlapUsesAcceptedEndpointAndOnlyAffectsNextTick() {
+   public void endTickOverlapChangesPacketVelocityWithoutChangingCurrentPosition() {
       var block = new ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision(
          new ac.cult.cultac.bedrock.prediction.geometry.BlockPosition(1, 0, 0),
          "minecraft:stone", "minecraft:stone", java.util.Map.of(),
@@ -251,25 +225,32 @@ public final class BedrockUncertaintyPipelineTest {
          previous, movementContext, movementContext, previous, previous.physicalFeetPosition(), Vec3d.ZERO,
          false, false, false, false, BlockMovementSlowdownState.NONE, HoneySlideState.NONE,
          false, false, 0.0, 1.0, false, false, false, 0.0, true, false, null);
-      TestContext tick = context(Vec3.ZERO, false, noPushes(), UNIT_SCALE);
-      java.util.concurrent.atomic.AtomicBoolean overlap = new java.util.concurrent.atomic.AtomicBoolean();
-      WorldData world = tick.context().getWorldData();
-      Mockito.when(world.isMightBeInBlock()).thenAnswer(invocation -> overlap.get());
-      Mockito.doAnswer(invocation -> { overlap.set(invocation.getArgument(0)); return null; })
-         .when(world).setMightBeInBlock(Mockito.anyBoolean());
-      PredVector start = new PredVector(Vec3.ZERO);
-      PredictionResult result = result(start, tick.context(), Vec3.ZERO, neutralCollisions());
-      BedrockMovementEngine.recordEndTickBlockPush(result, movement, new Vec3(0.4, 0, 0));
-      Assert.assertTrue(overlap.get());
-      CultPlayer player = Mockito.mock(CultPlayer.class);
-      Mockito.when(player.isBedrockMovement()).thenReturn(true);
-      InsideBlock handler = new InsideBlock();
-      Vec3 pushed = new Vec3(-0.08, 0, 0);
-      Assert.assertSame(start, handler.handleUncertainty(player, null, result, tick.context(), null, start, pushed));
-      TestContext next = context(pushed, false, noPushes(), UNIT_SCALE);
-      Assert.assertEquals(-0.08, handler.handleUncertainty(player, null, null, next.context(), result, start, pushed).x, 0);
-      BedrockMovementEngine.recordEndTickBlockPush(result, movement, Vec3.ZERO);
-      Assert.assertFalse(overlap.get());
+      Vec3d reported = new Vec3d(-0.047259465, 0, 0.088127986);
+      var selected = previous.withPhysicalFeetPosition(new Vec3d(0.9, 0, 0.5), 0.16);
+      var pushed = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, selected, reported);
+      Assert.assertEquals(1, pushed.size());
+      Assert.assertEquals(selected.physicalFeetPosition(), pushed.getFirst().physicalFeetPosition());
+      Assert.assertEquals(reported.x(), pushed.getFirst().velocity().x(), 1.0E-12);
+      Assert.assertEquals(reported.z(), pushed.getFirst().velocity().z(), 1.0E-12);
+      var unpushed = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, selected);
+      Assert.assertEquals(unpushed.getFirst().velocity().y(), pushed.getFirst().velocity().y(), 0);
+      var outside = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, previous, reported);
+      Assert.assertEquals(0, outside.getFirst().velocity().x(), 0);
+      Assert.assertEquals(0, outside.getFirst().velocity().z(), 0);
+      var excessive = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(
+         movement, selected, new Vec3d(-1, 1, 1)).getFirst();
+      Assert.assertEquals(-0.1, excessive.velocity().x(), 0);
+      Assert.assertEquals(0.1, excessive.velocity().z(), 0);
+      Assert.assertEquals(unpushed.getFirst().velocity().y(), excessive.velocity().y(), 0);
+      var observation = BedrockMovementObservationFactory.fromForwardSelection(movement,
+         new Vec3(0.9, 0, 0.5), selected,
+         new Vec3(reported.x(), unpushed.getFirst().velocity().y(), reported.z()), null);
+      Assert.assertEquals(0, observation.velocityOffset(), 1.0E-12);
+      var claimedOverlap = BedrockMovementObservationFactory.fromForwardSelection(movement,
+         new Vec3(0.9, 0, 0.5), previous,
+         new Vec3(reported.x(), outside.getFirst().velocity().y(), reported.z()), null);
+      Assert.assertEquals(0.1, claimedOverlap.velocityOffset(), 1.0E-7);
+
    }
 
    private static CultPlayer playerWithFireworks(boolean active) {

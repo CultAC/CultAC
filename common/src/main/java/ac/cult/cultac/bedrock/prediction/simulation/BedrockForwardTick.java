@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.simulation;
 
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
+import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.simulation.reconciliation.BedrockNextTickStateDeriver;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import java.util.List;
@@ -15,7 +16,13 @@ public final class BedrockForwardTick {
     }
 
     public static List<BedrockMovementState> finish(BedrockMovementResult result, BedrockMovementState selected) {
+        return finish(result, selected, null);
+    }
+
+    public static List<BedrockMovementState> finish(BedrockMovementResult result, BedrockMovementState selected,
+            Vec3d reportedVelocity) {
         return BedrockNextTickStateDeriver.fromSimulated(result, selected).stream()
-                .map(BedrockNextTickStateDeriver.DerivedState::state).distinct().toList();
+                .map(BedrockNextTickStateDeriver.DerivedState::state)
+                .map(state -> BedrockEndTickBlockPush.apply(result, state, reportedVelocity)).distinct().toList();
     }
 }
