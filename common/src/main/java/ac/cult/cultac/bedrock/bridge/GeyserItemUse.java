@@ -43,7 +43,7 @@ final class GeyserItemUse {
             case ITEM_USE_ON_ENTITY -> GeyserEntityInteractions.observe(session, player, packet);
             case ITEM_USE -> {
                 int sequence = sequence(session);
-                if (sequence == previousSequence) return; // Geyser rejected or consumed the action locally.
+                if (sequence == previousSequence && packet.getActionType() != 0) return;
                 player.lastBlockPlaceUseItem = System.currentTimeMillis();
                 if (packet.getActionType() == 0 && packet.getBlockFace() >= 0 && packet.getBlockFace() < FACES.length) {
                     var pos = packet.getBlockPosition();

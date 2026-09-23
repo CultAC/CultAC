@@ -6,6 +6,7 @@ import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.blockplace.NmsBlockPlaceResolver;
 import ac.cult.cultac.utils.blockplace.SmoketestPredictionSafety;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.TraverseBlocks;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.Material;
@@ -38,6 +39,7 @@ public class PlaceHandler {
         double lastZ = player.z;
         float lastXRot = player.xRot;
         float lastYRot = player.yRot;
+        var lastBoundingBox = player.boundingBox;
 
         player.x = player.packetStateData.clientSidePosition.x;
         player.y = player.packetStateData.clientSidePosition.y;
@@ -55,6 +57,10 @@ public class PlaceHandler {
             player.yRot = pitch;
         }
 
+        if (player.isBedrockMovement()) {
+            player.boundingBox = GetBoundingBox.getPlayerBoundingBox(player, player.x, player.y, player.z);
+        }
+
         player.compensatedWorld.startPredicting();
         try (SmoketestPredictionSafety.Scope ignored = SmoketestPredictionSafety.enter(
                 player,
@@ -68,6 +74,7 @@ public class PlaceHandler {
             player.z = lastZ;
             player.xRot = lastXRot;
             player.yRot = lastYRot;
+            if (player.isBedrockMovement()) player.boundingBox = lastBoundingBox;
         }
     }
 
