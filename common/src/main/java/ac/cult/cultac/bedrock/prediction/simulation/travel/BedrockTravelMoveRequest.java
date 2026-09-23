@@ -14,7 +14,7 @@ public final class BedrockTravelMoveRequest {
         return previous.physicalFeetPosition().add(move);
     }
 
-    public static Vec3d applySneakMovement(
+    public static BedrockMoveRequest applySneakMovement(
         BedrockTravelInput input,
         BedrockFrameFacts facts,
         BedrockMoveRequest moveRequest
@@ -22,8 +22,9 @@ public final class BedrockTravelMoveRequest {
         return BedrockSneakEdgeMovement.applyBeforeCollision(
             input.previousState(),
             input.inputFrame().sneaking(),
-            moveRequest.move(),
-            moveRequest.requestedPosition(),
+            facts.movementDimensions(),
+            input.options().maxUpStep(),
+            moveRequest,
             facts.blockCollisionWorld()
         );
     }

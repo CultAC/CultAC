@@ -28,10 +28,9 @@ public final class BedrockMoveSystems {
         }
         BedrockMoveRequest request = applyBlockMovementSlowdown(plan);
         if (!frame.branch().glidingTravel()) {
-            Vec3d requestedPosition = BedrockTravelMoveRequest.applySneakMovement(
+            request = BedrockTravelMoveRequest.applySneakMovement(
                 frame.input(), frame.frameFacts(), request
             );
-            request = new BedrockMoveRequest(request.resolvedMove(), requestedPosition);
         }
 
         BedrockFrameFacts facts = frame.frameFacts();
