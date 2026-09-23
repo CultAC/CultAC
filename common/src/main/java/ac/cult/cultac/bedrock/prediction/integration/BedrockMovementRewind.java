@@ -28,6 +28,10 @@ final class BedrockMovementRewind {
         return authoritative.metadata(tick, event);
     }
 
+    BedrockReplayEvent.Metadata metadata(long tick, BedrockReplayEvent.Metadata event, int flagWords) {
+        return authoritative.metadata(tick, event, flagWords);
+    }
+
     void clear() {
         authoritative.clear();
         updates.clear();
@@ -47,6 +51,10 @@ final class BedrockMovementRewind {
         if (updates.isEmpty()) return current;
         List<Entry> entries = BedrockProfileState.profileEntries(current.carry());
         if (entries.isEmpty()) { initialUpdates = true; return current; }
+        if (player != null && player.bedrockState != null) {
+            entries = entries.stream().map(entry -> entry.state().isVehicle() ? entry : entry.withState(
+                    player.bedrockState.applyConfirmedBoundingBoxSize(entry.state(), entry.state().inputFrame()))).toList();
+        }
         var live = entries.getFirst().state();
         var deferred = new ArrayList<Update>();
         // Ordinary attribute delivery precedes the corrected-frame processing phase. A replay

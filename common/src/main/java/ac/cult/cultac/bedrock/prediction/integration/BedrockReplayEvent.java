@@ -46,6 +46,24 @@ public sealed interface BedrockReplayEvent permits BedrockReplayAttributeEvent, 
 
     record Metadata(Float width, Float height, Boolean gliding, Boolean crawling, Boolean swimming,
                     Boolean spinning, Boolean sprinting) implements BedrockReplayEvent {
+        static Metadata flagsOf(BedrockMovementState state) {
+            return new Metadata(null, null, state.gliding(), state.horizontalPose(), state.swimming(),
+                    state.riptideSpinActive(), state.sprinting());
+        }
+
+        Metadata changedFlags(Metadata before) {
+            return new Metadata(null, null,
+                    java.util.Objects.equals(gliding, before.gliding) ? null : gliding,
+                    java.util.Objects.equals(crawling, before.crawling) ? null : crawling,
+                    java.util.Objects.equals(swimming, before.swimming) ? null : swimming,
+                    java.util.Objects.equals(spinning, before.spinning) ? null : spinning,
+                    java.util.Objects.equals(sprinting, before.sprinting) ? null : sprinting);
+        }
+
+        boolean hasFlags() {
+            return gliding != null || crawling != null || swimming != null || spinning != null || sprinting != null;
+        }
+
         @Override public BedrockMovementState state(BedrockMovementState state) {
             if (gliding != null) state = state.withAcknowledgedGliding(gliding);
             if (sprinting != null) state = state.withSprinting(sprinting);

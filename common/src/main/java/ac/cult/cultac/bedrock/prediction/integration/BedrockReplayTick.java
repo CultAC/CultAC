@@ -22,6 +22,7 @@ final class BedrockReplayTick {
         for (Entry entry : previous) {
             var recorded = frame.input();
             var state = entry.state().withCoordinateFrame(recorded.previousState().coordinateFrame());
+            if (frame.receivedFlags() != null) state = frame.receivedFlags().state(state);
             if (state.isHorse()) {
                 var horse = recorded.previousState().horse();
                 state = state.withHorse(state.horse().forFrame(horse.metadataRevision(), horse.standing(), horse.release()));

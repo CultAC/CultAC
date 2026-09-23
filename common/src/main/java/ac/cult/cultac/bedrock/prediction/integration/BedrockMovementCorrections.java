@@ -81,8 +81,13 @@ public final class BedrockMovementCorrections {
 
     public BedrockReplayEvent.Metadata metadata(long expectedGeneration, long tick,
                                                 BedrockReplayEvent.Metadata event) {
+        return metadata(expectedGeneration, tick, event, 0);
+    }
+
+    public BedrockReplayEvent.Metadata metadata(long expectedGeneration, long tick,
+                                                BedrockReplayEvent.Metadata event, int flagWords) {
         if (expectedGeneration != generation) return null;
-        return controlled == null ? rewind.metadata(tick, event) : event;
+        return controlled == null ? rewind.metadata(tick, event, flagWords) : event;
     }
 
     /** Attribute lifetime follows the actor, not the currently mounted vehicle or correction generation. */

@@ -14,17 +14,26 @@ public final class BedrockActorHistory {
     public static final int CAPACITY = 40;
     private final ArrayList<Frame> frames = new ArrayList<>(CAPACITY);
     private long sequence;
+    private Frame pendingMetadataFrame;
+    private BedrockReplayEvent.Metadata metadataReceiptStart;
+    private BedrockReplayEvent.Metadata metadataReceipt;
 
     public long newestTick() { return frames.isEmpty() ? -1 : frames.getLast().tick(); }
     public long oldestTick() { return frames.isEmpty() ? -1 : frames.getFirst().tick(); }
     public List<Frame> frames() { return List.copyOf(frames); }
     public List<Entry> current() { return frames.isEmpty() ? List.of() : frames.getLast().end(); }
-    public void clear() { frames.clear(); sequence = 0; }
+    public void clear() {
+        frames.clear(); sequence = 0; pendingMetadataFrame = null;
+        metadataReceiptStart = null; metadataReceipt = null;
+    }
 
     public BedrockActorHistory copy() {
         var copy = new BedrockActorHistory();
         copy.frames.addAll(frames);
         copy.sequence = sequence;
+        copy.pendingMetadataFrame = pendingMetadataFrame;
+        copy.metadataReceiptStart = metadataReceiptStart;
+        copy.metadataReceipt = metadataReceipt;
         return copy;
     }
 
@@ -35,6 +44,10 @@ public final class BedrockActorHistory {
     }
 
     public BedrockReplayEvent.Metadata metadata(long tick, BedrockReplayEvent.Metadata incoming) {
+        return metadata(tick, incoming, 0);
+    }
+
+    public BedrockReplayEvent.Metadata metadata(long tick, BedrockReplayEvent.Metadata incoming, int flagWords) {
         long comparisonTick = tick != 0 && !frames.isEmpty() && Long.compareUnsigned(tick, oldestTick()) < 0
                 ? oldestTick() : tick;
         var historical = tick == 0 ? null : frames.stream().filter(frame -> frame.tick() == comparisonTick)
@@ -49,19 +62,36 @@ public final class BedrockActorHistory {
         if (!frames.isEmpty()) {
             var flags = new BedrockReplayEvent.Metadata(null, null, effective.gliding(),
                     effective.crawling(), effective.swimming(), effective.spinning(), effective.sprinting());
-            if (flags.gliding() != null || flags.crawling() != null || flags.swimming() != null
-                    || flags.spinning() != null || flags.sprinting() != null) {
+            boolean changedFlags = flags.hasFlags();
+            if (changedFlags) {
                 retainMetadata(historical == null ? newestTick() : comparisonTick, flags);
             }
-            if (effective.width() != null || effective.height() != null) {
-                retainMetadata(newestTick(), new BedrockReplayEvent.Metadata(effective.width(),
-                        effective.height(), null, null, null, null, null));
+            if (historical != null && (changedFlags || historical.end().stream()
+                    .anyMatch(entry -> otherFlagWordDiffers(entry.state(), flagWords)))) {
+                Frame marked = frames.stream().filter(frame -> frame.tick() == comparisonTick).findFirst().orElseThrow();
+                if (pendingMetadataFrame == null || marked.tick() <= pendingMetadataFrame.tick()) {
+                    pendingMetadataFrame = marked;
+                }
             }
             Frame latest = frames.getLast();
+            if (changedFlags && metadataReceiptStart == null) {
+                metadataReceiptStart = BedrockReplayEvent.Metadata.flagsOf(latest.end().getFirst().state());
+            }
             var end = latest.end().stream().map(entry -> entry.withState(effective.state(entry.state()))).toList();
+            if (changedFlags) {
+                metadataReceipt = BedrockReplayEvent.Metadata.flagsOf(end.getFirst().state())
+                        .changedFlags(metadataReceiptStart);
+            }
             frames.set(frames.size() - 1, latest.withEnd(latest.beforeEvents(), end, latest.events()));
         }
         return effective;
+    }
+
+    private static boolean otherFlagWordDiffers(BedrockMovementState state, int words) {
+        boolean lower = state.sprinting() || state.gliding() || state.swimming()
+                || state.inputFrame().sneaking() || state.itemUseSlowdownActive() || state.riptideSpinActive();
+        boolean upper = state.horizontalPose();
+        return (words & 2) != 0 && lower || (words & 1) != 0 && upper;
     }
 
     private void retainMetadata(long tick, BedrockReplayEvent.Metadata effective) {
@@ -96,8 +126,14 @@ public final class BedrockActorHistory {
         if (frame.tick() <= newestTick()) return;
         // Missing inputs cannot be manufactured into movement ticks.
         if (!frames.isEmpty() && frame.tick() != newestTick() + 1) clear();
+        if (metadataReceipt != null && metadataReceipt.hasFlags()) frame = frame.withReceivedFlags(metadataReceipt);
+        metadataReceiptStart = null;
+        metadataReceipt = null;
         if (frames.size() == CAPACITY) frames.removeFirst();
         frames.add(frame);
+        if (pendingMetadataFrame != null && pendingMetadataFrame.tick() + 1 < oldestTick()) {
+            pendingMetadataFrame = null;
+        }
     }
 
     public void advance(Frame frame, BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world) {
@@ -122,7 +158,19 @@ public final class BedrockActorHistory {
         events.add(new Event(++sequence, original.tick(), original.end().getFirst().state().simulationTick(), newestTick(), event));
         List<Entry> states = applyEvents(original.beforeEvents(), events);
         frames.set(anchor, original.withEnd(original.beforeEvents(), states, events));
-        var active = new ArrayList<>(eventsBefore(original.tick() + 1));
+        var active = new ArrayList<Event>();
+        if (pendingMetadataFrame != null && pendingMetadataFrame.tick() < original.tick()) {
+            long start = pendingMetadataFrame.tick();
+            anchor = -1;
+            for (int i = 0; i < frames.size(); i++) if (frames.get(i).tick() == start) { anchor = i; break; }
+            Frame first = anchor < 0 ? pendingMetadataFrame : frames.get(anchor);
+            states = applyEvents(first.beforeEvents(), first.events());
+            if (anchor < 0) active.addAll(first.events());
+            else frames.set(anchor, first.withEnd(first.beforeEvents(), states, first.events()));
+            active.addAll(eventsBefore(start + 1));
+        } else {
+            active.addAll(eventsBefore(original.tick() + 1));
+        }
         for (int i = anchor + 1; i < frames.size(); i++) {
             Frame frame = frames.get(i);
             List<Entry> before = BedrockReplayTick.advance(frame, states, active, world);
@@ -130,6 +178,7 @@ public final class BedrockActorHistory {
             active.addAll(frame.events());
             frames.set(i, frame.withEnd(before, states, frame.events()));
         }
+        pendingMetadataFrame = null;
         return List.copyOf(states);
     }
 
@@ -153,7 +202,13 @@ public final class BedrockActorHistory {
 
     public record Frame(long tick, BedrockSimulation.Input input, List<Entry> beforeEvents, List<Entry> end,
                         Vec3d imposedVelocity, Vec3d addedVelocity, Vec3d externalDisplacement, Vec3d observedPosition,
-                        Vec3d observedVelocity, List<Event> events) {
+                        Vec3d observedVelocity, List<Event> events, BedrockReplayEvent.Metadata receivedFlags) {
+        public Frame(long tick, BedrockSimulation.Input input, List<Entry> beforeEvents, List<Entry> end,
+                     Vec3d imposedVelocity, Vec3d addedVelocity, Vec3d externalDisplacement, Vec3d observedPosition,
+                     Vec3d observedVelocity, List<Event> events) {
+            this(tick, input, beforeEvents, end, imposedVelocity, addedVelocity, externalDisplacement,
+                    observedPosition, observedVelocity, events, null);
+        }
         public Frame {
             input = BedrockReplaySnapshot.withState(input, BedrockReplaySnapshot.detach(input.previousState()));
             beforeEvents = detach(beforeEvents);
@@ -166,7 +221,11 @@ public final class BedrockActorHistory {
         }
         Frame withEnd(List<Entry> before, List<Entry> end, List<Event> events) {
             return new Frame(tick, input, before, end, imposedVelocity, addedVelocity, externalDisplacement,
-                    observedPosition, observedVelocity, events);
+                    observedPosition, observedVelocity, events, receivedFlags);
+        }
+        Frame withReceivedFlags(BedrockReplayEvent.Metadata flags) {
+            return new Frame(tick, input, beforeEvents, end, imposedVelocity, addedVelocity, externalDisplacement,
+                    observedPosition, observedVelocity, events, flags);
         }
     }
     public record Event(long sequence, long tick, long simulationTick, long throughTick, BedrockReplayEvent value) { }

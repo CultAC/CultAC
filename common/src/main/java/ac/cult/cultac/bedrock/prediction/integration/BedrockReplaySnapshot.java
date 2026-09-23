@@ -5,7 +5,6 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockBoatState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 
-/** History owns values; live actor handles are restored only when publishing. */
 final class BedrockReplaySnapshot {
     private BedrockReplaySnapshot() { }
 
@@ -21,6 +20,8 @@ final class BedrockReplaySnapshot {
             var b = state.boat();
             state = state.withBoat(new BedrockBoatState(live == null ? null : live.boat().actor(),
                     b.properties(), b.angularVelocity(), b.submergedTicks(), b.paddleTick(), b.left(), b.right(), b.analogPaddles()));
+        } else if (live != null) {
+            state = state.withAcknowledgedPlayerDimensions(live.acknowledgedPlayerDimensions());
         }
         return state;
     }

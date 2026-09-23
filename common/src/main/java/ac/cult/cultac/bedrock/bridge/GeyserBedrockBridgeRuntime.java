@@ -592,7 +592,7 @@ public final class GeyserBedrockBridgeRuntime {
                 ChannelHandlerContext context, BedrockPacketWrapper source,
                 Float width, Float height, Boolean gliding, Boolean crawling, Boolean swimming,
                 Boolean sneaking, Boolean spinning, Boolean sleeping, Boolean usingItem, Boolean sprinting,
-                long tick, long generation
+                long tick, long generation, int flagWords
         ) {
             if (!isCurrentConnection()) {
                 return;
@@ -608,7 +608,7 @@ public final class GeyserBedrockBridgeRuntime {
             writeLatencyBoundary(context, source, player -> {
                 if (isCurrentConnection()) {
                     var metadata = player.bedrockState.movementCorrections.metadata(generation, tick,
-                            new BedrockReplayEvent.Metadata(width, height, gliding, crawling, swimming, spinning, sprinting));
+                            new BedrockReplayEvent.Metadata(width, height, gliding, crawling, swimming, spinning, sprinting), flagWords);
                     if (metadata == null) {
                         if (sleeping != null) player.checkManager.getSimulationProcessor()
                                 .handleBedrockSleepingStateChange(sleeping);
@@ -1374,6 +1374,8 @@ public final class GeyserBedrockBridgeRuntime {
                     ? null : metadata.getMetadata().getFlag(EntityFlag.USING_ITEM);
 
             long metadataTick = metadata.getTick();
+            int flagWords = (metadata.getMetadata().containsKey(EntityDataTypes.FLAGS) ? 1 : 0)
+                    | (metadata.getMetadata().containsKey(EntityDataTypes.FLAGS_2) ? 2 : 0);
             var observed = owner.currentPlayer();
             long generation = observed == null ? -1 : observed.bedrockState.movementCorrections.generation();
             var seat = metadata.getMetadata().get(EntityDataTypes.SEAT_OFFSET);
@@ -1398,7 +1400,7 @@ public final class GeyserBedrockBridgeRuntime {
                     || spinning != null || sleeping != null || usingItem != null || sprinting != null) {
                 owner.recordOutboundMetadata(context, (BedrockPacketWrapper) message,
                         width, height, gliding, crawling, swimming, sneaking, spinning, sleeping, usingItem, sprinting,
-                        metadataTick, generation);
+                        metadataTick, generation, flagWords);
             }
         }
 
