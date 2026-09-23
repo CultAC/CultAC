@@ -413,33 +413,6 @@ public record BedrockMovementState(
         );
     }
 
-    /** Copies already-calculated action results; no movement or impulses are replayed. */
-    public BedrockMovementState withRejectedTickActions(BedrockMovementState completed) {
-        return new BedrockMovementState(
-            new Motion(physicalFeetPosition(), velocity(), lastPhysicalDisplacementSquared(), lastPhysicalDisplacement(),
-                completed.inputFrame(), collisionFlags(), coordinateFrame()),
-            new ActorState(
-                actor.contacts(),
-                new PoseState(completed.sprinting(), completed.swimming(), completed.horizontalPose(),
-                    completed.itemUseSlowdownActive()),
-                new TravelMode(completed.gliding(), completed.glidingRequest(), autoClimbTravel(),
-                    waterTravelFlag(), movementBranch()),
-                boundingBoxMode(), playerDimensions(), acknowledgedPlayerDimensions(), completed.horse(), completed.boat()),
-            new TickMemory(
-                completed.simulationTick(),
-                powderSnowTicks(),
-                completed.fallFlyTicks(),
-                fallDistance(),
-                completed.swimAmount(),
-                completed.riptideChargeTicks(),
-                completed.riptideSpinActive(),
-                completed.riptideSpinTicks(),
-                completed.sneakingTicks(),
-                completed.itemUseSlowdownTicks(),
-                completed.dolphinBoost(), completed.cameraWater()),
-            hasTeleported, completed.attributes());
-    }
-
     private BedrockMovementState withMotion(Motion motion) {
         return new BedrockMovementState(motion, actor, memory, hasTeleported, attributes);
     }

@@ -676,13 +676,22 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
    private PredictionResult simulateBedrockTick(Vec3 observed, Vec3 start, float yaw, float pitch,
                                                BedrockAuthInputFrame frame, MovementProfile profile) {
+      boolean pendingTeleport = this.bedrockTeleport == null
+         && this.player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport();
       PredictionResult result = this.getPredictionResult(this.player, this.validPlayerStartingVels, this.lastPrediction,
          observed.subtract(start), start, observed, this.lastTickSkip, false, yaw, pitch, frame, profile);
-      if (this.isMovementModeExempt(profile, result.getSimulationContext())) {
+      if (!pendingTeleport && this.isMovementModeExempt(profile, result.getSimulationContext())) {
          result.exempt();
       }
       PredictionCommit commit = this.prepareBedrockCommit(result, observed.subtract(start), profile);
       if (commit == null || BedrockProfileState.previousState(commit.carry()) == null) {
+         this.player.packetStateData.rejectBedrockTranslatedMovement();
+         return null;
+      }
+      if (pendingTeleport) {
+         this.applyProfileCommit(commit);
+         this.player.bedrockState.movementCorrections.record(
+            this.player, frame, result.getSimulationContext().getVehicle(), result, commit);
          this.player.packetStateData.rejectBedrockTranslatedMovement();
          return null;
       }
@@ -696,10 +705,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          result.setProfileVerboseLog(verbose);
       }
       this.callPredictionEndListeners(result, commit);
-      PredictionCommit reconciledCommit = BedrockMovementEngine.INSTANCE.reconcileCommittedPosition(
-         commit,
-         frame.getPosition(),
-         CultAPI.INSTANCE.getConfigManager().getBedrockMovementPositionReconciliationStep());
+      PredictionCommit reconciledCommit = this.bedrockTeleport == null
+         && this.player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport()
+         ? commit : BedrockMovementEngine.INSTANCE.reconcileCommittedPosition(
+            commit,
+            frame.getPosition(),
+            CultAPI.INSTANCE.getConfigManager().getBedrockMovementPositionReconciliationStep());
       this.commitPredictionState(result, observed, observed.subtract(start), yaw, pitch, profile, reconciledCommit);
       this.player.bedrockState.movementCorrections.record(
          this.player, frame, result.getSimulationContext().getVehicle(), result, reconciledCommit);
@@ -919,10 +930,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          this.player.compensatedEntities.fishingRodPulls.clear();
          this.player.refreshPlayerPose();
       } else {
-         PredictionCommit rejectedCommit = MovementEngines.requireForProfile(movementProfile).commitRejectedTick(result, this.profileCarry);
-         if (rejectedCommit != null) {
-            this.applyProfileCommit(rejectedCommit);
-         }
+         this.applyProfileCommit(preparedCommit);
       }
    }
 

@@ -341,36 +341,6 @@ public final class BedrockMovementEngine implements MovementEngine {
             BedrockNextTickVelocityDerivation.profileStateVelocities(reconciled));
     }
 
-    @Override
-    public PredictionCommit commitRejectedTick(PredictionResult result, PredictionCarry currentCarry) {
-        BedrockPredictionResult bedrockResult = result == null
-            ? null : result.getProfileResult(BedrockPredictionResult.class);
-        if (!(currentCarry instanceof BedrockNextTickStates states) || states.profileEntries().isEmpty()
-            || bedrockResult == null || bedrockResult.movementResult() == null) {
-            return null;
-        }
-        BedrockMovementState actions = bedrockResult.movementResult().predictedState();
-        List<Entry> entries = states.profileEntries().stream()
-            .map(entry -> entry.withState(entry.state().withRejectedTickActions(actions)))
-            .toList();
-        // Refresh the state held by starting-velocity lineage too:
-        return new PredictionCommit(new BedrockNextTickStates(entries),
-            BedrockNextTickVelocityDerivation.profileStateVelocities(entries));
-    }
-
-    static void recordEndTickBlockPush(PredictionResult result, BedrockMovementResult movement, Vec3 acceptedDiff) {
-        var context = result.getSimulationContext();
-        var dimensions = movement.movementContext().playerDimensionsState();
-        Vec3d endpoint = movement.previousState().physicalFeetPosition().add(BedrockVectorAdapter.toBedrock(acceptedDiff));
-        SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-            endpoint.x(), endpoint.y(), endpoint.z(), (float) dimensions.width(), (float) dimensions.height());
-        List<SimpleCollisionBox> shapes = movement.movementContext().worldState().blockCollisionWorld().collisionBoxes().stream()
-            .map(shape -> new SimpleCollisionBox(shape.minX(), shape.minY(), shape.minZ(), shape.maxX(), shape.maxY(), shape.maxZ()))
-            .toList();
-        context.getWorldData().setMightBeInBlock(context.getVehicle() == null
-            && WorldStageBuilder.moveTowardsClosestSpaceBedrock(box, shapes));
-    }
-
     public PredictionSetbackState prepareSetbackState(CultPlayer player, PredictionResult result) {
         BedrockPredictionResult bedrockResult = result == null
             ? null

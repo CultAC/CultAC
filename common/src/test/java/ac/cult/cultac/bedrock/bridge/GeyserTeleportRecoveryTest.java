@@ -3,17 +3,45 @@ package ac.cult.cultac.bedrock.bridge;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.bedrock.prediction.geometry.BedrockPositionTranslator;
 import java.util.ArrayList;
 import java.util.List;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityAbsolutePacket;
+import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SetEntityMotionPacket;
+import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.TeleportCache;
 import org.junit.Test;
+import org.mockito.Mockito;
 import static org.junit.Assert.*;
 
 public class GeyserTeleportRecoveryTest {
+    @Test public void rejectedMovementConfirmsGeyserQueueWithoutForwardingMovement() throws Exception {
+        var session = Mockito.mock(GeyserSession.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn(true).when(session).isSpawned();
+        var pending = Mockito.mock(TeleportCache.class);
+        Mockito.when(pending.canConfirm(Vector3f.from(20, 64, 30))).thenReturn(true);
+        var field = GeyserSession.class.getDeclaredField("unconfirmedTeleport");
+        field.setAccessible(true);
+        field.set(session, pending);
+
+        var input = new PlayerAuthInputPacket();
+        float offset = (float) BedrockPositionTranslator.PLAYER_PACKET_Y_OFFSET;
+        input.setPosition(Vector3f.from(21, 64 + offset, 30));
+        GeyserTeleportRecovery.confirmRejectedInput(session, input);
+        assertSame(pending, session.getUnconfirmedTeleport());
+        Mockito.verify(pending).incrementUnconfirmedFor();
+
+        input.setPosition(Vector3f.from(20, 64 + offset, 30));
+        GeyserTeleportRecovery.confirmRejectedInput(session, input);
+        assertNull(session.getUnconfirmedTeleport());
+        Mockito.verify(pending).canConfirm(Vector3f.from(20, 64, 30));
+        Mockito.verify(session, Mockito.never()).sendDownstreamGamePacket(Mockito.any());
+    }
+
     @Test public void originChangeRetriesLogicalOperationImmediatelyAndKeepsMotion() {
         var recovery = new GeyserTeleportRecovery();
         var operation = new BedrockTeleportOperation(7, BedrockTeleportProvenance.CULT_SETBACK, 42);

@@ -641,11 +641,8 @@ public final class GeyserBedrockBridgeRuntime {
                 return null;
             }
             if (emission == null) {
-                if (GeyserFloatingPointsAdapter.present()) {
-                    connection.disconnect("CultAC: GFP packet bypassed the required origin enqueue hook.");
-                    return null;
-                }
-                return player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(physicalFeetPosition, onGround);
+                connection.disconnect("CultAC: teleport packet bypassed the required origin enqueue hook.");
+                return null;
             }
             CultPlayer.BedrockTransaction before = player.getLastClientboundBedrockTransaction();
             int proof = before == null ? player.lastTransactionReceived.get() : before.transaction();
@@ -722,7 +719,6 @@ public final class GeyserBedrockBridgeRuntime {
             initializeActor(player);
             var beforeSprint = sprintBoundary();
             BedrockAuthInputFrame frame = captureAuthInput(player, packet);
-            long previousTick = player.bedrockState.lastMovementTick();
             var state = ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor.process(player, frame,
                     ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger.BEDROCK_THREAD,
                     () -> GeyserVehicleInput.translateRejectedMovement(connection, player, packet),
@@ -737,14 +733,12 @@ public final class GeyserBedrockBridgeRuntime {
             teleportRecovery.input(player.bedrockState.lastMovementTick(),
                     player.getSetbackTeleportUtil().isPendingBedrockSetback(teleportRecovery.operation()),
                     recoveryAdapter == null ? BedrockCoordinateFrame.IDENTITY : recoveryAdapter.coordinateFrame());
-            if (state == null && player.bedrockState.lastMovementTick() > previousTick
-                    && player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport()
-                    && !teleportRecovery.active()) {
+            if (state == null) {
                 var retryAdapter = GFP_ADAPTERS.get(connection);
-                if (retryAdapter == null) GeyserTeleportRecovery.retryGeyserTeleport(connection);
-                else retryAdapter.withTeleportRetry(() -> GeyserTeleportRecovery.retryGeyserTeleport(connection));
+                if (retryAdapter == null) GeyserTeleportRecovery.confirmRejectedInput(connection, packet);
+                else retryAdapter.withTeleportRetry(() -> GeyserTeleportRecovery.confirmRejectedInput(connection, packet));
+                return false;
             }
-            if (state == null) return false;
             if (state.isVehicle() && !GeyserVehicleInput.acceptsMovement(connection, player)) return false;
             if (player.compensatedEntities.getSelf().isDead) return false;
             var boundary = sprintBoundary();
@@ -762,6 +756,7 @@ public final class GeyserBedrockBridgeRuntime {
             packet.setDelta(toVector3f(ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter.toJava(state.velocity())));
             correctCollisions(packet, state.collisionFlags());
             if (state.isBoat()) packet.setVehicleRotation(Vector2f.from(state.inputFrame().pitch(), state.inputFrame().yaw()));
+            if (!state.isVehicle()) player.packetStateData.grantBedrockTranslatedMovementPermit(state.movementGrounded());
             return true;
         }
 

@@ -2,13 +2,14 @@ package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
+import ac.cult.cultac.bedrock.prediction.geometry.BedrockPositionTranslator;
 import java.util.function.Consumer;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityAbsolutePacket;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
+import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SetEntityMotionPacket;
 import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.session.cache.TeleportCache;
 
 final class GeyserTeleportRecovery {
     private static final int RETRY_INPUTS = 20;
@@ -22,21 +23,9 @@ final class GeyserTeleportRecovery {
     boolean active() { return operation != null; }
     BedrockTeleportOperation operation() { return operation; }
 
-    /** Drive Geyser's existing cache without allowing its positional tolerance to acknowledge CultAC. */
-    static void retryGeyserTeleport(GeyserSession session) {
-        var pending = session.getUnconfirmedTeleport();
-        if (pending == null) return;
-        pending.incrementUnconfirmedFor();
-        if (!pending.shouldResend()) return;
-        pending.resetUnconfirmedFor();
-        var entity = session.getPlayerEntity();
-        entity.moveAbsolute(pending.getPosition(), pending.getYaw(), pending.getPitch(), entity.isOnGround(), true);
-        if (pending.getTeleportType() == TeleportCache.TeleportType.KEEP_VELOCITY) {
-            var motion = new SetEntityMotionPacket();
-            motion.setRuntimeEntityId(entity.geyserId());
-            motion.setMotion(pending.getVelocity());
-            session.sendUpstreamPacket(motion);
-        }
+    static void confirmRejectedInput(GeyserSession session, PlayerAuthInputPacket input) {
+        if (!session.isSpawned() || session.getUnconfirmedTeleport() == null) return;
+        session.confirmTeleport(input.getPosition().down((float) BedrockPositionTranslator.PLAYER_PACKET_Y_OFFSET));
     }
 
     void begin(BedrockPacket packet, BedrockTeleportOperation operation, BedrockCoordinateFrame origin,

@@ -155,24 +155,20 @@ public final class BedrockMovementEngineTest {
     }
 
     @Test
-    public void everyNativeTeleportAppliesItsDestinationIncludingDelayedGfpRebases() {
+    public void geyserNativeTeleportAppliesItsDestination() {
         var original = state(new Vec3d(10, 64, 20), new Vec3d(0.1, 0, 0), BedrockCollisionFlags.ON_GROUND);
         var origin = new BedrockCoordinateFrame(4096, 0, 1);
-        for (var source : new BedrockTeleportProvenance[]{
-                BedrockTeleportProvenance.GFP_REBASE,
-                BedrockTeleportProvenance.GEYSER}) {
-            var teleport = new TeleportData(new Vec3(4106, 64, 20), new RelativeFlag(0), Vec3.ZERO, 1, 7);
-            teleport.setBedrockTransportOnly(true);
-            teleport.setBedrockCoordinateFrame(origin);
-            teleport.setBedrockOperation(new BedrockTeleportOperation(1, source, 7));
-            teleport.setBedrockOnGround(false);
-            var commit = BedrockMovementEngine.INSTANCE.applyTeleportToCarry(commit(original).carry(), teleport);
-            var result = ((BedrockNextTickStates) commit.carry()).profileEntries().getFirst().state();
-            assertEquals(new Vec3d(4106, 64, 20), result.physicalFeetPosition());
-            assertFalse(result.collisionFlags().onGround());
-            assertEquals(origin, result.coordinateFrame());
-            assertEquals(Vec3d.ZERO, result.velocity());
-        }
+        var teleport = new TeleportData(new Vec3(4106, 64, 20), new RelativeFlag(0), Vec3.ZERO, 1, 7);
+        teleport.setBedrockTransportOnly(true);
+        teleport.setBedrockCoordinateFrame(origin);
+        teleport.setBedrockOperation(new BedrockTeleportOperation(1, BedrockTeleportProvenance.GEYSER, 7));
+        teleport.setBedrockOnGround(false);
+        var commit = BedrockMovementEngine.INSTANCE.applyTeleportToCarry(commit(original).carry(), teleport);
+        var result = ((BedrockNextTickStates) commit.carry()).profileEntries().getFirst().state();
+        assertEquals(new Vec3d(4106, 64, 20), result.physicalFeetPosition());
+        assertFalse(result.collisionFlags().onGround());
+        assertEquals(origin, result.coordinateFrame());
+        assertEquals(Vec3d.ZERO, result.velocity());
     }
 
     private static PredictionCommit commit(BedrockMovementState... states) {
