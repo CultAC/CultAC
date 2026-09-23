@@ -76,7 +76,7 @@ final class BedrockMovementRewind {
             if (stale && event instanceof BedrockReplayEvent.Boost) tick = authoritative.oldestTick();
             // A matching confirmation must neither replay actions nor overwrite a later live replacement.
             if (authoritative.matches(tick, event)) continue;
-            if (update.event() instanceof BedrockReplayEvent.Boost boost) {
+            if (update.event() instanceof BedrockReplayEvent.Boost boost && boost.duration() != 0) {
                 int remaining = boost.duration() == -1 ? -1
                         : (int) Math.max(0, boost.duration() - Math.max(0, authoritative.newestTick() - update.tick()));
                 player.bedrockState.movementEffects.setGlideBoost(remaining);

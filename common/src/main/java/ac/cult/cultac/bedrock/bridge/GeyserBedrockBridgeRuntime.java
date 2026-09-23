@@ -35,6 +35,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.math.vector.Vector2f;
@@ -427,6 +428,7 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserVehicleAttributes vehicleAttributes = new GeyserVehicleAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
         private final GeyserEntityAttributes entityAttributes = new GeyserEntityAttributes();
+        private final GeyserMovementEffectAcks glideBoostAcks = new GeyserMovementEffectAcks();
         private long movementCorrectionSequence;
         private record CorrectionSource(BedrockMovementCorrection correction, Vec3 claimedPosition, int debugId) { }
         private final Map<CorrectPlayerMovePredictionPacket, CorrectionSource> movementCorrectionSources = new IdentityHashMap<>();
@@ -484,6 +486,11 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private PacketSignal handleTapped(BedrockPacket packet) {
+            if (packet instanceof PlayerAuthInputPacket input) {
+                glideBoostAcks.auth(input.getTick());
+            } else if (packet instanceof NetworkStackLatencyPacket latency && latency.isFromServer()) {
+                glideBoostAcks.latency(latency.getTimestamp());
+            }
             logPacket("C->S", packet);
             io.netty.util.ReferenceCountUtil.retain(packet);
             connection.ensureInEventLoop(() -> {
@@ -550,6 +557,7 @@ public final class GeyserBedrockBridgeRuntime {
             if (!detached.compareAndSet(false, true)) {
                 return;
             }
+            glideBoostAcks.clear();
             PACKET_TAPS.remove(connection, this);
             connection.ensureInEventLoop(() -> { entityPositions.clear(); entityAttributes.clear(); sprintAttributes.close(); vehicleAttributes.clear(); });
             if (connection.isClosed()) latencyQueue.clear();
@@ -675,6 +683,20 @@ public final class GeyserBedrockBridgeRuntime {
             // This newly allocated transaction cannot be acknowledged before its write.
             // Prepare its callback synchronously, before exposing the latency marker.
             player.addBedrockTransactionTask(transaction, () -> acknowledgement.accept(player));
+            writeTransactionBoundary(context, source, player, transaction);
+        }
+
+        private void writeLatencyBoundary(ChannelHandlerContext context, BedrockPacketWrapper source,
+                                          BiConsumer<CultPlayer, Long> acknowledgement) {
+            CultPlayer player = currentPlayer();
+            if (player == null) return;
+            CultPlayer.BedrockTransaction transaction = player.createBedrockTransactionAfterClientbound();
+            glideBoostAcks.watch(transaction.id());
+            player.addBedrockTransactionTask(transaction, () -> {
+                long acknowledgedAfterTick = glideBoostAcks.release(transaction.id(),
+                        player.bedrockState.processedClientTick());
+                acknowledgement.accept(player, acknowledgedAfterTick);
+            });
             writeTransactionBoundary(context, source, player, transaction);
         }
 
@@ -1132,9 +1154,9 @@ public final class GeyserBedrockBridgeRuntime {
                         new BedrockReplayEvent.Boost(duration));
                 context.write(message, promise);
                 owner.writeLatencyBoundary(context, wrapper,
-                        player -> {
+                        (player, acknowledgedAfterTick) -> {
                             if (replay != null) replay.accept(player);
-                            player.bedrockState.movementEffects.setGlideBoost(duration);
+                            player.bedrockState.movementEffects.setGlideBoost(duration, acknowledgedAfterTick);
                         });
                 return;
             }

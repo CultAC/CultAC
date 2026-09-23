@@ -35,6 +35,22 @@ public final class BedrockMovementEffectsTest {
     }
 
     @Test
+    public void acknowledgedStopUsesTheFollowingClientTickEvenWhenSentEarlier() {
+        var effects = new BedrockMovementEffects();
+        effects.setGlideBoost(1_000_000);
+        assertTrue(effects.glideBoost(frame(390), true));
+        effects.setGlideBoost(0, 391);
+        assertTrue(effects.glideBoost(frame(392), true));
+        assertFalse(effects.glideBoost(frame(393), true));
+
+        effects.setGlideBoost(1_000_000);
+        assertTrue(effects.glideBoost(frame(13341), true));
+        effects.setGlideBoost(0, 13341);
+        assertTrue(effects.glideBoost(frame(13342), true));
+        assertFalse(effects.glideBoost(frame(13343), true));
+    }
+
+    @Test
     public void refreshReplacesDurationAndClearRemovesIndefiniteEffect() {
         var effects = new BedrockMovementEffects();
         effects.setGlideBoost(10);

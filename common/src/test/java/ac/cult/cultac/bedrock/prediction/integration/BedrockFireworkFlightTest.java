@@ -5,6 +5,7 @@ import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.*;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockAerialMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.*;
@@ -24,6 +25,27 @@ public final class BedrockFireworkFlightTest {
         {14.466904F, -138.66672F, 2805.194F, 67.39507F, 5.9159155F, 1.0880922F, -0.3920273F, -1.2366139F},
         {14.596817F, -144.64333F, 2806.2073F, 67.00049F, 4.620245F, 1.0131539F, -0.3945859F, -1.2956703F},
     };
+
+    @Test
+    public void capturedStopReceiptTicksRequireBoostInAllThreeNewFlags() {
+        float[][] observations = {
+            {392, -19.703552F, 6.0764465F, 0.57539713F, -0.17726061F, 1.5721464F,
+                0.56934404F, -0.17555954F, 1.5743872F},
+            {454, 171.78302F, 20.238113F, -0.2297965F, -0.54286855F, -1.5911839F,
+                -0.22979674F, -0.54286844F, -1.5911837F},
+            {473, 166.06635F, 0.61943054F, -0.39745316F, -0.035150975F, -1.6299027F,
+                -0.40031302F, -0.03326929F, -1.6257886F},
+        };
+        for (float[] row : observations) {
+            var frame = new BedrockInputFrame((long) row[0], row[1], row[2], false, false, false);
+            var previous = new Vec3d(row[3], row[4], row[5]);
+            var observed = new Vec3d(row[6], row[7], row[8]);
+            var boosted = BedrockAerialMovement.glideVelocity(previous, frame, true);
+            var unboosted = BedrockAerialMovement.glideVelocity(previous, frame, false);
+            assertTrue("boosted tick " + (long) row[0], boosted.subtract(observed).length() <= 0.001);
+            assertTrue("unboosted tick " + (long) row[0], unboosted.subtract(observed).length() > 0.001);
+        }
+    }
 
     @Test
     public void capturedFlightCarriesSimulatedVelocityWithoutObservedReseeding() {
@@ -72,6 +94,53 @@ public final class BedrockFireworkFlightTest {
                 0.826295F, -0.30091926F, -1.4238358F};
         assertCaptured(forward(corrected.end().getFirst(), 1418, following, false)
                 .end().getFirst().state(), following);
+    }
+
+    @Test
+    public void acknowledgedStopPreservesReceiptTickAfterHistoricalReplay() {
+        float[][] captured = {
+            {6.3363037F, -20.35318F, 1953.7145F, 122.664246F, 19.238552F,
+                0.5888684F, -0.18111311F, 1.5667931F},
+            {6.0764465F, -19.703552F, 1954.2899F, 122.486984F, 20.8107F,
+                0.57539713F, -0.17726061F, 1.5721464F},
+            {6.0764465F, -19.703552F, 1954.8593F, 122.311424F, 22.385086F,
+                0.56934404F, -0.17555954F, 1.5743872F},
+            {6.0764465F, -19.573639F, 1955.4279F, 122.13813F, 23.960316F,
+                0.5686164F, -0.17329171F, 1.5752289F},
+        };
+        var seed = captured[0];
+        var state = BedrockMovementState.fromPhysicalFeet(position(seed), velocity(seed),
+                BedrockInputFrame.idle(390), BedrockCollisionFlags.AIR).withGliding(true);
+        var entry = new BedrockProfileState.Entry(state, BedrockMobJumpComponentState.DEFAULT);
+        var history = new BedrockActorHistory();
+        history.record(new BedrockActorHistory.Frame(390, request(entry, 390, seed, true),
+                List.of(entry), List.of(entry), null, Vec3d.ZERO, Vec3d.ZERO,
+                position(seed), velocity(seed), List.of()));
+        var beforeReceipt = forward(entry, 391, captured[1], true);
+        history.record(beforeReceipt);
+
+        var player = org.mockito.Mockito.mock(ac.cult.cultac.player.CultPlayer.class);
+        player.bedrockState = new ac.cult.cultac.bedrock.player.BedrockPlayerState(new java.util.UUID(0, 1));
+        player.bedrockState.movementEffects.setGlideBoost(0, 391);
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(390, true, new BedrockReplayEvent.Boost(0));
+        var current = new ac.cult.cultac.checks.impl.prediction.PredictionCommit(
+                new BedrockNextTickStates(history.current()),
+                BedrockNextTickVelocityDerivation.profileStateVelocities(history.current()));
+        var commit = rewind.apply(player, current, (previous, world) -> world);
+        var previous = BedrockProfileState.profileEntries(commit.carry()).getFirst();
+        assertCaptured(previous.state(), captured[1]);
+
+        var receipt = ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame
+                .builder(new java.util.UUID(0, 1)).clientTick(392).build();
+        assertTrue(player.bedrockState.movementEffects.glideBoost(receipt, true));
+        var finalFrame = forward(previous, 392, captured[2], true);
+        assertCaptured(finalFrame.end().getFirst().state(), captured[2]);
+        var following = ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame
+                .builder(new java.util.UUID(0, 1)).clientTick(393).build();
+        assertFalse(player.bedrockState.movementEffects.glideBoost(following, true));
+        assertCaptured(forward(finalFrame.end().getFirst(), 393, captured[3], false)
+                .end().getFirst().state(), captured[3]);
     }
 
     @Test
