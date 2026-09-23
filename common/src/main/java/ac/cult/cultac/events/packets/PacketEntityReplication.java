@@ -1404,6 +1404,21 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         // Geyser may emit several client positions over later ticks. Java packets update
         // server authority here; the outgoing Bedrock stream owns visible transforms.
         if (player.isBedrockMovement()) {
+            PacketEntity controlledVehicle = BedrockVehicleControl.controlledVehicle(player);
+            if (movement.kind() == MovementKind.TELEPORT_ENTITY
+                    && movement.hasPosition() && absolutePositionKnown
+                    && player.compensatedEntities.vehicles.serverPlayerVehicle != null
+                    && player.compensatedEntities.vehicles.serverPlayerVehicle == movement.entityId()
+                    && controlledVehicle != null && controlledVehicle.getEntityId() == movement.entityId()) {
+                Vec3 target = new Vec3(absoluteX, absoluteY, absoluteZ);
+                int transaction = appendTrailingProofTransactionId(event);
+                if (transaction < 0) transaction = player.lastTransactionSent.get();
+                player.getSetbackTeleportUtil().addBedrockVehicleTeleport(movement.entityId(), transaction, target);
+                player.getSetbackTeleportUtil().updateSafeVehiclePosition(target);
+                player.getSetbackTeleportUtil().sendBedrockMovementCorrection(movement.entityId(), target,
+                        movement.deltaMovement().movement(), movement.yaw(), movement.pitch(),
+                        Boolean.TRUE.equals(movement.onGround()), transaction);
+            }
             clearPacketHandlerDeltaMovement(movement);
             return;
         }

@@ -30,6 +30,7 @@ public sealed interface BedrockReplayEvent permits BedrockReplayAttributeEvent, 
                     .withPhysicalFeetPosition(BedrockVectorAdapter.toBedrock(correction.position()), 0)
                     .withVelocityAndCollisionFlags(BedrockVectorAdapter.toBedrock(correction.velocity()),
                             state.collisionFlags().withTeleportOnGround(correction.onGround()));
+            if (correction.vehicle()) next = next.withRotation(correction.yaw(), correction.pitch());
             return next.isBoat() && correction.angularVelocity() != null
                     ? next.withBoat(next.boat().withAngularVelocity(correction.angularVelocity())) : next;
         }
