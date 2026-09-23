@@ -85,6 +85,7 @@ public final class GeyserBedrockBridgeRuntime {
     private static GeyserSprintAttributeTranslator sprintTranslator;
     private static GeyserPingTranslator pingTranslator;
     private static GeyserKeepAliveTranslator keepAliveTranslator;
+    private static GeyserBlockAckTranslator blockAckTranslator;
     private static volatile BedrockPacketLogger packetLogger;
 
     private GeyserBedrockBridgeRuntime() {
@@ -182,6 +183,9 @@ public final class GeyserBedrockBridgeRuntime {
         if (!started) return;
         if (pingTranslator == null || !pingTranslator.isInstalled()) pingTranslator = new GeyserPingTranslator();
         if (keepAliveTranslator == null || !keepAliveTranslator.isInstalled()) keepAliveTranslator = new GeyserKeepAliveTranslator();
+        if (blockAckTranslator == null || !blockAckTranslator.isInstalled()) {
+            blockAckTranslator = new GeyserBlockAckTranslator(PACKET_TAPS::containsKey);
+        }
         if (sprintTranslator != null && sprintTranslator.isInstalled()) return;
         sprintTranslator = new GeyserSprintAttributeTranslator((session, attribute) -> {
             var tap = PACKET_TAPS.get(session);
@@ -204,6 +208,7 @@ public final class GeyserBedrockBridgeRuntime {
         if (sprintTranslator != null) { sprintTranslator.close(); sprintTranslator = null; }
         if (pingTranslator != null) { pingTranslator.close(); pingTranslator = null; }
         if (keepAliveTranslator != null) { keepAliveTranslator.close(); keepAliveTranslator = null; }
+        if (blockAckTranslator != null) { blockAckTranslator.close(); blockAckTranslator = null; }
         BedrockPacketLogger logger = packetLogger;
         packetLogger = null;
         if (logger != null) logger.close();
@@ -975,6 +980,7 @@ public final class GeyserBedrockBridgeRuntime {
 
     private static final class OutboundPacketTap extends ChannelDuplexHandler {
         private final PacketTapHandler owner;
+        private final GeyserBlockUpdates blockCorrections = new GeyserBlockUpdates();
 
         private OutboundPacketTap(PacketTapHandler owner) {
             this.owner = owner;
@@ -1066,6 +1072,19 @@ public final class GeyserBedrockBridgeRuntime {
             BedrockOriginDispatch.Emission emission = ownTeleport == null ? capturedOrigin
                     : new BedrockOriginDispatch.Emission(capturedOrigin == null ? BedrockCoordinateFrame.IDENTITY : capturedOrigin.frame(), ownTeleport);
             CultPlayer observedPlayer = owner.currentPlayer();
+            if (packet instanceof GeyserBlockAckTranslator.Boundary boundary) {
+                if (boundary.start) blockCorrections.begin();
+                else blockCorrections.end(observedPlayer,
+                        acknowledgement -> owner.writeLatencyBoundary(context, wrapper, acknowledgement));
+                io.netty.util.ReferenceCountUtil.release(message);
+                promise.trySuccess();
+                return;
+            }
+            if (blockCorrections.active() && GeyserBlockUpdates.supports(packet)) {
+                if (emission == null) throw new IllegalStateException("Missing correction coordinate origin");
+                blockCorrections.capture(packet, emission.frame(),
+                        GeyserBlockStateMappings.palette(owner.connection.getBlockMappings()));
+            }
             if (ownTeleport != null && (observedPlayer == null || ownTeleport.setbackTransaction() == null
                     || !observedPlayer.getSetbackTeleportUtil().isCurrentBedrockSetback(ownTeleport.setbackTransaction()))) {
                 io.netty.util.ReferenceCountUtil.release(message);
