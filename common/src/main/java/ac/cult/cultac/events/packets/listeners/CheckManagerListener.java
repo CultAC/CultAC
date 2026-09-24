@@ -26,7 +26,7 @@ import ac.cult.cultac.utils.blockplace.GhostBlock;
 import ac.cult.cultac.utils.blockplace.NmsBlockBreakResolver;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.HeadRotation;
-import ac.cult.cultac.utils.data.PacketStateData;
+import ac.cult.cultac.utils.data.BedrockTranslatedMovementGate;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
@@ -63,6 +63,8 @@ import net.minecraft.network.ConnectionProtocol;
 
 import java.util.List;
 
+// TODO: All this stupid one line listeners don't belong here
+//  does anything belong here? This class likely should just be deleted.
 public class CheckManagerListener {
     private static final PacketReceiveHandler<Packet<?>> EARLY_RECEIVE_FORWARDER =
             new CheckManagerEarlyReceiveForwarder();
@@ -115,8 +117,7 @@ public class CheckManagerListener {
     public void onAcceptTeleportation(PacketReceiveEvent event, CultPlayer player, ServerboundAcceptTeleportationPacket packet) {
         if (player.isBedrockMovement()) return;
         if (event.getConnectionState() != ConnectionProtocol.PLAY) return;
-        // PacketServerTeleport already consumed the real ID and armed its paired
-        // PosRot. This packet interrupts Rot -> MoveVehicle, but not its own echo.
+        // The teleport ID acknowledgement interrupts a Rot -> MoveVehicle pair.
         player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
         player.checkManager.dispatchDecodedReceiveObservers(event);
         player.checkManager.dispatchOrderedReceive(event);
@@ -511,8 +512,7 @@ public class CheckManagerListener {
                 && player.compensatedEntities.vehicles.hasPlayerPassengerState()) {
             // Geyser sends vehicle movement before rider rotation. Expire an
             // unused decision here if it omitted the vehicle move.
-            var authorization = player.packetStateData.consumeBedrockTranslatedMovementPermit();
-            if (authorization != null && authorization.decision() == PacketStateData.BedrockTranslatedMovementDecision.REJECT) {
+            if (player.packetStateData.bedrockTranslatedMovement.take() == BedrockTranslatedMovementGate.Rejected.INSTANCE) {
                 event.setCancelled(true);
                 clearTransientPacketState(player);
                 return;
@@ -551,7 +551,14 @@ public class CheckManagerListener {
         Vec3 movementPosition = position;
         TeleportAcceptData teleportData;
         if (packet.hasPosition()) {
-            teleportData = player.getSetbackTeleportUtil().checkTeleportQueue(movementPosition.x, movementPosition.y, movementPosition.z);
+            boolean legacyJavaServer = !player.isBedrockMovement()
+                    && ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion())
+                            .isOlderThan(ClientVersion.V_26_3);
+            teleportData = player.isBedrockMovement()
+                    || legacyJavaServer
+                    || player.getSetbackTeleportUtil().hasIdlessJavaPositionTeleport()
+                    ? player.getSetbackTeleportUtil().checkTeleportQueue(movementPosition.x, movementPosition.y, movementPosition.z)
+                    : new TeleportAcceptData();
         } else if (packet instanceof ServerboundMovePlayerPacket.Rot) {
             teleportData = player.getSetbackTeleportUtil().checkRotationTeleportQueue(
                     packet.getYRot(player.xRot),
@@ -559,6 +566,16 @@ public class CheckManagerListener {
             );
         } else {
             teleportData = new TeleportAcceptData();
+        }
+
+        if (packet.hasPosition() && teleportData.isMatchedTeleportPosition()
+                && teleportData.getTeleportData() != null && !player.isBedrockMovement()) {
+            // Before 26.3 the PosRot following the teleport ID is itself a
+            // server movement packet. Forward the accepted target, never the
+            // client's near-match coordinates, including for relative teleports.
+            movementPosition = teleportData.getTeleportData().getLocation();
+            event.setNmsPacket(NmsPacketUtil.positionedPacket(packet, movementPosition, player, false));
+            event.markForReEncode(true);
         }
 
         boolean mountedTeleportPosRot = packet.hasPosition() && teleportData.isTeleport()
@@ -689,20 +706,22 @@ public class CheckManagerListener {
                             newPos.x,
                             newPos.y,
                             newPos.z);
-            if (player.packetStateData.hasPendingRejectedBedrockTranslatedMovement() && !teleportData.isTeleport()) {
-                // Preserve a rejection until this auth frame's mounted rotation boundary.
+            var movementGate = player.packetStateData.bedrockTranslatedMovement;
+            if (!teleportData.isTeleport() && (movementGate.isRejected()
+                    || player.getSetbackTeleportUtil().blocksBedrockTranslatedMovement())) {
+                // A rejection belongs to the auth frame's rider rotation; an
+                // older grant expires when a correction starts blocking movement.
+                if (!movementGate.isRejected()) movementGate.clear();
                 event.setCancelled(true);
                 clearTransientPacketState(player);
                 return;
             }
-            var authorization = player.packetStateData.consumeBedrockTranslatedMovementPermit();
-            boolean claimsVehicle = authorization != null && authorization.vehicleEntityId() != null;
-            boolean authorizedVehicleMove = claimsVehicle && controlledVehicle != null && serverVehicle != null
+            var decision = movementGate.take();
+            boolean authorizedVehicleMove = decision instanceof BedrockTranslatedMovementGate.Vehicle permit
+                    && controlledVehicle != null && serverVehicle != null
                     && serverVehicle == controlledVehicle.getEntityId()
-                    && authorization.vehicleEntityId() == controlledVehicle.getEntityId()
-                    && authorization.decision() == PacketStateData.BedrockTranslatedMovementDecision.ACCEPT
-                    && newPos.equals(authorization.vehiclePosition());
-            if ((controlledVehicle != null || claimsVehicle) && !teleportData.isTeleport() && !authorizedVehicleMove) {
+                    && permit.entityId() == controlledVehicle.getEntityId();
+            if (!teleportData.isTeleport() && !authorizedVehicleMove) {
                 event.setCancelled(true);
                 clearTransientPacketState(player);
                 return;
@@ -1108,7 +1127,7 @@ public class CheckManagerListener {
         player.packetStateData.lastClientTickEndTransaction = player.lastTransactionReceived.get();
         player.packetStateData.receivedMovementThisClientTick = false;
         player.serverOpenedInventoryThisTick = false;
-        player.packetStateData.clearBedrockTranslatedMovementPermit();
+        player.packetStateData.bedrockTranslatedMovement.clear();
         player.packetStateData.clientMovementInputUpdatedThisClientTick = false;
         player.packetStateData.carriedItemChangedThisClientTick = false;
         player.packetStateData.vehicleMovePacketsThisClientTick = 0;
@@ -1275,9 +1294,7 @@ public class CheckManagerListener {
             double movementThreshold
     ) {
         if (teleport
-                // The compact raw-NMS version enum does not expose 1.17;
-                // 1.18.2 is its first supported member in the affected range.
-                || clientVersion.isOlderThan(ClientVersion.V_1_18_2)
+                || clientVersion.isOlderThan(ClientVersion.V_1_17)
                 || clientVersion.isNewerThanOrEquals(ClientVersion.V_1_21)
                 || !hasPosition
                 || !hasRotation) {

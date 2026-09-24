@@ -186,7 +186,7 @@ public class BedrockSetbackRecoveryTest {
                     .rawInputFlags(1L << PlayerAuthInputData.IN_CLIENT_PREDICTED_IN_VEHICLE.ordinal()).build();
             assertNull(player.checkManager.getSimulationProcessor().processBedrockAuthInputFrame(forged,
                     ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger.OFFLINE_REPLAY));
-            assertTrue(player.packetStateData.hasPendingRejectedBedrockTranslatedMovement());
+            assertTrue(player.packetStateData.bedrockTranslatedMovement.isRejected());
             assertSame(original, teleports.getRequiredSetBack());
             assertTrue(teleports.isPendingSetback());
             assertEquals(target, teleports.lastKnownGoodPosition.getPos());

@@ -481,7 +481,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       this.player.bedrockState.tickRidingJump(frame, vehicle instanceof PacketEntityHorse);
       if (vehicle != null) {
          if (!BedrockVehicleControl.matches(frame, vehicle)) {
-            this.player.packetStateData.rejectBedrockTranslatedMovement();
+            this.player.packetStateData.bedrockTranslatedMovement.reject();
             return null;
          }
          return this.processBedrockVehicleFrame(frame, trigger, vehicle);
@@ -491,7 +491,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          // until control is established, including unmapped or unsupported vehicle IDs.
          if (frame.getPredictedVehicleId() != null && frame.getPredictedVehicleId() != -1L
                || frame.hasRawInputFlag(PlayerAuthInputData.IN_CLIENT_PREDICTED_IN_VEHICLE)) {
-            this.player.packetStateData.rejectBedrockTranslatedMovement();
+            this.player.packetStateData.bedrockTranslatedMovement.reject();
          } else if (this.player.compensatedEntities.getSelf().getRiding() != null) {
             this.recordProcessedBedrockAuthInputFrame(frame, trigger);
             this.advanceBedrockPassenger(frame, this.player.compensatedEntities.getSelf().clientPhysicalPosition);
@@ -499,7 +499,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          return null;
       }
       if (frame.getPredictedVehicleId() != null && frame.getPredictedVehicleId() != -1L) {
-         this.player.packetStateData.rejectBedrockTranslatedMovement();
+         this.player.packetStateData.bedrockTranslatedMovement.reject();
          return null;
       }
       if (this.bedrockSleepingStateObserved) {
@@ -568,7 +568,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          this.player.bedrockState.movementCorrections.clear();
          this.player.bedrockState.applyAcknowledgedPoseMetadata(null, null, null, null, sleeping);
          if (sleeping) {
-            this.player.packetStateData.clearBedrockTranslatedMovementPermit();
+            this.player.packetStateData.bedrockTranslatedMovement.clear();
             this.applyBedrockImmobileState(null);
          }
          // Sleep changes the travel gate, not the already ordered actor actions.
@@ -685,14 +685,14 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       }
       PredictionCommit commit = this.prepareBedrockCommit(result, observed.subtract(start), profile);
       if (commit == null || BedrockProfileState.previousState(commit.carry()) == null) {
-         this.player.packetStateData.rejectBedrockTranslatedMovement();
+         this.player.packetStateData.bedrockTranslatedMovement.reject();
          return null;
       }
       if (pendingTeleport) {
          this.applyProfileCommit(commit);
          this.player.bedrockState.movementCorrections.record(
             this.player, frame, result.getSimulationContext().getVehicle(), result, commit);
-         this.player.packetStateData.rejectBedrockTranslatedMovement();
+         this.player.packetStateData.bedrockTranslatedMovement.reject();
          return null;
       }
       result.getSimulationContext().setEnd(BedrockVectorAdapter.toJava(
@@ -1134,7 +1134,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       this.lastFlying.setRaw(20);
       this.lastSneaking = false;
       this.lastGliding = false;
-      this.player.packetStateData.clearBedrockTranslatedMovementPermit();
+      this.player.packetStateData.bedrockTranslatedMovement.clear();
       if (this.player.bedrockState != null) {
          this.lastMovementWasSetback = false;
       }

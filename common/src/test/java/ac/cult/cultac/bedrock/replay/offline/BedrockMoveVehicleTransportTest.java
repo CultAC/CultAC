@@ -46,7 +46,7 @@ public final class BedrockMoveVehicleTransportTest {
                 var unchecked = receiveEvent(player, packet);
                 listener.onMoveVehicle(unchecked, player, packet);
                 assertTrue(unchecked.isCancelled());
-                player.packetStateData.grantBedrockVehicleMovementPermit(71, position);
+                player.packetStateData.bedrockTranslatedMovement.allowVehicle(71);
                 var checked = receiveEvent(player, packet);
                 listener.onMoveVehicle(checked, player, packet);
                 assertFalse(checked.isCancelled());
@@ -70,9 +70,9 @@ public final class BedrockMoveVehicleTransportTest {
             var fallback = receiveEvent(player, packet);
             new CheckManagerListener().onMoveVehicle(fallback, player, packet);
             assertTrue(fallback.isCancelled());
-            assertFalse(player.packetStateData.hasPendingBedrockTranslatedMovementDecision());
+            assertFalse(player.packetStateData.bedrockTranslatedMovement.hasPending());
 
-            player.packetStateData.grantBedrockVehicleMovementPermit(71, position);
+            player.packetStateData.bedrockTranslatedMovement.allowVehicle(71);
             var accepted = receiveEvent(player, packet);
             new CheckManagerListener().onMoveVehicle(accepted, player, packet);
             assertFalse(accepted.isCancelled());
@@ -87,7 +87,7 @@ public final class BedrockMoveVehicleTransportTest {
     }
 
     @Test
-    public void horsePermitCannotAuthorizeAnotherTickActorOrPosition() {
+    public void horsePermitCannotAuthorizeAnotherTickOrActor() {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
@@ -95,25 +95,59 @@ public final class BedrockMoveVehicleTransportTest {
             var listener = new CheckManagerListener();
             Vec3 position = new Vec3(2.0F, 64.0F, 3.0F);
             var packet = vehiclePacket(position);
-            player.packetStateData.grantBedrockVehicleMovementPermit(71, position);
+            player.packetStateData.bedrockTranslatedMovement.allowVehicle(71);
             var tickEnd = ServerboundClientTickEndPacket.INSTANCE;
             listener.onClientTickEnd(new PacketReceiveEvent(player.user, tickEnd, ConnectionProtocol.PLAY), player, tickEnd);
             var nextTick = receiveEvent(player, packet);
             listener.onMoveVehicle(nextTick, player, packet);
             assertTrue(nextTick.isCancelled());
 
-            player.packetStateData.grantBedrockVehicleMovementPermit(72, position);
+            player.packetStateData.bedrockTranslatedMovement.allowVehicle(72);
             var wrongHorse = receiveEvent(player, packet);
             listener.onMoveVehicle(wrongHorse, player, packet);
             assertTrue(wrongHorse.isCancelled());
-            assertFalse(player.packetStateData.hasPendingBedrockTranslatedMovementDecision());
+            assertFalse(player.packetStateData.bedrockTranslatedMovement.hasPending());
 
-            player.packetStateData.grantBedrockVehicleMovementPermit(71, position);
+            player.packetStateData.bedrockTranslatedMovement.allowVehicle(71);
             var displacedPacket = vehiclePacket(position.add(1.0D, 0.0D, 0.0D));
-            var wrongPosition = receiveEvent(player, displacedPacket);
-            listener.onMoveVehicle(wrongPosition, player, displacedPacket);
-            assertTrue(wrongPosition.isCancelled());
-            assertFalse(player.packetStateData.hasPendingBedrockTranslatedMovementDecision());
+            var sameVehicle = receiveEvent(player, displacedPacket);
+            listener.onMoveVehicle(sameVehicle, player, displacedPacket);
+            assertFalse(sameVehicle.isCancelled());
+            assertFalse(player.packetStateData.bedrockTranslatedMovement.hasPending());
+            var repeated = receiveEvent(player, displacedPacket);
+            listener.onMoveVehicle(repeated, player, displacedPacket);
+            assertTrue(repeated.isCancelled());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void pendingSetbackBlocksAnAlreadyGrantedHorseProjection() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            mountHorse(player, 71);
+            var teleports = player.getSetbackTeleportUtil();
+            teleports.hasFullyLoaded = true;
+            teleports.hasFullyJoined = true;
+            teleports.lastKnownGoodPosition = new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO, 0);
+            Vec3 position = new Vec3(2, 64, 3);
+            var packet = vehiclePacket(position);
+            player.packetStateData.bedrockTranslatedMovement.allowVehicle(71);
+            teleports.executeNonSimulatingSetback();
+            assertTrue(teleports.blocksBedrockTranslatedMovement());
+
+            var blocked = receiveEvent(player, packet);
+            new CheckManagerListener().onMoveVehicle(blocked, player, packet);
+            assertTrue(blocked.isCancelled());
+            assertFalse(player.packetStateData.bedrockTranslatedMovement.hasPending());
+
+            teleports.getRequiredSetBack().setComplete(true);
+            player.packetStateData.bedrockTranslatedMovement.allowVehicle(71);
+            var moving = receiveEvent(player, packet);
+            new CheckManagerListener().onMoveVehicle(moving, player, packet);
+            assertFalse(moving.isCancelled());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -160,7 +194,7 @@ public final class BedrockMoveVehicleTransportTest {
             assertTrue(unvalidated.isCancelled());
 
             Vec3 position = NmsPacketUtil.readMoveVehicle(packet).position();
-            player.packetStateData.grantBedrockVehicleMovementPermit(71, position);
+            player.packetStateData.bedrockTranslatedMovement.allowVehicle(71);
             var validated = receiveEvent(player, packet);
             new CheckManagerListener().onMoveVehicle(validated, player, packet);
             assertFalse(validated.isCancelled());
@@ -230,7 +264,7 @@ public final class BedrockMoveVehicleTransportTest {
                     .build();
             assertNull(player.checkManager.getSimulationProcessor().processBedrockAuthInputFrame(
                     frame, BedrockPredictionTrigger.OFFLINE_REPLAY));
-            assertTrue(player.packetStateData.hasPendingRejectedBedrockTranslatedMovement());
+            assertTrue(player.packetStateData.bedrockTranslatedMovement.isRejected());
 
             ServerboundMoveVehiclePacket packet = vehiclePacket(new Vec3(0.0D, 80.0D, 0.0D));
             PacketReceiveEvent event = receiveEvent(player, packet);
@@ -274,25 +308,61 @@ public final class BedrockMoveVehicleTransportTest {
     }
 
     @Test
-    public void currentPassengerAuthorityLeavesGeneratedVehicleMovementUntouched() {
+    public void mountWindowPassengerAuthorityCannotAuthorizeUnvalidatedVehicleHeight() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            int vehicleId = 51;
+            player.compensatedEntities.addEntity(vehicleId, EntityTypesCompat.HORSE,
+                    Vec3.ZERO, 0.0F, 0.0F, 0);
+            ((PacketEntityHorse) player.compensatedEntities.getEntity(vehicleId)).hasSaddle = true;
+            player.compensatedEntities.vehicles.setServerVehicle(
+                    vehicleId, new int[]{player.entityID}, player.lastTransactionSent.get());
+            player.getSetbackTeleportUtil().hasFullyLoaded = true;
+            player.getSetbackTeleportUtil().hasFullyJoined = true;
+            assertNull(player.compensatedEntities.getSelf().getRiding());
+            assertNull(ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(player));
+            ServerboundMoveVehiclePacket packet = vehiclePacket(
+                    new Vec3(2.0D, 80.0D, 3.0D));
+            PacketReceiveEvent event = receiveEvent(player, packet);
+
+            new CheckManagerListener().onMoveVehicle(event, player, packet);
+
+            assertTrue(event.isCancelled());
+            assertEquals(
+                    0.0D,
+                    player.checkManager.getCheck(BadPacketsJ.class).getViolations(),
+                    0.0D);
+            assertNull(player.checkManager.getSimulationProcessor().getLastPrediction());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void pendingTransportTeleportBlocksUnpermittedVehicleMovementButAllowsQueuedEcho() {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             int vehicleId = 51;
             player.compensatedEntities.vehicles.setServerVehicle(
                     vehicleId, new int[]{player.entityID}, player.lastTransactionSent.get());
-            ServerboundMoveVehiclePacket packet = vehiclePacket(
-                    new Vec3(2.0D, 64.0D, 3.0D));
-            PacketReceiveEvent event = receiveEvent(player, packet);
+            var teleports = player.getSetbackTeleportUtil();
+            teleports.hasFullyLoaded = true;
+            teleports.hasFullyJoined = true;
+            teleports.addImmediateBedrockTransportTeleport(Vec3.ZERO, true);
+            assertTrue(teleports.blocksBedrockTranslatedMovement());
+            Vec3 position = new Vec3(2, 64, 3);
+            var packet = vehiclePacket(position);
 
-            new CheckManagerListener().onMoveVehicle(event, player, packet);
+            var ordinary = receiveEvent(player, packet);
+            new CheckManagerListener().onMoveVehicle(ordinary, player, packet);
+            assertTrue(ordinary.isCancelled());
 
-            assertFalse(event.isCancelled());
-            assertEquals(
-                    0.0D,
-                    player.checkManager.getCheck(BadPacketsJ.class).getViolations(),
-                    0.0D);
-            assertNull(player.checkManager.getSimulationProcessor().getLastPrediction());
+            teleports.addVehicleTeleport(vehicleId, player.lastTransactionReceived.get(), position);
+            var echo = receiveEvent(player, packet);
+            new CheckManagerListener().onMoveVehicle(echo, player, packet);
+            assertFalse(echo.isCancelled());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -306,7 +376,7 @@ public final class BedrockMoveVehicleTransportTest {
             int vehicleId = 53;
             player.compensatedEntities.vehicles.setServerVehicle(
                     vehicleId, new int[]{player.entityID}, player.lastTransactionSent.get());
-            player.packetStateData.rejectBedrockTranslatedMovement();
+            player.packetStateData.bedrockTranslatedMovement.reject();
             ServerboundMoveVehiclePacket packet = vehiclePacket(
                     new Vec3(2.0D, 64.0D, 3.0D));
             PacketReceiveEvent event = receiveEvent(player, packet);
@@ -314,7 +384,7 @@ public final class BedrockMoveVehicleTransportTest {
             new CheckManagerListener().onMoveVehicle(event, player, packet);
 
             assertTrue(event.isCancelled());
-            assertTrue(player.packetStateData.hasPendingRejectedBedrockTranslatedMovement());
+            assertTrue(player.packetStateData.bedrockTranslatedMovement.isRejected());
             assertNull(player.checkManager.getSimulationProcessor().getLastPrediction());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);

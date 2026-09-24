@@ -12,7 +12,8 @@ final class GeyserVehicleInput {
     static boolean acceptsMovement(GeyserSession session, CultPlayer player) {
         var vehicle = session.getPlayerEntity().getVehicle();
         return vehicle != null && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(vehicle.getEntityId())
-                && !player.getSetbackTeleportUtil().shouldBlockVehicleMovement(true) && !player.isInBed;
+                && !player.getSetbackTeleportUtil().shouldBlockVehicleMovement(true)
+                && !player.getSetbackTeleportUtil().blocksBedrockTranslatedMovement() && !player.isInBed;
     }
 
     static void observe(GeyserSession session, CultPlayer player, PlayerAuthInputPacket packet) {
@@ -35,7 +36,7 @@ final class GeyserVehicleInput {
     }
 
     static void translateRejectedMovement(GeyserSession session, CultPlayer player, PlayerAuthInputPacket packet) {
-        if (!player.packetStateData.hasPendingRejectedBedrockTranslatedMovement()) return;
+        if (!player.packetStateData.bedrockTranslatedMovement.isRejected()) return;
         session.getInputCache().processInputs(session.getPlayerEntity(), packet);
     }
 }

@@ -23,7 +23,7 @@ public final class BedrockFrameProcessor {
     public static BedrockMovementState process(CultPlayer player, BedrockAuthInputFrame original,
                                                BedrockPredictionTrigger trigger, Runnable rejectedMovementControls,
                                                java.util.function.Consumer<BedrockAuthInputFrame> localBlockActions) {
-        player.packetStateData.clearBedrockTranslatedMovementPermit();
+        player.packetStateData.bedrockTranslatedMovement.clear();
         if (!original.hasMinimumStrictData() || !finite(original.getPosition())
                 || !finite(original.getReportedEndOfTickVelocity())
                 || !Float.isFinite(original.getYaw()) || !Float.isFinite(original.getPitch())
@@ -36,7 +36,7 @@ public final class BedrockFrameProcessor {
                 == TimerCheck.BedrockAuthInputDecision.REJECT) return null;
         var state = processMovement(player, original, trigger, localBlockActions);
         if (state == null) {
-            player.packetStateData.rejectBedrockTranslatedMovement();
+            player.packetStateData.bedrockTranslatedMovement.reject();
             rejectedMovementControls.run();
         }
         return state;
@@ -60,7 +60,7 @@ public final class BedrockFrameProcessor {
         }
         localBlockActions.accept(frame);
         var result = processor.processBedrockAuthInputFrame(frame, trigger, teleport.getTeleportData());
-        if (player.packetStateData.hasPendingRejectedBedrockTranslatedMovement()) return null;
+        if (player.packetStateData.bedrockTranslatedMovement.isRejected()) return null;
         if (result != null) player.checkManager.doChecksWithKnownLook();
         var vehicle = result == null || result.getSimulationContext() == null
                 ? null : result.getSimulationContext().getVehicle();

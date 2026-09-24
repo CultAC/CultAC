@@ -34,11 +34,11 @@ public final class BedrockPlayerTransportGateTest {
             listener.onMovePlayer(nextTick, player, rotation);
             assertFalse(nextTick.isCancelled());
 
-            player.packetStateData.rejectBedrockTranslatedMovement();
+            player.packetStateData.bedrockTranslatedMovement.reject();
             PacketReceiveEvent rejected = receiveEvent(player, rotation);
             listener.onMovePlayer(rejected, player, rotation);
             assertTrue(rejected.isCancelled());
-            assertFalse(player.packetStateData.hasPendingRejectedBedrockTranslatedMovement());
+            assertFalse(player.packetStateData.bedrockTranslatedMovement.isRejected());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

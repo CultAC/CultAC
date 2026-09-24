@@ -29,16 +29,22 @@ public class PacketServerTeleport {
             // Geyser's Java acknowledgement does not prove Bedrock processed the teleport.
             return;
         }
-        // Before 26.3 the position response is a separate PosRot packet.
-        // Decode the native format: Via may translate an older client's response.
+        // The native packet is ID-only through 26.2 and carries position in
+        // 26.3. A translator presents the server's native packet shape here.
         NmsPacketUtil.TeleportAcknowledgement ack = NmsPacketUtil.readTeleportAcknowledgement(packet);
-        if (ack.position() == null) return;
+        if (ack.position() == null) {
+            return;
+        }
 
         TeleportAcceptData accepted = player.getSetbackTeleportUtil()
-                .checkTeleportQueue(ack.position().x, ack.position().y, ack.position().z);
-        if (accepted.isTeleport()) {
-            CheckManagerListener.applyTeleportResponse(player, accepted, ack.yaw(), ack.pitch());
+                .checkExactJavaTeleportQueue(ack.position().x, ack.position().y, ack.position().z, ack.id());
+        if (!accepted.isTeleport()) {
+            // In 26.3 Paper applies these coordinates as movement after the ID.
+            // A mismatched or transaction-unproven receipt must never reach it.
+            event.setCancelled(true);
+            return;
         }
+        CheckManagerListener.applyTeleportResponse(player, accepted, ack.yaw(), ack.pitch());
     }
 
     @CultPacketHandler

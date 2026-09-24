@@ -599,7 +599,19 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
      * @return - Whether the player has completed a teleport by being at this position
      */
     public TeleportAcceptData checkTeleportQueue(double px, double py, double pz) {
-        return checkTeleportQueue(new Vec3(px, py, pz));
+        return checkTeleportQueue(new Vec3(px, py, pz), null, false);
+    }
+
+    public TeleportAcceptData checkExactJavaTeleportQueue(double px, double py, double pz, int teleportId) {
+        return checkTeleportQueue(new Vec3(px, py, pz), teleportId, true);
+    }
+
+    /** Entity-to-self teleports have no ID acknowledgement; normal player teleports do. */
+    public boolean hasIdlessJavaPositionTeleport() {
+        for (TeleportData pending : pendingTeleports) {
+            if (!pending.isRotationOnly()) return pending.isPositionOnly();
+        }
+        return false;
     }
 
     /** Resolve only from an already active origin or an emitted, transaction-proven exact local echo. */
@@ -806,10 +818,16 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         return accepted;
     }
 
-    private TeleportAcceptData checkTeleportQueue(Vec3 physicalFeetPosition) {
+    private TeleportAcceptData checkTeleportQueue(Vec3 physicalFeetPosition, Integer teleportId,
+                                                   boolean exactPosition) {
         // Support teleports without teleport confirmations
         // If the player is in a vehicle when teleported, they will exit their vehicle
         TeleportAcceptData teleportData = new TeleportAcceptData();
+        if (teleportId != null && pendingTeleports.stream().noneMatch(pending ->
+                !pending.isRotationOnly() && pending.getBedrockTransportRevision() < 0L
+                        && pending.getTeleportId() == teleportId)) {
+            return teleportData;
+        }
 
         TeleportData teleportPos;
         while ((teleportPos = pendingTeleports.peek()) != null) {
@@ -829,6 +847,13 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             }
 
             int receivedTransaction = player.lastTransactionReceived.get();
+            if (teleportId != null && teleportPos.getTeleportId() != teleportId) {
+                if (receivedTransaction > teleportPos.getTransaction()) {
+                    pendingTeleports.poll();
+                    continue;
+                }
+                break;
+            }
             // ClientPacketListener#handleMovePlayer leaves passengers in place.
             // Consume its single response at the same transaction boundary as a
             // normal teleport, without applying the reported passenger position.
@@ -857,9 +882,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             double zDiff = Math.abs(clamped.z - physicalFeetPosition.z);
 
             // idk why mojang just doesn't set the movement threshold to 0, but I'm not fighting over 0.0002
-            boolean xPass = xDiff <= (teleportPos.isRelativeX() ? player.getMovementThreshold() : 0);
-            boolean yPass = yDiff <= (teleportPos.isRelativeY() ? player.getMovementThreshold() : 0);
-            boolean zPass = zDiff <= (teleportPos.isRelativeZ() ? player.getMovementThreshold() : 0);
+            boolean xPass = xDiff <= (exactPosition ? 0 : teleportPos.isRelativeX() ? player.getMovementThreshold() : 0);
+            boolean yPass = yDiff <= (exactPosition ? 0 : teleportPos.isRelativeY() ? player.getMovementThreshold() : 0);
+            boolean zPass = zDiff <= (exactPosition ? 0 : teleportPos.isRelativeZ() ? player.getMovementThreshold() : 0);
 
             if (debug) LogUtil.info("dx=" + xDiff + " dy=" + yDiff + " dz=" + zDiff + " | trans=" + receivedTransaction + " | " + teleportPos.getTransaction());
 
@@ -1203,6 +1228,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
     public boolean shouldBlockVehicleMovement() {
         return shouldBlockVehicleMovement(false);
+    }
+
+    /** A validated auth frame cannot authorize another Java movement while its correction is pending. */
+    public boolean blocksBedrockTranslatedMovement() {
+        return isPendingSetback() || mustAcknowledgeBedrockTransportTeleport()
+                || hasUnacknowledgedSetbackVehicleTeleport();
     }
 
     public boolean shouldBlockVehicleMovement(boolean simulatedCorrection) {

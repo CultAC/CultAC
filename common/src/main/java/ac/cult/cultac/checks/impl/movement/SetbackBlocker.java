@@ -9,7 +9,6 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import ac.cult.cultac.utils.data.PacketStateData;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundMoveVehiclePacket;
 import net.minecraft.world.phys.Vec3;
@@ -27,10 +26,8 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         // permit for every projection shape (including Rot/StatusOnly) before
         // any configuration or disabled-player early return can bypass it.
         if (translatedBedrockMovement) {
-            PacketStateData.BedrockTranslatedMovementAuthorization authorization =
-                    player.packetStateData.consumeBedrockTranslatedMovementPermit();
-            if (authorization == null
-                    || authorization.decision() == PacketStateData.BedrockTranslatedMovementDecision.REJECT) {
+            var authorization = player.packetStateData.bedrockTranslatedMovement.takePlayer();
+            if (authorization == null || player.getSetbackTeleportUtil().blocksBedrockTranslatedMovement()) {
                 event.setCancelled(true);
             } else {
                 // Bedrock authored collision flags, not this Java ground bit. Normalize

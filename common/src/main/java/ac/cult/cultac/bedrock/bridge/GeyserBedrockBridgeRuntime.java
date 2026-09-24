@@ -766,6 +766,7 @@ public final class GeyserBedrockBridgeRuntime {
                 else retryAdapter.withTeleportRetry(() -> GeyserTeleportRecovery.confirmRejectedInput(connection, packet));
                 return false;
             }
+            if (player.getSetbackTeleportUtil().blocksBedrockTranslatedMovement()) return false;
             if (state.isVehicle() && !GeyserVehicleInput.acceptsMovement(connection, player)) return false;
             if (player.compensatedEntities.getSelf().isDead) return false;
             var boundary = sprintBoundary();
@@ -783,7 +784,11 @@ public final class GeyserBedrockBridgeRuntime {
             packet.setDelta(toVector3f(ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter.toJava(state.velocity())));
             correctCollisions(packet, state.collisionFlags());
             if (state.isBoat()) packet.setVehicleRotation(Vector2f.from(state.inputFrame().pitch(), state.inputFrame().yaw()));
-            if (!state.isVehicle()) player.packetStateData.grantBedrockTranslatedMovementPermit(state.movementGrounded());
+            if (state.isVehicle()) {
+                player.packetStateData.bedrockTranslatedMovement.allowVehicle(vehicle.getEntityId());
+            } else {
+                player.packetStateData.bedrockTranslatedMovement.allowPlayer(state.movementGrounded());
+            }
             return true;
         }
 
