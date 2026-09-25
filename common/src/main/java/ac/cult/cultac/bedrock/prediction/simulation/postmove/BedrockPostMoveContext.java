@@ -53,7 +53,6 @@ record BedrockPostMoveContext(
         && plan.frame().frameFacts().blockMovementSlowdownState().clearVelocityAfterMove(); }
     boolean liquidTravelActive() { return plan.frame().branch().selection().liquidTravelActive(); }
     BedrockMobJump mobJump() { return plan.frame().mobJump(); }
-    boolean lavaSwimUpApplied() { return moveRequest.lavaSwimUpApplied(); }
 
     BedrockPostMoveFrame startEffectFrame(
         Vec3d velocity,

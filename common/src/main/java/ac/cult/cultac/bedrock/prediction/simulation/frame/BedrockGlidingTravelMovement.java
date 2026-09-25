@@ -26,6 +26,12 @@ final class BedrockGlidingTravelMovement {
         );
     }
 
+    static boolean requestsResize(BedrockMovementState current, BedrockInputIntent intent,
+                                  BedrockMovementContext context) {
+        GlideActionState actions = GlideActionState.resolve(current, intent, context);
+        return actions.startIntent() || actions.stopAction();
+    }
+
     private static boolean shouldApplyStartGlidingIntent(
         BedrockMovementState current,
         BedrockInputIntent intent,

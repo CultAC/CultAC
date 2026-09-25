@@ -49,6 +49,7 @@ public final class BedrockPlayerState {
     private final BedrockFrameActions actions = new BedrockFrameActions();
     private long lastVerboseMovementLog = Long.MIN_VALUE;
     private PlayerDimensionsState confirmedBoundingBoxSize;
+    private PlayerDimensionsState collisionDefinition;
     private Long observedActorRuntimeId;
     private BedrockRidingJumpState ridingJump = BedrockRidingJumpState.INITIAL;
     private BedrockAuthInputFrame ridingJumpFrame;
@@ -64,6 +65,7 @@ public final class BedrockPlayerState {
     }
 
     public void recordActorCreation(long runtimeEntityId) {
+        collisionDefinition = null;
         movementCorrections.clear();
         lastMovementTick = -1;
         movementEffects.clear();
@@ -208,6 +210,9 @@ public final class BedrockPlayerState {
             BedrockMovementState source,
             BedrockInputFrame currentFrame
     ) {
+        if (source != null && !source.isVehicle() && collisionDefinition != null) {
+            source = source.withCollisionDefinition(collisionDefinition);
+        }
         if (source == null || confirmedBoundingBoxSize == null
                 || confirmedBoundingBoxSize.equals(source.acknowledgedPlayerDimensions())) {
             return source;
@@ -217,7 +222,11 @@ public final class BedrockPlayerState {
     }
 
     public String boundingBoxStatus() {
-        return "confirmedSize=" + confirmedBoundingBoxSize;
+        return "confirmedSize=" + confirmedBoundingBoxSize + " collisionDefinition=" + collisionDefinition;
+    }
+
+    public void confirmCollisionDefinition(PlayerDimensionsState definition) {
+        collisionDefinition = definition;
     }
 
     public void recordClientAction(BedrockClientAction action) {
@@ -238,19 +247,6 @@ public final class BedrockPlayerState {
         return actions.forFrame(frame);
     }
 
-    private BedrockClientPoseState poseStateForCurrentTick(BedrockAuthInputFrame frame) {
-        if (frame != null) {
-            if (frame.hasRawInputFlag(PlayerAuthInputData.SNEAKING)) {
-                return trackedPoseState.withSneaking(true);
-            }
-            if (frame.hasRawInputFlag(PlayerAuthInputData.SNEAK_RELEASED_RAW)
-                    || frame.isStopSneaking()) {
-                return trackedPoseState.withSneaking(false);
-            }
-        }
-        return trackedPoseState;
-    }
-
     private boolean isLastPoseFrame(BedrockAuthInputFrame frame) {
         if (frame == null || lastPoseAppliedFrame == null || lastPoseAppliedState == null) {
             return false;
@@ -263,7 +259,7 @@ public final class BedrockPlayerState {
             return;
         }
         lastPoseAppliedFrame = frame;
-        lastPoseAppliedState = poseStateForCurrentTick(frame);
+        lastPoseAppliedState = trackedPoseState;
         trackedPoseState = PoseTransition.applyAll(trackedPoseState, frame);
         Set<String> frameActions = actions.forFrame(frame);
         if (frameActions.contains("START_SNEAKING") || frame.isStartSneaking()) {

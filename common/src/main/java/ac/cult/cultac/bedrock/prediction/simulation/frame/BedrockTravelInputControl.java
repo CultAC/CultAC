@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.prediction.simulation.frame;
 
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
+import ac.cult.cultac.bedrock.prediction.input.BedrockPoseInputData;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
@@ -76,10 +77,10 @@ public final class BedrockTravelInputControl {
     }
 
     private static boolean actualSneakingMovement(BedrockInputFrame frame, BedrockMovementState current) {
-        return current.sneakingTicks() > 0L
+        return BedrockPoseInputData.sneakingBeforeActions(frame, current.sneakingTicks() > 0L)
+            || BedrockPoseInputData.crawlingBeforeActions(frame, current.horizontalPose())
             || frame.inputData().contains("SNEAKING")
             || frame.inputData().contains("SNEAK_CURRENT_RAW")
-            || frame.inputData().contains("START_SNEAKING")
             || frame.inputData().contains("SNEAK_PRESSED_RAW")
             || frame.inputData().contains("SNEAK_TOGGLE_DOWN");
     }

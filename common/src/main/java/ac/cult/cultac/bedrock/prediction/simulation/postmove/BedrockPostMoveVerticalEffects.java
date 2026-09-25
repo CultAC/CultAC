@@ -1,7 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.simulation.postmove;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
-import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockAerialMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMath;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockLiquidVerticalMovement;
@@ -19,7 +18,7 @@ final class BedrockPostMoveVerticalEffects {
         Vec3d velocity,
         boolean includeVerticalDrag
     ) {
-        return switch (medium(input, effectContext)) {
+        return switch (medium(input)) {
             case WATER -> waterDrag(input, effectContext, velocity, includeVerticalDrag);
             case LAVA -> lavaDrag(input, velocity, includeVerticalDrag);
             case AIR, NONE -> new DragResult(velocity, input.horizontalFriction());
@@ -31,7 +30,7 @@ final class BedrockPostMoveVerticalEffects {
         BedrockMovementContext effectContext,
         Vec3d velocity
     ) {
-        if (medium(input, effectContext) != EffectMedium.AIR || input.effectState().levitationLevel() <= 0) {
+        if (medium(input) != EffectMedium.AIR || input.effectState().levitationLevel() <= 0) {
             return velocity;
         }
         return new Vec3d(
@@ -52,7 +51,7 @@ final class BedrockPostMoveVerticalEffects {
         if (input.playerFlying()) {
             return velocity;
         }
-        return switch (medium(input, effectContext)) {
+        return switch (medium(input)) {
             case LAVA -> lavaGravity(velocity);
             case AIR -> input.effectState().levitationLevel() > 0 ? velocity : airGravity(input, velocity);
             case WATER -> input.current().isHorse()
@@ -69,7 +68,7 @@ final class BedrockPostMoveVerticalEffects {
         if (input.playerFlying()) {
             return BedrockFlyingTravelMovement.applyVerticalDrag(velocity);
         }
-        return switch (medium(input, effectContext)) {
+        return switch (medium(input)) {
             case AIR -> airVerticalDrag(velocity);
             case WATER, LAVA, NONE -> velocity;
         };
@@ -83,7 +82,7 @@ final class BedrockPostMoveVerticalEffects {
         if (input.playerFlying() || input.current().isHorse()) {
             return velocity;
         }
-        return switch (medium(input, effectContext)) {
+        return switch (medium(input)) {
             case WATER -> waterGravity(velocity, input.swimmingActorStateAfterAction());
             case LAVA, AIR, NONE -> velocity;
         };
@@ -95,7 +94,7 @@ final class BedrockPostMoveVerticalEffects {
         Vec3d velocity,
         double horizontalFriction
     ) {
-        return switch (medium(input, effectContext)) {
+        return switch (medium(input)) {
             case WATER, LAVA -> velocity;
             case AIR, NONE -> horizontalDrag(velocity, horizontalFriction);
         };
@@ -189,19 +188,14 @@ final class BedrockPostMoveVerticalEffects {
         );
     }
 
-    private static EffectMedium medium(BedrockPostMoveContext input, BedrockMovementContext effectContext) {
+    private static EffectMedium medium(BedrockPostMoveContext input) {
         if (input.playerFlying()) {
             return EffectMedium.AIR;
         }
-        Medium liquidMovementMedium = effectContext.liquidMovementMedium();
         if (input.inWater()) {
             return EffectMedium.WATER;
         }
-        boolean lavaTravelEffects = input.inLava()
-            || input.lavaSwimUpApplied()
-            || effectContext.inLava()
-            || liquidMovementMedium == Medium.LAVA;
-        if (!lavaTravelEffects) {
+        if (!input.inLava()) {
             return EffectMedium.AIR;
         }
         return input.navigationCanWalkInLava() ? EffectMedium.NONE : EffectMedium.LAVA;

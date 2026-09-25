@@ -38,7 +38,7 @@ record BedrockAcceptedEndpointEvidence(
     ) {
         PlayerDimensionsState dimensions = BedrockActorDimensions.committedMovementDimensions(
             result.previousState(),
-            result.movementContext().playerDimensionsState(),
+            result.movementContext(),
             state.inputFrame()
         );
         BedrockMovementContext fluidContext = BedrockFluidStateResolver.withCurrentTickFluidStateFromBlockWorld(

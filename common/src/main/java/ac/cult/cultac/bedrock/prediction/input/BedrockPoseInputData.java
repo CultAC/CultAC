@@ -35,6 +35,28 @@ public final class BedrockPoseInputData {
         return committedHorizontalPose(frame) || committedSwimming(frame);
     }
 
+    public static boolean crawlingBeforeActions(BedrockInputFrame frame, boolean fallback) {
+        return has(frame, ACTOR_POSE_SNAPSHOT) ? committedHorizontalPose(frame) : fallback;
+    }
+
+    public static boolean sneakingBeforeActions(BedrockInputFrame frame, boolean fallback) {
+        return has(frame, ACTOR_POSE_SNAPSHOT) ? has(frame, ACTOR_SNEAKING) : fallback;
+    }
+
+    public static boolean crawlingAfterActions(BedrockInputFrame frame, boolean fallback) {
+        boolean crawling = crawlingBeforeActions(frame, fallback);
+        if (has(frame, START_CRAWLING)) crawling = true;
+        if (has(frame, STOP_CRAWLING)) crawling = false;
+        return crawling;
+    }
+
+    public static boolean sneakingAfterActions(BedrockInputFrame frame, boolean fallback) {
+        boolean sneaking = sneakingBeforeActions(frame, fallback);
+        if (has(frame, START_SNEAKING)) sneaking = true;
+        if (has(frame, STOP_SNEAKING)) sneaking = false;
+        return sneaking;
+    }
+
     public static boolean has(BedrockInputFrame frame, String inputData) {
         return frame != null && frame.inputData().contains(inputData);
     }

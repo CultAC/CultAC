@@ -29,7 +29,7 @@ public final class BedrockSetbackJumpGuard {
         }
         var input = candidate.input();
         PlayerDimensionsState dimensions = BedrockActorDimensions.committedMovementDimensions(
-                input.previousState(), input.movementContext().playerDimensionsState(), input.inputFrame());
+                input.previousState(), input.movementContext(), input.inputFrame());
         Vec3 start = result.getSimulationContext().getStart();
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
                 start.x, start.y, start.z, (float) dimensions.width(), (float) dimensions.height());

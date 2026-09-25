@@ -13,16 +13,9 @@ final class BedrockCameraMovement {
         boolean swimming, boolean gliding, boolean spinning
     ) {
         var frame = input.inputFrame();
-        var pose = input.inputIntent().pose();
-        boolean capturedPose = BedrockPoseInputData.has(frame, BedrockPoseInputData.ACTOR_POSE_SNAPSHOT);
-        boolean crawling = capturedPose ? pose.horizontalPose() : input.previousState().horizontalPose();
-        if (pose.startCrawling()) crawling = true;
-        if (pose.stopCrawling()) crawling = false;
-        boolean sneaking = capturedPose
-            ? BedrockPoseInputData.has(frame, BedrockPoseInputData.ACTOR_SNEAKING)
-            : input.previousState().sneakingTicks() > 0L;
-        if (pose.startSneaking()) sneaking = true;
-        if (pose.stopSneaking()) sneaking = false;
+        boolean crawling = BedrockPoseInputData.crawlingAfterActions(frame, input.previousState().horizontalPose());
+        boolean sneaking = BedrockPoseInputData.sneakingAfterActions(
+            frame, input.previousState().sneakingTicks() > 0L);
         boolean sleeping = BedrockPoseInputData.has(frame, BedrockPoseInputData.ACTOR_SLEEPING);
         // Climbing adds no vertical camera adjustment. Head sensing uses the
         // player's X/Z, so horizontal camera adjustments do not affect it.

@@ -62,7 +62,7 @@ public record BedrockFrameFacts(
         );
         BedrockActorDimensions.Resolved resolvedDimensions = BedrockActorDimensions.resolve(
             current,
-            context.playerDimensionsState(),
+            context,
             frame,
             spinActive,
             spinAttackStarted

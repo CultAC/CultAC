@@ -202,6 +202,12 @@ public record BedrockMovementState(
     public PlayerDimensionsState playerDimensions() { return actor.playerDimensions(); }
     public boolean explicitPlayerDimensions() { return actor.acknowledgedPlayerDimensions() != null; }
     public PlayerDimensionsState acknowledgedPlayerDimensions() { return actor.acknowledgedPlayerDimensions(); }
+    public PlayerDimensionsState collisionDefinition() { return actor.collisionDefinition(); }
+
+    public BedrockMovementState withCollisionDefinition(PlayerDimensionsState definition) {
+        return withActor(new ActorState(actor.contacts(), actor.pose(), actor.travel(), boundingBoxMode(),
+                playerDimensions(), acknowledgedPlayerDimensions(), horse(), boat(), definition));
+    }
 
     public boolean isHorse() { return actor.horse() != null; }
     public BedrockHorseState horse() { return actor.horse(); }
@@ -213,12 +219,12 @@ public record BedrockMovementState(
 
     public BedrockMovementState withBoat(BedrockBoatState boat) {
         return withActor(new ActorState(actor.contacts(), actor.pose(), actor.travel(), boundingBoxMode(),
-                playerDimensions(), acknowledgedPlayerDimensions(), null, boat));
+                playerDimensions(), acknowledgedPlayerDimensions(), null, boat, collisionDefinition()));
     }
 
     public BedrockMovementState withHorse(BedrockHorseState horse) {
         return withActor(new ActorState(actor.contacts(), actor.pose(), actor.travel(), boundingBoxMode(),
-                playerDimensions(), acknowledgedPlayerDimensions(), horse, null));
+                playerDimensions(), acknowledgedPlayerDimensions(), horse, null, collisionDefinition()));
     }
 
     public Vec3d bedrockPacketPosition() {
@@ -412,7 +418,7 @@ public record BedrockMovementState(
         Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(update.physicalFeetPosition(), coordinateFrame(), packetYOffset());
         Vec3d displacement = position.subtract(physicalFeetPosition());
         BedrockInputFrame frame = update.frame();
-        boolean horizontalPose = BedrockPoseInputData.committedHorizontalPose(frame);
+        boolean horizontalPose = BedrockPoseInputData.crawlingAfterActions(frame, horizontalPose());
         // HasTeleportedFlagComponent is cleared only after an actor movement tick.
         return new BedrockMovementState(
             new Motion(position, update.velocity(), displacementSquared(displacement), displacement,
@@ -430,7 +436,7 @@ public record BedrockMovementState(
                 update.boundingBoxMode(),
                 update.playerDimensions(),
                 actor.acknowledgedPlayerDimensions(),
-                actor.horse(), actor.boat()
+                actor.horse(), actor.boat(), actor.collisionDefinition()
             ),
             new TickMemory(
                 simulationTick() + 1L,
@@ -525,8 +531,14 @@ public record BedrockMovementState(
         PlayerDimensionsState playerDimensions,
         PlayerDimensionsState acknowledgedPlayerDimensions,
         BedrockHorseState horse,
-        BedrockBoatState boat
+        BedrockBoatState boat,
+        PlayerDimensionsState collisionDefinition
     ) {
+        public ActorState(ContactState contacts, PoseState pose, TravelMode travel,
+                          BedrockBoundingBoxMode mode, PlayerDimensionsState dimensions,
+                          PlayerDimensionsState acknowledged, BedrockHorseState horse, BedrockBoatState boat) {
+            this(contacts, pose, travel, mode, dimensions, acknowledged, horse, boat, null);
+        }
         public ActorState(ContactState contacts, PoseState pose, TravelMode travel,
                           BedrockBoundingBoxMode mode, PlayerDimensionsState dimensions,
                           PlayerDimensionsState acknowledged, BedrockHorseState horse) {
@@ -572,7 +584,7 @@ public record BedrockMovementState(
         ActorState withClimbableContact(BedrockClimbableContact value) { return copy(contacts.withClimbableContact(value), pose, travel); }
         ActorState withScaffoldingDescendAllowed(boolean value) { return copy(contacts.withDescendAllowed(value), pose, travel); }
         ActorState withPlayerDimensions(PlayerDimensionsState value, PlayerDimensionsState acknowledged) {
-            return new ActorState(contacts, pose, travel, boundingBoxMode, value, acknowledged, horse, boat);
+            return new ActorState(contacts, pose, travel, boundingBoxMode, value, acknowledged, horse, boat, collisionDefinition);
         }
 
         ActorState withPlayerDimensions(
@@ -580,12 +592,12 @@ public record BedrockMovementState(
             PlayerDimensionsState value,
             PlayerDimensionsState acknowledged
         ) {
-            return new ActorState(contacts, pose, travel, mode, value, acknowledged, horse, boat);
+            return new ActorState(contacts, pose, travel, mode, value, acknowledged, horse, boat, collisionDefinition);
         }
 
         private ActorState copy(ContactState contacts, PoseState pose, TravelMode travel) {
             return new ActorState(
-                contacts, pose, travel, boundingBoxMode, playerDimensions, acknowledgedPlayerDimensions, horse, boat);
+                contacts, pose, travel, boundingBoxMode, playerDimensions, acknowledgedPlayerDimensions, horse, boat, collisionDefinition);
         }
     }
 

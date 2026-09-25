@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.prediction.simulation;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
+import ac.cult.cultac.bedrock.prediction.input.BedrockPoseInputData;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameFacts;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameSystems;
@@ -45,14 +46,8 @@ public final class BedrockImmobileTick {
         BedrockFrameFacts facts = prepared.frameFacts();
         BedrockInputIntent intent = prepared.inputIntent();
 
-        boolean nextCrawling = applyOrderedAction(
-                current.horizontalPose(),
-                intent.pose().startCrawling(),
-                intent.pose().stopCrawling());
-        boolean nextSneaking = applyOrderedAction(
-                current.sneakingTicks() > 0L,
-                intent.pose().startSneaking(),
-                intent.pose().stopSneaking());
+        boolean nextCrawling = BedrockPoseInputData.crawlingAfterActions(frame, current.horizontalPose());
+        boolean nextSneaking = BedrockPoseInputData.sneakingAfterActions(frame, current.sneakingTicks() > 0L);
 
         boolean acceptedStartFlying = intent.fly().start()
                 && mayFly
@@ -98,7 +93,8 @@ public final class BedrockImmobileTick {
                                 current.movementBranch()),
                         facts.boundingBoxMode(),
                         facts.movementDimensions(),
-                        current.acknowledgedPlayerDimensions()),
+                        current.acknowledgedPlayerDimensions(),
+                        current.actor().horse(), current.actor().boat(), current.collisionDefinition()),
                 new BedrockMovementState.TickMemory(
                         current.simulationTick() + 1L,
                         facts.powderSnowTicks(),
@@ -113,19 +109,6 @@ public final class BedrockImmobileTick {
                         prepared.dolphinBoost().endTick(), prepared.cameraWater()), false,
                 prepared.input().previousState().attributes());
         return new Result(next, prepared.mobJumpComponent());
-    }
-
-    private static boolean applyOrderedAction(boolean current, boolean start, boolean stop) {
-        // The vanilla input handling applies each START action before the
-        // corresponding STOP action.
-        boolean next = current;
-        if (start) {
-            next = true;
-        }
-        if (stop) {
-            next = false;
-        }
-        return next;
     }
 
     public record Result(

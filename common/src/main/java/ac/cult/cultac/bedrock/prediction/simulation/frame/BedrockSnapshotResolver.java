@@ -23,15 +23,12 @@ public final class BedrockSnapshotResolver {
         BedrockMovementState state,
         BedrockInputFrame frame
     ) {
-        PlayerDimensionsState dimensions = BedrockActorDimensions.committedMovementDimensions(
-            state, snapshot.playerDimensionsState(), frame
-        );
-        snapshot = snapshot.withPlayerDimensions(dimensions);
         // Early liquid sensing uses the carried box before pose-driven resizing.
         BedrockMovementContext context = BedrockFluidStateResolver.withFluidStateFromBlockWorld(
             snapshot.movementContext(), state.physicalFeetPosition(), state.playerDimensions()
         );
-        snapshot = snapshot.withMovementContext(context);
+        PlayerDimensionsState dimensions = BedrockActorDimensions.committedMovementDimensions(state, context, frame);
+        snapshot = snapshot.withMovementContext(context).withPlayerDimensions(dimensions);
         BedrockClimbableContact climbable = snapshot.climbableContactAt(state.physicalFeetPosition(), dimensions);
         PowderSnowContactState powderSnow = BedrockPowderSnowContactResolver.fromBlockWorld(
             dimensions.width(),

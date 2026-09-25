@@ -11,6 +11,7 @@ public sealed interface BedrockReplayEvent permits BedrockReplayAttributeEvent, 
         BedrockReplayEvent.Transform, BedrockReplayEvent.Reposition, BedrockReplayEvent.Metadata, BedrockReplayEvent.Boost,
         BedrockReplayEvent.HorseMetadata, BedrockReplayBoatMetadata, BedrockReplayContextEvent {
     default BedrockMovementState state(BedrockMovementState state) { return state; }
+    default BedrockMovementState replayState(BedrockMovementState state) { return state(state); }
     /** Packet-family fallback when the timestamp is older than retained client history. */
     default BedrockReplayEvent ordinary() { return this; }
     default boolean matchesHistory(BedrockMovementState state) { return false; }
@@ -47,10 +48,24 @@ public sealed interface BedrockReplayEvent permits BedrockReplayAttributeEvent, 
 
     record Metadata(Float width, Float height, Boolean gliding, Boolean crawling, Boolean swimming,
                     Boolean spinning, Boolean sprinting) implements BedrockReplayEvent {
-        static Metadata flagsOf(BedrockMovementState state) {
-            return new Metadata(null, null, state.gliding(), state.horizontalPose(), state.swimming(),
-                    state.riptideSpinActive(), state.sprinting());
+        static Metadata trackedValuesOf(BedrockMovementState state) {
+            var dimensions = metadataDimensions(state);
+            return new Metadata((float) dimensions.width(), (float) dimensions.height(), state.gliding(),
+                    state.horizontalPose(), state.swimming(), state.riptideSpinActive(), state.sprinting());
         }
+
+        static PlayerDimensionsState metadataDimensions(BedrockMovementState state) {
+            return state.acknowledgedPlayerDimensions() == null ? state.playerDimensions() : state.acknowledgedPlayerDimensions();
+        }
+
+        Metadata changedValues(Metadata before) {
+            var flags = changedFlags(before);
+            boolean resized = !java.util.Objects.equals(width, before.width) || !java.util.Objects.equals(height, before.height);
+            return new Metadata(resized ? width : null, resized ? height : null,
+                    flags.gliding, flags.crawling, flags.swimming, flags.spinning, flags.sprinting);
+        }
+
+        boolean hasValues() { return hasFlags() || width != null || height != null; }
 
         Metadata changedFlags(Metadata before) {
             return new Metadata(null, null,
@@ -66,12 +81,19 @@ public sealed interface BedrockReplayEvent permits BedrockReplayAttributeEvent, 
         }
 
         @Override public BedrockMovementState state(BedrockMovementState state) {
+            state = replayState(state);
+            return width == null && height == null ? state : state.withPlayerDimensions(metadataDimensions(state), true);
+        }
+
+        @Override public BedrockMovementState replayState(BedrockMovementState state) {
             if (gliding != null) state = state.withAcknowledgedGliding(gliding);
             if (sprinting != null) state = state.withSprinting(sprinting);
             state = state.withAcknowledgedPose(crawling, swimming, spinning);
-            if (width != null || height != null) state = state.withPlayerDimensions(new PlayerDimensionsState(
-                    width == null ? state.playerDimensions().width() : width,
-                    height == null ? state.playerDimensions().height() : height), true);
+            if (width != null || height != null) {
+                var dimensions = metadataDimensions(state);
+                state = state.withAcknowledgedPlayerDimensions(new PlayerDimensionsState(
+                        width == null ? dimensions.width() : width, height == null ? dimensions.height() : height));
+            }
             return state;
         }
     }
@@ -93,11 +115,6 @@ public sealed interface BedrockReplayEvent permits BedrockReplayAttributeEvent, 
     record Boost(int duration) implements BedrockReplayEvent {
         public Boost {
             if (duration < -1) duration = 0;
-        }
-        @Override public BedrockSimulation.Input restoreInput(BedrockSimulation.Input input, BedrockSimulation.Input recorded) {
-            return new BedrockSimulation.Input(input.previousState(), input.frame(), input.intent(), input.snapshot(),
-                    input.canStep(), input.maxUpStep(), input.mobJumpComponent(), input.actorMovementTick(),
-                    input.acceptedTeleport(), input.control(), recorded.glideBoost());
         }
         @Override public BedrockSimulation.Input input(BedrockSimulation.Input input, long elapsed) {
             return new BedrockSimulation.Input(input.previousState(), input.frame(), input.intent(), input.snapshot(),

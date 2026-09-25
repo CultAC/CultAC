@@ -53,20 +53,20 @@ public final class BedrockActorHistory {
         var historical = tick == 0 ? null : frames.stream().filter(frame -> frame.tick() == comparisonTick)
                 .findFirst().orElse(null);
         var effective = historical == null ? incoming : new BedrockReplayEvent.Metadata(
-                incoming.width(), incoming.height(),
+                changedDimension(incoming.width(), historical, true), changedDimension(incoming.height(), historical, false),
                 changed(incoming.gliding(), historical, BedrockMovementState::gliding),
                 changed(incoming.crawling(), historical, BedrockMovementState::horizontalPose),
                 changed(incoming.swimming(), historical, BedrockMovementState::swimming),
                 changed(incoming.spinning(), historical, BedrockMovementState::riptideSpinActive),
                 changed(incoming.sprinting(), historical, BedrockMovementState::sprinting));
         if (!frames.isEmpty()) {
-            var flags = new BedrockReplayEvent.Metadata(null, null, effective.gliding(),
+            var retained = new BedrockReplayEvent.Metadata(tick == 0 ? null : effective.width(),
+                    tick == 0 ? null : effective.height(), effective.gliding(),
                     effective.crawling(), effective.swimming(), effective.spinning(), effective.sprinting());
-            boolean changedFlags = flags.hasFlags();
-            if (changedFlags) {
-                retainMetadata(historical == null ? newestTick() : comparisonTick, flags);
+            if (retained.hasValues()) {
+                retainMetadata(historical == null ? newestTick() : comparisonTick, retained);
             }
-            if (historical != null && (changedFlags || historical.end().stream()
+            if (historical != null && (retained.hasValues() || historical.end().stream()
                     .anyMatch(entry -> otherFlagWordDiffers(entry.state(), flagWords)))) {
                 Frame marked = frames.stream().filter(frame -> frame.tick() == comparisonTick).findFirst().orElseThrow();
                 if (pendingMetadataFrame == null || marked.tick() <= pendingMetadataFrame.tick()) {
@@ -74,13 +74,13 @@ public final class BedrockActorHistory {
                 }
             }
             Frame latest = frames.getLast();
-            if (changedFlags && metadataReceiptStart == null) {
-                metadataReceiptStart = BedrockReplayEvent.Metadata.flagsOf(latest.end().getFirst().state());
+            if (effective.hasValues() && metadataReceiptStart == null) {
+                metadataReceiptStart = BedrockReplayEvent.Metadata.trackedValuesOf(latest.end().getFirst().state());
             }
             var end = latest.end().stream().map(entry -> entry.withState(effective.state(entry.state()))).toList();
-            if (changedFlags) {
-                metadataReceipt = BedrockReplayEvent.Metadata.flagsOf(end.getFirst().state())
-                        .changedFlags(metadataReceiptStart);
+            if (effective.hasValues()) {
+                metadataReceipt = BedrockReplayEvent.Metadata.trackedValuesOf(end.getFirst().state())
+                        .changedValues(metadataReceiptStart);
             }
             frames.set(frames.size() - 1, latest.withEnd(latest.beforeEvents(), end, latest.events()));
         }
@@ -112,6 +112,13 @@ public final class BedrockActorHistory {
                 ? null : value;
     }
 
+    private static Float changedDimension(Float value, Frame historical, boolean width) {
+        return value != null && historical.end().stream().allMatch(entry -> {
+            var dimensions = BedrockReplayEvent.Metadata.metadataDimensions(entry.state());
+            return value == (float) (width ? dimensions.width() : dimensions.height());
+        }) ? null : value;
+    }
+
     public void ordinary(BedrockReplayEvent event) {
         if (frames.isEmpty()) return;
         Frame latest = frames.getLast();
@@ -126,7 +133,7 @@ public final class BedrockActorHistory {
         if (frame.tick() <= newestTick()) return;
         // Missing inputs cannot be manufactured into movement ticks.
         if (!frames.isEmpty() && frame.tick() != newestTick() + 1) clear();
-        if (metadataReceipt != null && metadataReceipt.hasFlags()) frame = frame.withReceivedFlags(metadataReceipt);
+        if (metadataReceipt != null && metadataReceipt.hasValues()) frame = frame.withReceivedMetadata(metadataReceipt);
         metadataReceiptStart = null;
         metadataReceipt = null;
         if (frames.size() == CAPACITY) frames.removeFirst();
@@ -195,14 +202,14 @@ public final class BedrockActorHistory {
     }
 
     private static List<Entry> applyEvents(List<Entry> states, List<Event> events) {
-        for (Event event : events) states = states.stream().map(entry -> entry.withState(event.value().state(entry.state())))
+        for (Event event : events) states = states.stream().map(entry -> entry.withState(event.value().replayState(entry.state())))
                 .distinct().toList();
         return states;
     }
 
     public record Frame(long tick, BedrockSimulation.Input input, List<Entry> beforeEvents, List<Entry> end,
                         Vec3d imposedVelocity, Vec3d addedVelocity, Vec3d externalDisplacement, Vec3d observedPosition,
-                        Vec3d observedVelocity, List<Event> events, BedrockReplayEvent.Metadata receivedFlags) {
+                        Vec3d observedVelocity, List<Event> events, BedrockReplayEvent.Metadata receivedMetadata) {
         public Frame(long tick, BedrockSimulation.Input input, List<Entry> beforeEvents, List<Entry> end,
                      Vec3d imposedVelocity, Vec3d addedVelocity, Vec3d externalDisplacement, Vec3d observedPosition,
                      Vec3d observedVelocity, List<Event> events) {
@@ -221,11 +228,11 @@ public final class BedrockActorHistory {
         }
         Frame withEnd(List<Entry> before, List<Entry> end, List<Event> events) {
             return new Frame(tick, input, before, end, imposedVelocity, addedVelocity, externalDisplacement,
-                    observedPosition, observedVelocity, events, receivedFlags);
+                    observedPosition, observedVelocity, events, receivedMetadata);
         }
-        Frame withReceivedFlags(BedrockReplayEvent.Metadata flags) {
+        Frame withReceivedMetadata(BedrockReplayEvent.Metadata metadata) {
             return new Frame(tick, input, beforeEvents, end, imposedVelocity, addedVelocity, externalDisplacement,
-                    observedPosition, observedVelocity, events, flags);
+                    observedPosition, observedVelocity, events, metadata);
         }
     }
     public record Event(long sequence, long tick, long simulationTick, long throughTick, BedrockReplayEvent value) { }

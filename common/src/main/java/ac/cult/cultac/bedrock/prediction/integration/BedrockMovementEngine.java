@@ -218,7 +218,7 @@ public final class BedrockMovementEngine implements MovementEngine {
             return BedrockCollisionAxisData.neutral();
         }
         PlayerDimensionsState dimensions = BedrockActorDimensions.committedMovementDimensions(
-            input.previousState(), input.movementContext().playerDimensionsState(), input.inputFrame()
+            input.previousState(), input.movementContext(), input.inputFrame()
         );
         SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(
             playerPos.x, playerPos.y, playerPos.z, (float) dimensions.width(), (float) dimensions.height()
