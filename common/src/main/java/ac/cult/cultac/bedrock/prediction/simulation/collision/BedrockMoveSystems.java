@@ -42,7 +42,7 @@ public final class BedrockMoveSystems {
             request.requestedPosition(),
             request.collisionInputVelocity(),
             request.move().y(),
-            !frame.branch().glidingTravel() && frame.input().options().canStep(),
+            frame.input().options().canStep(),
             frame.input().options().maxUpStep()
         );
         BedrockClimbableContact nextClimbableContact = frame.boat() != null ? BedrockClimbableContact.NONE
