@@ -53,7 +53,8 @@ public final class BedrockGlideStairStepTest {
         BedrockMovementContext context = new BedrockMovementContext(
             BedrockEffectState.NONE, AttributeState.DEFAULT,
             new WorldContactState(Medium.AIR, FluidState.NONE, new BlockCollisionWorld(List.of(stair))),
-            EquipmentState.NONE, EntityContactState.NONE, MovementModifierState.NONE, glideSize);
+            EquipmentState.NONE, EntityContactState.NONE,
+            new MovementModifierState(true, false, false, false, .05, false, false, false, false, .35, 0), glideSize);
 
         BedrockMovementResult result = BedrockSimulation.move(previous, frame, context,
             BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE, true,

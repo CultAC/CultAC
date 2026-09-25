@@ -106,7 +106,13 @@ public final class BedrockGlideLandingHistoryTest {
 
     private static BedrockActorHistory.Frame advance(BedrockMovementState previous, long tick) {
         var frame = BedrockInputFrame.idle(tick);
-        var input = new BedrockSimulation.Input(previous, frame, frame.intent(), BedrockActorHistoryTest.ground(),
+        var ground = BedrockActorHistoryTest.ground();
+        var context = ground.movementContext();
+        ground = ground.withMovementContext(new ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext(
+                context.effectState(), context.attributeState(), context.worldState(), context.equipmentState(),
+                context.entityContactState(), new ac.cult.cultac.bedrock.prediction.model.MovementModifierState(
+                    true, false, false, false, .05, false, false, false, false, .35, 0), context.playerDimensionsState()));
+        var input = new BedrockSimulation.Input(previous, frame, frame.intent(), ground,
                 false, BedrockSimulation.DEFAULT_MAX_AUTO_STEP, BedrockMobJumpComponentState.DEFAULT,
                 true, false, Vec3d.ZERO);
         var result = BedrockForwardTick.simulate(input).getFirst();

@@ -1,8 +1,10 @@
 package ac.cult.cultac.bedrock.prediction.simulation.frame;
 
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
+import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
+import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision.BlockContactBehavior;
 
 final class BedrockGlidingTravelMovement {
     private BedrockGlidingTravelMovement() {
@@ -43,9 +45,30 @@ final class BedrockGlidingTravelMovement {
             && !current.collisionFlags().onGround();
     }
 
-    private static boolean shouldApplyStopGlidingAction(BedrockMovementState current, BedrockInputIntent intent) {
+    private static boolean shouldApplyStopGlidingAction(
+        BedrockMovementState current, BedrockInputIntent intent, BedrockMovementContext context
+    ) {
+        // Replays can stop gliding at a different tick than the original movement, we must simulate it
         return intent.glide().stopRequest()
-            || (current.glidingRequest() && current.collisionFlags().onGround());
+            || (current.glidingRequest() && (
+                current.collisionFlags().onGround()
+                || !context.elytraGlideAvailable()
+                || context.inWater()
+                || context.movementAbilityFlying()
+                || context.entityContactState().passenger()
+                || (intent.jump().held() && !current.inputFrame().jumping()
+                    && !context.movementAbilityInstabuild() && current.fallFlyTicks() > 10L)
+                || canAutoClimb(current, context)));
+    }
+
+    private static boolean canAutoClimb(BedrockMovementState current, BedrockMovementContext context) {
+        var feet = current.physicalFeetPosition();
+        var position = new BlockPosition((int) Math.floor(feet.x()),
+                (int) Math.floor(current.collisionBox().minY()), (int) Math.floor(feet.z()));
+        return context.worldState().blockCollisionWorld().blockAt(position).map(block ->
+                block.hasContactBehavior(BlockContactBehavior.CLIMBABLE)
+                || (context.equipmentState().leatherBoots()
+                    && block.hasContactBehavior(BlockContactBehavior.POWDER_SNOW))).orElse(false);
     }
 
     private static boolean requestAfterActions(
@@ -76,7 +99,7 @@ final class BedrockGlidingTravelMovement {
             boolean actorStateAfterStart = current.gliding() || startIntent;
             return new GlideActionState(
                 startIntent,
-                shouldApplyStopGlidingAction(current, intent),
+                shouldApplyStopGlidingAction(current, intent, context),
                 actorStateAfterStart
             );
         }

@@ -60,7 +60,7 @@ public final class BedrockGlidingTravelMovementTest {
     @Test
     public void serverEstablishedGlidingDoesNotRequireEquippedElytra() {
         BedrockGlideState glide = BedrockGlidingTravelMovement.resolve(
-            airborneState().withGliding(true), BedrockInputFrame.idle(2L).intent(),
+            airborneState().withAcknowledgedGliding(true), BedrockInputFrame.idle(2L).intent(),
             glideContext(false, false));
 
         assertTrue(glide.activeAfterActions());
@@ -142,7 +142,7 @@ public final class BedrockGlidingTravelMovementTest {
     }
 
     @Test
-    public void currentLiquidContactWinsTravelWithoutDisablingActorGlideInput() {
+    public void waterContactCancelsLocalGlideRequestAndRequestsResize() {
         BedrockMovementState state = concurrentSwimmingAndGlidingState();
         BedrockInputFrame frame = new BedrockInputFrame(
             3L, -85.967255F, 22.411652F, false, false, false,
@@ -151,9 +151,75 @@ public final class BedrockGlidingTravelMovementTest {
         BedrockGlideState glide = BedrockGlidingTravelMovement.resolve(
             state, frame.intent(), context(Medium.WATER));
 
-        assertTrue(glide.actorStateAfterActions());
+        assertFalse(glide.actorStateAfterActions());
         assertFalse(glide.activeAtTravelSensing());
-        assertTrue(glide.activeAtGlideInputSystem());
+        assertFalse(glide.activeAtGlideInputSystem());
+        assertFalse(glide.requestAfterActions());
+        assertTrue(BedrockGlidingTravelMovement.requestsResize(state, frame.intent(), context(Medium.WATER)));
+    }
+
+    @Test
+    public void equipmentFlightAndPassengerStopsRequireLocalRequest() {
+        var air = glideContext(true, false);
+        var riding = new BedrockMovementContext(air.effectState(), air.attributeState(), air.worldState(),
+            air.equipmentState(), new EntityContactState(air.entityContactState().dolphinBoostState(), true),
+            air.modifierState(), air.playerDimensionsState());
+        for (var context : List.of(glideContext(false, false), glideContext(true, true), riding)) {
+            var frame = BedrockInputFrame.idle(2L);
+            var local = airborneState().withGliding(true);
+            var stopped = BedrockGlidingTravelMovement.resolve(local, frame.intent(), context);
+            assertFalse(stopped.activeAfterActions());
+            assertFalse(stopped.requestAfterActions());
+            assertTrue(BedrockGlidingTravelMovement.requestsResize(local, frame.intent(), context));
+            assertTrue(BedrockGlidingTravelMovement.resolve(airborneState().withAcknowledgedGliding(true),
+                frame.intent(), context).activeAfterActions());
+        }
+    }
+
+    @Test
+    public void jumpCancellationRequiresNewPressAfterTenTicksOutsideCreative() {
+        var press = new BedrockInputFrame(20L, 0, 0, true, false, false, Set.of("JUMPING"));
+        var air = glideContext(true, false);
+        assertTrue(BedrockGlidingTravelMovement.resolve(agedGlide(10, false), press.intent(), air).activeAfterActions());
+        assertFalse(BedrockGlidingTravelMovement.resolve(agedGlide(11, false), press.intent(), air).activeAfterActions());
+        assertTrue(BedrockGlidingTravelMovement.resolve(agedGlide(11, true), press.intent(), air).activeAfterActions());
+        var creative = new BedrockMovementContext(air.effectState(), air.attributeState(), air.worldState(),
+            air.equipmentState(), air.entityContactState(),
+            new MovementModifierState(true, true, false, true, .05, false, false, false, false, .35, 0),
+            air.playerDimensionsState());
+        assertTrue(BedrockGlidingTravelMovement.resolve(agedGlide(11, false), press.intent(), creative).activeAfterActions());
+    }
+
+    @Test
+    public void climbStopUsesFeetBlockAndSnowEquipmentRatherThanNearbyBlocks() {
+        var state = airborneState().withGliding(true);
+        var frame = BedrockInputFrame.idle(2L);
+        var air = glideContext(true, false);
+        for (String block : List.of("minecraft:ladder", "minecraft:vine", "minecraft:powder_snow", "minecraft:scaffolding")) {
+            for (int x : List.of(0, 1)) {
+                for (boolean boots : List.of(false, true)) {
+                    var placed = ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision.manual(
+                        new ac.cult.cultac.bedrock.prediction.geometry.BlockPosition(x, 0, 0), block, block, List.of());
+                    var context = new BedrockMovementContext(air.effectState(), air.attributeState(),
+                        new WorldContactState(Medium.AIR, FluidState.NONE, new BlockCollisionWorld(List.of(placed))),
+                        new EquipmentState(0, 0, 0, boots, true), air.entityContactState(),
+                        air.modifierState(), air.playerDimensionsState());
+                    boolean stop = x == 0 && (!block.equals("minecraft:powder_snow") || boots)
+                        && !block.equals("minecraft:scaffolding");
+                    assertEquals(block + " x=" + x + " boots=" + boots, !stop,
+                        BedrockGlidingTravelMovement.resolve(state, frame.intent(), context).activeAfterActions());
+                }
+            }
+        }
+        assertTrue(BedrockGlidingTravelMovement.resolve(state, frame.intent(), context(Medium.LAVA)).activeAfterActions());
+    }
+
+    private static BedrockMovementState agedGlide(long ticks, boolean wasJumping) {
+        var state = BedrockMovementState.fromPhysicalFeet(Vec3d.ZERO, Vec3d.ZERO,
+            new BedrockInputFrame(1L, 0, 0, wasJumping, false, false), BedrockCollisionFlags.AIR).withGliding(true);
+        var memory = new BedrockMovementState.TickMemory(ticks, 0, ticks, 0, 0, 0, false, 0, 0, 0,
+            state.dolphinBoost());
+        return new BedrockMovementState(state.motion(), state.actor(), memory);
     }
 
     @Test

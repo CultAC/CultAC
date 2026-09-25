@@ -3,13 +3,18 @@ package ac.cult.cultac.bedrock.prediction.world;
 import java.util.Objects;
 
 public record EntityContactState(
-    DolphinBoostState dolphinBoostState
+    DolphinBoostState dolphinBoostState,
+    boolean passenger
 ) {
     public static final EntityContactState NONE =
         new EntityContactState(DolphinBoostState.NONE);
 
     public EntityContactState {
         dolphinBoostState = Objects.requireNonNull(dolphinBoostState, "dolphinBoostState");
+    }
+
+    public EntityContactState(DolphinBoostState dolphinBoostState) {
+        this(dolphinBoostState, false);
     }
 
     public boolean dolphinBoostAvailable() {

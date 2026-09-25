@@ -54,11 +54,11 @@ public final class BedrockMetadataReplayTest {
         assertTrue(actual.gliding());
     }
 
-    @Test public void dimensionDeliveryIsSeparateFromHistoricalFlagPlacement() {
+    @Test public void timestampedDimensionsAreRetainedAlongsideHistoricalFlags() {
         var history = history();
         history.metadata(2, new BedrockReplayEvent.Metadata(null, 1.8F, false, null, null, null, null));
         var historical = (BedrockReplayEvent.Metadata) history.frames().get(1).events().getFirst().value();
-        assertEquals(CANCEL, historical);
+        assertEquals(new BedrockReplayEvent.Metadata(null, 1.8F, false, null, null, null, null), historical);
         assertTrue(history.frames().getLast().events().isEmpty());
         assertEquals(1.8F, history.current().getFirst().state().playerDimensions().height(), 0);
     }
@@ -187,28 +187,29 @@ public final class BedrockMetadataReplayTest {
         history.metadata(2, CANCEL);
         var sixth = forward(history.current().getFirst().state(), 6, false);
         history.record(sixth);
-        assertEquals(CANCEL, history.frames().getLast().receivedFlags());
+        assertEquals(CANCEL, history.frames().getLast().receivedMetadata());
         history.record(forward(history.current().getFirst().state(), 7, false));
         var copy = history.copy();
         var restored = copy.apply(1, new BedrockReplayEvent.Boost(100), (state, world) -> world)
                 .getFirst().state();
         assertFalse(restored.gliding());
         assertTrue(restored.glidingRequest());
-        assertNull(history.frames().getLast().receivedFlags());
-        assertEquals(CANCEL, copy.frames().get(5).receivedFlags());
+        assertNull(history.frames().getLast().receivedMetadata());
+        assertEquals(CANCEL, copy.frames().get(5).receivedMetadata());
     }
 
-    @Test public void receiptTrackerRecordsNetChangesAndNeverSizeOrMatchingFlags() {
+    @Test public void receiptTrackerRecordsResizingAndOmitsMatchingFlags() {
         var history = history(true);
         history.metadata(2, CANCEL);
         history.metadata(1, new BedrockReplayEvent.Metadata(null, 0.6F, true, null, null, null, null));
         history.record(forward(history.current().getFirst().state(), 6, false));
-        assertNull(history.frames().getLast().receivedFlags());
+        assertEquals(new BedrockReplayEvent.Metadata(0.6F, 0.6F, null, null, null, null, null),
+                history.frames().getLast().receivedMetadata());
         assertEquals(0.6F, history.current().getFirst().state().playerDimensions().height(), 0);
 
         history.metadata(1, new BedrockReplayEvent.Metadata(null, null, true, null, null, null, null));
         history.record(forward(history.current().getFirst().state(), 7, false));
-        assertNull(history.frames().getLast().receivedFlags());
+        assertNull(history.frames().getLast().receivedMetadata());
     }
 
     private static BedrockActorHistory pendingConfirmation(int flagWords) {

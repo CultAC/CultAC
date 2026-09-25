@@ -22,7 +22,9 @@ final class BedrockEntityContactFactory {
 
     EntityContactState create(CultPlayer player, SimulationContext context) {
         DolphinBoostState dolphinBoostState = new DolphinBoostState(hasDolphinProximity(player, context));
-        return new EntityContactState(dolphinBoostState);
+        var entities = context.getEntities() != null ? context.getEntities() : player.compensatedEntities;
+        return new EntityContactState(dolphinBoostState,
+                context.getVehicle() == null && entities != null && entities.getSelf().inVehicle());
     }
 
     private boolean hasDolphinProximity(CultPlayer player, SimulationContext context) {

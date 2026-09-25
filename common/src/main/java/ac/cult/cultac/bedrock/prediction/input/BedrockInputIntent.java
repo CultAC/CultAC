@@ -13,7 +13,7 @@ public record BedrockInputIntent(
 ) {
     public static BedrockInputIntent from(BedrockInputFrame frame) {
         return new BedrockInputIntent(
-            new JumpIntent(frame.inputData().contains("START_JUMPING")),
+            new JumpIntent(frame.inputData().contains("START_JUMPING"), frame.jumping()),
             new PoseIntent(
                 BedrockPoseInputData.has(frame, BedrockPoseInputData.START_SWIMMING),
                 BedrockPoseInputData.has(frame, BedrockPoseInputData.STOP_SWIMMING),
@@ -63,7 +63,7 @@ public record BedrockInputIntent(
         );
     }
 
-    public record JumpIntent(boolean start) {
+    public record JumpIntent(boolean start, boolean held) {
     }
 
     public record PoseIntent(
