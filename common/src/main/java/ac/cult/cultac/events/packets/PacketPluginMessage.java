@@ -9,7 +9,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.common.arguments.CommonCultArguments;
-import ac.cult.cultac.utils.viaversion.ViaVersionUtil;
+import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import net.kyori.adventure.text.TranslatableComponent;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.minecraft.network.protocol.Packet;
@@ -42,7 +42,7 @@ public class PacketPluginMessage implements PacketReceiveHandler<Packet<?>> {
             );
         }
         // kick if they do not have a proxy configured OR they have ViaVersion installed on the backend
-        if (CommonCultArguments.KICK_ON_VIA_PROXY.value() && (!usingProxy || ViaVersionUtil.isAvailable)) {
+        if (CommonCultArguments.KICK_ON_VIA_PROXY.value() && (!usingProxy || ViaVersionUtil.isAvailable())) {
 
             LogUtil.warn(user.getName() + " is being disconnected for sending ViaVersion proxy data.");
 

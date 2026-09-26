@@ -5,6 +5,7 @@ import org.bukkit.block.data.BlockData;
 import net.minecraft.network.HashedStack;
 import org.bukkit.Material;
 import org.bukkit.craftbukkit.inventory.CraftItemStack;
+import org.bukkit.craftbukkit.util.CraftMagicNumbers;
 import org.bukkit.inventory.ItemStack;
 
 import java.lang.reflect.InvocationTargetException;
@@ -20,6 +21,18 @@ public final class SpigotConversionUtil {
 
     public static net.minecraft.world.item.ItemStack toNmsItemStack(ItemStack stack) {
         return stack == null ? net.minecraft.world.item.ItemStack.EMPTY : CraftItemStack.asNMSCopy(stack);
+    }
+
+    /**
+     * Equivalent to {@code toNmsItemStack(stack).getItem()} without copying the stack and its
+     * component map: empty stacks (AIR or amount <= 0) map to AIR, as {@code ItemStack.EMPTY} does.
+     */
+    public static net.minecraft.world.item.Item toNmsItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return net.minecraft.world.item.Items.AIR;
+        }
+        net.minecraft.world.item.Item item = CraftMagicNumbers.getItem(stack.getType());
+        return item == null ? net.minecraft.world.item.Items.AIR : item;
     }
 
     public static ItemStack fromNmsItemStack(net.minecraft.world.item.ItemStack stack) {

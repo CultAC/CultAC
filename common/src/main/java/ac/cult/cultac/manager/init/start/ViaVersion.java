@@ -3,7 +3,7 @@ package ac.cult.cultac.manager.init.start;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import ac.cult.cultac.utils.viaversion.ViaVersionUtil;
+import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import com.viaversion.viaversion.api.Via;
 import com.viaversion.viaversion.api.protocol.version.ProtocolVersion;
 import net.minecraft.SharedConstants;
@@ -15,7 +15,10 @@ public class ViaVersion implements StartableInitable {
 
     @Override
     public void start() {
-        if (!ViaVersionUtil.isAvailable) return;
+        if (ViaVersionUtil.isLegacyApiInstalled()) {
+            LogUtil.error("Using unsupported ViaVersion 4.0 API, update ViaVersion to 5.0");
+        }
+        if (!ViaVersionUtil.isAvailable()) return;
 
         if (Via.getConfig().getValues().containsKey("fix-1_21-placement-rotation") && Via.getConfig().fix1_21PlacementRotation() && SERVER_VERSION.isOlderThan(ClientVersion.V_1_21)) {
             LogUtil.error("CultAC has detected that you are using ViaVersion with the `fix-1_21-placement-rotation` option enabled.");

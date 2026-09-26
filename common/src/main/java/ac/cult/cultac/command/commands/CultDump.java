@@ -9,7 +9,7 @@ import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.common.PropertiesUtil;
 import ac.cult.cultac.utils.reflection.ReflectionUtils;
-import ac.cult.cultac.utils.viaversion.ViaVersionUtil;
+import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
@@ -69,7 +69,7 @@ public class CultDump implements BuildableCommand {
         JsonObject states = new JsonObject();
         base.add("states", states);
         if (CultAPI.INSTANCE.isInitialized()) states.addProperty("platform", CultAPI.INSTANCE.getPlatform().toString());
-        if (ViaVersionUtil.isAvailable) states.addProperty("has_viaversion", true);
+        if (ViaVersionUtil.isAvailable()) states.addProperty("has_viaversion", true);
         if (PAPER) states.addProperty("has_paper", true);
         // include some relevant settings if not default
         JsonObject settings = new JsonObject();

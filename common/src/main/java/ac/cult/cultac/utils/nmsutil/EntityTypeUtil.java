@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class EntityTypeUtil {
     private static final Map<EntityType<?>, Class<? extends Entity>> NMS_ENTITY_CLASSES = resolveNmsEntityClasses();
     private static final Method ENTITY_TYPE_GET_KEY = resolveGetKey();
+    private static final Map<EntityType<?>, EntityKey> KEYS = new ConcurrentHashMap<>();
 
     private EntityTypeUtil() {
     }
@@ -28,6 +29,15 @@ public final class EntityTypeUtil {
         if (handle == null) {
             return new EntityKey("minecraft", "unknown");
         }
+        EntityKey cached = KEYS.get(handle);
+        if (cached == null) {
+            cached = resolveKey(handle);
+            KEYS.putIfAbsent(handle, cached);
+        }
+        return cached;
+    }
+
+    private static EntityKey resolveKey(EntityType<?> handle) {
         try {
             return EntityKey.parse(ENTITY_TYPE_GET_KEY.invoke(null, handle).toString());
         } catch (IllegalAccessException exception) {

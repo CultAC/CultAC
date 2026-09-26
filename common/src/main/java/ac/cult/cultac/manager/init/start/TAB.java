@@ -3,7 +3,7 @@ package ac.cult.cultac.manager.init.start;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import ac.cult.cultac.utils.viaversion.ViaVersionUtil;
+import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import net.minecraft.SharedConstants;
 
 public class TAB implements StartableInitable {
@@ -14,7 +14,7 @@ public class TAB implements StartableInitable {
     @Override
     public void start() {
         if (CultAPI.INSTANCE.getPluginManager().getPlugin("TAB") == null) return;
-        if (!ViaVersionUtil.isAvailable) return;
+        if (!ViaVersionUtil.isAvailable()) return;
         // I don't know when team limits were changed, 1.13 is reasonable enough
         if (SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_13))
             return;

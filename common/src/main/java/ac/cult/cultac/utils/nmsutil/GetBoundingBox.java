@@ -3,7 +3,6 @@ package ac.cult.cultac.utils.nmsutil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import net.minecraft.world.entity.EntityDimensions;
 
 public class GetBoundingBox {
     public static SimpleCollisionBox getCollisionBoxForPlayer(CultPlayer player, double centerX, double centerY, double centerZ) {
@@ -33,10 +32,8 @@ public class GetBoundingBox {
     }
 
     public static SimpleCollisionBox getBoundingBoxFromPosAndSize(double centerX, double minY, double centerZ, float width, float height) {
-        return fromAABB(EntityDimensions.fixed(width, height).makeBoundingBox(centerX, minY, centerZ));
-    }
-
-    private static SimpleCollisionBox fromAABB(net.minecraft.world.phys.AABB box) {
-        return new SimpleCollisionBox(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ, false);
+        final float halfWidth = width / 2.0F;
+        return new SimpleCollisionBox(centerX - halfWidth, minY, centerZ - halfWidth,
+                centerX + halfWidth, minY + height, centerZ + halfWidth, false).sort();
     }
 }

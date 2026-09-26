@@ -160,7 +160,7 @@ public final class NativeBlockCollisionHelper {
     private static final class CultCollisionContext implements CollisionContext {
         private final boolean descending;
         private final double entityBottom;
-        private final net.minecraft.world.item.ItemStack heldItem;
+        private final Item heldItem;
 
         private CultCollisionContext(CultPlayer player, double entityBottom) {
             this.descending = player.isSneaking;
@@ -168,11 +168,11 @@ public final class NativeBlockCollisionHelper {
             this.heldItem = heldItem(player);
         }
 
-        private static net.minecraft.world.item.ItemStack heldItem(CultPlayer player) {
+        private static Item heldItem(CultPlayer player) {
             try {
-                return SpigotConversionUtil.toNmsItemStack(player.getInventory().getHeldItem());
+                return SpigotConversionUtil.toNmsItem(player.getInventory().getHeldItem());
             } catch (RuntimeException ignored) {
-                return net.minecraft.world.item.ItemStack.EMPTY;
+                return net.minecraft.world.item.Items.AIR;
             }
         }
 
@@ -188,7 +188,7 @@ public final class NativeBlockCollisionHelper {
 
         @Override
         public boolean isHoldingItem(Item item) {
-            return heldItem.getItem() == item;
+            return heldItem == item;
         }
 
         @Override

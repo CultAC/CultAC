@@ -26,7 +26,7 @@ public record JavaCollisionState(double fallDistance, boolean walksOnPowderSnow,
     public static JavaCollisionState current(CultPlayer player) {
         if (player == null || player.compensatedWorld == null || player.isBedrockMovement()) return null;
         PacketEntity actor = player.compensatedEntities.getEntityInControl();
-        PredictionCarry carry = player.checkManager.getSimulationProcessor().getCurrentPredictionCommit().carry();
+        PredictionCarry carry = player.checkManager.getSimulationProcessor().getCurrentPredictionCarry();
         double distance = carry instanceof JavaPredictionCarry java && java.actor() == actor ? java.fallDistance() : 0.0;
         return of(player, actor, distance);
     }

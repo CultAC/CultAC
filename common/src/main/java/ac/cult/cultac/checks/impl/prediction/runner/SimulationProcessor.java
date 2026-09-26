@@ -129,6 +129,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
       return this.validPlayerStartingVels;
    }
 
+   // Carry-only readers use this to avoid snapshotting the starting velocity set.
+   public PredictionCarry getCurrentPredictionCarry() {
+      return this.profileCarry;
+   }
+
    public PredictionCommit getCurrentPredictionCommit() {
       return new PredictionCommit(this.profileCarry, this.validPlayerStartingVels);
    }

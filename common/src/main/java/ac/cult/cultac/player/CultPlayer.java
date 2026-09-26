@@ -1095,18 +1095,31 @@ public class CultPlayer implements GrimUser {
         return brand;
     }
 
+    private volatile ClientVersion resolvedClientVersion;
+
     public ClientVersion getClientVersion() {
+        ClientVersion resolved = resolvedClientVersion;
+        if (resolved != null) {
+            return resolved;
+        }
         if (ViaVersionUtil.isAvailable()) {
             try {
                 int protocolVersion = Via.getAPI().getPlayerProtocolVersion(playerUUID).getOriginalVersion();
                 if (protocolVersion > 0) {
-                    return ClientVersion.fromProtocolVersion(protocolVersion);
+                    // A connection's negotiated protocol never changes after the handshake.
+                    resolved = ClientVersion.fromProtocolVersion(protocolVersion);
+                    resolvedClientVersion = resolved;
+                    return resolved;
                 }
             } catch (RuntimeException ignored) {
                 // Fall through to the server's native protocol version
             }
+            // Via has not mapped this player yet (should we use connection instead?); do not pin the native fallback.
+            return ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
         }
-        return ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+        resolved = ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+        resolvedClientVersion = resolved;
+        return resolved;
     }
 
     @Override

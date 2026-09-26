@@ -91,23 +91,45 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 CachedChunk.index(position.getX() & 0xF, offsetY & 0xF, position.getZ() & 0xF)));
     }
 
+    // PalettedContainerFactory builds its DataFixerUpper codecs on creation, so resolve it once per
+    // RegistryAccess instead of once per section. Each section is still a fresh mutable instance.
+    private static volatile SectionFactory sectionFactory;
+
     private static LevelChunkSection createSection() {
         RegistryAccess access = ((CraftServer) Bukkit.getServer()).getServer().registryAccess();
-        try {
-            Class<?> factoryClass = Class.forName("net.minecraft.world.level.chunk.PalettedContainerFactory");
-            Object factory = factoryClass.getMethod("create", RegistryAccess.class).invoke(null, access);
-            Constructor<LevelChunkSection> constructor = LevelChunkSection.class.getConstructor(factoryClass);
-            return constructor.newInstance(factory);
-        } catch (ClassNotFoundException ignored) {
-            Object biomeRegistry = lookupRegistry(access, Registries.BIOME);
+        SectionFactory factory = sectionFactory;
+        if (factory == null || factory.access() != access) {
+            factory = SectionFactory.create(access);
+            sectionFactory = factory;
+        }
+        return factory.newSection();
+    }
+
+    private record SectionFactory(RegistryAccess access, Constructor<?> constructor, Object argument) {
+        private static SectionFactory create(RegistryAccess access) {
             try {
-                Constructor<?> constructor = LevelChunkSection.class.getConstructor(net.minecraft.core.Registry.class);
-                return (LevelChunkSection) constructor.newInstance(biomeRegistry);
+                Class<?> factoryClass = Class.forName("net.minecraft.world.level.chunk.PalettedContainerFactory");
+                Object factory = factoryClass.getMethod("create", RegistryAccess.class).invoke(null, access);
+                return new SectionFactory(access, LevelChunkSection.class.getConstructor(factoryClass), factory);
+            } catch (ClassNotFoundException ignored) {
+                Object biomeRegistry = lookupRegistry(access, Registries.BIOME);
+                try {
+                    return new SectionFactory(access,
+                            LevelChunkSection.class.getConstructor(net.minecraft.core.Registry.class), biomeRegistry);
+                } catch (ReflectiveOperationException exception) {
+                    throw new IllegalStateException("Unable to construct legacy chunk section", unwrap(exception));
+                }
             } catch (ReflectiveOperationException exception) {
-                throw new IllegalStateException("Unable to construct legacy chunk section", unwrap(exception));
+                throw new IllegalStateException("Unable to construct chunk section", unwrap(exception));
             }
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("Unable to construct chunk section", unwrap(exception));
+        }
+
+        private LevelChunkSection newSection() {
+            try {
+                return (LevelChunkSection) constructor.newInstance(argument);
+            } catch (ReflectiveOperationException exception) {
+                throw new IllegalStateException("Unable to construct chunk section", unwrap(exception));
+            }
         }
     }
 

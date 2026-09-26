@@ -21,6 +21,13 @@ public final class PacketHandlerScanner {
     private PacketHandlerScanner() {
     }
 
+    private static final ClassValue<HandlerSchema> SCHEMAS = new ClassValue<>() {
+        @Override
+        protected HandlerSchema computeValue(Class<?> listenerClass) {
+            return HandlerSchema.build(listenerClass);
+        }
+    };
+
     public static List<ReceiveRegistration> receiveHandlers(Object listener) {
         return scan(listener, Direction.RECEIVE).receiveRegistrations();
     }
@@ -30,58 +37,23 @@ public final class PacketHandlerScanner {
     }
 
     public static boolean hasReceiveHandlerDeclaration(Class<?> listenerClass) {
-        return hasHandlerDeclaration(listenerClass, Direction.RECEIVE);
+        return SCHEMAS.get(listenerClass).hasReceiveDeclaration();
     }
 
     public static boolean hasSendHandlerDeclaration(Class<?> listenerClass) {
-        return hasHandlerDeclaration(listenerClass, Direction.SEND);
+        return SCHEMAS.get(listenerClass).hasSendDeclaration();
     }
 
     public static List<Class<? extends Packet<?>>> sendPacketTypes(Class<?> listenerClass) {
-        return packetTypes(listenerClass, Direction.SEND);
+        return listenerClass == null ? List.of() : SCHEMAS.get(listenerClass).sendPacketTypes();
     }
 
     public static List<Class<? extends Packet<?>>> receivePacketTypes(Class<?> listenerClass) {
-        return packetTypes(listenerClass, Direction.RECEIVE);
+        return listenerClass == null ? List.of() : SCHEMAS.get(listenerClass).receivePacketTypes();
     }
 
     public static RegistrationSet handlers(Object listener) {
         return scan(listener, Direction.BOTH);
-    }
-
-    private static boolean hasHandlerDeclaration(Class<?> listenerClass, Direction direction) {
-        for (Method method : annotatedMethods(listenerClass)) {
-            if (direction.accepts(signature(method, listenerClass).direction())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static List<Class<? extends Packet<?>>> packetTypes(Class<?> listenerClass, Direction requestedDirection) {
-        if (listenerClass == null) {
-            return List.of();
-        }
-
-        List<Class<? extends Packet<?>>> packetTypes = new ArrayList<>();
-        Set<RouteKey> routes = new HashSet<>();
-
-        for (Method method : annotatedMethods(listenerClass)) {
-            HandlerSignature signature = signature(method, listenerClass);
-            if (!requestedDirection.accepts(signature.direction())) {
-                continue;
-            }
-            for (Class<? extends Packet<?>> packetType : signature.packetTypes()) {
-                RouteKey route = new RouteKey(signature.direction(), packetType);
-                if (!routes.add(route)) {
-                    throw invalid(listenerClass, method, "duplicates " + signature.direction().description()
-                            + " handler for " + packetType.getName());
-                }
-                packetTypes.add(packetType);
-            }
-        }
-
-        return List.copyOf(packetTypes);
     }
 
     private static RegistrationSet scan(Object listener, Direction requestedDirection) {
@@ -91,38 +63,76 @@ public final class PacketHandlerScanner {
 
         List<ReceiveRegistration> receiveRegistrations = new ArrayList<>();
         List<SendRegistration> sendRegistrations = new ArrayList<>();
-        Set<RouteKey> routes = new HashSet<>();
 
-        for (Method method : annotatedMethods(listener.getClass())) {
-            HandlerSignature signature = signature(method, listener.getClass());
-            if (!requestedDirection.accepts(signature.direction())) {
+        for (HandlerEntry entry : SCHEMAS.get(listener.getClass()).entries()) {
+            if (!requestedDirection.accepts(entry.direction()) || entry.packetTypes().isEmpty()) {
                 continue;
             }
-            MethodHandle handle = handle(listener, method);
-            if (signature.direction() == Direction.RECEIVE) {
-                PacketReceiveHandler<Packet<?>> handler = receiveInvoker(handle, method);
-                for (Class<? extends Packet<?>> packetType : signature.packetTypes()) {
-                    RouteKey route = new RouteKey(signature.direction(), packetType);
-                    if (!routes.add(route)) {
-                        throw invalid(listener.getClass(), method, "duplicates " + signature.direction().description()
-                                + " handler for " + packetType.getName());
-                    }
+            MethodHandle handle = entry.unboundHandle().bindTo(listener);
+            if (entry.direction() == Direction.RECEIVE) {
+                PacketReceiveHandler<Packet<?>> handler = receiveInvoker(handle, entry.method());
+                for (Class<? extends Packet<?>> packetType : entry.packetTypes()) {
                     receiveRegistrations.add(new ReceiveRegistration(packetType, handler));
                 }
             } else {
-                PacketSendHandler<Packet<?>> handler = sendInvoker(handle, method);
-                for (Class<? extends Packet<?>> packetType : signature.packetTypes()) {
-                    RouteKey route = new RouteKey(signature.direction(), packetType);
-                    if (!routes.add(route)) {
-                        throw invalid(listener.getClass(), method, "duplicates " + signature.direction().description()
-                                + " handler for " + packetType.getName());
-                    }
+                PacketSendHandler<Packet<?>> handler = sendInvoker(handle, entry.method());
+                for (Class<? extends Packet<?>> packetType : entry.packetTypes()) {
                     sendRegistrations.add(new SendRegistration(packetType, handler));
                 }
             }
         }
 
         return new RegistrationSet(List.copyOf(receiveRegistrations), List.copyOf(sendRegistrations));
+    }
+
+    private record HandlerEntry(
+            Method method,
+            Direction direction,
+            List<Class<? extends Packet<?>>> packetTypes,
+            MethodHandle unboundHandle
+    ) {
+    }
+
+    private record HandlerSchema(
+            List<HandlerEntry> entries,
+            boolean hasReceiveDeclaration,
+            boolean hasSendDeclaration,
+            List<Class<? extends Packet<?>>> receivePacketTypes,
+            List<Class<? extends Packet<?>>> sendPacketTypes
+    ) {
+        private static HandlerSchema build(Class<?> listenerClass) {
+            List<HandlerEntry> entries = new ArrayList<>();
+            List<Class<? extends Packet<?>>> receivePacketTypes = new ArrayList<>();
+            List<Class<? extends Packet<?>>> sendPacketTypes = new ArrayList<>();
+            Set<RouteKey> routes = new HashSet<>();
+            boolean hasReceiveDeclaration = false;
+            boolean hasSendDeclaration = false;
+
+            for (Method method : annotatedMethods(listenerClass)) {
+                HandlerSignature signature = signature(method, listenerClass);
+                // A declaration counts even when its optional packetClass is absent on this runtime.
+                if (signature.direction() == Direction.RECEIVE) {
+                    hasReceiveDeclaration = true;
+                } else {
+                    hasSendDeclaration = true;
+                }
+                List<Class<? extends Packet<?>>> packetTypes = signature.direction() == Direction.RECEIVE
+                        ? receivePacketTypes : sendPacketTypes;
+                for (Class<? extends Packet<?>> packetType : signature.packetTypes()) {
+                    RouteKey route = new RouteKey(signature.direction(), packetType);
+                    if (!routes.add(route)) {
+                        throw invalid(listenerClass, method, "duplicates " + signature.direction().description()
+                                + " handler for " + packetType.getName());
+                    }
+                    packetTypes.add(packetType);
+                }
+                entries.add(new HandlerEntry(method, signature.direction(), signature.packetTypes(),
+                        unboundHandle(listenerClass, method)));
+            }
+
+            return new HandlerSchema(List.copyOf(entries), hasReceiveDeclaration, hasSendDeclaration,
+                    List.copyOf(receivePacketTypes), List.copyOf(sendPacketTypes));
+        }
     }
 
     private static List<Method> annotatedMethods(Class<?> listenerClass) {
@@ -256,12 +266,12 @@ public final class PacketHandlerScanner {
         return List.of((Class<? extends Packet<?>>) parameterType);
     }
 
-    private static MethodHandle handle(Object listener, Method method) {
+    private static MethodHandle unboundHandle(Class<?> listenerClass, Method method) {
         try {
             method.setAccessible(true);
-            return MethodHandles.lookup().unreflect(method).bindTo(listener);
+            return MethodHandles.lookup().unreflect(method);
         } catch (IllegalAccessException exception) {
-            throw invalid(listener.getClass(), method, "could not create method handle", exception);
+            throw invalid(listenerClass, method, "could not create method handle", exception);
         }
     }
 

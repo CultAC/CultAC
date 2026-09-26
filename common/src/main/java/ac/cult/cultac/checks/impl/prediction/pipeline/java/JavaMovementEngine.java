@@ -49,7 +49,7 @@ public final class JavaMovementEngine implements MovementEngine {
             boolean canTickSkip
     ) {
         if (context.getProfileCarry() instanceof JavaPredictionCarry selected && !selected.states().isEmpty()
-                && player.checkManager.getSimulationProcessor().getCurrentPredictionCommit().carry() instanceof JavaPredictionCarry committed
+                && player.checkManager.getSimulationProcessor().getCurrentPredictionCarry() instanceof JavaPredictionCarry committed
                 && hasMatchingVelocity(committed, startingVelocities)) {
             var filtered = new java.util.HashSet<Vec3>();
             for (var state : selected.states()) if (startingVelocities.contains(state.velocity())) filtered.add(state.velocity());
