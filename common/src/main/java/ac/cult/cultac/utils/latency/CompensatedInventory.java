@@ -100,6 +100,16 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         }
 
         player.latencyUtils.addRealTimeTask(transaction.transaction(), task);
+        if (!player.isBedrockMovement() && player.supportsBundles()) {
+            // ChannelPacketHandler bundles a replacement group and preserves an
+            // enclosing vanilla bundle. Putting the proof in that group makes
+            // ClientPacketListener#handleBundlePacket process the update and ping
+            // together, before the client can emit another tick or inventory click.
+            event.getPacketsAfterSend().add(transaction.packet());
+            event.getTasksAfterSend().add(() -> player.markTrackedTransactionPacketSent(transaction));
+            return;
+        }
+
         // PacketSendEvent tasks run after the complete outbound group has been forwarded. Sending
         // the proof there keeps a ping out of the middle of a vanilla bundle while still placing it
         // after the inventory packet on the ordered clientbound stream.
