@@ -416,7 +416,7 @@ jobs:
               java "${java_common[@]}" \
                 ac.grim.movementvalidation.RealServerValidationMain \
                 "$RUN_ROOT/$key" "$base_port" \
-                --target grim-dev \
+                --target cult-dev \
                 --suite "$suite_selector"
           }
 
@@ -460,7 +460,7 @@ jobs:
               -Dcult.validation.reach.unbundled.meanTrackingError=0.25 \
               ac.grim.movementvalidation.RealServerCombatReachValidationMain \
               "$RUN_ROOT/combat-reach" 25620 \
-              --target grim-dev \
+              --target cult-dev \
               --bot-count 8 \
               --segments 1 \
               --ticks-per-segment 1000 \
