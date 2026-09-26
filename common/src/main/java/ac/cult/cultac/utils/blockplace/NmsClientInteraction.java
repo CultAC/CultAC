@@ -43,7 +43,6 @@ import net.minecraft.world.level.block.EnderChestBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.FlowerPotBlock;
 import net.minecraft.world.level.block.GameMasterBlock;
-import net.minecraft.world.level.block.GrowingPlantHeadBlock;
 import net.minecraft.world.level.block.JukeboxBlock;
 import net.minecraft.world.level.block.LeverBlock;
 import net.minecraft.world.level.block.LightBlock;
@@ -121,13 +120,6 @@ final class NmsClientInteraction {
         // MushroomBlock.java:83-86 consults client light, which Cult does not retain.
         // Decline prediction instead of fabricating light or reading the live world.
         if (item.getBlock() instanceof MushroomBlock) {
-            return null;
-        }
-        // GrowingPlantHeadBlock#getStateForPlacement chooses a random age. The
-        // client and server each own a different RandomSource, so a detached
-        // predictor cannot reproduce the client-visible state. Let the server
-        // block update provide the authoritative age.
-        if (item.getBlock() instanceof GrowingPlantHeadBlock) {
             return null;
         }
         if (item.getBlock() instanceof ConcretePowderBlock) {

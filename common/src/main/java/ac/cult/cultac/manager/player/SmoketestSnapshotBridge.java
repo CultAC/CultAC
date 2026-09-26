@@ -8,6 +8,8 @@ import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.GrowingPlantHeadBlock;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -22,6 +24,7 @@ final class SmoketestSnapshotBridge {
     private static final int VERSION = 4;
     private static final Pattern REGISTRY_REFERENCE_IDENTITY = Pattern.compile(
             "Reference\\{ResourceKey\\[[^\\]]+\\]=[\\w.$]+@([0-9a-fA-F]+)\\}");
+    private static final Pattern RANDOM_INITIAL_AGE = Pattern.compile("(?<=[\\[,])age=(?:[0-9]|1[0-9]|2[0-4])(?=[,\\]])");
 
     private SmoketestSnapshotBridge() {
     }
@@ -118,8 +121,9 @@ final class SmoketestSnapshotBridge {
             int cultStateId = Block.getId(compensatedState);
             String cultState = String.valueOf(compensatedState);
             // Numeric state IDs belong to each protocol's registry and are translated by ViaVersion.
-            // The namespaced block plus its complete property set is the stable semantic identity.
-            if (!block.state().equals(cultState)) {
+            // Growing heads choose age 0–24 using private client RNG. These ages
+            // have identical client behavior; age 25 and all other properties remain exact.
+            if (!blockStatesMatch(block.state(), compensatedState)) {
                 mismatches.add("block " + block.x() + "," + block.y() + "," + block.z()
                         + " expectedId=" + block.stateId()
                         + " cultId=" + cultStateId
@@ -163,6 +167,15 @@ final class SmoketestSnapshotBridge {
                 + " scenario=" + snapshot.scenario()
                 + " mismatches=" + mismatches.size()
                 + " details=" + String.join(" | ", mismatches.subList(0, Math.min(12, mismatches.size()))));
+    }
+
+    static boolean blockStatesMatch(String expected, BlockState modeled) {
+        if (expected.equals(String.valueOf(modeled))) return true;
+        if (!(modeled.getBlock() instanceof GrowingPlantHeadBlock)
+                || modeled.getValue(GrowingPlantHeadBlock.AGE) >= 25) return false;
+        var age = RANDOM_INITIAL_AGE.matcher(expected);
+        return age.find() && age.replaceFirst("age=0")
+                .equals(String.valueOf(modeled.setValue(GrowingPlantHeadBlock.AGE, 0)));
     }
 
     private static void compareItem(List<String> mismatches, String owner, ItemSnapshot expected, org.bukkit.inventory.ItemStack item) {
