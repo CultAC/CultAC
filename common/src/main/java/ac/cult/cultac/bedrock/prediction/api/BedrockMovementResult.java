@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.api;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
@@ -30,8 +31,25 @@ public record BedrockMovementResult(
     double maxUpStep,
     boolean travelActive,
     boolean groundJumpApplied,
-    Vec3d nonHopVelocity
+    Vec3d nonHopVelocity,
+    WorldCollisionBox collisionFetchBox
 ) {
+    public BedrockMovementResult(BedrockMovementState previousState, BedrockMovementContext movementContext,
+            BedrockMovementContext postMoveContext, BedrockMovementState predictedState,
+            Vec3d rawPredictedPhysicalFeetPosition, Vec3d collisionInputVelocity,
+            boolean orderedPostMoveOwnsHorizontalVelocity, boolean orderedPostMoveOwnsVerticalVelocity,
+            boolean standingBounceBounced, boolean standingSurfaceHorizontalSlowdownApplied,
+            BlockMovementSlowdownState currentBlockMovementSlowdownState, HoneySlideState honeySlideState,
+            boolean selectedGlidingTravel, boolean selectedWaterTravel, double horizontalInputLimit,
+            double horizontalFriction, boolean steppedUp, boolean stepRetryAllowed, boolean canStep,
+            double maxUpStep, boolean travelActive, boolean groundJumpApplied, Vec3d nonHopVelocity) {
+        this(previousState, movementContext, postMoveContext, predictedState, rawPredictedPhysicalFeetPosition,
+                collisionInputVelocity, orderedPostMoveOwnsHorizontalVelocity, orderedPostMoveOwnsVerticalVelocity,
+                standingBounceBounced, standingSurfaceHorizontalSlowdownApplied, currentBlockMovementSlowdownState,
+                honeySlideState, selectedGlidingTravel, selectedWaterTravel, horizontalInputLimit, horizontalFriction,
+                steppedUp, stepRetryAllowed, canStep, maxUpStep, travelActive, groundJumpApplied, nonHopVelocity, null);
+    }
+
     public BedrockMovementResult {
         previousState = Objects.requireNonNull(previousState, "previousState");
         movementContext = Objects.requireNonNull(movementContext, "movementContext");

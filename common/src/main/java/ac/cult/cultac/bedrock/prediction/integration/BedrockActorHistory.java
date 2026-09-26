@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.Entry;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
@@ -209,12 +210,19 @@ public final class BedrockActorHistory {
 
     public record Frame(long tick, BedrockSimulation.Input input, List<Entry> beforeEvents, List<Entry> end,
                         Vec3d imposedVelocity, Vec3d addedVelocity, Vec3d externalDisplacement, Vec3d observedPosition,
-                        Vec3d observedVelocity, List<Event> events, BedrockReplayEvent.Metadata receivedMetadata) {
+                        Vec3d observedVelocity, List<Event> events, BedrockReplayEvent.Metadata receivedMetadata,
+                        WorldCollisionBox collisionFetchBox) {
         public Frame(long tick, BedrockSimulation.Input input, List<Entry> beforeEvents, List<Entry> end,
                      Vec3d imposedVelocity, Vec3d addedVelocity, Vec3d externalDisplacement, Vec3d observedPosition,
                      Vec3d observedVelocity, List<Event> events) {
             this(tick, input, beforeEvents, end, imposedVelocity, addedVelocity, externalDisplacement,
-                    observedPosition, observedVelocity, events, null);
+                    observedPosition, observedVelocity, events, null, null);
+        }
+        public Frame(long tick, BedrockSimulation.Input input, List<Entry> beforeEvents, List<Entry> end,
+                     Vec3d imposedVelocity, Vec3d addedVelocity, Vec3d externalDisplacement, Vec3d observedPosition,
+                     Vec3d observedVelocity, List<Event> events, WorldCollisionBox collisionFetchBox) {
+            this(tick, input, beforeEvents, end, imposedVelocity, addedVelocity, externalDisplacement,
+                    observedPosition, observedVelocity, events, null, collisionFetchBox);
         }
         public Frame {
             input = BedrockReplaySnapshot.withState(input, BedrockReplaySnapshot.detach(input.previousState()));
@@ -228,11 +236,11 @@ public final class BedrockActorHistory {
         }
         Frame withEnd(List<Entry> before, List<Entry> end, List<Event> events) {
             return new Frame(tick, input, before, end, imposedVelocity, addedVelocity, externalDisplacement,
-                    observedPosition, observedVelocity, events, receivedMetadata);
+                    observedPosition, observedVelocity, events, receivedMetadata, collisionFetchBox);
         }
         Frame withReceivedMetadata(BedrockReplayEvent.Metadata metadata) {
             return new Frame(tick, input, beforeEvents, end, imposedVelocity, addedVelocity, externalDisplacement,
-                    observedPosition, observedVelocity, events, metadata);
+                    observedPosition, observedVelocity, events, metadata, collisionFetchBox);
         }
     }
     public record Event(long sequence, long tick, long simulationTick, long throughTick, BedrockReplayEvent value) { }

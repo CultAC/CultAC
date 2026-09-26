@@ -535,6 +535,74 @@ public final class BedrockBlockCollisionResolverTest {
     }
 
     @Test
+    public void bedLandingThatSlidesOffTheBedStillBounces() {
+        // Packet log 1790385330392-c6642195, flag 51 (auth tick 8875): the downward sweep lands on the bed corner and
+        // the same move carries the post-move box past x=304. ComputeBlockRestitutionSystem still resolves the bed:
+        // CollisionShapes::getBlockPosCurrentlyStandingOn searches the fetched move shapes without an overlap test.
+        BlockCollisionWorld world = collisionWorld(List.of(
+            bed(302, "foot"),
+            bed(303, "head"),
+            stoneFloor()
+        ));
+        BedrockMovementState current = state(
+            new Vec3d(304.21728515625D, 82.62297821044922D, -90.97579956054688D),
+            new Vec3d(0.1145404577255249D, -0.2993042469024658D, 0.15379442274570465D),
+            BedrockCollisionFlags.AIR);
+
+        BedrockMovementResult result = BedrockSimulation.move(
+            current,
+            BedrockInputFrame.idle(0L),
+            airContext(world),
+            BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE,
+            true,
+            BedrockSimulation.DEFAULT_MAX_AUTO_STEP
+        );
+
+        assertEquals(82.5625D, result.predictedPosition().y(), 1.0E-6D);
+        assertTrue(result.predictedPosition().x() - 0.3D > 304.0D);
+        assertTrue(result.standingBounceBounced());
+        assertEquals(0.1570242D, result.predictedVelocity().y(), 1.0E-6D);
+    }
+
+    @Test
+    public void standingBounceIgnoresShapesOutsideTheMoveFetchBox() {
+        // A top slab level with the slime surface has a smaller support gap than the slime, but it lies outside the
+        // move's fetch box, so the client never considers it.
+        BlockCollisionWorld world = collisionWorld(List.of(
+            PlacedBlockCollision.manual(new BlockPosition(0, 0, 0), "minecraft:slime_block", "minecraft:slime_block",
+                List.of(new WorldCollisionBox(0, 0, 0, 1, 1, 1))),
+            PlacedBlockCollision.manual(new BlockPosition(3, 0, 0), "minecraft:stone_slab",
+                "minecraft:stone_slab[type=top,waterlogged=false]",
+                List.of(new WorldCollisionBox(3, 0.5, 0, 4, 1, 1)))));
+        BedrockMovementState previous = state(new Vec3d(0.5, 1.25, 0.5),
+            new Vec3d(0.1, -0.5, 0), BedrockCollisionFlags.AIR);
+        var frame = BedrockInputFrame.idle(1);
+        var result = BedrockForwardTick.simulate(new BedrockSimulation.Input(previous, frame, frame.intent(),
+            ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot.fromContext(airContext(world)),
+            true, BedrockSimulation.DEFAULT_MAX_AUTO_STEP, null, true, false, Vec3d.ZERO))
+            .getFirst().movementResult();
+
+        assertTrue(result.standingBounceBounced());
+        assertEquals(0.44934615199, result.predictedVelocity().y(), 1.0E-6);
+    }
+
+    private static PlacedBlockCollision bed(int x, String part) {
+        return PlacedBlockCollision.manual(
+            new BlockPosition(x, 82, -92),
+            "minecraft:bed",
+            "minecraft:green_bed[facing=east,occupied=false,part=" + part + "]",
+            List.of(new WorldCollisionBox(x, 82.0D, -92.0D, x + 1.0D, 82.5625D, -91.0D)));
+    }
+
+    private static PlacedBlockCollision stoneFloor() {
+        return PlacedBlockCollision.manual(
+            new BlockPosition(302, 81, -92),
+            "minecraft:stone",
+            "minecraft:stone",
+            List.of(new WorldCollisionBox(302.0D, 81.0D, -92.0D, 306.0D, 82.0D, -88.0D)));
+    }
+
+    @Test
     public void bedReplayTick97StepsFromHorizontalOverlapWhileFalling() {
         BlockCollisionWorld world = collisionWorld(List.of(
             PlacedBlockCollision.manual(

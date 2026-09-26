@@ -34,15 +34,35 @@ public final class BedrockStandingBlockResolver {
     public static Optional<StandingSupport> resolve(WorldCollisionBox collisionBox,
             Iterable<BlockCollision> collisionShapes, BedrockCoordinateFrame frame) {
         WorldCollisionBox query = collisionBox.move(0.0D, -QUERY_Y_OFFSET, 0.0D);
+        return select(query, collisionShapes, frame, true)
+            .map(obstacle -> new StandingSupport(obstacle.block().get(), obstacle.box().maxY()));
+    }
+
+    public static Optional<StandingSupport> resolveFetched(
+        Vec3d feet,
+        BlockCollisionWorld world,
+        PlayerDimensionsState dimensions,
+        WorldCollisionBox fetchBox
+    ) {
+        BedrockCoordinateFrame frame = world.coordinateFrame();
+        WorldCollisionBox query = BedrockCollisionSweep.playerBox(feet, dimensions, frame).move(0.0D, -QUERY_Y_OFFSET, 0.0D);
+        var fetched = world.collisions().stream().filter(obstacle -> fetchBox.intersects(obstacle.box())).toList();
+        return select(query, fetched, frame, false)
+            .filter(obstacle -> nonEmpty(obstacle.box()))
+            .map(obstacle -> new StandingSupport(obstacle.block().get(), obstacle.box().maxY()));
+    }
+
+    private static Optional<BlockCollision> select(WorldCollisionBox query, Iterable<BlockCollision> collisionShapes,
+            BedrockCoordinateFrame frame, boolean requireQueryOverlap) {
         double centerX = frame.roundX((query.minX() + query.maxX()) * CENTER_SCALE);
         double centerY = f((query.minY() + query.maxY()) * CENTER_SCALE);
         double centerZ = frame.roundZ((query.minZ() + query.maxZ()) * CENTER_SCALE);
-        StandingSupport selected = null;
+        BlockCollision selected = null;
         float selectedVerticalGap = Float.POSITIVE_INFINITY;
         float selectedCenterDistance = Float.POSITIVE_INFINITY;
         for (BlockCollision obstacle : collisionShapes) {
             WorldCollisionBox box = obstacle.box();
-            if (obstacle.block().isEmpty() || !verticalQueryContainsShape(query, box)) {
+            if (obstacle.block().isEmpty() || requireQueryOverlap && !verticalQueryContainsShape(query, box)) {
                 continue;
             }
             double boxCenterX = frame.roundX((box.minX() + box.maxX()) * CENTER_SCALE);
@@ -57,12 +77,16 @@ public final class BedrockStandingBlockResolver {
             );
             if (verticalGap < selectedVerticalGap
                 || verticalGap == selectedVerticalGap && centerDistance < selectedCenterDistance) {
-                selected = new StandingSupport(obstacle.block().get(), box.maxY());
+                selected = obstacle;
                 selectedVerticalGap = verticalGap;
                 selectedCenterDistance = centerDistance;
             }
         }
         return Optional.ofNullable(selected);
+    }
+
+    private static boolean nonEmpty(WorldCollisionBox box) {
+        return box.minX() < box.maxX() && box.minY() < box.maxY() && box.minZ() < box.maxZ();
     }
 
     private static boolean verticalQueryContainsShape(WorldCollisionBox query, WorldCollisionBox shape) {

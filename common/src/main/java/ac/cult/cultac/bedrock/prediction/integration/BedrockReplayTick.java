@@ -50,9 +50,15 @@ final class BedrockReplayTick {
                     : event.value().restoreInput(request, recorded);
             Vec3d shift = state.physicalFeetPosition().subtract(recorded.previousState().physicalFeetPosition());
             float dx = (float) shift.x(), dy = (float) shift.y(), dz = (float) shift.z();
-            if (!(dx * dx + dy * dy + dz * dz < 4.0F)) {
+            var snapshot = !(dx * dx + dy * dy + dz * dz < 4.0F) ? world.apply(state, request.snapshot())
+                    : frame.collisionFetchBox() == null ? request.snapshot()
+                    : request.snapshot().withBlockCollisionWorld(BedrockReplayCollisionWorld.reuse(
+                            request.snapshot().blockCollisionWorld(),
+                            world.apply(state, request.snapshot()).blockCollisionWorld(),
+                            frame.collisionFetchBox()));
+            if (snapshot != request.snapshot()) {
                 request = new BedrockSimulation.Input(state, request.frame(), request.intent(),
-                        world.apply(state, request.snapshot()), request.canStep(), request.maxUpStep(),
+                        snapshot, request.canStep(), request.maxUpStep(),
                         request.mobJumpComponent(), request.actorMovementTick(), request.acceptedTeleport(),
                         request.control(), request.glideBoost());
             }

@@ -24,9 +24,14 @@ public final class BedrockMoveSystems {
                 false, false, false, false);
             return new BedrockCollisionOutput(unchanged,
                 frame.input().worldSnapshot().climbableContactAt(previous.physicalFeetPosition(),
-                    frame.frameFacts().movementDimensions()), plan.moveRequest());
+                    frame.frameFacts().movementDimensions()), plan.moveRequest(), null);
         }
         BedrockMoveRequest request = applyBlockMovementSlowdown(plan);
+        var previous = frame.input().previousState();
+        // The client fetches shapes before sneak edge movement adjusts the request.
+        var fetchBox = BedrockCollisionFetchBox.of(previous.collisionBox(frame.frameFacts().movementDimensions()),
+                request.requestedPosition().subtract(previous.physicalFeetPosition()),
+                frame.input().options().maxUpStep());
         if (!frame.branch().glidingTravel()) {
             request = BedrockTravelMoveRequest.applySneakMovement(
                 frame.input(), frame.frameFacts(), request
@@ -49,7 +54,7 @@ public final class BedrockMoveSystems {
                 : frame.input().worldSnapshot().climbableContactAt(
             blockMove.position(), facts.movementDimensions()
         );
-        return new BedrockCollisionOutput(blockMove, nextClimbableContact, request);
+        return new BedrockCollisionOutput(blockMove, nextClimbableContact, request, fetchBox);
     }
 
     private static BedrockMoveRequest applyBlockMovementSlowdown(BedrockTravelPlan plan) {

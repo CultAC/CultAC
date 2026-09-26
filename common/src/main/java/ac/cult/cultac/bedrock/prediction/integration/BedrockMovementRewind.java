@@ -144,7 +144,8 @@ final class BedrockMovementRewind {
         var frame = new BedrockActorHistory.Frame(auth.getClientTick(), input, entries, entries,
                 vector.isKnockback() ? input.previousState().velocity() : null, addition, external,
                 BedrockVectorAdapter.toBedrock(auth.getPosition()), auth.getReportedEndOfTickVelocity() == null
-                    ? null : BedrockVectorAdapter.toBedrock(auth.getReportedEndOfTickVelocity()), List.of());
+                    ? null : BedrockVectorAdapter.toBedrock(auth.getReportedEndOfTickVelocity()), List.of(),
+                vector.movementResult().collisionFetchBox());
         authoritative.record(frame);
         if (initialUpdates) {
             updates.removeIf(update -> !update.historical());

@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.prediction.simulation.reconciliation;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.model.Medium;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionFetchBox;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockStandingBlockResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockLiquidVerticalMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.postmove.BedrockBounceBlockMovement;
@@ -91,17 +92,16 @@ final class BedrockAcceptedDiffVerticalVelocity {
             return OptionalDouble.empty();
         }
 
-        var acceptedSupport = BedrockStandingBlockResolver.resolve(
-            state.physicalFeetPosition(), blockWorld, evidence.committedDimensions()
+        // The projected move fetches its own shapes, exactly as the predicted move does.
+        var fetchBox = BedrockCollisionFetchBox.of(
+            movementResult.previousState().collisionBox(movementResult.movementContext().playerDimensionsState()),
+            projection.requestedDelta(),
+            movementResult.maxUpStep()
         );
-        var standingBlock = acceptedSupport.isPresent()
-            ? BounceBlockState.fromCollisionBlock(
-                acceptedSupport.get().block(), acceptedSupport.get().surfaceY()
+        var standingBlock = BedrockStandingBlockResolver.resolveFetched(
+                state.physicalFeetPosition(), blockWorld, evidence.committedDimensions(), fetchBox
             )
-            : projection.collisionMove().selectedMove().yCollisionBlock()
-                .flatMap(block -> BounceBlockState.fromCollisionBlock(
-                    block, state.physicalFeetPosition().y()
-                ));
+            .flatMap(support -> BounceBlockState.fromCollisionBlock(support.block(), support.surfaceY()));
         if (standingBlock.isEmpty()) {
             return OptionalDouble.empty();
         }

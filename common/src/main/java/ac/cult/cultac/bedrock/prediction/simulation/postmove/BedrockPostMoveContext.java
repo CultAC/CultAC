@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.simulation.postmove;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
@@ -75,11 +76,12 @@ record BedrockPostMoveContext(
         return frame;
     }
 
-    BedrockPostMoveFrame applyStandingBounce(BedrockPostMoveFrame frame, Vec3d nextPosition) {
-        if (!frame.flags().verticalCollision() || !frame.flags().onGround() || moveRequest.move().y() >= 0.0D) {
+    BedrockPostMoveFrame applyStandingBounce(BedrockPostMoveFrame frame, Vec3d nextPosition, WorldCollisionBox fetchBox) {
+        if (fetchBox == null || !frame.flags().verticalCollision() || !frame.flags().onGround()
+                || moveRequest.move().y() >= 0.0D) {
             return frame;
         }
-        var block = BedrockStandingBlockResolver.resolve(nextPosition, blockCollisionWorld(), movementDimensions())
+        var block = BedrockStandingBlockResolver.resolveFetched(nextPosition, blockCollisionWorld(), movementDimensions(), fetchBox)
             .flatMap(support -> BounceBlockState.fromCollisionBlock(support.block(), support.surfaceY()));
         if (block.isEmpty()) return frame;
         var bounce = BedrockBounceBlockMovement.applyAfterVerticalReset(
