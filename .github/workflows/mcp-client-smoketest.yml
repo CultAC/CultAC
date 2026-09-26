@@ -420,23 +420,6 @@ jobs:
                 --suite "$suite_selector"
           }
 
-          run_core_scenario() {
-            local key="$1"
-            local name="$2"
-            local base_port="$3"
-            local scenario_selector="$4"
-            echo "$name scenario: $scenario_selector"
-            run_background "$key" "$name" 5 \
-              env REAL_VALIDATION_SERVER_JVM_XMS="$SMOKETEST_SERVER_JVM_XMS" \
-                REAL_VALIDATION_SERVER_JVM_HEAP="$SMOKETEST_SERVER_JVM_HEAP" \
-              xvfb-run -a -s "-screen 0 1280x720x24" \
-              java "${java_common[@]}" \
-                ac.grim.movementvalidation.RealServerValidationMain \
-                "$RUN_ROOT/$key" "$base_port" \
-                --target grim-dev \
-                --scenario "$scenario_selector"
-          }
-
           run_core_chunk() {
             local chunk_index="$1"
             local chunk_count=4
@@ -453,14 +436,10 @@ jobs:
             run_core_suite "core-movement-$chunk_index" "Core movement smoketest $chunk_index/$chunk_count" "$base_port" "$suite_selector"
           }
 
-          run_core_suite "core-movement-1a" "Core movement smoketest 1/4a" 25720 "ci-full:range:1-58"
+          run_core_chunk 1 25720
           run_core_chunk 2 25740
           run_core_chunk 3 25760
           run_core_chunk 4 25780
-          wait_group || section_status=1
-
-          run_core_scenario "core-movement-strider-fungus" "Core movement smoketest strider-fungus" 25820 "strider-fungus-empty-hand-air-switch"
-          run_core_suite "core-movement-1b" "Core movement smoketest 1/4b" 25840 "ci-full:range:60-72"
           wait_group || section_status=1
 
           run_background "deduplication" "Deduplication verification" 20 \
