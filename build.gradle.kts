@@ -44,16 +44,6 @@ tasks.register("printVersion") {
     }
 }
 
-// The parity implementation lives in its own tool module so it can load both
-// jars in isolated JVMs and package the bootstrap-safe ASM agent without
-// changing either runtime jar.  The shell wrapper supplies the baseline and
-// current jar paths after building them from clean inputs.
-tasks.register("cultParity") {
-    group = "verification"
-    description = "Runs the exhaustive shared-check differential conformance harness."
-    dependsOn(":parity:cultParity")
-}
-
 // ---------- Java Compile Optimization ----------
 subprojects {
     // Checksums are pinned in gradle/verification-metadata.xml.
