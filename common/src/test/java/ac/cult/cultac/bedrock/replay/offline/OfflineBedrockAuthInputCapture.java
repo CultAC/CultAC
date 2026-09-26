@@ -67,7 +67,6 @@ final class OfflineBedrockAuthInputCapture {
          .jumping(
             hasAnyFlag(
                rawInputFlags,
-               PlayerAuthInputData.JUMP_CURRENT_RAW,
                PlayerAuthInputData.JUMP_DOWN,
                PlayerAuthInputData.JUMPING,
                PlayerAuthInputData.START_JUMPING,

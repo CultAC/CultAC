@@ -72,7 +72,7 @@ public record BedrockFrameFacts(
             context,
             resolvedDimensions.mode(),
             movementDimensions,
-            BedrockSwimmingMovement.initial(current, context),
+            BedrockSwimmingMovement.initial(current, context, frame),
             BedrockClimbMovement.resolveSurface(
                 current.climbableContact(),
                 context.inWater(),

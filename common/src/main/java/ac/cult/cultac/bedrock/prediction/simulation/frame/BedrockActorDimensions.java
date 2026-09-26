@@ -45,7 +45,7 @@ public final class BedrockActorDimensions {
         var definition = previousState.collisionDefinition();
         if (definition != null) {
             var intent = currentFrame.intent();
-            boolean swimming = BedrockSwimmingMovement.initial(previousState, context)
+            boolean swimming = BedrockSwimmingMovement.initial(previousState, context, currentFrame)
                 .afterActions(intent, context.inWater()).nextActorSwimming();
             boolean gliding = BedrockGlidingTravelMovement.resolve(previousState, intent, context)
                 .activeAfterActions();

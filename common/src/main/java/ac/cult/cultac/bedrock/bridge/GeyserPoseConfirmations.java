@@ -27,6 +27,16 @@ final class GeyserPoseConfirmations {
         pose = Pose.read(entity).actions(input.getInputData());
     }
 
+    /**
+     * The engine consumed this input's actor actions although its movement was rejected, e.g. before a
+     * teleport acknowledgement. Track them without confirming, so the next confirmation matches the client.
+     */
+    void observeRejected(GeyserSession session, PlayerAuthInputPacket input) {
+        var entity = session.getPlayerEntity();
+        pose = Pose.read(entity).actions(input.getInputData());
+        pose.apply(entity);
+    }
+
     void confirm(GeyserSession session, PlayerAuthInputPacket input, GeyserSprintAttributes.Boundary boundary) {
         var entity = session.getPlayerEntity();
         // Geyser handles touch/scaffolding/flying sneak inputs; retain those rules.

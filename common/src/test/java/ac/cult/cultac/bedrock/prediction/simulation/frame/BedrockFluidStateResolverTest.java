@@ -194,6 +194,39 @@ public class BedrockFluidStateResolverTest {
                 water, 1.5D, 0.999D, 0.5D, BedrockLiquidKind.WATER));
     }
 
+    @Test
+    public void sourceOnlyContactIgnoresFlowTowardLowerLiquidBesideAir() {
+        BedrockMovementContext resolved = BedrockFluidStateResolver.withFluidStateFromBlockWorld(
+                contextWithWorld(sourceEdgeWorld(waterBlock(new BlockPosition(1, -1, 0), "minecraft:flowing_water", 1))),
+                new Vec3d(0.7D, 0.3D, 0.67D));
+
+        assertEquals(Medium.WATER, resolved.worldState().medium());
+        assertFalse(resolved.worldState().fluidState().current());
+        assertFalse(BedrockFluidMovementSourceResolver.fromContext(resolved, 0.0D).active());
+    }
+
+    @Test
+    public void sourceOnlyContactAppliesFlowFromAdjacentFlowingBlock() {
+        BedrockMovementContext resolved = BedrockFluidStateResolver.withFluidStateFromBlockWorld(
+                contextWithWorld(sourceEdgeWorld(waterBlock(new BlockPosition(1, 0, 0), "minecraft:flowing_water", 1))),
+                new Vec3d(0.7D, 0.3D, 0.67D));
+
+        assertTrue(resolved.worldState().fluidState().current());
+        BedrockFluidMovementSource source = BedrockFluidMovementSourceResolver.fromContext(resolved, 0.0D);
+        assertTrue(source.active());
+        assertEquals(0.014D, source.appliedDelta().x(), 0.0D);
+        assertEquals(0.0D, source.appliedDelta().z(), 0.0D);
+    }
+
+    private static BlockCollisionWorld sourceEdgeWorld(PlacedBlockCollision flowingBlock) {
+        return new BlockCollisionWorld(List.of(
+                waterBlock(new BlockPosition(0, 0, 0), "minecraft:water", 0),
+                waterBlock(new BlockPosition(-1, 0, 0), "minecraft:water", 0),
+                waterBlock(new BlockPosition(0, 0, 1), "minecraft:water", 0),
+                waterBlock(new BlockPosition(0, 0, -1), "minecraft:water", 0),
+                flowingBlock));
+    }
+
     private static PlacedBlockCollision waterBlock(
             BlockPosition position,
             String identifier,

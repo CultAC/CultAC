@@ -1,6 +1,8 @@
 package ac.cult.cultac.bedrock.prediction.simulation.frame;
 
+import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
+import ac.cult.cultac.bedrock.prediction.input.BedrockPoseInputData;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockSwimmingPoseProgress;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
@@ -11,12 +13,15 @@ public final class BedrockSwimmingMovement {
 
     static SwimmingState initial(
         BedrockMovementState current,
-        BedrockMovementContext context
+        BedrockMovementContext context,
+        BedrockInputFrame frame
     ) {
         boolean actorStateAtStart = context.actorSwimming() || current.swimming();
+        boolean swimPoseActive = actorStateAtStart
+            || BedrockPoseInputData.crawlingBeforeActions(frame, current.horizontalPose());
         double swimAmount = BedrockSwimmingPoseProgress.nextSwimAmount(
             current.swimAmount(),
-            actorStateAtStart
+            swimPoseActive
         );
         return new SwimmingState(
             actorStateAtStart,

@@ -34,7 +34,8 @@ record BedrockMobJumpInput(
             nonSwimmerSwimUp(liquidJumpContact),
             liquidJumpContact.lavaSwimUpApplies(),
             BedrockLocalPlayerJumpMovement.requestedLaunch(
-                input.previousState(), input.inputFrame(), inWater, inLava, climb.inScaffolding())
+                input.previousState(), input.inputFrame(), inWater, inLava, climb.inScaffolding(),
+                swimming.swimAmount())
         );
     }
 

@@ -13,13 +13,15 @@ final class BedrockLocalPlayerJumpMovement {
         BedrockInputFrame frame,
         boolean inWater,
         boolean inLava,
-        boolean inScaffolding
+        boolean inScaffolding,
+        double swimAmount
     ) {
         Objects.requireNonNull(current, "current");
         Objects.requireNonNull(frame, "frame");
         // START_JUMPING describes the original launch. Holding jump can launch on
         // a different tick after a correction changes when the actor is grounded.
         return frame.jumping()
+            && !(swimAmount > 0.0D && swimAmount < 1.0D)
             && !inWater
             && !inLava
             && !inScaffolding

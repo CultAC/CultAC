@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 
 final class BedrockBlockFluidResolver {
@@ -44,6 +45,8 @@ final class BedrockBlockFluidResolver {
         double lavaFlowX = 0.0D;
         double lavaFlowY = 0.0D;
         double lavaFlowZ = 0.0D;
+        List<PlacedBlockCollision> fetchedWater = new ArrayList<>();
+        List<PlacedBlockCollision> fetchedLava = new ArrayList<>();
         List<BubbleColumnLayer> bubbleLayers = new ArrayList<>();
         Set<BlockPosition> bubbleLayerPositions = new HashSet<>();
 
@@ -81,6 +84,7 @@ final class BedrockBlockFluidResolver {
                         if (BedrockLiquidGeometry.isWaterBlock(liquidBlock)
                                 && BedrockLiquidGeometry.intersectsBlock(position, waterBox)) {
                             waterContact = true;
+                            fetchedWater.add(liquidBlock);
                             BedrockLiquidFlowVector flow = BedrockLiquidFlowResolver.flowVector(
                                     liquidBlock, BedrockLiquidKind.WATER, byPosition);
                             waterFlowX += flow.x();
@@ -89,6 +93,7 @@ final class BedrockBlockFluidResolver {
                         } else if (BedrockLiquidGeometry.isLavaBlock(liquidBlock)
                                 && BedrockLiquidGeometry.intersectsBlock(position, lavaBox)) {
                             lavaContact = true;
+                            fetchedLava.add(liquidBlock);
                             BedrockLiquidFlowVector flow = BedrockLiquidFlowResolver.flowVector(
                                     liquidBlock, BedrockLiquidKind.LAVA, byPosition);
                             lavaFlowX += flow.x();
@@ -114,6 +119,14 @@ final class BedrockBlockFluidResolver {
         double currentX = liquidMovementMedium == Medium.LAVA ? lavaFlowX : waterFlowX;
         double currentY = liquidMovementMedium == Medium.LAVA ? lavaFlowY : waterFlowY;
         double currentZ = liquidMovementMedium == Medium.LAVA ? lavaFlowZ : waterFlowZ;
+        boolean appliesFlow = liquidMovementMedium == Medium.LAVA
+            ? appliesFlow(fetchedLava, lavaBox, BedrockLiquidKind.LAVA, liquidByPosition)
+            : appliesFlow(fetchedWater, waterBox, BedrockLiquidKind.WATER, liquidByPosition);
+        if (!appliesFlow) {
+            currentX = 0.0D;
+            currentY = 0.0D;
+            currentZ = 0.0D;
+        }
         boolean currentPositiveX = currentX > 0.0D;
         boolean currentNegativeX = currentX < 0.0D;
         boolean currentPositiveZ = currentZ > 0.0D;
@@ -143,6 +156,52 @@ final class BedrockBlockFluidResolver {
             lavaContact,
             liquidMovementMedium
         );
+    }
+
+    private static boolean appliesFlow(
+        List<PlacedBlockCollision> fetched,
+        WorldCollisionBox liquidBox,
+        BedrockLiquidKind liquidKind,
+        Map<BlockPosition, PlacedBlockCollision> liquidByPosition
+    ) {
+        for (PlacedBlockCollision block : fetched) {
+            if (isFlowing(block)) {
+                return true;
+            }
+        }
+        int minX = (int) Math.floor(liquidBox.minX());
+        int maxX = (int) Math.ceil(liquidBox.maxX()) - 1;
+        int minZ = (int) Math.floor(liquidBox.minZ());
+        int maxZ = (int) Math.ceil(liquidBox.maxZ()) - 1;
+        for (PlacedBlockCollision block : fetched) {
+            BlockPosition position = block.position();
+            if ((position.z() == minZ && hasFlowingNeighbor(position, 0, -1, liquidKind, liquidByPosition))
+                || (position.z() == maxZ && hasFlowingNeighbor(position, 0, 1, liquidKind, liquidByPosition))
+                || (position.x() == minX && hasFlowingNeighbor(position, -1, 0, liquidKind, liquidByPosition))
+                || (position.x() == maxX && hasFlowingNeighbor(position, 1, 0, liquidKind, liquidByPosition))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasFlowingNeighbor(
+        BlockPosition position,
+        int dx,
+        int dz,
+        BedrockLiquidKind liquidKind,
+        Map<BlockPosition, PlacedBlockCollision> liquidByPosition
+    ) {
+        PlacedBlockCollision neighbor = liquidByPosition.get(
+            new BlockPosition(position.x() + dx, position.y(), position.z() + dz));
+        return neighbor != null
+            && BedrockLiquidGeometry.liquidKind(neighbor) == liquidKind
+            && isFlowing(neighbor);
+    }
+
+    private static boolean isFlowing(PlacedBlockCollision block) {
+        OptionalInt depth = BedrockLiquidGeometry.liquidDepth(block);
+        return depth.isPresent() && depth.getAsInt() > 0;
     }
 
     private static Medium liquidMovementMedium(boolean waterContact, boolean lavaContact) {
