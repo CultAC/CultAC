@@ -24,20 +24,20 @@ class VanillaComponentBindingsTest {
             .build();
 
     @Test
-    void equivalentDefaultsShareBindingsAndChangedDefaultsRestore() {
+    void equivalentDefaultsShareSnapshotsWithoutChangingBoundComponents() {
         var holder = Holder.Reference.createStandAlone(new HolderOwner<String>() {}, ENTRY);
+        var defaults = components(1);
+        holder.bindComponents(defaults);
         var shared = Interners.<VanillaComponentBindings<?>>newWeakInterner();
         var first = shared.intern(binding(holder, 3));
         var equivalent = shared.intern(binding(holder, 3));
         var changed = shared.intern(binding(holder, 4));
         assertSame(first, equivalent);
         assertNotSame(first, changed);
-        first.apply();
-        assertEquals(3, holder.components().get(VALUE));
-        changed.apply();
-        assertEquals(4, holder.components().get(VALUE));
-        equivalent.apply();
-        assertEquals(3, holder.components().get(VALUE));
+        assertEquals(3, first.contents().get(holder).get(VALUE));
+        assertEquals(4, changed.contents().get(holder).get(VALUE));
+        assertSame(first.contents(), equivalent.contents());
+        assertSame(defaults, holder.components());
     }
 
     @Test
@@ -48,53 +48,14 @@ class VanillaComponentBindingsTest {
         var a = shared.intern(binding(first, 3));
         var b = shared.intern(binding(second, 3));
         assertNotSame(a, b);
-        a.apply();
+        assertFalse(a.contents().containsKey(second));
+        assertFalse(b.contents().containsKey(first));
+        assertFalse(first.areComponentsBound());
         assertFalse(second.areComponentsBound());
-        b.apply();
-        binding(first, 7).apply();
-        assertEquals(7, first.components().get(VALUE));
-        assertEquals(3, second.components().get(VALUE));
-    }
-
-    @Test
-    void contextTransitionsPreserveUnchangedMapsAndRestoreChangedAndEmptyDefaults() {
-        var owner = new HolderOwner<String>() {};
-        var stable = Holder.Reference.createStandAlone(owner, ENTRY);
-        var mutable = Holder.Reference.createStandAlone(
-                owner, ResourceKey.create(REGISTRY, Identifier.parse("test:mutable")));
-        var stableMap = components(3);
-        var original = binding(Map.of(stable, stableMap, mutable, components(7)));
-        var changed = binding(Map.of(stable, components(3), mutable, components(8)));
-        var cleared = binding(Map.of(stable, components(3), mutable, DataComponentMap.EMPTY));
-        original.apply();
-        for (int repeat = 0; repeat < 3; repeat++) {
-            changed.applyAfter(original);
-            assertSame(stableMap, stable.components());
-            assertEquals(8, mutable.components().get(VALUE));
-            cleared.applyAfter(changed);
-            assertSame(stableMap, stable.components());
-            assertNull(mutable.components().get(VALUE));
-            original.applyAfter(cleared);
-            assertSame(stableMap, stable.components());
-            assertEquals(7, mutable.components().get(VALUE));
-        }
-    }
-
-    @Test
-    void transitionAcrossPrivateRegistriesStillRestoresSharedHolders() {
-        var shared = Holder.Reference.createStandAlone(new HolderOwner<String>() {}, ENTRY);
-        var privateHolder = Holder.Reference.createStandAlone(new HolderOwner<String>() {}, ENTRY);
-        var first = binding(shared, 3);
-        var changed = binding(shared, 7);
-        var isolated = binding(privateHolder, 9);
-        first.applyAfter(null);
-        for (int repeat = 0; repeat < 3; repeat++) {
-            changed.applyAfter(first);
-            isolated.applyAfter(changed);
-            first.applyAfter(isolated);
-            assertEquals(3, shared.components().get(VALUE));
-            assertEquals(9, privateHolder.components().get(VALUE));
-        }
+        var changed = binding(first, 7);
+        assertEquals(7, changed.contents().get(first).get(VALUE));
+        assertEquals(3, a.contents().get(first).get(VALUE));
+        assertEquals(3, b.contents().get(second).get(VALUE));
     }
 
     private static VanillaComponentBindings<String> binding(Holder.Reference<String> holder, int value) {
@@ -119,7 +80,7 @@ class VanillaComponentBindingsTest {
 
             @Override
             public void apply() {
-                entries.forEach(Holder.Reference::bindComponents);
+                throw new AssertionError("A component snapshot must not bind shared holders");
             }
         });
     }

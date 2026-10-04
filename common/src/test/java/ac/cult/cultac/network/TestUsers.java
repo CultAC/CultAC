@@ -12,8 +12,12 @@ public final class TestUsers {
     private TestUsers() {}
 
     public static User create(User.Profile profile, Channel channel) {
-        var session =
-                new CultConnection(channel, CultAPI.INSTANCE.getNetworkManager().dispatcher(), ignored -> null);
+        return create(profile, channel, null);
+    }
+
+    public static User create(User.Profile profile, Channel channel, PlatformConnection platform) {
+        var session = new CultConnection(
+                platform, channel, CultAPI.INSTANCE.getNetworkManager().dispatcher(), ignored -> null);
         for (var direction : PacketDirection.values()) session.phase(direction, ConnectionPhase.PLAY);
         return new User(profile, session);
     }

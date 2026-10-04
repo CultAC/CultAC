@@ -182,6 +182,12 @@ public final class OfflineCultTestBootstrap {
     /** Dynamic registry IDs in login/respawn use the server encoder's registry. */
     public static ac.cult.cultac.network.PlatformConnection platformConnection() {
         var platform = Mockito.mock(ac.cult.cultac.network.PlatformConnection.class);
+        Mockito.doAnswer(invocation -> {
+                    ((Runnable) invocation.getArgument(0)).run();
+                    return null;
+                })
+                .when(platform)
+                .runInModel(Mockito.any(Runnable.class));
         Mockito.when(platform.registries())
                 .thenReturn(new ac.cult.cultac.utils.minecraft.MinecraftRegistries(
                         () -> net.minecraft.server.MinecraftServer.getServer().registryAccess(),

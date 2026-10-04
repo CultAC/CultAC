@@ -2,6 +2,7 @@ package ac.cult.vanilla.interaction;
 
 import ac.cult.placement.api.InteractionEngine;
 import ac.cult.placement.api.InteractionEngine.Stack;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
 import net.minecraft.core.RegistryAccess;
@@ -22,9 +23,7 @@ final class InteractionItems {
         if (input.count() <= 0 || input.item().equals("minecraft:air")) return ItemStack.EMPTY;
         var item = BuiltInRegistries.ITEM.get(Identifier.parse(input.item())).orElseThrow();
         if (input.components() == null) return new ItemStack(item, input.count());
-        var patch = DataComponentPatch.CODEC
-                .parse(RegistryOps.create(JsonOps.INSTANCE, registries), JsonParser.parseString(input.components()))
-                .getOrThrow();
+        var patch = ModelBootstrap.decodeComponents(JsonParser.parseString(input.components()), registries);
         return new ItemStack(item, input.count(), transferred(patch));
     }
 
@@ -36,10 +35,19 @@ final class InteractionItems {
                 stack.getCount(),
                 patch.isEmpty()
                         ? null
-                        : DataComponentPatch.CODEC
-                                .encodeStart(RegistryOps.create(JsonOps.INSTANCE, registries), patch)
-                                .getOrThrow()
-                                .toString());
+                        : ModelBootstrap.encodeComponents(patch, registries).toString());
+    }
+
+    static DataComponentPatch nativeDecode(JsonElement input, RegistryAccess registries) {
+        return DataComponentPatch.CODEC
+                .parse(RegistryOps.create(JsonOps.INSTANCE, registries), input)
+                .getOrThrow();
+    }
+
+    static JsonElement nativeEncode(DataComponentPatch patch, RegistryAccess registries) {
+        return DataComponentPatch.CODEC
+                .encodeStart(RegistryOps.create(JsonOps.INSTANCE, registries), patch)
+                .getOrThrow();
     }
 
     private static DataComponentPatch transferred(DataComponentPatch patch) {

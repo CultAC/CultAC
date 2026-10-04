@@ -1,5 +1,7 @@
 package ac.cult.cultac.utils.minecraft;
 
+import ac.cult.cultac.protocol.ProtocolCodecs;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.ModelRegistryNames;
 import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import ac.cult.placement.api.GeometryTags;
@@ -14,11 +16,22 @@ import net.minecraft.core.registries.BuiltInRegistries;
 public final class NativeGeometryTags {
     private NativeGeometryTags() {}
 
+    /** Project received tags through the client before resolving them in the isolated runtime. */
+    public static GeometryTags project(
+            GeometryTags tags, ProtocolVersion source, ProtocolVersion client, ProtocolVersion model) {
+        return new GeometryTags(
+                ProtocolCodecs.projectTags("minecraft:block", tags.blocks(), source, client, model),
+                ProtocolCodecs.projectTags("minecraft:item", tags.items(), source, client, model),
+                ProtocolCodecs.projectTags("minecraft:fluid", tags.fluids(), source, client, model),
+                ProtocolCodecs.projectTags("minecraft:entity_type", tags.entities(), source, client, model));
+    }
+
     public static GeometryTags capture() {
         return new GeometryTags(
                 capture(BuiltInRegistries.BLOCK, UnaryOperator.identity()),
                 capture(BuiltInRegistries.ITEM, UnaryOperator.identity()),
-                capture(BuiltInRegistries.FLUID, UnaryOperator.identity()));
+                capture(BuiltInRegistries.FLUID, UnaryOperator.identity()),
+                capture(BuiltInRegistries.ENTITY_TYPE, UnaryOperator.identity()));
     }
 
     public static GeometryTags capture(ModelRegistryNames names) {
@@ -26,6 +39,21 @@ public final class NativeGeometryTags {
                 capture(BuiltInRegistries.BLOCK, names::modelBlock),
                 capture(BuiltInRegistries.ITEM, names::modelItem),
                 capture(BuiltInRegistries.FLUID, UnaryOperator.identity()));
+    }
+
+    public static GeometryTags capture(ModelRegistryNames names, ProtocolVersion source, ProtocolVersion target) {
+        return translate(capture(), names, source, target);
+    }
+
+    /** Preserve the established geometry maps while carrying its explicit action entity context. */
+    public static GeometryTags translate(
+            GeometryTags tags, ModelRegistryNames names, ProtocolVersion source, ProtocolVersion target) {
+        var geometry = translate(tags, names);
+        return new GeometryTags(
+                geometry.blocks(),
+                geometry.items(),
+                geometry.fluids(),
+                ProtocolCodecs.projectTags("minecraft:entity_type", tags.entities(), source, source, target));
     }
 
     public static GeometryTags translate(GeometryTags tags, ModelRegistryNames names) {

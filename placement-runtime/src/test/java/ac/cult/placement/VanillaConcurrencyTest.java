@@ -94,14 +94,14 @@ class VanillaConcurrencyTest {
     }
 
     @Test
-    void fallbackWaitsForReadersAndKeepsInstalledTags() throws Exception {
+    void fallbackPublishesWhileReadersKeepTheirOwnGenerationAndTags() throws Exception {
         var entered = new CountDownLatch(1);
         var finish = new CountDownLatch(1);
         try (var runtime = open();
                 var pool = Executors.newSingleThreadExecutor()) {
             int stone = VanillaInteractionTest.state(runtime, "minecraft:stone", Map.of());
-            runtime.tags(new GeometryTags(
-                    Map.of("minecraft:supports_vegetation", List.of("minecraft:stone")), Map.of(), Map.of()));
+            var support = new GeometryTags(
+                    Map.of("minecraft:supports_vegetation", List.of("minecraft:stone")), Map.of(), Map.of());
             assertTrue(runtime.narrowed());
             var active = pool.submit(
                     () -> runtime.interact(request(blockedWorld(stone, entered, finish), "minecraft:dirt")));
@@ -127,21 +127,16 @@ class VanillaConcurrencyTest {
                 var context = Thread.currentThread().getContextClassLoader();
                 assertThrows(NoClassDefFoundError.class, () -> runtime.interact(request(broken, "minecraft:dirt")));
                 assertSame(context, Thread.currentThread().getContextClassLoader());
-                // Wait until the full model is built and its publisher is waiting for the
-                // reader. This checks the actual retirement boundary, without timing a sleep.
-                until(
-                        () -> Thread.getAllStackTraces().entrySet().stream()
-                                .anyMatch(entry -> entry.getKey().getName().equals("cult-vanilla-full-model")
-                                        && java.util.Arrays.stream(entry.getValue())
-                                                .anyMatch(frame -> frame.getClassName()
-                                                        .contains("ReentrantReadWriteLock$WriteLock"))),
-                        "The fallback publisher must wait for the active reader");
+                until(() -> !runtime.narrowed(), "Fallback publication must not wait for an unrelated request");
+                assertFalse(active.isDone(), "The old request must retain its model while fallback serves new ones");
+                assertTrue(runtime.interact(request(taggedWorld(stone, support), "minecraft:dandelion"))
+                        .consumes());
             } finally {
                 finish.countDown();
             }
             assertTrue(active.get(10, TimeUnit.SECONDS).consumes());
             until(() -> !runtime.narrowed(), "The completed action must permit fallback publication");
-            var ordinary = VanillaInteractionTest.world(stone, Map.of());
+            var ordinary = taggedWorld(stone, support);
             assertTrue(
                     runtime.interact(request(ordinary, "minecraft:dandelion")).consumes(),
                     "The replacement must receive the installed custom support tag");

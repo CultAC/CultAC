@@ -15,6 +15,7 @@ import java.util.zip.GZIPInputStream;
 
 /** Exact static vanilla IDs. Dynamic/custom registries still come from connection configuration. */
 public final class ModelRegistryData {
+    private static final Map<ProtocolVersion, ModelRegistryData> CACHE = new java.util.concurrent.ConcurrentHashMap<>();
     private final ProtocolVersion version;
     private final Map<String, IdTable> registries;
     private final List<String> states;
@@ -34,6 +35,10 @@ public final class ModelRegistryData {
     }
 
     public static ModelRegistryData load(ProtocolVersion version) {
+        return CACHE.computeIfAbsent(version, ModelRegistryData::read);
+    }
+
+    private static ModelRegistryData read(ProtocolVersion version) {
         String path = "/ac/cult/cultac/protocol/model/" + version.protocol() + ".tsv.gz";
         try (var resource = ModelRegistryData.class.getResourceAsStream(path)) {
             if (resource == null) throw new ProtocolResolutionException("Missing model registry data for " + version);

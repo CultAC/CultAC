@@ -5,24 +5,18 @@ import static ac.cult.cultac.protocol.PacketDirection.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.protocol.data.ProtocolData;
-import ac.cult.cultac.protocol.packet.ClientboundPackets;
-import ac.cult.cultac.protocol.packet.Packets;
-import ac.cult.cultac.protocol.packet.ServerboundPackets;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
+import ac.cult.cultac.protocol.packet.*;
+import ac.cult.cultac.protocol.packet.clientbound.*;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.wire.Wire;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
-import io.netty.buffer.Unpooled;
-import io.netty.buffer.UnpooledByteBufAllocator;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
+import io.netty.buffer.*;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class ProjectedPacketsTest {
-    private static final ProtocolRuntime WIRE = ProtocolRuntime.create(ProtocolData.load(ProtocolVersion.V1_21_3));
+    record ModelValue(int id) implements ClientboundPacket {}
+
     private static final PacketType<ModelValue> REGISTRY = new PacketType<>(
             "clientbound.registry_data",
             ModelValue.class,
@@ -31,22 +25,18 @@ class ProjectedPacketsTest {
             List.of("minecraft:registry_data"),
             ProtocolVersion.V26_3,
             new WritablePacketCodec<>() {
-                @Override
                 public boolean requiresModelValues() {
                     return true;
                 }
 
-                @Override
-                public ModelValue read(ByteBuf bytes, ProtocolContext context) {
-                    assertEquals(
-                            ProtocolVersion.V26_3, context.version(), "Old bytes must never reach model value codecs");
-                    return new ModelValue(Wire.readVarInt(bytes));
+                public ModelValue read(ByteBuf input, ProtocolContext context) {
+                    assertEquals(ProtocolVersion.V26_3, context.version());
+                    return new ModelValue(Wire.readVarInt(input));
                 }
 
-                @Override
-                public void write(ByteBuf bytes, ProtocolContext context, ModelValue value) {
+                public void write(ByteBuf output, ProtocolContext context, ModelValue value) {
                     assertEquals(ProtocolVersion.V26_3, context.version());
-                    Wire.writeVarInt(bytes, value.id());
+                    Wire.writeVarInt(output, value.id());
                 }
             });
     private static final ProtocolRuntime MODEL = model();
@@ -57,162 +47,136 @@ class ProjectedPacketsTest {
         return ProtocolRuntime.create(ProtocolData.load(ProtocolVersion.V26_3), catalog);
     }
 
-    record ModelValue(int id) implements ClientboundPacket {}
-
     @Test
-    void converterConsumptionPreservesTheOriginalOldTeleportAcknowledgment() {
-        var projection = new Projection();
-        try (var packets = new ProjectedPackets(WIRE, MODEL, () -> projection)) {
-            ByteBuf physical = frame(WIRE, PLAY, SERVERBOUND, "accept_teleportation");
-            Wire.writeVarInt(physical, 42);
-            int index = physical.readerIndex();
-            try {
-                var values = packets.read(PLAY, SERVERBOUND, physical, CodecState.EMPTY, ignored -> true, true);
-                assertEquals(1, values.size());
-                assertSame(
-                        ServerboundPackets.ACCEPT_TELEPORTATION, values.get(0).type());
-                assertEquals(
-                        new ServerboundAcceptTeleportation(42, null, 0, 0),
-                        values.get(0).packet());
-                assertFalse(values.get(0).derived());
-                assertEquals(index, physical.readerIndex());
-                assertEquals(1, physical.refCnt());
-                assertArrayEquals(ByteBufUtil.getBytes(physical), projection.observed);
-            } finally {
-                physical.release();
+    void everyVersionReadsPurePacketsWithoutInvokingValueDecoder() {
+        for (var version : ProtocolVersion.values()) {
+            var wire = ProtocolRuntime.create(ProtocolData.load(version));
+            try (var packets = new ProjectedPackets(wire, MODEL, () -> {
+                throw new AssertionError();
+            })) {
+                ByteBuf input = frame(wire, PLAY, SERVERBOUND, "accept_teleportation");
+                Wire.writeVarInt(input, 42);
+                if (version == ProtocolVersion.V26_3) input.writeZero(32);
+                byte[] original = ByteBufUtil.getBytes(input);
+                try {
+                    var values = packets.read(PLAY, SERVERBOUND, input, CodecState.EMPTY, ignored -> true);
+                    assertEquals(1, values.size());
+                    assertSame(
+                            ServerboundPackets.ACCEPT_TELEPORTATION,
+                            values.get(0).type());
+                    assertEquals(
+                            new ServerboundAcceptTeleportation(
+                                    42,
+                                    version == ProtocolVersion.V26_3
+                                            ? new ac.cult.cultac.protocol.value.Vec3d(0, 0, 0)
+                                            : null,
+                                    0,
+                                    0),
+                            values.get(0).packet());
+                    assertEquals(0, input.readerIndex());
+                    assertEquals(1, input.refCnt());
+                    assertArrayEquals(original, ByteBufUtil.getBytes(input));
+                    var encoded = packets.encode(
+                            PLAY,
+                            ClientboundPackets.PING,
+                            new ClientboundPing(123),
+                            UnpooledByteBufAllocator.DEFAULT,
+                            CodecState.EMPTY);
+                    try {
+                        var output = encoded.frames().get(0);
+                        assertEquals(
+                                wire.data().packets(PLAY, CLIENTBOUND).id("minecraft:ping"), Wire.readVarInt(output));
+                        assertEquals(123, output.readInt());
+                        assertFalse(output.isReadable());
+                    } finally {
+                        encoded.frames().forEach(ByteBuf::release);
+                    }
+                } finally {
+                    input.release();
+                }
             }
         }
-        assertTrue(projection.closed);
     }
 
     @Test
-    void synthesizedMovementIsNeverDispatchedAsASecondClientAction() {
-        var projection = new Projection();
-        ByteBuf synthetic = frame(MODEL, PLAY, SERVERBOUND, "move_player_status_only");
-        synthetic.writeByte(1);
-        projection.outputs =
-                List.of(new PacketProjection.Frame(SERVERBOUND, PLAY, ByteBufUtil.getBytes(synthetic), true));
-        synthetic.release();
-        try (var packets = new ProjectedPackets(WIRE, MODEL, () -> projection)) {
-            ByteBuf physical = frame(WIRE, PLAY, SERVERBOUND, "accept_teleportation");
-            Wire.writeVarInt(physical, 42);
+    void consumedValuesUseObservedSchemaAndPreservePhysicalFrame() {
+        for (var version : ProtocolVersion.values()) {
+            var wire = ProtocolRuntime.create(ProtocolData.load(version));
+            var calls = new AtomicInteger();
+            var adapter = new PacketValueAdapter() {
+                public Object read(ByteBuf input, ProtocolContext context) {
+                    calls.incrementAndGet();
+                    assertEquals(version, context.version());
+                    return new ModelValue(Wire.readVarInt(input));
+                }
+
+                public void write(ByteBuf output, ProtocolContext context, Object value) {
+                    calls.incrementAndGet();
+                    assertEquals(version, context.version());
+                    Wire.writeVarInt(output, ((ModelValue) value).id());
+                }
+            };
+            // The native runtime includes the value catalog; older runtimes intentionally do not.
+            try (var packets =
+                    new ProjectedPackets(version == ProtocolVersion.V26_3 ? MODEL : wire, MODEL, () -> adapter)) {
+                ByteBuf input = frame(wire, CONFIGURATION, CLIENTBOUND, "registry_data");
+                Wire.writeVarInt(input, 17);
+                byte[] original = ByteBufUtil.getBytes(input);
+                try {
+                    assertTrue(packets.read(CONFIGURATION, CLIENTBOUND, input, CodecState.EMPTY, ignored -> false)
+                            .isEmpty());
+                    assertEquals(0, calls.get());
+                    var values = packets.read(CONFIGURATION, CLIENTBOUND, input, CodecState.EMPTY, ignored -> true);
+                    assertEquals(List.of(new ProjectedPackets.Value(REGISTRY, new ModelValue(17))), values);
+                    assertArrayEquals(original, ByteBufUtil.getBytes(input));
+                    assertEquals(0, input.readerIndex());
+                    var encoded = packets.encode(
+                            CONFIGURATION,
+                            REGISTRY,
+                            new ModelValue(18),
+                            UnpooledByteBufAllocator.DEFAULT,
+                            CodecState.EMPTY);
+                    try {
+                        assertEquals(1, encoded.frames().size());
+                        var output = encoded.frames().get(0);
+                        assertEquals(
+                                wire.data().packets(CONFIGURATION, CLIENTBOUND).id("minecraft:registry_data"),
+                                Wire.readVarInt(output));
+                        assertEquals(18, Wire.readVarInt(output));
+                        assertFalse(output.isReadable());
+                    } finally {
+                        encoded.frames().forEach(ByteBuf::release);
+                    }
+                    assertEquals(version == ProtocolVersion.V26_3 ? 0 : 2, calls.get());
+                } finally {
+                    input.release();
+                }
+            }
+        }
+    }
+
+    @Test
+    void finishConfigurationIsOneOriginalAction() {
+        var wire = ProtocolRuntime.create(ProtocolData.load(ProtocolVersion.V1_21_3));
+        try (var packets = new ProjectedPackets(wire, MODEL, () -> {
+            throw new AssertionError();
+        })) {
+            var input = frame(wire, CONFIGURATION, CLIENTBOUND, "finish_configuration");
             try {
-                var values = packets.read(PLAY, SERVERBOUND, physical, CodecState.EMPTY, ignored -> true, true);
+                var values = packets.read(CONFIGURATION, CLIENTBOUND, input, CodecState.EMPTY, ignored -> true);
                 assertEquals(
-                        List.of(ServerboundPackets.ACCEPT_TELEPORTATION),
+                        List.of(ClientboundPackets.FINISH_CONFIGURATION),
                         values.stream().map(ProjectedPackets.Value::type).toList());
             } finally {
-                physical.release();
-            }
-        }
-    }
-
-    @Test
-    void derivedNativeRegistriesPrecedeTheOriginalFinishConfiguration() {
-        var projection = new Projection();
-        ByteBuf derived = Unpooled.buffer();
-        MODEL.encode(CONFIGURATION, REGISTRY, new ModelValue(7), derived);
-        ByteBuf finish = frame(MODEL, CONFIGURATION, CLIENTBOUND, "finish_configuration");
-        projection.outputs = List.of(
-                new PacketProjection.Frame(CLIENTBOUND, CONFIGURATION, ByteBufUtil.getBytes(derived), true),
-                new PacketProjection.Frame(CLIENTBOUND, CONFIGURATION, ByteBufUtil.getBytes(finish), false));
-        derived.release();
-        finish.release();
-        try (var packets = new ProjectedPackets(WIRE, MODEL, () -> projection)) {
-            ByteBuf physical = frame(WIRE, CONFIGURATION, CLIENTBOUND, "finish_configuration");
-            try {
-                var values =
-                        packets.read(CONFIGURATION, CLIENTBOUND, physical, CodecState.EMPTY, ignored -> true, true);
-                assertEquals(
-                        List.of(REGISTRY, ClientboundPackets.FINISH_CONFIGURATION),
-                        values.stream().map(ProjectedPackets.Value::type).toList());
-                assertEquals(new ModelValue(7), values.get(0).packet());
-                assertTrue(values.get(0).derived());
-                assertFalse(values.get(values.size() - 1).derived());
-            } finally {
-                physical.release();
-            }
-        }
-    }
-
-    @Test
-    void pureAuthoredPacketsUseTheClientWireIdWithoutReverseConversion() {
-        var projection = new Projection();
-        try (var packets = new ProjectedPackets(WIRE, MODEL, () -> projection)) {
-            var encoded = packets.encode(
-                    PLAY,
-                    ClientboundPackets.PING,
-                    new ClientboundPing(123),
-                    UnpooledByteBufAllocator.DEFAULT,
-                    CodecState.EMPTY);
-            try {
-                assertFalse(encoded.destinationObserved());
-                ByteBuf frame = encoded.frames().get(0);
-                assertEquals(WIRE.data().packets(PLAY, CLIENTBOUND).id("minecraft:ping"), Wire.readVarInt(frame));
-                assertEquals(123, frame.readInt());
-                assertFalse(frame.isReadable());
-                assertEquals(0, projection.authored);
-            } finally {
-                encoded.frames().forEach(ByteBuf::release);
-            }
-        }
-    }
-
-    @Test
-    void nativeAuthoredPacketsRetainEveryConvertedPhysicalFrame() {
-        var projection = new Projection();
-        byte[] first = {1, 2}, second = {3, 4};
-        projection.wireOutputs = List.of(
-                new PacketProjection.Frame(CLIENTBOUND, CONFIGURATION, first, false),
-                new PacketProjection.Frame(CLIENTBOUND, CONFIGURATION, second, true));
-        try (var packets = new ProjectedPackets(WIRE, MODEL, () -> projection)) {
-            var encoded = packets.encode(
-                    CONFIGURATION, REGISTRY, new ModelValue(9), UnpooledByteBufAllocator.DEFAULT, CodecState.EMPTY);
-            try {
-                assertTrue(encoded.destinationObserved());
-                assertEquals(2, encoded.frames().size());
-                assertArrayEquals(first, ByteBufUtil.getBytes(encoded.frames().get(0)));
-                assertArrayEquals(
-                        second,
-                        ByteBufUtil.getBytes(
-                                encoded.frames().get(encoded.frames().size() - 1)));
-                assertEquals(1, projection.authored);
-            } finally {
-                encoded.frames().forEach(ByteBuf::release);
+                input.release();
             }
         }
     }
 
     private static ByteBuf frame(
             ProtocolRuntime runtime, ConnectionPhase phase, PacketDirection direction, String name) {
-        ByteBuf bytes = Unpooled.buffer();
-        int id = runtime.data().packets(phase, direction).id("minecraft:" + name);
-        assertTrue(id >= 0, name);
-        Wire.writeVarInt(bytes, id);
+        var bytes = Unpooled.buffer();
+        Wire.writeVarInt(bytes, runtime.data().packets(phase, direction).id("minecraft:" + name));
         return bytes;
-    }
-
-    private static final class Projection implements PacketProjection {
-        List<Frame> outputs = List.of(), wireOutputs = List.of();
-        byte[] observed;
-        int authored;
-        boolean closed;
-
-        @Override
-        public List<Frame> toModel(PacketDirection direction, ConnectionPhase phase, byte[] bytes, boolean mirror) {
-            observed = bytes;
-            return outputs;
-        }
-
-        @Override
-        public List<Frame> toWire(PacketDirection direction, ConnectionPhase phase, byte[] bytes) {
-            authored++;
-            return wireOutputs;
-        }
-
-        @Override
-        public void close() {
-            closed = true;
-        }
     }
 }

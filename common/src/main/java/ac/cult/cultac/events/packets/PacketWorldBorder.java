@@ -14,8 +14,6 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderSize;
 import ac.cult.cultac.utils.math.CultMath;
 
 public class PacketWorldBorder extends CultProcessor implements CheckListener, ClientTickEndListener {
-    private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion());
     double centerX;
     double centerZ;
     // WorldBorder's initial client state before an initialize-border packet.
@@ -127,7 +125,11 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
         player.latencyUtils.addRealTimeTaskNow(() -> {
             this.oldDiameter = oldDiameter;
             this.newDiameter = newDiameter;
-            long clientLength = clientLerpDuration(SERVER_VERSION, player.getClientVersion(), length);
+            long clientLength = clientLerpDuration(
+                    ClientVersion.fromProtocolVersion(
+                            player.getObservedProtocol().protocol()),
+                    player.getClientVersion(),
+                    length);
             this.tickBasedLerp = usesTickBasedLerp(player.getClientVersion(), oldDiameter, newDiameter, clientLength);
             if (this.tickBasedLerp) {
                 this.lerpDurationTicks = clientLength;
@@ -140,9 +142,10 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
         });
     }
 
-    static long clientLerpDuration(ClientVersion serverVersion, ClientVersion clientVersion, long length) {
-        // The listener sees native units before Via converts the wire duration.
-        boolean serverTicks = serverVersion.isNewerThanOrEquals(ClientVersion.V_1_21_11);
+    static long clientLerpDuration(ClientVersion observedVersion, ClientVersion clientVersion, long length) {
+        // The pure packet record retains the observed duration units. Via may
+        // still convert them on the path from this boundary to the actual client.
+        boolean serverTicks = observedVersion.isNewerThanOrEquals(ClientVersion.V_1_21_11);
         boolean clientTicks = clientVersion.isNewerThanOrEquals(ClientVersion.V_1_21_11);
         if (serverTicks == clientTicks) return length;
         return serverTicks ? length * 50L : length / 50L;

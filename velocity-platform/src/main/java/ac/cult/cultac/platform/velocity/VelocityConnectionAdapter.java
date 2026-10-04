@@ -16,17 +16,20 @@ final class VelocityConnectionAdapter implements PlatformConnection {
     private final Player nativePlayer;
     private final VelocityPlayer player;
     private final VanillaRegistryState state;
-    private final ModelExecutor owner;
+    private final EventExecutor owner;
     private final Object bedrockBridge;
-    private final ac.cult.cultac.protocol.PacketProjectionService codecs;
+    private final ac.cult.cultac.protocol.WireValueDecoder codecs;
+    private VelocityProtocols.Versions protocols;
+    private ac.cult.cultac.network.codec.ObservedPacketValues values;
+    private CultConnection connection;
 
     VelocityConnectionAdapter(
             ProxyServer proxy,
             Player nativePlayer,
             VelocityPlayer player,
             VanillaRegistryState state,
-            EventExecutor worker) {
-        this(proxy, nativePlayer, player, state, worker, null, null);
+            EventExecutor eventLoop) {
+        this(proxy, nativePlayer, player, state, eventLoop, null, null);
     }
 
     VelocityConnectionAdapter(
@@ -34,15 +37,15 @@ final class VelocityConnectionAdapter implements PlatformConnection {
             Player nativePlayer,
             VelocityPlayer player,
             VanillaRegistryState state,
-            EventExecutor worker,
-            ac.cult.cultac.protocol.PacketProjectionService codecs,
+            EventExecutor eventLoop,
+            ac.cult.cultac.protocol.WireValueDecoder codecs,
             ac.cult.cultac.network.PacketOwner bedrock) {
         this.proxy = proxy;
         this.nativePlayer = nativePlayer;
         this.player = player;
         this.state = state;
         // A Bedrock session stays on Geyser's tick loop, which orders its Bedrock and Java packets.
-        this.owner = new ModelExecutor(bedrock == null ? worker : bedrock.executor(), state);
+        this.owner = bedrock == null ? eventLoop : bedrock.executor();
         this.bedrockBridge = bedrock == null ? null : bedrock.bedrockBridge();
         this.codecs = codecs;
     }
@@ -65,30 +68,45 @@ final class VelocityConnectionAdapter implements PlatformConnection {
     }
 
     void attach(CultConnection connection) {
+        this.connection = connection;
         player.attach(connection);
+    }
+
+    void bindProtocols(VelocityProtocols.Versions protocols) {
+        if (this.protocols != null) throw new IllegalStateException("Velocity client protocols already bound");
+        this.protocols = java.util.Objects.requireNonNull(protocols);
     }
 
     @Override
     public MinecraftRegistries registries() {
-        return state.context();
+        return state.registries();
     }
 
     @Override
-    public ac.cult.cultac.protocol.ProtocolVersion wireVersion() {
-        return nativePlayer.getProtocolVersion() == null
-                ? null
-                : ac.cult.cultac.protocol.ProtocolVersion.of(
-                        nativePlayer.getProtocolVersion().getProtocol());
+    public ac.cult.cultac.protocol.ProtocolVersion getObservedProtocol() {
+        return protocols == null ? null : protocols.observed();
     }
 
     @Override
-    public ac.cult.cultac.protocol.PacketProjection packetProjection() {
-        if (!owner.inEventLoop()) throw new IllegalStateException("Projection creation outside its packet owner");
-        return codecs.connection(
-                wireVersion(),
-                ac.cult.cultac.protocol.ProtocolVersion.V26_3,
-                nativePlayer.getUniqueId(),
-                nativePlayer.getUsername());
+    public ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
+        return protocols == null ? null : protocols.client();
+    }
+
+    @Override
+    public ac.cult.cultac.protocol.PacketValueAdapter packetValues() {
+        if (values == null)
+            values = new ac.cult.cultac.network.codec.ObservedPacketValues(
+                    codecs, getObservedProtocol(), state.registries(), () -> {
+                        var player = connection.player();
+                        if (player == null) throw new IllegalStateException("Chunk before player initialization");
+                        var dimension = player.compensatedWorld.getLastClientboundDimension();
+                        return new int[] {dimension.minHeight(), dimension.sectionCount() * 16};
+                    });
+        return values;
+    }
+
+    void beginConfiguration() {
+        if (values != null) values.beginConfiguration();
     }
 
     @Override

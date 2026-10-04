@@ -3,6 +3,7 @@ package ac.cult.cultac.network.packet;
 import static org.junit.Assert.assertEquals;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
@@ -58,7 +59,7 @@ public final class PacketCodecUtilTest {
 
     @Test
     public void newServerToLegacyClientAppliesLpThenViaLegacyCodec() {
-        Vec3 expected = PacketCodecUtil.quantizeLegacyVelocity(PacketCodecUtil.quantizeLpVec3(INPUT));
+        Vec3 expected = viaLegacy(PacketCodecUtil.quantizeLpVec3(INPUT));
         Vec3 actual =
                 PacketCodecUtil.quantizeClientboundVelocity(ClientVersion.V_1_21_9, ClientVersion.V_1_21_7, INPUT);
         assertVecEquals(expected, actual);
@@ -80,6 +81,72 @@ public final class PacketCodecUtilTest {
         assertVecEquals(
                 PacketCodecUtil.quantizeLpVec3(INPUT),
                 PacketCodecUtil.quantizeClientboundVelocity(ClientVersion.V_1_21_9, ClientVersion.V_1_21_9, INPUT));
+    }
+
+    @Test
+    public void decodedLegacyVelocityKeepsEverySignedShortWithoutEncodingItAgain() {
+        var bytes = io.netty.buffer.Unpooled.buffer(6);
+        try {
+            for (int value = Short.MIN_VALUE; value <= Short.MAX_VALUE; value++) {
+                bytes.clear().writeShort(value).writeShort(-32763).writeShort(123);
+                var decoded = ac.cult.cultac.protocol.wire.Wire.readShortVelocity(bytes);
+                Vec3 movement = new Vec3(decoded.x(), decoded.y(), decoded.z());
+                org.junit.Assert.assertSame(
+                        movement,
+                        PacketCodecUtil.clientVelocityFromObserved(
+                                ProtocolVersion.V1_21_3, ClientVersion.V_1_21_2, movement));
+            }
+        } finally {
+            bytes.release();
+        }
+    }
+
+    @Test
+    public void decodedMotionUsesOnlyTheDestinationCodecAcrossAllHundredPairs() {
+        Vec3 legacy = new Vec3(-32763 / 8000.0D, 627 / 8000.0D, -123 / 8000.0D);
+        Vec3 lp = PacketCodecUtil.quantizeLpVec3(INPUT);
+        for (ProtocolVersion observed : ProtocolVersion.values()) {
+            Vec3 decoded = observed.protocol() < 773 ? legacy : lp;
+            for (ProtocolVersion original : ProtocolVersion.values()) {
+                Vec3 expected = observed.protocol() < 773 == original.protocol() < 773
+                        ? decoded
+                        : original.protocol() < 773 ? viaLegacy(decoded) : PacketCodecUtil.quantizeLpVec3(decoded);
+                assertVecEquals(
+                        expected,
+                        PacketCodecUtil.clientVelocityFromObserved(
+                                observed, ClientVersion.fromProtocolVersion(original.protocol()), decoded));
+            }
+        }
+    }
+
+    @Test
+    public void pinnedViaLpToLegacyRoundingRestoresExactPointFourAndClampsBothSigns() {
+        // ec63e9f VelocityUtil and pinned artifact bytecode use Math.round.
+        Vec3 decoded = PacketCodecUtil.quantizeLpVec3(new Vec3(0.4D, -0.4D, 0D));
+        Vec3 movement =
+                PacketCodecUtil.clientVelocityFromObserved(ProtocolVersion.V26_3, ClientVersion.V_1_21_2, decoded);
+        assertEquals(0.4D, movement.x, 0.0D);
+        assertEquals(-0.4D, movement.y, 0.0D);
+        assertEquals(
+                Short.MAX_VALUE / 8000.0D,
+                PacketCodecUtil.clientVelocityFromObserved(
+                                ProtocolVersion.V26_3, ClientVersion.V_1_21_2, new Vec3(4.5D, 0, 0))
+                        .x,
+                0.0D);
+        assertEquals(
+                Short.MIN_VALUE / 8000.0D,
+                PacketCodecUtil.clientVelocityFromObserved(
+                                ProtocolVersion.V26_3, ClientVersion.V_1_21_2, new Vec3(-4.5D, 0, 0))
+                        .x,
+                0.0D);
+    }
+
+    private static Vec3 viaLegacy(Vec3 decoded) {
+        return new Vec3(viaAxis(decoded.x), viaAxis(decoded.y), viaAxis(decoded.z));
+    }
+
+    private static double viaAxis(double value) {
+        return Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, Math.round(value * 8000D))) / 8000D;
     }
 
     private static void assertVecEquals(Vec3 expected, Vec3 actual) {

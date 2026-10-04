@@ -20,8 +20,12 @@ import java.util.Set;
 
 /** Checked-in data generated from the exact vanilla version's reports. */
 public final class ProtocolData {
-    private static final Set<String> REQUIRED_REGISTRIES =
-            Set.of("minecraft:block", "minecraft:entity_type", "minecraft:attribute", "minecraft:mob_effect");
+    private static final Set<String> REQUIRED_REGISTRIES = Set.of(
+            "minecraft:block",
+            "minecraft:entity_type",
+            "minecraft:attribute",
+            "minecraft:mob_effect",
+            "minecraft:menu");
     private final ProtocolVersion version;
     private final Map<ConnectionPhase, Map<PacketDirection, IdTable>> packets;
     private final Map<String, IdTable> registries;
@@ -101,9 +105,7 @@ public final class ProtocolData {
         }
         Map<String, IdTable> registries = new HashMap<>();
         registryNames.forEach((name, names) -> registries.put(name, new IdTable(name, names)));
-        var requiredRegistries = new java.util.HashSet<>(REQUIRED_REGISTRIES);
-        if (version == ProtocolVersion.V26_3) requiredRegistries.add("minecraft:menu");
-        if (!registries.keySet().equals(requiredRegistries)) {
+        if (!registries.keySet().equals(REQUIRED_REGISTRIES)) {
             throw new ProtocolResolutionException("Missing or unexpected registries for " + version);
         }
         return new ProtocolData(version, packets, registries);

@@ -5,6 +5,7 @@ import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -13,12 +14,18 @@ public final class PacketSendEvent<R> extends PacketEvent<R> {
     private List<CultWrite> before, after;
     private List<Runnable> tasks;
     private boolean bundle;
+    private final ProtocolVersion decodedProtocol;
 
     public PacketSendEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet, boolean insideBundle) {
         super(user, phase, type, packet);
         if (type.direction() != PacketDirection.CLIENTBOUND)
             throw new IllegalArgumentException("Send event requires clientbound packet");
         this.insideBundle = insideBundle;
+        this.decodedProtocol = user == null ? null : user.getCultConnection().getObservedProtocol();
+    }
+
+    public ProtocolVersion getDecodedProtocol() {
+        return decodedProtocol;
     }
 
     public List<CultWrite> getWritesBeforeSend() {

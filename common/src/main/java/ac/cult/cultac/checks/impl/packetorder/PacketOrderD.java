@@ -40,7 +40,9 @@ public class PacketOrderD extends Check implements CheckListener {
     @CultPacketHandler
     public void onInteract(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
-        if (!isApplicable() || !DecodedPacketReliability.interactionFamilyReliable(player.getClientVersion())) return;
+        if (!isApplicable()
+                || !DecodedPacketReliability.interactionFamilyReliable(
+                        player.getClientVersion(), player.getObservedProtocol())) return;
 
         final InteractAction action = packet.action();
         if (action == InteractAction.ATTACK) return;

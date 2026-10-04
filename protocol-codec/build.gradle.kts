@@ -27,18 +27,31 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 tasks.compileJava { dependsOn(prepareCodecs) }
-tasks.test { dependsOn(prepareCodecs); useJUnitPlatform() }
-// This source set is a build tool and never enters the private codec or plugin jar.
-val mappingGenerator = sourceSets.create("generator") {
-    compileClasspath += sourceSets.main.get().output + configurations.testRuntimeClasspath.get()
-    runtimeClasspath += sourceSets.main.get().output + configurations.testRuntimeClasspath.get()
+tasks.test {
+    dependsOn(prepareCodecs)
+    useJUnitPlatform()
+    // Via intentionally permits one manager per classloader; each integration test owns one.
+    forkEvery = 1
+    val fixtures = layout.buildDirectory.dir("test-fixtures")
+    outputs.dir(fixtures)
+    systemProperty("wireValueFixtures", fixtures.get().asFile.absolutePath)
 }
-tasks.register<JavaExec>("exportModelMappings") {
-    dependsOn(tasks.classes, tasks.named(mappingGenerator.classesTaskName))
-    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(25)) })
-    classpath = mappingGenerator.runtimeClasspath
-    mainClass.set("ac.cult.cultac.codec.ExportModelMappings")
-    args(rootProject.file("protocol/src/main/resources/ac/cult/cultac/protocol/model-mappings"))
+tasks.processTestResources {
+    dependsOn(tasks.shadowJar)
+    from(tasks.shadowJar.flatMap { it.archiveFile }) { into("runtime") }
+}
+val modelJava = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(25)) }
+for (verify in listOf(false, true)) {
+    tasks.register<Exec>(if (verify) "verifyModelRegistries" else "exportModelRegistries") {
+        group = if (verify) "verification" else "protocol"
+        commandLine("python3", rootProject.file("scripts/generate-model-registries.py"),
+            "--lock", rootProject.file("protocol/model-registries-lock.json"),
+            "--java", modelJava.get().executablePath.asFile,
+            "--work", layout.buildDirectory.dir("model-reports").get().asFile,
+            "--cache", layout.buildDirectory.dir("model-downloads").get().asFile,
+            "--output", rootProject.file("protocol/src/main/resources/ac/cult/cultac/protocol/model"))
+        if (verify) args("--verify")
+    }
 }
 tasks.shadowJar {
     archiveFileName.set("protocol-codecs.jar")

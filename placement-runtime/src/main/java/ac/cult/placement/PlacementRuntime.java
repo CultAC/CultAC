@@ -1,7 +1,6 @@
 package ac.cult.placement;
 
 import ac.cult.placement.api.BlockGeometry;
-import ac.cult.placement.api.GeometryTags;
 import ac.cult.placement.api.InteractionEngine;
 import ac.cult.placement.api.PlacementEngine;
 import ac.cult.runtime.RuntimeModel;
@@ -15,23 +14,17 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Supplier;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
-/** One shared model; actions share a read lock, while tags and model lifetime are exclusive. */
+/** Parallel requests pin a model generation and read request-local tags. */
 public final class PlacementRuntime implements BlockGeometry, AutoCloseable {
     private final Path directory;
     private final Path workerJar;
     private final Path cache;
     private final RuntimeModel model;
-    private InteractionRuntime interactions;
-    private GeometryTags lastTags;
-    private final ReentrantReadWriteLock access = new ReentrantReadWriteLock(true);
+    private final AtomicReference<PlacementModel> current = new AtomicReference<>();
     private final AtomicBoolean recovering = new AtomicBoolean();
-    private final boolean parallel;
-    private ArchiveLoader loader;
-    private PlacementEngine engine;
 
     public static boolean available() {
         return available(RuntimeModel.JAVA_26_3);
@@ -66,14 +59,14 @@ public final class PlacementRuntime implements BlockGeometry, AutoCloseable {
         this.workerJar = workerJar;
         this.cache = cache;
         this.model = model;
-        // The 1.21.11 cache paths have not undergone the 26.3 concurrency audit.
-        parallel = vanilla && model == RuntimeModel.JAVA_26_3;
         if (vanilla) {
             directory = null;
-            interactions = openInteractions(workerJar, cache, model);
-            engine = interactions.geometry();
+            var interactions = openInteractions(workerJar, cache, model);
+            current.set(new PlacementModel(interactions.geometry(), interactions, null));
             return;
         }
+        ArchiveLoader loader = null;
+        InteractionRuntime interactions = null;
         String audit = System.getProperty("placementGeometryProfile");
         if (audit == null)
             throw new IOException("Compact geometry is a local audit profile; production must use openVanilla");
@@ -103,9 +96,11 @@ public final class PlacementRuntime implements BlockGeometry, AutoCloseable {
             ClassLoader previous = Thread.currentThread().getContextClassLoader();
             try {
                 Thread.currentThread().setContextClassLoader(loader == null ? interactions.classLoader() : loader);
-                engine = (PlacementEngine) Class.forName("bench.bridge.CompensatedEngine", true, loader)
+                var engine = (PlacementEngine) Class.forName("bench.bridge.CompensatedEngine", true, loader)
                         .getConstructor()
                         .newInstance();
+                interactions = openInteractions(workerJar, cache, model);
+                current.set(new PlacementModel(engine, interactions, loader));
             } finally {
                 Thread.currentThread().setContextClassLoader(previous);
             }
@@ -121,162 +116,67 @@ public final class PlacementRuntime implements BlockGeometry, AutoCloseable {
     }
 
     public int stateCount() {
-        return query(null, false, () -> engine.stateCount());
-    }
-
-    public void tags(GeometryTags tags) {
-        Objects.requireNonNull(tags);
-        exclusive();
-        try {
-            requireOpen();
-            installTags(tags);
-        } finally {
-            access.writeLock().unlock();
-        }
+        return query(pinned -> pinned.engine.stateCount());
     }
 
     public String stateName(int state) {
-        return query(null, false, () -> engine.stateName(state));
+        return query(pinned -> pinned.engine.stateName(state));
     }
 
     @Override
     public BlockGeometry.State state(int id) {
-        return query(null, false, () -> engine.state(id));
+        return query(pinned -> pinned.engine.state(id));
     }
 
     @Override
     public List<PlacementEngine.Box> shape(
             PlacementEngine.World world, PlacementEngine.Pos pos, int state, Shape kind, Context context) {
-        return query(world.tags(), false, () -> engine.shape(world, pos, state, kind, context));
+        return query(pinned -> pinned.engine.shape(world, pos, state, kind, context));
     }
 
     public List<PlacementEngine.Box> collision(PlacementEngine.World world, PlacementEngine.Pos pos) {
-        return query(world.tags(), false, () -> engine.collision(world, pos));
+        return query(pinned -> pinned.engine.collision(world, pos));
     }
 
     public List<PlacementEngine.Box> outline(PlacementEngine.World world, PlacementEngine.Pos pos) {
-        return query(world.tags(), false, () -> engine.outline(world, pos));
+        return query(pinned -> pinned.engine.outline(world, pos));
     }
 
     public PlacementEngine.Result place(PlacementEngine.Request request) {
-        return query(request.world().tags(), false, () -> engine.place(request));
-    }
-
-    private void requireOpen() {
-        if (engine == null) throw new IllegalStateException("Placement runtime is closed");
-    }
-
-    private void installTags(GeometryTags tags) {
-        if (tags == lastTags || tags.equals(lastTags)) return;
-        try {
-            engine.tags(tags);
-            if (loader != null && interactions != null) interactions.geometry().tags(tags);
-            // Record only a successfully installed snapshot, including per-world tags.
-            lastTags = tags;
-        } catch (RuntimeException | Error failure) {
-            narrowingFailed(interactions, failure);
-            throw failure;
-        } finally {
-            release();
-        }
+        return query(pinned -> pinned.engine.place(request));
     }
 
     public InteractionEngine.Result interact(InteractionEngine.Request request) {
-        return query(request.world().tags(), true, () -> interactions.interact(request));
+        return query(pinned -> pinned.interactions.interact(request));
     }
 
-    /** Obtain the correct tag generation, downgrading the writer before running an action. */
-    private Lock enter(GeometryTags tags, boolean interaction) {
-        // The compact profile is only a local audit input; keep its excluded-path counters serialized.
-        Lock read = parallel ? access.readLock() : access.writeLock();
-        read.lock();
-        try {
-            requireOpen();
-            if ((!interaction || interactions != null) && (tags == null || tags == lastTags || tags.equals(lastTags)))
-                return read;
-        } catch (RuntimeException | Error failure) {
-            read.unlock();
-            throw failure;
-        }
-        read.unlock();
-        exclusive();
-        try {
-            requireOpen();
-            if (interaction) prepareInteractionsLocked();
-            if (tags != null) installTags(tags);
-            read.lock(); // A downgrade: a queued tag writer cannot overtake this request.
-            return read;
-        } finally {
-            access.writeLock().unlock();
-        }
-    }
-
-    private <T> T query(GeometryTags tags, boolean interaction, Supplier<T> operation) {
-        Lock read = enter(tags, interaction);
+    private <T> T query(Function<PlacementModel, T> operation) {
+        PlacementModel pinned;
+        do {
+            pinned = current.get();
+            if (pinned == null) throw new IllegalStateException("Placement runtime is closed");
+        } while (!pinned.acquire());
         var previous = Thread.currentThread().getContextClassLoader();
         try {
-            Thread.currentThread().setContextClassLoader(loader == null ? interactions.classLoader() : loader);
-            return operation.get();
+            Thread.currentThread().setContextClassLoader(pinned.classLoader());
+            return operation.apply(pinned);
         } catch (RuntimeException | Error failure) {
-            narrowingFailed(interactions, failure);
+            narrowingFailed(pinned, failure);
             throw failure;
         } finally {
-            try {
-                Thread.currentThread().setContextClassLoader(previous);
-                release();
-            } finally {
-                read.unlock();
-            }
+            Thread.currentThread().setContextClassLoader(previous);
+            pinned.release();
         }
     }
 
-    /** A reader cannot upgrade its lock from inside a world callback. */
-    private void exclusive() {
-        if (access.getReadHoldCount() != 0 && !access.isWriteLockedByCurrentThread())
-            throw new IllegalStateException("Cannot change the vanilla model or its tags during an active action");
-        access.writeLock().lock();
-    }
-
+    /** Interaction linkage is completed once during model construction, before publication. */
     public void prepareInteractions() {
-        exclusive();
-        try {
-            requireOpen();
-            prepareInteractionsLocked();
-        } finally {
-            access.writeLock().unlock();
-        }
+        query(pinned -> null);
     }
 
-    private void prepareInteractionsLocked() {
-        requireOpen();
-        if (interactions == null) {
-            InteractionRuntime opened = null;
-            try {
-                opened = new InteractionRuntime(workerJar, cache, model, false);
-                if (lastTags != null) opened.geometry().tags(lastTags);
-                opened.releaseArchiveIndexes();
-                interactions = opened;
-            } catch (Exception failure) {
-                throw new IllegalStateException("Unable to open vanilla interaction runtime", failure);
-            } finally {
-                if (opened != null && opened != interactions) {
-                    try {
-                        opened.close();
-                    } catch (Exception ignored) {
-                    }
-                }
-            }
-        }
-    }
-
-    /** Whether the narrowed client model is serving requests (false after a fallback). */
     public boolean narrowed() {
-        access.readLock().lock();
-        try {
-            return interactions != null && interactions.narrowed;
-        } finally {
-            access.readLock().unlock();
-        }
+        var pinned = current.get();
+        return pinned != null && pinned.interactions.narrowed;
     }
 
     private static final System.Logger LOGGER = System.getLogger("CultAC");
@@ -318,9 +218,11 @@ public final class PlacementRuntime implements BlockGeometry, AutoCloseable {
      * A narrowed model that throws may have reached something it leaves out. Report it once and
      * build the full model in the background (about 3 s, never on a packet thread), then swap.
      */
-    private void narrowingFailed(InteractionRuntime failed, Throwable failure) {
-        if (failed == null || !failed.narrowed || !fromNarrowing(failure) || !recovering.compareAndSet(false, true))
-            return;
+    private void narrowingFailed(PlacementModel failed, Throwable failure) {
+        if (failed == null
+                || !failed.interactions.narrowed
+                || !fromNarrowing(failure)
+                || !recovering.compareAndSet(false, true)) return;
         LOGGER.log(
                 System.Logger.Level.WARNING, "The narrowed vanilla model failed; switching to the full model", failure);
         var recovery = Thread.ofPlatform()
@@ -331,22 +233,16 @@ public final class PlacementRuntime implements BlockGeometry, AutoCloseable {
                     InteractionRuntime full = null;
                     try {
                         full = new InteractionRuntime(workerJar, cache, model, false);
-                        access.writeLock().lock();
-                        try {
-                            if (engine == null || interactions != failed) return;
-                            // Install the latest successful tags before publishing the replacement.
-                            if (lastTags != null) full.geometry().tags(lastTags);
-                            full.releaseArchiveIndexes();
-                            interactions = full;
-                            engine = full.geometry();
+                        var replacement = new PlacementModel(full.geometry(), full, null);
+                        full.releaseArchiveIndexes();
+                        if (current.compareAndSet(failed, replacement)) {
                             full = null;
-                            try {
-                                failed.close();
-                            } catch (Exception closing) {
-                                LOGGER.log(System.Logger.Level.WARNING, "Unable to close the narrowed model", closing);
-                            }
-                        } finally {
-                            access.writeLock().unlock();
+                            failed.release();
+                            failed.closed.whenComplete((ignored, closing) -> {
+                                if (closing != null)
+                                    LOGGER.log(
+                                            System.Logger.Level.WARNING, "Unable to close the narrowed model", closing);
+                            });
                         }
                     } catch (Exception | Error unavailable) {
                         LOGGER.log(System.Logger.Level.ERROR, "Unable to open the full vanilla model", unavailable);
@@ -368,43 +264,15 @@ public final class PlacementRuntime implements BlockGeometry, AutoCloseable {
         recovery.start();
     }
 
-    private void release() {
-        try {
-            if (loader != null) loader.releaseArchiveIndexes();
-            if (interactions != null) interactions.releaseArchiveIndexes();
-        } catch (IOException failure) {
-            throw new java.io.UncheckedIOException(failure);
-        }
-    }
-
     @Override
     public void close() throws IOException {
-        exclusive();
+        var retired = current.getAndSet(null);
+        if (retired == null) return;
+        retired.release();
         try {
-            closeLocked();
-        } finally {
-            access.writeLock().unlock();
+            retired.closed.join();
+        } catch (java.util.concurrent.CompletionException failure) {
+            throw new IOException("Unable to close placement model", failure.getCause());
         }
-    }
-
-    private void closeLocked() throws IOException {
-        IOException interactionFailure = null;
-        if (interactions != null) {
-            try {
-                interactions.close();
-            } catch (Exception failure) {
-                interactionFailure = new IOException("Unable to close interaction runtime", failure);
-            } finally {
-                interactions = null;
-            }
-        }
-        engine = null;
-        lastTags = null;
-        try {
-            if (loader != null) loader.close();
-        } finally {
-            loader = null;
-        }
-        if (interactionFailure != null) throw interactionFailure;
     }
 }

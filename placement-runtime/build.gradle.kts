@@ -47,6 +47,7 @@ val prepareEarlierModel = tasks.register<JavaExec>("prepareEarlierModel") {
 val earlierInteraction = sourceSets.create("interaction1_21_11") {
     java.setSrcDirs(listOf("src/interaction/java", "src/model1_21_11/java"))
     compileClasspath += configurations.compileClasspath.get()
+    compileClasspath += files(tasks.compileJava.flatMap { it.destinationDirectory })
     compileClasspath += files(modelCache.map { it.file("1.21.11/server-model.jar") })
     compileClasspath += fileTree(modelCache.map { it.dir("1.21.11/server-lib") }) { include("**/*.jar") }
 }
@@ -73,6 +74,7 @@ val prepareModel = tasks.register<JavaExec>("prepareModel") {
 val interaction = sourceSets.create("interaction") {
     java.srcDir("src/model26_3/java")
     compileClasspath += configurations.compileClasspath.get()
+    compileClasspath += files(tasks.compileJava.flatMap { it.destinationDirectory })
     compileClasspath += files(modelCache.map { it.file("26.3/server-model.jar") })
     compileClasspath += fileTree(modelCache.map { it.dir("26.3/server-lib") }) { include("**/*.jar") }
 }

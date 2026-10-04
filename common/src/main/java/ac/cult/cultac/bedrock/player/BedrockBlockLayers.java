@@ -10,7 +10,8 @@ public record BedrockBlockLayers(BlockState primary, BlockState extra) {
     public static BedrockBlockLayers fromJava(BlockState state) {
         // Geyser BlockRegistryPopulator also puts aquatic plants and bubble columns
         // in layer 1; they have intrinsic water rather than a WATERLOGGED property.
-        boolean waterlogged = !state.is(Blocks.WATER) && state.getFluidState().is(FluidTags.WATER);
+        boolean waterlogged =
+                state.getBlock() != Blocks.WATER && state.getFluidState().is(FluidTags.WATER);
         return new BedrockBlockLayers(
                 dry(state), waterlogged ? Blocks.WATER.defaultBlockState() : Blocks.AIR.defaultBlockState());
     }

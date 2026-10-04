@@ -30,7 +30,8 @@ public class BadPacketsG extends Check implements CheckListener {
         PlayerCommandAction action = packet.action();
 
         if ((action == PlayerCommandAction.PRESS_SHIFT_KEY || action == PlayerCommandAction.RELEASE_SHIFT_KEY)
-                && !DecodedPacketReliability.nativeInputFamilyReliable(player.getClientVersion())) {
+                && !DecodedPacketReliability.nativeInputFamilyReliable(
+                        player.getClientVersion(), player.getObservedProtocol())) {
             return;
         }
 

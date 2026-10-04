@@ -8,11 +8,32 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ModelIdMappingsTest {
-    private static final List<ProtocolVersion> VERSIONS =
-            List.of(ProtocolVersion.V1_21_3, ProtocolVersion.V1_21_11, ProtocolVersion.V26_2, ProtocolVersion.V26_3);
+    private static final List<ProtocolVersion> VERSIONS = List.of(ProtocolVersion.values());
 
     @Test
-    void everyOfficialBlockAndItemIdHasAValidatedTargetAcrossAllSixPairs() {
+    void everyIdentityStageRetainsExactNativeIdsAndRejectsOutOfBounds() {
+        for (var version : VERSIONS) {
+            var data = ModelRegistryData.load(version);
+            var mappings = ModelIdMappings.project(version, version);
+            assertEquals(data.blockStates().size(), mappings.blockStateCount());
+            assertEquals(data.registry("minecraft:block").size(), mappings.blockCount());
+            assertEquals(data.registry("minecraft:item").size(), mappings.itemCount());
+            assertEquals(data.registry("minecraft:entity_type").size(), mappings.entityCount());
+            for (int id = 0; id < mappings.blockStateCount(); id++) assertEquals(id, mappings.blockState(id));
+            for (int id = 0; id < mappings.blockCount(); id++) assertEquals(id, mappings.block(id));
+            for (int id = 0; id < mappings.itemCount(); id++) assertEquals(id, mappings.item(id));
+            for (int id = 0; id < mappings.entityCount(); id++) assertEquals(id, mappings.entity(id));
+            assertThrows(MalformedPacketException.class, () -> mappings.blockState(-1));
+            assertThrows(MalformedPacketException.class, () -> mappings.block(mappings.blockCount()));
+            assertThrows(MalformedPacketException.class, () -> mappings.item(mappings.itemCount()));
+            assertThrows(MalformedPacketException.class, () -> mappings.entity(mappings.entityCount()));
+            assertThrows(IllegalArgumentException.class, () -> ModelIdMappings.load(version, version));
+            assertSame(mappings, ModelIdMappings.project(version, version));
+        }
+    }
+
+    @Test
+    void everyOfficialBlockAndItemIdHasAValidatedTargetAcrossEveryForwardPair() {
         var models = VERSIONS.stream().map(ModelRegistryData::load).toList();
         for (int source = 0; source < VERSIONS.size(); source++)
             for (int target = source + 1; target < VERSIONS.size(); target++) {
@@ -37,6 +58,33 @@ class ModelIdMappingsTest {
                 }
                 assertSame(mappings, ModelIdMappings.load(VERSIONS.get(source), VERSIONS.get(target)));
             }
+    }
+
+    @Test
+    void rawEntityMappingsPreserveRegisteredIdsAndRemovalsWithoutVisualFallbacks() {
+        for (var source : VERSIONS)
+            for (var target : VERSIONS) {
+                var original = ModelRegistryData.load(source).registry("minecraft:entity_type");
+                var destination = ModelRegistryData.load(target).registry("minecraft:entity_type");
+                var mappings = ModelIdMappings.project(source, target);
+                assertEquals(original.size(), mappings.entityCount());
+                for (int id = 0; id < original.size(); id++) {
+                    int projected = mappings.entity(id);
+                    assertTrue(projected >= -1 && projected < destination.size());
+                    int existing = destination.id(original.name(id));
+                    if (existing >= 0) assertEquals(existing, projected, original.name(id));
+                }
+            }
+        var newer = ModelRegistryData.load(ProtocolVersion.V26_3).registry("minecraft:entity_type");
+        int copper = newer.id("minecraft:copper_golem");
+        assertTrue(copper >= 0);
+        int mapped = ModelIdMappings.project(ProtocolVersion.V26_3, ProtocolVersion.V1_21_3)
+                .entity(copper);
+        assertEquals(
+                "minecraft:frog",
+                ModelRegistryData.load(ProtocolVersion.V1_21_3)
+                        .registry("minecraft:entity_type")
+                        .name(mapped));
     }
 
     @Test

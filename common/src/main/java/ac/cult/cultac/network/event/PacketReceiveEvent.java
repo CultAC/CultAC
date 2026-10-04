@@ -8,6 +8,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 
 public final class PacketReceiveEvent<R extends ServerboundPacket> extends PacketEvent<R> {
     private boolean acceptedTransactionResponse;
+    private boolean teleportPositionResponse;
 
     public PacketReceiveEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet) {
         super(user, phase, type, packet);
@@ -21,5 +22,14 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
 
     public void setAcceptedTransactionResponse(boolean accepted) {
         acceptedTransactionResponse = accepted;
+    }
+
+    /** Accepted legacy PosRot response, separate from LocalPlayer's ordinary movement. */
+    public boolean isTeleportPositionResponse() {
+        return teleportPositionResponse;
+    }
+
+    public void setTeleportPositionResponse(boolean response) {
+        teleportPositionResponse = response;
     }
 }

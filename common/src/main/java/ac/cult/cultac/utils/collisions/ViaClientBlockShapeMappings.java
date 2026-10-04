@@ -129,19 +129,21 @@ public final class ViaClientBlockShapeMappings {
 
     private static Snapshot build() {
         EnumMap<ClientVersion, VersionMappings> mappings = new EnumMap<>(ClientVersion.class);
-        int serverProtocol = net.minecraft.SharedConstants.getProtocolVersion();
+        int nativeModelProtocol = net.minecraft.SharedConstants.getProtocolVersion();
 
         for (ClientVersion version : ClientVersion.values()) {
-            if (version.isOlderThan(MINIMUM_SUPPORTED_VERSION) || version.getProtocolVersion() >= serverProtocol) {
+            if (version.isOlderThan(MINIMUM_SUPPORTED_VERSION) || version.getProtocolVersion() >= nativeModelProtocol) {
                 continue;
             }
 
             // Connection paths run client -> server, but block-state mappings
             // translate clientbound packets, in the opposite direction/order.
-            List<ProtocolPathEntry> clientConnection =
-                    Via.getManager().getProtocolManager().getProtocolPath(version.getProtocolVersion(), serverProtocol);
-            List<ProtocolPathEntry> serverConnection =
-                    Via.getManager().getProtocolManager().getProtocolPath(serverProtocol, version.getProtocolVersion());
+            List<ProtocolPathEntry> clientConnection = Via.getManager()
+                    .getProtocolManager()
+                    .getProtocolPath(version.getProtocolVersion(), nativeModelProtocol);
+            List<ProtocolPathEntry> serverConnection = Via.getManager()
+                    .getProtocolManager()
+                    .getProtocolPath(nativeModelProtocol, version.getProtocolVersion());
             if (clientConnection == null || serverConnection == null) {
                 continue;
             }

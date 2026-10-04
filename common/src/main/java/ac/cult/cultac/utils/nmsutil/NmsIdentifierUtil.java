@@ -64,6 +64,18 @@ public final class NmsIdentifierUtil {
         return key == null ? null : key.substring(key.indexOf(':') + 1);
     }
 
+    @SuppressWarnings("unchecked")
+    public static ResourceKey<? extends Registry<?>> registryKey(String name) {
+        try {
+            Class<?> keyType = Registry.class.getMethod("getKey", Object.class).getReturnType();
+            Object identifier = keyType.getMethod("parse", String.class).invoke(null, name);
+            return (ResourceKey<? extends Registry<?>>)
+                    ResourceKey.class.getMethod("createRegistryKey", keyType).invoke(null, identifier);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Registry key lookup failed for " + name, failure);
+        }
+    }
+
     public static <T> T registryValue(Registry<T> registry, String identifier) {
         return lookupRegistry(registry, identifier, "getValue");
     }

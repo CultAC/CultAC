@@ -41,6 +41,8 @@ dependencies {
     compileOnly("org.jetbrains:annotations:24.1.0")
     testImplementation(project(":common"))
     testImplementation(project(":placement-runtime"))
+    testImplementation(project(":protocol-codec"))
+    testImplementation(files(rootProject.project(":protocol-codec").layout.buildDirectory.file("codecs/ViaVersion.jar")))
     testImplementation(vanilla)
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -49,8 +51,19 @@ dependencies {
 tasks.compileJava { dependsOn(prepareVanilla) }
 
 tasks.test {
-    dependsOn(prepareVanilla, ":placement-runtime:jar")
+    dependsOn(prepareVanilla, ":placement-runtime:jar", ":protocol-codec:test")
+    systemProperty("wireValueFixtures", project(":protocol-codec").layout.buildDirectory.dir("test-fixtures").get().asFile.absolutePath)
     systemProperty("placementRuntimeJar", project(":placement-runtime").layout.buildDirectory.file("libs/placement-runtime.jar").get().asFile.absolutePath)
     useJUnitPlatform()
     maxHeapSize = "1g"
+}
+
+val contextAgent = tasks.register<Jar>("contextTestAgent") {
+    from(sourceSets.test.get().output)
+    archiveFileName.set("context-test-agent.jar")
+    manifest.attributes["Premain-Class"] = "ac.cult.cultac.vanilla.ContextTestAgent"
+}
+tasks.test {
+    dependsOn(contextAgent)
+    jvmArgs("-javaagent:" + contextAgent.get().archiveFile.get().asFile.absolutePath)
 }

@@ -3,7 +3,6 @@ package ac.cult.cultac.protocol.packet;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketCatalog;
 import ac.cult.cultac.protocol.PacketType;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.codec.connection.ClientboundKeepAliveCodec;
 import ac.cult.cultac.protocol.codec.connection.DisconnectCodec;
 import ac.cult.cultac.protocol.codec.connection.MountScreenOpenCodec;
@@ -196,14 +195,18 @@ public final class ClientboundPackets {
     public static final PacketType<ClientboundTickingStep> TICKING_STEP =
             PLAY.add("ticking_step", ClientboundTickingStep.class, new TickingStepCodec());
 
-    // Inventory. Screen and held-slot codecs are verified against 26.3 only, although older versions carry the packets.
+    // Inventory. Source-version layouts are audited for every supported release.
     public static final PacketType<Opaque> CONTAINER_CLOSE = PLAY.ignored("container_close");
-    public static final PacketType<ClientboundSetHeldSlot> SET_HELD_SLOT = PLAY.since(ProtocolVersion.V26_3)
-            .add("set_held_slot", ClientboundSetHeldSlot.class, new SetHeldSlotCodec());
-    public static final PacketType<ClientboundMountScreenOpen> MOUNT_SCREEN_OPEN = PLAY.since(ProtocolVersion.V26_3)
-            .add("mount_screen_open", ClientboundMountScreenOpen.class, new MountScreenOpenCodec());
+    public static final PacketType<ClientboundSetHeldSlot> SET_HELD_SLOT =
+            PLAY.add("set_held_slot", ClientboundSetHeldSlot.class, new SetHeldSlotCodec());
+    public static final PacketType<ClientboundMountScreenOpen> MOUNT_SCREEN_OPEN = PLAY.renamed(
+            "mount_screen_open",
+            ClientboundMountScreenOpen.class,
+            new MountScreenOpenCodec(),
+            "mount_screen_open",
+            "horse_screen_open");
     public static final PacketType<ClientboundOpenScreen> OPEN_SCREEN =
-            PLAY.since(ProtocolVersion.V26_3).add("open_screen", ClientboundOpenScreen.class, new OpenScreenCodec());
+            PLAY.add("open_screen", ClientboundOpenScreen.class, new OpenScreenCodec());
 
     private static final List<PacketType<?>> ALL = C.types();
 

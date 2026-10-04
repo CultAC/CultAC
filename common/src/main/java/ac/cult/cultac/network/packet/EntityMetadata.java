@@ -21,14 +21,17 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
             return bytes.asReadOnlyBuffer();
         }
 
-        /** The only authored metadata value: the existing health spoof. Layout is pinned to 26.3. */
-        public static Entry health(float value) {
+        /** Serializer IDs are source-verified for every supported observed version. */
+        public static Entry health(int index, ac.cult.cultac.protocol.ProtocolVersion version, float value) {
+            int serializer = switch (version) {
+                case V1_21_3, V1_21_4, V1_21_5, V1_21_6, V1_21_7, V1_21_9, V1_21_11, V26_1, V26_2, V26_3 -> 3;
+            };
             return new Entry(
-                    9,
+                    index,
                     value,
                     ByteBuffer.allocate(6)
-                            .put((byte) 9)
-                            .put((byte) 3)
+                            .put((byte) index)
+                            .put((byte) serializer)
                             .putFloat(value)
                             .flip());
         }

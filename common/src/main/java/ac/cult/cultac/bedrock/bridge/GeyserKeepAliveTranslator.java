@@ -3,6 +3,8 @@ package ac.cult.cultac.bedrock.bridge;
 import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
+import org.geysermc.mcprotocollib.protocol.MinecraftConstants;
+import org.geysermc.mcprotocollib.protocol.data.ProtocolState;
 import org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundKeepAlivePacket;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundKeepAlivePacket;
 
@@ -20,6 +22,13 @@ final class GeyserKeepAliveTranslator extends PacketTranslator<ClientboundKeepAl
 
     @Override
     public void translate(GeyserSession session, ClientboundKeepAlivePacket packet) {
+        var downstream = session.getDownstream().getSession();
+        if (downstream.getPacketProtocol().getInboundState() == ProtocolState.CONFIGURATION) {
+            if (!downstream.getFlag(MinecraftConstants.AUTOMATIC_KEEP_ALIVE_MANAGEMENT, true)) {
+                downstream.send(new ServerboundKeepAlivePacket(packet.getPingId()));
+            }
+            return;
+        }
         session.sendNetworkLatencyStackPacket(packet.getPingId(), false, () -> {
             GeyserBedrockBridgeRuntime.acceptKeepAlive(session, packet.getPingId());
             session.sendDownstreamPacket(new ServerboundKeepAlivePacket(packet.getPingId()));

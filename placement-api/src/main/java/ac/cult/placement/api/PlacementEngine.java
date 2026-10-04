@@ -17,7 +17,7 @@ public interface PlacementEngine extends BlockGeometry {
         int height();
 
         boolean loaded(int chunkX, int chunkZ);
-        /** The client's current tag bindings; null keeps the caller's installed bindings. */
+        /** The client's current tag bindings; null reads the model's vanilla defaults. */
         default GeometryTags tags() {
             return null;
         }
@@ -67,8 +67,6 @@ public interface PlacementEngine extends BlockGeometry {
     }
 
     int stateCount();
-
-    void tags(GeometryTags tags);
 
     String stateName(int state);
 

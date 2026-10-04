@@ -19,7 +19,8 @@ public class SelfInteract extends Check implements CheckListener {
     @CultPacketHandler
     public void onInteractEntity(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
-        if (!DecodedPacketReliability.interactionFamilyReliable(player.getClientVersion())) return;
+        if (!DecodedPacketReliability.interactionFamilyReliable(
+                player.getClientVersion(), player.getObservedProtocol())) return;
         onInteract(event, packet.entityId());
     }
 
@@ -28,7 +29,8 @@ public class SelfInteract extends Check implements CheckListener {
             PacketReceiveEvent<ServerboundSpectatorAction> event,
             CultPlayer player,
             ServerboundSpectatorAction packet) {
-        if (!DecodedPacketReliability.interactionFamilyReliable(player.getClientVersion())) return;
+        if (!DecodedPacketReliability.interactionFamilyReliable(
+                player.getClientVersion(), player.getObservedProtocol())) return;
         packet.target().ifPresent(entityId -> onInteract(event, entityId));
     }
 

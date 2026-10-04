@@ -52,7 +52,8 @@ public class PacketOrderB extends Check implements CheckListener {
     public void onInteract(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
         if (packet.action() == InteractAction.ATTACK
-                && DecodedPacketReliability.interactionFamilyReliable(player.getClientVersion())) {
+                && DecodedPacketReliability.interactionFamilyReliable(
+                        player.getClientVersion(), player.getObservedProtocol())) {
             onAttack(event);
         }
     }

@@ -3,6 +3,7 @@ package ac.cult.cultac.platform.bukkit;
 import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
+import ac.cult.cultac.protocol.netty.ChannelInitializationBarrier;
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import io.netty.channel.Channel;
@@ -30,7 +31,10 @@ final class PaperInjector {
 
     void register() {
         registered = true;
-        ChannelInitializeListenerHolder.addListener(KEY, channel -> inject(channel, false));
+        // Paper iterates an unordered listener map. Wait for every initializer,
+        // including Via's, before attaching next to the native packet codecs.
+        ChannelInitializeListenerHolder.addListener(
+                KEY, channel -> ChannelInitializationBarrier.install(channel, () -> inject(channel, false)));
         var listener = ((CraftServer) Bukkit.getServer()).getServer().getConnection();
         if (listener != null)
             for (var connection : listener.getConnections()) {

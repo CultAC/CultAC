@@ -6,7 +6,6 @@ import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import com.velocitypowered.api.event.EventTask;
@@ -18,16 +17,20 @@ import io.netty.channel.Channel;
 import java.lang.reflect.Method;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.function.BiFunction;
 import java.util.function.Function;
 import net.kyori.adventure.text.Component;
 
 /** Intercepts client-facing frames, after Velocity's entity-ID rewriting and before compression. */
 final class VelocityTransport {
+    @FunctionalInterface
+    interface AdapterFactory {
+        PlatformConnection create(Player player, Channel channel, PacketOwner bedrock);
+    }
+
     private final ProxyServer proxy;
     private final Object plugin;
     private final CultNetworkManager manager;
-    private final BiFunction<Player, PacketOwner, PlatformConnection> platform;
+    private final AdapterFactory platform;
     private final Function<Channel, PacketOwner> bedrockOwners;
     private final Method connectionMethod;
     private final Method channelMethod;
@@ -38,7 +41,7 @@ final class VelocityTransport {
             ProxyServer proxy,
             Object plugin,
             CultNetworkManager manager,
-            BiFunction<Player, PacketOwner, PlatformConnection> platform,
+            AdapterFactory platform,
             Function<Channel, PacketOwner> bedrockOwners) {
         this.proxy = proxy;
         this.plugin = plugin;
@@ -72,11 +75,6 @@ final class VelocityTransport {
         // Velocity awaits this event in CONFIG before connecting the first backend.
         Player player = event.getPlayer();
         if (!running) {
-            return null;
-        }
-        int protocol = player.getProtocolVersion().getProtocol();
-        if (protocol < ProtocolVersion.V1_21_3.protocol() || protocol > ProtocolVersion.V26_3.protocol()) {
-            player.disconnect(Component.text("This proxy's CultAC model supports Minecraft Java 1.21.3 through 26.3."));
             return null;
         }
         final Channel channel;
@@ -135,17 +133,17 @@ final class VelocityTransport {
         if (manager.connection(channel) != null) {
             throw new IllegalStateException("Velocity connection already attached");
         }
-        var connection = manager.createConnection(platform.apply(player, bedrock), channel);
-        ((VelocityConnectionAdapter) connection.platform()).attach(connection);
+        var protocols = VelocityProtocols.read(player, channel);
+        var adapter = (VelocityConnectionAdapter) platform.create(player, channel, bedrock);
+        adapter.bindProtocols(protocols);
+        var connection = manager.createConnection(adapter, channel);
+        adapter.attach(connection);
         connection.phase(PacketDirection.SERVERBOUND, ConnectionPhase.CONFIGURATION);
         connection.phase(PacketDirection.CLIENTBOUND, ConnectionPhase.CONFIGURATION);
         connection.resolveOwner();
-        // On-proxy Via converts after inbound Cult and before outbound Cult.
-        // Both handlers therefore observe the real client's IDs and schemas.
-        String decoder = pipeline.get("via-decoder") != null ? "via-decoder" : "minecraft-decoder";
-        String encoder = pipeline.get("via-encoder") != null ? "via-encoder" : "minecraft-encoder";
-        pipeline.addBefore(decoder, CultDecoder.NAME, new CultDecoder(connection, true));
-        pipeline.addBefore(encoder, CultEncoder.NAME, new CultEncoder(connection));
+        // Authentication enables compression (including Via's relocation) before
+        // PostLogin CONFIG. Keep these handlers stable for the whole session.
+        VelocityPacketPipeline.install(connection);
         connection.execute(connection::prepare);
     }
 
@@ -168,7 +166,6 @@ final class VelocityTransport {
                                 if (pipeline.get(CultEncoder.NAME) != null) {
                                     pipeline.remove(CultEncoder.NAME);
                                 }
-                                connection.channel().config().setAutoRead(true);
                             }),
                             connection.channel().eventLoop())
                     .thenCompose(CompletionStage::toCompletableFuture);

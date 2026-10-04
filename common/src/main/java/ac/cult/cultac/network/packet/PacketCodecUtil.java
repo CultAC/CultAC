@@ -1,7 +1,7 @@
 package ac.cult.cultac.network.packet;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
-import net.minecraft.SharedConstants;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import net.minecraft.world.phys.Vec3;
 
 public final class PacketCodecUtil {
@@ -11,8 +11,6 @@ public final class PacketCodecUtil {
     private static final double LP_MAX_QUANTIZED_VALUE = 32766.0D;
     private static final double LP_ABS_MAX_VALUE = 1.7179869183E10D;
     private static final double LP_ABS_MIN_VALUE = 3.051944088384301E-5D;
-    private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
 
     private PacketCodecUtil() {}
 
@@ -35,24 +33,30 @@ public final class PacketCodecUtil {
     }
 
     /**
-     * Returns the velocity the target client decodes after the server codec and any
-     * Via LP/legacy bridge have both run.
+     * Returns the client-visible velocity from an already decoded observed packet.
+     * Via reads that representation and encodes only the destination representation.
      */
-    public static Vec3 quantizeClientboundVelocity(ClientVersion clientVersion, Vec3 movement) {
-        return quantizeClientboundVelocity(SERVER_VERSION, clientVersion, movement);
+    public static Vec3 clientVelocityFromObserved(
+            ProtocolVersion observedProtocol, ClientVersion clientVersion, Vec3 movement) {
+        boolean observedUsesLp = observedProtocol.atLeast(ProtocolVersion.V1_21_9);
+        boolean clientUsesLp = clientVersion.isNewerThanOrEquals(ClientVersion.V_1_21_9);
+        if (observedUsesLp == clientUsesLp) return movement;
+        return clientUsesLp ? quantizeLpVec3(movement) : quantizeViaLegacyVelocity(movement);
     }
 
-    static Vec3 quantizeClientboundVelocity(ClientVersion serverVersion, ClientVersion clientVersion, Vec3 movement) {
-        boolean serverUsesLp = serverVersion.isNewerThanOrEquals(ClientVersion.V_1_21_9);
+    // Authored vectors require source encoding first; decoded packet consumers use
+    // clientVelocityFromObserved instead, to avoid truncating legacy shorts twice.
+    static Vec3 quantizeClientboundVelocity(ClientVersion sourceVersion, ClientVersion clientVersion, Vec3 movement) {
+        boolean sourceUsesLp = sourceVersion.isNewerThanOrEquals(ClientVersion.V_1_21_9);
         boolean clientUsesLp = clientVersion.isNewerThanOrEquals(ClientVersion.V_1_21_9);
 
-        Vec3 serverEncoded = serverUsesLp ? quantizeLpVec3(movement) : quantizeLegacyVelocity(movement);
-        if (serverUsesLp == clientUsesLp) {
-            return serverEncoded;
+        Vec3 sourceEncoded = sourceUsesLp ? quantizeLpVec3(movement) : quantizeLegacyVelocity(movement);
+        if (sourceUsesLp == clientUsesLp) {
+            return sourceEncoded;
         }
 
         // Via reads the already encoded source representation and writes the target one.
-        return clientUsesLp ? quantizeLpVec3(serverEncoded) : quantizeLegacyVelocity(serverEncoded);
+        return clientUsesLp ? quantizeLpVec3(sourceEncoded) : quantizeViaLegacyVelocity(sourceEncoded);
     }
 
     static Vec3 quantizeLegacyVelocity(Vec3 movement) {
@@ -63,11 +67,21 @@ public final class PacketCodecUtil {
     }
 
     private static double quantizeLegacyVelocityAxis(double value) {
-        // ViaBackwards VelocityUtil#toLegacyVelocity: cast-to-long truncation,
-        // clamp to the signed-short range, then the legacy client divides by 8000.
+        // Authored legacy packet encoding truncates before the client divides by 8000.
         long encoded = (long) (value * 8000.0D);
         encoded = Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, encoded));
         return encoded / 8000.0D;
+    }
+
+    private static Vec3 quantizeViaLegacyVelocity(Vec3 movement) {
+        return new Vec3(viaLegacyAxis(movement.x), viaLegacyAxis(movement.y), viaLegacyAxis(movement.z));
+    }
+
+    private static double viaLegacyAxis(double value) {
+        // Pinned ViaBackwards VelocityUtil#toLegacyVelocity rounds decoded LP
+        // vectors, then clamps to signed shorts. This differs from native encoding.
+        long encoded = Math.round(value * 8000.0D);
+        return Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, encoded)) / 8000.0D;
     }
 
     public static float quantizeRotationByte(float rotation) {

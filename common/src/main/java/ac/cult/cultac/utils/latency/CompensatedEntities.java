@@ -35,8 +35,6 @@ public class CompensatedEntities {
     private static final String SPRINTING_MODIFIER_ID = "minecraft:sprinting";
     public static final String SNOW_MODIFIER_ID = "minecraft:powder_snow";
     private static final long LOCAL_PLAYER_CLIENT_TICK_ORDER = 0L;
-    private static final boolean USES_SADDLE_EQUIPMENT_SLOT =
-            Arrays.stream(EquipmentSlot.values()).anyMatch(slot -> slot.name().equals("SADDLE"));
     public final Int2ObjectOpenHashMap<PacketEntity> entityMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
     public final Int2ObjectOpenHashMap<TrackerData> serverPositionsMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
     private final Int2ObjectOpenHashMap<List<AttributeSnapshot>> pendingAttributes =
@@ -564,23 +562,23 @@ public class CompensatedEntities {
         PacketEntity entity = player.compensatedEntities.getEntity(entityID);
         if (entity == null) return;
 
+        WatchableIndexUtil.Layout layout = WatchableIndexUtil.forModel(player.user.getCultConnection());
         applyAgeableMetadata(entity, watchableObjects);
-        applySizeMetadata(entity, watchableObjects);
+        applySizeMetadata(entity, watchableObjects, layout);
         if (entity instanceof PacketEntityShulker) {
             applyShulkerMetadata(entity, watchableObjects);
         }
         if (entity instanceof PacketEntityRideable) {
-            applyRideableBoostMetadata(entity, watchableObjects);
+            applyRideableMetadata(entity, watchableObjects, layout);
         }
         if (entity instanceof PacketEntityHorse) {
-            applyHorseMetadata(entity, watchableObjects);
+            applyHorseMetadata(entity, watchableObjects, layout);
         }
         if (entity instanceof PacketEntityHappyGhast happyGhast) {
-            applyHappyGhastMetadata(happyGhast, watchableObjects);
+            applyHappyGhastMetadata(happyGhast, watchableObjects, layout);
         }
         if (entity instanceof PacketEntityNautilus nautilus) {
-            EntityMetadata.Entry dashData =
-                    WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.NAUTILUS_DASH);
+            EntityMetadata.Entry dashData = WatchableIndexUtil.getIndex(watchableObjects, layout.nautilusDash());
             if (dashData != null && dashData.value() instanceof Boolean dashing) {
                 nautilus.setDashingFromMetadata(dashing);
             }
@@ -621,12 +619,11 @@ public class CompensatedEntities {
         }
     }
 
-    private void applySizeMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
+    private void applySizeMetadata(
+            PacketEntity entity, List<EntityMetadata.Entry> watchableObjects, WatchableIndexUtil.Layout layout) {
         if (!entity.isSize()) return;
 
-        int sizeIndex = entity.type == EntityTypesCompat.PHANTOM
-                ? WatchableIndexUtil.PHANTOM_SIZE
-                : WatchableIndexUtil.SLIME_SIZE;
+        int sizeIndex = entity.type == EntityTypesCompat.PHANTOM ? WatchableIndexUtil.PHANTOM_SIZE : layout.slimeSize();
         EntityMetadata.Entry sizeData = WatchableIndexUtil.getIndex(watchableObjects, sizeIndex);
         if (sizeData == null) return;
 
@@ -666,10 +663,15 @@ public class CompensatedEntities {
         player.compensatedWorld.openShulkerBoxes.add(closing);
     }
 
-    private void applyRideableBoostMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
+    private void applyRideableMetadata(
+            PacketEntity entity, List<EntityMetadata.Entry> watchableObjects, WatchableIndexUtil.Layout layout) {
+        int saddleIndex = entity.type == EntityTypesCompat.PIG ? layout.pigSaddle() : layout.striderSaddle();
+        EntityMetadata.Entry saddleData = WatchableIndexUtil.getIndex(watchableObjects, saddleIndex);
+        if (saddleData != null) {
+            ((PacketEntityRideable) entity).hasSaddle = (boolean) saddleData.value();
+        }
         if (entity.type == EntityTypesCompat.PIG) {
-            EntityMetadata.Entry boostData =
-                    WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.PIG_BOOST_TIME);
+            EntityMetadata.Entry boostData = WatchableIndexUtil.getIndex(watchableObjects, layout.pigBoostTime());
             if (boostData != null) {
                 ((PacketEntityRideable) entity).boost.onSynced((int) boostData.value());
             }
@@ -677,31 +679,30 @@ public class CompensatedEntities {
         }
 
         if (entity instanceof PacketEntityStrider) {
-            EntityMetadata.Entry boostData =
-                    WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.STRIDER_BOOST_TIME);
+            EntityMetadata.Entry boostData = WatchableIndexUtil.getIndex(watchableObjects, layout.striderBoostTime());
             if (boostData != null) {
                 ((PacketEntityRideable) entity).boost.onSynced((int) boostData.value());
             }
         }
     }
 
-    private void applyHorseMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
-        EntityMetadata.Entry flagsData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.HORSE_FLAGS);
+    private void applyHorseMetadata(
+            PacketEntity entity, List<EntityMetadata.Entry> watchableObjects, WatchableIndexUtil.Layout layout) {
+        EntityMetadata.Entry flagsData = WatchableIndexUtil.getIndex(watchableObjects, layout.horseFlags());
         if (flagsData != null) {
             byte flags = (byte) flagsData.value();
             PacketEntityHorse horse = (PacketEntityHorse) entity;
             horse.isTame = (flags & 0x02) != 0;
-            // Through 1.21.3, AbstractHorse#isSaddled reads flag 0x04 from
+            // Through 1.21.4, AbstractHorse#isSaddled reads flag 0x04 from
             // DATA_ID_FLAGS. Newer clients read EquipmentSlot.SADDLE instead.
-            if (!USES_SADDLE_EQUIPMENT_SLOT) {
+            if (!layout.saddleEquipment()) {
                 horse.hasSaddle = (flags & 0x04) != 0;
             }
             horse.setRearingFromMetadata((flags & 0x20) != 0);
         }
 
         if (entity instanceof PacketEntityCamel camel) {
-            EntityMetadata.Entry dashData =
-                    WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.CAMEL_DASH);
+            EntityMetadata.Entry dashData = WatchableIndexUtil.getIndex(watchableObjects, layout.camelDash());
             if (dashData != null) {
                 camel.setDashingFromMetadata((boolean) dashData.value());
             }
@@ -709,9 +710,11 @@ public class CompensatedEntities {
     }
 
     private void applyHappyGhastMetadata(
-            PacketEntityHappyGhast happyGhast, List<EntityMetadata.Entry> watchableObjects) {
+            PacketEntityHappyGhast happyGhast,
+            List<EntityMetadata.Entry> watchableObjects,
+            WatchableIndexUtil.Layout layout) {
         EntityMetadata.Entry staysStillData =
-                WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.HAPPY_GHAST_STAYS_STILL);
+                WatchableIndexUtil.getIndex(watchableObjects, layout.happyGhastStaysStill());
         if (staysStillData != null && staysStillData.value() instanceof Boolean staysStill) {
             happyGhast.staysStill = staysStill;
         }
@@ -733,7 +736,9 @@ public class CompensatedEntities {
                 && optionalInt.isPresent()
                 && optionalInt.getAsInt() == player.entityID;
         if (!attachedToPlayer && rawValue instanceof Optional<?> optional) {
-            attachedToPlayer = optional.isPresent() && Objects.equals(optional.get(), player.entityID);
+            attachedToPlayer = optional.isPresent()
+                    && optional.get() instanceof Integer referencedEntity
+                    && referencedEntity == player.entityID;
         }
         if (attachedToPlayer) {
             player.compensatedFireworks.addNewFirework(entityID);

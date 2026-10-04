@@ -7,11 +7,10 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ModelRegistryDataTest {
-    private static final List<ProtocolVersion> VERSIONS =
-            List.of(ProtocolVersion.V1_21_3, ProtocolVersion.V1_21_11, ProtocolVersion.V26_2, ProtocolVersion.V26_3);
+    private static final List<ProtocolVersion> VERSIONS = List.of(ProtocolVersion.values());
 
     @Test
-    void allFourOfficialRegistriesPreserveExactNamesAcrossModelFamilies() {
+    void everySupportedOfficialRegistryPreservesExactNamesAcrossVersions() {
         var models = VERSIONS.stream().map(ModelRegistryData::load).toList();
         int remapped = 0;
         for (var source : models)

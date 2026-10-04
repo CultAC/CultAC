@@ -110,7 +110,7 @@ final class PacketConnections {
     }
 
     CompletionStage<Void> disconnect(CultConnection session) {
-        return afterPackets(session.owner(), () -> finishDisconnect(session));
+        return afterPackets(session.owner(), () -> session.runInModel(() -> finishDisconnect(session)));
     }
 
     private void finishDisconnect(CultConnection session) {

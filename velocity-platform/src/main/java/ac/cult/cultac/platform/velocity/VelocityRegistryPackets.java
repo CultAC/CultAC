@@ -19,7 +19,9 @@ final class VelocityRegistryPackets {
 
     @CultPacketHandler
     public void registry(PacketSendEvent<RegistryData> event, CultPlayer player, RegistryData packet) {
-        state(event).append(packet.registry(), packet.entries());
+        if (event.getDecodedProtocol() == ac.cult.cultac.protocol.ProtocolVersion.V26_3
+                || packet.registry().equals(net.minecraft.core.registries.Registries.DIMENSION_TYPE))
+            state(event).append(packet.registry(), packet.entries());
     }
 
     @CultPacketHandler
@@ -37,6 +39,13 @@ final class VelocityRegistryPackets {
 
     @CultPacketHandler("clientbound.finish_configuration")
     public void finish(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        state(event).finish();
+        if (event.getDecodedProtocol() == ac.cult.cultac.protocol.ProtocolVersion.V26_3)
+            state(event).finish();
+        else state(event).finishOlder();
+    }
+
+    @CultPacketHandler("clientbound.start_configuration")
+    public void start(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        ((VelocityConnectionAdapter) event.getUser().getCultConnection().platform()).beginConfiguration();
     }
 }

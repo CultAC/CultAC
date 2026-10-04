@@ -15,6 +15,81 @@ import org.junit.jupiter.params.provider.EnumSource;
 class VanillaInteractionTest {
     @ParameterizedTest
     @EnumSource(RuntimeModel.class)
+    void shovelWritesFollowTheOriginalClientSideGuardAndModernTransformerPatch(RuntimeModel model) throws Exception {
+        var jar = Path.of(System.getProperty("placementRuntimeJar"));
+        try (var runtime = PlacementRuntime.openVanilla(jar, jar.getParent().resolve("runtime"), model)) {
+            int grass = state(runtime, "minecraft:grass_block", Map.of("snowy", "false"));
+            var base = world(grass, Map.of());
+            var floor = new PlacementEngine.World() {
+                public int stateAt(int x, int y, int z) {
+                    return base.stateAt(x, y, z);
+                }
+
+                public int minY() {
+                    return base.minY();
+                }
+
+                public int height() {
+                    return base.height();
+                }
+
+                public boolean loaded(int x, int z) {
+                    return true;
+                }
+
+                public ac.cult.placement.api.GeometryTags tags() {
+                    return new ac.cult.placement.api.GeometryTags(
+                            Map.of(
+                                    "minecraft:turns_into_dirt_path", List.of("minecraft:grass_block"),
+                                    "minecraft:air",
+                                            List.of("minecraft:air", "minecraft:cave_air", "minecraft:void_air")),
+                            Map.of(),
+                            Map.of());
+                }
+            };
+            var clicked = new PlacementEngine.Pos(0, 63, 0);
+            var shovel = runtime.interact(request(
+                    InteractionEngine.Operation.USE_ON,
+                    floor,
+                    InteractionEngine.Stack.vanilla("minecraft:iron_shovel", 1),
+                    clicked,
+                    20));
+            assertTrue(shovel.consumes());
+            // 1.21.11 ShovelItem guards setBlock with !isClientSide. 26.3's
+            // stack-selected BlockTransformer writes the client's dirt_path directly.
+            assertEquals(
+                    model == RuntimeModel.JAVA_26_3 ? 1 : 0, shovel.writes().size());
+            if (model == RuntimeModel.JAVA_26_3) {
+                assertEquals(
+                        "minecraft:dirt_path",
+                        runtime.state(shovel.writes().getFirst().state()).block());
+                var removed = runtime.interact(request(
+                        InteractionEngine.Operation.USE_ON,
+                        floor,
+                        new InteractionEngine.Stack(
+                                "minecraft:iron_shovel", 1, "{\"!minecraft:block_transformer\":{}}"),
+                        clicked,
+                        20));
+                assertFalse(removed.consumes());
+                assertTrue(removed.writes().isEmpty());
+                var supplied = runtime.interact(request(
+                        InteractionEngine.Operation.USE_ON,
+                        floor,
+                        new InteractionEngine.Stack(
+                                "minecraft:stick", 1, "{\"minecraft:block_transformer\":\"minecraft:shovel\"}"),
+                        clicked,
+                        20));
+                assertTrue(supplied.consumes());
+                assertEquals(1, supplied.writes().size());
+                assertEquals(
+                        "minecraft:dirt_path",
+                        runtime.state(supplied.writes().getFirst().state()).block());
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(RuntimeModel.class)
     void acquiredModelKeepsOriginalBedAndVegetationClientSemantics(RuntimeModel model) throws Exception {
         var jar = Path.of(System.getProperty("placementRuntimeJar"));
         try (var runtime = PlacementRuntime.openVanilla(jar, jar.getParent().resolve("runtime"), model)) {
@@ -151,13 +226,34 @@ class VanillaInteractionTest {
                     false,
                     1,
                     4.5);
+            var clientTags = new java.util.concurrent.atomic.AtomicReference<ac.cult.placement.api.GeometryTags>();
             var allowed = new ac.cult.placement.api.GeometryTags(
                     Map.of("cult:allowed", List.of("minecraft:stone")), Map.of(), Map.of());
             var denied = new ac.cult.placement.api.GeometryTags(
                     Map.of("cult:allowed", List.of("minecraft:dirt")), Map.of(), Map.of());
             var permitted = new InteractionEngine.Request(
                     ordinary.operation(),
-                    floor,
+                    new PlacementEngine.World() {
+                        public int stateAt(int x, int y, int z) {
+                            return floor.stateAt(x, y, z);
+                        }
+
+                        public int minY() {
+                            return floor.minY();
+                        }
+
+                        public int height() {
+                            return floor.height();
+                        }
+
+                        public boolean loaded(int x, int z) {
+                            return floor.loaded(x, z);
+                        }
+
+                        public ac.cult.placement.api.GeometryTags tags() {
+                            return clientTags.get();
+                        }
+                    },
                     adventure,
                     ordinary.hand(),
                     ordinary.clicked(),
@@ -168,13 +264,13 @@ class VanillaInteractionTest {
                     false,
                     "minecraft:overworld",
                     null);
-            runtime.tags(allowed);
+            clientTags.set(allowed);
             assertTrue(
                     runtime.interact(permitted).consumes(), "A custom tag must govern the native adventure predicate");
-            runtime.tags(denied);
+            clientTags.set(denied);
             assertFalse(
                     runtime.interact(permitted).consumes(), "Newly installed membership must replace the previous one");
-            runtime.tags(allowed);
+            clientTags.set(allowed);
             assertTrue(runtime.interact(permitted).consumes());
 
             var infinite = new InteractionEngine.Actor(

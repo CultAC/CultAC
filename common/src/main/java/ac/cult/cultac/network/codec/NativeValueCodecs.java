@@ -12,7 +12,7 @@ import net.minecraft.tags.TagNetworkSerialization.NetworkPayload;
 /** Native value API differences. Every selected implementation still uses this host's original codecs. */
 final class NativeValueCodecs {
     static final StreamCodec<ByteBuf, ResourceKey<? extends Registry<?>>> KEY = key();
-    static final StreamCodec<ByteBuf, NetworkPayload> TAGS = tags();
+    static final StreamCodec<ByteBuf, NetworkPayload> TAGS = NativeTagOrder.preserve(tags());
     static final StreamCodec<ByteBuf, ? extends Enum<?>> CLICK_TYPE = clickType();
     private static final LightReader LIGHT = lightReader();
 

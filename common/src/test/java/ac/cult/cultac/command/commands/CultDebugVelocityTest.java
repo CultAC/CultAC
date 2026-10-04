@@ -7,6 +7,7 @@ import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.latency.GeyserQueue;
@@ -63,7 +64,16 @@ public final class CultDebugVelocityTest {
         Transport() throws Exception {
             OfflineCultTestBootstrap.installConfig();
             UUID uuid = UUID.randomUUID();
-            User user = ac.cult.cultac.network.TestUsers.create(new User.Profile(uuid, ".Velocity_Test"), javaChannel);
+            // A bridge write now enters the connection's model context, as on either live platform.
+            PlatformConnection platform = Mockito.mock(PlatformConnection.class);
+            Mockito.doAnswer(invocation -> {
+                        invocation.<Runnable>getArgument(0).run();
+                        return null;
+                    })
+                    .when(platform)
+                    .runInModel(Mockito.any(Runnable.class));
+            User user = ac.cult.cultac.network.TestUsers.create(
+                    new User.Profile(uuid, ".Velocity_Test"), javaChannel, platform);
             player = new CultPlayer(user, MovementPlatform.BEDROCK, new BedrockPlayerState(uuid));
             var manager = CultAPI.INSTANCE.getNetworkManager();
             var connections = manager.getClass().getDeclaredField("connections");

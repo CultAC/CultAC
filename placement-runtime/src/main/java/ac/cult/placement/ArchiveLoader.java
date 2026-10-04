@@ -109,7 +109,8 @@ public final class ArchiveLoader extends SecureClassLoader implements AutoClosea
     @Override
     protected Class<?> findClass(String name) throws ClassNotFoundException {
         String file = name.replace('.', '/') + ".class";
-        if (name.startsWith("ac.cult.vanilla.interaction.")) file = bridgePrefix + file;
+        if (name.startsWith("ac.cult.vanilla.interaction.") || name.equals("ac.cult.placement.runtime.RequestTags"))
+            file = bridgePrefix + file;
         for (Path root : roots)
             try {
                 byte[] b = bytes(root, file);

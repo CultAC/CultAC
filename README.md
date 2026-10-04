@@ -12,22 +12,10 @@ Discord: https://discord.gg/nyeVp7UFau
 
 ## Compatibility
 
-The native Velocity deployment uses Java 25, accepts Java clients 1.21.3–26.3, and runs
-entirely on the proxy without a server plugin. The following compatibility notes describe
-the existing Bukkit deployment.
 
-* Java client support: **26.3 only** (protocol 777).
-* Java 25 or higher.
-* Paper 26.3; Spigot is unsupported.
+* Java client support: 1.21.2 though 26.3
+* Paper 1.21.2, 1.21.11, 26.2, or 26.3. Velocity is experimental
 
-Placement, block interaction, item use, and local break writes run in an isolated,
-runtime-acquired vanilla model. Earlier Paper hosts select the official named
-`1.21.11_unobfuscated` model; the newer family selects 26.3. It receives compensated state and client tag bindings;
-Paper and fork classes do not execute those actions.
-Minecraft jars are acquired from Mojang at first startup and verified in the plugin's
-version-specific runtime cache. Neither distributable bundles vanilla Minecraft or derived jars;
-later starts reuse the verified cache without requiring downloads. Recursive build checks enforce this for nested archives too.
-Legacy Java placement adapters and Bedrock block actions are outside this build's supported scope.
 
 Bedrock notes
 * GeyserFloatingPoints must be installed as a Geyser addon if players are > 3000 blocks from 0,0
@@ -123,6 +111,14 @@ What makes Cult stand out against other anticheats?
 ### Fully asynchronous and multithreaded design
 
 * All movement checks and the overwhelming majority of listeners run on the Netty thread
+* Velocity decodes consumed values with stateless, isolated Via types for the protocol at its physical codecs.
+  Java connections use their channel event loop; Bedrock connections use Geyser's tick loop.
+* Paper and Velocity share a pinned, isolated ViaVersion/ViaBackwards library for numeric mappings and tag rewrites.
+  It uses Via's directed paths and tag handlers without private player connections or exported rewrite tables.
+* Vanilla holders keep their bootstrap defaults. Immutable connection snapshots supply tags and item defaults,
+  and the isolated placement runtime reads tags from each request without a shared model lock.
+* Older Velocity protocols resolve dynamic registry entries by name against the 26.3 defaults, while preserving
+  received dimension types. Custom dynamic entries unavailable in those defaults are logged once.
 * The anticheat can scale to many hundreds of players, if not more
 * Thread safety is carefully thought out
 * The next core allows for this design

@@ -40,10 +40,6 @@ tasks.test {
     dependsOn(":vanilla-runtime:prepareVanilla")
     useJUnitPlatform()
 }
-tasks.processResources {
-    dependsOn(":protocol-codec:shadowJar")
-    from(project(":protocol-codec").layout.buildDirectory.file("libs/protocol-codecs.jar")) { into("runtime") }
-}
 tasks.shadowJar {
     archiveFileName.set("cult-engine.jar")
     mergeServiceFiles()

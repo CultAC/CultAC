@@ -18,110 +18,96 @@ import net.minecraft.tags.TagKey;
 import net.minecraft.tags.TagLoader;
 import net.minecraft.tags.TagNetworkSerialization;
 
-/** Client configuration data, including the static holder bindings vanilla keeps globally. */
+/** Configuration collector confined to the connection owner; publishes immutable registry read contexts. */
 public final class VanillaRegistryState {
-    static final class Bindings {
-        private final Map<ResourceKey<? extends Registry<?>>, VanillaTagBindings<?>> tags;
-        private final Map<ResourceKey<? extends Registry<?>>, VanillaComponentBindings<?>> components;
-        private ac.cult.placement.api.GeometryTags geometryTags;
-
-        Bindings(List<VanillaTagBindings<?>> tags, java.util.Collection<VanillaComponentBindings<?>> components) {
-            Map<ResourceKey<? extends Registry<?>>, VanillaTagBindings<?>> byRegistry = new HashMap<>();
-            tags.forEach(pending -> byRegistry.put(pending.key(), pending));
-            this.tags = Map.copyOf(byRegistry);
-            Map<ResourceKey<? extends Registry<?>>, VanillaComponentBindings<?>> byComponentRegistry = new HashMap<>();
-            components.forEach(pending -> byComponentRegistry.put(pending.key(), pending));
-            this.components = Map.copyOf(byComponentRegistry);
-        }
-
-        java.util.Collection<VanillaTagBindings<?>> tags() {
-            return tags.values();
-        }
-
-        java.util.Collection<VanillaComponentBindings<?>> components() {
-            return components.values();
-        }
-
-        void apply(Bindings previous) {
-            tags.forEach((key, pending) -> {
-                if (previous.tags.get(key) != pending) pending.apply();
-            });
-            components.forEach((key, pending) -> {
-                var old = previous.components.get(key);
-                if (old != pending) pending.applyAfter(old);
-            });
-            boolean unchanged = tags.get(Registries.BLOCK) == previous.tags.get(Registries.BLOCK)
-                    && tags.get(Registries.ITEM) == previous.tags.get(Registries.ITEM)
-                    && tags.get(Registries.FLUID) == previous.tags.get(Registries.FLUID);
-            if (unchanged && previous.geometryTags != null) geometryTags = previous.geometryTags;
-            if (geometryTags == null) geometryTags = ac.cult.cultac.utils.minecraft.NativeGeometryTags.capture();
-            ac.cult.cultac.utils.minecraft.IsolatedMinecraft.tags(geometryTags);
-        }
-    }
-
     private final VanillaBootstrap model;
     private final Map<ResourceKey<? extends Registry<?>>, List<RegistrySynchronization.PackedRegistryEntry>> entries =
             new HashMap<>();
     private final Map<ResourceKey<? extends Registry<?>>, TagNetworkSerialization.NetworkPayload> tags =
             new HashMap<>();
     private RegistryAccess.Frozen registries;
-    private Bindings bindings;
+    private volatile VanillaContext bindings;
     private final MinecraftRegistries context;
 
-    VanillaRegistryState(VanillaBootstrap model, Bindings bindings) {
+    VanillaRegistryState(VanillaBootstrap model, VanillaContext bindings) {
         this.model = model;
         this.registries = model.registries();
         this.bindings = bindings;
         this.context = new MinecraftRegistries(() -> registries, model::resources);
     }
 
-    public MinecraftRegistries context() {
+    public MinecraftRegistries registries() {
         return context;
     }
 
-    Bindings bindings() {
+    public VanillaContext context() {
         return bindings;
     }
 
     public void execute(Runnable task) {
-        model.execute(this, task);
-    }
-
-    public boolean isActive() {
-        return model.isActive(this);
+        VanillaContext.run(bindings, task);
     }
 
     public void append(
             ResourceKey<? extends Registry<?>> key, List<RegistrySynchronization.PackedRegistryEntry> values) {
-        requireOwner();
         entries.computeIfAbsent(key, ignored -> new ArrayList<>()).addAll(values);
     }
 
     public void appendTags(Map<ResourceKey<? extends Registry<?>>, TagNetworkSerialization.NetworkPayload> values) {
-        requireOwner();
         tags.putAll(values);
+    }
+
+    /** Older wire registries use model defaults by name, except for client-visible dimensions. */
+    public void finishOlder() {
+        var base = model.registries();
+        var dimensions = entries.get(Registries.DIMENSION_TYPE);
+        if (dimensions != null) {
+            var received = RegistryDataLoader.load(
+                            Map.of(
+                                    Registries.DIMENSION_TYPE,
+                                    new RegistryDataLoader.NetworkedRegistryData(
+                                            List.copyOf(dimensions), TagNetworkSerialization.NetworkPayload.EMPTY)),
+                            model.resources(),
+                            base.listRegistries().toList(),
+                            RegistryDataLoader.SYNCHRONIZED_REGISTRIES.stream()
+                                    .filter(data -> data.key().equals(Registries.DIMENSION_TYPE))
+                                    .toList(),
+                            Runnable::run)
+                    .join();
+            registries = new RegistryAccess.ImmutableRegistryAccess(Stream.concat(
+                            base.registries().filter(entry -> !entry.key().equals(Registries.DIMENSION_TYPE)),
+                            received.registries()))
+                    .freeze();
+        } else registries = base;
+        List<VanillaTagBindings<?>> pending = new ArrayList<>();
+        VanillaContext.run(null, () -> pending.addAll(snapshotTags(model, registries)));
+        var replacements = new HashMap<ResourceKey<? extends Registry<?>>, VanillaTagBindings<?>>();
+        tags.forEach((key, payload) -> {
+            if (!payload.isEmpty())
+                registries.lookup(key).ifPresent(registry -> replacements.put(key, prepare(registry, payload)));
+        });
+        pending.replaceAll(previous -> replacements.getOrDefault(previous.key(), previous));
+        publish(new VanillaContext(pending, snapshotComponents(model, registries)));
+        entries.clear();
+        tags.clear();
     }
 
     /** PLAY applies even empty tag payloads, unlike the configuration collector. */
     public Runnable preparePlayTags(
             Map<ResourceKey<? extends Registry<?>>, TagNetworkSerialization.NetworkPayload> values) {
-        requireOwner();
         Map<ResourceKey<? extends Registry<?>>, VanillaTagBindings<?>> incoming = new HashMap<>();
         values.forEach((key, payload) -> incoming.put(key, prepare(registries.lookupOrThrow(key), payload)));
         return () -> {
-            requireOwner();
             Map<ResourceKey<? extends Registry<?>>, VanillaTagBindings<?>> updated = new HashMap<>();
             bindings.tags().forEach(previous -> updated.put(previous.key(), previous));
             updated.putAll(incoming);
-            bindings = new Bindings(List.copyOf(updated.values()), bindings.components());
-            model.activate(this);
+            publish(new VanillaContext(List.copyOf(updated.values()), bindings.components()));
         };
     }
 
     /** Matches RegistryDataCollector: resolve tags, load received registries, then initialize defaults. */
     public void finish() {
-        requireOwner();
-        List<VanillaTagBindings<?>> pending = snapshotTags(model, registries);
+        List<VanillaTagBindings<?>> pending = new ArrayList<>(bindings.tags());
         Map<ResourceKey<? extends Registry<?>>, VanillaTagBindings<?>> replacements = new HashMap<>();
         Map<ResourceKey<? extends Registry<?>>, RegistryDataLoader.NetworkedRegistryData> network = new HashMap<>();
         entries.forEach((key, values) -> network.put(
@@ -157,18 +143,19 @@ public final class VanillaRegistryState {
                     .freeze();
             pending = staticTags;
         }
-        bindings = new Bindings(List.copyOf(pending), snapshotComponents(model, registries));
+        publish(new VanillaContext(List.copyOf(pending), snapshotComponents(model, registries)));
         entries.clear();
         tags.clear();
-        model.activate(this);
     }
 
-    private void requireOwner() {
-        if (!isActive()) throw new IllegalStateException("Registry mutation outside its model context");
+    private void publish(VanillaContext next) {
+        var previous = bindings;
+        bindings = next;
+        VanillaContext.publish(previous, next);
     }
 
-    static Bindings snapshot(VanillaBootstrap model, RegistryAccess access) {
-        return new Bindings(snapshotTags(model, access), snapshotComponents(model, access));
+    static VanillaContext snapshot(VanillaBootstrap model, RegistryAccess access) {
+        return new VanillaContext(snapshotTags(model, access), snapshotComponents(model, access));
     }
 
     private static List<VanillaComponentBindings<?>> snapshotComponents(VanillaBootstrap model, RegistryAccess access) {

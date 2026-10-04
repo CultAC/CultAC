@@ -37,7 +37,7 @@ final class VanillaClassTransform {
     static byte[] apply(String name, byte[] bytes, boolean narrowed) {
         String internalName = name.replace('.', '/');
         if (internalName.equals(SHARED_LAMBDAS)) return bytes;
-        var writer = new ClassWriter(0);
+        var writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         ClassVisitor shrink = new ClassVisitor(Opcodes.ASM9, writer) {
             private String owner;
 
@@ -110,6 +110,8 @@ final class VanillaClassTransform {
             }
         };
         ClassVisitor guarded = ModelConcurrency.visitor(internalName, shrink);
+        guarded = ac.cult.runtime.RegistryReadTransform.visitor(
+                internalName, guarded, "ac/cult/placement/runtime/RequestTags");
         new ClassReader(bytes)
                 .accept(
                         narrowed && ModelNarrowing.applies(internalName)

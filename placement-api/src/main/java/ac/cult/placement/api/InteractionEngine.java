@@ -17,7 +17,7 @@ public interface InteractionEngine extends AutoCloseable {
      * writes, consumption, inventory counts, cooldowns): the placed state and its block entity
      * data (lectern and jukebox state), adventure predicates, potion contents (water on mud and
      * cauldrons), dye (whether cauldron washing consumes the click), the tool (creative
-     * breaking), use cooldowns and equipment slots. Every other component takes the item's
+     * breaking), use cooldowns, equipment slots and the 26.3 block transformer. Every other component takes the item's
      * default; the components vanilla reads only server-side (such as the debug stick's
      * selection) or only for display never change a client result.
      */
@@ -30,12 +30,15 @@ public interface InteractionEngine extends AutoCloseable {
             "minecraft:dyed_color",
             "minecraft:tool",
             "minecraft:use_cooldown",
-            "minecraft:equippable");
+            "minecraft:equippable",
+            "minecraft:block_transformer");
 
     /**
      * An item type and count, plus {@code components}: the stack's patch over its type's
      * defaults restricted to {@link #TRANSFERRED_COMPONENTS}, encoded by vanilla's component
-     * patch codec, or {@code null} when it changes none of them.
+     * patch codec, or {@code null} when it changes none of them. The internal 26.3
+     * action view resolves a supplied block-transformer holder with its original direct
+     * codec; this representation is not a native network component patch.
      */
     record Stack(String item, int count, String components) {
         public static final Stack EMPTY = new Stack("minecraft:air", 0, null);

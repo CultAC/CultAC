@@ -32,7 +32,6 @@ class IsolatedGeometryTest {
     void allStatesAndContextualShapesMatchVanillaWithoutSharingNativeObjects() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         try (var runtime = PlacementRuntime.openVanilla(Path.of(System.getProperty("placementRuntimeJar")))) {
-            runtime.tags(ac.cult.cultac.utils.minecraft.NativeGeometryTags.capture());
             var view = new View();
             CollisionContext[] contexts = {
                 CollisionContext.empty(),

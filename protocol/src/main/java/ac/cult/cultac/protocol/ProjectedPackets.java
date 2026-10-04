@@ -3,128 +3,96 @@ package ac.cult.cultac.protocol;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
-import io.netty.buffer.ByteBufUtil;
-import io.netty.buffer.Unpooled;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
-/** One wire/model boundary; pure client actions retain their source-version schema and ordering. */
+/** Direct observed packet decoding; only consumed values cross into the native model. */
 public final class ProjectedPackets implements AutoCloseable {
-    public record Value(PacketType<?> type, Object packet, boolean derived) {}
-    /** Owns its buffers until they are transferred to the transport. */
-    public record Encoded(List<ByteBuf> frames, boolean destinationObserved) {}
+    public record Value(PacketType<?> type, Object packet) {}
+    /** Owns its buffer until it is transferred to the transport. */
+    public record Encoded(List<ByteBuf> frames) {}
 
-    private final ProtocolRuntime wire, model;
-    private final Supplier<PacketProjection> factory;
-    private PacketProjection projection;
+    private final ProtocolRuntime observed, model;
+    private final Supplier<PacketValueAdapter> adapter;
     private boolean closed;
 
-    public ProjectedPackets(ProtocolRuntime wire, ProtocolRuntime model, Supplier<PacketProjection> factory) {
-        this.wire = Objects.requireNonNull(wire);
+    public ProjectedPackets(ProtocolRuntime observed, ProtocolRuntime model, Supplier<PacketValueAdapter> adapter) {
+        this.observed = Objects.requireNonNull(observed);
         this.model = Objects.requireNonNull(model);
-        this.factory = Objects.requireNonNull(factory);
+        this.adapter = Objects.requireNonNull(adapter);
     }
 
-    public ProtocolRuntime wire() {
-        return wire;
+    public ProtocolRuntime observed() {
+        return observed;
     }
 
     public boolean translated() {
-        return wire.data().version() != model.data().version();
+        return observed.data().version() != model.data().version();
     }
 
-    /** Borrows the physical buffer; only the caller may cancel, replace or forward it. */
+    /** Borrows the physical frame; no generated frames or mirrored observations exist. */
     public List<Value> read(
             ConnectionPhase phase,
             PacketDirection direction,
             ByteBuf physical,
             CodecState state,
-            Predicate<PacketType<?>> consumed,
-            boolean mirror) {
-        if (!translated()) {
-            Value value = decode(model, phase, direction, physical, state, consumed, false);
-            return value == null ? List.of() : List.of(value);
-        }
-        var source = wire.binding(phase, direction, Wire.peekVarInt(physical));
-        String sourceName = wire.data().packets(phase, direction).name(Wire.peekVarInt(physical));
-        boolean pure = source != null && !source.type().codec().requiresModelValues();
-        Value original = pure ? decode(wire, phase, direction, physical, state, consumed, false) : null;
-        var values = new ArrayList<Value>();
-        boolean sourceAdded = false;
-        for (var frame : projection().toModel(direction, phase, ByteBufUtil.getBytes(physical), mirror)) {
-            if (frame.direction() != direction || frame.phase() != phase)
-                throw new ProtocolResolutionException("Projection changed physical frame direction or phase");
-            ByteBuf bytes = Unpooled.wrappedBuffer(frame.bytes());
-            try {
-                var binding = model.binding(phase, direction, Wire.peekVarInt(bytes));
-                if (pure && !frame.generated() && binding != null && binding.type() == source.type()) {
-                    if (original != null) values.add(original);
-                    sourceAdded = true;
-                    continue;
-                }
-                if (binding == null) continue;
-                // Generated confirmations/movement belong to the converter's mirror,
-                // never to the real client. Derived native registry/value packets are
-                // needed by the model and keep their order before the physical frame.
-                if ((pure || frame.generated()) && !binding.type().codec().requiresModelValues()) continue;
-                boolean derived = pure
-                        || (frame.generated() && !binding.type().wireNames().contains(sourceName));
-                Value value = decode(model, phase, direction, bytes, state, consumed, derived);
-                if (value != null) values.add(value);
-            } finally {
-                bytes.release();
-            }
-        }
-        // An old ID-only teleport acknowledgment can be consumed by ViaBackwards
-        // while waiting for its position response. Cult still observes that action.
-        if (pure && !sourceAdded && original != null) values.add(original);
-        return List.copyOf(values);
+            Predicate<PacketType<?>> consumed) {
+        if (closed) throw new IllegalStateException("Packet values are closed");
+        var input = physical.duplicate();
+        int id = Wire.readVarInt(input);
+        var bound = observed.binding(phase, direction, id);
+        PacketType<?> type = bound == null
+                ? model.typeForKey(direction.name().toLowerCase(java.util.Locale.ROOT) + "."
+                        + observed.data().packets(phase, direction).name(id).replace("minecraft:", ""))
+                : bound.type();
+        if (type == null || !consumed.test(type)) return List.of();
+        Object packet;
+        if (translated() && type.codec().requiresModelValues()) {
+            var context = new ProtocolContext(
+                    type,
+                    observed.data(),
+                    phase,
+                    observed.data().packets(phase, direction).name(id),
+                    32767,
+                    0,
+                    state);
+            packet = Objects.requireNonNull(adapter.get(), "Missing observed value decoder")
+                    .read(input, context);
+            if (!type.recordClass().isInstance(packet))
+                throw new ProtocolResolutionException("Wrong observed value record for " + type);
+            if (type.codec().readsEntirePayload() && input.isReadable())
+                throw new MalformedPacketException("Trailing bytes on " + type);
+        } else packet = observed.decode(phase, direction, id, input, state);
+        return List.of(new Value(type, packet));
     }
 
-    private static Value decode(
-            ProtocolRuntime runtime,
-            ConnectionPhase phase,
-            PacketDirection direction,
-            ByteBuf bytes,
-            CodecState state,
-            Predicate<PacketType<?>> consumed,
-            boolean derived) {
-        ByteBuf view = bytes.duplicate();
-        int id = Wire.readVarInt(view);
-        var binding = runtime.binding(phase, direction, id);
-        if (binding == null || !consumed.test(binding.type())) return null;
-        return new Value(binding.type(), runtime.decode(phase, direction, id, view, state), derived);
-    }
-
-    /** Source codecs handle pure packets; only native-value packets use reverse conversion. */
     public <R> Encoded encode(
             ConnectionPhase phase, PacketType<R> type, R packet, ByteBufAllocator allocator, CodecState state) {
-        boolean nativeValues = translated() && (type.codec().requiresModelValues() || !wire.supports(type));
-        ByteBuf bytes = allocator.buffer();
+        if (closed) throw new IllegalStateException("Packet values are closed");
+        ByteBuf output = allocator.buffer();
         try {
-            (nativeValues ? model : wire).encode(phase, type, packet, bytes, state);
-            if (!nativeValues) {
-                var result = new Encoded(List.of(bytes), false);
-                bytes = null;
-                return result;
-            }
-            var frames = new ArrayList<ByteBuf>();
-            try {
-                for (var frame : projection().toWire(type.direction(), phase, ByteBufUtil.getBytes(bytes))) {
-                    if (frame.direction() != type.direction() || frame.phase() != phase)
-                        throw new ProtocolResolutionException("Authored conversion changed packet direction or phase");
-                    frames.add(Unpooled.wrappedBuffer(frame.bytes()));
-                }
-                return new Encoded(List.copyOf(frames), true);
-            } catch (Throwable failure) {
-                frames.forEach(ByteBuf::release);
-                throw failure;
-            }
+            if (translated() && type.codec().requiresModelValues()) {
+                if (!type.writable()) throw new UnsupportedOnVersionException("Read-only packet " + type);
+                String name = type.wireNames().stream()
+                        .filter(n ->
+                                observed.data().packets(phase, type.direction()).id(n) >= 0)
+                        .findFirst()
+                        .orElseThrow(() -> new UnsupportedOnVersionException("Unavailable packet " + type));
+                Wire.writeVarInt(
+                        output, observed.data().packets(phase, type.direction()).id(name));
+                Objects.requireNonNull(adapter.get(), "Missing observed value writer")
+                        .write(
+                                output,
+                                new ProtocolContext(type, observed.data(), phase, name, 32767, 0, state),
+                                packet);
+            } else observed.encode(phase, type, packet, output, state);
+            var result = new Encoded(List.of(output));
+            output = null;
+            return result;
         } finally {
-            if (bytes != null) bytes.release();
+            if (output != null) output.release();
         }
     }
 
@@ -132,18 +100,8 @@ public final class ProjectedPackets implements AutoCloseable {
         return model.writableType(packet);
     }
 
-    private PacketProjection projection() {
-        if (closed) throw new IllegalStateException("Packet projection is closed");
-        if (projection == null) projection = Objects.requireNonNull(factory.get(), "Missing wire/model converter");
-        return projection;
-    }
-
     @Override
     public void close() {
         closed = true;
-        if (projection != null) {
-            projection.close();
-            projection = null;
-        }
     }
 }

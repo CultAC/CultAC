@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.IntUnaryOperator;
 
 /** Registry identifier renames proven by the composed numeric mappings. */
 public final class ModelRegistryNames {
@@ -49,39 +50,78 @@ public final class ModelRegistryNames {
         return new ModelRegistryNames(ModelRegistryData.load(source), ModelRegistryData.load(target));
     }
 
-    /** Native newer values projected to an older client model using actual backward mappings. */
+    /** Client-visible values use independent protocol mappings in both directions. */
     public static ModelRegistryNames project(ProtocolVersion source, ProtocolVersion target) {
-        if (source.protocol() <= target.protocol()) return load(source, target);
+        if (source == target) return load(source, target);
         return new ModelRegistryNames(
                 ModelRegistryData.load(source),
                 ModelRegistryData.load(target),
                 ModelIdMappings.project(source, target),
-                ModelIdMappings.load(target, source));
+                ModelIdMappings.project(target, source));
+    }
+
+    /** Compose through the actual client before entering a shared vanilla action family. */
+    public static ModelRegistryNames project(ProtocolVersion source, ProtocolVersion client, ProtocolVersion target) {
+        var toClient = ModelIdMappings.project(source, client);
+        var toModel = ModelIdMappings.project(client, target);
+        var fromModel = ModelIdMappings.project(target, client);
+        var toHost = ModelIdMappings.project(client, source);
+        var sourceData = ModelRegistryData.load(source);
+        var clientData = ModelRegistryData.load(client);
+        var targetData = ModelRegistryData.load(target);
+        validate(toClient, sourceData);
+        validate(toModel, clientData);
+        validate(fromModel, targetData);
+        validate(toHost, clientData);
+        return new ModelRegistryNames(
+                sourceData,
+                targetData,
+                id -> {
+                    int visible = toClient.block(id);
+                    return visible < 0 ? -1 : toModel.block(visible);
+                },
+                id -> toModel.item(toClient.item(id)),
+                id -> toHost.item(fromModel.item(id)));
+    }
+
+    private static void validate(ModelIdMappings mappings, ModelRegistryData source) {
+        if (mappings.blockCount() != source.registry("minecraft:block").size()
+                || mappings.itemCount() != source.registry("minecraft:item").size())
+            throw new ProtocolResolutionException("Client-directed registry mapping does not match its registry");
     }
 
     private ModelRegistryNames(
             ModelRegistryData source, ModelRegistryData target, ModelIdMappings toModel, ModelIdMappings toHost) {
+        this(source, target, toModel::block, toModel::item, toHost::item);
+        if (toModel.blockCount() != source.registry("minecraft:block").size()
+                || toModel.itemCount() != source.registry("minecraft:item").size()
+                || toHost.itemCount() != target.registry("minecraft:item").size())
+            throw new ProtocolResolutionException("Directed registry mapping does not match its registry");
+    }
+
+    private ModelRegistryNames(
+            ModelRegistryData source,
+            ModelRegistryData target,
+            IntUnaryOperator toModelBlock,
+            IntUnaryOperator toModelItem,
+            IntUnaryOperator toHostItem) {
         var sourceBlocks = source.registry("minecraft:block");
         var targetBlocks = target.registry("minecraft:block");
         var sourceItems = source.registry("minecraft:item");
         var targetItems = target.registry("minecraft:item");
-        if (toModel.blockCount() != sourceBlocks.size()
-                || toModel.itemCount() != sourceItems.size()
-                || toHost.itemCount() != targetItems.size())
-            throw new ProtocolResolutionException("Directed registry mapping does not match its registry");
         var blockNames = new HashMap<String, String>();
         var itemNames = new HashMap<String, String>();
         var hostNames = new HashMap<String, String>();
         var removed = new HashSet<String>();
         for (int id = 0; id < sourceBlocks.size(); id++) {
-            int mapped = toModel.block(id);
+            int mapped = toModelBlock.applyAsInt(id);
             if (mapped == -1) removed.add(sourceBlocks.name(id));
             else blockNames.put(sourceBlocks.name(id), targetBlocks.name(mapped));
         }
         for (int id = 0; id < sourceItems.size(); id++)
-            itemNames.put(sourceItems.name(id), targetItems.name(toModel.item(id)));
+            itemNames.put(sourceItems.name(id), targetItems.name(toModelItem.applyAsInt(id)));
         for (int id = 0; id < targetItems.size(); id++)
-            hostNames.put(targetItems.name(id), sourceItems.name(toHost.item(id)));
+            hostNames.put(targetItems.name(id), sourceItems.name(toHostItem.applyAsInt(id)));
         blocks = Map.copyOf(blockNames);
         items = Map.copyOf(itemNames);
         hostItems = Map.copyOf(hostNames);

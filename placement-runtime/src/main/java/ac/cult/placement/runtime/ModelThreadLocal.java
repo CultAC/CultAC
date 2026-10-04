@@ -1,20 +1,20 @@
 package ac.cult.placement.runtime;
 
-import java.util.Map;
 import java.util.Objects;
-import java.util.WeakHashMap;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
-/**
- * Per-thread vanilla caches owned by the model. A ThreadLocalMap value in a live
- * packet thread would otherwise keep a retired model's classes reachable.
- */
+/** Model-owned caches avoid retaining retired vanilla classes in host thread locals. */
 public final class ModelThreadLocal<T> extends ThreadLocal<T> {
-    private final Map<Thread, T> values = new WeakHashMap<>();
+    private static final Set<ModelThreadLocal<?>> CACHES = ConcurrentHashMap.newKeySet();
+    private static final Object NULL = new Object();
+    private final ConcurrentHashMap<Thread, Object> values = new ConcurrentHashMap<>();
     private final Supplier<? extends T> initial;
 
     private ModelThreadLocal(Supplier<? extends T> initial) {
         this.initial = Objects.requireNonNull(initial);
+        CACHES.add(this);
     }
 
     public static <T> ThreadLocal<T> withInitial(Supplier<? extends T> initial) {
@@ -22,23 +22,27 @@ public final class ModelThreadLocal<T> extends ThreadLocal<T> {
     }
 
     @Override
-    public synchronized T get() {
-        Thread thread = Thread.currentThread();
-        T value = values.get(thread);
-        if (value == null && !values.containsKey(thread)) {
-            value = initial.get();
-            values.put(thread, value);
-        }
-        return value;
+    @SuppressWarnings("unchecked")
+    public T get() {
+        var value = values.computeIfAbsent(Thread.currentThread(), ignored -> {
+            T created = initial.get();
+            return created == null ? NULL : created;
+        });
+        return value == NULL ? null : (T) value;
     }
 
     @Override
-    public synchronized void set(T value) {
-        values.put(Thread.currentThread(), value);
+    public void set(T value) {
+        values.put(Thread.currentThread(), value == null ? NULL : value);
     }
 
     @Override
-    public synchronized void remove() {
+    public void remove() {
         values.remove(Thread.currentThread());
+    }
+
+    public static void clearAll() {
+        CACHES.forEach(cache -> cache.values.clear());
+        CACHES.clear();
     }
 }

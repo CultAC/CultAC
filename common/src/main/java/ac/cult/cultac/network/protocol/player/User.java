@@ -26,6 +26,16 @@ public final class User {
         return cultConnection;
     }
 
+    public ac.cult.cultac.protocol.ProtocolVersion getObservedProtocol() {
+        return cultConnection.getObservedProtocol();
+    }
+
+    @Nullable
+    public ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
+        var cultPlayer = getCultPlayer();
+        return cultPlayer == null ? cultConnection.getClientProtocol() : cultPlayer.getClientProtocol();
+    }
+
     public ac.cult.cultac.utils.minecraft.MinecraftRegistries registries() {
         return java.util.Objects.requireNonNull(
                 cultConnection.platform().registries(), "Connection registry context unavailable");
@@ -61,12 +71,11 @@ public final class User {
     }
 
     public void execute(Runnable task) {
-        if (getPacketExecutor().inEventLoop()) task.run();
-        else executeLater(task);
+        cultConnection.execute(task);
     }
 
     public void executeLater(Runnable task) {
-        getPacketExecutor().execute(task);
+        cultConnection.executeLater(task);
     }
 
     public void executeAfterWrites(Runnable task) {

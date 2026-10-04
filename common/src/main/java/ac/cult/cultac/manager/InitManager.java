@@ -69,6 +69,7 @@ public class InitManager {
                 .add(new TerminateGeyserBedrockBridge())
                 .add(new TerminateNetworkManager())
                 .add(ac.cult.cultac.utils.minecraft.IsolatedMinecraft::stop)
+                .add(ac.cult.cultac.protocol.ProtocolCodecs::close)
                 .add(CultAPI.INSTANCE.getDataStoreLifecycle())
                 .addAll(extraStoppableInitables)
                 .build();

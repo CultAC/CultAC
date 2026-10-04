@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.bridge;
 import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
+import org.geysermc.mcprotocollib.protocol.data.ProtocolState;
 import org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundPingPacket;
 import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundPongPacket;
 
@@ -20,6 +21,11 @@ final class GeyserPingTranslator extends PacketTranslator<ClientboundPingPacket>
 
     @Override
     public void translate(GeyserSession session, ClientboundPingPacket packet) {
+        var downstream = session.getDownstream().getSession();
+        if (downstream.getPacketProtocol().getInboundState() == ProtocolState.CONFIGURATION) {
+            downstream.send(new ServerboundPongPacket(packet.getId()));
+            return;
+        }
         session.sendNetworkLatencyStackPacket(packet.getId(), true, () -> {
             if (!GeyserBedrockBridgeRuntime.acceptTransaction(session, packet.getId())) {
                 session.sendDownstreamPacket(new ServerboundPongPacket(packet.getId()));

@@ -419,6 +419,15 @@ public final class GeyserBedrockBridgeRuntime {
         return () -> session.ensureInEventLoop(() -> acceptTransaction(session, id));
     }
 
+    static Runnable writtenJavaLatencyCallback(GeyserSession session, CultPlayer player, long timestamp) {
+        if (player == null) return null;
+        var boundary = player.getLastClientboundBedrockTransaction();
+        if (boundary == null
+                || boundary.id() != timestamp
+                || boundary.transaction() <= player.lastTransactionReceived.get()) return null;
+        return nativeLatencyCallback(session, boundary.id());
+    }
+
     /** Engine work on Geyser's threads runs in the player's model context; see PlatformConnection#runInModel. */
     private static void inModel(CultPlayer player, Runnable task) {
         if (player == null) task.run();
@@ -1255,16 +1264,25 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         @Override
-        public void write(ChannelHandlerContext context, Object message, ChannelPromise promise) {
+        public void write(ChannelHandlerContext context, Object message, ChannelPromise promise) throws Exception {
             if (owner.detached.get() || !(message instanceof BedrockPacketWrapper wrapper)) {
                 context.write(message, promise);
                 return;
             }
-            inModel(owner.currentPlayer(), () -> writeTapped(context, message, wrapper, promise));
+            Exception[] failure = new Exception[1];
+            inModel(owner.currentPlayer(), () -> {
+                try {
+                    writeTapped(context, message, wrapper, promise);
+                } catch (Exception caught) {
+                    failure[0] = caught;
+                }
+            });
+            if (failure[0] != null) throw failure[0];
         }
 
         private void writeTapped(
-                ChannelHandlerContext context, Object message, BedrockPacketWrapper wrapper, ChannelPromise promise) {
+                ChannelHandlerContext context, Object message, BedrockPacketWrapper wrapper, ChannelPromise promise)
+                throws Exception {
             BedrockPacket packet = wrapper.getPacket();
             owner.initializeActor(owner.currentPlayer());
             boolean normalizedVehicleEffect = false;
@@ -1487,16 +1505,23 @@ public final class GeyserBedrockBridgeRuntime {
             }
             if (packet instanceof NetworkStackLatencyPacket latencyPacket && latencyPacket.isFromServer()) {
                 CultPlayer player = owner.currentPlayer();
-                owner.latencyQueue.write(() -> {
+                owner.latencyQueue.writeWithReceipt(() -> {
+                    Runnable receipt = null;
                     if (player != null) {
                         player.markBedrockTransactionClientbound(latencyPacket.getTimestamp());
                         var boundary = player.getLastClientboundBedrockTransaction();
                         if (boundary != null && boundary.id() == latencyPacket.getTimestamp()) {
                             owner.entityPositions.boundary(player, boundary);
                             owner.entityAttributes.boundary(player, boundary);
+                            // Geyser's Java-ping callback only forwards Pong. Confirm the actual
+                            // Bedrock receipt locally before the next auth input, without waiting
+                            // for that Pong to return through the Java connection.
+                            receipt =
+                                    writtenJavaLatencyCallback(owner.connection, player, latencyPacket.getTimestamp());
                         }
                     }
                     context.write(message, promise);
+                    return receipt;
                 });
                 return;
             }

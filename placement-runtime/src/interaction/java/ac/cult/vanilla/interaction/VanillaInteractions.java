@@ -59,6 +59,10 @@ public final class VanillaInteractions implements InteractionEngine, ac.cult.pla
 
     @Override
     public InteractionEngine.Result interact(InteractionEngine.Request request) {
+        return ac.cult.placement.runtime.RequestTags.query(request.world().tags(), () -> interactWithTags(request));
+    }
+
+    private InteractionEngine.Result interactWithTags(InteractionEngine.Request request) {
         var registries = bindings.registries;
         var world = new InteractionWorld(request, registries);
         var player = new InteractionPlayer(world, request.actor());
@@ -174,18 +178,14 @@ public final class VanillaInteractions implements InteractionEngine, ac.cult.pla
     }
 
     @Override
-    public void tags(ac.cult.placement.api.GeometryTags tags) {
-        bindings.installTags(tags);
-    }
-
-    @Override
     public java.util.List<Box> shape(
             World world,
             Pos pos,
             int id,
             ac.cult.placement.api.BlockGeometry.Shape kind,
             ac.cult.placement.api.BlockGeometry.Context actor) {
-        return VanillaBlockGeometry.shape(world, pos, id, kind, actor);
+        return ac.cult.placement.runtime.RequestTags.query(
+                world.tags(), () -> VanillaBlockGeometry.shape(world, pos, id, kind, actor));
     }
 
     @Override
@@ -259,5 +259,7 @@ public final class VanillaInteractions implements InteractionEngine, ac.cult.pla
     @Override
     public void close() {
         bindings.close();
+        ac.cult.placement.runtime.RequestTags.clear();
+        ac.cult.placement.runtime.ModelThreadLocal.clearAll();
     }
 }

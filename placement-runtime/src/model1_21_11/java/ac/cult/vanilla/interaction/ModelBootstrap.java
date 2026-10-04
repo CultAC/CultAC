@@ -34,6 +34,16 @@ final class ModelBootstrap {
         // 1.21.11 builds item defaults during BuiltInRegistries.bootstrap, before data registries load.
     }
 
+    static net.minecraft.core.component.DataComponentPatch decodeComponents(
+            com.google.gson.JsonElement input, RegistryAccess registries) {
+        return InteractionItems.nativeDecode(input, registries);
+    }
+
+    static com.google.gson.JsonElement encodeComponents(
+            net.minecraft.core.component.DataComponentPatch patch, RegistryAccess registries) {
+        return InteractionItems.nativeEncode(patch, registries);
+    }
+
     static void afterUseOn(InteractionPlayer player, InteractionHand hand, ItemStack before, InteractionResult result) {
         // 1.21.11 MultiPlayerGameMode.performUseItemOn returns the result directly.
     }

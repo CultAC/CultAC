@@ -99,6 +99,8 @@ val generateBedrockMovementCollisionOverrides = tasks.register<Exec>("generateBe
 }
 
 tasks.processResources {
+    dependsOn(":protocol-codec:shadowJar")
+    from(project(":protocol-codec").layout.buildDirectory.file("libs/protocol-codecs.jar")) { into("runtime") }
     // An explicit required input prevents accidentally shipping a jar without geometry.
     inputs.file(bedrockMovementCollisionOverridesResource).withPropertyName("bedrockCollisionCatalog")
     // Allows an explicit regeneration and build in one invocation without making

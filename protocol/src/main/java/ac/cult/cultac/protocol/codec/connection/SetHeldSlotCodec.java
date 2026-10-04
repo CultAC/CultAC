@@ -8,6 +8,7 @@ package ac.cult.cultac.protocol.codec.connection;
 
 import ac.cult.cultac.protocol.PacketCodec;
 import ac.cult.cultac.protocol.ProtocolContext;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHeldSlot;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
@@ -15,6 +16,8 @@ import io.netty.buffer.ByteBuf;
 public final class SetHeldSlotCodec implements PacketCodec<ClientboundSetHeldSlot> {
     @Override
     public ClientboundSetHeldSlot read(ByteBuf input, ProtocolContext context) {
-        return new ClientboundSetHeldSlot(Wire.readVarInt(input));
+        // The official 1.21.2/3 packet carries a signed byte; 1.21.4 changed it to VarInt.
+        return new ClientboundSetHeldSlot(
+                context.version().atLeast(ProtocolVersion.V1_21_4) ? Wire.readVarInt(input) : input.readByte());
     }
 }

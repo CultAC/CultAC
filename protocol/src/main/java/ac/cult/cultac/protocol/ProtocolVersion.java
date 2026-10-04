@@ -1,6 +1,10 @@
 package ac.cult.cultac.protocol;
 
-/** Exact supported Minecraft release protocols. Snapshots and release candidates are unsupported. */
+/**
+ * Supported release wire formats, named after their pinned registry-report version.
+ * Protocol 768 also covers 1.21.2; 772 covers 1.21.8; 773 covers 1.21.10;
+ * 775 covers 26.1.1 and 26.1.2. Snapshots and release candidates are unsupported.
+ */
 public enum ProtocolVersion {
     V1_21_3(768, "1.21.3"),
     V1_21_4(769, "1.21.4"),

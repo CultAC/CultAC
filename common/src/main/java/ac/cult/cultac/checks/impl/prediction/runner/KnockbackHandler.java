@@ -45,7 +45,8 @@ public class KnockbackHandler extends PacketModHandler implements PostPrediction
             return -1;
         }
 
-        Vec3 playerVelocity = PacketCodecUtil.quantizeClientboundVelocity(
+        Vec3 playerVelocity = PacketCodecUtil.clientVelocityFromObserved(
+                event.getDecodedProtocol(),
                 player.getClientVersion(),
                 new Vec3(
                         motion.velocity().x(),

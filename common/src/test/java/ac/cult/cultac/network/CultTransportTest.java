@@ -23,7 +23,6 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.flow.FlowControlHandler;
 import io.netty.util.concurrent.DefaultEventExecutor;
 import java.util.*;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.network.UnconfiguredPipelineHandler;
@@ -32,6 +31,77 @@ import org.junit.jupiter.api.Test;
 /** Replacement contract, written before the transport implementation (D1–D7, C1/C2). */
 class CultTransportTest {
     private static final ProtocolRuntime RUNTIME = ProtocolRuntime.create(ProtocolData.load(ProtocolVersion.V26_3));
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void bedrockHandlersUseTheAssignedExecutorAndReentryKeepsItsQueuePosition(boolean encoderFirst) throws Exception {
+        var owner = new DefaultEventExecutor(new io.netty.util.concurrent.DefaultThreadFactory("test-geyser-owner"));
+        var channel = new EmbeddedChannel();
+        var routes = new TestTransportRoutes(RUNTIME);
+        var connection =
+                new CultConnection(channel, routes.dispatcher, ignored -> new PacketOwner(owner, new Object()));
+        connection.phase(SERVERBOUND, CONFIGURATION);
+        connection.phase(CLIENTBOUND, PLAY);
+        new User(new User.Profile(UUID.randomUUID(), "OwnerTest"), connection);
+        if (encoderFirst) channel.pipeline().addLast("encoder", new ChannelOutboundHandlerAdapter());
+        channel.pipeline().addLast("decoder", new ChannelInboundHandlerAdapter());
+        if (!encoderFirst) channel.pipeline().addLast("encoder", new ChannelOutboundHandlerAdapter());
+        CultDecoder.install(connection);
+        CultEncoder.install(connection);
+        var seen = java.util.Collections.synchronizedList(new ArrayList<Integer>());
+        routes.receive(ServerboundPackets.PONG, event -> {
+            assertTrue(owner.inEventLoop());
+            seen.add(event.getPacket().id());
+        });
+        routes.send(ClientboundPackets.PING, event -> {
+            assertTrue(owner.inEventLoop());
+            seen.add(event.getPacket().id());
+            if (event.getPacket().id() == 3) connection.write(new CultWrite(new ClientboundPing(4), false));
+        });
+        try {
+            for (int id : List.of(1, 2)) {
+                var input = Unpooled.buffer();
+                Wire.writeVarInt(
+                        input,
+                        RUNTIME.data().packets(CONFIGURATION, SERVERBOUND).id("minecraft:pong"));
+                input.writeInt(id);
+                channel.writeInbound(input);
+            }
+            owner.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            channel.runPendingTasks();
+            assertSame(owner, channel.pipeline().context(CultDecoder.NAME).executor());
+            assertSame(owner, channel.pipeline().context(CultEncoder.NAME).executor());
+            var output = Unpooled.buffer();
+            Wire.writeVarInt(output, RUNTIME.data().packets(PLAY, CLIENTBOUND).id("minecraft:ping"));
+            output.writeInt(3);
+            channel.writeAndFlush(output);
+            owner.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            channel.runPendingTasks();
+            // A recursive write of the active family is emitted once without redispatching that family.
+            assertEquals(List.of(1, 2, 3), seen);
+            for (int id : List.of(1, 2)) {
+                var input = (ByteBuf) channel.readInbound();
+                assertNotNull(input);
+                Wire.readVarInt(input);
+                assertEquals(id, input.readInt());
+                input.release();
+            }
+            for (int id : List.of(4, 3)) {
+                var input = (ByteBuf) channel.readOutbound();
+                assertNotNull(input);
+                Wire.readVarInt(input);
+                assertEquals(id, input.readInt());
+                input.release();
+            }
+            assertNull(channel.readInbound());
+            assertNull(channel.readOutbound());
+            assertTrue(channel.config().isAutoRead());
+        } finally {
+            channel.finishAndReleaseAll();
+            owner.shutdownGracefully(0, 5, TimeUnit.SECONDS).sync();
+            channel.runPendingTasks();
+        }
+    }
 
     @Test
     void unlistenedFramesKeepTheirIdentityIndicesAndReferenceCountsWithoutBufferAllocation() throws Exception {
@@ -73,7 +143,7 @@ class CultTransportTest {
     }
 
     @Test
-    void receiveAndSendCancellationAndReplacementWorkOnEitherDispatchThread() throws Exception {
+    void receiveAndSendCancellationAndReplacementWorkSynchronously() throws Exception {
         for (boolean owned : List.of(false, true))
             try (var f = new Fixture(owned)) {
                 f.routes.receive(ServerboundPackets.PONG, event -> {
@@ -324,88 +394,30 @@ class CultTransportTest {
     }
 
     @Test
-    void rejectedOwnerSubmissionReleasesInputAndFinishesAcceptedWork() throws Exception {
-        for (boolean inbound : List.of(false, true))
-            try (var f = new Fixture(true)) {
-                f.routes.send(ClientboundPackets.PING, event -> fail("Rejected owner dispatched"));
-                f.owner.shutdownGracefully(0, 1, TimeUnit.SECONDS).syncUninterruptibly();
-                ByteBuf frame = inbound ? f.pong(PLAY, 1) : f.ping(PLAY, 1);
-                ChannelPromise promise = f.channel.newPromise();
-                if (inbound)
-                    assertThrows(
-                            java.util.concurrent.RejectedExecutionException.class, () -> f.channel.writeInbound(frame));
-                else {
-                    f.channel.writeAndFlush(frame, promise);
-                    assertThrows(java.util.concurrent.RejectedExecutionException.class, f.channel::checkException);
-                    assertInstanceOf(java.util.concurrent.RejectedExecutionException.class, promise.cause());
-                }
-                assertEquals(0, frame.refCnt());
-                assertTrue(f.connection
-                        .removeHandlers(() -> {})
-                        .toCompletableFuture()
-                        .isDone());
-            }
+    void inboundProcessingFinishesInlineWithoutChangingAutoRead() throws Exception {
+        try (var f = new Fixture(false)) {
+            var seen = new ArrayList<Integer>();
+            f.routes.receive(ServerboundPackets.PONG, event -> {
+                f.assertOwner();
+                seen.add(event.getPacket().id());
+            });
+            var frame = f.pong(PLAY, 7);
+            f.channel.writeInbound(frame);
+            assertEquals(List.of(7), seen);
+            assertSame(frame, f.channel.readInbound());
+            frame.release();
+            assertTrue(f.channel.config().isAutoRead());
+        }
     }
 
     @Test
-    void rejectedReturnToIoReleasesPreparedOutputAndFinishesAcceptedWork() throws Exception {
-        for (boolean inbound : List.of(false, true))
-            try (var f = new Fixture(true)) {
-                var allocated = new ArrayList<ByteBuf>();
-                f.channel.config().setAllocator(new AbstractByteBufAllocator(false) {
-                    @Override
-                    protected ByteBuf newHeapBuffer(int initial, int maximum) {
-                        ByteBuf bytes = new UnpooledHeapByteBuf(this, initial, maximum);
-                        allocated.add(bytes);
-                        return bytes;
-                    }
-
-                    @Override
-                    protected ByteBuf newDirectBuffer(int initial, int maximum) {
-                        ByteBuf bytes = new UnpooledDirectByteBuf(this, initial, maximum);
-                        allocated.add(bytes);
-                        return bytes;
-                    }
-
-                    @Override
-                    public boolean isDirectBufferPooled() {
-                        return false;
-                    }
-                });
-                f.routes.receive(
-                        ServerboundPackets.PONG,
-                        event -> event.replace(new ac.cult.cultac.protocol.packet.serverbound.ServerboundPong(2)));
-                f.routes.send(ClientboundPackets.PING, event -> {
-                    event.replace(new ClientboundPing(2));
-                    event.getWritesAfterSend().add(new CultWrite(new ClientboundPing(3), false));
-                });
-                var executor = mock(io.netty.util.concurrent.EventExecutor.class);
-                var rejected = new java.util.concurrent.RejectedExecutionException("I/O stopped");
-                doThrow(rejected).when(executor).execute(any(Runnable.class));
-                var ctx = mock(ChannelHandlerContext.class);
-                when(ctx.executor()).thenReturn(executor);
-                when(ctx.channel()).thenReturn(f.channel);
-                when(ctx.alloc()).thenReturn(f.channel.alloc());
-                when(ctx.newPromise()).thenAnswer(ignored -> f.channel.newPromise());
-
-                ByteBuf frame = inbound ? f.pong(PLAY, 1) : f.ping(PLAY, 1);
-                ChannelPromise promise = f.channel.newPromise();
-                if (inbound) ((CultDecoder) f.channel.pipeline().get(CultDecoder.NAME)).channelRead(ctx, frame);
-                else ((CultEncoder) f.channel.pipeline().get(CultEncoder.NAME)).write(ctx, frame, promise);
-                f.owner.submit(() -> {}).syncUninterruptibly();
-                f.channel.runPendingTasks();
-
-                assertEquals(0, frame.refCnt());
-                assertFalse(allocated.isEmpty());
-                for (ByteBuf bytes : allocated) assertEquals(0, bytes.refCnt());
-                if (!inbound) assertSame(rejected, promise.cause());
-                assertTrue(f.connection
-                        .removeHandlers(() -> {})
-                        .toCompletableFuture()
-                        .isDone());
-                assertNull(f.channel.readInbound());
-                assertNull(f.channel.readOutbound());
-            }
+    void outboundProcessingSettlesItsPromiseInline() throws Exception {
+        try (var f = new Fixture(false)) {
+            f.routes.send(ClientboundPackets.PING, event -> f.assertOwner());
+            var promise = f.channel.writeAndFlush(f.ping(PLAY, 7));
+            assertTrue(promise.isSuccess());
+            assertEquals(List.of("P7"), f.output());
+        }
     }
 
     @Test
@@ -417,7 +429,7 @@ class CultTransportTest {
             f.channel.pipeline().addFirst("wire-observer", new ChannelOutboundHandlerAdapter() {
                 @Override
                 public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
-                    assertFalse(f.owner.inEventLoop(), "Only I/O emits wire frames");
+                    f.assertOwner();
                     ByteBuf frame = (ByteBuf) message;
                     String name = f.name(frame);
                     if (name.equals("P2")) assertSame(caller, promise);
@@ -507,12 +519,14 @@ class CultTransportTest {
     }
 
     @Test
-    void compressionRelocationOnlyTouchesCultHandlersAndOccursOnce() throws Exception {
+    void compressionEventsPreserveCultAndPluginHandlers() throws Exception {
         try (var f = new Fixture(false)) {
             ChannelHandler decoder = f.channel.pipeline().get("decoder"),
                     encoder = f.channel.pipeline().get("encoder");
             var plugin = new ChannelDuplexHandler();
             f.channel.pipeline().addBefore("decoder", "plugin", plugin);
+            ChannelHandler cultDecoder = f.channel.pipeline().get("cult-decoder"),
+                    cultEncoder = f.channel.pipeline().get("cult-encoder");
             Object event = Class.forName("io.papermc.paper.network.ConnectionEvent")
                     .getField("COMPRESSION_THRESHOLD_SET")
                     .get(null);
@@ -520,13 +534,13 @@ class CultTransportTest {
             assertSame(decoder, f.channel.pipeline().get("decoder"));
             assertSame(encoder, f.channel.pipeline().get("encoder"));
             assertSame(plugin, f.channel.pipeline().get("plugin"));
+            assertSame(cultDecoder, f.channel.pipeline().get("cult-decoder"));
+            assertSame(cultEncoder, f.channel.pipeline().get("cult-encoder"));
             assertEquals(
-                    List.of("flow", "plugin", "cult-decoder", "decoder", "cult-encoder", "encoder"),
+                    List.of("flow", "cult-decoder", "plugin", "decoder", "cult-encoder", "encoder"),
                     f.channel.pipeline().names().stream()
                             .filter(n -> !n.startsWith("DefaultChannelPipeline$"))
                             .toList());
-            ChannelHandler cultDecoder = f.channel.pipeline().get("cult-decoder"),
-                    cultEncoder = f.channel.pipeline().get("cult-encoder");
             f.channel.pipeline().fireUserEventTriggered(event);
             assertSame(cultDecoder, f.channel.pipeline().get("cult-decoder"));
             assertSame(cultEncoder, f.channel.pipeline().get("cult-encoder"));
@@ -540,7 +554,7 @@ class CultTransportTest {
     }
 
     @Test
-    void ownerPullModeHoldsFramesAcrossLoginConfigurationPlayAndReconfiguration() throws Exception {
+    void upstreamFlowControlHoldsFramesAcrossProtocolChanges() throws Exception {
         try (var f = new Fixture(true, false)) {
             f.connection.phase(SERVERBOUND, LOGIN);
             f.channel.writeInbound(f.frame(SERVERBOUND, LOGIN, "login_acknowledged"));
@@ -551,7 +565,6 @@ class CultTransportTest {
                     play = f.pong(PLAY, 2);
             f.routes.receive(ServerboundPackets.PONG, event -> f.assertOwner());
             f.channel.writeInbound(config, finish, play);
-            assertNull(f.channel.readInbound());
             f.configureInbound();
             f.pump();
             assertSame(config, f.channel.readInbound());
@@ -594,7 +607,7 @@ class CultTransportTest {
     @Test
     void synchronousProxyConfigurationResumesQueuedPlayFramesWithoutHostReadRequest() throws Exception {
         try (var f = new Fixture(true)) {
-            f.channel.pipeline().replace(CultDecoder.NAME, CultDecoder.NAME, new CultDecoder(f.connection, true));
+            f.channel.pipeline().replace(CultDecoder.NAME, CultDecoder.NAME, new CultDecoder(f.connection));
             var observed = new ArrayList<String>();
             f.channel.pipeline().replace("decoder", "decoder", new ChannelInboundHandlerAdapter() {
                 @Override
@@ -636,95 +649,56 @@ class CultTransportTest {
     }
 
     @Test
-    void proxyHostReadPauseHoldsQueuedAndLateFramesUntilItsEventCompletes() throws Exception {
-        try (var f = new Fixture(true)) {
-            f.channel.pipeline().replace(CultDecoder.NAME, CultDecoder.NAME, new CultDecoder(f.connection, true));
-            var received = new AtomicInteger();
-            f.channel.pipeline().replace("decoder", "decoder", new ChannelInboundHandlerAdapter() {
-                @Override
-                public void channelRead(ChannelHandlerContext ctx, Object message) {
-                    if (received.incrementAndGet() == 1) ctx.channel().config().setAutoRead(false);
-                    ctx.fireChannelRead(message);
-                }
-            });
+    void upstreamFlowControlOwnsHostReadPauseAndCultLeavesItUnchanged() throws Exception {
+        try (var f = new Fixture(false)) {
             var first = f.pong(PLAY, 1);
             var second = f.pong(PLAY, 2);
-            var late = f.pong(PLAY, 3);
-            var decoder = f.channel.pipeline().context(CultDecoder.NAME);
-            ((CultDecoder) decoder.handler()).channelRead(decoder, first);
-            ((CultDecoder) decoder.handler()).channelRead(decoder, second);
-            f.pump();
+            f.channel.config().setAutoRead(false);
+            f.channel.writeInbound(first, second);
+            assertNull(f.channel.readInbound());
+            f.channel.read();
             assertSame(first, f.channel.readInbound());
             first.release();
-            assertNull(f.channel.readInbound(), "Proxy event must pause the next frame");
-            ((CultDecoder) decoder.handler()).channelRead(decoder, late);
-            f.pump();
-            assertNull(f.channel.readInbound(), "An already-read frame must also respect the host pause");
-            // MinecraftConnection.setAutoReading(true) performs both operations.
-            f.channel.config().setAutoRead(true);
+            assertFalse(f.channel.config().isAutoRead());
+            assertNull(f.channel.readInbound());
             f.channel.read();
-            f.pump();
-            f.pump();
             assertSame(second, f.channel.readInbound());
             second.release();
-            assertSame(late, f.channel.readInbound());
-            late.release();
-            assertEquals(3, received.get());
+            assertFalse(f.channel.config().isAutoRead());
         }
     }
 
     @Test
-    void nativeInboundConfigurationTaskPassesInlineWhileOutboundFramesWaitForOwner() throws Exception {
-        try (var f = new Fixture(true)) {
+    void nativeConfigurationTasksAndPacketWritesPassSynchronously() throws Exception {
+        try (var f = new Fixture(false)) {
             f.channel.pipeline().replace("decoder", "inbound_config", new UnconfiguredPipelineHandler.Inbound());
-            var blocked = new CountDownLatch(1);
-            var release = new CountDownLatch(1);
-            f.owner.execute(() -> {
-                blocked.countDown();
-                try {
-                    assertTrue(release.await(5, TimeUnit.SECONDS));
-                } catch (InterruptedException ex) {
-                    throw new AssertionError(ex);
-                }
-            });
-            assertTrue(blocked.await(5, TimeUnit.SECONDS));
-            try {
-                var frame = f.channel.writeAndFlush(new CultWrite(new ClientboundPing(8), false));
-                assertFalse(frame.isDone());
-                UnconfiguredPipelineHandler.InboundConfigurationTask task = ctx -> {
-                    assertSame(f.channel.eventLoop(), ctx.executor());
-                    assertFalse(f.owner.inEventLoop());
-                    ctx.pipeline().replace(ctx.name(), "decoder", new ChannelInboundHandlerAdapter());
-                    ctx.channel().config().setAutoRead(true);
-                };
-                var control = f.channel.writeAndFlush(task);
-                assertTrue(control.isSuccess(), "Vanilla may wait on this promise from I/O");
-                assertFalse(frame.isDone());
-            } finally {
-                release.countDown();
-            }
-            f.pump();
+            assertTrue(f.channel
+                    .writeAndFlush(new CultWrite(new ClientboundPing(8), false))
+                    .isSuccess());
+            UnconfiguredPipelineHandler.InboundConfigurationTask task = ctx -> {
+                assertSame(f.channel.eventLoop(), ctx.executor());
+                ctx.pipeline().replace(ctx.name(), "decoder", new ChannelInboundHandlerAdapter());
+                ctx.channel().config().setAutoRead(true);
+            };
+            assertTrue(f.channel.writeAndFlush(task).isSuccess());
             assertEquals(List.of("P8"), f.output());
         }
     }
 
     @Test
-    void unexpectedArrivalsWhileOwnerIsBusyStayInTheLocalFifo() throws Exception {
-        try (var f = new Fixture(true)) {
-            f.routes.receive(ServerboundPackets.PONG, event -> f.assertOwner());
-            var decoder = f.channel.pipeline().context("cult-decoder");
-            ByteBuf first = f.pong(PLAY, 1), second = f.pong(PLAY, 2), third = f.pong(PLAY, 3);
-            // Bypass FlowControlHandler, as a third party enabling autoRead may do.
-            ((CultDecoder) decoder.handler()).channelRead(decoder, first);
-            ((CultDecoder) decoder.handler()).channelRead(decoder, second);
-            ((CultDecoder) decoder.handler()).channelRead(decoder, third);
-            f.pump();
-            assertSame(first, f.channel.readInbound());
-            assertSame(second, f.channel.readInbound());
-            assertSame(third, f.channel.readInbound());
-            first.release();
-            second.release();
-            third.release();
+    void successiveInboundFramesKeepWireOrderOnTheChannelLoop() throws Exception {
+        try (var f = new Fixture(false)) {
+            var seen = new ArrayList<Integer>();
+            f.routes.receive(
+                    ServerboundPackets.PONG, event -> seen.add(event.getPacket().id()));
+            var one = f.pong(PLAY, 1);
+            var two = f.pong(PLAY, 2);
+            f.channel.writeInbound(one, two);
+            assertEquals(List.of(1, 2), seen);
+            assertSame(one, f.channel.readInbound());
+            assertSame(two, f.channel.readInbound());
+            one.release();
+            two.release();
         }
     }
 
@@ -802,89 +776,39 @@ class CultTransportTest {
     }
 
     @Test
-    void removalOnCloseReleasesQueuedFramesAndFailsPendingOutboundPromises() throws Exception {
-        try (var f = new Fixture(true)) {
-            f.routes.receive(ServerboundPackets.PONG, event -> {});
-            f.routes.send(ClientboundPackets.PING, event -> {});
-            var blocked = new CountDownLatch(1);
-            var release = new CountDownLatch(1);
-            f.owner.execute(() -> {
-                blocked.countDown();
-                try {
-                    assertTrue(release.await(5, TimeUnit.SECONDS));
-                } catch (InterruptedException ex) {
-                    throw new AssertionError(ex);
-                }
-            });
-            assertTrue(blocked.await(5, TimeUnit.SECONDS));
-            ByteBuf one = f.pong(PLAY, 1), two = f.pong(PLAY, 2), out = f.ping(PLAY, 3);
-            try {
-                var ctx = f.channel.pipeline().context("cult-decoder");
-                ((CultDecoder) ctx.handler()).channelRead(ctx, one);
-                ((CultDecoder) ctx.handler()).channelRead(ctx, two);
-                var promise = f.channel.writeAndFlush(out);
-                f.channel.close();
-                if (f.channel.pipeline().get("cult-decoder") != null)
-                    f.channel.pipeline().remove("cult-decoder");
-                if (f.channel.pipeline().get("cult-encoder") != null)
-                    f.channel.pipeline().remove("cult-encoder");
-                release.countDown();
-                f.pump();
-                assertEquals(0, one.refCnt(), "in-flight inbound");
-                assertEquals(0, two.refCnt(), "queued inbound");
-                assertEquals(0, out.refCnt(), "pending outbound");
-                assertTrue(promise.isDone());
-                assertFalse(promise.isSuccess());
-                assertNull(f.channel.readInbound());
-                assertNull(f.channel.readOutbound());
-            } finally {
-                release.countDown();
-            }
+    void writesAfterCloseReleaseFramesAndFailPromises() throws Exception {
+        try (var f = new Fixture(false)) {
+            f.channel.close();
+            var out = f.ping(PLAY, 3);
+            var promise = f.channel.writeAndFlush(out);
+            assertTrue(promise.isDone());
+            assertFalse(promise.isSuccess());
+            assertEquals(0, out.refCnt());
         }
     }
 
     @Test
-    void healthyRemovalEmitsAcceptedWorkAndPreservesBothNativeHandlers() throws Exception {
-        try (var f = new Fixture(true)) {
+    void healthyRemovalFollowsCompletedWritesAndPreservesNativeHandlers() throws Exception {
+        try (var f = new Fixture(false)) {
             var nativeDecoder = f.channel.pipeline().get("decoder");
             var nativeEncoder = f.channel.pipeline().get("encoder");
             f.routes.send(ClientboundPackets.PING, event -> f.user.write(new ClientboundPing(9)));
-            var blocked = new CountDownLatch(1);
-            var release = new CountDownLatch(1);
-            f.owner.execute(() -> {
-                blocked.countDown();
-                try {
-                    assertTrue(release.await(5, TimeUnit.SECONDS));
-                } catch (InterruptedException ex) {
-                    throw new AssertionError(ex);
-                }
-            });
-            assertTrue(blocked.await(5, TimeUnit.SECONDS));
-            try {
-                var one = f.channel.writeAndFlush(f.ping(PLAY, 1));
-                var two = f.channel.writeAndFlush(f.ping(PLAY, 2));
-                var removal = f.connection
-                        .removeHandlers(() -> {
-                            f.channel.pipeline().remove(CultDecoder.NAME);
-                            f.channel.pipeline().remove(CultEncoder.NAME);
-                        })
-                        .toCompletableFuture();
-                assertFalse(removal.isDone());
-                var refused = f.user.write(new ClientboundPing(3)).toCompletableFuture();
-                f.channel.runPendingTasks();
-                assertTrue(refused.isCompletedExceptionally());
-                release.countDown();
-                f.pump();
-                assertTrue(one.isSuccess());
-                assertTrue(two.isSuccess());
-                assertTrue(removal.isDone());
-                assertEquals(List.of("P9", "P1", "P9", "P2"), f.output());
-                assertSame(nativeDecoder, f.channel.pipeline().get("decoder"));
-                assertSame(nativeEncoder, f.channel.pipeline().get("encoder"));
-                assertTrue(f.channel.config().isAutoRead());
-            } finally {
-                release.countDown();
-            }
+            var one = f.channel.writeAndFlush(f.ping(PLAY, 1));
+            var two = f.channel.writeAndFlush(f.ping(PLAY, 2));
+            var removal = f.connection
+                    .removeHandlers(() -> {
+                        f.channel.pipeline().remove(CultDecoder.NAME);
+                        f.channel.pipeline().remove(CultEncoder.NAME);
+                    })
+                    .toCompletableFuture();
+            assertTrue(one.isSuccess());
+            assertTrue(two.isSuccess());
+            assertTrue(removal.isDone());
+            assertTrue(
+                    f.user.write(new ClientboundPing(3)).toCompletableFuture().isCompletedExceptionally());
+            assertEquals(List.of("P9", "P1", "P9", "P2"), f.output());
+            assertSame(nativeDecoder, f.channel.pipeline().get("decoder"));
+            assertSame(nativeEncoder, f.channel.pipeline().get("encoder"));
         }
     }
 
@@ -907,52 +831,31 @@ class CultTransportTest {
     }
 
     @Test
-    void outboundFramesAndFlushStayOrderedWhileControlsPassInline() throws Exception {
-        try (var f = new Fixture(true)) {
+    void outboundFramesControlsAndFlushKeepSynchronousOrder() throws Exception {
+        try (var f = new Fixture(false)) {
             var trace = new ArrayList<String>();
-            f.routes.send(ClientboundPackets.PING, event -> f.assertOwner());
             f.channel.pipeline().addFirst(new ChannelOutboundHandlerAdapter() {
-                @Override
                 public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
-                    assertFalse(f.owner.inEventLoop());
+                    f.assertOwner();
                     trace.add(message instanceof ByteBuf bytes ? f.name(bytes) : "control");
                     ctx.write(message, promise);
                 }
 
-                @Override
                 public void flush(ChannelHandlerContext ctx) {
-                    assertFalse(f.owner.inEventLoop());
                     trace.add("flush");
                     ctx.flush();
                 }
             });
-            var blocked = new CountDownLatch(1);
-            var release = new CountDownLatch(1);
-            f.owner.execute(() -> {
-                blocked.countDown();
-                try {
-                    assertTrue(release.await(5, TimeUnit.SECONDS));
-                } catch (InterruptedException ex) {
-                    throw new AssertionError(ex);
-                }
-            });
-            assertTrue(blocked.await(5, TimeUnit.SECONDS));
-            try {
-                f.channel.write(f.ping(PLAY, 1));
-                f.channel.write(f.ping(PLAY, 2));
-                Object control = new Object();
-                var controlPromise = f.channel.write(control);
-                f.channel.flush();
-                assertEquals(List.of("control"), trace);
-                release.countDown();
-                f.pump();
-                assertEquals(List.of("control", "P1", "P2", "flush"), trace);
-                assertTrue(controlPromise.isSuccess());
-                assertSame(control, f.channel.readOutbound());
-                assertEquals(List.of("P1", "P2"), f.output());
-            } finally {
-                release.countDown();
-            }
+            f.channel.write(f.ping(PLAY, 1));
+            f.channel.write(f.ping(PLAY, 2));
+            var control = new Object();
+            var promise = f.channel.write(control);
+            f.channel.flush();
+            assertEquals(List.of("P1", "P2", "control", "flush"), trace);
+            assertTrue(promise.isSuccess());
+            ((ByteBuf) f.channel.readOutbound()).release();
+            ((ByteBuf) f.channel.readOutbound()).release();
+            assertSame(control, f.channel.readOutbound());
         }
     }
 
@@ -967,17 +870,6 @@ class CultTransportTest {
                             .add(new CultWrite(new ClientboundPing(sequence.incrementAndGet()), false));
                 }
             });
-            var blocked = new CountDownLatch(1);
-            var release = new CountDownLatch(1);
-            f.owner.execute(() -> {
-                blocked.countDown();
-                try {
-                    assertTrue(release.await(5, TimeUnit.SECONDS));
-                } catch (InterruptedException ex) {
-                    throw new AssertionError(ex);
-                }
-            });
-            assertTrue(blocked.await(5, TimeUnit.SECONDS));
             try {
                 f.channel.write(f.ping(PLAY, 100));
                 f.channel.write(f.ping(PLAY, 200));
@@ -988,13 +880,12 @@ class CultTransportTest {
                     f.user.write(new ClientboundPing(sequence.incrementAndGet()));
                 });
                 f.channel.writeAndFlush(f.ping(PLAY, 300));
-                release.countDown();
                 f.pump();
                 assertEquals(
                         List.of("D", "P100", "P1", "D", "D", "P200", "P2", "D", "P3", "D", "P300", "P4", "D"),
                         f.output());
             } finally {
-                release.countDown();
+                f.channel.runPendingTasks();
             }
         }
     }
@@ -1010,30 +901,18 @@ class CultTransportTest {
                             .add(new CultWrite(new ClientboundPing(sequence.incrementAndGet()), false));
                 }
             });
-            var blocked = new CountDownLatch(1);
-            var release = new CountDownLatch(1);
-            f.owner.execute(() -> {
-                blocked.countDown();
-                try {
-                    assertTrue(release.await(5, TimeUnit.SECONDS));
-                } catch (InterruptedException ex) {
-                    throw new AssertionError(ex);
-                }
-            });
-            assertTrue(blocked.await(5, TimeUnit.SECONDS));
             try {
                 f.channel.write(f.ping(PLAY, 100));
                 f.channel.writeAndFlush(f.ping(PLAY, 200));
                 // A scheduled model task can run while I/O still holds packet 200.
-                f.owner.execute(() -> f.user.executeAfterWrites(() -> {
+                f.user.executeAfterWrites(() -> {
                     f.assertOwner();
                     f.user.write(new ClientboundPing(sequence.incrementAndGet()));
-                }));
-                release.countDown();
+                });
                 f.pump();
                 assertEquals(List.of("D", "P100", "P1", "D", "D", "P200", "P2", "D", "P3"), f.output());
             } finally {
-                release.countDown();
+                f.channel.runPendingTasks();
             }
         }
     }
@@ -1050,25 +929,13 @@ class CultTransportTest {
                     event.getTasksAfterSend().add(() -> f.user.write(new ClientboundPing(sequence.incrementAndGet())));
                 }
             });
-            var blocked = new CountDownLatch(1);
-            var release = new CountDownLatch(1);
-            f.owner.execute(() -> {
-                blocked.countDown();
-                try {
-                    assertTrue(release.await(5, TimeUnit.SECONDS));
-                } catch (InterruptedException ex) {
-                    throw new AssertionError(ex);
-                }
-            });
-            assertTrue(blocked.await(5, TimeUnit.SECONDS));
             try {
                 f.channel.write(f.ping(PLAY, 100));
                 f.channel.writeAndFlush(f.ping(PLAY, 200));
-                release.countDown();
                 f.pump();
                 assertEquals(List.of("D", "P100", "P1", "D", "P2", "D", "P200", "P3", "D", "P4"), f.output());
             } finally {
-                release.countDown();
+                f.channel.runPendingTasks();
             }
         }
     }
@@ -1195,7 +1062,7 @@ class CultTransportTest {
     private static final class Fixture implements AutoCloseable {
         final EmbeddedChannel channel = new EmbeddedChannel();
         final TestTransportRoutes routes = new TestTransportRoutes(RUNTIME);
-        final DefaultEventExecutor owner;
+        final io.netty.util.concurrent.EventExecutor owner;
         final AtomicInteger ownerLookups = new AtomicInteger();
         final CultConnection connection;
         final User user;
@@ -1205,7 +1072,7 @@ class CultTransportTest {
         }
 
         Fixture(boolean owned, boolean selectOwner) {
-            owner = owned ? new DefaultEventExecutor() : null;
+            owner = channel.eventLoop();
             connection = new CultConnection(channel, routes.dispatcher, ignored -> {
                 ownerLookups.incrementAndGet();
                 return owner == null ? null : new PacketOwner(owner, null);
@@ -1234,7 +1101,6 @@ class CultTransportTest {
 
         void pump() {
             for (int i = 0; i < 8; i++) {
-                if (owner != null) owner.submit(() -> {}).syncUninterruptibly();
                 channel.runPendingTasks();
             }
             channel.checkException();
@@ -1244,7 +1110,7 @@ class CultTransportTest {
             return new ChannelInboundHandlerAdapter() {
                 @Override
                 public void channelRead(ChannelHandlerContext ctx, Object message) {
-                    if (owner != null) assertFalse(owner.inEventLoop(), "Vanilla reads on I/O");
+                    assertOwner();
                     if (message instanceof ByteBuf frame) {
                         ByteBuf view = frame.duplicate();
                         int id = Wire.readVarInt(view);
@@ -1330,7 +1196,6 @@ class CultTransportTest {
         @Override
         public void close() {
             channel.finishAndReleaseAll();
-            if (owner != null) owner.shutdownGracefully(0, 1, TimeUnit.SECONDS).syncUninterruptibly();
             channel.runPendingTasks();
             channel.finishAndReleaseAll();
         }

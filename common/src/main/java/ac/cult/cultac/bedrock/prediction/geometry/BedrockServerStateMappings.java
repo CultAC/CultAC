@@ -14,26 +14,27 @@ import java.util.function.IntUnaryOperator;
 public final class BedrockServerStateMappings {
     private BedrockServerStateMappings() {}
 
-    public static int[] create(int serverProtocol, int serverStateCount, int catalogProtocol, int catalogStateCount) {
-        if (serverProtocol == catalogProtocol) {
+    public static int[] create(
+            int nativeModelProtocol, int serverStateCount, int catalogProtocol, int catalogStateCount) {
+        if (nativeModelProtocol == catalogProtocol) {
             if (serverStateCount != catalogStateCount) {
                 throw new IllegalStateException(
-                        "Server and collision catalog registry sizes differ for protocol " + serverProtocol);
+                        "Server and collision catalog registry sizes differ for protocol " + nativeModelProtocol);
             }
             return translate(serverStateCount, catalogStateCount, List.of());
         }
         // TODO: Does this exist just for geyser?
         if (!ViaVersionUtil.isAvailable()) {
             // A proxy has no server ViaVersion; use the pinned ViaBackwards table this build ships.
-            var mappings =
-                    ModelIdMappings.project(ProtocolVersion.of(serverProtocol), ProtocolVersion.of(catalogProtocol));
+            var mappings = ModelIdMappings.project(
+                    ProtocolVersion.of(nativeModelProtocol), ProtocolVersion.of(catalogProtocol));
             if (mappings.blockStateCount() != serverStateCount) {
                 throw new IllegalStateException(
-                        "Bundled block state mappings do not match server protocol " + serverProtocol);
+                        "Bundled block state mappings do not match native model protocol " + nativeModelProtocol);
             }
             return translate(serverStateCount, catalogStateCount, List.of(mappings::blockState));
         }
-        return ViaMappings.create(serverProtocol, serverStateCount, catalogProtocol, catalogStateCount);
+        return ViaMappings.create(nativeModelProtocol, serverStateCount, catalogProtocol, catalogStateCount);
     }
 
     static int[] translate(int serverStateCount, int catalogStateCount, List<IntUnaryOperator> clientboundSteps) {
@@ -60,11 +61,11 @@ public final class BedrockServerStateMappings {
 
     // Isolate ViaVersion linkage so the identity path works without the plugin.
     private static final class ViaMappings {
-        static int[] create(int serverProtocol, int serverStateCount, int catalogProtocol, int catalogStateCount) {
+        static int[] create(int nativeModelProtocol, int serverStateCount, int catalogProtocol, int catalogStateCount) {
             var manager = Via.getManager().getProtocolManager();
-            List<ProtocolPathEntry> path = manager.getProtocolPath(catalogProtocol, serverProtocol);
+            List<ProtocolPathEntry> path = manager.getProtocolPath(catalogProtocol, nativeModelProtocol);
             if (path == null) {
-                throw new IllegalStateException("ViaVersion has no path from Java protocol " + serverProtocol
+                throw new IllegalStateException("ViaVersion has no path from Java protocol " + nativeModelProtocol
                         + " to catalog protocol " + catalogProtocol);
             }
             List<IntUnaryOperator> steps = new ArrayList<>();

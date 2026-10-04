@@ -43,6 +43,16 @@ final class ModelBootstrap {
         BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(registries).forEach(pending -> pending.apply());
     }
 
+    static net.minecraft.core.component.DataComponentPatch decodeComponents(
+            com.google.gson.JsonElement input, RegistryAccess registries) {
+        return TransformerComponents.decode(input, registries);
+    }
+
+    static com.google.gson.JsonElement encodeComponents(
+            net.minecraft.core.component.DataComponentPatch patch, RegistryAccess registries) {
+        return TransformerComponents.encode(patch, registries);
+    }
+
     static void afterUseOn(InteractionPlayer player, InteractionHand hand, ItemStack before, InteractionResult result) {
         if (result instanceof InteractionResult.Success success) {
             var after =

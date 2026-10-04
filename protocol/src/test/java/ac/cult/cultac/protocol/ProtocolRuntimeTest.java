@@ -62,12 +62,7 @@ class ProtocolRuntimeTest {
             // Expectations from the exact vanilla packet reports, independent of catalog predicates.
             var absent =
                     new java.util.HashSet<>(Set.of("serverbound.pick_item", "serverbound.debug_sample_subscription"));
-            if (!version.atLeast(ProtocolVersion.V26_3))
-                absent.addAll(Set.of(
-                        "clientbound.open_screen",
-                        "clientbound.mount_screen_open",
-                        "clientbound.set_held_slot",
-                        "clientbound.swing_animation"));
+            if (!version.atLeast(ProtocolVersion.V26_3)) absent.add("clientbound.swing_animation");
             if (!version.atLeast(ProtocolVersion.V26_1))
                 absent.addAll(Set.of("serverbound.spectator_action", "serverbound.set_game_rule"));
             if (!version.atLeast(ProtocolVersion.V1_21_9)) {
@@ -109,7 +104,7 @@ class ProtocolRuntimeTest {
     }
 
     @Test
-    void serverOnlyInventoryCodecsLeaveOlderNativePacketsUnbound() {
+    void inventoryCodecsBindTheActualPacketNameOnEverySupportedNativeRelease() {
         for (var version : ProtocolVersion.values()) {
             var data = ProtocolData.load(version);
             var runtime = ProtocolRuntime.create(data);
@@ -120,10 +115,15 @@ class ProtocolRuntimeTest {
                     ClientboundPackets.MOUNT_SCREEN_OPEN,
                     ClientboundPackets.SET_HELD_SLOT)) {
                 int id = data.packets(ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND)
-                        .id(type.wireNames().get(0));
-                boolean supported = version == ProtocolVersion.V26_3;
-                assertEquals(supported, runtime.supports(type));
-                assertEquals(supported ? type : null, connection.typeOf(PacketDirection.CLIENTBOUND, id));
+                        .id(type.wireNames(data).get(0));
+                assertTrue(id >= 0);
+                assertTrue(runtime.supports(type));
+                assertSame(type, connection.typeOf(PacketDirection.CLIENTBOUND, id));
+                assertEquals(
+                        version,
+                        runtime.binding(ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND, id)
+                                .context()
+                                .version());
                 assertSame(type, runtime.typeForRecord(type.recordClass()));
             }
         }

@@ -32,8 +32,10 @@ final class GeyserItemStacks {
                 result.remove(targetType);
             } else if (targetType == DataComponents.CREATIVE_SLOT_LOCK) {
                 result.set(DataComponents.CREATIVE_SLOT_LOCK, net.minecraft.util.Unit.INSTANCE);
-            } else if (targetType == DataComponents.ADDITIONAL_TRADE_COST) {
-                result.set(DataComponents.ADDITIONAL_TRADE_COST, (Integer) component.getValue());
+            } else if ("minecraft:additional_trade_cost"
+                    .equals(NmsIdentifierUtil.registryKey(BuiltInRegistries.DATA_COMPONENT_TYPE, targetType))) {
+                // 26.x-only component: matched by name so 1.21.x hosts never link its field.
+                setValue(result, targetType, component.getValue());
             } else if (targetType == DataComponents.MAP_POST_PROCESSING) {
                 result.set(
                         DataComponents.MAP_POST_PROCESSING,
@@ -45,6 +47,11 @@ final class GeyserItemStacks {
             }
         });
         return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> void setValue(ItemStack stack, DataComponentType<T> type, Object value) {
+        stack.set(type, (T) value);
     }
 
     private static <T> void set(

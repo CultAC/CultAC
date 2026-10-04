@@ -17,8 +17,10 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.player.PlatformPlayerFactory;
 import ac.cult.cultac.platform.api.scheduler.PlatformScheduler;
 import ac.cult.cultac.platform.api.sender.SenderFactory;
+import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.data.ProtocolData;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.vanilla.VanillaBootstrap;
@@ -26,11 +28,8 @@ import ac.grim.grimac.api.GrimAPIProvider;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import com.velocitypowered.api.proxy.ProxyServer;
 import io.netty.channel.Channel;
-import io.netty.util.concurrent.DefaultEventExecutor;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import net.minecraft.world.InteractionHand;
 import org.slf4j.Logger;
 
@@ -39,8 +38,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     private final ProxyServer proxy;
     private final Object nativePlugin;
     private final VanillaBootstrap model;
-    private final VelocityCodecs codecs;
-    private final DefaultEventExecutor worker;
+    private final WireValueDecoder codecs;
     private final VelocityPlugin plugin;
     private final VelocityPermissions permissions = new VelocityPermissions();
     private final VelocitySenders senders;
@@ -61,19 +59,12 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         var cleanup = new ArrayDeque<AutoCloseable>();
         cleanup.push(model);
         try {
-            this.codecs = new VelocityCodecs(directory.resolve("runtime/codecs"));
-            cleanup.push(codecs);
-            this.worker = new DefaultEventExecutor((ThreadFactory) task -> {
-                Thread thread = new Thread(task, "CultAC-model");
-                thread.setContextClassLoader(getClass().getClassLoader());
-                return thread;
-            });
-            cleanup.push(() -> worker.shutdownGracefully(0, 5, TimeUnit.SECONDS).syncUninterruptibly());
+            this.codecs = ProtocolCodecs.decoder();
+            cleanup.push(ProtocolCodecs::close);
             this.plugin = new VelocityPlugin(directory, logger);
             this.senders = new VelocitySenders(proxy, permissions);
             this.players = new VelocityPlayers(proxy, senders);
-            this.scheduler = new VelocityScheduler(
-                    world -> ((VelocityWorld) world).connection().owner());
+            this.scheduler = new VelocityScheduler(world -> ((VelocityWorld) world).connection());
             cleanup.push(scheduler);
             this.plugins = new VelocityPlugins(proxy);
             this.commands = new VelocityCommands(proxy, senders).service(nativePlugin);
@@ -82,13 +73,13 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                     proxy,
                     nativePlugin,
                     manager,
-                    (player, bedrock) -> new VelocityConnectionAdapter(
+                    (player, channel, bedrock) -> new VelocityConnectionAdapter(
                             proxy,
                             player,
                             (VelocityPlayer) players.getFromNativePlayerType(player),
                             model.newConnection(),
-                            worker,
-                            codecs.service(),
+                            channel.eventLoop(),
+                            codecs,
                             bedrock),
                     this::bedrockOwner);
             this.server = new VelocityServer(proxy, senders);
@@ -96,7 +87,9 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                 var connection = manager.connection(channel);
                 if (connection == null) return null;
                 var adapter = (VelocityConnectionAdapter) connection.platform();
-                return new PacketOwner(adapter.owner(), adapter.bedrockBridge());
+                return adapter.bedrockBridge() == null
+                        ? null
+                        : new PacketOwner(adapter.owner(), adapter.bedrockBridge());
             });
             // Vanilla's command packet uses FriendlyByteBuf.readUtf() (32767 characters).
             var runtime = ProtocolRuntime.create(
@@ -241,10 +234,9 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         } finally {
             proxy.getEventManager().unregisterListeners(nativePlugin);
             scheduler.close();
-            worker.shutdownGracefully(0, 5, TimeUnit.SECONDS).syncUninterruptibly();
             try {
-                codecs.close();
-            } catch (java.io.IOException failure) {
+                ProtocolCodecs.close();
+            } catch (java.io.UncheckedIOException failure) {
                 plugin.getLogger().log(java.util.logging.Level.WARNING, "Unable to close packet codecs", failure);
             }
             model.close();

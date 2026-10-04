@@ -414,6 +414,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.packetStateData.bedrockServerResponse = false;
             if (packet.hasPosition() && packet.hasRotation()) {
                 // Geyser's teleport PosRot answers the server, not a Bedrock auth frame.
+                event.setTeleportPositionResponse(
+                        !player.user.getObservedProtocol().atLeast(ac.cult.cultac.protocol.ProtocolVersion.V26_3));
                 if (packet.onGround() && !player.isDisabled() && !player.noModifyPacketPermission) {
                     event.replace(packet.withOnGround(false));
                 }
@@ -503,6 +505,17 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 && teleportData.isTeleport()
                 && !teleportData.isMatchedTeleportPosition()
                 && !player.isBedrockMovement();
+        // Pre-26.3 ClientPacketListener answers an ID-bearing teleport with a
+        // separate PosRot. Via folds it into ACK, not an ordinary position move.
+        // Keep this event fact after the transient prediction flags are cleared;
+        // idless entity-to-self teleports still consume ordinary movement.
+        event.setTeleportPositionResponse(packet.hasPosition()
+                && packet.hasRotation()
+                && teleportData.isTeleport()
+                && teleportData.getTeleportData() != null
+                && !teleportData.getTeleportData().isPositionOnly()
+                && !player.isBedrockMovement()
+                && !player.user.getObservedProtocol().atLeast(ac.cult.cultac.protocol.ProtocolVersion.V26_3));
         player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
         player.packetStateData.lastPacketMatchedTeleportPosition = teleportData.isMatchedTeleportPosition();
         player.packetStateData.lastPacketWasOnePointSeventeenDuplicate = isOnePointSeventeenDuplicate(
@@ -757,9 +770,16 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         dispatchPrePredictionReceive(event, player);
+        // 1.21.2/1.21.3 MoveVehicle has no on-ground field. ViaBackwards
+        // 1.21.4 -> 1.21.2 appends literal true when upgrading that packet,
+        // so the observed codec's field presence alone is not client evidence.
+        // Keep the raw packet intact and use collision-derived ground carry
+        // unless both the original client and observed layout report the bit.
+        boolean clientReportsOnGround =
+                vehiclePacket.hasOnGround() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_4);
         player.packetStateData.vehicleMovementStartOnGround =
                 packetRoot == null ? vehiclePacket.onGround() : packetRoot.onGround;
-        player.packetStateData.vehicleMovementOnGroundPresent = vehiclePacket.hasOnGround();
+        player.packetStateData.vehicleMovementOnGroundPresent = clientReportsOnGround;
         Vec3 oldPosition = currentVehiclePhysicalPosition(player, packetRoot, new Vec3(player.x, player.y, player.z));
         if (shouldTickControlledBoatForClientVehiclePacket(packetRoot, checkableClientTick)) {
             player.boatData.tick(player);
@@ -795,7 +815,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             // ServerboundMoveVehiclePacket. Preserve that absence instead of
             // fabricating false; the simulation can still prove the resulting
             // ground state from the movement collision.
-            boolean vehicleOnGround = vehiclePacket.hasOnGround()
+            boolean vehicleOnGround = clientReportsOnGround
                     ? vehiclePacket.onGround()
                     : player.packetStateData.vehicleMovementStartOnGround;
             final VehiclePositionUpdate update = new VehiclePositionUpdate(
@@ -804,7 +824,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                     physicalYaw,
                     physicalPitch,
                     vehicleOnGround,
-                    vehiclePacket.hasOnGround(),
+                    clientReportsOnGround,
                     teleportData);
             if (checkableClientTick) {
                 // MCP-Reborn ClientPacketListener#handleMoveVehicle/#handleTeleportEntity can echo
@@ -830,7 +850,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 player.compensatedEntities.vehicles.applyVehiclePacketPosition(
                         packetRoot,
                         physicalNewPos,
-                        vehiclePacket.hasOnGround() ? vehiclePacket.onGround() : packetRoot.onGround,
+                        clientReportsOnGround ? vehiclePacket.onGround() : packetRoot.onGround,
                         physicalYaw,
                         physicalPitch);
             }

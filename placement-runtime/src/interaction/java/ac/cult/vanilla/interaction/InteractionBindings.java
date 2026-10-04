@@ -1,16 +1,12 @@
 package ac.cult.vanilla.interaction;
 
-import ac.cult.placement.api.GeometryTags;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.MultiPackResourceManager;
@@ -40,7 +36,6 @@ final class InteractionBindings implements AutoCloseable {
             "minecraft:worldgen/biome");
 
     final RegistryAccess.Frozen registries;
-    private GeometryTags tags;
 
     /** {@code narrowed} loads only {@link #MODEL_REGISTRIES} and compacts the block model. */
     InteractionBindings(boolean narrowed) {
@@ -68,17 +63,6 @@ final class InteractionBindings implements AutoCloseable {
         if (narrowed) ModelCompaction.run();
     }
 
-    void installTags(GeometryTags newTags) {
-        if (newTags == null || newTags.equals(tags)) return;
-        var blocks = prepareTags(BuiltInRegistries.BLOCK, newTags.blocks());
-        var items = prepareTags(BuiltInRegistries.ITEM, newTags.items());
-        var fluids = prepareTags(BuiltInRegistries.FLUID, newTags.fluids());
-        blocks.apply();
-        items.apply();
-        fluids.apply();
-        tags = newTags;
-    }
-
     private static void closeVanillaFileSystem() {
         try {
             var root = net.minecraft.server.packs.VanillaPackResources.class.getResource(
@@ -90,17 +74,6 @@ final class InteractionBindings implements AutoCloseable {
         } catch (java.io.IOException | java.net.URISyntaxException failure) {
             throw new IllegalStateException("Unable to release the vanilla data pack", failure);
         }
-    }
-
-    private static <T> Registry.PendingTags<T> prepareTags(Registry<T> registry, Map<String, List<String>> values) {
-        var bindings = new HashMap<net.minecraft.tags.TagKey<T>, List<net.minecraft.core.Holder<T>>>();
-        values.forEach((name, members) -> bindings.put(
-                net.minecraft.tags.TagKey.create(registry.key(), Identifier.parse(name)),
-                members.stream()
-                        .<net.minecraft.core.Holder<T>>map(member -> registry.get(Identifier.parse(member))
-                                .orElseThrow(() -> new IllegalArgumentException("Unknown tag member " + member)))
-                        .toList()));
-        return registry.prepareTagReload(new net.minecraft.tags.TagLoader.LoadResult<>(registry.key(), bindings));
     }
 
     @Override

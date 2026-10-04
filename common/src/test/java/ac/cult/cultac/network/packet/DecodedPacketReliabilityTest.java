@@ -4,9 +4,25 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import org.junit.Test;
 
 public final class DecodedPacketReliabilityTest {
+    @Test
+    public void publicHelpersUseEachObservedBoundaryAcrossAllHundredPairs() {
+        for (ProtocolVersion original : ProtocolVersion.values()) {
+            ClientVersion client = ClientVersion.fromProtocolVersion(original.protocol());
+            for (ProtocolVersion observed : ProtocolVersion.values()) {
+                org.junit.Assert.assertEquals(
+                        original.protocol() < 771 == observed.protocol() < 771,
+                        DecodedPacketReliability.nativeInputFamilyReliable(client, observed));
+                org.junit.Assert.assertEquals(
+                        original.protocol() < 775 == observed.protocol() < 775,
+                        DecodedPacketReliability.interactionFamilyReliable(client, observed));
+            }
+        }
+    }
+
     @Test
     public void nativeInputReliabilityRequiresSameSideOfOneTwentyOneSix() {
         assertTrue(DecodedPacketReliability.nativeInputFamilyReliable(ClientVersion.V_1_21_5, ClientVersion.V_1_21_5));

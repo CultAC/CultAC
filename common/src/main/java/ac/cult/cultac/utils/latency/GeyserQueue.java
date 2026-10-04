@@ -5,7 +5,7 @@ package ac.cult.cultac.utils.latency;
  * queued write, so a shared executor alone does not establish the callback's wire order. */
 public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
     private static final class Entry {
-        final Runnable callback;
+        Runnable callback;
         Entry next;
 
         Entry(Runnable callback) {
@@ -30,9 +30,27 @@ public final class GeyserQueue extends java.util.AbstractQueue<Runnable> {
 
     /** Mark the next callback registered by Geyser only when its packet is written. */
     public synchronized void write(Runnable writePacket) {
+        writeWithReceipt(() -> {
+            writePacket.run();
+            return null;
+        });
+    }
+
+    /** Attach an optional local receipt to this exact successful write, before Geyser's callback. */
+    public synchronized void writeWithReceipt(java.util.function.Supplier<Runnable> writePacket) {
         Entry entry = lastWritten == null ? first : lastWritten.next;
         if (entry == null) throw new IllegalStateException("Latency write has no Geyser callback");
-        writePacket.run();
+        Runnable receipt = writePacket.get();
+        if (receipt != null) {
+            Runnable callback = entry.callback;
+            entry.callback = () -> {
+                try {
+                    receipt.run();
+                } finally {
+                    callback.run();
+                }
+            };
+        }
         lastWritten = entry;
     }
 

@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.minecraft;
 
+import ac.cult.cultac.network.codec.ModelItemComponents;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.ModelBlockStates;
@@ -9,14 +10,16 @@ import ac.cult.placement.PlacementRuntime;
 import ac.cult.placement.api.GeometryTags;
 import ac.cult.runtime.RuntimeModel;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import net.minecraft.world.level.block.Block;
 
 /** Owns the acquired model services and each service's directed native-value boundary. */
 // TODO: What the fuck is codex doing with the if (bedrock) return; hacks
 public final class IsolatedMinecraft {
     private static volatile Binding primary;
-    private static volatile Binding earlierActions;
-    private static volatile GeometryTags nativeTags;
+    private static volatile Map<RuntimeModel, Binding> acquiredBindings = Map.of();
+    private static volatile Map<Integer, Binding> actionBindings = Map.of();
 
     private IsolatedMinecraft() {}
 
@@ -25,18 +28,45 @@ public final class IsolatedMinecraft {
         private final PlacementRuntime runtime;
         private final ModelBlockStates states;
         private final ModelRegistryNames names;
-        private volatile GeometryTags tags;
+        private final ProtocolVersion client;
+        private final boolean clientProjection;
+        private final GeometryTags tags;
 
         private Binding(
                 PlacementRuntime runtime, ModelBlockStates states, ModelRegistryNames names, GeometryTags tags) {
+            this(runtime, states, names, tags, states.target(), false);
+        }
+
+        private Binding(
+                PlacementRuntime runtime,
+                ModelBlockStates states,
+                ModelRegistryNames names,
+                GeometryTags tags,
+                ProtocolVersion client) {
+            this(runtime, states, names, tags, client, true);
+        }
+
+        private Binding(
+                PlacementRuntime runtime,
+                ModelBlockStates states,
+                ModelRegistryNames names,
+                GeometryTags tags,
+                ProtocolVersion client,
+                boolean clientProjection) {
             this.runtime = runtime;
             this.states = states;
             this.names = names;
             this.tags = tags;
+            this.client = client;
+            this.clientProjection = clientProjection;
         }
 
         public PlacementRuntime runtime() {
             return runtime;
+        }
+
+        public ProtocolVersion clientProtocol() {
+            return client;
         }
 
         public int toModelState(int hostId) {
@@ -55,14 +85,26 @@ public final class IsolatedMinecraft {
             return names.hostItem(modelName);
         }
 
-        public String dimensionType(String json) {
-            return ModelDimensions.project(json, states.source(), states.target());
+        public String toModelComponents(String json) {
+            return ModelItemComponents.project(json, states.source(), client, states.target());
+        }
+
+        public String toHostComponents(String json) {
+            return ModelItemComponents.project(json, states.target(), client, states.source());
+        }
+
+        public String dimensionType(String typeKey, String json) {
+            return ModelDimensions.project(
+                    typeKey, ModelDimensions.project(typeKey, json, states.source(), client), client, states.target());
         }
 
         public GeometryTags tagsFor(CultPlayer player) {
-            return player.registryState == null
-                    ? tags
-                    : player.registryState.geometryTags(player.user.registries(), names);
+            if (player.registryState == null) return tags;
+            return clientProjection
+                    ? player.registryState.actionTags(
+                            player.user.registries(), states.source(), client, states.target())
+                    : player.registryState.geometryTags(
+                            player.user.registries(), names, states.source(), states.target());
         }
     }
 
@@ -70,18 +112,36 @@ public final class IsolatedMinecraft {
         if (primary != null) throw new IllegalStateException("Isolated Minecraft already started");
         var host = ProtocolVersion.of(net.minecraft.SharedConstants.getProtocolVersion());
         var model = RuntimeModel.forBackendProtocol(host.protocol());
-        Binding opened = null, earlier = null;
+        var opened = new LinkedHashMap<RuntimeModel, Binding>();
         try {
-            opened = open(host, model, false);
+            opened.put(model, open(host, model, false));
             // A newer backing registry cannot give an older client new action semantics.
             // Acquire both supported families before accepting players, avoiding a download
             // or vanilla bootstrap on the first old-client action.
-            if (model != RuntimeModel.JAVA_1_21_11) earlier = open(host, RuntimeModel.JAVA_1_21_11, true);
-            earlierActions = earlier;
-            primary = opened;
+            if (model != RuntimeModel.JAVA_1_21_11)
+                opened.put(RuntimeModel.JAVA_1_21_11, open(host, RuntimeModel.JAVA_1_21_11, true));
+            var actions = new LinkedHashMap<Integer, Binding>();
+            for (int protocol = 768; protocol <= 777; protocol++) {
+                var client = ProtocolVersion.of(protocol);
+                var acquired = opened.get(
+                        protocol <= RuntimeModel.JAVA_1_21_11.protocol() ? RuntimeModel.JAVA_1_21_11 : model);
+                var target = ProtocolVersion.of(acquired.runtime.model().protocol());
+                var states = ModelBlockStates.project(host, client, target);
+                var names = ModelRegistryNames.project(host, client, target);
+                actions.put(
+                        protocol,
+                        new Binding(
+                                acquired.runtime,
+                                states,
+                                names,
+                                NativeGeometryTags.project(NativeGeometryTags.capture(), host, client, target),
+                                client));
+            }
+            acquiredBindings = Map.copyOf(opened);
+            actionBindings = Map.copyOf(actions);
+            primary = opened.get(model);
         } catch (Exception | Error failure) {
-            close(earlier, failure);
-            close(opened, failure);
+            opened.values().stream().toList().reversed().forEach(binding -> close(binding, failure));
             throw new IllegalStateException("Unable to acquire or start vanilla runtime", failure);
         }
     }
@@ -112,11 +172,10 @@ public final class IsolatedMinecraft {
             if (opened.stateCount() != mapped.targetCount())
                 throw new IllegalStateException(
                         "Acquired model block registry does not match its pinned protocol data");
-            var captured = NativeGeometryTags.capture(mappedNames);
-            opened.tags(captured);
+            var captured = NativeGeometryTags.capture(mappedNames, mapped.source(), mapped.target());
             opened.prepareInteractions();
             LogUtil.info("Isolated vanilla " + model.minecraftId() + " "
-                    + (clientProjection ? "older-client action" : "placement and geometry")
+                    + (clientProjection ? "client action" : "placement and geometry")
                     + " runtime started: " + opened.stateCount() + " states");
             return new Binding(opened, mapped, mappedNames, captured);
         } catch (Exception | Error failure) {
@@ -132,13 +191,11 @@ public final class IsolatedMinecraft {
     }
 
     public static synchronized void stop() {
-        var current = primary;
-        var earlier = earlierActions;
+        var bindings = acquiredBindings;
         primary = null;
-        earlierActions = null;
-        nativeTags = null;
-        close(earlier, null);
-        close(current, null);
+        acquiredBindings = Map.of();
+        actionBindings = Map.of();
+        bindings.values().forEach(binding -> close(binding, null));
     }
 
     private static void close(Binding binding, Throwable failure) {
@@ -174,13 +231,10 @@ public final class IsolatedMinecraft {
         // before it moved into the isolated runtime. Keep that action binding separate
         // from Java movement geometry and Java client-version projections.
         if (player != null && player.isBedrockMovement()) return primary;
-        var current = compatible(player);
-        var earlier = earlierActions;
-        return current != null
-                        && earlier != null
-                        && player.getClientVersion().getProtocolVersion() <= RuntimeModel.JAVA_1_21_11.protocol()
-                ? earlier
-                : current;
+        if (player == null) return null;
+        int protocol = player.getClientVersion().getProtocolVersion();
+        if (protocol < 768 || protocol > 777) return null;
+        return actionBindings.get(protocol);
     }
 
     private static Binding requirePrimary() {
@@ -211,20 +265,5 @@ public final class IsolatedMinecraft {
 
     public static GeometryTags tagsFor(CultPlayer player) {
         return requirePrimary().tagsFor(player);
-    }
-
-    /** Bind each model to the same native generation using its own directed name map. */
-    public static void tags(GeometryTags tags) {
-        if (nativeTags == tags) return;
-        installTags(primary, tags);
-        installTags(earlierActions, tags);
-        nativeTags = tags;
-    }
-
-    private static void installTags(Binding binding, GeometryTags tags) {
-        if (binding == null) return;
-        var mapped = NativeGeometryTags.translate(tags, binding.names);
-        binding.runtime.tags(mapped);
-        binding.tags = mapped;
     }
 }

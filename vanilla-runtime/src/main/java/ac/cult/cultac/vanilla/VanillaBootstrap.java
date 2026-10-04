@@ -22,10 +22,8 @@ public final class VanillaBootstrap implements AutoCloseable {
             com.google.common.collect.Interners.newWeakInterner();
     private final MultiPackResourceManager resources;
     private final RegistryAccess.Frozen registries;
-    private final VanillaRegistryState.Bindings defaults;
-    private final ThreadLocal<VanillaRegistryState> current = new ThreadLocal<>();
-    private VanillaRegistryState.Bindings active;
-    private boolean closed;
+    private final VanillaContext defaults;
+    private volatile boolean closed;
 
     public static synchronized VanillaBootstrap open() {
         if (started) throw new IllegalStateException("Vanilla model already started in this class loader");
@@ -67,7 +65,6 @@ public final class VanillaBootstrap implements AutoCloseable {
                     .freeze();
             BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(registries).forEach(pending -> pending.apply());
             defaults = VanillaRegistryState.snapshot(this, registries);
-            active = defaults;
         } catch (RuntimeException | Error failure) {
             resources.close();
             throw failure;
@@ -90,41 +87,13 @@ public final class VanillaBootstrap implements AutoCloseable {
         return componentBindings.intern(components);
     }
 
-    public synchronized VanillaRegistryState newConnection() {
+    public VanillaRegistryState newConnection() {
         if (closed) throw new IllegalStateException("Vanilla model is closed");
         return new VanillaRegistryState(this, defaults);
     }
 
-    boolean isActive(VanillaRegistryState state) {
-        return current.get() == state;
-    }
-
-    void activate(VanillaRegistryState state) {
-        if (!Thread.holdsLock(this) || !isActive(state)) throw new IllegalStateException("Model context is not owned");
-        if (active != state.bindings()) {
-            state.bindings().apply(active);
-            active = state.bindings();
-        }
-    }
-
-    synchronized void execute(VanillaRegistryState state, Runnable task) {
-        if (closed) throw new IllegalStateException("Vanilla model is closed");
-        VanillaRegistryState previous = current.get();
-        current.set(state);
-        try {
-            activate(state);
-            task.run();
-        } finally {
-            if (previous == null) current.remove();
-            else {
-                current.set(previous);
-                activate(previous);
-            }
-        }
-    }
-
     @Override
-    public synchronized void close() {
+    public void close() {
         if (!closed) {
             closed = true;
             resources.close();

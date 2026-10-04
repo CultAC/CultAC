@@ -1,26 +1,17 @@
 package ac.cult.cultac.protocol.data;
 
 import ac.cult.cultac.protocol.MalformedPacketException;
+import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolResolutionException;
 import ac.cult.cultac.protocol.ProtocolVersion;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.zip.GZIPInputStream;
 
 /** Composed ViaVersion numeric mappings, including vanilla identifier and property renames. */
 public final class ModelIdMappings {
-    private record Versions(ProtocolVersion source, ProtocolVersion target) {}
-
-    private static final Map<Versions, ModelIdMappings> CACHE = new ConcurrentHashMap<>();
     private final Map<String, int[]> ids;
 
-    private ModelIdMappings(Map<String, int[]> ids) {
+    /** The isolated provider transfers ownership of its validated arrays to this neutral view. */
+    public ModelIdMappings(Map<String, int[]> ids) {
         this.ids = Map.copyOf(ids);
     }
 
@@ -28,51 +19,15 @@ public final class ModelIdMappings {
     public static ModelIdMappings load(ProtocolVersion source, ProtocolVersion target) {
         if (source.protocol() >= target.protocol())
             throw new IllegalArgumentException("Expected an older source protocol");
-        return CACHE.computeIfAbsent(new Versions(source, target), ModelIdMappings::read);
+        return project(source, target);
     }
 
-    /** Explicit directed projection, including the actual ViaBackwards client-visible fallbacks. */
+    /**
+     * Explicit directed projection, including the actual ViaBackwards client-visible fallbacks.
+     * Via supplies the directed path and numeric mapping data; the shared provider caches the result.
+     */
     public static ModelIdMappings project(ProtocolVersion source, ProtocolVersion target) {
-        if (source == target) throw new IllegalArgumentException("Identity projection needs no mapping table");
-        return CACHE.computeIfAbsent(new Versions(source, target), ModelIdMappings::read);
-    }
-
-    private static ModelIdMappings read(Versions versions) {
-        String path = "/ac/cult/cultac/protocol/model-mappings/" + versions.source.protocol() + "-to-"
-                + versions.target.protocol() + ".tsv.gz";
-        try (var resource = ModelIdMappings.class.getResourceAsStream(path)) {
-            if (resource == null) throw new ProtocolResolutionException("Missing composed mappings " + versions);
-            try (var reader =
-                    new BufferedReader(new InputStreamReader(new GZIPInputStream(resource), StandardCharsets.UTF_8))) {
-                String suffix = "\t" + versions.source.protocol() + "\t" + versions.target.protocol();
-                String header = reader.readLine();
-                boolean blocks = ("cult-via-model-mappings\t2" + suffix).equals(header);
-                if (!blocks && !("cult-via-model-mappings\t1" + suffix).equals(header))
-                    throw new ProtocolResolutionException("Wrong composed mapping versions");
-                var rows = new HashMap<String, ArrayList<Integer>>();
-                for (String line; (line = reader.readLine()) != null; ) {
-                    String[] fields = line.split("\t", -1);
-                    if (fields.length != 3
-                            || !(fields[0].equals("blockstates")
-                                    || fields[0].equals("items")
-                                    || blocks && fields[0].equals("blocks")))
-                        throw new ProtocolResolutionException("Invalid composed mapping row");
-                    var values = rows.computeIfAbsent(fields[0], ignored -> new ArrayList<>());
-                    int source = Integer.parseInt(fields[1]), target = Integer.parseInt(fields[2]);
-                    if (source != values.size() || target < (blocks && fields[0].equals("blocks") ? -1 : 0))
-                        throw new ProtocolResolutionException("Invalid composed mapping ID");
-                    values.add(target);
-                }
-                if (rows.size() != (blocks ? 3 : 2) || rows.values().stream().anyMatch(java.util.List::isEmpty))
-                    throw new ProtocolResolutionException("Incomplete composed mappings");
-                var ids = new HashMap<String, int[]>();
-                rows.forEach((key, values) ->
-                        ids.put(key, values.stream().mapToInt(Integer::intValue).toArray()));
-                return new ModelIdMappings(ids);
-            }
-        } catch (IOException | NumberFormatException failure) {
-            throw new ProtocolResolutionException("Cannot read composed mappings: " + failure.getMessage());
-        }
+        return ProtocolCodecs.decoder().mappings(source, target);
     }
 
     public int blockState(int sourceId) {
@@ -83,13 +38,39 @@ public final class ModelIdMappings {
         return mapped("items", sourceId);
     }
 
+    /** Via's entity mapping data, including ViaBackwards fallbacks such as happy_ghast -> ghast. */
+    public int entity(int sourceId) {
+        return mapped("entities", sourceId);
+    }
+
+    /**
+     * The model-registry entity type an older client actually simulates. The model is never older
+     * than the observed stream, so the model -> client path applies exactly Via's downgrade fallbacks.
+     */
+    public static String clientVisibleEntity(String modelType, ProtocolVersion model, ProtocolVersion client) {
+        if (client.atLeast(model)) return modelType;
+        var types = ModelRegistryData.load(model).registry("minecraft:entity_type");
+        int visible = project(model, client).entity(types.id(modelType));
+        if (visible < 0) throw new ProtocolResolutionException("No client-visible entity for " + modelType);
+        return types.name(project(client, model).entity(visible));
+    }
+
+    public int entityCount() {
+        var values = ids.get("entities");
+        if (values == null) throw new ProtocolResolutionException("Missing directed entity mappings");
+        return values.length;
+    }
+
     public int block(int sourceId) {
         return mapped("blocks", sourceId);
     }
 
+    public int sound(int sourceId) {
+        return mapped("sounds", sourceId);
+    }
+
     private int mapped(String key, int id) {
         var values = ids.get(key);
-        if (values == null) throw new ProtocolResolutionException("Missing directed " + key + " mappings");
         if (id < 0 || id >= values.length) throw new MalformedPacketException("Unknown source " + key + " ID " + id);
         return values[id];
     }

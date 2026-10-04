@@ -35,10 +35,10 @@ final class VelocityScheduler
     private final EventExecutor global =
             new DefaultEventExecutor((ThreadFactory) runnable -> new Thread(runnable, "CultAC-global"));
     private final Map<GrimPlugin, Set<Future<?>>> tasks = new ConcurrentHashMap<>();
-    private final Function<PlatformWorld, EventExecutor> worldOwner;
+    private final Function<PlatformWorld, ac.cult.cultac.network.CultConnection> worldOwner;
     private boolean closed;
 
-    VelocityScheduler(Function<PlatformWorld, EventExecutor> worldOwner) {
+    VelocityScheduler(Function<PlatformWorld, ac.cult.cultac.network.CultConnection> worldOwner) {
         this.worldOwner = worldOwner;
     }
 
@@ -163,8 +163,13 @@ final class VelocityScheduler
                 task.run();
             }
         };
-        TaskHandle scheduled =
-                schedule(connection.owner(), plugin, checked, ticks(delay), ticks(period), TimeUnit.MILLISECONDS);
+        TaskHandle scheduled = schedule(
+                connection.owner(),
+                plugin,
+                () -> connection.runInModel(checked),
+                ticks(delay),
+                ticks(period),
+                TimeUnit.MILLISECONDS);
         handle.set(scheduled);
         if (retiredOnce.get()) {
             scheduled.cancel();
@@ -218,7 +223,9 @@ final class VelocityScheduler
 
     @Override
     public TaskHandle runDelayed(GrimPlugin plugin, PlatformWorld world, int x, int z, Runnable task, long delay) {
-        return schedule(worldOwner.apply(world), plugin, task, ticks(delay), 0, TimeUnit.MILLISECONDS);
+        var connection = worldOwner.apply(world);
+        return schedule(
+                connection.owner(), plugin, () -> connection.runInModel(task), ticks(delay), 0, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -232,7 +239,14 @@ final class VelocityScheduler
         if (period <= 0) {
             throw new IllegalArgumentException("Non-positive task period");
         }
-        return schedule(worldOwner.apply(world), plugin, task, ticks(delay), ticks(period), TimeUnit.MILLISECONDS);
+        var connection = worldOwner.apply(world);
+        return schedule(
+                connection.owner(),
+                plugin,
+                () -> connection.runInModel(task),
+                ticks(delay),
+                ticks(period),
+                TimeUnit.MILLISECONDS);
     }
 
     @Override

@@ -27,6 +27,40 @@ import org.junit.jupiter.api.Test;
 
 class OlderClientActionsTest {
     @Test
+    void originalActionFamilyDoesNotInheritTheOlderGeometryUpperBound() throws Exception {
+        try (var vanilla = new VanillaActionFixture();
+                var services = new RecordConsumerServices();
+                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var primary = IsolatedMinecraft.class.getDeclaredField("primary");
+            var acquired = IsolatedMinecraft.class.getDeclaredField("acquiredBindings");
+            primary.setAccessible(true);
+            acquired.setAccessible(true);
+            Object original = primary.get(null);
+            var bindings = (Map<?, ?>) acquired.get(null);
+            var version = fixture.player.getClass().getDeclaredField("resolvedClientVersion");
+            version.setAccessible(true);
+            try {
+                primary.set(null, bindings.get(RuntimeModel.JAVA_1_21_11));
+                for (int protocol = 768; protocol <= 777; protocol++) {
+                    version.set(fixture.player, ClientVersion.fromProtocolVersion(protocol));
+                    assertEquals(
+                            protocol <= 774 ? RuntimeModel.JAVA_1_21_11 : RuntimeModel.JAVA_26_3,
+                            IsolatedMinecraft.actionsFor(fixture.player)
+                                    .runtime()
+                                    .model());
+                    if (protocol > 774) assertNull(IsolatedMinecraft.forPlayer(fixture.player));
+                    else
+                        assertEquals(
+                                RuntimeModel.JAVA_1_21_11,
+                                IsolatedMinecraft.forPlayer(fixture.player).model());
+                }
+            } finally {
+                primary.set(null, original);
+            }
+        }
+    }
+
+    @Test
     void oldActionsUseTheOriginalOlderModelAndTheirOwnReceivedTagGeneration() throws Exception {
         try (var vanilla = new VanillaActionFixture();
                 var services = new RecordConsumerServices();

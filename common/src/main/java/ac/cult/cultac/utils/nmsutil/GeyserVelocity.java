@@ -30,7 +30,7 @@ import net.minecraft.world.phys.shapes.CollisionContext;
  * the carried deltaMovement and becomes next-tick starting velocity.
  */
 public final class GeyserVelocity {
-    private static final ClientVersion SERVER_VERSION =
+    private static final ClientVersion NATIVE_MODEL_VERSION =
             ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
     // Vanilla's literal is 0.2F, promoted to double by Vec3#add.
     private static final double LAUNCH_FORCE = 0.2F;
@@ -44,7 +44,7 @@ public final class GeyserVelocity {
 
     public static Set<Vec3> applyToResult(CultPlayer player, PredictionResult result, Set<Vec3> velocities) {
         if (player == null
-                || SERVER_VERSION.isOlderThan(ClientVersion.V_26_2)
+                || NATIVE_MODEL_VERSION.isOlderThan(ClientVersion.V_26_2)
                 || player.getClientVersion().isOlderThan(ClientVersion.V_26_2)
                 || player.bedrockState != null) {
             return velocities;
@@ -78,7 +78,7 @@ public final class GeyserVelocity {
             PredictionResult result,
             Vec3 end,
             ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects.State state) {
-        if (SERVER_VERSION.isOlderThan(ClientVersion.V_26_2)
+        if (NATIVE_MODEL_VERSION.isOlderThan(ClientVersion.V_26_2)
                 || player.getClientVersion().isOlderThan(ClientVersion.V_26_2)) return state;
         SimulationContext context = result.getSimulationContext();
         PacketEntity actor =

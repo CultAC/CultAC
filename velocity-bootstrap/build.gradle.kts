@@ -10,12 +10,17 @@ dependencies {
     testImplementation("com.google.code.gson:gson:2.13.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
-tasks.test { useJUnitPlatform() }
+tasks.test {
+    dependsOn(":vanilla-runtime:prepareVanilla")
+    systemProperty("vanillaRuntime", project(":vanilla-runtime").layout.buildDirectory.dir("runtime").get().asFile.absolutePath)
+    useJUnitPlatform()
+}
 tasks.processResources {
     dependsOn(":velocity-platform:shadowJar")
     from(project(":velocity-platform").layout.buildDirectory.file("libs/cult-engine.jar")) { into("runtime") }
 }
 tasks.jar {
+    from(configurations.runtimeClasspath.get().filter { it.name.startsWith("asm-") }.map { zipTree(it) })
     archiveFileName.set("CultAC-velocity.jar")
     from(project(":vanilla-bootstrap").extensions.getByType<SourceSetContainer>()["main"].output)
     doLast {

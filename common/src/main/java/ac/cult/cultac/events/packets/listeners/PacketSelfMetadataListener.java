@@ -35,8 +35,9 @@ public class PacketSelfMetadataListener {
         List<EntityMetadata.Entry> packedItems = new ArrayList<>(entityMetadataPacket.packedItems());
         List<EntityMetadata.Entry> entityMetadata = packedItems;
         final boolean spoofHealth = player.spoofHealth;
+        final int observedEntityId = entityMetadataPacket.id();
 
-        if (entityMetadataPacket.id() == player.entityID) {
+        if (observedEntityId == player.entityID) {
             // If we send multiple transactions, we are very likely to split them
             boolean hasSendTransaction = false;
             boolean changed = false;
@@ -187,7 +188,7 @@ public class PacketSelfMetadataListener {
                     if (health <= 0.0f) {
                         break;
                     } // don't spoof dead entities
-                    TrackerData tracked = player.compensatedEntities.getTrackedEntity(entityMetadataPacket.id());
+                    TrackerData tracked = player.compensatedEntities.getTrackedEntity(observedEntityId);
                     // don't spoof health of rideable entities if they aren't tracked
                     if (tracked != null) {
                         tracked.setHealth(health);
@@ -201,9 +202,9 @@ public class PacketSelfMetadataListener {
                         break;
                     }
                     // don't spoof health of entities we're riding
-                    if (player.getRidingVehicleId() == entityMetadataPacket.id()) break;
+                    if (player.getRidingVehicleId() == observedEntityId) break;
 
-                    packedItems.set(i, EntityMetadata.Entry.health(1.0f));
+                    packedItems.set(i, EntityMetadata.Entry.health(packedItem.id(), event.getDecodedProtocol(), 1.0f));
                     changed = true;
                 }
             }

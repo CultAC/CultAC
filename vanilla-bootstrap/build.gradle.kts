@@ -4,6 +4,7 @@ repositories { mavenCentral() }
 java { toolchain.languageVersion.set(JavaLanguageVersion.of(25)) }
 tasks.withType<JavaCompile>().configureEach { options.release.set(21) }
 dependencies {
+    api("org.ow2.asm:asm:9.9.1")
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

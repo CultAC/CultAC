@@ -36,15 +36,15 @@ public final class BedrockClientBlockShapeMappings {
 
     public static void initialize() {
         BedrockCollisionOverrideCatalog artifact = BedrockCollisionOverrideCatalog.bundled();
-        int serverProtocol = net.minecraft.SharedConstants.getProtocolVersion();
+        int nativeModelProtocol = net.minecraft.SharedConstants.getProtocolVersion();
         int[] mappings = BedrockServerStateMappings.create(
-                serverProtocol,
+                nativeModelProtocol,
                 Block.BLOCK_STATE_REGISTRY.size(),
                 CATALOG_JAVA_VERSION.getProtocolVersion(),
                 artifact.javaStateCount());
         Snapshot snapshot = build(artifact.forServerStates(mappings));
         SNAPSHOT.set(snapshot);
-        LogUtil.info("[ClientBlockShapes] Bedrock collision cache: server protocol " + serverProtocol
+        LogUtil.info("[ClientBlockShapes] Bedrock collision cache: native model protocol " + nativeModelProtocol
                 + " -> catalog protocol " + CATALOG_JAVA_VERSION.getProtocolVersion() + ", " + mappings.length
                 + " translated states, " + snapshot.staticMovementCount() + " static movement states, "
                 + snapshot.dynamicMovementCount() + " dynamic movement states.");

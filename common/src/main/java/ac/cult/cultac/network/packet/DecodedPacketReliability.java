@@ -1,7 +1,7 @@
 package ac.cult.cultac.network.packet;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
-import net.minecraft.SharedConstants;
+import ac.cult.cultac.protocol.ProtocolVersion;
 
 /**
  * Identifies decoded packet families whose original identity is preserved
@@ -9,29 +9,26 @@ import net.minecraft.SharedConstants;
  * synthesize these families when the pair crosses the listed boundary.
  */
 public final class DecodedPacketReliability {
-    private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
-
     private DecodedPacketReliability() {}
 
-    public static boolean nativeInputFamilyReliable(ClientVersion clientVersion) {
-        return nativeInputFamilyReliable(clientVersion, SERVER_VERSION);
+    public static boolean nativeInputFamilyReliable(ClientVersion clientVersion, ProtocolVersion observedProtocol) {
+        return nativeInputFamilyReliable(clientVersion, ClientVersion.fromProtocolVersion(observedProtocol.protocol()));
     }
 
-    public static boolean interactionFamilyReliable(ClientVersion clientVersion) {
-        return interactionFamilyReliable(clientVersion, SERVER_VERSION);
+    public static boolean interactionFamilyReliable(ClientVersion clientVersion, ProtocolVersion observedProtocol) {
+        return interactionFamilyReliable(clientVersion, ClientVersion.fromProtocolVersion(observedProtocol.protocol()));
     }
 
-    static boolean nativeInputFamilyReliable(ClientVersion clientVersion, ClientVersion serverVersion) {
-        return onSameSide(clientVersion, serverVersion, ClientVersion.V_1_21_6);
+    static boolean nativeInputFamilyReliable(ClientVersion clientVersion, ClientVersion observedVersion) {
+        return onSameSide(clientVersion, observedVersion, ClientVersion.V_1_21_6);
     }
 
-    static boolean interactionFamilyReliable(ClientVersion clientVersion, ClientVersion serverVersion) {
-        return onSameSide(clientVersion, serverVersion, ClientVersion.V_26_1);
+    static boolean interactionFamilyReliable(ClientVersion clientVersion, ClientVersion observedVersion) {
+        return onSameSide(clientVersion, observedVersion, ClientVersion.V_26_1);
     }
 
     private static boolean onSameSide(
-            ClientVersion clientVersion, ClientVersion serverVersion, ClientVersion boundary) {
-        return clientVersion.isOlderThan(boundary) == serverVersion.isOlderThan(boundary);
+            ClientVersion clientVersion, ClientVersion observedVersion, ClientVersion boundary) {
+        return clientVersion.isOlderThan(boundary) == observedVersion.isOlderThan(boundary);
     }
 }

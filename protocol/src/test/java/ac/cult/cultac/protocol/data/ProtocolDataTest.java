@@ -42,6 +42,7 @@ class ProtocolDataTest {
                 original.replace("packet\tplay\tserverbound\t0\t", "packet\tplay\tserverbound\t1\t"),
                 original.replaceAll("(?m)^packet\\tlogin[^\\n]*\\n", ""),
                 original.replaceAll("(?m)^registry\\tminecraft:entity_type[^\\n]*\\n", ""),
+                original.replaceAll("(?m)^registry\\tminecraft:menu[^\\n]*\\n", ""),
                 original + "unknown\tdata\n")) {
             assertThrows(
                     ProtocolResolutionException.class,

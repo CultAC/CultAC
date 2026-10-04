@@ -47,6 +47,31 @@ final class EngineClassLoader extends URLClassLoader {
         }
     }
 
+    @Override
+    protected Class<?> findClass(String name) throws ClassNotFoundException {
+        if (!ac.cult.runtime.RegistryReadTransform.applies(name)) return super.findClass(name);
+        var resource = findResource(name.replace('.', '/') + ".class");
+        if (resource == null) throw new ClassNotFoundException(name);
+        try {
+            var source = resource.openConnection();
+            byte[] original;
+            try (var input = source.getInputStream()) {
+                original = input.readAllBytes();
+            }
+            byte[] bytes = ac.cult.runtime.RegistryReadTransform.apply(
+                    name, original, "ac/cult/cultac/vanilla/VanillaContext");
+            // Reading the complete original entry verifies its signature. Retain the
+            // jar's code source so transformed classes share their package's signers.
+            var codeSource = source instanceof java.net.JarURLConnection jar
+                    ? new java.security.CodeSource(
+                            jar.getJarFileURL(), jar.getJarEntry().getCodeSigners())
+                    : new java.security.CodeSource(resource, (java.security.CodeSigner[]) null);
+            return defineClass(name, bytes, 0, bytes.length, codeSource);
+        } catch (java.io.IOException failure) {
+            throw new ClassNotFoundException(name, failure);
+        }
+    }
+
     private static boolean shared(String name) {
         return name.startsWith("java.")
                 || name.startsWith("javax.")

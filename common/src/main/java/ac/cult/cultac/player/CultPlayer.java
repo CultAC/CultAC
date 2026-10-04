@@ -103,9 +103,6 @@ public class CultPlayer implements GrimUser {
                 CultAPI.INSTANCE.getEventBus().get(GrimTransactionSendEvent.class);
     }
 
-    private static final @NotNull ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
-
     public record TrackedTransaction(int transaction, CultWrite packet) {
         public int id() {
             return ((ClientboundPing) packet.packet()).id();
@@ -369,14 +366,14 @@ public class CultPlayer implements GrimUser {
     }
 
     public void onRemove() {
-        Runnable cleanup = () -> {
+        Runnable cleanup = () -> user.getCultConnection().runInModel(() -> {
             nettyScheduler.removeScheduler();
             compensatedWorld.clearChunks();
             FairReach fairReach = checkManager.getListener(FairReach.class);
             if (fairReach != null) {
                 fairReach.onPlayerQuit();
             }
-        };
+        });
         // Disposal runs after packet admission has sealed during plugin shutdown.
         // It must keep owner confinement without submitting another packet task.
         var owner = user.getPacketExecutor();
@@ -954,7 +951,7 @@ public class CultPlayer implements GrimUser {
     @Contract(pure = true)
     public boolean supportsEndTick() {
         return getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21_2); // PE ServerVersion.V_1_21_2
+                && getObservedProtocol().atLeast(ac.cult.cultac.protocol.ProtocolVersion.V1_21_3);
     }
 
     @Contract(pure = true)
@@ -1078,39 +1075,31 @@ public class CultPlayer implements GrimUser {
 
     private volatile ClientVersion resolvedClientVersion;
 
+    public ac.cult.cultac.protocol.ProtocolVersion getObservedProtocol() {
+        return user.getObservedProtocol();
+    }
+
+    @org.jetbrains.annotations.Nullable
+    public ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
+        return user.getCultConnection().getClientProtocol();
+    }
+
     public ClientVersion getClientVersion() {
         ClientVersion resolved = resolvedClientVersion;
         if (resolved != null) {
             return resolved;
         }
-        // A proxy knows the authenticated client's protocol directly. Its loaded
-        // vanilla model and a backend Via connection are different endpoints.
-        var platform = user.getCultConnection().platform();
-        var wireVersion = platform == null ? null : platform.wireVersion();
-        if (wireVersion != null) {
-            resolved = ClientVersion.fromProtocolVersion(wireVersion.protocol());
+        // Packet decoding uses the observed protocol. Physics uses the original
+        // client identity, even when Via has translated the stream before Cult.
+        var clientProtocol = user.getCultConnection().getClientProtocol();
+        if (clientProtocol != null) {
+            resolved = ClientVersion.fromProtocolVersion(clientProtocol.protocol());
             resolvedClientVersion = resolved;
             return resolved;
         }
-        if (ViaVersionUtil.isAvailable()) {
-            try {
-                int protocolVersion =
-                        Via.getAPI().getPlayerProtocolVersion(playerUUID).getOriginalVersion();
-                if (protocolVersion > 0) {
-                    // A connection's negotiated protocol never changes after the handshake.
-                    resolved = ClientVersion.fromProtocolVersion(protocolVersion);
-                    resolvedClientVersion = resolved;
-                    return resolved;
-                }
-            } catch (RuntimeException ignored) {
-                // Fall through to the server's native protocol version
-            }
-            // Via has not mapped this player yet (should we use connection instead?); do not pin the native fallback.
-            return ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
-        }
-        resolved = ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
-        resolvedClientVersion = resolved;
-        return resolved;
+        // Offline fixtures and pre-authentication callers may have no identity.
+        // Never cache this fallback or resolve a different session by account UUID.
+        return ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
     }
 
     @Override

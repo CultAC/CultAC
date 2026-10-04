@@ -8,7 +8,6 @@ import io.netty.util.concurrent.EventExecutor;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -28,11 +27,9 @@ public final class CultConnection implements CodecState {
     private volatile ConnectionPhase serverbound = ConnectionPhase.HANDSHAKE, clientbound = ConnectionPhase.HANDSHAKE;
     private volatile User user;
     private volatile CultPlayer player;
-    private boolean ownerResolved, prepared, compressionRelocated;
+    private boolean ownerResolved, prepared;
     private Consumer<CultConnection> initializer = ignored -> {};
     private BiConsumer<Object, ChannelPromise> reentrantWriter;
-    private final AtomicInteger work = new AtomicInteger();
-    private Runnable removal;
     private volatile CompletableFuture<Void> removed;
 
     public CultConnection(Channel channel, PacketDispatcher dispatcher, Function<Channel, PacketOwner> resolver) {
@@ -47,12 +44,12 @@ public final class CultConnection implements CodecState {
         this.platform = platform;
         this.channel = Objects.requireNonNull(channel);
         this.dispatcher = Objects.requireNonNull(dispatcher);
-        var version = platform == null ? null : platform.wireVersion();
+        var version = platform == null ? null : platform.getObservedProtocol();
         var model = dispatcher.runtime();
-        var wire = version == null || version == model.data().version()
+        var observed = version == null || version == model.data().version()
                 ? model
                 : ProtocolRuntime.create(ac.cult.cultac.protocol.data.ProtocolData.load(version));
-        packets = new ProjectedPackets(wire, model, () -> platform.packetProjection());
+        packets = new ProjectedPackets(observed, model, () -> platform.packetValues());
         ownerResolver = Objects.requireNonNull(resolver);
         owner = channel.eventLoop();
     }
@@ -87,7 +84,18 @@ public final class CultConnection implements CodecState {
     }
 
     public ProtocolRuntime runtime() {
-        return packets.wire();
+        return packets.observed();
+    }
+
+    /** Packet IDs and schemas at this connection's actual observation point. */
+    public ac.cult.cultac.protocol.ProtocolVersion getObservedProtocol() {
+        return packets.observed().data().version();
+    }
+
+    /** Original client identity; unknown before authentication must not become a model-version guess. */
+    @org.jetbrains.annotations.Nullable
+    public ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
+        return platform == null ? null : platform.getClientProtocol();
     }
 
     public ProjectedPackets packets() {
@@ -122,11 +130,14 @@ public final class CultConnection implements CodecState {
         if (direction == PacketDirection.SERVERBOUND) serverbound = Objects.requireNonNull(phase);
         else clientbound = Objects.requireNonNull(phase);
     }
-    /** Called on I/O at configuration, or when reload attaches to an already-playing connection. */
+    /** Geyser's downstream channel becomes identifiable before its first handshake is read. */
     public void resolveOwner() {
-        if (!ownerResolved && (serverbound == ConnectionPhase.CONFIGURATION || serverbound == ConnectionPhase.PLAY)) {
-            ownerResolved = true;
+        if (!ownerResolved
+                && (serverbound == ConnectionPhase.HANDSHAKE
+                        || serverbound == ConnectionPhase.CONFIGURATION
+                        || serverbound == ConnectionPhase.PLAY)) {
             PacketOwner resolved = ownerResolver.apply(channel);
+            ownerResolved = resolved != null || serverbound != ConnectionPhase.HANDSHAKE;
             if (resolved != null) {
                 owner = resolved.executor();
                 bedrockBridge = resolved.bedrockBridge();
@@ -159,13 +170,18 @@ public final class CultConnection implements CodecState {
         this.player = player;
     }
 
+    public void runInModel(Runnable task) {
+        if (platform == null) task.run();
+        else platform.runInModel(task);
+    }
+
     public void execute(Runnable task) {
-        if (owner.inEventLoop()) task.run();
-        else owner.execute(task);
+        if (owner.inEventLoop()) runInModel(task);
+        else owner.execute(() -> runInModel(task));
     }
 
     public void executeLater(Runnable task) {
-        owner.execute(task);
+        owner.execute(() -> runInModel(task));
     }
     /** Allocate packet proofs only once earlier outbound work has reached its queue position. */
     public ChannelFuture executeAfterWrites(Runnable task) {
@@ -209,49 +225,17 @@ public final class CultConnection implements CodecState {
         clientbound = ConnectionLifecycle.nextPhase(PacketDirection.CLIENTBOUND, clientbound, type, packet);
     }
 
-    public boolean relocateCompressionOnce() {
-        if (compressionRelocated) return false;
-        compressionRelocated = true;
-        return true;
-    }
-    /** Work is accepted on I/O. A rejected return handoff may finish it on the owner. */
-    public void beginWork() {
-        work.incrementAndGet();
-    }
-
-    public void endWork() {
-        if (work.decrementAndGet() != 0 || removed == null) return;
-        Runnable finish = () -> {
-            if (work.get() == 0 && removal != null) finishRemoval();
-        };
-        if (channel.eventLoop().inEventLoop()) finish.run();
-        else {
-            try {
-                channel.eventLoop().execute(finish);
-            } catch (RuntimeException rejected) {
-                var completion = removed;
-                if (completion != null) completion.completeExceptionally(rejected);
-            }
-        }
-    }
-
     public java.util.concurrent.CompletionStage<Void> removeHandlers(Runnable remove) {
+        if (!channel.eventLoop().inEventLoop()) throw new IllegalStateException("Handler removal requires I/O");
         if (removed != null) return removed;
         removed = new CompletableFuture<>();
-        removal = remove;
-        if (work.get() == 0) finishRemoval();
-        return removed;
-    }
-
-    private void finishRemoval() {
-        var action = removal;
-        removal = null;
         try {
-            action.run();
+            remove.run();
             removed.complete(null);
         } catch (Throwable failure) {
             removed.completeExceptionally(failure);
         }
+        return removed;
     }
 
     public record WriteGroup(List<CultWrite> writes, boolean bundle) {}

@@ -4,8 +4,11 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.FoliaCompatUtil;
+import ac.cult.cultac.network.protocol.util.viaversion.ViaConnectionProtocol;
+import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import java.lang.reflect.Field;
@@ -22,6 +25,8 @@ import org.bukkit.entity.Player;
 
 /** All native account/player lookups are confined to the Paper platform. */
 public final class BukkitConnectionAdapter implements PlatformConnection {
+    private static final ProtocolVersion NATIVE_PROTOCOL =
+            ProtocolVersion.of(net.minecraft.SharedConstants.getProtocolVersion());
     private static final Field CONFIGURATION_PROFILE = configurationProfileField();
     private static final Method PROFILE_ID = profileMethod("id", "getId");
     private static final Method PROFILE_NAME = profileMethod("name", "getName");
@@ -39,6 +44,20 @@ public final class BukkitConnectionAdapter implements PlatformConnection {
 
     public BukkitConnectionAdapter(Connection connection) {
         this.connection = java.util.Objects.requireNonNull(connection);
+    }
+
+    @Override
+    public ProtocolVersion getObservedProtocol() {
+        return NATIVE_PROTOCOL;
+    }
+
+    @Override
+    public ProtocolVersion getClientProtocol() {
+        if (authenticatedProfile() == null) return null;
+        int protocol = ViaVersionUtil.isAvailable() ? ViaConnectionProtocol.originalProtocol(connection.channel) : -1;
+        if (protocol == -1) protocol = net.minecraft.SharedConstants.getProtocolVersion();
+        if (protocol < 768 || protocol > 777) return null;
+        return ProtocolVersion.of(protocol);
     }
 
     @Override

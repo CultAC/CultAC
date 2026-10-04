@@ -43,7 +43,15 @@ final class VanillaTagBindings<T> implements Registry.PendingTags<T> {
 
     @Override
     public void apply() {
-        pending.apply();
+        throw new UnsupportedOperationException("Connection tags are read through VanillaContext");
+    }
+
+    Registry<T> registry() {
+        return registry;
+    }
+
+    Map<TagKey<T>, List<Holder<T>>> contents() {
+        return contents;
     }
 
     @Override

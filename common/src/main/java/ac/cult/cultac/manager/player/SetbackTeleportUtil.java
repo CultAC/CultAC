@@ -69,6 +69,19 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public class SetbackTeleportUtil extends CultProcessor implements PostPredictionListener {
     private ServerboundMovePlayer pendingServerMove;
+    private boolean forwardedPositionThisTick;
+
+    public boolean hasForwardedPositionThisTick() {
+        return forwardedPositionThisTick;
+    }
+
+    public void markForwardedPositionThisTick() {
+        forwardedPositionThisTick = true;
+    }
+
+    public void resetForwardedPositionThisTick() {
+        forwardedPositionThisTick = false;
+    }
 
     public void setPendingServerMove(ServerboundMovePlayer move) {
         pendingServerMove = move;

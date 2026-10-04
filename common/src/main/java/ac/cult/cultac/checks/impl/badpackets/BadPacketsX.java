@@ -65,7 +65,8 @@ public class BadPacketsX extends Check implements PostPredictionListener, Decode
 
         switch (packet.action()) {
             case PRESS_SHIFT_KEY, RELEASE_SHIFT_KEY -> {
-                if (DecodedPacketReliability.nativeInputFamilyReliable(player.getClientVersion())) {
+                if (DecodedPacketReliability.nativeInputFamilyReliable(
+                        player.getClientVersion(), player.getObservedProtocol())) {
                     handleLegacySneakAction();
                 }
             }

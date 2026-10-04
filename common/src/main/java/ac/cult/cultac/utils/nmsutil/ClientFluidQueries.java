@@ -4,9 +4,12 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.tags.TagKey;
@@ -32,7 +35,24 @@ public final class ClientFluidQueries {
     }
 
     public static boolean is(CultPlayer player, FluidState state, TagKey<Fluid> tag) {
+        if (usesTagBasedFluidRules(player)) {
+            return clientTags(player)
+                    .fluids()
+                    .getOrDefault(NmsIdentifierUtil.tagKey(tag), java.util.List.of())
+                    .contains(NmsIdentifierUtil.registryKey(BuiltInRegistries.FLUID, state.getType()));
+        }
         return state.is(tag);
+    }
+
+    private static ac.cult.placement.api.GeometryTags clientTags(CultPlayer player) {
+        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
+        // RegistryTags is decoded into dispatcher MODEL values on both platforms.
+        // The observed wire can be older than that native representation.
+        var connection = player.user.getCultConnection();
+        var model = connection.dispatcher().runtime().data().version();
+        var client = ProtocolVersion.of(player.getClientVersion().getProtocolVersion());
+        return player.registryState.clientTags(
+                connection.platform() == null ? null : connection.platform().registries(), model, client);
     }
 
     /** Classify one compensated cell without changing the caller's body-query bounds. */
@@ -42,7 +62,9 @@ public final class ClientFluidQueries {
             FluidState fluid = player.compensatedWorld.getFluidState(pos);
             if (fluid.isEmpty()) return Sample.EMPTY;
             return new Sample(
-                    fluid.is(FluidTags.WATER), fluid.is(FluidTags.LAVA), fluid.getHeight(player.compensatedWorld, pos));
+                    is(player, fluid, FluidTags.WATER),
+                    is(player, fluid, FluidTags.LAVA),
+                    fluid.getHeight(player.compensatedWorld, pos));
         }
         // Older clients and Bedrock retain the existing material and height rules,
         // including waterlogged blocks and the amount/9 height calculation.
@@ -80,7 +102,10 @@ public final class ClientFluidQueries {
         // LivingEntity#floatInLiquidWhileRidden reads the pre-travel body depth.
         // 26.3 selects both the entity and the fluid through synchronized tags.
         if (usesTagBasedFluidRules(player)) {
-            return DesyncStatus.fromBoolean(vehicle.type.builtInRegistryHolder().is(CAN_FLOAT_WHILE_RIDDEN)
+            return DesyncStatus.fromBoolean(clientTags(player)
+                            .entities()
+                            .getOrDefault(NmsIdentifierUtil.tagKey(CAN_FLOAT_WHILE_RIDDEN), java.util.List.of())
+                            .contains(NmsIdentifierUtil.registryKey(BuiltInRegistries.ENTITY_TYPE, vehicle.type))
                     && depth(player, context.getFromMinimumExtent(), ENTITY_FLOATABLE) > 0.4D);
         }
         if (!EntityTypeUtil.canFloatWhileRidden(vehicle.type) || !(waterDepth > 0.4D)) return DesyncStatus.FALSE;
@@ -113,7 +138,7 @@ public final class ClientFluidQueries {
             for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++) {
                 for (int z = (int) Math.floor(box.minZ); z < Math.ceil(box.maxZ); z++) {
                     FluidState fluid = player.compensatedWorld.getFluidState(pos.set(x, y, z));
-                    if (fluid.isEmpty() || !fluid.is(tag)) continue;
+                    if (fluid.isEmpty() || !is(player, fluid, tag)) continue;
                     double top = (double) y + fluid.getHeight(player.compensatedWorld, pos);
                     if (top >= box.minY) depth = Math.max(depth, top - entityBox.minY);
                 }
@@ -133,7 +158,7 @@ public final class ClientFluidQueries {
         for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++) {
             BlockPos pos = new BlockPos(x, y, z);
             FluidState fluid = player.compensatedWorld.getFluidState(pos);
-            if (fluid.isEmpty() || !fluid.is(tag)) continue;
+            if (fluid.isEmpty() || !is(player, fluid, tag)) continue;
             float ordinaryHeight = fluid.getHeight(player.compensatedWorld, pos);
             if ((double) y + ordinaryHeight < box.minY || eyeY < y) continue;
             BlockPos above = pos.above();

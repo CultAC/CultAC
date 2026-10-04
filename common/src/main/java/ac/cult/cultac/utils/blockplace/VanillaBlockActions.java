@@ -141,9 +141,10 @@ public final class VanillaBlockActions {
         var before = new ItemStack[43];
         for (int slot = 0; slot < 43; slot++) {
             before[slot] = storage.getItem(storageSlot(slot));
-            var stack = encode(before[slot], registries.access());
-            inventory.add(
-                    new InteractionEngine.Stack(model.toModelItem(stack.item()), stack.count(), stack.components()));
+            var stack = encode(
+                    before[slot], registries.access(), model.clientProtocol().protocol() < 770);
+            inventory.add(new InteractionEngine.Stack(
+                    model.toModelItem(stack.item()), stack.count(), model.toModelComponents(stack.components())));
         }
         var actor = new InteractionEngine.Actor(
                 player.x,
@@ -177,6 +178,16 @@ public final class VanillaBlockActions {
                         .encodeStart(RegistryOps.create(JsonOps.INSTANCE, registries.access()), type)
                         .getOrThrow()
                         .toString();
+        String dimensionTypeKey = type == null
+                ? null
+                : registries
+                        .access()
+                        .lookupOrThrow(net.minecraft.core.registries.Registries.DIMENSION_TYPE)
+                        .listElements()
+                        .filter(holder -> holder.value() == type)
+                        .map(holder -> ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil.resourceKey(holder.key()))
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalStateException("The visible dimension type is not registered"));
         var world = world(player, model);
         SmoketestPredictionSafety.detachedAdapter(world);
         var result = runtime.interact(new InteractionEngine.Request(
@@ -191,7 +202,7 @@ public final class VanillaBlockActions {
                 hitZ,
                 inside,
                 player.compensatedWorld.getVisibleDimension(),
-                model.dimensionType(dimensionType)));
+                model.dimensionType(dimensionTypeKey, dimensionType)));
         var resolvedWrites = result.writes().stream()
                 .map(write -> Map.entry(
                         new BlockPos(
@@ -203,8 +214,10 @@ public final class VanillaBlockActions {
                 .forEach((slot, stack) -> hostInventory.put(
                         slot,
                         new InteractionEngine.Stack(
-                                model.toHostItem(stack.item()), stack.count(), stack.components())));
-        var resolvedInventory = merge(hostInventory, before, registries.access());
+                                model.toHostItem(stack.item()),
+                                stack.count(),
+                                model.toHostComponents(stack.components()))));
+        var resolvedInventory = merge(hostInventory, before, registries.access(), model);
         for (var write : resolvedWrites) {
             var pos = write.getKey();
             var state = write.getValue();
@@ -238,35 +251,55 @@ public final class VanillaBlockActions {
     private static final List<DataComponentType<?>> TRANSFERRED = InteractionEngine.TRANSFERRED_COMPONENTS.stream()
             .<DataComponentType<?>>map(id -> ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil.registryValue(
                     BuiltInRegistries.DATA_COMPONENT_TYPE, id))
+            .filter(java.util.Objects::nonNull)
             .toList();
 
     /** The item type, count and its patch of the components the runtime reads (see {@link InteractionEngine.Stack}). */
-    private static InteractionEngine.Stack encode(ItemStack stack, net.minecraft.core.RegistryAccess registries) {
+    static InteractionEngine.Stack encode(
+            ItemStack stack, net.minecraft.core.RegistryAccess registries, boolean legacyTool) {
         if (stack == null || stack.isEmpty()) return InteractionEngine.Stack.EMPTY;
         var patch = stack.getComponentsPatch().forget(type -> !TRANSFERRED.contains(type));
+        var components = patch.isEmpty()
+                ? null
+                : ac.cult.cultac.network.codec.NativeAdventurePredicates.encodePatch(patch, registries);
+        // Modern item defaults may contain TOOL.can_destroy=false, while the old
+        // class predicate is independent of TOOL. Materialize the effective TOOL
+        // only in the legacy action view so the exact old codec restores true,
+        // including unpatched defaults. A real removal remains a removal.
+        var tool = stack.get(net.minecraft.core.component.DataComponents.TOOL);
+        if (legacyTool && tool != null) {
+            if (components == null) components = new com.google.gson.JsonObject();
+            components.add(
+                    "minecraft:tool",
+                    net.minecraft.core.component.DataComponents.TOOL
+                            .codec()
+                            .encodeStart(RegistryOps.create(JsonOps.INSTANCE, registries), tool)
+                            .getOrThrow());
+        }
+        // Keep this class behind the actual host capability: older native models do
+        // not define BlockTransformer, while modern custom holders must retain data.
+        if (components != null && net.minecraft.SharedConstants.getProtocolVersion() == 777)
+            ac.cult.cultac.network.codec.NativeBlockTransformers.inline(components, stack, registries);
         return new InteractionEngine.Stack(
                 ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil.registryKey(BuiltInRegistries.ITEM, stack.getItem()),
                 stack.getCount(),
-                patch.isEmpty()
-                        ? null
-                        : DataComponentPatch.CODEC
-                                .encodeStart(RegistryOps.create(JsonOps.INSTANCE, registries), patch)
-                                .getOrThrow()
-                                .toString());
+                components == null ? null : components.toString());
     }
 
-    private static ItemStack decode(InteractionEngine.Stack stack, net.minecraft.core.RegistryAccess registries) {
+    private static ItemStack decode(
+            InteractionEngine.Stack stack, net.minecraft.core.RegistryAccess registries, ItemStack preferred) {
         if (stack.count() <= 0 || stack.item().equals("minecraft:air")) return ItemStack.EMPTY;
         var item = ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil.registryValue(BuiltInRegistries.ITEM, stack.item());
         if (item == null) throw new IllegalArgumentException("Unknown host item " + stack.item());
         if (stack.components() == null) return new ItemStack(item, stack.count());
+        var components = JsonParser.parseString(stack.components()).getAsJsonObject();
+        if (net.minecraft.SharedConstants.getProtocolVersion() == 777)
+            ac.cult.cultac.network.codec.NativeBlockTransformers.restore(components, registries, preferred);
         return new ItemStack(
                 item.builtInRegistryHolder(),
                 stack.count(),
                 DataComponentPatch.CODEC
-                        .parse(
-                                RegistryOps.create(JsonOps.INSTANCE, registries),
-                                JsonParser.parseString(stack.components()))
+                        .parse(RegistryOps.create(JsonOps.INSTANCE, registries), components)
                         .getOrThrow());
     }
 
@@ -280,14 +313,15 @@ public final class VanillaBlockActions {
     static Map<Integer, ItemStack> merge(
             Map<Integer, InteractionEngine.Stack> changes,
             ItemStack[] before,
-            net.minecraft.core.RegistryAccess registries) {
+            net.minecraft.core.RegistryAccess registries,
+            IsolatedMinecraft.Binding model) {
         var merged = new TreeMap<Integer, ItemStack>();
         var after = new TreeMap<Integer, ItemStack>();
-        changes.forEach((slot, stack) -> after.put(slot, decode(stack, registries)));
+        changes.forEach((slot, stack) -> after.put(slot, decode(stack, registries, before[slot])));
         var sources = new ArrayList<Integer>();
         after.forEach((slot, stack) -> {
             if (!stack.isEmpty() && !before[slot].isEmpty() && before[slot].getItem() == stack.getItem())
-                merged.put(slot, withTransferred(before[slot], stack));
+                merged.put(slot, withTransferred(before[slot], stack, model, registries));
             else sources.add(slot);
         });
         var moved = new ArrayList<>(sources);
@@ -306,14 +340,35 @@ public final class VanillaBlockActions {
                 continue;
             }
             moved.remove(origin);
-            merged.put(slot, withTransferred(before[origin], stack));
+            merged.put(slot, withTransferred(before[origin], stack, model, registries));
         }
         return merged;
     }
 
-    private static ItemStack withTransferred(ItemStack real, ItemStack predicted) {
+    private static ItemStack withTransferred(
+            ItemStack real,
+            ItemStack predicted,
+            IsolatedMinecraft.Binding model,
+            net.minecraft.core.RegistryAccess registries) {
         var stack = real.copyWithCount(predicted.getCount());
-        for (var type : TRANSFERRED) copy(type, predicted, stack);
+        for (var type : TRANSFERRED) {
+            String componentName = ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil.registryKey(
+                    BuiltInRegistries.DATA_COMPONENT_TYPE, type);
+            // Older clients never received this component. Their changed count/equipment
+            // must retain the native server's legitimate transformer patch unchanged.
+            if (model.clientProtocol().protocol() < 777 && "minecraft:block_transformer".equals(componentName))
+                continue;
+            if (net.minecraft.SharedConstants.getProtocolVersion() == 777
+                    && "minecraft:block_transformer".equals(componentName)
+                    && ac.cult.cultac.network.codec.NativeBlockTransformers.same(real, predicted, registries)) continue;
+            // Old Item/SwordItem/TridentItem own the creative guard independently
+            // of TOOL. Its action-only adaptation must never replace the real patch
+            // when the same native stack changes count or moves equipment slots.
+            if (model.clientProtocol().protocol() < 770 && "minecraft:tool".equals(componentName)) continue;
+            if (ac.cult.cultac.network.codec.NativeAdventurePredicates.sameActionView(
+                    type, real, predicted, registries, model)) continue;
+            copy(type, predicted, stack);
+        }
         return stack;
     }
 

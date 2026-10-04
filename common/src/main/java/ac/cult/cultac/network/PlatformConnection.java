@@ -18,12 +18,19 @@ public interface PlatformConnection {
 
     ac.cult.cultac.utils.minecraft.MinecraftRegistries registries();
 
-    /** Null uses the host protocol, as on the Paper native transport. */
-    default ac.cult.cultac.protocol.ProtocolVersion wireVersion() {
+    /** Encoding at Cult's actual pipeline position; null selects the native dispatcher encoding. */
+    @Nullable
+    default ac.cult.cultac.protocol.ProtocolVersion getObservedProtocol() {
         return null;
     }
 
-    default ac.cult.cultac.protocol.PacketProjection packetProjection() {
+    /** Original authenticated client protocol, independent of any translation before Cult. */
+    @Nullable
+    default ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
+        return null;
+    }
+
+    default ac.cult.cultac.protocol.PacketValueAdapter packetValues() {
         return null;
     }
 

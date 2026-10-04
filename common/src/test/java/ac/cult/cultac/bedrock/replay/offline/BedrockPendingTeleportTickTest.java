@@ -28,6 +28,93 @@ public class BedrockPendingTeleportTickTest {
         runDelayedTeleport(true);
     }
 
+    @Test
+    public void writtenJavaMarkerReceiptMakesChunkAndTeleportReadyForImmediateAuthBeforePong() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.gamemode = GameMode.SURVIVAL;
+            Vec3 ground = new Vec3(1.5, 106, 1.5);
+            player.x = player.lastX = ground.x;
+            player.y = player.lastY = ground.y;
+            player.z = player.lastZ = ground.z;
+            player.onGround = player.lastOnGround = true;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, ground.x, ground.y, ground.z);
+            var teleports = player.getSetbackTeleportUtil();
+            var ping = new InboundTransactionAcceptanceTest.DeferredJavaPing(player, () -> {
+                assertNotNull(player.compensatedWorld.getChunk(0, 0));
+                assertTrue(teleports.mustAcknowledgeBedrockTransportTeleport());
+                assertEquals(player.lastTransactionSent.get(), player.lastTransactionReceived.get());
+            });
+            int transaction = ping.transaction.transaction();
+            var chunk = new ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk(
+                    new ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection[16], transaction);
+            player.compensatedWorld.addToCache(chunk, "minecraft:overworld", transaction, 0, 0);
+            player.latencyUtils.addRealTimeTask(transaction, () -> {
+                for (int x = 0; x < 4; x++)
+                    for (int z = 0; z < 4; z++)
+                        player.compensatedWorld.updateBlock(x, 105, z, Blocks.STONE.defaultBlockState());
+            });
+            teleports.addImmediateBedrockTransportTeleport(
+                    ground, true, BedrockCoordinateFrame.IDENTITY, null, null, transaction);
+            assertNull(player.compensatedWorld.getChunk(0, 0));
+            assertEquals(0, player.lastTransactionReceived.get());
+            ping.reply(ping.packet.getTimestamp());
+            assertNull(player.compensatedWorld.getChunk(0, 0));
+            assertTrue(ping.pongs.isEmpty());
+
+            ping.write(
+                    () -> assertTrue(ac.cult.cultac.events.packets.listeners.PacketPingListener.acceptBedrockResponse(
+                            player, ping.transaction.id())));
+            player.addBedrockTransactionTask(player.getLastClientboundBedrockTransaction(), () -> {
+                player.bedrockState.applyAcknowledgedBoundingBoxMetadata(0.6F, 1.8F);
+                player.checkManager
+                        .getSimulationProcessor()
+                        .applyAcknowledgedBedrockMetadata(0.6F, 1.8F, false, false, false);
+            });
+            ping.reply(Long.MIN_VALUE);
+            assertSame(chunk, player.compensatedWorld.getChunk(0, 0));
+            assertEquals(transaction, player.lastTransactionReceived.get());
+            assertEquals(1, ping.pongs.size());
+            // Keep the original Pong in transit. The next native auth must already see
+            // acknowledged world/metadata and perform the actor tick which clears HasTeleported.
+            assertNotNull(process(player, startupFrame(player, 1, ground, 0, true)));
+            assertFalse(teleports.mustAcknowledgeBedrockTransportTeleport());
+            assertEquals(1, entry(player).state().simulationTick());
+            assertFalse(entry(player).state().hasTeleported());
+            assertNotNull(entry(player).state().acknowledgedPlayerDimensions());
+            assertNotNull(process(player, startupFrame(player, 2, ground, -0.0784, false)));
+            assertEquals(2, entry(player).state().simulationTick());
+            assertFalse(entry(player).state().hasTeleported());
+            assertEquals(-0.0784, entry(player).state().velocity().y(), 0.00001);
+            assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+            long clock = player.getPlayerClockAtLeast();
+            var late = RecordReceiveTestEvents.pong(
+                    player, ping.pongs.removeFirst().getId());
+            InboundTransactionAcceptanceTest.dispatchLocalBridgePong(player, late);
+            assertFalse(late.isAcceptedTransactionResponse());
+            assertEquals(clock, player.getPlayerClockAtLeast());
+            assertEquals(2, entry(player).state().simulationTick());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    private static BedrockAuthInputFrame startupFrame(
+            CultPlayer player, long tick, Vec3 position, double futureVelocity, boolean handlesTeleport) {
+        long flags = 1L << PlayerAuthInputData.VERTICAL_COLLISION.ordinal();
+        if (handlesTeleport) flags |= 1L << PlayerAuthInputData.HANDLE_TELEPORT.ordinal();
+        return BedrockAuthInputFrame.builder(player.playerUUID)
+                .protocolVersion(2193)
+                .clientTick(tick)
+                .position(position)
+                .rotation(0, 0, 0)
+                .moveVector(0, 0)
+                .reportedEndOfTickVelocity(new Vec3(0, futureVelocity, 0))
+                .rawInputFlags(flags)
+                .build();
+    }
+
     private static void runDelayedTeleport(boolean releaseJump) {
         OfflineCultTestBootstrap.installConfig();
         var player = OfflineBedrockReplayRunnerTest.offlinePlayer();

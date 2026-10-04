@@ -37,6 +37,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateMobEffect;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.MovementEffect;
+import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
@@ -503,9 +504,16 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             removedPlayerVehicleId = Integer.MIN_VALUE;
         }
         int transaction = appendTrailingProofTransactionId(event);
+        var model =
+                player.user.getCultConnection().dispatcher().runtime().data().version();
+        var client = player.getClientProtocol();
+        // Older clients simulate Via's fallback type, e.g. a non-solid ghast for a happy ghast.
+        String type = client == null
+                ? packet.entityType()
+                : ac.cult.cultac.protocol.data.ModelIdMappings.clientVisibleEntity(packet.entityType(), model, client);
         addEntity(
                 packet.entityId(),
-                NmsIdentifierUtil.registryOptional(BuiltInRegistries.ENTITY_TYPE, packet.entityType())
+                NmsIdentifierUtil.registryOptional(BuiltInRegistries.ENTITY_TYPE, type)
                         .orElseThrow(),
                 new Vec3(
                         packet.position().x(),
@@ -526,7 +534,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             velocityTransaction =
                     afterVelocity == null ? player.lastTransactionSent.get() : afterVelocity.transaction();
         }
-        Vec3 movement = PacketCodecUtil.quantizeClientboundVelocity(
+        Vec3 movement = PacketCodecUtil.clientVelocityFromObserved(
+                event.getDecodedProtocol(),
                 player.getClientVersion(),
                 new Vec3(
                         motion.velocity().x(),
@@ -546,10 +555,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private void handleMoveEntityPacket(PacketSendEvent<ClientboundMoveEntity> event, ClientboundMoveEntity packet) {
         int entityId = packet.entityId();
-        if (SERVER_VERSION.isOlderThan(ClientVersion.V_26_3)) {
-            // Preserve the existing relative-update path on release servers. 26.3
-            // introduced PositionPath; old servers still expose the three shorts.
-            var delta = (EntityDelta.Linear) packet.delta();
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) {
+            // Pre-26.3 clients receive three shorts. ViaBackwards 26.3->26.2
+            // (EntityPacketRewriter26_3#handleMovePos) sums a stepped delta into one.
+            var delta = linearDelta(packet.delta());
             handleMoveEntity(
                     event,
                     EntityMovement.legacyRelativeEntityPacket(
@@ -761,13 +770,28 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         return new Vec3((box.maxX - box.minX) / 2.0D + box.minX, box.minY, (box.maxZ - box.minZ) / 2.0D + box.minZ);
     }
 
+    private static EntityDelta.Linear linearDelta(EntityDelta delta) {
+        if (delta instanceof EntityDelta.Linear linear) return linear;
+        int x = 0, y = 0, z = 0;
+        for (var step : ((EntityDelta.Stepped) delta).steps()) {
+            x += step.x();
+            y += step.y();
+            z += step.z();
+        }
+        return new EntityDelta.Linear((short) x, (short) y, (short) z);
+    }
+
     private void handleEntityPositionSync(
             PacketSendEvent<ClientboundEntityPositionSync> event, ClientboundEntityPositionSync packet) {
+        PositionPath position = packet.position();
+        // ViaBackwards 26.3->26.2 keeps only a stepped path's final position.
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_26_3))
+            position = new PositionPath.Linear(position.endPosition());
         handleMoveEntity(
                 event,
                 EntityMovement.positionSyncPacket(
                         packet.entityId(),
-                        EntityPositionPath.fromProtocol(packet.position()),
+                        EntityPositionPath.fromProtocol(position),
                         new EntityRotation(packet.yaw(), packet.pitch()),
                         packet.onGround()));
     }
@@ -790,10 +814,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         PacketEntity entity = player.compensatedEntities.getEntity(packet.id());
         TrackerData tracked = player.compensatedEntities.getTrackedEntity(packet.id());
         EntityType<?> type = entity == null ? (tracked == null ? null : tracked.getEntityType()) : entity.type;
-        boolean updatesBoost = (type == EntityTypesCompat.PIG
-                        && WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.PIG_BOOST_TIME) != null)
-                || (type == EntityTypesCompat.STRIDER
-                        && WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.STRIDER_BOOST_TIME) != null);
+        WatchableIndexUtil.Layout layout = WatchableIndexUtil.forModel(player.user.getCultConnection());
+        boolean updatesBoost =
+                (type == EntityTypesCompat.PIG && WatchableIndexUtil.getIndex(metadata, layout.pigBoostTime()) != null)
+                        || (type == EntityTypesCompat.STRIDER
+                                && WatchableIndexUtil.getIndex(metadata, layout.striderBoostTime()) != null);
         if (updatesBoost) {
             CultPlayer.TrackedTransaction proof = player.createTrackedTransactionPacketForDeferredSend();
             if (proof != null) {
@@ -810,7 +835,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             }
         }
         boolean updatesHorseFlags = player.compensatedEntities.getEntity(packet.id()) instanceof PacketEntityHorse
-                && WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.HORSE_FLAGS) != null;
+                && WatchableIndexUtil.getIndex(metadata, layout.horseFlags()) != null;
         if (WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.ENTITY_NO_GRAVITY) != null) {
             player.sendTransaction();
         }

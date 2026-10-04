@@ -103,17 +103,18 @@ class StandaloneRuntimeTest {
                     false,
                     false);
             assertFalse(runtime.place(flower).consumes(), "Vanilla vegetation does not survive on stone");
-            runtime.tags(new ac.cult.placement.api.GeometryTags(
+            clientTags.set(new ac.cult.placement.api.GeometryTags(
                     Map.of("minecraft:supports_vegetation", List.of("minecraft:stone")), Map.of(), Map.of()));
             assertTrue(runtime.place(flower).consumes(), "The received support tag governs vanilla placement");
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> runtime.tags(new ac.cult.placement.api.GeometryTags(
-                            Map.of(), Map.of("cult:test", List.of("cult:missing_item")), Map.of())));
+            var valid = clientTags.get();
+            clientTags.set(new ac.cult.placement.api.GeometryTags(
+                    Map.of(), Map.of("cult:test", List.of("cult:missing_item")), Map.of()));
+            assertThrows(IllegalArgumentException.class, () -> runtime.place(flower));
+            clientTags.set(valid);
             assertTrue(runtime.place(flower).consumes(), "Invalid membership must not partially replace active tags");
-            runtime.tags(new ac.cult.placement.api.GeometryTags(Map.of(), Map.of(), Map.of()));
+            clientTags.set(new ac.cult.placement.api.GeometryTags(Map.of(), Map.of(), Map.of()));
             assertFalse(runtime.place(flower).consumes(), "Changing backend bindings must clear previous memberships");
-            runtime.tags(new ac.cult.placement.api.GeometryTags(
+            clientTags.set(new ac.cult.placement.api.GeometryTags(
                     Map.of("minecraft:supports_vegetation", List.of("minecraft:stone")), Map.of(), Map.of()));
             assertTrue(runtime.place(flower).consumes(), "Returning to a previous backend must restore its tags");
             var support = new ac.cult.placement.api.GeometryTags(
