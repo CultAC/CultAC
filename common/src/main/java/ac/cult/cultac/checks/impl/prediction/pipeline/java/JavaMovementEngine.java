@@ -18,6 +18,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import net.minecraft.world.phys.Vec3;
@@ -53,7 +54,7 @@ public final class JavaMovementEngine implements MovementEngine {
                 && hasMatchingVelocity(committed, startingVelocities)) {
             var filtered = new java.util.HashSet<Vec3>();
             for (var state : selected.states()) if (startingVelocities.contains(state.velocity())) filtered.add(state.velocity());
-            if (filtered.isEmpty()) return List.of();
+            if (filtered.isEmpty()) return new ArrayList<>();
             startingVelocities = filtered;
         }
         return modifiers.applyModifers(player, startingVelocities, context, lastPrediction, canTickSkip);
