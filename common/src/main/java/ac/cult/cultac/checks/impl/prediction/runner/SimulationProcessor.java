@@ -1419,6 +1419,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          player.pose,
          player.getScale()
       );
+      context.setBoatInputs(player.boatData.vehicleKeys);
       context.setProfileCarry(this.profileCarry);
       context.setBedrockTeleport(player.isBedrockMovement() ? this.bedrockTeleport : null);
       context = movementProfile.createContext(player, context, authoredMovementFrame);

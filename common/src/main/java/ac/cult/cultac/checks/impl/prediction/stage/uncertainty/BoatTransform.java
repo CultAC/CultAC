@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
@@ -283,7 +284,7 @@ public class BoatTransform implements UncertaintyHandler{
     }
 
     private static BoatControlResult controlBoat(CultPlayer player, SimulationContext context, Vec3 vector, BoatTickState state) {
-        Vec3 inputs = context.getHorseInputs();
+        KnownInput inputs = context.getBoatInputs();
         float deltaRotation = applyBoatControlDelta(state.deltaRotation(), inputs);
         float startYaw;
         float postControlYaw;
@@ -297,20 +298,15 @@ public class BoatTransform implements UncertaintyHandler{
             postControlYaw = startYaw + deltaRotation;
         }
         float f = 0.0F;
-        boolean inputLeft = inputs.x > 0.01;
-        boolean inputRight = inputs.x < -0.01;
-        boolean inputForward = inputs.z > 0.01;
-        boolean inputBackward = inputs.z < -0.01;
-
-        if ((inputLeft || inputRight) && !inputForward && !inputBackward) {
+        if (inputs.right() != inputs.left() && !inputs.forward() && !inputs.backward()) {
             f += 0.005F;
         }
 
-        if (inputForward) {
+        if (inputs.forward()) {
             f += 0.04F;
         }
 
-        if (inputBackward) {
+        if (inputs.backward()) {
             f -= 0.005F;
         }
 
@@ -336,18 +332,15 @@ public class BoatTransform implements UncertaintyHandler{
         return context.getXRot();
     }
 
-    private static float applyBoatControlDelta(float deltaRotation, Vec3 inputs) {
-        boolean inputLeft = inputs.x > 0.01;
-        boolean inputRight = inputs.x < -0.01;
-
-        // PacketPlayerSteer stores left as +1 and right as -1. MCP-Reborn
-        // AbstractBoat#controlBoat decrements deltaRotation for left input and
-        // increments it for right input before applying forward acceleration.
-        if (inputLeft) {
+    private static float applyBoatControlDelta(float deltaRotation, KnownInput inputs) {
+        // MCP-Reborn AbstractBoat#controlBoat decrements deltaRotation for left
+        // input and increments it for right input before applying forward
+        // acceleration; holding both applies both.
+        if (inputs.left()) {
             --deltaRotation;
         }
 
-        if (inputRight) {
+        if (inputs.right()) {
             ++deltaRotation;
         }
 

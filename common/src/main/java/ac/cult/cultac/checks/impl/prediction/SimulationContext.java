@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
@@ -64,6 +65,8 @@ public class SimulationContext {
     boolean isTestingPointThree;
     Vec3 lastStuckSpeed = new Vec3(1, 1, 1);
     Vec3 horseInputs;
+    @Setter
+    KnownInput boatInputs = KnownInput.DEFAULT;
     MainSupportingBlockData lastTickMainSupportingBlockData;
     Pose pose;
     float scale;
