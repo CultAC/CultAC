@@ -1,11 +1,15 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.network.protocol.util.FoliaCompatUtil;
 import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.component.UseEffects;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 public class IsUsingItem {
@@ -50,8 +54,13 @@ public class IsUsingItem {
     }
 
     public static void stopUseItem(CultPlayer player) {
-        if (player.bukkitPlayer == null) return;
-        player.bukkitPlayer.clearActiveItem();
+        Player bukkitPlayer = player.bukkitPlayer;
+        if (bukkitPlayer == null) return;
+        if (Bukkit.isOwnedByCurrentRegion(bukkitPlayer)) {
+            bukkitPlayer.clearActiveItem();
+        } else {
+            FoliaCompatUtil.runTaskForEntity(bukkitPlayer, CultAPI.INSTANCE.getPlugin(), bukkitPlayer::clearActiveItem, null, 1);
+        }
     }
 
     private static ItemStack getActiveItem(CultPlayer player) {

@@ -559,7 +559,6 @@ public class CheckManager {
         registerTickEnd(positionCheck.get(CompensatedCooldown.class));
 
         registerReceive(postPredictionCheck.get(NoSlow.class));
-        registerReceive(postPredictionCheck.get(ServerStateNoSlow.class));
         registerReceive(postPredictionCheck.get(Phase.class));
         registerReceive(postPredictionCheck.get(PostCheck.class));
         registerReceive(postPredictionCheck.get(NegativeTimerCheck.class));

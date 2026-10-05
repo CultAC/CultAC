@@ -3,14 +3,9 @@ package ac.cult.cultac.checks.impl.prediction.checks;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.manager.tick.Tickable;
-import ac.cult.cultac.network.CultPacketHandler;
-import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.nmsutil.IsUsingItem;
-import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
-import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
-import net.minecraft.world.InteractionHand;
 
 // TODO: Investigate the modern protocol around using items
 public class ServerStateNoSlow extends CultProcessor implements PostPredictionListener, Tickable {
@@ -44,20 +39,6 @@ public class ServerStateNoSlow extends CultProcessor implements PostPredictionLi
         }
     }
 
-    private InteractionHand hand = InteractionHand.MAIN_HAND;
-
-    @CultPacketHandler
-    public void onUseItem(PacketReceiveEvent event, CultPlayer player, ServerboundUseItemPacket packet) {
-        hand = ac.cult.cultac.network.packet.NmsPacketUtil.readUseItem(packet).hand();
-    }
-
-    @CultPacketHandler
-    public void onSetCarriedItem(PacketReceiveEvent event, CultPlayer player, ServerboundSetCarriedItemPacket packet) {
-        if (bufferThreshold != Integer.MAX_VALUE && hand != InteractionHand.OFF_HAND) {
-            IsUsingItem.stopUseItem(player);
-        }
-    }
-
     @Override
     public void reload() {
         super.reload();
@@ -87,7 +68,6 @@ public class ServerStateNoSlow extends CultProcessor implements PostPredictionLi
                 // fail
                 buffer = Math.min(bufferThreshold, buffer + 1);
                 if (buffer >= bufferThreshold && player.bukkitPlayer != null) {
-                    // TODO: Transform to be thread safe!
                     IsUsingItem.stopUseItem(player);
                     if (player.debugNoSlow) { player.sendMessage("stopped using item, buffer=" + this.buffer); }
                 }
