@@ -3,20 +3,23 @@ package ac.cult.cultac.utils.nmsutil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.CultMath;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
 import org.bukkit.craftbukkit.block.data.CraftBlockData;
 import org.bukkit.Material;
+import org.bukkit.enchantments.Enchantment;
+import org.bukkit.inventory.ItemStack;
 
 public class BlockProperties {
     /**
      * This is used for falling onto a block (We care if there is a bouncy block)
      * This is also used for striders checking if they are on lava
      * <p>
-     * For soul speed (server-sided only)
-     * (we don't account for this and instead remove this debuff) And powder snow block attribute
+     * For 1.16.0-1.16.1 client soul speed detection
+     * And powder snow block attribute
      */
     public static Material getOnPos(CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
         if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_19_4)) {
@@ -49,14 +52,40 @@ public class BlockProperties {
         if (player.getClientVersion().isOlderThan(ClientVersion.V_1_15)) return 1.0F;
         if (player.isGliding || player.isFlying) return 1.0f;
 
+        PacketEntity entity = player.compensatedEntities.getEntityInControl();
+        // 1.16 through 1.20.6 check the boots enchantment client side; 1.21+
+        // clients use the MOVEMENT_EFFICIENCY attribute instead.
+        boolean soulSpeedBoots = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_16)
+                && player.getClientVersion().isOlderThan(ClientVersion.V_1_21)
+                && entity == player.compensatedEntities.getSelf() && hasSoulSpeedBoots(player);
+
+        // 1.16.0 and 1.16.1 detect soul speed from the legacy on-pos block
+        if (soulSpeedBoots && player.getClientVersion().isOlderThan(ClientVersion.V_1_16_2)
+                && getOnPos(player, mainSupportingBlockData, playerPos) == Material.SOUL_SAND) {
+            return 1.0f;
+        }
+
         BlockState inBlock = player.compensatedWorld.getBlockStateAt(CultMath.floor(playerPos.x), CultMath.floor(playerPos.y), CultMath.floor(playerPos.z));
-        float inBlockSpeedFactor = getBlockSpeedFactor(inBlock);
+        float inBlockSpeedFactor = getBlockSpeedFactor(player, inBlock, soulSpeedBoots);
         if (inBlockSpeedFactor != 1.0f || inBlock.getBukkitMaterial() == Material.WATER || inBlock.getBukkitMaterial() == Material.BUBBLE_COLUMN) {
-            return inBlockSpeedFactor;
+            return applyMovementEfficiency(entity, inBlockSpeedFactor);
         }
 
         Material underPlayer = getBlockPosBelowThatAffectsMyMovement(player, mainSupportingBlockData, playerPos);
-        return getBlockSpeedFactor(underPlayer);
+        return applyMovementEfficiency(entity, getBlockSpeedFactor(player, underPlayer, soulSpeedBoots));
+    }
+
+    // MCP-Reborn 1.21+ LivingEntity#getBlockSpeedFactor:
+    // Mth.lerp(MOVEMENT_EFFICIENCY, super.getBlockSpeedFactor(), 1.0F).
+    // Non-living entities never receive the attribute and stay at 0.0.
+    static float applyMovementEfficiency(PacketEntity entity, float blockSpeedFactor) {
+        float movementEfficiency = (float) entity.movementEfficiency;
+        return blockSpeedFactor + movementEfficiency * (1.0F - blockSpeedFactor);
+    }
+
+    private static boolean hasSoulSpeedBoots(CultPlayer player) {
+        ItemStack boots = player.getInventory().getBoots();
+        return !boots.isEmpty() && boots.getEnchantmentLevel(Enchantment.SOUL_SPEED) > 0;
     }
 
     public static boolean onHoneyBlock(CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
@@ -72,8 +101,6 @@ public class BlockProperties {
      * Friction
      * Block jump factor
      * Block speed factor
-     * <p>
-     * On soul speed block (server-sided only)
      */
     private static Material getBlockPosBelowThatAffectsMyMovement(CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
         BlockPos pos = getOnPos(player, playerPos, mainSupportingBlockData, 0.500001F);
@@ -100,11 +127,16 @@ public class BlockProperties {
         return getStateFriction(((CraftBlockData) material.createBlockData()).getState());
     }
 
-    private static float getBlockSpeedFactor(Material type) {
-        return getStateSpeedFactor(((CraftBlockData) type.createBlockData()).getState());
+    private static float getBlockSpeedFactor(CultPlayer player, Material type, boolean soulSpeedBoots) {
+        return getBlockSpeedFactor(player, ((CraftBlockData) type.createBlockData()).getState(), soulSpeedBoots);
     }
 
-    private static float getBlockSpeedFactor(BlockState state) {
+    private static float getBlockSpeedFactor(CultPlayer player, BlockState state, boolean soulSpeedBoots) {
+        // 1.16.2 through 1.20.6 ignore the soul sand slowdown with soul speed boots.
+        if (soulSpeedBoots && state.getBukkitMaterial() == Material.SOUL_SAND
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_16_2)) {
+            return 1.0f;
+        }
         return getStateSpeedFactor(state);
     }
 

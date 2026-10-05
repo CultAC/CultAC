@@ -26,7 +26,8 @@ public final class BlockSpeedFactors {
             // Entity#move applies getBlockSpeedFactor on the root entity itself.
             // A mounted player's supporting block can differ from the ridden root,
             // especially while passenger attachment/interpolation offsets are active.
-            return getEntityBlockSpeedFactor(player, result.getSimulationContext().getEnd());
+            return BlockProperties.applyMovementEfficiency(vehicle,
+                    getEntityBlockSpeedFactor(player, result.getSimulationContext().getEnd()));
         }
 
         return BlockProperties.getBlockSpeedFactor(player, result.getSimulationContext().getWorldData().getMainSupportingBlockPos(), result.getSimulationContext().getEnd());

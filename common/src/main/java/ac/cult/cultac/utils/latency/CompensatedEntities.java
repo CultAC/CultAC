@@ -160,6 +160,10 @@ public class CompensatedEntities {
         return player.isBedrockMovement() || player.getClientVersion().isNewerThanOrEquals(since);
     }
 
+    private boolean supportsMovementEfficiency() {
+        return !player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21);
+    }
+
     public void updateAttributes(int entityID, List<ClientboundUpdateAttributesPacket.AttributeSnapshot> objects) {
         boolean selfScaleChanged = false;
         if (entityID == player.entityID) {
@@ -209,6 +213,10 @@ public class CompensatedEntities {
 
                 if (supportsAttributes(ClientVersion.V_26_2) && matchesAttributeName(snapshot, "air_drag_modifier")) {
                     player.compensatedEntities.getSelf().airDragModifier = calculateAttribute(snapshot, 0.0, 2048.0);
+                }
+
+                if (supportsMovementEfficiency() && matchesAttributeName(snapshot, "movement_efficiency")) {
+                    player.compensatedEntities.getSelf().movementEfficiency = calculateAttribute(snapshot, 0.0, 1.0);
                 }
 
                 if (matchesAttribute(snapshot, "block_interaction_range")) {
@@ -261,6 +269,10 @@ public class CompensatedEntities {
 
                 if (supportsAttributes(ClientVersion.V_26_2) && matchesAttributeName(snapshot, "air_drag_modifier")) {
                     entity.airDragModifier = calculateAttribute(snapshot, 0.0, 2048.0);
+                }
+
+                if (supportsMovementEfficiency() && matchesAttributeName(snapshot, "movement_efficiency")) {
+                    entity.movementEfficiency = calculateAttribute(snapshot, 0.0, 1.0);
                 }
             }
         }

@@ -59,6 +59,7 @@ public class PacketEntity {
     public double bounciness = 0.0D;
     public double frictionModifier = 1.0D;
     public double airDragModifier = 1.0D;
+    public double movementEfficiency = 0.0D;
     // Null means no client-visible update has overridden the entity type's
     // vanilla step height. CultPlayer#getMaxUpStep retains those type defaults.
     public Double stepHeightAttribute;

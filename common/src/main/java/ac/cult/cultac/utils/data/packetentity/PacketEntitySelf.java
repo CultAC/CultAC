@@ -55,6 +55,7 @@ public class PacketEntitySelf extends PacketEntity {
         this.bounciness = old.bounciness;
         this.frictionModifier = old.frictionModifier;
         this.airDragModifier = old.airDragModifier;
+        this.movementEfficiency = old.movementEfficiency;
         this.blockBreakSpeed = old.blockBreakSpeed;
         this.miningEfficiency = old.miningEfficiency;
         this.submergedMiningSpeed = old.submergedMiningSpeed;
