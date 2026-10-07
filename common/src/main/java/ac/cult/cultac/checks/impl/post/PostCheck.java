@@ -9,6 +9,7 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAnimate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSwingAnimation;
@@ -42,8 +43,7 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
 
     @CultPacketHandler
     public void onAnimate(PacketSendEvent<ClientboundAnimate> event, CultPlayer player, ClientboundAnimate packet) {
-        if (ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion())
-                        .isOlderThan(ClientVersion.V_26_3)
+        if (ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol()).isOlderThan(ClientVersion.V_26_3)
                 && packet.entityId() == player.entityID) {
             int action = packet.action();
             if (action == 0 || action == 3) {

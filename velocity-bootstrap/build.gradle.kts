@@ -1,30 +1,37 @@
-plugins { java; cult.`format-conventions` }
-repositories { mavenCentral(); maven("https://repo.papermc.io/repository/maven-public/") }
-java.toolchain.languageVersion.set(JavaLanguageVersion.of(25))
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
+plugins { java; cult.`format-conventions`; id("com.gradleup.shadow") }
+repositories {
+    if (providers.gradleProperty("mavenLocalOverride").getOrElse("false").toBoolean()) mavenLocal()
+    maven("https://maven.grim.ac/public/releases")
+    maven("https://maven.grim.ac/public/snapshots")
+    maven("https://repo.grim.ac/snapshots")
+    maven("https://nexus.scarsz.me/content/repositories/releases")
+    maven("https://repo.papermc.io/repository/maven-public/")
+    maven("https://repo.viaversion.com") { content { includeGroup("com.viaversion") } }
+    mavenCentral()
+}
+java.toolchain.languageVersion.set(JavaLanguageVersion.of(21))
 tasks.withType<JavaCompile>().configureEach { options.release.set(21) }
 dependencies {
     compileOnly("com.velocitypowered:velocity-api:3.4.0")
-    implementation(project(":vanilla-bootstrap"))
+    implementation(project(":velocity-platform"))
     annotationProcessor("com.velocitypowered:velocity-api:3.4.0")
-    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
-    testImplementation("com.google.code.gson:gson:2.13.2")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
-tasks.test {
-    dependsOn(":vanilla-runtime:prepareVanilla")
-    systemProperty("vanillaRuntime", project(":vanilla-runtime").layout.buildDirectory.dir("runtime").get().asFile.absolutePath)
-    useJUnitPlatform()
-}
-tasks.processResources {
-    dependsOn(":velocity-platform:shadowJar")
-    from(project(":velocity-platform").layout.buildDirectory.file("libs/cult-engine.jar")) { into("runtime") }
-}
-tasks.jar {
-    from(configurations.runtimeClasspath.get().filter { it.name.startsWith("asm-") }.map { zipTree(it) })
+tasks.shadowJar {
     archiveFileName.set("CultAC-velocity.jar")
-    from(project(":vanilla-bootstrap").extensions.getByType<SourceSetContainer>()["main"].output)
+    mergeServiceFiles()
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+    exclude("META-INF/services/javax.annotation.processing.Processor")
     doLast {
         check(ProcessBuilder("python3", rootProject.file("scripts/verify-no-bundled-minecraft.py").path,
             archiveFile.get().asFile.path).inheritIO().start().waitFor() == 0)
+        val codecAudit = ProcessBuilder("python3", rootProject.file("scripts/verify-vialib-packaging.py").path,
+            "--library", rootProject.project(":protocol-codec").layout.buildDirectory.file("libs/vialib.jar").get().asFile.path,
+            archiveFile.get().asFile.path).redirectErrorStream(true).start()
+        val codecAuditOutput = codecAudit.inputStream.bufferedReader().use { it.readText() }
+        check(codecAudit.waitFor() == 0) { codecAuditOutput }
+        logger.lifecycle(codecAuditOutput.trim())
     }
 }
+tasks.assemble { dependsOn(tasks.shadowJar) }

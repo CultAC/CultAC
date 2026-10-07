@@ -13,6 +13,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.Vec3;
 import com.google.common.collect.ImmutableSet;
 import java.util.HashSet;
 import java.util.Map;
@@ -22,7 +23,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
-import net.minecraft.world.phys.Vec3;
 
 // @CheckData(name = "Prediction (Debug)")
 public class DebugHandler extends CultProcessor implements PostPredictionListener {

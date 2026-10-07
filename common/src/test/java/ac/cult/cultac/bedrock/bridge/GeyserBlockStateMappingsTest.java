@@ -3,10 +3,9 @@ package ac.cult.cultac.bedrock.bridge;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.bedrock.replay.offline.OfflineBlockStateParser;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.registry.BlockRegistries;
 import org.geysermc.geyser.registry.populator.BlockRegistryPopulator;
@@ -40,69 +39,71 @@ public class GeyserBlockStateMappingsTest {
             assertFalse(BlockRegistries.BLOCKS.get().isEmpty());
             // The test server is newer than Geyser and has no ViaVersion platform.
             // Resolve the common vanilla states by name to test real palette inversion.
-            int[] javaIds = new int[Block.BLOCK_STATE_REGISTRY.size()];
+            var registry = DataTables.defaults().registry();
+            int[] javaIds = new int[registry.stateCount()];
             for (var state : BlockRegistries.BLOCK_STATES.get()) {
-                var serverState = net.minecraft.commands.arguments.blocks.BlockStateParser.parseForBlock(
-                                net.minecraft.core.registries.BuiltInRegistries.BLOCK, state.toString(), false)
-                        .blockState();
-                javaIds[Block.getId(serverState)] = state.javaId();
+                int serverState = OfflineBlockStateParser.parse(state.toString());
+                javaIds[serverState] = state.javaId();
             }
             for (var mappings : BlockRegistries.BLOCKS.get().values()) {
                 var palette = GeyserBlockStateMappings.invert(mappings, javaIds);
                 assertEquals(
-                        Blocks.SAND.defaultBlockState(),
+                        registry.block("minecraft:sand").defaultState(),
                         GeyserBlockStateMappings.resolve(
                                 palette,
                                 mappings.getBedrockBlock(
                                         org.geysermc.geyser.level.block.Blocks.SAND.defaultBlockState())));
                 assertEquals(
-                        Blocks.WATER.defaultBlockState(),
+                        registry.block("minecraft:water").defaultState(),
                         GeyserBlockStateMappings.resolve(palette, mappings.getBedrockWater()));
                 assertEquals(
-                        Blocks.AIR.defaultBlockState(),
+                        registry.block("minecraft:air").defaultState(),
                         GeyserBlockStateMappings.resolve(palette, mappings.getBedrockAir()));
-                for (var door : Blocks.OAK_DOOR.getStateDefinition().getPossibleStates()) {
-                    var decoded = GeyserBlockStateMappings.resolve(
-                            palette, mappings.getBedrockBlock(javaIds[Block.getId(door)]));
-                    assertEquals(
-                            door.toString(),
-                            door.getValue(BlockStateProperties.OPEN),
-                            decoded.getValue(BlockStateProperties.OPEN));
-                    assertEquals(
-                            door.toString(),
-                            door.getValue(BlockStateProperties.HORIZONTAL_FACING),
-                            decoded.getValue(BlockStateProperties.HORIZONTAL_FACING));
-                    assertEquals(
-                            door.toString(),
-                            door.getValue(BlockStateProperties.DOOR_HINGE),
-                            decoded.getValue(BlockStateProperties.DOOR_HINGE));
-                    assertEquals(
-                            door.toString(),
-                            door.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF),
-                            decoded.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF));
+                var doorBlock = registry.block("minecraft:oak_door");
+                for (int door = doorBlock.firstState();
+                        door < doorBlock.firstState() + doorBlock.stateCount();
+                        door++) {
+                    int decoded = GeyserBlockStateMappings.resolve(palette, mappings.getBedrockBlock(javaIds[door]));
+                    for (String property : new String[] {"open", "facing", "hinge", "half"}) {
+                        assertEquals(
+                                registry.serialize(door),
+                                registry.value(door, property),
+                                registry.value(decoded, property));
+                    }
                 }
                 for (var definition : mappings.getJavaToBedrockBlocks()) {
                     var state = GeyserBlockStateMappings.resolve(palette, definition);
-                    assertTrue(Block.getId(state) >= 0);
-                    if (state.hasProperty(BlockStateProperties.WATERLOGGED)) {
-                        assertFalse(state.getValue(BlockStateProperties.WATERLOGGED));
+                    assertTrue(state >= 0
+                            && state
+                                    < ac.cult.blocksim.data.DataTables.defaults()
+                                            .registry()
+                                            .stateCount());
+                    if (ac.cult.blocksim.data.BlockProps.WATERLOGGED.has(state)) {
+                        assertFalse(ac.cult.blocksim.data.BlockProps.WATERLOGGED.booleanValue(state));
                     }
                 }
                 for (var definition : mappings.getJavaToVanillaBedrockBlocks()) {
-                    assertNotNull(GeyserBlockStateMappings.resolve(palette, definition));
+                    int state = GeyserBlockStateMappings.resolve(palette, definition);
+                    assertTrue(state >= 0
+                            && state
+                                    < ac.cult.blocksim.data.DataTables.defaults()
+                                            .registry()
+                                            .stateCount());
                 }
                 for (var frame : mappings.getItemFrames().values()) {
-                    assertTrue(GeyserBlockStateMappings.resolve(palette, frame).isAir());
+                    assertTrue(ac.cult.blocksim.data.DataTables.defaults()
+                            .registry()
+                            .facts(GeyserBlockStateMappings.resolve(palette, frame))
+                            .has(ac.cult.blocksim.data.StateFacts.AIR));
                 }
                 assertEquals(
-                        Blocks.PLAYER_HEAD.defaultBlockState().setValue(BlockStateProperties.ROTATION_16, 7),
+                        registry.with(registry.block("minecraft:player_head").defaultState(), "rotation", "7"),
                         GeyserBlockStateMappings.resolve(
                                 palette,
                                 mappings.getCustomBlockStateDefinitions().get(skull.getFloorBlockState(7))));
                 assertEquals(
-                        Blocks.PLAYER_WALL_HEAD
-                                .defaultBlockState()
-                                .setValue(BlockStateProperties.HORIZONTAL_FACING, net.minecraft.core.Direction.WEST),
+                        registry.with(
+                                registry.block("minecraft:player_wall_head").defaultState(), "facing", "west"),
                         GeyserBlockStateMappings.resolve(
                                 palette,
                                 mappings.getCustomBlockStateDefinitions().get(skull.getWallBlockState(90))));

@@ -1,5 +1,6 @@
 package ac.cult.velocity;
 
+import ac.cult.cultac.platform.velocity.VelocityPlatform;
 import com.google.inject.Inject;
 import com.velocitypowered.api.event.PostOrder;
 import com.velocitypowered.api.event.Subscribe;
@@ -28,8 +29,7 @@ public final class CultVelocityPlugin {
     private final ProxyServer proxy;
     private final Logger logger;
     private final Path directory;
-    private EngineClassLoader loader;
-    private AutoCloseable engine;
+    private VelocityPlatform engine;
 
     @Inject
     public CultVelocityPlugin(ProxyServer proxy, Logger logger, @DataDirectory Path directory) {
@@ -43,15 +43,8 @@ public final class CultVelocityPlugin {
     @Subscribe(order = PostOrder.LAST)
     public void initialize(ProxyInitializeEvent event) throws Exception {
         try {
-            if (Runtime.version().feature() < 25)
-                throw new IllegalStateException("CultAC's vanilla 26.3 runtime requires Java 25");
-            logger.info("Preparing the pinned vanilla 26.3 model");
-            loader = new EngineClassLoader(
-                    RuntimeFiles.prepare(directory), getClass().getClassLoader());
-            Class<?> entry = Class.forName("ac.cult.cultac.platform.velocity.VelocityPlatform", true, loader);
-            engine = (AutoCloseable) entry.getConstructor(ProxyServer.class, Object.class, Path.class, Logger.class)
-                    .newInstance(proxy, this, directory, logger);
-            entry.getMethod("start").invoke(engine);
+            engine = new VelocityPlatform(proxy, this, directory, logger);
+            engine.start();
         } catch (Throwable failure) {
             if (engine != null)
                 try {
@@ -59,14 +52,7 @@ public final class CultVelocityPlugin {
                 } catch (Throwable cleanup) {
                     failure.addSuppressed(cleanup);
                 }
-            if (loader != null)
-                try {
-                    loader.close();
-                } catch (Throwable cleanup) {
-                    failure.addSuppressed(cleanup);
-                }
             engine = null;
-            loader = null;
             proxy.shutdown(net.kyori.adventure.text.Component.text("CultAC failed to initialize. See the proxy log."));
             throw failure;
         }
@@ -74,10 +60,6 @@ public final class CultVelocityPlugin {
 
     @Subscribe
     public void shutdown(ProxyShutdownEvent event) throws Exception {
-        try {
-            if (engine != null) engine.close();
-        } finally {
-            if (loader != null) loader.close();
-        }
+        if (engine != null) engine.close();
     }
 }

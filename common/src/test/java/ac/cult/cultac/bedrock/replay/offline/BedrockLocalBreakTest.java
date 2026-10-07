@@ -2,18 +2,18 @@ package ac.cult.cultac.bedrock.replay.offline;
 
 import static org.junit.Assert.*;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.List;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.data.PlayerActionType;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
@@ -33,9 +33,20 @@ public class BedrockLocalBreakTest {
                 player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
                 for (int x = 0; x < 8; x++)
                     for (int z = 0; z < 4; z++) {
-                        player.compensatedWorld.updateBlock(x, 63, z, Blocks.STONE.defaultBlockState());
+                        player.compensatedWorld.updateBlock(
+                                x,
+                                63,
+                                z,
+                                DataTables.defaults()
+                                        .registry()
+                                        .block("minecraft:stone")
+                                        .defaultState());
                     }
-                player.compensatedWorld.updateBlock(2, 64, 0, Blocks.DIRT.defaultBlockState());
+                player.compensatedWorld.updateBlock(
+                        2,
+                        64,
+                        0,
+                        DataTables.defaults().registry().block("minecraft:dirt").defaultState());
                 var start = new Vec3(3.3000001907348633, 64, 0.5);
                 player.x = player.lastX = start.x;
                 player.y = player.lastY = start.y;
@@ -55,7 +66,11 @@ public class BedrockLocalBreakTest {
                                         player, resolved.getCoordinateFrame(), actions);
                         });
                 assertEquals(
-                        breakWall, player.compensatedWorld.getBlockStateAt(WALL).isAir());
+                        breakWall,
+                        DataTables.defaults()
+                                .registry()
+                                .facts(player.compensatedWorld.getBlockStateIdAt(WALL))
+                                .has(ac.cult.blocksim.data.StateFacts.AIR));
                 if (breakWall) {
                     assertNotNull(state);
                     assertEquals(
@@ -63,14 +78,26 @@ public class BedrockLocalBreakTest {
                     assertEquals(-0.053508, state.velocity().x(), 0.001);
                     assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
                     assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
-                    player.compensatedWorld.updateBlock(2, 64, 0, Blocks.DIRT.defaultBlockState());
+                    player.compensatedWorld.updateBlock(
+                            2,
+                            64,
+                            0,
+                            DataTables.defaults()
+                                    .registry()
+                                    .block("minecraft:dirt")
+                                    .defaultState());
                     assertNull(BedrockFrameProcessor.process(
                             player,
                             input,
                             BedrockPredictionTrigger.OFFLINE_REPLAY,
                             () -> {},
                             resolved -> fail("Duplicate input reached local block processing")));
-                    assertEquals(Blocks.DIRT.defaultBlockState(), player.compensatedWorld.getBlockStateAt(WALL));
+                    assertEquals(
+                            DataTables.defaults()
+                                    .registry()
+                                    .block("minecraft:dirt")
+                                    .defaultState(),
+                            player.compensatedWorld.getBlockStateIdAt(WALL));
                 } else {
                     assertTrue(state == null
                             || Math.abs(state.physicalFeetPosition().x() - input.getPosition().x) > 0.001
@@ -95,11 +122,18 @@ public class BedrockLocalBreakTest {
         try {
             p.gamemode = GameMode.SURVIVAL;
             p.compensatedWorld.ensureValidationChunkLoaded(0, 0);
-            p.compensatedWorld.updateBlock(2, 64, 0, Blocks.DIRT.defaultBlockState());
+            p.compensatedWorld.updateBlock(
+                    2,
+                    64,
+                    0,
+                    DataTables.defaults().registry().block("minecraft:dirt").defaultState());
             var handler = p.bedrockState.blockBreakActions;
             handler.apply(
                     p, BedrockCoordinateFrame.IDENTITY, List.of(action(PlayerActionType.BLOCK_PREDICT_DESTROY, WALL)));
-            assertFalse(p.compensatedWorld.getBlockStateAt(WALL).isAir());
+            assertFalse(DataTables.defaults()
+                    .registry()
+                    .facts(p.compensatedWorld.getBlockStateIdAt(WALL))
+                    .has(ac.cult.blocksim.data.StateFacts.AIR));
             handler.apply(
                     p,
                     BedrockCoordinateFrame.IDENTITY,
@@ -107,15 +141,24 @@ public class BedrockLocalBreakTest {
                             action(PlayerActionType.START_BREAK, WALL),
                             action(PlayerActionType.ABORT_BREAK, WALL),
                             action(PlayerActionType.BLOCK_PREDICT_DESTROY, WALL)));
-            assertFalse(p.compensatedWorld.getBlockStateAt(WALL).isAir());
-            p.compensatedWorld.updateBlock(2, 64, 0, Blocks.BEDROCK.defaultBlockState());
+            assertFalse(DataTables.defaults()
+                    .registry()
+                    .facts(p.compensatedWorld.getBlockStateIdAt(WALL))
+                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+            p.compensatedWorld.updateBlock(
+                    2,
+                    64,
+                    0,
+                    DataTables.defaults().registry().block("minecraft:bedrock").defaultState());
             handler.apply(
                     p,
                     BedrockCoordinateFrame.IDENTITY,
                     List.of(
                             action(PlayerActionType.START_BREAK, WALL),
                             action(PlayerActionType.BLOCK_PREDICT_DESTROY, WALL)));
-            assertEquals(Blocks.BEDROCK.defaultBlockState(), p.compensatedWorld.getBlockStateAt(WALL));
+            assertEquals(
+                    DataTables.defaults().registry().block("minecraft:bedrock").defaultState(),
+                    p.compensatedWorld.getBlockStateIdAt(WALL));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(p);
         }
@@ -128,29 +171,48 @@ public class BedrockLocalBreakTest {
         try {
             p.compensatedWorld.ensureValidationChunkLoaded(0, 0);
             p.gamemode = GameMode.SURVIVAL;
-            p.compensatedWorld.updateBlock(2, 64, 0, Blocks.SLIME_BLOCK.defaultBlockState());
+            p.compensatedWorld.updateBlock(
+                    2,
+                    64,
+                    0,
+                    DataTables.defaults()
+                            .registry()
+                            .block("minecraft:slime_block")
+                            .defaultState());
             p.bedrockState.blockBreakActions.apply(
                     p, BedrockCoordinateFrame.IDENTITY, List.of(action(PlayerActionType.START_BREAK, WALL)));
-            assertTrue(p.compensatedWorld.getBlockStateAt(WALL).isAir());
+            assertTrue(DataTables.defaults()
+                    .registry()
+                    .facts(p.compensatedWorld.getBlockStateIdAt(WALL))
+                    .has(ac.cult.blocksim.data.StateFacts.AIR));
             p.gamemode = GameMode.CREATIVE;
-            p.compensatedWorld.updateBlock(2, 64, 0, Blocks.STONE.defaultBlockState());
+            p.compensatedWorld.updateBlock(
+                    2,
+                    64,
+                    0,
+                    DataTables.defaults().registry().block("minecraft:stone").defaultState());
             p.bedrockState.blockBreakActions.apply(
                     p, BedrockCoordinateFrame.IDENTITY, List.of(action(PlayerActionType.BLOCK_CONTINUE_DESTROY, WALL)));
-            assertTrue(p.compensatedWorld.getBlockStateAt(WALL).isAir());
-            p.compensatedWorld.updateBlock(2, 64, 0, Blocks.STONE.defaultBlockState());
-            p.getInventory()
-                    .inventory
-                    .setHeldItem(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND_SWORD));
+            assertTrue(DataTables.defaults()
+                    .registry()
+                    .facts(p.compensatedWorld.getBlockStateIdAt(WALL))
+                    .has(ac.cult.blocksim.data.StateFacts.AIR));
+            p.compensatedWorld.updateBlock(
+                    2,
+                    64,
+                    0,
+                    DataTables.defaults().registry().block("minecraft:stone").defaultState());
+            p.getInventory().inventory.setHeldItem(OfflineCultTestBootstrap.item("minecraft:diamond_sword"));
             p.bedrockState.blockBreakActions.apply(
                     p,
                     BedrockCoordinateFrame.IDENTITY,
                     List.of(
                             action(PlayerActionType.START_BREAK, WALL),
                             action(PlayerActionType.BLOCK_PREDICT_DESTROY, WALL)));
-            assertEquals(Blocks.STONE.defaultBlockState(), p.compensatedWorld.getBlockStateAt(WALL));
-            p.getInventory()
-                    .inventory
-                    .setHeldItem(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIRT, 3));
+            assertEquals(
+                    DataTables.defaults().registry().block("minecraft:stone").defaultState(),
+                    p.compensatedWorld.getBlockStateIdAt(WALL));
+            p.getInventory().inventory.setHeldItem(OfflineCultTestBootstrap.item("minecraft:dirt", 3));
             p.bedrockState.blockBreakActions.apply(
                     p, BedrockCoordinateFrame.IDENTITY, List.of(action(PlayerActionType.DROP_ITEM, BlockPos.ZERO)));
             assertEquals(2, p.getInventory().getHeldItem().getCount());
@@ -172,18 +234,26 @@ public class BedrockLocalBreakTest {
                     world.getX(),
                     world.getY(),
                     world.getZ(),
-                    Blocks.OAK_SLAB
-                            .defaultBlockState()
-                            .setValue(
-                                    net.minecraft.world.level.block.state.properties.BlockStateProperties.WATERLOGGED,
-                                    true));
+                    DataTables.defaults()
+                            .registry()
+                            .with(
+                                    DataTables.defaults()
+                                            .registry()
+                                            .block("minecraft:oak_slab")
+                                            .defaultState(),
+                                    "waterlogged",
+                                    "true"));
             var actions = List.of(
                     action(PlayerActionType.BLOCK_CONTINUE_DESTROY, WALL),
                     action(PlayerActionType.BLOCK_PREDICT_DESTROY, WALL));
             p.bedrockState.blockBreakActions.apply(p, coordinates, actions);
-            assertEquals(Blocks.WATER.defaultBlockState(), p.compensatedWorld.getBlockStateAt(world));
+            assertEquals(
+                    DataTables.defaults().registry().block("minecraft:water").defaultState(),
+                    p.compensatedWorld.getBlockStateIdAt(world));
             p.bedrockState.blockBreakActions.apply(p, coordinates, actions);
-            assertEquals(Blocks.WATER.defaultBlockState(), p.compensatedWorld.getBlockStateAt(world));
+            assertEquals(
+                    DataTables.defaults().registry().block("minecraft:water").defaultState(),
+                    p.compensatedWorld.getBlockStateIdAt(world));
             assertEquals(Vector3i.from(2, 64, 0), actions.getFirst().getBlockPosition());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(p);

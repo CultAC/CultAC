@@ -1,16 +1,14 @@
 package ac.cult.cultac.network;
 
-import ac.cult.cultac.network.codec.NativePacketCodecs;
+import ac.cult.cultac.network.codec.ClientPacketCodecs;
+import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.data.ProtocolData;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import java.util.List;
-import net.minecraft.SharedConstants;
-import net.minecraft.core.RegistryAccess;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.server.Bootstrap;
 
-/** Production catalog, with vanilla's built-in registries for offline fixtures. */
+/** Production catalog using the bundled model tables for offline fixtures. */
 public final class TestProtocolRuntime {
     private TestProtocolRuntime() {}
 
@@ -19,8 +17,8 @@ public final class TestProtocolRuntime {
     }
 
     public static List<PacketType<?>> catalog() {
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        return NativePacketCodecs.catalog(RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY));
+        return ClientPacketCodecs.catalog(
+                context -> ModelRegistryNamesState.defaults(),
+                context -> context.state().require(ClientWorldRegistries.class));
     }
 }

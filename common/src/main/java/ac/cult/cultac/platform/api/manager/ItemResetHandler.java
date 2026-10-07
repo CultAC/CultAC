@@ -1,7 +1,7 @@
 package ac.cult.cultac.platform.api.manager;
 
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
-import net.minecraft.world.InteractionHand;
+import ac.cult.cultac.protocol.value.Hand;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,7 +15,7 @@ public interface ItemResetHandler {
      */
     @Contract("null -> null")
     @Nullable
-    InteractionHand getItemUsageHand(@Nullable PlatformPlayer player);
+    Hand getItemUsageHand(@Nullable PlatformPlayer player);
 
     @Contract("null -> false")
     boolean isUsingItem(@Nullable PlatformPlayer player);

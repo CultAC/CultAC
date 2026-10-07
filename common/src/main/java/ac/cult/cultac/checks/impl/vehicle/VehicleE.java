@@ -10,8 +10,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPaddleBoat;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.entity.EntityType;
 
 @CheckData(
         name = "VehicleE",
@@ -29,13 +27,10 @@ public class VehicleE extends Check implements CheckListener {
     public void onPaddleBoat(
             PacketReceiveEvent<ServerboundPaddleBoat> event, CultPlayer player, ServerboundPaddleBoat packet) {
         final PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
-        final EntityType<?> vehicle = riding == null ? null : riding.type;
+        final int vehicle = riding == null ? -1 : riding.type;
 
         if (!EntityTypeUtil.isBoat(vehicle)) {
-            if (flag(V.write(verbose())
-                            .bool(vehicle != null)
-                            .uint(vehicle == null ? 0 : BuiltInRegistries.ENTITY_TYPE.getId(vehicle)))
-                    && shouldModifyPackets()) {
+            if (flag(V.write(verbose()).bool(vehicle >= 0).uint(vehicle < 0 ? 0 : vehicle)) && shouldModifyPackets()) {
                 event.setCancelled(true);
                 player.onPacketCancel();
             }

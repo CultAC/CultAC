@@ -7,6 +7,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -15,7 +16,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundTeleportToEntity;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import java.util.ArrayList;
-import net.minecraft.SharedConstants;
 
 @CheckData(
         name = "MultiInteractA",
@@ -26,7 +26,7 @@ public class MultiInteractA extends Check implements PostPredictionListener {
     private static final Verbose V =
             Verbose.of("lastEntity={sint}, entity={sint}, lastSneaking={bool}, sneaking={bool}");
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private final ArrayList<FlagData> flags = new ArrayList<>();
     private int lastEntity;
@@ -44,7 +44,7 @@ public class MultiInteractA extends Check implements PostPredictionListener {
                 event,
                 packet.entityId(),
                 (packet.action() == ac.cult.cultac.protocol.value.InteractAction.ATTACK
-                                && net.minecraft.SharedConstants.getProtocolVersion()
+                                && ProtocolVersion.V26_3.protocol()
                                         >= ac.cult.cultac.protocol.ProtocolVersion.V26_1.protocol())
                         ? lastSneaking
                         : packet.sneaking());

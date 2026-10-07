@@ -1,5 +1,6 @@
 package ac.cult.cultac.platform.velocity;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.player.PlatformInventory;
@@ -9,6 +10,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.ItemUseState;
 import ac.cult.cultac.utils.math.Location;
+import ac.cult.cultac.utils.math.Vec3;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import java.util.Objects;
@@ -16,8 +18,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.phys.Vec3;
 
 final class VelocityPlayer implements PlatformPlayer {
     private final Player player;
@@ -26,10 +26,10 @@ final class VelocityPlayer implements PlatformPlayer {
     private volatile VelocityWorld world;
     private final PlatformInventory inventory = new PlatformInventory() {
         @Override
-        public ItemStack getStack(int bukkitSlot, int vanillaSlot) {
+        public SimItemStack getStack(int bukkitSlot, int vanillaSlot) {
             var actor = connection == null ? null : connection.player();
             return actor == null
-                    ? ItemStack.EMPTY
+                    ? SimItemStack.EMPTY
                     : actor.getInventory()
                             .inventory
                             .getInventoryStorage()
@@ -38,18 +38,18 @@ final class VelocityPlayer implements PlatformPlayer {
         }
 
         @Override
-        public ItemStack getMainHand() {
+        public SimItemStack getMainHand() {
             var actor = connection == null ? null : connection.player();
             return actor == null
-                    ? ItemStack.EMPTY
+                    ? SimItemStack.EMPTY
                     : actor.getInventory().getHeldItem().copy();
         }
 
         @Override
-        public ItemStack getOffHand() {
+        public SimItemStack getOffHand() {
             var actor = connection == null ? null : connection.player();
             return actor == null
-                    ? ItemStack.EMPTY
+                    ? SimItemStack.EMPTY
                     : actor.getInventory().getOffHand().copy();
         }
     };

@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
@@ -7,11 +8,9 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 
 public class BouncyBlock implements UncertaintyHandler {
     @Override
@@ -25,13 +24,13 @@ public class BouncyBlock implements UncertaintyHandler {
             Vec3 end) {
         if (lastContext == null || start.isKnockback()) return start;
 
-        Block onBlock = lastContext.getSimulationContext().getWorldData().getOnBlock();
+        int onBlock = lastContext.getSimulationContext().getWorldData().getOnBlock();
 
         // This could be improved...
         //
         // Player velocity can multiply 0.4-0.45 (guess on max) when the player is on slime with
         // a Y velocity of 0 to 0.1.  Because 0.03 we don't know this so just give lenience here
-        if (onBlock == Blocks.SLIME_BLOCK) {
+        if (BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)) {
             SimpleCollisionBox expandToZero = new SimpleCollisionBox(start, start);
             expandToZero.unionX(0);
             expandToZero.unionZ(0);
@@ -76,10 +75,10 @@ public class BouncyBlock implements UncertaintyHandler {
         return start.withY(bounceY, "bounce");
     }
 
-    private float getBouncyBlockLevel(Block onBlock) {
-        if (onBlock == Blocks.SLIME_BLOCK) {
+    private float getBouncyBlockLevel(int onBlock) {
+        if (BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)) {
             return 1;
-        } else if (NmsBlockTags.isBed(onBlock)) {
+        } else if (ClientBlockProperties.isBed(onBlock)) {
             return 0.66F;
         }
         return 0;

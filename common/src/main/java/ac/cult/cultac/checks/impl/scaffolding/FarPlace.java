@@ -1,14 +1,14 @@
 package ac.cult.cultac.checks.impl.scaffolding;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.math.VectorUtils;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Blocks;
 
 @CheckData(
         name = "FarPlace",
@@ -25,7 +25,7 @@ public class FarPlace extends BlockPlaceCheck {
 
         BlockPos blockPos = place.getPlacedAgainstBlockLocation();
 
-        if (place.getMaterial() == Blocks.SCAFFOLDING) return;
+        if (place.getMaterial() == BlockIds.SCAFFOLDING) return;
 
         double min = Double.MAX_VALUE;
         for (double d : player.getPossibleEyeHeights()) {

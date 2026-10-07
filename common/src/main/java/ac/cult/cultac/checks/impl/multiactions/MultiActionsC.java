@@ -7,9 +7,9 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import net.minecraft.SharedConstants;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
@@ -20,7 +20,7 @@ import org.jetbrains.annotations.NotNull;
 public class MultiActionsC extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("sprinting={bool}, sneaking={bool}, input={bool}");
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     public MultiActionsC(CultPlayer player) {
         super(player);

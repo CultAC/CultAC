@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
@@ -17,7 +18,6 @@ import java.util.Collections;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import net.minecraft.world.phys.Vec3;
 
 public class CollisionModifier implements UncertaintyHandler {
     @Override

@@ -8,6 +8,14 @@ import ac.cult.cultac.protocol.packet.Opaque;
 /** Tracks the tags a client received; PLAY updates apply at their transaction boundary. */
 public class PacketServerRegistries {
     @CultPacketHandler
+    public void onEnabledFeatures(
+            PacketSendEvent<ac.cult.cultac.network.packet.WorldPackets.EnabledFeatures> event,
+            CultPlayer player,
+            ac.cult.cultac.network.packet.WorldPackets.EnabledFeatures packet) {
+        player.compensatedWorld.applyClientFeatures(packet);
+    }
+
+    @CultPacketHandler
     public void onTags(
             PacketSendEvent<ac.cult.cultac.network.packet.RegistryTags> event,
             CultPlayer player,
@@ -38,6 +46,10 @@ public class PacketServerRegistries {
 
     @CultPacketHandler("clientbound.finish_configuration")
     public void onFinishConfiguration(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (!player.isBedrockMovement()) {
+            player.compensatedWorld.resetClientClocks();
+            player.compensatedEntities.clientPlayerModes.clear();
+        }
         if (!player.isBedrockMovement() && player.registryState != null) {
             var state = player.registryState;
             var connection = player.user.getCultConnection();
@@ -56,6 +68,7 @@ public class PacketServerRegistries {
         if (player.isBedrockMovement()) return;
         if (player.registryState == null)
             player.registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
-        player.registryState.observeRegistryData();
+        player.getWorldRegistries();
+        player.registryState.appendConfigurationRegistryData(packet);
     }
 }

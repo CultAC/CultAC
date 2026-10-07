@@ -1,12 +1,13 @@
 package ac.cult.cultac.checks.impl.misc;
 
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.api.config.ConfigManager;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.NotNull;
 
 public class GhostBlockMitigation extends BlockPlaceCheck {
@@ -41,9 +42,9 @@ public class GhostBlockMitigation extends BlockPlaceCheck {
                             continue;
                         }
 
-                        BlockState type = world.getBlockAt(i, j, k);
+                        int type = world.getBlockAt(i, j, k);
 
-                        if (!type.isAir()) {
+                        if (!DataTables.defaults().registry().facts(type).has(StateFacts.AIR)) {
                             return;
                         }
                     }

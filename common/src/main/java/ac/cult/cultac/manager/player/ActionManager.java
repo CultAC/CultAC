@@ -1,12 +1,12 @@
 package ac.cult.cultac.manager.player;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHeldSlot;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -16,21 +16,14 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import lombok.Getter;
-import net.minecraft.core.component.DataComponentType;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.food.FoodProperties;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.component.Consumable;
-import net.minecraft.world.item.equipment.Equippable;
 
 @Getter
 public class ActionManager extends CultProcessor implements CheckListener, ClientTickEndListener {
-    private static final DataComponentType<?> BLOCKS_ATTACKS_COMPONENT = findDataComponent("BLOCKS_ATTACKS");
 
     private boolean attacking = false;
     private boolean digging = false;
@@ -54,7 +47,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         super(cultPlayer);
     }
 
-    private InteractionHand hand;
+    private Hand hand;
 
     private InteractAction lastAction = null;
 
@@ -66,12 +59,12 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         }
     }
 
-    public void useItem(InteractionHand usedHand) {
+    public void useItem(Hand usedHand) {
         hand = usedHand;
-        ItemStack heldStack = player.getInventory().getHandItem(hand);
-        if (heldStack == null) heldStack = ItemStack.EMPTY;
+        SimItemStack heldStack = player.getInventory().getHandItem(hand);
+        if (heldStack == null) heldStack = SimItemStack.EMPTY;
 
-        this.blocking = heldStack.getItem() == net.minecraft.world.item.Items.SHIELD
+        this.blocking = heldStack.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.SHIELD
                 || (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)
                         && ac.cult.cultac.utils.inventory.ItemUtil.name(heldStack.getItem())
                                 .endsWith("_SWORD"));
@@ -107,7 +100,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         this.lastAttack = System.currentTimeMillis();
     }
 
-    private boolean canStartUsingItem(ItemStack stack) {
+    private boolean canStartUsingItem(SimItemStack stack) {
         if (stack == null
                 || stack.isEmpty()
                 || (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
@@ -116,29 +109,27 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         }
 
         ClientVersion version = player.getClientVersion();
-        net.minecraft.world.item.ItemStack nms = SpigotConversionUtil.toNmsItemStack(stack);
+        var nms = stack;
 
         if (version.isNewerThanOrEquals(ClientVersion.V_1_21_4)) {
-            if (stack.getItem() == net.minecraft.world.item.Items.GOAT_HORN
-                    || stack.getItem() == net.minecraft.world.item.Items.SHIELD
-                    || stack.getItem() == net.minecraft.world.item.Items.SPYGLASS) {
+            if (stack.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.GOAT_HORN
+                    || stack.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.SHIELD
+                    || stack.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.SPYGLASS) {
                 return true;
             }
-            if (stack.getItem() == net.minecraft.world.item.Items.BOW
-                    || stack.getItem() == net.minecraft.world.item.Items.CROSSBOW) {
+            if (stack.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.BOW
+                    || stack.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.CROSSBOW) {
                 // Baseline deliberately does not infer projectile availability.
                 return false;
             }
-            if (stack.getItem() == net.minecraft.world.item.Items.TRIDENT) {
+            if (stack.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.TRIDENT) {
                 return !nms.nextDamageWillBreak()
-                        && ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(
-                                        stack, net.minecraft.world.item.enchantment.Enchantments.RIPTIDE)
-                                <= 0;
+                        && ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(stack, "minecraft:riptide") <= 0;
             }
 
-            Consumable consumable = nms.get(DataComponents.CONSUMABLE);
+            var consumable = ac.cult.blocksim.data.ItemComponents.consumable(nms.components());
             if (consumable != null) {
-                FoodProperties food = nms.get(DataComponents.FOOD);
+                var food = ac.cult.blocksim.data.ItemComponents.food(nms.components());
                 return consumable.consumeSeconds() > 0.0F
                         && (food == null
                                 || food.canAlwaysEat()
@@ -146,47 +137,36 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
                                 || player.gamemode == GameMode.CREATIVE);
             }
 
-            Equippable equippable = nms.get(DataComponents.EQUIPPABLE);
+            var equippable = ac.cult.blocksim.data.ItemComponents.equippable(nms.components());
             return (equippable == null || !equippable.swappable())
-                    && BLOCKS_ATTACKS_COMPONENT != null
-                    && nms.has(BLOCKS_ATTACKS_COMPONENT);
+                    && nms.components().has("minecraft:blocks_attacks");
         }
 
         // The compact legacy path retained by this fork. These are the baseline
         // items whose use can be proven without guessing projectile inventory.
-        net.minecraft.world.item.Item material = stack.getItem();
+        ac.cult.blocksim.data.ItemDefinition material = stack.getItem();
         // 1.8 ItemSword#onItemRightClick sets a 72000-tick BLOCK use action.
         if (version.isOlderThan(ClientVersion.V_1_9)
                 && ac.cult.cultac.utils.inventory.ItemUtil.name(material).endsWith("_SWORD")) return true;
-        if (material == net.minecraft.world.item.Items.SHIELD
-                || material == net.minecraft.world.item.Items.SPYGLASS
-                || material == net.minecraft.world.item.Items.GOAT_HORN) {
+        if (material == ac.cult.cultac.utils.inventory.ItemTypes.SHIELD
+                || material == ac.cult.cultac.utils.inventory.ItemTypes.SPYGLASS
+                || material == ac.cult.cultac.utils.inventory.ItemTypes.GOAT_HORN) {
             return true;
         }
-        if (material == net.minecraft.world.item.Items.TRIDENT) {
+        if (material == ac.cult.cultac.utils.inventory.ItemTypes.TRIDENT) {
             return !nms.nextDamageWillBreak()
-                    && ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(
-                                    stack, net.minecraft.world.item.enchantment.Enchantments.RIPTIDE)
-                            <= 0;
+                    && ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(stack, "minecraft:riptide") <= 0;
         }
-        if (material == net.minecraft.world.item.Items.BOW || material == net.minecraft.world.item.Items.CROSSBOW) {
+        if (material == ac.cult.cultac.utils.inventory.ItemTypes.BOW
+                || material == ac.cult.cultac.utils.inventory.ItemTypes.CROSSBOW) {
             return false;
         }
 
-        Consumable consumable = nms.get(DataComponents.CONSUMABLE);
-        FoodProperties food = nms.get(DataComponents.FOOD);
+        var consumable = ac.cult.blocksim.data.ItemComponents.consumable(nms.components());
+        var food = ac.cult.blocksim.data.ItemComponents.food(nms.components());
         return consumable != null
                 && consumable.consumeSeconds() > 0.0F
                 && (food == null || food.canAlwaysEat() || player.food < 20 || player.gamemode == GameMode.CREATIVE);
-    }
-
-    private static DataComponentType<?> findDataComponent(String fieldName) {
-        try {
-            return (DataComponentType<?>)
-                    DataComponents.class.getField(fieldName).get(null);
-        } catch (ReflectiveOperationException ignored) {
-            return null;
-        }
     }
 
     @CultPacketHandler
@@ -197,7 +177,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
     @CultPacketHandler
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
-        useItem(SpigotConversionUtil.toNmsHand(packet.hand()));
+        useItem(packet.hand());
     }
 
     @CultPacketHandler
@@ -227,7 +207,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     }
 
     public void selectHotbarSlot() {
-        if (hand != null && hand != InteractionHand.OFF_HAND) {
+        if (hand != null && hand != Hand.OFF_HAND) {
             this.blocking = false;
         }
     }
@@ -282,7 +262,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
 
     private void clearMainHandUseAfterSlotChange() {
         if (player.packetStateData.isSlowedByUsingItem()
-                && player.packetStateData.itemInUseHand == InteractionHand.MAIN_HAND
+                && player.packetStateData.itemInUseHand == Hand.MAIN_HAND
                 && player.packetStateData.getSlowedByUsingItemSlot() != player.packetStateData.lastSlotSelected) {
             player.packetStateData.setSlowedByUsingItem(false);
         }

@@ -2,24 +2,26 @@ package ac.cult.cultac.bedrock.replay.offline;
 
 import static org.junit.Assert.*;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.MovementPlatform;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import ac.cult.cultac.protocol.value.BlockPos;
 import org.junit.Test;
 
 public class BedrockBlockReconciliationTest {
     @Test
     public void localBreakPlacementAndInteractionRemainVisibleUntilServerReceipt() {
         OfflineCultTestBootstrap.installConfig();
-        var door = Blocks.OAK_DOOR.defaultBlockState();
-        assertBedrockReconciliation(Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.AIR.defaultBlockState());
-        assertBedrockReconciliation(Blocks.AIR.defaultBlockState(), Blocks.STONE.defaultBlockState());
-        assertBedrockReconciliation(door, door.setValue(BlockStateProperties.OPEN, true));
+        var door = DataTables.defaults().registry().block("minecraft:oak_door").defaultState();
+        assertBedrockReconciliation(
+                DataTables.defaults().registry().block("minecraft:grass_block").defaultState(),
+                DataTables.defaults().registry().block("minecraft:air").defaultState());
+        assertBedrockReconciliation(
+                DataTables.defaults().registry().block("minecraft:air").defaultState(),
+                DataTables.defaults().registry().block("minecraft:stone").defaultState());
+        assertBedrockReconciliation(door, DataTables.defaults().registry().with(door, "open", "true"));
     }
 
-    private static void assertBedrockReconciliation(BlockState server, BlockState local) {
+    private static void assertBedrockReconciliation(int server, int local) {
         OfflineCultTestBootstrap.installConfig();
         var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
@@ -31,17 +33,17 @@ public class BedrockBlockReconciliationTest {
             world.startPredicting();
             world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), local);
             world.stopPredicting(31);
-            assertEquals(local, world.getBlockStateAt(pos));
+            assertEquals(local, world.getBlockStateIdAt(pos));
             assertFalse(world.hasPendingBlockPrediction(pos));
 
             world.handlePredictionConfirmation(31, 10);
             player.latencyUtils.handleNettySyncTransaction(10);
-            assertEquals(local, world.getBlockStateAt(pos));
+            assertEquals(local, world.getBlockStateIdAt(pos));
 
             player.latencyUtils.addRealTimeTask(11, () -> world.handleServerBlockUpdate(pos, server, 11));
-            assertEquals(local, world.getBlockStateAt(pos));
+            assertEquals(local, world.getBlockStateIdAt(pos));
             player.latencyUtils.handleNettySyncTransaction(11);
-            assertEquals(server, world.getBlockStateAt(pos));
+            assertEquals(server, world.getBlockStateIdAt(pos));
             assertFalse(world.hasPendingBlockPrediction(pos));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -56,22 +58,35 @@ public class BedrockBlockReconciliationTest {
         try {
             var world = player.compensatedWorld;
             var pos = new BlockPos(2901, 69, -30);
-            var grass = Blocks.GRASS_BLOCK.defaultBlockState();
+            var grass = DataTables.defaults()
+                    .registry()
+                    .block("minecraft:grass_block")
+                    .defaultState();
             world.ensureValidationChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4);
             world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), grass);
             world.advanceClientPredictionSequence();
             world.startPredicting();
-            world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), Blocks.AIR.defaultBlockState());
+            world.updateBlock(
+                    pos.getX(),
+                    pos.getY(),
+                    pos.getZ(),
+                    DataTables.defaults().registry().block("minecraft:air").defaultState());
             world.stopPredicting(31);
             assertTrue(world.hasPendingBlockPrediction(pos));
             world.handleServerBlockUpdate(pos, grass, 10);
-            assertTrue(world.getBlockStateAt(pos).isAir());
+            assertTrue(DataTables.defaults()
+                    .registry()
+                    .facts(world.getBlockStateIdAt(pos))
+                    .has(ac.cult.blocksim.data.StateFacts.AIR));
             world.handlePredictionConfirmation(0, 10);
             player.latencyUtils.handleNettySyncTransaction(10);
-            assertTrue(world.getBlockStateAt(pos).isAir());
+            assertTrue(DataTables.defaults()
+                    .registry()
+                    .facts(world.getBlockStateIdAt(pos))
+                    .has(ac.cult.blocksim.data.StateFacts.AIR));
             world.handlePredictionConfirmation(1, 11);
             player.latencyUtils.handleNettySyncTransaction(11);
-            assertEquals(grass, world.getBlockStateAt(pos));
+            assertEquals(grass, world.getBlockStateIdAt(pos));
             assertFalse(world.hasPendingBlockPrediction(pos));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);

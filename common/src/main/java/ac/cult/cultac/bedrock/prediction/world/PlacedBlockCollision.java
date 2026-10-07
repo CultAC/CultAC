@@ -1,5 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.world;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.util.ImmutableJsonValue;
@@ -7,10 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.BubbleColumnBlock;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 
 public record PlacedBlockCollision(
         BlockPosition position,
@@ -251,7 +249,7 @@ public record PlacedBlockCollision(
     public static PlacedBlockCollision sampled(
             BlockPosition position,
             String javaIdentifier,
-            BlockState javaState,
+            int javaState,
             String bedrockIdentifier,
             Map<String, Object> bedrockState,
             List<WorldCollisionBox> collisionBoxes) {
@@ -270,7 +268,7 @@ public record PlacedBlockCollision(
     public static PlacedBlockCollision sampled(
             BlockPosition position,
             String javaIdentifier,
-            BlockState javaState,
+            int javaState,
             String bedrockIdentifier,
             Map<String, Object> bedrockState,
             List<WorldCollisionBox> collisionBoxes,
@@ -290,7 +288,7 @@ public record PlacedBlockCollision(
     public static PlacedBlockCollision sampled(
             BlockPosition position,
             String javaIdentifier,
-            BlockState javaState,
+            int javaState,
             String bedrockIdentifier,
             List<WorldCollisionBox> collisionBoxes,
             Set<BlockContactBehavior> contactBehaviors) {
@@ -309,7 +307,7 @@ public record PlacedBlockCollision(
     public static PlacedBlockCollision sampled(
             BlockPosition position,
             String javaIdentifier,
-            BlockState javaState,
+            int javaState,
             String bedrockIdentifier,
             Map<String, Object> bedrockState,
             List<WorldCollisionBox> collisionBoxes,
@@ -341,11 +339,10 @@ public record PlacedBlockCollision(
                     Boolean.parseBoolean(property(javaState, "drag")));
         }
 
-        private static JavaStateProperties from(BlockState javaState) {
-            boolean waterlogged = javaState.hasProperty(BlockStateProperties.WATERLOGGED)
-                    && javaState.getValue(BlockStateProperties.WATERLOGGED);
-            boolean drag =
-                    javaState.getBlock() == Blocks.BUBBLE_COLUMN && javaState.getValue(BubbleColumnBlock.DRAG_DOWN);
+        private static JavaStateProperties from(int javaState) {
+            boolean waterlogged =
+                    BlockProps.WATERLOGGED.has(javaState) && BlockProps.WATERLOGGED.booleanValue(javaState);
+            boolean drag = BlockIds.is(javaState, BlockIds.BUBBLE_COLUMN) && BlockProps.DRAG.booleanValue(javaState);
             return waterlogged || drag ? new JavaStateProperties(waterlogged, null, drag) : EMPTY;
         }
 

@@ -12,11 +12,11 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
+import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Method;
 import java.util.UUID;
-import net.minecraft.network.protocol.common.ServerboundPongPacket;
-import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public final class InboundTransactionAcceptanceTest {
@@ -641,12 +641,13 @@ public final class InboundTransactionAcceptanceTest {
         return (CultPlayer.TrackedTransaction) method.invoke(player);
     }
 
-    private static PacketReceiveEvent receiveEvent(CultPlayer player, ServerboundPongPacket packet) {
-        return RecordReceiveTestEvents.pong(player, packet.getId());
+    private static PacketReceiveEvent receiveEvent(CultPlayer player, ServerboundPong packet) {
+        return RecordReceiveTestEvents.pong(player, packet.id());
     }
 
     private static CultPlayer offlineJavaPlayer() {
-        return offlineJavaPlayer(ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion()));
+        return offlineJavaPlayer(
+                ClientVersion.fromProtocolVersion(ac.cult.cultac.protocol.ProtocolVersion.V26_3.protocol()));
     }
 
     private static CultPlayer offlineJavaPlayer(ClientVersion version) {

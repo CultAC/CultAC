@@ -2,59 +2,54 @@ package ac.cult.cultac.manager.player;
 
 import static org.junit.Assert.*;
 
-import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.CaveVines;
-import net.minecraft.world.level.block.CropBlock;
-import net.minecraft.world.level.block.GrowingPlantHeadBlock;
-import org.junit.BeforeClass;
+import ac.cult.blocksim.data.BlockRegistry;
+import ac.cult.blocksim.data.DataTables;
 import org.junit.Test;
 
 public final class SmoketestBlockStateComparisonTest {
-    @BeforeClass
-    public static void bootstrap() {
-        OfflineCultTestBootstrap.installConfig();
-    }
+    private static final BlockRegistry STATES = DataTables.defaults().registry();
 
     @Test
     public void initialPlantAgesMatchButShearsCompletionDoesNot() {
-        for (var block : new net.minecraft.world.level.block.Block[] {
-            Blocks.WEEPING_VINES, Blocks.TWISTING_VINES, Blocks.KELP, Blocks.CAVE_VINES
+        for (var key : new String[] {
+            "minecraft:weeping_vines", "minecraft:twisting_vines", "minecraft:kelp", "minecraft:cave_vines"
         }) {
-            var initial = block.defaultBlockState().setValue(GrowingPlantHeadBlock.AGE, 0);
-            var mature = initial.setValue(GrowingPlantHeadBlock.AGE, 25);
+            int initial = STATES.with(STATES.block(key).defaultState(), "age", "0");
+            int mature = STATES.with(initial, "age", "25");
             for (int age = 0; age < 25; age++) {
-                var randomized = initial.setValue(GrowingPlantHeadBlock.AGE, age);
-                assertTrue(SmoketestSnapshotBridge.blockStatesMatch(randomized.toString(), initial));
-                assertFalse(SmoketestSnapshotBridge.blockStatesMatch(randomized.toString(), mature));
-                assertFalse(SmoketestSnapshotBridge.blockStatesMatch(mature.toString(), randomized));
+                int randomized = STATES.with(initial, "age", Integer.toString(age));
+                assertTrue(SmoketestSnapshotBridge.blockStatesMatch(STATES.debugString(randomized), initial));
+                assertFalse(SmoketestSnapshotBridge.blockStatesMatch(STATES.debugString(randomized), mature));
+                assertFalse(SmoketestSnapshotBridge.blockStatesMatch(STATES.debugString(mature), randomized));
             }
-            assertTrue(SmoketestSnapshotBridge.blockStatesMatch(mature.toString(), mature));
+            assertTrue(SmoketestSnapshotBridge.blockStatesMatch(STATES.debugString(mature), mature));
         }
     }
 
     @Test
     public void blockTypeAndOtherPropertiesRemainExact() {
-        var vine = Blocks.CAVE_VINES.defaultBlockState();
+        int vine = STATES.block("minecraft:cave_vines").defaultState();
         assertFalse(SmoketestSnapshotBridge.blockStatesMatch(
-                vine.setValue(CaveVines.BERRIES, true).toString(), vine.setValue(CaveVines.BERRIES, false)));
+                STATES.debugString(STATES.with(vine, "berries", "true")), STATES.with(vine, "berries", "false")));
         assertFalse(SmoketestSnapshotBridge.blockStatesMatch(
-                Blocks.WEEPING_VINES.defaultBlockState().toString(), Blocks.TWISTING_VINES.defaultBlockState()));
+                STATES.debugString(STATES.block("minecraft:weeping_vines").defaultState()),
+                STATES.block("minecraft:twisting_vines").defaultState()));
         assertFalse(SmoketestSnapshotBridge.blockStatesMatch(
-                Blocks.WEEPING_VINES_PLANT.defaultBlockState().toString(), Blocks.WEEPING_VINES.defaultBlockState()));
-        var wheat = Blocks.WHEAT.defaultBlockState();
+                STATES.debugString(STATES.block("minecraft:weeping_vines_plant").defaultState()),
+                STATES.block("minecraft:weeping_vines").defaultState()));
+        int wheat = STATES.block("minecraft:wheat").defaultState();
+        assertFalse(
+                SmoketestSnapshotBridge.blockStatesMatch(STATES.debugString(STATES.with(wheat, "age", "3")), wheat));
         assertFalse(SmoketestSnapshotBridge.blockStatesMatch(
-                wheat.setValue(CropBlock.AGE, 3).toString(), wheat));
-        assertFalse(SmoketestSnapshotBridge.blockStatesMatch(
-                Blocks.AIR.defaultBlockState().toString(), vine));
+                STATES.debugString(STATES.block("minecraft:air").defaultState()), vine));
     }
 
     @Test
     public void invalidAgesDoNotMatch() {
-        var vine = Blocks.WEEPING_VINES.defaultBlockState().setValue(GrowingPlantHeadBlock.AGE, 0);
+        int vine = STATES.with(STATES.block("minecraft:weeping_vines").defaultState(), "age", "0");
         for (var invalid : new String[] {"-1", "26", "100000000000000000000"}) {
-            assertFalse(
-                    SmoketestSnapshotBridge.blockStatesMatch(vine.toString().replace("age=0", "age=" + invalid), vine));
+            assertFalse(SmoketestSnapshotBridge.blockStatesMatch(
+                    STATES.debugString(vine).replace("age=0", "age=" + invalid), vine));
         }
     }
 }

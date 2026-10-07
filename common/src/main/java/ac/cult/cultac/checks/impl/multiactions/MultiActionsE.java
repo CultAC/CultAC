@@ -11,8 +11,8 @@ import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
-import net.minecraft.world.InteractionHand;
 
 @CheckData(
         name = "MultiActionsE",
@@ -69,6 +69,6 @@ public class MultiActionsE extends Check implements CheckListener {
     private boolean isActivelyUsingItem() {
         return player.packetStateData.isSlowedByUsingItem()
                 && (player.packetStateData.lastSlotSelected == player.packetStateData.getSlowedByUsingItemSlot()
-                        || player.packetStateData.itemInUseHand == InteractionHand.OFF_HAND);
+                        || player.packetStateData.itemInUseHand == Hand.OFF_HAND);
     }
 }

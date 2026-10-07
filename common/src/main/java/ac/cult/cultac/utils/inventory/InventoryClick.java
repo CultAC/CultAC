@@ -1,10 +1,10 @@
 package ac.cult.cultac.utils.inventory;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import java.util.Map;
 import java.util.function.BiPredicate;
-import net.minecraft.world.item.ItemStack;
 
 /** A menu action and its claimed results, independent of the transport packet. */
 public record InventoryClick(
@@ -13,9 +13,9 @@ public record InventoryClick(
         int slot,
         int button,
         WindowClickType clickType,
-        Map<Integer, ItemStack> changedSlots,
-        ItemStack carriedItem,
-        BiPredicate<Integer, ItemStack> matches)
+        Map<Integer, SimItemStack> changedSlots,
+        SimItemStack carriedItem,
+        BiPredicate<Integer, SimItemStack> matches)
         implements ServerboundPacket {
     public InventoryClick {
         changedSlots = Map.copyOf(changedSlots);
@@ -28,8 +28,8 @@ public record InventoryClick(
             int slot,
             int button,
             WindowClickType clickType,
-            Map<Integer, ItemStack> changedSlots,
-            ItemStack carriedItem) {
+            Map<Integer, SimItemStack> changedSlots,
+            SimItemStack carriedItem) {
         this(windowId, stateId, slot, button, clickType, changedSlots, carriedItem, (index, item) -> true);
     }
 }

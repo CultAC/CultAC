@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
@@ -30,6 +31,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.inventory.Inventory;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import com.google.gson.JsonArray;
@@ -45,10 +47,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
-import org.bukkit.Material;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -1013,16 +1011,8 @@ public final class OfflineBedrockReplayRunnerTest {
 
     private static void setArmor(CultPlayer player, int slot, JsonObject armor, String key) {
         String materialName = stringValue(armor, key, "AIR");
-        Material material = Material.valueOf(materialName);
-        ItemStack stack = itemStack(material);
+        var stack = OfflineCultTestBootstrap.item("minecraft:" + materialName.toLowerCase(java.util.Locale.ROOT));
         player.getInventory().inventory.getInventoryStorage().setItem(slot, stack);
-    }
-
-    private static ItemStack itemStack(Material material) {
-        if (material == Material.AIR) {
-            return ItemStack.EMPTY;
-        }
-        return new ItemStack(org.bukkit.craftbukkit.util.CraftMagicNumbers.getItem(material));
     }
 
     private static void seedInitialVelocity(CultPlayer player, Vec3 velocity) {
@@ -1393,15 +1383,36 @@ public final class OfflineBedrockReplayRunnerTest {
         int startZ = (int) Math.floor(start.z);
         for (int x = startX - 2; x <= startX + 3; x++) {
             for (int z = startZ - 2; z <= startZ + 2; z++) {
-                player.compensatedWorld.applyBlockChangeRawDANGER(x, groundY - 1, z, Blocks.STONE.defaultBlockState());
+                player.compensatedWorld.applyBlockChangeRawDANGER(
+                        x,
+                        groundY - 1,
+                        z,
+                        DataTables.defaults()
+                                .registry()
+                                .block("minecraft:stone")
+                                .defaultState());
                 for (int y = groundY; y <= groundY + 4; y++) {
-                    player.compensatedWorld.applyBlockChangeRawDANGER(x, y, z, Blocks.AIR.defaultBlockState());
+                    player.compensatedWorld.applyBlockChangeRawDANGER(
+                            x,
+                            y,
+                            z,
+                            DataTables.defaults()
+                                    .registry()
+                                    .block("minecraft:air")
+                                    .defaultState());
                 }
             }
         }
-        player.compensatedWorld.applyBlockChangeRawDANGER(pillarX, groundY, pillarZ, Blocks.STONE.defaultBlockState());
         player.compensatedWorld.applyBlockChangeRawDANGER(
-                pillarX, groundY + 1, pillarZ, Blocks.STONE.defaultBlockState());
+                pillarX,
+                groundY,
+                pillarZ,
+                DataTables.defaults().registry().block("minecraft:stone").defaultState());
+        player.compensatedWorld.applyBlockChangeRawDANGER(
+                pillarX,
+                groundY + 1,
+                pillarZ,
+                DataTables.defaults().registry().block("minecraft:stone").defaultState());
     }
 
     @Test

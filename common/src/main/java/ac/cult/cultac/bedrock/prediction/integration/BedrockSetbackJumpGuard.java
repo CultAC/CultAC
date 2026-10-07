@@ -6,10 +6,10 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.List;
-import net.minecraft.world.phys.Vec3;
 
 /** Bedrock geometry and tick boundaries for the shared runner's Java setback guard. */
 public final class BedrockSetbackJumpGuard {

@@ -1,25 +1,24 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.ItemStack;
 
 public class PacketPlayerDigging {
     // LOW
     @CultPacketHandler
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
-        InteractionHand hand = SpigotConversionUtil.toNmsHand(packet.hand());
-        ItemStack item = player.getInventory().getHandItem(hand);
+        Hand hand = packet.hand();
+        SimItemStack item = player.getInventory().getHandItem(hand);
         if (RiptideUtil.getRiptideLevel(item) > 0) {
             player.packetStateData.riptideUseHand = hand;
             player.packetStateData.riptideUseStartClientTick = player.packetStateData.acceptedClientTick;
@@ -32,8 +31,8 @@ public class PacketPlayerDigging {
     public void onPlayerAction(
             PacketReceiveEvent<ServerboundPlayerAction> event, CultPlayer player, ServerboundPlayerAction packet) {
         if (packet.action() == PlayerAction.RELEASE_USE_ITEM) {
-            InteractionHand hand = player.packetStateData.riptideUseHand;
-            ItemStack item = hand == null ? null : player.getInventory().getHandItem(hand);
+            Hand hand = player.packetStateData.riptideUseHand;
+            SimItemStack item = hand == null ? null : player.getInventory().getHandItem(hand);
             int j = RiptideUtil.getRiptideLevel(item);
 
             if (j > 0 && RiptideUtil.isValidRiptideRelease(player, hand)) {
@@ -51,15 +50,15 @@ public class PacketPlayerDigging {
         if (action == PlayerAction.START_DESTROY_BLOCK
                 || action == PlayerAction.STOP_DESTROY_BLOCK
                 || action == PlayerAction.ABORT_DESTROY_BLOCK) {
-            BlockPos blockPosition = SpigotConversionUtil.toNmsBlockPos(packet.position());
+            BlockPos blockPosition = packet.position();
             BlockBreak blockBreak = new BlockBreak(
                     player,
                     blockPosition,
-                    SpigotConversionUtil.toBukkitFace(packet.direction()),
+                    packet.direction(),
                     packet.direction().ordinal(),
                     action,
                     packet.sequence(),
-                    player.compensatedWorld.getBlockStateAt(blockPosition));
+                    player.compensatedWorld.getBlockStateIdAt(blockPosition));
 
             player.checkManager.onBlockBreak(blockBreak);
 
@@ -87,7 +86,7 @@ public class PacketPlayerDigging {
         if (slotId > 8 || slotId < 0) return; // TODO: flag?
 
         player.packetStateData.lastSlotSelected = slotId;
-        if (player.packetStateData.riptideUseHand != InteractionHand.OFF_HAND) {
+        if (player.packetStateData.riptideUseHand != Hand.OFF_HAND) {
             RiptideUtil.clearTrackedUse(player);
         }
     }

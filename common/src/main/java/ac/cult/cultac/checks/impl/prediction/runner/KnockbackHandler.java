@@ -9,7 +9,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 // Player velocity packets use a bundle proof when available, otherwise the Cult3.0-clean transaction sandwich.
 // @CheckData(name = "AntiKB", alternativeName = "AntiKnockback", configName = "Knockback", setback = 4, decay = 0.025)

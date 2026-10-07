@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.data;
 
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.utils.math.Vec3;
 
 // This is to keep all the packet data out of the main player class
 // Helps clean up the player class and makes devs aware they are sync'd to the netty thread
@@ -27,13 +28,13 @@ public class PacketStateData {
     // Packet-ordered mirror of LocalPlayer's active item state.  Checks must not
     // read Bukkit's server-thread active item because the attack/use ordering is
     // decided on the Netty packet stream.
-    public net.minecraft.world.InteractionHand itemInUseHand = net.minecraft.world.InteractionHand.MAIN_HAND;
+    public Hand itemInUseHand = Hand.MAIN_HAND;
     private int slowedByUsingItemSlot = Integer.MIN_VALUE;
     public KnownInput knownInput = KnownInput.DEFAULT;
     public int riptideLevel = 0;
     public int acceptedClientTick = 0;
     public int riptideUseStartClientTick = Integer.MIN_VALUE;
-    public net.minecraft.world.InteractionHand riptideUseHand = null;
+    public Hand riptideUseHand = null;
     public boolean invalidRiptideRelease = false;
     public String invalidRiptideReleaseReason = "";
     public float serverTickRate = 20.0F;

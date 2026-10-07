@@ -2,8 +2,8 @@ package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
-import net.minecraft.world.phys.Vec3;
 
 /** Complete states attached to the runner's existing next-tick velocity candidates. */
 public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<State> states)

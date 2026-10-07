@@ -2,9 +2,9 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.HashSet;
 import java.util.Set;
-import net.minecraft.world.phys.Vec3;
 
 public final class NextTickVelocityDeriver {
     private NextTickVelocityDeriver() {}

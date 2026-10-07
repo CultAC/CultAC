@@ -20,6 +20,11 @@ public final class NbtSkipper {
         if (type != 0) payload(input, type, 0, maxDepth);
     }
 
+    /** Skips one named field's payload after its type and name have been read. */
+    public static void skipPayload(ByteBuf input, int type, int depth, int maxDepth) {
+        payload(input, type, depth, maxDepth);
+    }
+
     private static void payload(ByteBuf input, int type, int depth, int maxDepth) {
         switch (type) {
             case 1 -> input.skipBytes(1);

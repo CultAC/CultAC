@@ -1,7 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public final class BedrockVectorAdapter {
     private BedrockVectorAdapter() {}

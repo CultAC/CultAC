@@ -7,18 +7,18 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.SharedConstants;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.phys.Vec3;
 
 @CheckData(
         name = "MultiPlace",
@@ -30,7 +30,7 @@ public class MultiPlace extends BlockPlaceCheck implements PostPredictionListene
             "face={face}, lastFace={face}, cursor={cursor}, lastCursor={cursor}, pos={mcpos}, lastPos={mcpos}");
 
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private final List<FlagData> flags = new ArrayList<>();
     private boolean hasPlaced;

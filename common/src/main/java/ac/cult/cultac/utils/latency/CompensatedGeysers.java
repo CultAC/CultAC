@@ -1,12 +1,12 @@
 package ac.cult.cultac.utils.latency;
 
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
+import ac.cult.cultac.protocol.value.BlockPos;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * Client-visible potent-sulfur block entity tickers, in vanilla ticker order.
@@ -23,7 +23,7 @@ public final class CompensatedGeysers {
         }
     }
 
-    public void updateBlock(BlockPos position, BlockState oldState, BlockState newState) {
+    public void updateBlock(BlockPos position, int oldState, int newState) {
         boolean hadTicker = hasTicker(oldState);
         boolean hasTicker = hasTicker(newState);
         if (hadTicker == hasTicker) {
@@ -59,13 +59,8 @@ public final class CompensatedGeysers {
         tickers.clear();
     }
 
-    public static boolean hasTicker(BlockState state) {
-        if (state == null) {
-            return false;
-        }
-        BlockState data = SpigotConversionUtil.fromNmsBlockState(state);
-        return "POTENT_SULFUR".equals(ac.cult.cultac.utils.nmsutil.NmsBlockTags.name(data.getBlock()))
-                && !net.minecraft.commands.arguments.blocks.BlockStateParser.serialize(data)
-                        .contains("potent_sulfur_state=dry");
+    public static boolean hasTicker(int state) {
+        // PotentSulfurBlock.getTicker: only PotentSulfurState.DRY (ordinal 0) has no ticker.
+        return BlockIds.is(state, BlockIds.POTENT_SULFUR) && BlockProps.POTENT_SULFUR_STATE.value(state) != 0;
     }
 }

@@ -5,9 +5,9 @@ import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VehicleOffset;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import java.util.Locale;
-import net.minecraft.world.phys.Vec3;
 
 public class VehicleOffsetCheck implements EngineCheck {
     private static final double VEHICLE_OFFSET_THRESHOLD = 0.005D;

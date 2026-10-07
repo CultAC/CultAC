@@ -58,6 +58,10 @@ public final class WatchableIndexUtil {
             case V26_2, V26_3 -> CUBE_MOB;
         };
     }
+    /** AgeableMob adds AGE_LOCKED in 26.1 before TamableAnimal's flags. */
+    public static int tameableFlags(ProtocolVersion version) {
+        return version.atLeast(ProtocolVersion.V26_1) ? 18 : 17;
+    }
 
     public static EntityMetadata.Entry getIndex(List<EntityMetadata.Entry> objects, int index) {
         for (EntityMetadata.Entry object : objects) {

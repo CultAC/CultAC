@@ -9,7 +9,7 @@ import ac.cult.cultac.utils.data.BubbleColumnData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.math.CultMath;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public class BubbleColumn implements UncertaintyHandler {
     @Override

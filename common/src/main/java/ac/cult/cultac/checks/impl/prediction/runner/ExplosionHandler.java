@@ -7,7 +7,7 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundExplode;
 import ac.cult.cultac.utils.data.TransactionVel;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 // @CheckData(name = "AntiExplosion", configName = "Explosion", setback = 4)
 @BedrockSupported

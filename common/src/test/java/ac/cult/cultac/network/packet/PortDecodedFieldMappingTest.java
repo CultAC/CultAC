@@ -16,10 +16,9 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommandSigned;
 import ac.cult.cultac.protocol.testing.CodecFixture;
+import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.Unpooled;
 import java.util.OptionalInt;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.network.protocol.game.ServerboundSpectatorActionPacket;
 import org.junit.Test;
 
 public final class PortDecodedFieldMappingTest {
@@ -37,18 +36,16 @@ public final class PortDecodedFieldMappingTest {
         var codec = new CodecFixture(ProtocolRuntime.create(data));
         codec.phase(ConnectionPhase.PLAY);
         int id = data.packets(ConnectionPhase.PLAY, PacketDirection.SERVERBOUND).id("minecraft:spectator_action");
-        var bytes = new FriendlyByteBuf(Unpooled.buffer());
+        var bytes = Unpooled.buffer();
         try {
-            ServerboundSpectatorActionPacket.STREAM_CODEC.encode(
-                    bytes, new ServerboundSpectatorActionPacket(OptionalInt.of(42)));
+            Wire.writeVarInt(bytes, 43);
             assertEquals(
                     42,
                     codec.read(ServerboundPackets.SPECTATOR_ACTION, id, bytes)
                             .target()
                             .orElse(0));
             bytes.clear();
-            ServerboundSpectatorActionPacket.STREAM_CODEC.encode(
-                    bytes, new ServerboundSpectatorActionPacket(OptionalInt.empty()));
+            Wire.writeVarInt(bytes, 0);
             assertEquals(
                     0,
                     codec.read(ServerboundPackets.SPECTATOR_ACTION, id, bytes)

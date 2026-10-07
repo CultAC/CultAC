@@ -7,7 +7,6 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.blockplace.SmoketestPredictionSafety;
 import ac.cult.cultac.utils.latency.SectionPool;
 import ac.cult.cultac.utils.math.Location;
-import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -118,7 +117,7 @@ public final class SmoketestControlBridge {
         LogUtil.info("SectionPool player stats: "
                 + "label=" + safeLabel(label)
                 + " player=" + player.getName()
-                + " dimension=" + NmsIdentifierUtil.resourceKey(player.dimension)
+                + " dimension=" + player.dimension
                 + " cachedChunks=" + cachedChunks
                 + " retainedChunks=" + retainedChunks
                 + " countsMatch=" + (cachedChunks == retainedChunks)
@@ -136,7 +135,7 @@ public final class SmoketestControlBridge {
         LogUtil.info("SectionPool chunk stats: "
                 + "label=" + safeLabel(label)
                 + " player=" + player.getName()
-                + " dimension=" + NmsIdentifierUtil.resourceKey(player.dimension)
+                + " dimension=" + player.dimension
                 + " chunkX=" + chunkX
                 + " chunkZ=" + chunkZ
                 + " cached=" + player.compensatedWorld.isChunkLoaded(chunkX, chunkZ)

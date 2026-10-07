@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.logging;
 
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.utils.math.Vec3;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
@@ -12,7 +13,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 
 public final class BedrockPacketLogger implements AutoCloseable {

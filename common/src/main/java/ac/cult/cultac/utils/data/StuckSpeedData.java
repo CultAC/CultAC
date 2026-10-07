@@ -1,8 +1,8 @@
 package ac.cult.cultac.utils.data;
 
+import ac.cult.cultac.utils.math.Vec3;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import net.minecraft.world.phys.Vec3;
 
 @Data
 @AllArgsConstructor

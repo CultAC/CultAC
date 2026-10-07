@@ -7,11 +7,11 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import net.minecraft.SharedConstants;
 
 @CheckData(
         name = "BadPacketsH",
@@ -21,7 +21,7 @@ import net.minecraft.SharedConstants;
 public class BadPacketsH extends BlockPlaceCheck implements BlockBreakListener {
     private static final Verbose V = Verbose.of("expected={sint}, id={sint}");
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private int lastSequence;
 

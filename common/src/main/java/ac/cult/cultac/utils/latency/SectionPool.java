@@ -2,12 +2,8 @@ package ac.cult.cultac.utils.latency;
 
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.GlobalPalette;
 
 public final class SectionPool {
     private static final CachedSection CANONICAL_AIR = createCanonicalAir();
@@ -160,14 +156,7 @@ public final class SectionPool {
     }
 
     private static boolean isUniform(CachedSection section) {
-        PalettedContainerAccessor.RawView view = PalettedContainerAccessor.getRawView(section.states());
-        int first = view.storage.get(0);
-        for (int i = 1; i < view.storage.getSize(); i++) {
-            if (view.storage.get(i) != first) {
-                return false;
-            }
-        }
-        return true;
+        return section.states().isUniform();
     }
 
     synchronized int nonUniformPoolSize() {
@@ -255,23 +244,7 @@ public final class SectionPool {
             return false;
         }
 
-        PalettedContainerAccessor.RawView view = PalettedContainerAccessor.getRawView(section.states());
-        int hash = 1;
-        hash = 31 * hash + view.storage.getBits();
-        hash = 31 * hash + view.storage.getSize();
-        hash = 31 * hash + Arrays.hashCode(view.storage.getRaw());
-        hash = 31 * hash + view.palette.getClass().hashCode();
-        if (view.palette instanceof GlobalPalette<?>) {
-            section.cacheContentHash(hash);
-            return true;
-        }
-
-        int paletteSize = view.palette.getSize();
-        hash = 31 * hash + paletteSize;
-        for (int i = 0; i < paletteSize; i++) {
-            hash = 31 * hash + Block.getId((BlockState) view.palette.valueFor(i));
-        }
-        section.cacheContentHash(hash);
+        section.cacheContentHash(section.states().contentHash());
         return true;
     }
 
@@ -280,30 +253,7 @@ public final class SectionPool {
         if (a.hasFluid() != b.hasFluid()) return false;
         if (a.isEmpty() && !a.hasFluid()) return true;
 
-        PalettedContainerAccessor.RawView va = PalettedContainerAccessor.getRawView(a.states());
-        PalettedContainerAccessor.RawView vb = PalettedContainerAccessor.getRawView(b.states());
-
-        if (va.storage.getBits() != vb.storage.getBits() || !Arrays.equals(va.storage.getRaw(), vb.storage.getRaw())) {
-            return false;
-        }
-
-        boolean aGlobal = va.palette instanceof GlobalPalette<?>;
-        boolean bGlobal = vb.palette instanceof GlobalPalette<?>;
-        if (aGlobal || bGlobal) {
-            return aGlobal == bGlobal;
-        }
-
-        if (va.palette.getSize() != vb.palette.getSize()) {
-            return false;
-        }
-
-        int paletteSize = va.palette.getSize();
-        for (int i = 0; i < paletteSize; i++) {
-            if (Block.getId((BlockState) va.palette.valueFor(i)) != Block.getId((BlockState) vb.palette.valueFor(i))) {
-                return false;
-            }
-        }
-        return true;
+        return a.states().sameContents(b.states());
     }
 
     static final class ComparisonBudget {

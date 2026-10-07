@@ -6,7 +6,6 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -15,6 +14,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSpectatorAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
@@ -22,8 +22,6 @@ import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import java.util.ArrayDeque;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.NotNull;
 
 @CheckData(
@@ -51,7 +49,7 @@ public class PacketOrderI extends Check implements PostPredictionListener {
     private boolean cancelledDigging;
 
     private BlockPos startedDiggingPos;
-    private BlockState startedDiggingState;
+    private int startedDiggingState;
     private boolean digging;
     private final ArrayDeque<FlagData> flags = new ArrayDeque<>();
 
@@ -185,8 +183,8 @@ public class PacketOrderI extends Check implements PostPredictionListener {
             case START_DESTROY_BLOCK -> {
                 if (shouldCheckPlacingWhileDigging()) {
                     cancelledDigging = false; // we don't care about any cancels before this
-                    startedDiggingPos = SpigotConversionUtil.toNmsBlockPos(packet.position());
-                    startedDiggingState = player.compensatedWorld.getBlockDataAt(startedDiggingPos);
+                    startedDiggingPos = packet.position();
+                    startedDiggingState = player.compensatedWorld.getBlockStateIdAt(startedDiggingPos);
                 }
             }
 
@@ -227,7 +225,7 @@ public class PacketOrderI extends Check implements PostPredictionListener {
     private void resetDiggingState() {
         cancelledDigging = digging = false;
         startedDiggingPos = null;
-        startedDiggingState = null;
+        startedDiggingState = 0;
     }
 
     private boolean shouldCheckPlacingWhileDigging() {

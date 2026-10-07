@@ -8,8 +8,6 @@ import ac.cult.cultac.protocol.PacketDirection;
 import com.velocitypowered.api.proxy.ServerConnection;
 import java.util.Objects;
 import java.util.UUID;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
 
 /** Read-only compensated client view, scoped to one server connection and dimension. */
 final class VelocityWorld implements PlatformWorld {
@@ -59,15 +57,15 @@ final class VelocityWorld implements PlatformWorld {
     }
 
     @Override
-    public BlockState getBlockAt(int x, int y, int z) {
+    public int getBlockAt(int x, int y, int z) {
         if (!isLoaded()) {
             throw new IllegalStateException("Client world is unavailable");
         }
-        return player.observed().compensatedWorld.getBlockStateAt(x, y, z);
+        return player.observed().compensatedWorld.getBlockStateIdAt(x, y, z);
     }
 
     @Override
     public PlatformChunk getChunkAt(int x, int z) {
-        return (localX, y, localZ) -> Block.getId(getBlockAt((x << 4) + localX, y, (z << 4) + localZ));
+        return (localX, y, localZ) -> getBlockAt((x << 4) + localX, y, (z << 4) + localZ);
     }
 }

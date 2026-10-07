@@ -1,31 +1,29 @@
 package ac.cult.cultac.bedrock.replay.offline;
 
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
-import net.minecraft.SharedConstants;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtAccounter;
-import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.Tag;
-import net.minecraft.server.Bootstrap;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
 
 final class SpongeSchematicCompensatedWorldLoader {
     private SpongeSchematicCompensatedWorldLoader() {}
 
     static LoadedSchematic load(Path schematic, CompensatedWorld world) throws IOException {
-        bootstrapMinecraft();
-        CompoundTag root = NbtIo.readCompressed(schematic, NbtAccounter.unlimitedHeap());
-        CompoundTag schematicRoot = root.contains("Schematic") ? root.getCompoundOrEmpty("Schematic") : root;
-        CompoundTag blocks = schematicRoot.getCompoundOrEmpty("Blocks");
-        int width = schematicRoot.getShortOr("Width", (short) 0);
-        int height = schematicRoot.getShortOr("Height", (short) 0);
-        int length = schematicRoot.getShortOr("Length", (short) 0);
-        int[] offset = schematicRoot.getIntArray("Offset").orElse(new int[] {0, 0, 0});
+        NbtValue.Compound root = OfflineNbt.readCompressed(schematic);
+        NbtValue.Compound schematicRoot =
+                root.values().containsKey("Schematic") ? OfflineNbt.compound(root, "Schematic") : root;
+        NbtValue.Compound blocks = OfflineNbt.compound(schematicRoot, "Blocks");
+        int width = OfflineNbt.integer(schematicRoot, "Width");
+        int height = OfflineNbt.integer(schematicRoot, "Height");
+        int length = OfflineNbt.integer(schematicRoot, "Length");
+        int[] offset = schematicRoot.values().get("Offset") instanceof NbtValue.PrimitiveArray array
+                        && array.kind() == NbtValue.Kind.INT_ARRAY
+                ? array.values().stream().mapToInt(Long::intValue).toArray()
+                : new int[] {0, 0, 0};
         int originX = offset.length > 0 ? offset[0] : 0;
         int originY = offset.length > 1 ? offset[1] : 0;
         int originZ = offset.length > 2 ? offset[2] : 0;
@@ -33,18 +31,18 @@ final class SpongeSchematicCompensatedWorldLoader {
     }
 
     static LoadedSchematic load(OfflineBedrockReplayScenario scenario, CompensatedWorld world) throws IOException {
-        bootstrapMinecraft();
-        CompoundTag root = NbtIo.readCompressed(scenario.schematicPath(), NbtAccounter.unlimitedHeap());
-        CompoundTag schematicRoot = root.contains("Schematic") ? root.getCompoundOrEmpty("Schematic") : root;
-        CompoundTag blocks = schematicRoot.getCompoundOrEmpty("Blocks");
-        int width = schematicRoot.getShortOr("Width", (short) 0);
-        int height = schematicRoot.getShortOr("Height", (short) 0);
-        int length = schematicRoot.getShortOr("Length", (short) 0);
+        NbtValue.Compound root = OfflineNbt.readCompressed(scenario.schematicPath());
+        NbtValue.Compound schematicRoot =
+                root.values().containsKey("Schematic") ? OfflineNbt.compound(root, "Schematic") : root;
+        NbtValue.Compound blocks = OfflineNbt.compound(schematicRoot, "Blocks");
+        int width = OfflineNbt.integer(schematicRoot, "Width");
+        int height = OfflineNbt.integer(schematicRoot, "Height");
+        int length = OfflineNbt.integer(schematicRoot, "Length");
         return load(blocks, width, height, length, scenario.minX(), scenario.minY(), scenario.minZ(), world);
     }
 
     private static LoadedSchematic load(
-            CompoundTag blocks,
+            NbtValue.Compound blocks,
             int width,
             int height,
             int length,
@@ -53,16 +51,24 @@ final class SpongeSchematicCompensatedWorldLoader {
             int originZ,
             CompensatedWorld world)
             throws IOException {
-        Map<Integer, BlockState> palette = palette(blocks.getCompoundOrEmpty("Palette"));
-        byte[] data = blocks.getByteArray("Data").orElseThrow(() -> new IOException("schematic has no Blocks/Data"));
+        Map<Integer, Integer> palette = palette(OfflineNbt.compound(blocks, "Palette"));
+        if (!(blocks.values().get("Data") instanceof NbtValue.PrimitiveArray array)
+                || array.kind() != NbtValue.Kind.BYTE_ARRAY) throw new IOException("schematic has no Blocks/Data");
+        byte[] data = new byte[array.values().size()];
+        for (int i = 0; i < data.length; i++) data[i] = array.values().get(i).byteValue();
         VarIntReader reader = new VarIntReader(data);
         int applied = 0;
         for (int y = 0; y < height; y++) {
             for (int z = 0; z < length; z++) {
                 for (int x = 0; x < width; x++) {
                     int paletteId = reader.read();
-                    BlockState state = palette.getOrDefault(paletteId, Blocks.AIR.defaultBlockState());
-                    if (!state.isAir()) {
+                    int state = palette.getOrDefault(
+                            paletteId,
+                            DataTables.defaults()
+                                    .registry()
+                                    .block("minecraft:air")
+                                    .defaultState());
+                    if (!DataTables.defaults().registry().facts(state).has(StateFacts.AIR)) {
                         setBlock(world, originX + x, originY + y, originZ + z, state);
                         applied++;
                     }
@@ -72,7 +78,7 @@ final class SpongeSchematicCompensatedWorldLoader {
         return new LoadedSchematic(width, height, length, originX, originY, originZ, applied);
     }
 
-    private static void setBlock(CompensatedWorld world, int x, int y, int z, BlockState state) {
+    private static void setBlock(CompensatedWorld world, int x, int y, int z, int state) {
         int chunkX = x >> 4;
         int chunkZ = z >> 4;
         long chunkKey = CompensatedWorld.chunkPositionToLong(chunkX, chunkZ);
@@ -87,23 +93,19 @@ final class SpongeSchematicCompensatedWorldLoader {
         }
         CompensatedWorld.CachedSection section = chunk.getOrCreateSection(sectionIndex);
         if (section != null) {
-            section.setState(CompensatedWorld.CachedChunk.index(x & 0xF, y & 0xF, z & 0xF), state);
+            section.setStateId(CompensatedWorld.CachedChunk.index(x & 0xF, y & 0xF, z & 0xF), state);
         }
     }
 
-    private static Map<Integer, BlockState> palette(CompoundTag paletteTag) throws IOException {
-        Map<Integer, BlockState> states = new HashMap<>();
-        for (Map.Entry<String, Tag> entry : paletteTag.entrySet()) {
-            int id = paletteTag.getInt(entry.getKey()).orElseThrow();
+    private static Map<Integer, Integer> palette(NbtValue.Compound paletteTag) throws IOException {
+        Map<Integer, Integer> states = new HashMap<>();
+        for (var entry : paletteTag.values().entrySet()) {
+            if (!(entry.getValue() instanceof NbtValue.Numeric number))
+                throw new IOException("Invalid schematic palette ID");
+            int id = number.value().intValue();
             states.put(id, OfflineBlockStateParser.parse(entry.getKey()));
         }
         return states;
-    }
-
-    static void bootstrapMinecraft() {
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        Bootstrap.validate();
     }
 
     record LoadedSchematic(

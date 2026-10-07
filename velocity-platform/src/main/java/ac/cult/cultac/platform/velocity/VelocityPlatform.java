@@ -4,8 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.network.PacketOwner;
-import ac.cult.cultac.network.codec.NativePacketCodecs;
-import ac.cult.cultac.network.event.PacketListenerPriority;
+import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.command.CommandService;
@@ -22,22 +21,20 @@ import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.data.ProtocolData;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import ac.cult.cultac.vanilla.VanillaBootstrap;
 import ac.grim.grimac.api.GrimAPIProvider;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import com.velocitypowered.api.proxy.ProxyServer;
 import io.netty.channel.Channel;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
-import net.minecraft.world.InteractionHand;
 import org.slf4j.Logger;
 
-/** Entry point loaded only after the pinned Minecraft model is installed. */
+/** Proxy platform backed by bundled model tables and each connection's received packets. */
 public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     private final ProxyServer proxy;
     private final Object nativePlugin;
-    private final VanillaBootstrap model;
     private final WireValueDecoder codecs;
     private final VelocityPlugin plugin;
     private final VelocityPermissions permissions = new VelocityPermissions();
@@ -55,9 +52,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     public VelocityPlatform(ProxyServer proxy, Object nativePlugin, Path directory, Logger logger) throws Exception {
         this.proxy = proxy;
         this.nativePlugin = nativePlugin;
-        this.model = VanillaBootstrap.open();
         var cleanup = new ArrayDeque<AutoCloseable>();
-        cleanup.push(model);
         try {
             this.codecs = ProtocolCodecs.decoder();
             cleanup.push(ProtocolCodecs::close);
@@ -77,7 +72,6 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                             proxy,
                             player,
                             (VelocityPlayer) players.getFromNativePlayerType(player),
-                            model.newConnection(),
                             channel.eventLoop(),
                             codecs,
                             bedrock),
@@ -93,7 +87,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             });
             // Vanilla's command packet uses FriendlyByteBuf.readUtf() (32767 characters).
             var runtime = ProtocolRuntime.create(
-                    ProtocolData.load(ProtocolVersion.V26_3), NativePacketCodecs.connectionCatalog(), 32767);
+                    ProtocolData.load(ProtocolVersion.V26_3), ClientPacketCodecs.connectionCatalog(), 32767);
             manager.configureTransport(runtime, transport::install, () -> {}, transport::remove);
             CultAPI.INSTANCE.getExtensionManager().registerResolver(context -> context == nativePlugin ? plugin : null);
         } catch (Exception | Error failure) {
@@ -111,13 +105,8 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     public void start() {
         CultAPI.INSTANCE.load(this, (StartableInitable) this::startBedrockBridge);
         loaded = true;
-        CultAPI.INSTANCE
-                .getNetworkManager()
-                .dispatcher()
-                .register(registrar ->
-                        registrar.registerSendListener(PacketListenerPriority.LOWEST, new VelocityRegistryPackets()));
         CultAPI.INSTANCE.start();
-        plugin.getLogger().info("CultAC is inspecting Velocity client connections using vanilla 26.3");
+        plugin.getLogger().info("CultAC is inspecting Velocity client connections using the bundled 26.3 model");
         plugin.getLogger()
                 .info(
                         "Proxy-only mode: server item-use verification, authoritative resends, pose resets, "
@@ -208,7 +197,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             }
 
             @Override
-            public InteractionHand getItemUsageHand(PlatformPlayer player) {
+            public Hand getItemUsageHand(PlatformPlayer player) {
                 return null;
             }
         };
@@ -239,7 +228,6 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             } catch (java.io.UncheckedIOException failure) {
                 plugin.getLogger().log(java.util.logging.Level.WARNING, "Unable to close packet codecs", failure);
             }
-            model.close();
         }
     }
 }

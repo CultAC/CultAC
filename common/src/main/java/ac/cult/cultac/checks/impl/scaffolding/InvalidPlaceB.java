@@ -5,10 +5,10 @@ import ac.cult.cultac.checks.DeadCheck;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import net.minecraft.SharedConstants;
 
 @CheckData(
         name = "InvalidPlaceB",
@@ -22,7 +22,7 @@ public class InvalidPlaceB extends BlockPlaceCheck {
     private static final Verbose V = Verbose.of("direction={sint}");
 
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     public InvalidPlaceB(CultPlayer player) {
         super(player);

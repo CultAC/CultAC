@@ -7,6 +7,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -63,7 +64,7 @@ public class PacketOrderF extends Check implements PostPredictionListener {
                 event,
                 player,
                 (packet.action() == ac.cult.cultac.protocol.value.InteractAction.ATTACK
-                                && net.minecraft.SharedConstants.getProtocolVersion()
+                                && ProtocolVersion.V26_3.protocol()
                                         >= ac.cult.cultac.protocol.ProtocolVersion.V26_1.protocol())
                         ? ACTION_ATTACK
                         : ACTION_INTERACT,

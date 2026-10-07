@@ -1,9 +1,9 @@
 package ac.cult.cultac.bedrock.protocol;
 
 import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.Objects;
 import java.util.UUID;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockAuthInputFrame implements AuthoredMovementFrame {

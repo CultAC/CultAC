@@ -3,7 +3,7 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import static org.junit.Assert.assertEquals;
 
 import ac.cult.cultac.checks.impl.prediction.PredVector;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 import org.junit.Test;
 
 public class FluidPushTest {

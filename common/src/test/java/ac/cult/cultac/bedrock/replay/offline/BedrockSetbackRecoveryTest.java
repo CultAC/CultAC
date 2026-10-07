@@ -2,13 +2,13 @@ package ac.cult.cultac.bedrock.replay.offline;
 
 import static org.junit.Assert.*;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.protocol.*;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -273,7 +273,7 @@ public class BedrockSetbackRecoveryTest {
                     .protocolVersion(2193)
                     .build());
             Vec3 target = new Vec3(4, 64, 2);
-            player.compensatedEntities.addEntity(71, EntityTypesCompat.OAK_BOAT, target, 0, 0, 0);
+            player.compensatedEntities.addEntity(71, EntityTypeIds.OAK_BOAT, target, 0, 0, 0);
             var boat = player.compensatedEntities.getEntity(71);
             boat.bedrockBoat = ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties.initial(171);
             ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.initializeBoat(
@@ -344,7 +344,7 @@ public class BedrockSetbackRecoveryTest {
         player.bedrockState.offerAuthInputFrame(BedrockAuthInputFrame.builder(player.playerUUID)
                 .protocolVersion(944)
                 .build());
-        player.compensatedEntities.addEntity(id, EntityTypesCompat.HORSE, new Vec3(4, 64, 2), 0, 0, 0);
+        player.compensatedEntities.addEntity(id, EntityTypeIds.HORSE, new Vec3(4, 64, 2), 0, 0, 0);
         ((PacketEntityHorse) player.compensatedEntities.getEntity(id)).hasSaddle = true;
         player.compensatedEntities.vehicles.setServerVehicle(id, new int[] {player.entityID}, 0);
         player.compensatedEntities.vehicles.applyVehiclePassengers(id, new int[] {player.entityID});

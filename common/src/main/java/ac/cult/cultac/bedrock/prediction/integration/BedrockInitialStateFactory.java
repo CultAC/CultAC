@@ -17,7 +17,7 @@ import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 final class BedrockInitialStateFactory {
     private BedrockInitialStateFactory() {}

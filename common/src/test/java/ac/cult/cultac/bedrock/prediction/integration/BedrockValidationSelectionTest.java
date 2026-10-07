@@ -27,9 +27,9 @@ import ac.cult.cultac.bedrock.prediction.world.HoneySlideState;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.UUID;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 

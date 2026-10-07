@@ -12,7 +12,7 @@ import versioning.BuildConfig
 import versioning.VersionUtil
 
 plugins {
-    // Shared classloader for paperweight-userdev across common and bukkit.
+    // The Paper host boundary alone compiles against NMS.
     id("io.papermc.paperweight.userdev") version "2.0.0-beta.23" apply false
 }
 

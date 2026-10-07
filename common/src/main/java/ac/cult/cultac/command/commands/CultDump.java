@@ -7,6 +7,7 @@ import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import ac.cult.cultac.platform.api.PlatformPlugin;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.common.PropertiesUtil;
 import ac.cult.cultac.utils.reflection.ReflectionUtils;
@@ -16,7 +17,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.util.Map;
 import java.util.Properties;
-import net.minecraft.SharedConstants;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
 import org.incendo.cloud.description.Description;
@@ -27,7 +27,7 @@ public class CultDump implements BuildableCommand {
     private static final boolean PAPER = ReflectionUtils.hasClass("com.destroystokyo.paper.PaperConfig")
             || ReflectionUtils.hasClass("io.papermc.paper.configuration.Configuration");
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private String link = null; // these links should not expire for a while
 

@@ -24,7 +24,7 @@ public final class AddEntityCodec implements PacketCodec<ClientboundAddEntity> {
     @Override
     public ClientboundAddEntity read(ByteBuf input, ProtocolContext context) {
         int entityId = Wire.readVarInt(input);
-        Wire.readUuid(input);
+        var uuid = Wire.readUuid(input);
         int entityTypeId = Wire.readVarInt(input);
         var types = context.data().registry("minecraft:entity_type");
         // Vanilla's DefaultedMappedRegistry maps unknown entity IDs to pig.
@@ -39,6 +39,6 @@ public final class AddEntityCodec implements PacketCodec<ClientboundAddEntity> {
         input.readByte(); // Head rotation is not consumed.
         int data = Wire.readVarInt(input);
         if (!modernVelocity) Wire.readShortVelocity(input);
-        return new ClientboundAddEntity(entityId, entityType, position, yaw, pitch, data);
+        return new ClientboundAddEntity(entityId, entityType, position, yaw, pitch, data, uuid);
     }
 }

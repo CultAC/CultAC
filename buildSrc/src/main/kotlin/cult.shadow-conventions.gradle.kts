@@ -31,7 +31,6 @@ tasks.named<ShadowJar>("shadowJar") {
         relocate("org.incendo", "ac.cult.cultac.shaded.incendo")
         relocate("io.leangen.geantyref", "ac.cult.cultac.shaded.geantyref") // Required by cloud
         relocate("com.zaxxer", "ac.cult.cultac.shaded.zaxxer") // Database history
-        relocate("org.objectweb.asm", "ac.cult.cultac.shaded.asm") // Transform classloaded vanilla jar for thread safety and memory reduction
     }
     mergeServiceFiles()
 }

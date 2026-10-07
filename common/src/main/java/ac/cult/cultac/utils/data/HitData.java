@@ -1,22 +1,21 @@
 package ac.cult.cultac.utils.data;
 
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import lombok.Getter;
 import lombok.ToString;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 
 @Getter
 @ToString
 public class HitData {
     BlockPos position;
     Vector3dm blockHitLocation;
-    BlockState state;
+    int state;
     Direction closestDirection;
 
-    public HitData(BlockPos position, Vector3dm blockHitLocation, Direction closestDirection, BlockState state) {
+    public HitData(BlockPos position, Vector3dm blockHitLocation, Direction closestDirection, int state) {
         this.position = position;
         this.blockHitLocation = blockHitLocation;
         this.closestDirection = closestDirection;

@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -9,7 +10,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
-import net.minecraft.world.item.ItemStack;
 
 public class PacketPlayerAttack {
 
@@ -28,13 +28,12 @@ public class PacketPlayerAttack {
     private void handleInteractPacket(CultPlayer player, ServerboundInteract interact) {
         if (interact != null) {
             if (interact.action() == InteractAction.ATTACK) {
-                ItemStack heldItem = player.getInventory().getHeldItem();
+                SimItemStack heldItem = player.getInventory().getHeldItem();
                 PacketEntity entity = player.compensatedEntities.getEntity(interact.entityId());
 
                 if (entity != null) {
                     boolean hasKnockbackSword = heldItem != null
-                            && ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(
-                                            heldItem, net.minecraft.world.item.enchantment.Enchantments.KNOCKBACK)
+                            && ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(heldItem, "minecraft:knockback")
                                     > 0;
 
                     player.maxPlayerAttackSlow += 1;

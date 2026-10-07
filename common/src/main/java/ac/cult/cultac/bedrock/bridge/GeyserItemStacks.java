@@ -1,104 +1,92 @@
 package ac.cult.cultac.bedrock.bridge;
 
-import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
-import java.util.List;
+import ac.cult.blocksim.data.ItemRegistry;
+import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.cultac.network.codec.ModelItemValues;
+import ac.cult.cultac.protocol.ProtocolCodecs;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.WireValueDecoder;
+import ac.cult.cultac.protocol.data.IdTable;
+import ac.cult.cultac.protocol.data.ModelRegistryData;
+import io.netty.buffer.Unpooled;
+import java.util.HashMap;
 import java.util.Map;
-import net.minecraft.core.component.DataComponentType;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.nbt.*;
-import net.minecraft.world.item.ItemStack;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.RegistryCache;
+import org.geysermc.mcprotocollib.protocol.codec.MinecraftCodec;
+import org.geysermc.mcprotocollib.protocol.codec.MinecraftTypes;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
 
-/** Converts item values by registry names; connection-specific wire IDs never enter NMS codecs. */
+/** Stock Geyser values enter the same owned item decoder as Java inventory packets. */
 final class GeyserItemStacks {
     private GeyserItemStacks() {}
 
-    static ItemStack toServerItem(
-            java.util.function.Supplier<net.minecraft.core.RegistryAccess> registrySource,
-            GeyserSession session,
-            org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack source) {
-        if (source == null || source.getAmount() <= 0) return ItemStack.EMPTY;
+    static SimItemStack toModelItem(GeyserSession session, ItemStack source, ItemRegistry items) {
+        if (source == null || source.getAmount() <= 0) return SimItemStack.EMPTY;
         var mapping = session.getItemMappings().getMapping(source.getId()).getJavaItem();
         if (mapping.javaId() != source.getId()) throw new IllegalArgumentException("Unknown item " + source.getId());
-        var item = NmsIdentifierUtil.registryOptional(BuiltInRegistries.ITEM, mapping.javaIdentifier())
-                .orElseThrow();
-        ItemStack result = new ItemStack(item, source.getAmount());
-        if (source.getDataComponentsPatch() == null) return result;
-        var ops = registrySource.get().createSerializationContext(NbtOps.INSTANCE);
-        source.getDataComponentsPatch().getDataComponents().forEach((sourceType, component) -> {
-            var targetType = component(sourceType);
-            if (component.getValue() == null) {
-                result.remove(targetType);
-            } else if (targetType == DataComponents.CREATIVE_SLOT_LOCK) {
-                result.set(DataComponents.CREATIVE_SLOT_LOCK, net.minecraft.util.Unit.INSTANCE);
-            } else if ("minecraft:additional_trade_cost"
-                    .equals(NmsIdentifierUtil.registryKey(BuiltInRegistries.DATA_COMPONENT_TYPE, targetType))) {
-                // 26.x-only component: matched by name so 1.21.x hosts never link its field.
-                setValue(result, targetType, component.getValue());
-            } else if (targetType == DataComponents.MAP_POST_PROCESSING) {
-                result.set(
-                        DataComponents.MAP_POST_PROCESSING,
-                        net.minecraft.world.item.component.MapPostProcessing.ID_MAP.apply(
-                                (Integer) component.getValue()));
-            } else {
-                Object value = GeyserComponentValues.serialize(session.getRegistryCache(), component);
-                set(result, targetType, ops, tag(value));
-            }
-        });
+        var result = decode(source, names(session), items);
+        if (!result.itemKey().equals(mapping.javaIdentifier()))
+            throw new IllegalArgumentException("Geyser item mapping differs from its protocol " + version() + ": "
+                    + source.getId() + " " + mapping.javaIdentifier() + " != " + result.itemKey());
         return result;
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T> void setValue(ItemStack stack, DataComponentType<T> type, Object value) {
-        stack.set(type, (T) value);
+    static ProtocolVersion version() {
+        return ProtocolVersion.of(MinecraftCodec.CODEC.getProtocolVersion());
     }
 
-    private static <T> void set(
-            ItemStack stack, DataComponentType<T> type, com.mojang.serialization.DynamicOps<Tag> ops, Tag value) {
-        var codec = type.codec();
-        if (codec == null) throw new IllegalArgumentException("Component has no named codec: " + type);
-        stack.set(type, codec.parse(ops, value).getOrThrow());
-    }
-
-    static Tag tag(Object value) {
-        return switch (value) {
-            case String v -> StringTag.valueOf(v);
-            case Boolean v -> ByteTag.valueOf(v);
-            case Byte v -> ByteTag.valueOf(v);
-            case Short v -> ShortTag.valueOf(v);
-            case Integer v -> IntTag.valueOf(v);
-            case Long v -> LongTag.valueOf(v);
-            case Float v -> FloatTag.valueOf(v);
-            case Double v -> DoubleTag.valueOf(v);
-            case byte[] v -> new ByteArrayTag(v.clone());
-            case int[] v -> new IntArrayTag(v.clone());
-            case long[] v -> new LongArrayTag(v.clone());
-            case Map<?, ?> v -> {
-                CompoundTag result = new CompoundTag();
-                v.forEach((key, item) -> result.put((String) key, tag(item)));
-                yield result;
-            }
-            case List<?> v -> {
-                ListTag result = new ListTag();
-                for (Object element : v) result.add(tag(element));
-                yield result;
-            }
-            case null -> EndTag.INSTANCE;
-            default -> throw new IllegalArgumentException("Unknown component value " + value.getClass());
-        };
-    }
-
-    static net.minecraft.core.component.DataComponentType<?> component(
-            org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentType<?> type) {
+    static SimItemStack decode(ItemStack source, WireValueDecoder.Registries names, ItemRegistry items) {
+        var buffer = Unpooled.buffer();
         try {
-            // Geyser-Spigot relocates Adventure; only the identifier string crosses that boundary.
-            String key = type.getClass().getMethod("getKey").invoke(type).toString();
-            var result = NmsIdentifierUtil.registryValue(BuiltInRegistries.DATA_COMPONENT_TYPE, key);
-            if (result == null) throw new IllegalArgumentException("Unknown item component " + key);
+            // MCProtocolLib writes its own schema, including nested templates and removals.
+            // Via's versioned reader resolves that schema into the fixed 26.3 model.
+            MinecraftTypes.writeOptionalItemStack(buffer, source);
+            var result = new ModelItemValues(ProtocolCodecs.decoder(), version(), names, items).item(buffer, false);
+            if (buffer.isReadable()) throw new IllegalStateException("Geyser item capture left unread bytes");
             return result;
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("Cannot read component identifier", failure);
+        } finally {
+            buffer.release();
         }
+    }
+
+    private static WireValueDecoder.Registries names(GeyserSession session) {
+        var defaults = ModelRegistryData.load(version());
+        var received = new HashMap<String, IdTable>();
+        for (var key : RegistryCache.READERS.keySet()) {
+            // Geyser-Spigot relocates Adventure; only strings cross that boundary.
+            String name;
+            try {
+                name = key.getClass().getMethod("registryKey").invoke(key).toString();
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException("Cannot read Geyser registry identifier", failure);
+            }
+            var entries = session.getRegistryCache().registry(key).keys();
+            received.put(
+                    name,
+                    new IdTable(name, entries.stream().map(Object::toString).toList()));
+        }
+        var snapshot = Map.copyOf(received);
+        return new WireValueDecoder.Registries() {
+            private IdTable table(String name) {
+                var table = snapshot.get(name);
+                return table == null ? defaults.registry(name) : table;
+            }
+
+            @Override
+            public String name(String registry, int id) {
+                return table(registry).name(id);
+            }
+
+            @Override
+            public int id(String registry, String name) {
+                return table(registry).id(name);
+            }
+
+            @Override
+            public boolean preserveIdentifiers() {
+                return true;
+            }
+        };
     }
 }

@@ -1,14 +1,18 @@
 package ac.cult.cultac.checks.impl.prediction.stage.world;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.MovementEffect;
-import ac.cult.cultac.utils.collisions.CollisionData;
+import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
@@ -16,14 +20,13 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.FluidTypeFlowing;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
 import com.google.common.util.concurrent.AtomicDouble;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import java.util.ArrayList;
@@ -34,12 +37,6 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.phys.Vec3;
 
 public class WorldStageBuilder {
     // Temporary Bedrock push-out approximation, inset on every face.
@@ -103,10 +100,8 @@ public class WorldStageBuilder {
         DesyncStatus weirdFourteenFifteenLava = DesyncStatus.FALSE;
         if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_15_2)
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14)) {
-            weirdFourteenFifteenLava = DesyncStatus.fromBoolean(Collisions.hasMaterial(
-                    player,
-                    simulationContext.getToMaximumExtent(),
-                    data -> data.getFirst().getBlock() == Blocks.LAVA));
+            weirdFourteenFifteenLava = DesyncStatus.fromBoolean(Collisions.hasState(
+                    player, simulationContext.getToMaximumExtent(), (block, pos) -> BlockIds.is(block, BlockIds.LAVA)));
             // too lazy to do this correctly, this will do. (solves issues like between tick stuff... mostly)
             if (lastPrediction != null) {
                 isInLava = isInLava.addBoolean(
@@ -153,9 +148,10 @@ public class WorldStageBuilder {
         AtomicReference<DesyncStatus> climbing =
                 new AtomicReference<>(DesyncStatus.fromBoolean(Collisions.onClimbable(player, to.x, to.y, to.z)));
 
-        BlockState toState = player.compensatedWorld.getBlockDataAt(to.x, to.y, to.z);
-        if (toState.getBlock() == Blocks.POWDER_SNOW
-                && player.getInventory().getBoots().getItem() == net.minecraft.world.item.Items.LEATHER_BOOTS) {
+        int toState = player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(to.x, to.y, to.z));
+        if (BlockIds.is(toState, BlockIds.POWDER_SNOW)
+                && player.getInventory().getBoots().getItem()
+                        == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS) {
             climbing.set(DesyncStatus.UNKNOWN);
         }
 
@@ -164,13 +160,9 @@ public class WorldStageBuilder {
                 GetBoundingBox.getBoundingBoxFromPosAndSize(to.x, to.y, to.z, feetBoxSize, feetBoxSize);
 
         if (player.isPointThree()) {
-            Collisions.hasMaterial(player, feetBB, mat -> {
-                BlockState state = mat.getFirst();
-                BlockPos blockPos = mat.getSecond();
-
+            Collisions.hasState(player, feetBB, (state, blockPos) -> {
                 boolean onClimbable = Collisions.onClimbable(player, blockPos.getX(), blockPos.getY(), blockPos.getZ());
-                CollisionBox blockCollision = CollisionData.getData(state.getBlock())
-                        .getMovementCollisionBox(player, player.getClientVersion(), state);
+                CollisionBox blockCollision = ClientBlockShapes.movement(player, state, 0, 0, 0);
 
                 // The player can't occupy this block, so we don't care.
                 if (!onClimbable && blockCollision.isFullBlock()) {
@@ -185,7 +177,7 @@ public class WorldStageBuilder {
         // Pigs and striders are the only vehicle that can climb
         if (simulationContext.getVehicle() != null
                 && !(simulationContext.getVehicle() instanceof PacketEntityStrider
-                        || simulationContext.getVehicle().type == EntityTypesCompat.PIG)) {
+                        || simulationContext.getVehicle().type == EntityTypeIds.PIG)) {
             climbingAtStart = DesyncStatus.FALSE;
             climbing.set(DesyncStatus.FALSE);
         }
@@ -199,7 +191,7 @@ public class WorldStageBuilder {
 
         boolean isSuffocating = mightBeSuffocating(player, simulationContext);
         int numColliding = getNumEntitiesCollidingWith(simulationContext);
-        Block onBlock = BlockProperties.getOnPos(player, mainSupportingBlockData, to);
+        int onBlock = BlockProperties.getOnPos(player, mainSupportingBlockData, to);
 
         SimpleCollisionBox minExtent = simulationContext.getFromMinimumExtent();
         StuckEdgeData stuckEdgeData = couldBeOnStuckEdge(
@@ -220,10 +212,10 @@ public class WorldStageBuilder {
         player.wasEyeInWater = ClientFluidQueries.eyesInWater(
                 player, simulationContext.getFromMinimumExtent(), from, from.y + player.getEyeHeight());
         // Portal contact uses the swept inside-block volume.
-        player.intersectedWithNetherPortal = Collisions.hasMaterial(
+        player.intersectedWithNetherPortal = Collisions.hasState(
                 player,
                 simulationContext.getFromMinimumExtent().copy().union(simulationContext.getToMinimumExtent()),
-                pair -> pair.getFirst().getBlock() == Blocks.NETHER_PORTAL);
+                (block, pos) -> BlockIds.is(block, BlockIds.NETHER_PORTAL));
 
         DesyncStatus honeySlide = isSlidingDown(player, simulationContext);
         // MCP-Reborn Entity#checkSupportingBlock stores mainSupportingBlockPos
@@ -301,13 +293,10 @@ public class WorldStageBuilder {
             float feetBoxSize = (float) (player.getMovementThreshold() * 2);
             SimpleCollisionBox feetBB = GetBoundingBox.getBoundingBoxFromPosAndSize(
                     position.x, position.y, position.z, feetBoxSize, feetBoxSize);
-            Collisions.hasMaterial(player, feetBB, mat -> {
-                BlockState state = mat.getFirst();
-                BlockPos blockPos = mat.getSecond();
+            Collisions.hasState(player, feetBB, (state, blockPos) -> {
                 boolean onClimbable = Collisions.onClimbable(
                         player, blockPos.getX(), blockPos.getY(), blockPos.getZ(), context.isGliding());
-                CollisionBox blockCollision = CollisionData.getData(state.getBlock())
-                        .getMovementCollisionBox(player, player.getClientVersion(), state);
+                CollisionBox blockCollision = ClientBlockShapes.movement(player, state, 0, 0, 0);
                 if (onClimbable || !blockCollision.isFullBlock()) {
                     climbing.set(climbing.get().addBoolean(onClimbable));
                 }
@@ -356,21 +345,21 @@ public class WorldStageBuilder {
         SimpleCollisionBox lavaCollision = box.copy();
         if (oldLavaLogic) {
             lavaCollision.expand(-0.1f, 0, -0.1f);
-            state.inLava = Collisions.hasMaterial(
-                    player, lavaCollision, mat -> mat.getFirst().getBlock() == Blocks.LAVA);
+            state.inLava =
+                    Collisions.hasState(player, lavaCollision, (block, pos) -> BlockIds.is(block, BlockIds.LAVA));
         }
 
-        Collisions.hasMaterial(player, box, mat -> {
+        Collisions.hasState(player, box, (block, pos) -> {
             boolean isInsideFluid = false;
-            ClientFluidQueries.Sample fluid = ClientFluidQueries.sample(player, mat.getFirst(), mat.getSecond());
+            ClientFluidQueries.Sample fluid = ClientFluidQueries.sample(player, block, pos);
             if (fluid.water()) {
                 double fluidHeight = fluid.height();
-                boolean status = calculateStatusForFluid(player, box, fluidHeight, mat.getSecond());
+                boolean status = calculateStatusForFluid(player, box, fluidHeight, pos);
                 state.setInWater(status || state.isInWater());
                 if (status) {
                     state.setMaxWaterHeight(Math.max(
                             state.getMaxWaterHeight(),
-                            getFluidHeightAboveMinY(entityBoundingBoxMinY, fluidHeight, mat.getSecond())));
+                            getFluidHeightAboveMinY(entityBoundingBoxMinY, fluidHeight, pos)));
                 }
                 isInsideFluid = status;
             }
@@ -378,12 +367,12 @@ public class WorldStageBuilder {
             if (!oldLavaLogic && fluid.lava()) {
                 double fluidHeight = fluid.height();
                 // 1.14 doesn't care about actual lava collision box
-                boolean status = calculateStatusForFluid(player, lavaCollision, fluidHeight, mat.getSecond());
+                boolean status = calculateStatusForFluid(player, lavaCollision, fluidHeight, pos);
                 state.setInLava(status || state.isInLava());
                 if (status) {
                     state.setMaxLavaHeight(Math.max(
                             state.getMaxLavaHeight(),
-                            getFluidHeightAboveMinY(entityBoundingBoxMinY, fluidHeight, mat.getSecond())));
+                            getFluidHeightAboveMinY(entityBoundingBoxMinY, fluidHeight, pos)));
                 }
                 isInsideFluid |= status;
             }
@@ -391,11 +380,7 @@ public class WorldStageBuilder {
             // If the player isn't touching the fluid, then they aren't being pushed by the water
             if (!isInsideFluid) return false;
 
-            Vector3dm flow = FluidTypeFlowing.getFlow(
-                    player,
-                    mat.getSecond().getX(),
-                    mat.getSecond().getY(),
-                    mat.getSecond().getZ());
+            Vector3dm flow = FluidTypeFlowing.getFlow(player, pos.getX(), pos.getY(), pos.getZ());
             if (flow.lengthSquared() > 0) {
                 state.setInFlowingFluid(true);
             }
@@ -602,13 +587,13 @@ public class WorldStageBuilder {
                 PacketEntity entity = entry.getValue();
                 boolean boatLike = ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(entity.type);
                 boolean minecartLike = entity.isMinecart();
-                boolean bedrockHardCollidingEntity = entity.type == EntityTypesCompat.STRIDER
+                boolean bedrockHardCollidingEntity = entity.type == EntityTypeIds.STRIDER
                         || ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isHappyGhast(entity.type);
                 boolean hardCollidingEntity = boatLike || minecartLike || bedrockHardCollidingEntity;
                 // Players can push living entities. Some entities also provide
                 // hard movement collision boxes that Bedrock consumes as geometry.
                 // The one exemption to a living entity is an armor stand (matters due to plugins sending them)
-                if (!entity.isLivingEntity() && !hardCollidingEntity || entity.type == EntityTypesCompat.ARMOR_STAND)
+                if (!entity.isLivingEntity() && !hardCollidingEntity || entity.type == EntityTypeIds.ARMOR_STAND)
                     continue;
 
                 // MCP-Reborn push/collision checks use the entity's concrete
@@ -684,7 +669,7 @@ public class WorldStageBuilder {
                 // Entity#checkInsideBlocks then replays that movement one axis at a time before
                 // BubbleColumnBlock#entityInside applies Entity#onAboveBubbleColumn/onInsideBubbleColumn.
                 Vec3 stepFrom = from;
-                for (net.minecraft.core.Direction.Axis axis : axisStepOrder(context.getTarget())) {
+                for (Direction.Axis axis : axisStepOrder(context.getTarget())) {
                     double movementOnAxis = movement.get(axis);
                     if (movementOnAxis == 0.0) {
                         continue;
@@ -712,26 +697,20 @@ public class WorldStageBuilder {
         return new BubbleColumnData(airUpwards[0], pushUpwards[0], airDownwards[0], pushDownwards[0]);
     }
 
-    private static List<net.minecraft.core.Direction.Axis> axisStepOrder(Vec3 movement) {
+    private static List<Direction.Axis> axisStepOrder(Vec3 movement) {
         // MCP-Reborn 26.1 net.minecraft.core.Direction#axisStepOrder and the 1.21.1 client
         // Entity#collideWithShapes both resolve Y first, then the smaller
         // horizontal component before the larger one.
         return Math.abs(movement.x) < Math.abs(movement.z)
-                ? List.of(
-                        net.minecraft.core.Direction.Axis.Y,
-                        net.minecraft.core.Direction.Axis.Z,
-                        net.minecraft.core.Direction.Axis.X)
-                : List.of(
-                        net.minecraft.core.Direction.Axis.Y,
-                        net.minecraft.core.Direction.Axis.X,
-                        net.minecraft.core.Direction.Axis.Z);
+                ? List.of(Direction.Axis.Y, Direction.Axis.Z, Direction.Axis.X)
+                : List.of(Direction.Axis.Y, Direction.Axis.X, Direction.Axis.Z);
     }
 
-    private static net.minecraft.core.Direction positiveDirection(net.minecraft.core.Direction.Axis axis) {
+    private static Direction positiveDirection(Direction.Axis axis) {
         return switch (axis) {
-            case X -> net.minecraft.core.Direction.EAST;
-            case Y -> net.minecraft.core.Direction.UP;
-            case Z -> net.minecraft.core.Direction.SOUTH;
+            case X -> Direction.EAST;
+            case Y -> Direction.UP;
+            case Z -> Direction.SOUTH;
         };
     }
 
@@ -751,13 +730,11 @@ public class WorldStageBuilder {
         SimpleCollisionBox sweptBox = fromBox.copy().union(toBox);
         boolean longMove = from.distanceToSqr(to) > 0.9999900000002526D * 0.9999900000002526D;
 
-        Collisions.hasMaterial(player, sweptBox, mat -> {
-            BlockState state = mat.getFirst();
-            if (state.getBlock() != Blocks.BUBBLE_COLUMN) {
+        Collisions.hasState(player, sweptBox, (state, pos) -> {
+            if (!BlockIds.is(state, BlockIds.BUBBLE_COLUMN)) {
                 return false;
             }
 
-            BlockPos pos = mat.getSecond();
             boolean preciseIntersection = longMove || intersectsBlock(preciseToBox, pos);
             boolean pathTouches = preciseIntersection
                     || Collisions.sweptFullBlockEntityInside(fromBox, toBox, pos.getX(), pos.getY(), pos.getZ());
@@ -765,12 +742,14 @@ public class WorldStageBuilder {
                 return false;
             }
 
-            net.minecraft.world.level.block.state.BlockState blockAbove =
-                    player.compensatedWorld.getBlockStateAt(pos.above());
-            boolean isDown = NmsBlockTags.getBoolean(NmsBlockTags.toNmsState(state), BlockStateProperties.DRAG);
-            boolean airAbove =
-                    blockAbove.getCollisionShape(player.compensatedWorld, pos).isEmpty()
-                            && blockAbove.getFluidState().isEmpty();
+            int blockAbove = player.compensatedWorld.getBlockStateIdAt(pos.above());
+            boolean isDown = BlockProps.DRAG.has(state) && BlockProps.DRAG.booleanValue(state);
+            boolean airAbove = player.compensatedWorld
+                            .geometry()
+                            .collision(blockAbove, pos)
+                            .isEmpty()
+                    && ac.cult.cultac.utils.nmsutil.ClientFluidQueries.modelFluid(blockAbove)
+                            .isEmpty();
             if (isDown) {
                 if (airAbove) airDownwards[0]++;
                 else pushDownwards[0]++;
@@ -822,8 +801,8 @@ public class WorldStageBuilder {
         SimpleCollisionBox playerBox = context.getToActualPose().expand(-0.001);
 
         int[] soulSandCount = new int[1];
-        Collisions.hasMaterial(player, playerBox, mat -> {
-            if (mat.getFirst().getBlock() == Blocks.SOUL_SAND) {
+        Collisions.hasState(player, playerBox, (block, pos) -> {
+            if (BlockIds.is(block, BlockIds.SOUL_SAND)) {
                 soulSandCount[0]++;
             }
             return false;
@@ -840,16 +819,14 @@ public class WorldStageBuilder {
                 context.getFromMinimumExtent().copy().union(context.getToMinimumExtent());
         SimpleCollisionBox largeHoneySearch =
                 context.getFromMaximumExtent().copy().union(context.getToMaximumExtent());
-        boolean hasSmall = Collisions.hasMaterial(player, smallHoneySearch, mat -> {
-            if (mat.getFirst().getBlock() == Blocks.HONEY_BLOCK) {
-                BlockPos pos = mat.getSecond();
+        boolean hasSmall = Collisions.hasState(player, smallHoneySearch, (block, pos) -> {
+            if (BlockIds.is(block, BlockIds.HONEY_BLOCK)) {
                 return Collisions.isSlidingDown(player, pos.getX(), pos.getY(), pos.getZ(), context.getEnd());
             }
             return false;
         });
-        boolean hasLarge = Collisions.hasMaterial(player, largeHoneySearch, mat -> {
-            if (mat.getFirst().getBlock() == Blocks.HONEY_BLOCK) {
-                BlockPos pos = mat.getSecond();
+        boolean hasLarge = Collisions.hasState(player, largeHoneySearch, (block, pos) -> {
+            if (BlockIds.is(block, BlockIds.HONEY_BLOCK)) {
                 return Collisions.isSlidingDown(player, pos.getX(), pos.getY(), pos.getZ(), context.getEnd());
             }
             return false;
@@ -922,10 +899,10 @@ public class WorldStageBuilder {
         // LivingEntity when entity.getInBlockState().is(this). Entity#getInBlockState
         // is the block at the root entity's current blockPosition, not every block
         // intersected by its body AABB during Entity#checkInsideBlocks.
-        return player.compensatedWorld
-                        .getBlockDataAt(context.getEnd().x, context.getEnd().y, context.getEnd().z)
-                        .getBlock()
-                == Blocks.POWDER_SNOW;
+        Vec3 end = context.getEnd();
+        return BlockIds.is(
+                player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(end.x, end.y, end.z)),
+                BlockIds.POWDER_SNOW);
     }
 
     private Vec3 firstKnownStuckSpeed(Vec3 primary, Vec3 swept) {
@@ -994,17 +971,9 @@ public class WorldStageBuilder {
         AtomicReference<BlockPos> bestBlockPos = new AtomicReference<>();
         AtomicDouble blockPosDistance = new AtomicDouble(Double.MAX_VALUE);
 
-        Collisions.hasMaterial(player, searchBox, (thing) -> {
-            BlockPos blockPos = thing.getSecond();
-
-            CollisionBox collision = CollisionData.getData(thing.getFirst().getBlock())
-                    .getMovementCollisionBox(
-                            player,
-                            player.getClientVersion(),
-                            thing.getFirst(),
-                            blockPos.getX(),
-                            blockPos.getY(),
-                            blockPos.getZ());
+        Collisions.hasState(player, searchBox, (block, blockPos) -> {
+            CollisionBox collision =
+                    ClientBlockShapes.movement(player, block, blockPos.getX(), blockPos.getY(), blockPos.getZ());
             if (!collision.isIntersected(searchBox)) return false;
 
             Vec3 blockCenter = new Vec3(blockPos.getX() + 0.5, blockPos.getY() + 0.5, blockPos.getZ() + 0.5);

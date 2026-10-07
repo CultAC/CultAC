@@ -16,11 +16,11 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.OptifineFastMath;
 import ac.cult.cultac.utils.math.VanillaMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import net.minecraft.world.phys.Vec3;
 
 public class HorizontalAnalyzer implements EngineCheck {
     public static final double HORIZONTAL_INPUT_UNCERTAINTY = 0.001D;

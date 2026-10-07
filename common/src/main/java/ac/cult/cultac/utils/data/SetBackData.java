@@ -1,10 +1,10 @@
 package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
+import ac.cult.cultac.utils.math.Vec3;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
-import net.minecraft.world.phys.Vec3;
 
 @Getter
 @Setter

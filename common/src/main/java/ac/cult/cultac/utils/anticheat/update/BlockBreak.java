@@ -1,7 +1,7 @@
 package ac.cult.cultac.utils.anticheat.update;
 
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.collisions.HitboxData;
@@ -10,8 +10,6 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.Getter;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.state.BlockState;
 
 public final class BlockBreak {
     public final BlockPos position;
@@ -19,7 +17,7 @@ public final class BlockBreak {
     public final int faceId;
     public final PlayerAction action;
     public final int sequence;
-    public final BlockState block;
+    public final int block;
     private final CultPlayer player;
 
     @Getter
@@ -32,7 +30,7 @@ public final class BlockBreak {
             int faceId,
             PlayerAction action,
             int sequence,
-            BlockState block) {
+            int block) {
         this.player = player;
         this.position = position;
         this.face = face;
@@ -47,12 +45,8 @@ public final class BlockBreak {
     }
 
     public SimpleCollisionBox getCombinedBox() {
-        CollisionBox placedOn = HitboxData.getBlockHitbox(
-                player,
-                SpigotConversionUtil.fromNmsBlockState(block),
-                position.getX(),
-                position.getY(),
-                position.getZ());
+        CollisionBox placedOn =
+                HitboxData.getBlockHitbox(player, block, position.getX(), position.getY(), position.getZ());
 
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         placedOn.downCast(boxes);

@@ -7,7 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.CultMath;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public class XZBug implements UncertaintyHandler {
     @Override

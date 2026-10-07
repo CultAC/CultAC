@@ -5,9 +5,9 @@ import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.world.phys.Vec3;
 
 final class BedrockStartingVelocityProfiles {
     private BedrockStartingVelocityProfiles() {}

@@ -1,26 +1,24 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.entity.EntityTags;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import net.minecraft.SharedConstants;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.tags.EntityTypeTags;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.material.Fluids;
-import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.CollisionContext;
 
 /**
  * MCP-Reborn 26.2 PotentSulfurBlockEntity#LAUNCH_ENTITY_TICKER: while a potent
@@ -31,7 +29,7 @@ import net.minecraft.world.phys.shapes.CollisionContext;
  */
 public final class GeyserVelocity {
     private static final ClientVersion NATIVE_MODEL_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
     // Vanilla's literal is 0.2F, promoted to double by Vec3#add.
     private static final double LAUNCH_FORCE = 0.2F;
     private static final float BASE_LAUNCH_SPEED = 0.3F;
@@ -115,7 +113,7 @@ public final class GeyserVelocity {
             int x = ticker.getX();
             int y = ticker.getY();
             int z = ticker.getZ();
-            BlockState state = player.compensatedWorld.getBlockStateAt(ticker);
+            int state = player.compensatedWorld.getBlockStateIdAt(ticker);
             if (!isEruptingPotentSulfur(state)) {
                 continue;
             }
@@ -163,32 +161,27 @@ public final class GeyserVelocity {
         return entity != null
                 && !entity.isDead
                 && entity.riding == null
-                && !BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(entity.type).is(EntityTypeTags.NOT_AFFECTED_BY_GEYSERS)
+                && !EntityTags.NOT_AFFECTED_BY_GEYSERS.test(entity.type)
                 && gameMode != GameMode.SPECTATOR
                 && (!rootIsPlayer || !playerFlying);
     }
 
-    private static boolean isEruptingPotentSulfur(BlockState state) {
-        BlockState data = SpigotConversionUtil.fromNmsBlockState(state);
-        if (!"POTENT_SULFUR".equals(ac.cult.cultac.utils.nmsutil.NmsBlockTags.name(data.getBlock()))) {
-            return false;
-        }
-        // The PotentSulfurBlock class only exists on 26.2 servers, so read the
-        // BlockStateProperties#POTENT_SULFUR_STATE property from the serialized form.
-        String serialized = net.minecraft.commands.arguments.blocks.BlockStateParser.serialize(data);
-        return serialized.contains("potent_sulfur_state=erupting")
-                || serialized.contains("potent_sulfur_state=continuous");
+    private static boolean isEruptingPotentSulfur(int state) {
+        if (!BlockIds.is(state, BlockIds.POTENT_SULFUR)) return false;
+        // PotentSulfurState ordinals: ERUPTING=3, CONTINUOUS=4.
+        int phase = BlockProps.POTENT_SULFUR_STATE.value(state);
+        return phase == 3 || phase == 4;
     }
 
     // MCP-Reborn 26.2 PotentSulfurBlockEntity#findNoxiousGasSourceBlock
     private static int waterBlocksAbove(CultPlayer player, int x, int y, int z) {
         int maxY = y + MAX_WATER_SCAN;
         for (int cy = y + 1; cy <= maxY; cy++) {
-            BlockState state = player.compensatedWorld.getBlockStateAt(x, cy, z);
-            boolean waterSource =
-                    player.compensatedWorld.getFluidStateAt(x, cy, z).isSourceOfType(Fluids.WATER);
-            if (!waterSource || (state.getBlock() != Blocks.WATER && !isPassable(player, state, x, cy, z))) {
-                if (state.isAir() || isPassable(player, state, x, cy, z)) {
+            int state = player.compensatedWorld.getBlockStateIdAt(x, cy, z);
+            boolean waterSource = player.compensatedWorld.isWaterSourceBlock(x, cy, z);
+            if (!waterSource || (!BlockIds.is(state, BlockIds.WATER) && !isPassable(player, state, x, cy, z))) {
+                if (DataTables.defaults().registry().facts(state).has(StateFacts.AIR)
+                        || isPassable(player, state, x, cy, z)) {
                     return cy - y - 1;
                 }
                 return -1;
@@ -200,7 +193,7 @@ public final class GeyserVelocity {
     // MCP-Reborn 26.2 PotentSulfurBlockEntity#getUnobstructedBlockCount
     private static int unobstructedCount(CultPlayer player, int x, int startY, int z, int maxHeight) {
         for (int i = 0; i < maxHeight; i++) {
-            BlockState state = player.compensatedWorld.getBlockStateAt(x, startY + i, z);
+            int state = player.compensatedWorld.getBlockStateIdAt(x, startY + i, z);
             if (!isPassable(player, state, x, startY + i, z)) {
                 return i;
             }
@@ -209,12 +202,13 @@ public final class GeyserVelocity {
     }
 
     // MCP-Reborn 26.2 PotentSulfurBlockEntity#isGeyserPassableBlock
-    private static boolean isPassable(CultPlayer player, BlockState state, int x, int y, int z) {
-        if (state.isAir() || state.getBlock() == Blocks.WATER) {
+    private static boolean isPassable(CultPlayer player, int state, int x, int y, int z) {
+        if (DataTables.defaults().registry().facts(state).has(StateFacts.AIR) || BlockIds.is(state, BlockIds.WATER)) {
             return true;
         }
-        return state.getCollisionShape(
-                        player.compensatedWorld, new BlockPos(x, y, z), CollisionContext.positionContext(y - 1))
+        return player.compensatedWorld
+                .geometry()
+                .collision(state, new BlockPos(x, y, z), ac.cult.blocksim.engine.EntityCollisionContext.position(y - 1))
                 .isEmpty();
     }
 }

@@ -11,8 +11,8 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
-import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public class CollisionModifierTest {

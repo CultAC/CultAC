@@ -18,9 +18,9 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.Set;
-import net.minecraft.world.phys.Vec3;
 
 public interface MovementEngine {
     WorldData buildWorld(

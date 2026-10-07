@@ -1,10 +1,9 @@
 package ac.cult.cultac.utils.data.packetentity;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
-import net.minecraft.world.entity.EntityType;
 
 public class PacketEntityHorse extends PacketEntityTrackXRot {
     public boolean isRearing = false;
@@ -22,8 +21,7 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
     public float standAnimO = 0.0F;
     public long horseFlagsRevision;
 
-    public PacketEntityHorse(
-            CultPlayer player, int entityId, EntityType type, double x, double y, double z, float xRot) {
+    public PacketEntityHorse(CultPlayer player, int entityId, int type, double x, double y, double z, float xRot) {
         super(player, entityId, type, x, y, z, xRot);
 
         if (EntityTypeUtil.isChestedHorseFamily(type)) {
@@ -31,7 +29,7 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
             movementSpeedAttribute = 0.175f;
         }
 
-        if (type == EntityTypesCompat.ZOMBIE_HORSE || type == EntityTypesCompat.SKELETON_HORSE) {
+        if (type == EntityTypeIds.ZOMBIE_HORSE || type == EntityTypeIds.SKELETON_HORSE) {
             movementSpeedAttribute = 0.2f;
         }
         // Geyser supplies this initial value when spawning a horse.

@@ -9,10 +9,10 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
-import net.minecraft.world.phys.Vec3;
 
 /** Ordered client-visible updates publish a replayed continuation once its following frame exists. */
 final class BedrockMovementRewind {

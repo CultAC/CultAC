@@ -1,8 +1,8 @@
 package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import net.minecraft.world.phys.Vec3;
 
 public class VehicleData {
     public boolean boatUnderwater = false;

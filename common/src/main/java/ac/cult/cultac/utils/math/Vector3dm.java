@@ -4,7 +4,6 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.util.Random;
 import lombok.Getter;
-import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Vector3f;

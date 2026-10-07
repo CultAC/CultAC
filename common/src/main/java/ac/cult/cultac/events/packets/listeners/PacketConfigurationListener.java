@@ -1,7 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
 import ac.cult.cultac.checks.impl.chat.ChatD;
-import ac.cult.cultac.checks.impl.exploit.ExploitA;
 import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.manager.player.PluginChannelManager;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -19,11 +18,6 @@ public class PacketConfigurationListener {
         if (event.getPhase() != ConnectionPhase.CONFIGURATION) {
             return;
         }
-        if (event.isCancelled()) {
-            return;
-        }
-
-        player.checkManager.getListener(ExploitA.class).sanitizePluginMessage(event, packet);
         if (event.isCancelled()) {
             return;
         }

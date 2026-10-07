@@ -5,13 +5,12 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.manager.tick.Tickable;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.nmsutil.IsUsingItem;
-import net.minecraft.world.InteractionHand;
 
 // TODO: Investigate the modern protocol around using items
 public class ServerStateNoSlow extends CultProcessor implements PostPredictionListener, Tickable {
@@ -46,19 +45,19 @@ public class ServerStateNoSlow extends CultProcessor implements PostPredictionLi
         }
     }
 
-    private InteractionHand hand = InteractionHand.MAIN_HAND;
+    private Hand hand = Hand.MAIN_HAND;
 
     @CultPacketHandler
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
         if (player.platformPlayer == null || !player.platformPlayer.hasServerAuthority()) return;
-        hand = SpigotConversionUtil.toNmsHand(packet.hand());
+        hand = packet.hand();
     }
 
     @CultPacketHandler
     public void onSetCarriedItem(
             PacketReceiveEvent<ServerboundSetCarriedItem> event, CultPlayer player, ServerboundSetCarriedItem packet) {
         if (player.platformPlayer == null || !player.platformPlayer.hasServerAuthority()) return;
-        if (bufferThreshold != Integer.MAX_VALUE && hand != InteractionHand.OFF_HAND) {
+        if (bufferThreshold != Integer.MAX_VALUE && hand != Hand.OFF_HAND) {
             IsUsingItem.stopUseItem(player);
         }
     }

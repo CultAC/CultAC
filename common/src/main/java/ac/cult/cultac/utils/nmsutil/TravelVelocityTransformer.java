@@ -1,11 +1,12 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import net.minecraft.world.phys.Vec3;
 
 public final class TravelVelocityTransformer {
     private TravelVelocityTransformer() {}
@@ -73,7 +74,7 @@ public final class TravelVelocityTransformer {
         if (!ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine.contextUsesExactEffects(
                         result.getSimulationContext())
                 && result.getSimulationContext().getVehicle() != null
-                && result.getSimulationContext().getVehicle().type == EntityTypesCompat.STRIDER
+                && result.getSimulationContext().getVehicle().type == EntityTypeIds.STRIDER
                 && result.getSimulationContext()
                         .getWorldData()
                         .getInLava()

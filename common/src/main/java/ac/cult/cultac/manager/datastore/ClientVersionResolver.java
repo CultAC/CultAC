@@ -3,10 +3,10 @@ package ac.cult.cultac.manager.datastore;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import com.viaversion.viaversion.api.Via;
 import java.util.Locale;
 import java.util.UUID;
-import net.minecraft.SharedConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -57,6 +57,6 @@ public final class ClientVersionResolver {
                 // Fall through to the server's native protocol version
             }
         }
-        return SharedConstants.getProtocolVersion();
+        return ProtocolVersion.V26_3.protocol();
     }
 }

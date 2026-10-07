@@ -6,12 +6,11 @@ import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.viaversion.viaversion.api.Via;
 import com.viaversion.viaversion.api.protocol.version.ProtocolVersion;
-import net.minecraft.SharedConstants;
 
 public class ViaVersion implements StartableInitable {
 
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ac.cult.cultac.protocol.ProtocolVersion.V26_3.protocol());
 
     @Override
     public void start() {

@@ -8,7 +8,7 @@ import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.prediction.FlagCaller;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 import org.junit.Test;
 
 public class BedrockMovementFlaggingTest {

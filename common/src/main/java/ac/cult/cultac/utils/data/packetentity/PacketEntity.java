@@ -15,24 +15,24 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package ac.cult.cultac.utils.data.packetentity;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BoatData;
 import ac.cult.cultac.utils.data.ReachInterpolationData;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import lombok.Getter;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 // You may not copy this check unless your anticheat is licensed under GPL
@@ -46,7 +46,7 @@ public class PacketEntity {
     public ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties bedrockBoat;
     public Vec3 desyncClientPos;
 
-    public EntityType type;
+    public final int type;
 
     public PacketEntity riding;
     public List<PacketEntity> passengers = new ArrayList<>(0);
@@ -61,6 +61,10 @@ public class PacketEntity {
     // vanilla step height. CultPlayer#getMaxUpStep retains those type defaults.
     public Double stepHeightAttribute;
     public boolean noAI = false;
+    public EntityPose actionPose = EntityPose.STANDING;
+    public boolean actionAlive = true;
+    public byte actionSharedFlags;
+    public boolean actionArrowInGround;
     public float scale = 1.0f;
     public boolean onGround = false;
     public Vec3 deltaMovement = Vec3.ZERO;
@@ -79,12 +83,12 @@ public class PacketEntity {
     @Getter
     private final int entityId;
 
-    public PacketEntity(EntityType type, int entityId) {
+    public PacketEntity(int type, int entityId) {
         this.entityId = entityId;
         this.type = type;
     }
 
-    public PacketEntity(CultPlayer cultPlayer, int entityId, EntityType type, double x, double y, double z) {
+    public PacketEntity(CultPlayer cultPlayer, int entityId, int type, double x, double y, double z) {
         this(type, entityId);
         Vec3 spawnPosition = new Vec3(x, y, z);
         this.desyncClientPos = spawnPosition;
@@ -95,7 +99,7 @@ public class PacketEntity {
                 new ReachInterpolationData(cultPlayer, spawnBox, x, y, z, !ridingInVehicle, this, false);
     }
 
-    public EntityType getType() {
+    public int getType() {
         return type;
     }
 
@@ -124,13 +128,11 @@ public class PacketEntity {
     }
 
     public boolean isSize() {
-        return type == EntityTypesCompat.PHANTOM
-                || type == EntityTypesCompat.SLIME
-                || type == EntityTypesCompat.MAGMA_CUBE;
+        return type == EntityTypeIds.PHANTOM || type == EntityTypeIds.SLIME || type == EntityTypeIds.MAGMA_CUBE;
     }
 
     public boolean isStrider() {
-        return type == EntityTypesCompat.STRIDER;
+        return type == EntityTypeIds.STRIDER;
     }
 
     // Set the old packet location to the new one
@@ -224,11 +226,11 @@ public class PacketEntity {
             CultPlayer player,
             boolean bundled) {
         if (hasPosition) desyncClientPos = path.endPosition();
-        if (type == EntityTypesCompat.SHULKER
+        if (type == EntityTypeIds.SHULKER
                 || (!EntityTypeUtil.isLiving(type)
                         && !EntityTypeUtil.isBoat(type)
                         && !EntityTypeUtil.isMinecart(type)
-                        && type != EntityTypesCompat.FISHING_BOBBER)) {
+                        && type != EntityTypeIds.FISHING_BOBBER)) {
             setPositionRaw(
                     GetBoundingBox.getPacketEntityBoundingBox(
                             player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this),

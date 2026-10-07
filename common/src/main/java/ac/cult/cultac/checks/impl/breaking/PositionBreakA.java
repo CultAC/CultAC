@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.breaking;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
@@ -8,14 +9,13 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
-import net.minecraft.SharedConstants;
-import net.minecraft.world.level.block.Blocks;
 
 @CheckData(
         name = "PositionBreakA",
@@ -24,7 +24,7 @@ import net.minecraft.world.level.block.Blocks;
 public class PositionBreakA extends Check implements BlockBreakListener {
     private static final Verbose V = Verbose.of("action={digging}, face={face}");
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private boolean didLastMovementIncludePosition;
 
@@ -41,7 +41,7 @@ public class PositionBreakA extends Check implements BlockBreakListener {
     public void onBlockBreak(BlockBreak blockBreak) {
         if (player.inVehicle()
                 || blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK // PE DiggingAction.CANCELLED_DIGGING
-                || blockBreak.block.getBlock() == Blocks.REDSTONE_WIRE) return;
+                || BlockIds.is(blockBreak.block, BlockIds.REDSTONE_WIRE)) return;
 
         SimpleCollisionBox combined = blockBreak.getCombinedBox();
 

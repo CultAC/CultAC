@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -13,7 +14,6 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import ac.cult.cultac.utils.nmsutil.Collisions;
-import net.minecraft.world.level.block.Blocks;
 
 public class PacketPlayerWindow {
 
@@ -89,10 +89,10 @@ public class PacketPlayerWindow {
 
     // doesn't need to be accurate
     private boolean nearNetherPortal(CultPlayer cultPlayer) {
-        return Collisions.hasMaterial(
+        return Collisions.hasState(
                 cultPlayer,
                 cultPlayer.boundingBox.copy().expand(0.1),
-                pair -> pair.getFirst().getBlock() == Blocks.NETHER_PORTAL);
+                (state, pos) -> BlockIds.is(state, BlockIds.NETHER_PORTAL));
     }
 
     public static void handleInventory(CultPlayer cultPlayer, boolean nowOpen) {

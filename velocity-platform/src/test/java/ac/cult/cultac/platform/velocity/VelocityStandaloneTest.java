@@ -9,14 +9,13 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.ItemUseState;
-import ac.cult.cultac.vanilla.VanillaRegistryState;
+import ac.cult.cultac.utils.math.Vec3;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import java.util.Optional;
 import java.util.UUID;
-import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -44,8 +43,7 @@ class VelocityStandaloneTest {
         when(nativePlayer.getUsername()).thenReturn("TestPlayer");
         when(nativePlayer.isActive()).thenReturn(true);
         when(proxy.getPlayer(id)).thenReturn(Optional.of(nativePlayer));
-        var adapter = new VelocityConnectionAdapter(
-                proxy, nativePlayer, player, mock(VanillaRegistryState.class), ImmediateEventExecutor.INSTANCE);
+        var adapter = new VelocityConnectionAdapter(proxy, nativePlayer, player, ImmediateEventExecutor.INSTANCE);
         var binding = adapter.playerBinding();
         assertSame(player, binding.player());
         assertTrue(binding.isCurrent());

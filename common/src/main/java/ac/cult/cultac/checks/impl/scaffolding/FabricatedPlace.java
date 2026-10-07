@@ -1,13 +1,14 @@
 package ac.cult.cultac.checks.impl.scaffolding;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
 
 @CheckData(
         name = "FabricatedPlace",
@@ -48,8 +49,11 @@ public class FabricatedPlace extends BlockPlaceCheck {
         if (cursor == null) return;
 
         // Determine if we allow up to 1.5 (Lecterns, Scaffolding, etc)
-        boolean isExtended = NmsBlockTags.isShapeExceedsCube(place.getPlacedAgainstMaterial())
-                || place.getPlacedAgainstMaterial() == Blocks.LECTERN;
+        boolean isExtended = DataTables.defaults()
+                        .registry()
+                        .facts(place.getPlacedAgainstMaterial().defaultState())
+                        .has(StateFacts.LARGE_COLLISION)
+                || place.getPlacedAgainstMaterial() == BlockIds.LECTERN;
 
         double maxBound = isExtended ? 1.5 : 1.0;
         double minBound = 1.0 - maxBound; // Usually 0.0

@@ -13,6 +13,7 @@ geyser-core = "2.10.1-SNAPSHOT"
 cult-api = "1.6.0.9"
 placeholderapi = "2.11.6"
 viaversion = "5.12.0"
+via-codecs = "5.12.1-SNAPSHOT"
 luckperms = "5.5"
 
 # --- General Java Utilities ---
@@ -52,6 +53,8 @@ cult-internal-shims = { group = "ac.grim.grimac", name = "grim-internal-shims", 
 cult-bukkit-internal = { group = "ac.grim.grimac", name = "grim-bukkit-internal", version.ref = "cult-api" }
 viaversion = { group = "com.viaversion", name = "viaversion", version.ref = "viaversion" }
 viabackwards = { group = "com.viaversion", name = "viabackwards", version.ref = "viaversion" }
+via-codecs-core = { group = "com.viaversion", name = "viaversion", version.ref = "via-codecs" }
+via-codecs-backwards = { group = "com.viaversion", name = "viabackwards", version.ref = "via-codecs" }
 
 # --- General Java Utilities ---
 fastutil = { group = "it.unimi.dsi", name = "fastutil", version.ref = "fastutil"}

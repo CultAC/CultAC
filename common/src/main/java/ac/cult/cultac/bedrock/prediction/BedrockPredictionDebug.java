@@ -13,11 +13,11 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
-import net.minecraft.world.phys.Vec3;
 
 public final class BedrockPredictionDebug {
 

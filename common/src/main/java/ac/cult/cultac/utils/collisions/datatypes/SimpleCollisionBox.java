@@ -1,12 +1,15 @@
 package ac.cult.cultac.utils.collisions.datatypes;
 
+import ac.cult.blocksim.data.Box;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Location;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.phys.Vec3;
+import java.util.Optional;
 
 public class SimpleCollisionBox implements CollisionBox {
     public static final double COLLISION_EPSILON = 1.0E-7;
@@ -73,6 +76,93 @@ public class SimpleCollisionBox implements CollisionBox {
         this.minZ = minZ;
         this.maxZ = maxZ;
         if (minX == 0 && minY == 0 && minZ == 0 && maxX == 1 && maxY == 1 && maxZ == 1) isFullBlock = true;
+    }
+
+    /** Ordered bounds, adapted from PacketEvents' GPLv3 BoundingBox.resize. */
+    public static SimpleCollisionBox between(double x1, double y1, double z1, double x2, double y2, double z2) {
+        return new SimpleCollisionBox(
+                Math.min(x1, x2),
+                Math.min(y1, y2),
+                Math.min(z1, z2),
+                Math.max(x1, x2),
+                Math.max(y1, y2),
+                Math.max(z1, z2));
+    }
+
+    /** Non-mutating translations for the migrated native geometry callers. */
+    public SimpleCollisionBox move(double x, double y, double z) {
+        return between(minX + x, minY + y, minZ + z, maxX + x, maxY + y, maxZ + z);
+    }
+
+    public SimpleCollisionBox inflate(double x, double y, double z) {
+        return between(minX - x, minY - y, minZ - z, maxX + x, maxY + y, maxZ + z);
+    }
+
+    public SimpleCollisionBox deflate(double amount) {
+        return inflate(-amount, -amount, -amount);
+    }
+
+    /** Strict overlap and half-open point containment, without movement-collision epsilon. */
+    public boolean intersects(double x1, double y1, double z1, double x2, double y2, double z2) {
+        return minX < x2 && maxX > x1 && minY < y2 && maxY > y1 && minZ < z2 && maxZ > z1;
+    }
+
+    public boolean contains(Vec3 point) {
+        return point.x >= minX
+                && point.x < maxX
+                && point.y >= minY
+                && point.y < maxY
+                && point.z >= minZ
+                && point.z < maxZ;
+    }
+
+    public double getXsize() {
+        return maxX - minX;
+    }
+
+    public double getYsize() {
+        return maxY - minY;
+    }
+
+    public double getZsize() {
+        return maxZ - minZ;
+    }
+
+    public Vec3 getCenter() {
+        return new Vec3(CultMath.lerp(0.5, minX, maxX), CultMath.lerp(0.5, minY, maxY), CultMath.lerp(0.5, minZ, maxZ));
+    }
+
+    public Optional<Vec3> clip(Vec3 from, Vec3 to) {
+        return clip(minX, minY, minZ, maxX, maxY, maxZ, from, to);
+    }
+
+    public static Optional<Vec3> clip(
+            double minX, double minY, double minZ, double maxX, double maxY, double maxZ, Vec3 from, Vec3 to) {
+        var hit = Box.clip(
+                minX,
+                minY,
+                minZ,
+                maxX,
+                maxY,
+                maxZ,
+                new ac.cult.blocksim.engine.Vec3(from.x, from.y, from.z),
+                new ac.cult.blocksim.engine.Vec3(to.x, to.y, to.z));
+        return hit == null ? Optional.empty() : Optional.of(new Vec3(hit.x(), hit.y(), hit.z()));
+    }
+
+    /** Pinned 26.3 AABB.collidedAlongVector, using the shared pure entry-face clip. */
+    public boolean collidedAlongVector(Vec3 movement, List<SimpleCollisionBox> parts) {
+        Vec3 from = getCenter(), to = from.add(movement);
+        for (SimpleCollisionBox part : parts) {
+            SimpleCollisionBox swept = part.inflate(
+                    getXsize() * 0.5 - COLLISION_EPSILON,
+                    getYsize() * 0.5 - COLLISION_EPSILON,
+                    getZsize() * 0.5 - COLLISION_EPSILON);
+            if (swept.contains(to)
+                    || swept.contains(from)
+                    || swept.clip(from, to).isPresent()) return true;
+        }
+        return false;
     }
 
     public SimpleCollisionBox(Vec3 min, Vec3 max) {

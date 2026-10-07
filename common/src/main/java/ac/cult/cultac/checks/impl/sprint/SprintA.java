@@ -1,12 +1,12 @@
 package ac.cult.cultac.checks.impl.sprint;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
 @CheckData(
@@ -29,7 +29,7 @@ public class SprintA extends Check implements PostPredictionListener {
         // Players can sprint if they're able to fly
         // Players can also sprint if they are on a camel, regardless of their hunger level
         PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
-        if (player.canFly || (riding != null && riding.type == EntityTypesCompat.CAMEL)) return;
+        if (player.canFly || (riding != null && riding.type == EntityTypeIds.CAMEL)) return;
 
         if (player.food <= 6.0F) {
             if (player.isSprinting) {

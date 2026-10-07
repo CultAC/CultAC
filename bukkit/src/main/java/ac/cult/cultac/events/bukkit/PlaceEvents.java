@@ -25,12 +25,14 @@ public class PlaceEvents implements Listener {
         if (event instanceof org.bukkit.event.block.BlockMultiPlaceEvent multi) {
             for (org.bukkit.block.BlockState state : multi.getReplacedBlockStates()) {
                 mitigator.onServerBlockChange(
-                        new net.minecraft.core.BlockPos(state.getX(), state.getY(), state.getZ()), event.isCancelled());
+                        new ac.cult.cultac.protocol.value.BlockPos(state.getX(), state.getY(), state.getZ()),
+                        event.isCancelled());
             }
         } else {
             var block = event.getBlock();
             mitigator.onServerBlockChange(
-                    new net.minecraft.core.BlockPos(block.getX(), block.getY(), block.getZ()), event.isCancelled());
+                    new ac.cult.cultac.protocol.value.BlockPos(block.getX(), block.getY(), block.getZ()),
+                    event.isCancelled());
         }
     }
 
@@ -54,6 +56,7 @@ public class PlaceEvents implements Listener {
         final GhostBlockMitigator mitigator = player.getGhostBlockMitigator();
         var block = event.getBlock();
         mitigator.onServerBlockChange(
-                new net.minecraft.core.BlockPos(block.getX(), block.getY(), block.getZ()), event.isCancelled());
+                new ac.cult.cultac.protocol.value.BlockPos(block.getX(), block.getY(), block.getZ()),
+                event.isCancelled());
     }
 }

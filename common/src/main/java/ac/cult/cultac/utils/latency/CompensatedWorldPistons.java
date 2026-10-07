@@ -1,8 +1,17 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.data.BlockRegistry;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.LegacyPistonCollision;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
@@ -10,6 +19,7 @@ import ac.cult.cultac.utils.collisions.datatypes.NoCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.PistonData;
 import ac.cult.cultac.utils.data.PistonPushes;
+import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,22 +28,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.BlockGetter;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.piston.MovingPistonBlock;
-import net.minecraft.world.level.block.piston.PistonBaseBlock;
-import net.minecraft.world.level.block.piston.PistonHeadBlock;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.PistonType;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.shapes.Shapes;
-import net.minecraft.world.phys.shapes.VoxelShape;
 
 public final class CompensatedWorldPistons {
-    private static final BlockState AIR_STATE = Block.stateById(0);
+    private static final int AIR_STATE = BlockIds.AIR.defaultState();
+    private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
     private static final double MAX_PISTON_MOVEMENT_PER_TICK = 0.51D;
     private static final double PISTON_PROGRESS_PER_CLIENT_TICK = 0.5D;
     private static final double PISTON_ENTITY_PUSH_EPSILON = 0.01D;
@@ -53,37 +51,39 @@ public final class CompensatedWorldPistons {
         return activePistons;
     }
 
-    public void handleBlockEvent(BlockPos pos, Block block, int triggerType, int triggerData, int transaction) {
+    public void handleBlockEvent(BlockPos pos, int blockId, int triggerType, int triggerData, int transaction) {
         if (triggerType != 0 && triggerType != 1 && triggerType != 2) {
             return;
         }
 
-        net.minecraft.core.Direction eventDirection = net.minecraft.core.Direction.from3DDataValue(triggerData & 7);
+        Direction eventDirection = Direction.from3DDataValue(triggerData & 7);
 
-        BlockState pistonState = world.getBlockStateAt(pos);
-        if (!isPistonBlock(pistonState.getBlock()) || !pistonState.hasProperty(PistonBaseBlock.FACING)) {
-            if (!isPistonBlock(block)) {
+        int pistonState = world.getBlockStateIdAt(pos);
+        if (!isPistonBlock(pistonState) || !BlockProps.FACING.has(pistonState)) {
+            if (blockId < 0
+                    || blockId >= REGISTRY.blocks().size()
+                    || !isPistonBlock(REGISTRY.blocks().get(blockId).defaultState())) {
                 return;
             }
 
             // MCP-Reborn ClientPacketListener#handleBlockEvent queues Level#blockEvent
             // with the packet block, but Level#blockEvent dispatches through the
-            // client's current BlockState at the position. When Cult's compensated
+            // client's current block state at the position. When Cult's compensated
             // state is stale around packet/transaction ordering, the only possible
             // vanilla effect is still the piston state identified by this server
             // packet and its encoded direction.
-            pistonState = block.defaultBlockState();
-            if (pistonState.hasProperty(PistonBaseBlock.FACING)) {
-                pistonState = pistonState.setValue(PistonBaseBlock.FACING, eventDirection);
+            pistonState = REGISTRY.blocks().get(blockId).defaultState();
+            if (BlockProps.FACING.has(pistonState)) {
+                pistonState = BlockProps.FACING.with(pistonState, eventDirection.get3DDataValue());
             }
-            if (pistonState.hasProperty(PistonBaseBlock.EXTENDED)) {
-                pistonState = pistonState.setValue(PistonBaseBlock.EXTENDED, triggerType != 0);
+            if (BlockProps.EXTENDED.has(pistonState)) {
+                pistonState = BlockProps.EXTENDED.with(pistonState, triggerType != 0);
             }
         }
-        net.minecraft.core.Direction direction = pistonState.getValue(PistonBaseBlock.FACING);
+        Direction direction = Direction.from3DDataValue(BlockProps.FACING.value(pistonState));
 
         boolean extending = triggerType == 0;
-        boolean sticky = pistonState.getBlock() == Blocks.STICKY_PISTON;
+        boolean sticky = BlockIds.is(pistonState, BlockIds.STICKY_PISTON);
         PistonStructure structure = PistonStructure.unresolved();
         if (extending) {
             structure = resolvePistonStructure(pos, direction, true);
@@ -92,7 +92,7 @@ public final class CompensatedWorldPistons {
             }
         } else if (sticky && triggerType == 1) {
             BlockPos pullPos = pos.relative(direction, 2);
-            BlockState pullState = world.getBlockStateAt(pullPos);
+            int pullState = world.getBlockStateIdAt(pullPos);
             if (canStickyPistonPull(pullState, pullPos, direction)) {
                 structure = resolvePistonStructure(pos, direction, false);
             }
@@ -104,15 +104,15 @@ public final class CompensatedWorldPistons {
         boolean hasHoneyBlock = false;
         if (structure.resolved()) {
             for (BlockPos pushed : structure.toPush()) {
-                BlockState pushedState = world.getBlockStateAt(pushed);
-                hasSlimeBlock |= pushedState.getBlock() == Blocks.SLIME_BLOCK;
-                hasHoneyBlock |= pushedState.getBlock() == Blocks.HONEY_BLOCK;
+                int pushedState = world.getBlockStateIdAt(pushed);
+                hasSlimeBlock |= BlockIds.is(pushedState, BlockIds.SLIME_BLOCK);
+                hasHoneyBlock |= BlockIds.is(pushedState, BlockIds.HONEY_BLOCK);
             }
         }
 
         applyClientPistonBlockEvent(pos, pistonState, direction, triggerType, triggerData, structure, transaction);
 
-        Direction movementDirection = toBlockFace(extending ? direction : direction.getOpposite());
+        Direction movementDirection = extending ? direction : direction.getOpposite();
 
         List<SimpleCollisionBox> retractingSourceFixBoxes = Collections.emptyList();
         if (!extending) {
@@ -121,7 +121,7 @@ public final class CompensatedWorldPistons {
         }
 
         if (structure.resolved()) {
-            net.minecraft.core.Direction nmsMovementDirection = extending ? direction : direction.getOpposite();
+            Direction nmsMovementDirection = extending ? direction : direction.getOpposite();
             for (BlockPos pushed : structure.toPush()) {
                 BlockPos movingPos = pushed.relative(nmsMovementDirection);
                 addTrackedMovingPistonMovementBoxes(movingPos, boxes, movingPositions);
@@ -156,7 +156,7 @@ public final class CompensatedWorldPistons {
             // after tick-end and applied to the following movement packet.
             boolean phaseWithClientTickEnd = usesClientTickEndPistonPhase();
             activePistons.add(new PistonData(
-                    toBlockFace(direction),
+                    direction,
                     movingPositions,
                     phaseWithClientTickEnd ? Collections.emptyList() : boxes,
                     retractingSourceFixBoxes,
@@ -170,21 +170,20 @@ public final class CompensatedWorldPistons {
 
     private void applyClientPistonBlockEvent(
             BlockPos pos,
-            BlockState sourcePistonState,
-            net.minecraft.core.Direction direction,
+            int sourcePistonState,
+            Direction direction,
             int triggerType,
             int triggerData,
             PistonStructure structure,
             int transaction) {
         boolean extending = triggerType == 0;
-        boolean sticky = sourcePistonState.getBlock() == Blocks.STICKY_PISTON;
+        boolean sticky = BlockIds.is(sourcePistonState, BlockIds.STICKY_PISTON);
 
         if (extending) {
             applyClientPistonMoveBlocks(pos, direction, true, structure, transaction);
-            BlockState pistonState = world.getBlockStateAt(pos);
-            if (isPistonBlock(pistonState.getBlock()) && pistonState.hasProperty(PistonBaseBlock.EXTENDED)) {
-                world.updateBlock(
-                        pos.getX(), pos.getY(), pos.getZ(), pistonState.setValue(PistonBaseBlock.EXTENDED, true));
+            int pistonState = world.getBlockStateIdAt(pos);
+            if (isPistonBlock(pistonState) && BlockProps.EXTENDED.has(pistonState)) {
+                world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), BlockProps.EXTENDED.with(pistonState, true));
             }
             return;
         }
@@ -192,13 +191,12 @@ public final class CompensatedWorldPistons {
         // MCP-Reborn PistonBaseBlock#triggerEvent sets the source piston to a
         // MOVING_PISTON block entity before optionally pulling a sticky block.
         // MovingPistonBlock#getCollisionShape is empty without that block entity.
-        BlockState movingSourceState = Blocks.MOVING_PISTON
-                .defaultBlockState()
-                .setValue(MovingPistonBlock.FACING, direction)
-                .setValue(MovingPistonBlock.TYPE, sticky ? PistonType.STICKY : PistonType.DEFAULT);
-        BlockState movedSourceState = (sticky ? Blocks.STICKY_PISTON : Blocks.PISTON)
-                .defaultBlockState()
-                .setValue(PistonBaseBlock.FACING, net.minecraft.core.Direction.from3DDataValue(triggerData & 7));
+        int movingSourceState = BlockProps.PISTON_TYPE.with(
+                BlockProps.FACING.with(BlockIds.MOVING_PISTON.defaultState(), direction.get3DDataValue()),
+                sticky ? 1 : 0);
+        int movedSourceState = BlockProps.FACING.with(
+                (sticky ? BlockIds.STICKY_PISTON : BlockIds.PISTON).defaultState(),
+                Direction.from3DDataValue(triggerData & 7).get3DDataValue());
         trackMovingPiston(pos, movingSourceState, movedSourceState, direction, false, true, transaction);
         world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), movingSourceState);
 
@@ -211,53 +209,44 @@ public final class CompensatedWorldPistons {
     }
 
     private void applyClientPistonMoveBlocks(
-            BlockPos pistonPos,
-            net.minecraft.core.Direction direction,
-            boolean extending,
-            PistonStructure structure,
-            int transaction) {
+            BlockPos pistonPos, Direction direction, boolean extending, PistonStructure structure, int transaction) {
         // MCP-Reborn PistonBaseBlock#moveBlocks stores each pushed block as a
         // MOVING_PISTON at its destination, with the original moved state stored
         // in the PistonMovingBlockEntity. The original positions are then set to
         // air unless they were overwritten by another moving piston destination.
         if (!extending) {
             BlockPos headPos = pistonPos.relative(direction);
-            if (world.getBlockStateAt(headPos).getBlock() == Blocks.PISTON_HEAD) {
+            if (BlockIds.is(world.getBlockStateIdAt(headPos), BlockIds.PISTON_HEAD)) {
                 world.updateBlock(headPos.getX(), headPos.getY(), headPos.getZ(), AIR_STATE);
             }
         }
 
-        Map<BlockPos, BlockState> originals = new HashMap<>();
+        Map<BlockPos, Integer> originals = new HashMap<>();
         List<BlockPos> toPush = structure.toPush();
-        List<BlockState> movedStates = new ArrayList<>(toPush.size());
+        List<Integer> movedStates = new ArrayList<>(toPush.size());
         for (BlockPos pushed : toPush) {
-            BlockState pushedState = world.getBlockStateAt(pushed);
+            int pushedState = world.getBlockStateIdAt(pushed);
             movedStates.add(pushedState);
             originals.put(pushed, pushedState);
         }
 
-        net.minecraft.core.Direction movementDirection = extending ? direction : direction.getOpposite();
+        Direction movementDirection = extending ? direction : direction.getOpposite();
         for (int i = toPush.size() - 1; i >= 0; i--) {
             BlockPos destination = toPush.get(i).relative(movementDirection);
             originals.remove(destination);
-            BlockState movingState =
-                    Blocks.MOVING_PISTON.defaultBlockState().setValue(MovingPistonBlock.FACING, direction);
+            int movingState = BlockProps.FACING.with(BlockIds.MOVING_PISTON.defaultState(), direction.get3DDataValue());
             trackMovingPiston(destination, movingState, movedStates.get(i), direction, extending, false, transaction);
             world.updateBlock(destination.getX(), destination.getY(), destination.getZ(), movingState);
         }
 
         if (extending) {
-            PistonType pistonType = world.getBlockStateAt(pistonPos).getBlock() == Blocks.STICKY_PISTON
-                    ? PistonType.STICKY
-                    : PistonType.DEFAULT;
-            BlockState pistonHeadState = Blocks.PISTON_HEAD
-                    .defaultBlockState()
-                    .setValue(PistonHeadBlock.FACING, direction)
-                    .setValue(PistonHeadBlock.TYPE, pistonType);
-            BlockState movingHeadState = Blocks.MOVING_PISTON
-                    .defaultBlockState()
-                    .setValue(MovingPistonBlock.FACING, direction)
-                    .setValue(MovingPistonBlock.TYPE, pistonType);
+            int pistonType = BlockIds.is(world.getBlockStateIdAt(pistonPos), BlockIds.STICKY_PISTON) ? 1 : 0;
+            int pistonHeadState = BlockProps.PISTON_TYPE.with(
+                    BlockProps.FACING.with(BlockIds.PISTON_HEAD.defaultState(), direction.get3DDataValue()),
+                    pistonType);
+            int movingHeadState = BlockProps.PISTON_TYPE.with(
+                    BlockProps.FACING.with(BlockIds.MOVING_PISTON.defaultState(), direction.get3DDataValue()),
+                    pistonType);
             BlockPos headPos = pistonPos.relative(direction);
             originals.remove(headPos);
             trackMovingPiston(headPos, movingHeadState, pistonHeadState, direction, true, true, transaction);
@@ -271,9 +260,9 @@ public final class CompensatedWorldPistons {
 
     private void trackMovingPiston(
             BlockPos pos,
-            BlockState movingState,
-            BlockState movedState,
-            net.minecraft.core.Direction direction,
+            int movingState,
+            int movedState,
+            Direction direction,
             boolean extending,
             boolean source,
             int transaction) {
@@ -308,10 +297,19 @@ public final class CompensatedWorldPistons {
         return boxes;
     }
 
-    void handleBlockStateApplied(BlockPos pos, BlockState state) {
-        if (state.getBlock() != Blocks.MOVING_PISTON) {
+    void handleBlockStateApplied(BlockPos pos, int state) {
+        if (!ac.cult.blocksim.data.BlockIds.is(state, ac.cult.blocksim.data.BlockIds.MOVING_PISTON)) {
             movingPistonStates.remove(pos.asLong());
         }
+    }
+
+    void forgetChunk(int x, int z) {
+        // ClientLevel.unload and LevelChunk.replaceWithPacketData clear live
+        // block entities immediately. Completed movement passes keep their
+        // existing tick owner; unloading does not undo a previous shove.
+        movingPistonStates
+                .values()
+                .removeIf(state -> state.pos().getX() >> 4 == x && state.pos().getZ() >> 4 == z);
     }
 
     void removeSentBefore(int transactionId) {
@@ -400,7 +398,9 @@ public final class CompensatedWorldPistons {
 
             Direction direction = data.getMovementDirection();
             boolean movementIntersects = movementAmount > 0.0D;
-            boolean sourceFixIntersects = intersectsAny(playerBox, data.retractingSourceFixBoxes);
+            boolean sourceFixIntersects = !data.retractingSourceFixBoxes.isEmpty()
+                    && (!currentPass || hasCurrentRetractingSource(data))
+                    && intersectsAny(playerBox, data.retractingSourceFixBoxes);
 
             if (!movementIntersects && !sourceFixIntersects) {
                 continue;
@@ -438,6 +438,16 @@ public final class CompensatedWorldPistons {
         return new PistonPushes(pistonPushes, pistonPushes, new SimpleCollisionBox(), launches);
     }
 
+    private boolean hasCurrentRetractingSource(PistonData data) {
+        // A surviving pulled block does not run its removed source's
+        // fixEntityWithinPistonBase callback (PistonMovingBlockEntity#tick).
+        for (BlockPos pos : data.getMovingPositions()) {
+            MovingPistonState state = movingPistonStates.get(pos.asLong());
+            if (state != null && state.source && !state.extending && state.progress() < 1.0F) return true;
+        }
+        return false;
+    }
+
     private void captureLegacyPistonMovement() {
         lastLegacyPistonMovements.clear();
         // World#updateEntities runs local travel/sendPosition before tile
@@ -455,10 +465,10 @@ public final class CompensatedWorldPistons {
                     Math.min(1.0F, progress + 0.5F));
             if (!(collision instanceof SimpleCollisionBox box)) continue;
             boolean launch = state.extending
-                    && state.movedState.getBlock() == Blocks.SLIME_BLOCK
+                    && BlockIds.is(state.movedState, BlockIds.SLIME_BLOCK)
                     && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8);
-            lastLegacyPistonMovements.add(new LegacyPistonMovement(
-                    box, toBlockFace(state.direction), progress >= 1.0F ? 0.25D : 0.5625D, launch));
+            lastLegacyPistonMovements.add(
+                    new LegacyPistonMovement(box, state.direction, progress >= 1.0F ? 0.25D : 0.5625D, launch));
         }
     }
 
@@ -543,8 +553,7 @@ public final class CompensatedWorldPistons {
                         && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2));
     }
 
-    private static List<SimpleCollisionBox> retractingSourceFixBoxes(
-            BlockPos sourcePos, net.minecraft.core.Direction pistonDirection) {
+    private static List<SimpleCollisionBox> retractingSourceFixBoxes(BlockPos sourcePos, Direction pistonDirection) {
         // MCP-Reborn PistonBaseBlock#triggerEvent creates a retracting source
         // PistonMovingBlockEntity, and PistonMovingBlockEntity#moveCollidedEntities
         // calls fixEntityWithinPistonBase only after the source head has collided.
@@ -583,7 +592,7 @@ public final class CompensatedWorldPistons {
         List<MovingPistonState> finished = new ArrayList<>();
         movingPistonStates.long2ObjectEntrySet().removeIf(entry -> {
             MovingPistonState state = entry.getValue();
-            if (world.getBlockStateAt(state.pos()).getBlock() != Blocks.MOVING_PISTON) {
+            if (!BlockIds.is(world.getBlockStateIdAt(state.pos()), BlockIds.MOVING_PISTON)) {
                 return true;
             }
             boolean remove = state.tickIfGuaranteedFinished(usesLegacyCollision());
@@ -600,7 +609,7 @@ public final class CompensatedWorldPistons {
 
     private void finishMovingPistonState(MovingPistonState state) {
         BlockPos pos = state.pos();
-        if (world.getBlockStateAt(pos).getBlock() != Blocks.MOVING_PISTON) {
+        if (!BlockIds.is(world.getBlockStateIdAt(pos), BlockIds.MOVING_PISTON)) {
             return;
         }
 
@@ -611,10 +620,9 @@ public final class CompensatedWorldPistons {
         // resolution turns it to air. Cult does not expose a full LevelAccessor
         // here, but it must not keep an empty MOVING_PISTON collision shape after
         // the real client has restored the moved block.
-        BlockState finalState = state.movedState;
-        if (finalState.hasProperty(BlockStateProperties.WATERLOGGED)
-                && finalState.getValue(BlockStateProperties.WATERLOGGED)) {
-            finalState = finalState.setValue(BlockStateProperties.WATERLOGGED, false);
+        int finalState = state.movedState;
+        if (BlockProps.WATERLOGGED.has(finalState) && BlockProps.WATERLOGGED.booleanValue(finalState)) {
+            finalState = BlockProps.WATERLOGGED.with(finalState, false);
         }
 
         world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), finalState);
@@ -628,17 +636,16 @@ public final class CompensatedWorldPistons {
         }
     }
 
-    private PistonStructure resolvePistonStructure(
-            BlockPos pistonPos, net.minecraft.core.Direction pistonDirection, boolean extending) {
+    private PistonStructure resolvePistonStructure(BlockPos pistonPos, Direction pistonDirection, boolean extending) {
         List<BlockPos> toPush = new ArrayList<>();
         List<BlockPos> toDestroy = new ArrayList<>();
-        net.minecraft.core.Direction pushDirection = extending ? pistonDirection : pistonDirection.getOpposite();
+        Direction pushDirection = extending ? pistonDirection : pistonDirection.getOpposite();
         BlockPos startPos = extending ? pistonPos.relative(pistonDirection) : pistonPos.relative(pistonDirection, 2);
         BlockPos retractingHeadPos = extending ? null : pistonPos.relative(pistonDirection);
-        BlockState startState = getPistonStructureStateAt(startPos, retractingHeadPos);
+        int startState = getPistonStructureStateAt(startPos, retractingHeadPos);
 
         if (!isPistonPushable(startState, startPos, pushDirection, false, pistonDirection)) {
-            if (extending && isReaction(startState, "DESTROY", "POPPED")) {
+            if (extending && REGISTRY.facts(startState).pushReaction() == StateFacts.PushReaction.POPPED) {
                 toDestroy.add(startPos);
                 return new PistonStructure(true, toPush, toDestroy);
             }
@@ -677,15 +684,15 @@ public final class CompensatedWorldPistons {
 
     private boolean addPistonBlockLine(
             BlockPos pistonPos,
-            net.minecraft.core.Direction pushDirection,
-            net.minecraft.core.Direction pistonDirection,
+            Direction pushDirection,
+            Direction pistonDirection,
             BlockPos start,
-            net.minecraft.core.Direction direction,
+            Direction direction,
             BlockPos retractingHeadPos,
             List<BlockPos> toPush,
             List<BlockPos> toDestroy) {
-        BlockState blockState = getPistonStructureStateAt(start, retractingHeadPos);
-        if (blockState.isAir()) {
+        int blockState = getPistonStructureStateAt(start, retractingHeadPos);
+        if (REGISTRY.facts(blockState).has(StateFacts.AIR)) {
             return true;
         }
         if (!isPistonPushable(blockState, start, pushDirection, false, direction)) {
@@ -702,9 +709,9 @@ public final class CompensatedWorldPistons {
 
         while (isStickyPistonBlock(blockState)) {
             BlockPos behind = start.relative(pushDirection.getOpposite(), blocksToAdd);
-            BlockState previousState = blockState;
+            int previousState = blockState;
             blockState = getPistonStructureStateAt(behind, retractingHeadPos);
-            if (blockState.isAir()
+            if (REGISTRY.facts(blockState).has(StateFacts.AIR)
                     || !canPistonStickToEachOther(previousState, blockState)
                     || !isPistonPushable(blockState, behind, pushDirection, false, pushDirection.getOpposite())
                     || behind.equals(pistonPos)) {
@@ -748,7 +755,7 @@ public final class CompensatedWorldPistons {
             }
 
             blockState = getPistonStructureStateAt(ahead, retractingHeadPos);
-            if (blockState.isAir()) {
+            if (REGISTRY.facts(blockState).has(StateFacts.AIR)) {
                 return true;
             }
 
@@ -756,7 +763,7 @@ public final class CompensatedWorldPistons {
                 return false;
             }
 
-            if (isReaction(blockState, "DESTROY", "POPPED")) {
+            if (REGISTRY.facts(blockState).pushReaction() == StateFacts.PushReaction.POPPED) {
                 toDestroy.add(ahead);
                 return true;
             }
@@ -773,21 +780,21 @@ public final class CompensatedWorldPistons {
 
     private boolean addPistonBranchingBlocks(
             BlockPos pistonPos,
-            net.minecraft.core.Direction pushDirection,
-            net.minecraft.core.Direction pistonDirection,
+            Direction pushDirection,
+            Direction pistonDirection,
             BlockPos fromPos,
             BlockPos retractingHeadPos,
             List<BlockPos> toPush,
             List<BlockPos> toDestroy) {
-        BlockState blockState = getPistonStructureStateAt(fromPos, retractingHeadPos);
+        int blockState = getPistonStructureStateAt(fromPos, retractingHeadPos);
 
-        for (net.minecraft.core.Direction direction : net.minecraft.core.Direction.values()) {
+        for (Direction direction : Direction.values()) {
             if (direction.getAxis() == pushDirection.getAxis()) {
                 continue;
             }
 
             BlockPos branch = fromPos.relative(direction);
-            BlockState branchState = getPistonStructureStateAt(branch, retractingHeadPos);
+            int branchState = getPistonStructureStateAt(branch, retractingHeadPos);
             if (canPistonStickToEachOther(branchState, blockState)
                     && !addPistonBlockLine(
                             pistonPos,
@@ -805,75 +812,66 @@ public final class CompensatedWorldPistons {
         return true;
     }
 
-    private BlockState getPistonStructureStateAt(BlockPos pos, BlockPos retractingHeadPos) {
-        BlockState state = world.getBlockStateAt(pos);
+    private int getPistonStructureStateAt(BlockPos pos, BlockPos retractingHeadPos) {
+        int state = world.getBlockStateIdAt(pos);
         // MCP-Reborn PistonBaseBlock#moveBlocks removes the retracting piston
         // head before constructing PistonStructureResolver.
-        if (retractingHeadPos != null && pos.equals(retractingHeadPos) && state.getBlock() == Blocks.PISTON_HEAD) {
+        if (retractingHeadPos != null && pos.equals(retractingHeadPos) && BlockIds.is(state, BlockIds.PISTON_HEAD)) {
             return AIR_STATE;
         }
         return state;
     }
 
-    private boolean canStickyPistonPull(BlockState state, BlockPos pos, net.minecraft.core.Direction pistonDirection) {
+    private boolean canStickyPistonPull(int state, BlockPos pos, Direction pistonDirection) {
         // MCP-Reborn PistonBaseBlock#triggerEvent only calls moveBlocks on sticky
         // retraction when the block two ahead is non-air, pushable backward, and
         // has NORMAL piston reaction or is itself a piston block.
-        return !state.isAir()
+        return !REGISTRY.facts(state).has(StateFacts.AIR)
                 && isPistonPushable(state, pos, pistonDirection.getOpposite(), false, pistonDirection)
-                && (isReaction(state, "NORMAL", "PUSH_PULL")
-                        || state.getBlock() == Blocks.PISTON
-                        || state.getBlock() == Blocks.STICKY_PISTON);
-    }
-
-    private static boolean isReaction(BlockState state, String legacy, String modern) {
-        String name = state.getPistonPushReaction().name();
-        return name.equals(legacy) || name.equals(modern);
+                && (REGISTRY.facts(state).pushReaction() == StateFacts.PushReaction.PUSH_PULL
+                        || BlockIds.is(state, BlockIds.PISTON)
+                        || BlockIds.is(state, BlockIds.STICKY_PISTON));
     }
 
     private boolean isPistonPushable(
-            BlockState state,
-            BlockPos pos,
-            net.minecraft.core.Direction direction,
-            boolean allowDestroyable,
-            net.minecraft.core.Direction connectionDirection) {
+            int state, BlockPos pos, Direction direction, boolean allowDestroyable, Direction connectionDirection) {
         // MCP-Reborn PistonBaseBlock#isPushable. World-border checks are server
         // world checks; for a tracked player near the arena, the dimension height
         // limit is the exact client-relevant bound Cult has locally.
         if (pos.getY() < world.getMinHeight() || pos.getY() > world.getMaxHeight()) {
             return false;
         }
-        if (state.isAir()) {
+        if (REGISTRY.facts(state).has(StateFacts.AIR)) {
             return true;
         }
-        if (state.getBlock() == Blocks.OBSIDIAN
-                || state.getBlock() == Blocks.CRYING_OBSIDIAN
-                || state.getBlock() == Blocks.RESPAWN_ANCHOR
-                || state.getBlock() == Blocks.REINFORCED_DEEPSLATE) {
+        if (BlockIds.is(state, BlockIds.OBSIDIAN)
+                || BlockIds.is(state, BlockIds.CRYING_OBSIDIAN)
+                || BlockIds.is(state, BlockIds.RESPAWN_ANCHOR)
+                || BlockIds.is(state, BlockIds.REINFORCED_DEEPSLATE)) {
             return false;
         }
-        if (direction == net.minecraft.core.Direction.DOWN && pos.getY() == world.getMinHeight()) {
+        if (direction == Direction.DOWN && pos.getY() == world.getMinHeight()) {
             return false;
         }
-        if (direction == net.minecraft.core.Direction.UP && pos.getY() == world.getMaxHeight()) {
+        if (direction == Direction.UP && pos.getY() == world.getMaxHeight()) {
             return false;
         }
 
-        if (state.getBlock() != Blocks.PISTON && state.getBlock() != Blocks.STICKY_PISTON) {
-            if (state.getDestroySpeed(world, pos) == -1.0F) {
+        if (!BlockIds.is(state, BlockIds.PISTON) && !BlockIds.is(state, BlockIds.STICKY_PISTON)) {
+            if (REGISTRY.facts(state).destroyTime() == -1.0F) {
                 return false;
             }
 
-            return switch (state.getPistonPushReaction().name()) {
-                case "BLOCK", "IMMOVEABLE" -> false;
-                case "DESTROY", "POPPED" -> allowDestroyable;
-                case "PUSH_ONLY", "PUSH" -> direction == connectionDirection;
-                default -> !state.hasBlockEntity();
+            return switch (REGISTRY.facts(state).pushReaction()) {
+                case IMMOVEABLE -> false;
+                case POPPED -> allowDestroyable;
+                case PUSH -> direction == connectionDirection;
+                default -> !REGISTRY.facts(state).has(StateFacts.BLOCK_ENTITY);
             };
         }
 
-        return (!state.hasProperty(PistonBaseBlock.EXTENDED) || !state.getValue(PistonBaseBlock.EXTENDED))
-                && !state.hasBlockEntity();
+        return (!BlockProps.EXTENDED.has(state) || !BlockProps.EXTENDED.booleanValue(state))
+                && !REGISTRY.facts(state).has(StateFacts.BLOCK_ENTITY);
     }
 
     private static void reorderPistonListAtCollision(List<BlockPos> toPush, int blocksAdded, int collisionPos) {
@@ -886,19 +884,19 @@ public final class CompensatedWorldPistons {
         toPush.addAll(collided);
     }
 
-    private static boolean isPistonBlock(Block block) {
-        return block == Blocks.PISTON || block == Blocks.STICKY_PISTON;
+    private static boolean isPistonBlock(int state) {
+        return BlockIds.is(state, BlockIds.PISTON) || BlockIds.is(state, BlockIds.STICKY_PISTON);
     }
 
-    private static boolean isStickyPistonBlock(BlockState state) {
-        return state.getBlock() == Blocks.SLIME_BLOCK || state.getBlock() == Blocks.HONEY_BLOCK;
+    private static boolean isStickyPistonBlock(int state) {
+        return BlockIds.is(state, BlockIds.SLIME_BLOCK) || BlockIds.is(state, BlockIds.HONEY_BLOCK);
     }
 
-    private static boolean canPistonStickToEachOther(BlockState state1, BlockState state2) {
-        if (state1.getBlock() == Blocks.HONEY_BLOCK && state2.getBlock() == Blocks.SLIME_BLOCK) {
+    private static boolean canPistonStickToEachOther(int state1, int state2) {
+        if (BlockIds.is(state1, BlockIds.HONEY_BLOCK) && BlockIds.is(state2, BlockIds.SLIME_BLOCK)) {
             return false;
         }
-        if (state1.getBlock() == Blocks.SLIME_BLOCK && state2.getBlock() == Blocks.HONEY_BLOCK) {
+        if (BlockIds.is(state1, BlockIds.SLIME_BLOCK) && BlockIds.is(state2, BlockIds.HONEY_BLOCK)) {
             return false;
         }
         return isStickyPistonBlock(state1) || isStickyPistonBlock(state2);
@@ -907,17 +905,6 @@ public final class CompensatedWorldPistons {
     private static SimpleCollisionBox blockBox(BlockPos pos) {
         return new SimpleCollisionBox(
                 pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + 1, pos.getZ() + 1, true);
-    }
-
-    private static Direction toBlockFace(net.minecraft.core.Direction direction) {
-        return switch (direction) {
-            case DOWN -> Direction.DOWN;
-            case UP -> Direction.UP;
-            case NORTH -> Direction.NORTH;
-            case SOUTH -> Direction.SOUTH;
-            case WEST -> Direction.WEST;
-            case EAST -> Direction.EAST;
-        };
     }
 
     private record PistonStructure(boolean resolved, List<BlockPos> toPush, List<BlockPos> toDestroy) {
@@ -941,7 +928,7 @@ public final class CompensatedWorldPistons {
             }
             // Volume-only consumers use the same legacy bounds. Movement itself
             // takes the direct AABB path so a degenerate face is not discarded.
-            return Shapes.box(
+            return Shapes.create(
                     box.minX - pos.getX(),
                     box.minY - pos.getY(),
                     box.minZ - pos.getZ(),
@@ -964,18 +951,14 @@ public final class CompensatedWorldPistons {
         private static final int GUARANTEED_FINISHED_TICKS = 8;
 
         private final BlockPos pos;
-        private final BlockState movedState;
-        private final net.minecraft.core.Direction direction;
+        private final int movedState;
+        private final Direction direction;
         private final boolean extending;
         private final boolean source;
         private int clientBlockEntityTicks;
 
         private MovingPistonState(
-                BlockPos pos,
-                BlockState movedState,
-                net.minecraft.core.Direction direction,
-                boolean extending,
-                boolean source) {
+                BlockPos pos, int movedState, Direction direction, boolean extending, boolean source) {
             this.pos = pos.immutable();
             this.movedState = movedState;
             this.direction = direction;
@@ -1001,27 +984,22 @@ public final class CompensatedWorldPistons {
             return Math.min(1.0F, Math.max(0, clientBlockEntityTicks - 1) * 0.5F);
         }
 
-        private float extendedProgress() {
-            float progress = progress();
-            return extending ? progress - 1.0F : 1.0F - progress;
-        }
-
         private float extendedProgress(float progress) {
             return extending ? progress - 1.0F : 1.0F - progress;
         }
 
-        private net.minecraft.core.Direction movementDirection() {
+        private Direction movementDirection() {
             return extending ? direction : direction.getOpposite();
         }
 
-        private List<SimpleCollisionBox> getAllMovementCollisionBoxes(BlockGetter level, BlockPos pos) {
+        private List<SimpleCollisionBox> getAllMovementCollisionBoxes(CompensatedWorld level, BlockPos pos) {
             List<SimpleCollisionBox> boxes = new ArrayList<>();
             addMovementCollisionBoxes(level, pos, 0.0F, 0.5D, boxes);
             addMovementCollisionBoxes(level, pos, 0.5F, 0.5D, boxes);
             return boxes;
         }
 
-        private List<SimpleCollisionBox> getCurrentMovementCollisionBoxes(BlockGetter level, BlockPos pos) {
+        private List<SimpleCollisionBox> getCurrentMovementCollisionBoxes(CompensatedWorld level, BlockPos pos) {
             List<SimpleCollisionBox> boxes = new ArrayList<>();
             float progress = progress();
             if (progress < 1.0F) {
@@ -1035,14 +1013,12 @@ public final class CompensatedWorldPistons {
             return boxes;
         }
 
-        private List<SimpleCollisionBox> getCollisionUncertaintyBoxes(BlockGetter level, BlockPos pos) {
+        private List<SimpleCollisionBox> getCollisionUncertaintyBoxes(CompensatedWorld level, BlockPos pos) {
             List<SimpleCollisionBox> boxes = new ArrayList<>();
-            if (!extending && source && movedState.getBlock() instanceof PistonBaseBlock) {
-                for (AABB box : movedState
-                        .setValue(PistonBaseBlock.EXTENDED, true)
-                        .getCollisionShape(level, pos)
-                        .toAabbs()) {
-                    boxes.add(toSimpleCollisionBox(box.move(pos)));
+            if (!extending && source && BlockFamilies.PISTON_BASE.test(movedState)) {
+                for (SimpleCollisionBox box : NativeBlockCollisionHelper.toBoxes(
+                        level.geometry().collision(BlockProps.EXTENDED.with(movedState, true), pos))) {
+                    boxes.add(box.move(pos.getX(), pos.getY(), pos.getZ()));
                 }
             }
 
@@ -1054,48 +1030,50 @@ public final class CompensatedWorldPistons {
         }
 
         private void addCollisionShapeSweep(
-                BlockGetter level, BlockPos pos, float shapeProgress, List<SimpleCollisionBox> boxes) {
-            VoxelShape shape = getCollisionRelatedBlockState(shapeProgress).getCollisionShape(level, pos);
+                CompensatedWorld level, BlockPos pos, float shapeProgress, List<SimpleCollisionBox> boxes) {
+            VoxelShape shape = level.geometry().collision(getCollisionRelatedBlockState(shapeProgress), pos);
             if (shape.isEmpty()) {
                 return;
             }
 
-            for (AABB localBox : shape.toAabbs()) {
-                AABB start = moveByPositionAndProgress(pos, localBox, 0.0F);
-                AABB end = moveByPositionAndProgress(pos, localBox, 1.0F);
-                boxes.add(union(toSimpleCollisionBox(start), end));
+            for (SimpleCollisionBox localBox : NativeBlockCollisionHelper.toBoxes(shape)) {
+                SimpleCollisionBox start = moveByPositionAndProgress(pos, localBox, 0.0F);
+                SimpleCollisionBox end = moveByPositionAndProgress(pos, localBox, 1.0F);
+                boxes.add(union(start, end));
             }
         }
 
         private void addMovementCollisionBoxes(
-                BlockGetter level, BlockPos pos, float progress, double deltaProgress, List<SimpleCollisionBox> boxes) {
-            BlockState collisionState = getCollisionRelatedBlockState(progress);
-            VoxelShape shape = collisionState.getCollisionShape(level, pos);
+                CompensatedWorld level,
+                BlockPos pos,
+                float progress,
+                double deltaProgress,
+                List<SimpleCollisionBox> boxes) {
+            int collisionState = getCollisionRelatedBlockState(progress);
+            VoxelShape shape = level.geometry().collision(collisionState, pos);
             if (shape.isEmpty()) {
                 return;
             }
 
-            net.minecraft.core.Direction movementDirection = movementDirection();
-            for (AABB localBox : shape.toAabbs()) {
-                AABB movedBox = moveByPositionAndProgress(pos, localBox, progress);
-                boxes.add(toSimpleCollisionBox(getMovementArea(movedBox, movementDirection, deltaProgress)));
+            Direction movementDirection = movementDirection();
+            for (SimpleCollisionBox localBox : NativeBlockCollisionHelper.toBoxes(shape)) {
+                SimpleCollisionBox movedBox = moveByPositionAndProgress(pos, localBox, progress);
+                boxes.add(getMovementArea(movedBox, movementDirection, deltaProgress));
             }
         }
 
-        private BlockState getCollisionRelatedBlockState(float progress) {
-            if (!extending && source && movedState.getBlock() instanceof PistonBaseBlock) {
-                return Blocks.PISTON_HEAD
-                        .defaultBlockState()
-                        .setValue(PistonHeadBlock.SHORT, progress > 0.25F)
-                        .setValue(
-                                PistonHeadBlock.TYPE,
-                                movedState.getBlock() == Blocks.STICKY_PISTON ? PistonType.STICKY : PistonType.DEFAULT)
-                        .setValue(PistonHeadBlock.FACING, movedState.getValue(PistonBaseBlock.FACING));
+        private int getCollisionRelatedBlockState(float progress) {
+            if (!extending && source && BlockFamilies.PISTON_BASE.test(movedState)) {
+                return BlockProps.FACING.with(
+                        BlockProps.PISTON_TYPE.with(
+                                BlockProps.SHORT.with(BlockIds.PISTON_HEAD.defaultState(), progress > 0.25F),
+                                BlockIds.is(movedState, BlockIds.STICKY_PISTON) ? 1 : 0),
+                        BlockProps.FACING.value(movedState));
             }
             return movedState;
         }
 
-        private AABB moveByPositionAndProgress(BlockPos pos, AABB box, float progress) {
+        private SimpleCollisionBox moveByPositionAndProgress(BlockPos pos, SimpleCollisionBox box, float progress) {
             float extendedProgress = extendedProgress(progress);
             return box.move(
                     pos.getX() + direction.getStepX() * extendedProgress,
@@ -1103,63 +1081,36 @@ public final class CompensatedWorldPistons {
                     pos.getZ() + direction.getStepZ() * extendedProgress);
         }
 
-        private static AABB getMovementArea(AABB box, net.minecraft.core.Direction direction, double amount) {
+        private static SimpleCollisionBox getMovementArea(SimpleCollisionBox box, Direction direction, double amount) {
             double step = amount * direction.getAxisDirection().getStep();
             double min = Math.min(step, 0.0D);
             double max = Math.max(step, 0.0D);
             return switch (direction) {
-                case WEST -> new AABB(box.minX + min, box.minY, box.minZ, box.minX + max, box.maxY, box.maxZ);
-                case EAST -> new AABB(box.maxX + min, box.minY, box.minZ, box.maxX + max, box.maxY, box.maxZ);
-                case DOWN -> new AABB(box.minX, box.minY + min, box.minZ, box.maxX, box.minY + max, box.maxZ);
-                case UP -> new AABB(box.minX, box.maxY + min, box.minZ, box.maxX, box.maxY + max, box.maxZ);
-                case NORTH -> new AABB(box.minX, box.minY, box.minZ + min, box.maxX, box.maxY, box.minZ + max);
-                case SOUTH -> new AABB(box.minX, box.minY, box.maxZ + min, box.maxX, box.maxY, box.maxZ + max);
+                case WEST ->
+                    SimpleCollisionBox.between(box.minX + min, box.minY, box.minZ, box.minX + max, box.maxY, box.maxZ);
+                case EAST ->
+                    SimpleCollisionBox.between(box.maxX + min, box.minY, box.minZ, box.maxX + max, box.maxY, box.maxZ);
+                case DOWN ->
+                    SimpleCollisionBox.between(box.minX, box.minY + min, box.minZ, box.maxX, box.minY + max, box.maxZ);
+                case UP ->
+                    SimpleCollisionBox.between(box.minX, box.maxY + min, box.minZ, box.maxX, box.maxY + max, box.maxZ);
+                case NORTH ->
+                    SimpleCollisionBox.between(box.minX, box.minY, box.minZ + min, box.maxX, box.maxY, box.minZ + max);
+                case SOUTH ->
+                    SimpleCollisionBox.between(box.minX, box.minY, box.maxZ + min, box.maxX, box.maxY, box.maxZ + max);
             };
         }
 
-        private static SimpleCollisionBox toSimpleCollisionBox(AABB box) {
-            return new SimpleCollisionBox(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ);
+        private static SimpleCollisionBox union(SimpleCollisionBox envelope, SimpleCollisionBox box) {
+            return envelope == null ? box.copy() : envelope.union(box);
         }
 
-        private static SimpleCollisionBox union(SimpleCollisionBox envelope, AABB box) {
-            SimpleCollisionBox next = toSimpleCollisionBox(box);
-            return envelope == null ? next : envelope.union(next);
-        }
-
-        private VoxelShape getCollisionShape(BlockGetter level, BlockPos pos) {
+        private VoxelShape getCollisionShape(CompensatedWorld level, BlockPos pos) {
             return getCollisionShape(level, pos, progress());
         }
 
-        private VoxelShape getCollisionShape(BlockGetter level, BlockPos pos, float progress) {
-            // MCP-Reborn MovingPistonBlock#getCollisionShape delegates to
-            // PistonMovingBlockEntity#getCollisionShape. The entity stores the
-            // moved state and progress; a MOVING_PISTON block without that
-            // entity is intentionally empty.
-            VoxelShape sourceShape = Shapes.empty();
-            if (!extending && source && movedState.getBlock() instanceof PistonBaseBlock) {
-                sourceShape =
-                        movedState.setValue(PistonBaseBlock.EXTENDED, true).getCollisionShape(level, pos);
-            }
-
-            BlockState collisionState;
-            if (source) {
-                collisionState = Blocks.PISTON_HEAD
-                        .defaultBlockState()
-                        .setValue(PistonHeadBlock.FACING, direction)
-                        .setValue(PistonHeadBlock.SHORT, extending != 1.0F - progress < 0.25F)
-                        .setValue(
-                                PistonHeadBlock.TYPE,
-                                movedState.getBlock() == Blocks.STICKY_PISTON ? PistonType.STICKY : PistonType.DEFAULT);
-            } else {
-                collisionState = movedState;
-            }
-
-            float extendedProgress = extendedProgress(progress);
-            double x = direction.getStepX() * extendedProgress;
-            double y = direction.getStepY() * extendedProgress;
-            double z = direction.getStepZ() * extendedProgress;
-            return Shapes.or(
-                    sourceShape, collisionState.getCollisionShape(level, pos).move(x, y, z));
+        private VoxelShape getCollisionShape(CompensatedWorld level, BlockPos pos, float progress) {
+            return level.geometry().movingPiston(movedState, pos, direction, extending, source, progress);
         }
     }
 }

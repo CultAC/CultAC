@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -17,6 +18,7 @@ import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundDamageEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
@@ -54,22 +56,18 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
-import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 public class PacketEntityReplication extends CultProcessor implements CheckListener, ClientTickEndListener {
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
     private static final Vec3 SELF_DISMOUNT_VELOCITY = Vec3.ZERO;
     private static final double VEHICLE_MOVE_RESYNC_SNAP_EPSILON = 2.0E-5D;
     private final Map<Integer, PacketHandlerDeltaMovement> packetHandlerDeltaMovements = new HashMap<>();
@@ -513,8 +511,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 : ac.cult.cultac.protocol.data.ModelIdMappings.clientVisibleEntity(packet.entityType(), model, client);
         addEntity(
                 packet.entityId(),
-                NmsIdentifierUtil.registryOptional(BuiltInRegistries.ENTITY_TYPE, type)
-                        .orElseThrow(),
+                java.util.Objects.requireNonNull(
+                                ac.cult.blocksim.entity.EntityTypes.defaults().byKey(type),
+                                "Unknown model entity " + type)
+                        .id(),
                 new Vec3(
                         packet.position().x(),
                         packet.position().y(),
@@ -522,7 +522,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 packet.yaw(),
                 packet.pitch(),
                 packet.data(),
-                transaction);
+                transaction,
+                packet.uuid());
     }
 
     private void handleSetEntityMotion(PacketSendEvent<ClientboundEntityMotion> event, ClientboundEntityMotion packet) {
@@ -813,11 +814,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         List<EntityMetadata.Entry> metadata = packet.packedItems();
         PacketEntity entity = player.compensatedEntities.getEntity(packet.id());
         TrackerData tracked = player.compensatedEntities.getTrackedEntity(packet.id());
-        EntityType<?> type = entity == null ? (tracked == null ? null : tracked.getEntityType()) : entity.type;
+        int type = entity == null ? (tracked == null ? -1 : tracked.getEntityType()) : entity.type;
         WatchableIndexUtil.Layout layout = WatchableIndexUtil.forModel(player.user.getCultConnection());
         boolean updatesBoost =
-                (type == EntityTypesCompat.PIG && WatchableIndexUtil.getIndex(metadata, layout.pigBoostTime()) != null)
-                        || (type == EntityTypesCompat.STRIDER
+                (type == EntityTypeIds.PIG && WatchableIndexUtil.getIndex(metadata, layout.pigBoostTime()) != null)
+                        || (type == EntityTypeIds.STRIDER
                                 && WatchableIndexUtil.getIndex(metadata, layout.striderBoostTime()) != null);
         if (updatesBoost) {
             CultPlayer.TrackedTransaction proof = player.createTrackedTransactionPacketForDeferredSend();
@@ -933,6 +934,16 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         int entityId = packet.entityId();
         byte status = packet.status();
         if (status == 3) {
+            // LivingEntity.handleEntityEvent sets non-player health to zero. Keep the action
+            // predicate on the client-confirmed boundary; existing movement death handling stays below.
+            var proof = appendTrailingProofTransaction(event);
+            Runnable apply = () -> {
+                var received = player.compensatedEntities.getEntity(entityId);
+                if (received != null && received.isLivingEntity() && received.type != EntityTypeIds.PLAYER)
+                    received.actionAlive = false;
+            };
+            if (proof != null) player.latencyUtils.addRealTimeTask(proof.transaction(), apply);
+            else player.latencyUtils.addRealTimeTaskNow(apply);
             PacketEntity entity = player.compensatedEntities.getEntity(entityId);
 
             if (entity == null) return;
@@ -1448,7 +1459,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         int firstTransaction = proof == null ? player.lastTransactionSent.get() : proof.transaction();
         if (data != null) {
             data.setLastTransactionHung(firstTransaction);
-            if (data.getEntityType() == EntityTypesCompat.PLAYER) {
+            if (data.getEntityType() == EntityTypeIds.PLAYER) {
                 player.checkManager
                         .getListener(FairReach.class)
                         .handleEntityMove(movement.entityId(), data.getX(), data.getY(), data.getZ());
@@ -1756,12 +1767,31 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     public void addEntity(
-            int entityID, EntityType type, Vec3 position, float xRot, float yRot, int extraData, int transaction) {
+            int entityID, int type, Vec3 position, float xRot, float yRot, int extraData, int transaction) {
+        addEntity(entityID, type, position, xRot, yRot, extraData, transaction, null);
+    }
+
+    private void addEntity(
+            int entityID,
+            int type,
+            Vec3 position,
+            float xRot,
+            float yRot,
+            int extraData,
+            int transaction,
+            java.util.UUID uuid) {
         int spawnTransaction = transaction >= 0 ? transaction : player.lastTransactionSent.get();
         player.compensatedEntities.serverPositionsMap.put(
                 entityID, new TrackerData(position.x, position.y, position.z, xRot, yRot, type, spawnTransaction));
         Runnable addTask = () -> {
             player.compensatedEntities.addEntity(entityID, type, position, xRot, yRot, extraData);
+            if (uuid != null
+                    && player.compensatedEntities.getEntity(entityID)
+                            instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer remote) {
+                remote.profile = uuid;
+                // ClientPacketListener skips player spawns without a preceding PlayerInfo entry.
+                remote.actionPresent = player.compensatedEntities.clientPlayerModes.get(uuid) != null;
+            }
         };
         if (transaction >= 0) {
             player.latencyUtils.addRealTimeTask(transaction, addTask);

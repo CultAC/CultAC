@@ -7,6 +7,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -15,7 +16,6 @@ import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import java.util.ArrayList;
-import net.minecraft.SharedConstants;
 
 @CheckData(
         name = "MultiInteractB",
@@ -25,7 +25,7 @@ import net.minecraft.SharedConstants;
 public class MultiInteractB extends Check implements PostPredictionListener {
     private static final Verbose V = Verbose.of("pos={f64}, {f64}, {f64}, lastPos={f64}, {f64}, {f64}");
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private final ArrayList<FlagData> flags = new ArrayList<>();
     private Vec3d lastPos;

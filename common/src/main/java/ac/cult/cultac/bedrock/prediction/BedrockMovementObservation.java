@@ -3,7 +3,7 @@ package ac.cult.cultac.bedrock.prediction;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public record BedrockMovementObservation(
         Vec3d actualPosition,

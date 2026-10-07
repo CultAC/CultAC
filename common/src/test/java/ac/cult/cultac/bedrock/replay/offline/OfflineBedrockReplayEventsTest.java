@@ -7,6 +7,9 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.blocksim.data.BlockTags;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
@@ -15,21 +18,20 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
+import ac.cult.cultac.utils.math.Vec3;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import net.minecraft.tags.BlockTags;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public final class OfflineBedrockReplayEventsTest {
     @Test
-    public void offlineBootstrapLoadsVanillaBlockTags() {
+    public void offlineBootstrapUsesBundledBlockTags() {
         OfflineCultTestBootstrap.installConfig();
 
-        assertTrue(Blocks.LADDER.defaultBlockState().is(BlockTags.CLIMBABLE));
-        assertTrue(Blocks.VINE.defaultBlockState().is(BlockTags.CLIMBABLE));
+        assertTrue(BlockTags.CLIMBABLE.test(
+                DataTables.defaults().registry().block("minecraft:ladder").defaultState()));
+        assertTrue(BlockTags.CLIMBABLE.test(
+                DataTables.defaults().registry().block("minecraft:vine").defaultState()));
     }
 
     @Test
@@ -335,8 +337,8 @@ public final class OfflineBedrockReplayEventsTest {
             assertNotNull(happyGhast);
             assertNotNull(shulker);
             assertTrue(boat.isBoat());
-            assertSame(EntityTypesCompat.HAPPY_GHAST, happyGhast.type);
-            assertSame(EntityTypesCompat.SHULKER, shulker.type);
+            assertSame(EntityTypeIds.HAPPY_GHAST, happyGhast.type);
+            assertSame(EntityTypeIds.SHULKER, shulker.type);
             assertFalse(player.compensatedWorld.openShulkerBoxes.isEmpty());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);

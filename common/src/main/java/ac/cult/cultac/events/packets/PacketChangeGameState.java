@@ -32,6 +32,7 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
                 case 3 -> GameMode.SPECTATOR;
                 default -> GameMode.SURVIVAL;
             };
+            player.isInvulnerable = player.gamemode == GameMode.CREATIVE || player.gamemode == GameMode.SPECTATOR;
             player.compensatedEntities.getSelf().setDefaultBlockInteractionRange(player.gamemode == GameMode.CREATIVE);
 
             if (previous == GameMode.SPECTATOR && player.gamemode != GameMode.SPECTATOR) {

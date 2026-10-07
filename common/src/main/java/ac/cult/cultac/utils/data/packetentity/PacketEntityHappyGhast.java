@@ -1,9 +1,8 @@
 package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.cultac.player.CultPlayer;
-import net.minecraft.util.Mth;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 
 public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
     public boolean hasBodyArmor = false;
@@ -11,14 +10,13 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
     public float movementSpeedAttribute = 0.05F;
     public float flyingSpeedAttribute = 0.05F;
 
-    public PacketEntityHappyGhast(
-            CultPlayer player, int entityId, EntityType type, double x, double y, double z, float yaw) {
+    public PacketEntityHappyGhast(CultPlayer player, int entityId, int type, double x, double y, double z, float yaw) {
         super(player, entityId, type, x, y, z, yaw);
     }
 
     public float getRiddenTickYaw(float controllerYaw) {
         float rootYaw = clientPhysicalYaw;
-        return rootYaw + Mth.wrapDegrees(controllerYaw - rootYaw) * 0.08F;
+        return rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.08F;
     }
 
     public float getRiddenTickPitch(float controllerPitch) {
@@ -34,8 +32,8 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
 
         if (zza != 0.0F) {
             float pitchRadians = controllerPitch * ((float) Math.PI / 180F);
-            vertical = -Mth.sin(pitchRadians);
-            forward = Mth.cos(pitchRadians);
+            vertical = -CultMath.sin(pitchRadians);
+            forward = CultMath.cos(pitchRadians);
             if (zza < 0.0F) {
                 vertical *= -0.5F;
                 forward *= -0.5F;
@@ -71,20 +69,20 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
             return Vec3.ZERO;
         }
 
-        float rawLength = Mth.sqrt(rawLengthSqr);
+        float rawLength = CultMath.sqrt(rawLengthSqr);
         float normalizedX = xxa / rawLength;
         float normalizedZ = zza / rawLength;
 
         float modifiedX = normalizedX * 0.98F;
         float modifiedZ = normalizedZ * 0.98F;
-        float modifiedLength = Mth.sqrt(modifiedX * modifiedX + modifiedZ * modifiedZ);
+        float modifiedLength = CultMath.sqrt(modifiedX * modifiedX + modifiedZ * modifiedZ);
         if (modifiedLength > 0.0F) {
             float unitX = modifiedX / modifiedLength;
             float unitZ = modifiedZ / modifiedLength;
             float absX = Math.abs(unitX);
             float absZ = Math.abs(unitZ);
             float ratio = absZ > absX ? absX / absZ : absZ / absX;
-            float distanceToUnitSquare = Mth.sqrt(1.0F + Mth.square(ratio));
+            float distanceToUnitSquare = CultMath.sqrt(1.0F + CultMath.square(ratio));
             float scale = Math.min(modifiedLength * distanceToUnitSquare, 1.0F);
             modifiedX = unitX * scale;
             modifiedZ = unitZ * scale;

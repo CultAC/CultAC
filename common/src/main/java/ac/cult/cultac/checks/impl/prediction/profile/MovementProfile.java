@@ -5,7 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public interface MovementProfile {
     default SimulationContext createContext(

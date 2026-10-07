@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.replay.offline;
 
 import static org.junit.Assert.*;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
@@ -10,9 +11,8 @@ import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -53,7 +53,14 @@ public class BedrockPendingTeleportTickTest {
             player.latencyUtils.addRealTimeTask(transaction, () -> {
                 for (int x = 0; x < 4; x++)
                     for (int z = 0; z < 4; z++)
-                        player.compensatedWorld.updateBlock(x, 105, z, Blocks.STONE.defaultBlockState());
+                        player.compensatedWorld.updateBlock(
+                                x,
+                                105,
+                                z,
+                                DataTables.defaults()
+                                        .registry()
+                                        .block("minecraft:stone")
+                                        .defaultState());
             });
             teleports.addImmediateBedrockTransportTeleport(
                     ground, true, BedrockCoordinateFrame.IDENTITY, null, null, transaction);
@@ -123,7 +130,14 @@ public class BedrockPendingTeleportTickTest {
             player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
             for (int x = 0; x < 4; x++)
                 for (int z = 0; z < 4; z++)
-                    player.compensatedWorld.updateBlock(x, 105, z, Blocks.STONE.defaultBlockState());
+                    player.compensatedWorld.updateBlock(
+                            x,
+                            105,
+                            z,
+                            DataTables.defaults()
+                                    .registry()
+                                    .block("minecraft:stone")
+                                    .defaultState());
             Vec3 ground = new Vec3(1.5, 106, 1.5);
             player.x = player.lastX = ground.x;
             player.y = player.lastY = ground.y;

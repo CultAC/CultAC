@@ -8,11 +8,11 @@ import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
-import net.minecraft.world.phys.Vec3;
 
 // There are many things that can affect a user's movement
 // They range from blocks pushing the user out of them, to pistons pushing a user

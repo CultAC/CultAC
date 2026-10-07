@@ -1,8 +1,8 @@
 package ac.cult.cultac.utils.data;
 
+import ac.cult.cultac.protocol.value.BlockPos;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import net.minecraft.core.BlockPos;
 import org.jetbrains.annotations.Nullable;
 
 @Data

@@ -132,6 +132,36 @@ public class CultMath {
         return start + lerpAmount * (end - start);
     }
 
+    public static float lerp(float amount, float start, float end) {
+        return start + amount * (end - start);
+    }
+
+    public static float sin(double radians) {
+        return ac.cult.blocksim.engine.VanillaMath.sin(radians);
+    }
+
+    public static float cos(double radians) {
+        return ac.cult.blocksim.engine.VanillaMath.cos(radians);
+    }
+
+    public static float wrapDegrees(float degrees) {
+        float wrapped = degrees % 360.0F;
+        if (wrapped >= 180.0F) wrapped -= 360.0F;
+        if (wrapped < -180.0F) wrapped += 360.0F;
+        return wrapped;
+    }
+
+    public static double wrapDegrees(double degrees) {
+        double wrapped = degrees % 360.0;
+        if (wrapped >= 180.0) wrapped -= 360.0;
+        if (wrapped < -180.0) wrapped += 360.0;
+        return wrapped;
+    }
+
+    public static float rotLerp(float amount, float start, float end) {
+        return start + amount * wrapDegrees(end - start);
+    }
+
     @Contract(pure = true)
     public static double frac(double p_14186_) {
         return p_14186_ - lfloor(p_14186_);

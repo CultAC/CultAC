@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
 
 class CheckManagerListenerDuplicateMovementTest {

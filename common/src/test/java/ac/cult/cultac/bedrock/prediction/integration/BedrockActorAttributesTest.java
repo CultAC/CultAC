@@ -120,7 +120,7 @@ public class BedrockActorAttributesTest {
                 "minecraft:horse.jump_strength", BedrockMovementAttributeState.serverValue(0.8F, false)));
         var context = org.mockito.Mockito.mock(ac.cult.cultac.checks.impl.prediction.SimulationContext.class);
         org.mockito.Mockito.when(context.getVehicle()).thenReturn(horse);
-        org.mockito.Mockito.when(context.getStart()).thenReturn(new net.minecraft.world.phys.Vec3(289, 82, -86));
+        org.mockito.Mockito.when(context.getStart()).thenReturn(new ac.cult.cultac.utils.math.Vec3(289, 82, -86));
         var world = BedrockActorHistoryTest.ground().movementContext();
         var initial = BedrockInitialStateFactory.resolve(context, BedrockInputFrame.idle(1), world, null, null);
         assertEquals(0.35F, initial.movementAttribute().current(), 0);

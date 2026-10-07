@@ -1,14 +1,15 @@
 package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FluidFallingAdjustedMovement;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
 
 public class Ladder implements UncertaintyHandler {
     @Override
@@ -82,10 +83,9 @@ public class Ladder implements UncertaintyHandler {
         Vec3 from = context.getStart();
         if (clampedY < 0
                 && context.isSneaking()
-                && player.compensatedWorld
-                                .getBlockDataAt(from.x, from.y, from.z)
-                                .getBlock()
-                        != Blocks.SCAFFOLDING) {
+                && !BlockIds.is(
+                        player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(from.x, from.y, from.z)),
+                        BlockIds.SCAFFOLDING)) {
             clampedY = 0;
         }
         if (context.getWorldData().getClimbingAtStart().isDesync()

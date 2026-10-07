@@ -1,16 +1,15 @@
 package ac.cult.cultac.utils.data.packetentity;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
-import net.minecraft.world.entity.EntityType;
 
 public class PacketEntityUtil {
 
-    public static boolean isRideable(EntityType type) {
+    public static boolean isRideable(int type) {
         return EntityTypeUtil.isBoat(type)
                 || EntityTypeUtil.isHorseFamily(type)
-                || type == EntityTypesCompat.PIG
-                || type == EntityTypesCompat.STRIDER
+                || type == EntityTypeIds.PIG
+                || type == EntityTypeIds.STRIDER
                 || EntityTypeUtil.isHappyGhast(type)
                 || EntityTypeUtil.isNautilusFamily(type);
     }

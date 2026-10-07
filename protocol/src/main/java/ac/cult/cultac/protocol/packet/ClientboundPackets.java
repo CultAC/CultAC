@@ -134,6 +134,11 @@ public final class ClientboundPackets {
             PLAY.add("player_combat_kill", ClientboundPlayerCombatKill.class, new PlayerCombatKillCodec());
     public static final PacketType<ClientboundPlayerInfoUpdate> PLAYER_INFO_UPDATE =
             PLAY.add("player_info_update", ClientboundPlayerInfoUpdate.class, new PlayerInfoUpdateCodec());
+    public static final PacketType<ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove>
+            PLAYER_INFO_REMOVE = PLAY.add(
+                    "player_info_remove",
+                    ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove.class,
+                    new ac.cult.cultac.protocol.codec.entity.PlayerInfoRemoveCodec());
     public static final PacketType<ClientboundCooldown> COOLDOWN =
             PLAY.add("cooldown", ClientboundCooldown.class, new CooldownCodec());
     public static final PacketType<ClientboundGameEvent> GAME_EVENT =

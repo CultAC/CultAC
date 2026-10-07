@@ -7,8 +7,8 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.InsideBlock;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import net.minecraft.world.phys.Vec3;
 
 /** Runs the shared push handler on packet delta, after travel and end-of-tick velocity effects. */
 final class BedrockEndTickBlockPush {

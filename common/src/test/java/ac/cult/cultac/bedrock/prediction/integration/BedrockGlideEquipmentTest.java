@@ -5,12 +5,11 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.latency.CompensatedInventory;
-import net.minecraft.world.item.ItemStack;
-import org.bukkit.Material;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -22,17 +21,17 @@ public final class BedrockGlideEquipmentTest {
 
     @Test
     public void elytraMustHaveMoreThanOneDurabilityPointRemaining() {
-        assertTrue(glideAvailable(item(Material.ELYTRA, 0)));
-        assertTrue(glideAvailable(item(Material.ELYTRA, 430)));
-        assertFalse(glideAvailable(item(Material.ELYTRA, 431)));
-        assertFalse(glideAvailable(item(Material.ELYTRA, 432)));
+        assertTrue(glideAvailable(item("minecraft:elytra", 0)));
+        assertTrue(glideAvailable(item("minecraft:elytra", 430)));
+        assertFalse(glideAvailable(item("minecraft:elytra", 431)));
+        assertFalse(glideAvailable(item("minecraft:elytra", 432)));
     }
 
     @Test
     public void emptyOrNonElytraChestSlotCannotEnableGliding() {
         assertFalse(glideAvailable(null));
-        assertFalse(glideAvailable(item(Material.AIR, 0)));
-        assertFalse(glideAvailable(item(Material.DIAMOND_CHESTPLATE, 0)));
+        assertFalse(glideAvailable(item("minecraft:air", 0)));
+        assertFalse(glideAvailable(item("minecraft:diamond_chestplate", 0)));
     }
 
     @Test
@@ -40,9 +39,9 @@ public final class BedrockGlideEquipmentTest {
         CultPlayer player = mock(CultPlayer.class);
         CompensatedInventory inventory = mock(CompensatedInventory.class);
         when(player.getInventory()).thenReturn(inventory);
-        ItemStack worn = item(Material.ELYTRA, 430);
-        ItemStack broken = item(Material.ELYTRA, 431);
-        ItemStack repaired = item(Material.ELYTRA, 0);
+        SimItemStack worn = item("minecraft:elytra", 430);
+        SimItemStack broken = item("minecraft:elytra", 431);
+        SimItemStack repaired = item("minecraft:elytra", 0);
 
         when(inventory.getChestplate()).thenReturn(worn);
         assertTrue(glideAvailableFor(player));
@@ -54,7 +53,7 @@ public final class BedrockGlideEquipmentTest {
         assertFalse(glideAvailableFor(player));
     }
 
-    private static boolean glideAvailable(ItemStack chestplate) {
+    private static boolean glideAvailable(SimItemStack chestplate) {
         CultPlayer player = mock(CultPlayer.class);
         CompensatedInventory inventory = mock(CompensatedInventory.class);
         when(player.getInventory()).thenReturn(inventory);
@@ -70,9 +69,9 @@ public final class BedrockGlideEquipmentTest {
                 .elytraGlideAvailable();
     }
 
-    private static ItemStack item(Material material, int damage) {
-        ItemStack item = new ItemStack(org.bukkit.craftbukkit.util.CraftMagicNumbers.getItem(material));
-        item.set(net.minecraft.core.component.DataComponents.DAMAGE, damage);
+    private static SimItemStack item(String key, int damage) {
+        var item = OfflineCultTestBootstrap.item(key);
+        item.damage(damage);
         return item;
     }
 }

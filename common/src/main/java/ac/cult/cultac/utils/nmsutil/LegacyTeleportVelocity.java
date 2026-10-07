@@ -2,7 +2,7 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.data.TeleportData;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 /** Velocity after the ordered packets translating a modern teleport to an old client. */
 public final class LegacyTeleportVelocity {

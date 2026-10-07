@@ -1,6 +1,6 @@
 package ac.cult.cultac.checks.impl.prediction;
 
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public interface AuthoredMovementFrame {
     Vec3 getPosition();

@@ -283,7 +283,7 @@ public final class GeyserBedrockBridgeRuntimeTest {
     public void geyserSelfEntityTeleportPositionIsConvertedToPhysicalFeet() {
         Vector3f packetPosition = Vector3f.from(223.7F, 67.1152F, 416.82675F);
 
-        net.minecraft.world.phys.Vec3 physicalFeet = GeyserBedrockBridgeRuntime.toJavaPosition(packetPosition);
+        ac.cult.cultac.utils.math.Vec3 physicalFeet = GeyserBedrockBridgeRuntime.toJavaPosition(packetPosition);
 
         assertEquals((double) packetPosition.getX(), physicalFeet.x, 0.0D);
         assertEquals((double) packetPosition.getY() - 1.6200103759765625D, physicalFeet.y, 0.0D);

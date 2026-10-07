@@ -1,15 +1,13 @@
 package ac.cult.cultac.protocol;
 
+import ac.cult.cultac.codec.PrivateCodecService;
 import java.io.IOException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 
-/** One isolated, stateless Via library shared by the platform's mappings and value decoders. */
+/** Directly linked, relocated value codecs shared by the platform. */
 public final class ProtocolCodecs {
     private static volatile Runtime runtime;
 
@@ -24,7 +22,7 @@ public final class ProtocolCodecs {
                     try {
                         runtime = current = open();
                     } catch (Exception failure) {
-                        throw new ProtocolResolutionException("Cannot initialize Via codecs", failure);
+                        throw new ProtocolResolutionException("Cannot initialize CultAC value codecs", failure);
                     }
                 }
             }
@@ -46,87 +44,30 @@ public final class ProtocolCodecs {
         runtime = null;
         if (current == null) return;
         try {
-            try {
-                current.decoder().close();
-            } finally {
-                try {
-                    current.loader().close();
-                } finally {
-                    try (var files = Files.walk(current.directory())) {
-                        for (var path : files.sorted(java.util.Comparator.reverseOrder())
-                                .toList()) Files.deleteIfExists(path);
-                    }
-                }
-            }
-        } catch (IOException failure) {
-            throw new java.io.UncheckedIOException("Cannot close Via codecs", failure);
+            current.decoder().close();
+        } finally {
+            deleteDirectory(current.directory());
         }
     }
 
     private static Runtime open() throws Exception {
-        Path directory = Files.createTempDirectory("cult-protocol-codecs-");
-        Path jar = directory.resolve("protocol-codecs.jar");
-        CodecLoader loader = null;
+        // ViaBackwards' configuration API needs a data directory; no code is extracted.
+        Path directory = Files.createTempDirectory("cult-value-codecs-");
         try {
-            try (var input = ProtocolCodecs.class.getResourceAsStream("/runtime/protocol-codecs.jar")) {
-                if (input == null) throw new IOException("Missing private packet codecs");
-                Files.copy(input, jar);
-            }
-            loader = new CodecLoader(jar.toUri().toURL(), ProtocolCodecs.class.getClassLoader());
-            var decoder = (WireValueDecoder) loader.loadClass("ac.cult.cultac.codec.PrivateCodecService")
-                    .getConstructor(Path.class)
-                    .newInstance(directory);
-            return new Runtime(directory, loader, decoder);
+            return new Runtime(directory, new PrivateCodecService(directory));
         } catch (Exception | Error failure) {
-            if (loader != null) loader.close();
-            try (var files = Files.walk(directory)) {
-                for (var path :
-                        files.sorted(java.util.Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
-            }
+            deleteDirectory(directory);
             throw failure;
         }
     }
 
-    private record Runtime(Path directory, CodecLoader loader, WireValueDecoder decoder) {}
-
-    static final class CodecLoader extends URLClassLoader {
-        static {
-            registerAsParallelCapable();
-        }
-
-        CodecLoader(URL jar, ClassLoader parent) {
-            super(new URL[] {jar}, parent);
-        }
-
-        @Override
-        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-            synchronized (getClassLoadingLock(name)) {
-                Class<?> type = findLoadedClass(name);
-                if (type == null) type = ownClass(name) ? findClass(name) : super.loadClass(name, false);
-                if (resolve) resolveClass(type);
-                return type;
-            }
-        }
-
-        @Override
-        public URL getResource(String name) {
-            return ownResource(name) ? findResource(name) : super.getResource(name);
-        }
-
-        @Override
-        public Enumeration<URL> getResources(String name) throws IOException {
-            return ownResource(name) ? findResources(name) : super.getResources(name);
-        }
-
-        private static boolean ownClass(String name) {
-            return name.startsWith("com.viaversion.") || name.startsWith("ac.cult.cultac.codec.");
-        }
-
-        private static boolean ownResource(String name) {
-            return name.startsWith("assets/viaversion/")
-                    || name.startsWith("assets/viabackwards/")
-                    || name.startsWith("com/viaversion/")
-                    || name.startsWith("ac/cult/cultac/codec/");
+    private static void deleteDirectory(Path directory) {
+        try (var files = Files.walk(directory)) {
+            for (var path : files.sorted(java.util.Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
+        } catch (IOException failure) {
+            throw new java.io.UncheckedIOException("Cannot close CultAC value codecs", failure);
         }
     }
+
+    private record Runtime(Path directory, WireValueDecoder decoder) {}
 }

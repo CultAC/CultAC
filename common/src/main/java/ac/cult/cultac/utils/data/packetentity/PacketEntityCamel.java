@@ -1,7 +1,6 @@
 package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.cultac.player.CultPlayer;
-import net.minecraft.world.entity.EntityType;
 
 public class PacketEntityCamel extends PacketEntityHorse {
 
@@ -9,8 +8,7 @@ public class PacketEntityCamel extends PacketEntityHorse {
     public int dashCooldown;
     public boolean lastPredictedInLiquid;
 
-    public PacketEntityCamel(
-            CultPlayer player, int entityId, EntityType type, double x, double y, double z, float xRot) {
+    public PacketEntityCamel(CultPlayer player, int entityId, int type, double x, double y, double z, float xRot) {
         super(player, entityId, type, x, y, z, xRot);
         applyCamelAttributeDefaults();
     }

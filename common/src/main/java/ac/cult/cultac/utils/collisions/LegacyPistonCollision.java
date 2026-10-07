@@ -1,16 +1,17 @@
 package ac.cult.cultac.utils.collisions;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.NoCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
 
 /** The single-AABB collision query in pre-1.9 BlockPistonMoving, not its render offset. */
 public final class LegacyPistonCollision {
@@ -18,7 +19,7 @@ public final class LegacyPistonCollision {
 
     public static CollisionBox movement(
             CultPlayer player,
-            BlockState movedState,
+            int movedState,
             BlockPos pos,
             Direction facing,
             boolean extending,
@@ -27,25 +28,21 @@ public final class LegacyPistonCollision {
     }
 
     public static CollisionBox pushing(
-            CultPlayer player,
-            BlockState movedState,
-            BlockPos pos,
-            Direction facing,
-            boolean extending,
-            float nextProgress) {
+            CultPlayer player, int movedState, BlockPos pos, Direction facing, boolean extending, float nextProgress) {
         // TileEntityPiston#launchWithSlimeBlock uses the new progress, and a
         // different retraction transform from the movement collision query.
         return bounds(player, movedState, pos, facing, extending ? 1.0F - nextProgress : nextProgress - 1.0F);
     }
 
     private static CollisionBox bounds(
-            CultPlayer player, BlockState movedState, BlockPos pos, Direction facing, float amount) {
-        if (movedState.isAir() || movedState.getBlock() == Blocks.MOVING_PISTON) {
+            CultPlayer player, int movedState, BlockPos pos, Direction facing, float amount) {
+        if (DataTables.defaults().registry().facts(movedState).has(StateFacts.AIR)
+                || BlockIds.is(movedState, BlockIds.MOVING_PISTON)) {
             return NoCollisionBox.INSTANCE;
         }
 
         SimpleCollisionBox bounds;
-        if (movedState.getBlock() == Blocks.PISTON_HEAD) {
+        if (BlockIds.is(movedState, BlockIds.PISTON_HEAD)) {
             // BlockPistonExtension#addCollisionBoxesToList restores the block bounds
             // to a cube. The moving block calls getCollisionBoundingBox directly,
             // not the head's two-piece addCollisionBoxesToList implementation.

@@ -1,8 +1,12 @@
 package ac.cult.cultac.utils.collisions;
 
+import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
@@ -22,9 +26,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 
 public final class ViaClientBlockShapeMappings {
     // Block#isSolid from the vanilla 1.8 block registry (IDs 0..197).
@@ -67,29 +68,28 @@ public final class ViaClientBlockShapeMappings {
         }
     }
 
-    static Optional<CollisionBox> movement(
-            CultPlayer player, BlockState state, int x, int y, int z, double entityBottom) {
+    static Optional<CollisionBox> movement(CultPlayer player, int state, int x, int y, int z, double entityBottom) {
         Replacement replacement = replacement(player, state);
         if (replacement == null) {
             return Optional.empty();
         }
 
         CollisionBox latest =
-                NativeBlockCollisionHelper.getCollisionBox(player, replacement.blockData(), x, y, z, entityBottom);
-        Optional<CollisionBox> versioned = VersionedJavaBlockShapes.movement(player, replacement.blockData(), x, y, z);
+                NativeBlockCollisionHelper.getCollisionBox(player, replacement.dataId(), x, y, z, entityBottom);
+        Optional<CollisionBox> versioned = VersionedJavaBlockShapes.movement(player, replacement.dataId(), x, y, z);
         return versioned
                 .filter(shape -> !ClientBlockShapes.sameShape(latest, shape))
                 .or(() -> Optional.of(latest));
     }
 
-    static Optional<CollisionBox> visual(CultPlayer player, BlockState state, int x, int y, int z) {
+    static Optional<CollisionBox> visual(CultPlayer player, int state, int x, int y, int z) {
         Replacement replacement = replacement(player, state);
         if (replacement == null) {
             return Optional.empty();
         }
 
-        CollisionBox latest = NativeBlockCollisionHelper.getSelectionBox(player, replacement.blockState(), x, y, z);
-        Optional<CollisionBox> versioned = VersionedJavaBlockShapes.visual(player, replacement.blockData(), x, y, z);
+        CollisionBox latest = NativeBlockCollisionHelper.getSelectionBox(player, replacement.stateId(), x, y, z);
+        Optional<CollisionBox> versioned = VersionedJavaBlockShapes.visual(player, replacement.dataId(), x, y, z);
         return versioned
                 .filter(shape -> !ClientBlockShapes.sameShape(latest, shape))
                 .or(() -> Optional.of(latest));
@@ -101,35 +101,29 @@ public final class ViaClientBlockShapeMappings {
      * FastBreak check and is needed even when the replacement has an identical
      * collision shape but different mining properties.
      */
-    public static BlockState clientBlockState(CultPlayer player, BlockState state) {
-        if (player == null || player.bedrockState != null || state == null) {
-            return state;
-        }
-        Replacement replacement = SNAPSHOT.get().replacement(player.getClientVersion(), Block.getId(state));
-        return replacement == null ? state : replacement.blockState();
+    public static int clientBlockStateId(CultPlayer player, int state) {
+        if (player == null || player.bedrockState != null) return state;
+        Replacement replacement = SNAPSHOT.get().replacement(player.getClientVersion(), state);
+        return replacement == null ? state : replacement.stateId();
     }
 
-    public static boolean legacyMaterialIsSolid(CultPlayer player, BlockState state) {
+    public static boolean legacyMaterialIsSolid(CultPlayer player, int state) {
         VersionMappings mapping = SNAPSHOT.get().versions().get(player.getClientVersion());
+        boolean solid = DataTables.defaults().registry().facts(state).has(StateFacts.SOLID);
         return mapping == null
-                ? state.isSolid()
-                : mapping.legacyMaterialSolidity().getOrDefault(state.getBlock(), state.isSolid());
+                ? solid
+                : mapping.legacyMaterialSolidity()
+                        .getOrDefault(DataTables.defaults().registry().blockIndex(state), solid);
     }
 
-    private static Replacement replacement(CultPlayer player, BlockState state) {
-        if (player == null || player.bedrockState != null || state == null) {
-            return null;
-        }
-        BlockState blockState = toBlockState(state);
-        if (blockState == null) {
-            return null;
-        }
-        return SNAPSHOT.get().replacement(player.getClientVersion(), Block.getId(blockState));
+    private static Replacement replacement(CultPlayer player, int state) {
+        if (player == null || player.bedrockState != null || state < 0) return null;
+        return SNAPSHOT.get().replacement(player.getClientVersion(), state);
     }
 
     private static Snapshot build() {
         EnumMap<ClientVersion, VersionMappings> mappings = new EnumMap<>(ClientVersion.class);
-        int nativeModelProtocol = net.minecraft.SharedConstants.getProtocolVersion();
+        int nativeModelProtocol = ProtocolVersion.V26_3.protocol();
 
         for (ClientVersion version : ClientVersion.values()) {
             if (version.isOlderThan(MINIMUM_SUPPORTED_VERSION) || version.getProtocolVersion() >= nativeModelProtocol) {
@@ -174,17 +168,14 @@ public final class ViaClientBlockShapeMappings {
         }
         BitSet representedCurrentStates = representedCurrentStates(version, toServer, toClient);
         Map<Integer, Replacement> replacements = new HashMap<>();
-        Set<Block> needsReplacementByMaterial = new HashSet<>();
+        Set<Integer> needsReplacementByMaterial = new HashSet<>();
 
-        for (BlockState state : Block.BLOCK_STATE_REGISTRY) {
-            int currentId = Block.getId(state);
+        for (int currentId = 0; currentId < DataTables.defaults().registry().stateCount(); currentId++) {
             if (representedCurrentStates.get(currentId)) {
                 continue;
             }
 
-            needsReplacementByMaterial.add(
-                    ac.cult.cultac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(state)
-                            .getBlock());
+            needsReplacementByMaterial.add(DataTables.defaults().registry().blockIndex(currentId));
 
             int clientState = mapStateId(currentId, toClient);
             if (clientState < 0) {
@@ -196,33 +187,37 @@ public final class ViaClientBlockShapeMappings {
                 continue;
             }
 
-            BlockState replacementState = Block.stateById(normalizedReplacement);
+            int replacementState =
+                    normalizedReplacement < DataTables.defaults().registry().stateCount() ? normalizedReplacement : 0;
             // Neighbour-derived properties (stairs, fences, panes) are not in
             // pre-flattening metadata. Preserve them for an existing block; the
             // versioned shape layer supplies the historical geometry.
-            if (version.isOlderThan(ClientVersion.V_1_13) && replacementState.getBlock() == state.getBlock()) {
-                replacementState = state;
-            }
             if (version.isOlderThan(ClientVersion.V_1_13)
-                    && replacementState.hasProperty(BlockStateProperties.WATERLOGGED)) {
-                replacementState = replacementState.setValue(BlockStateProperties.WATERLOGGED, false);
+                    && DataTables.defaults().registry().sameBlock(replacementState, currentId)) {
+                replacementState = currentId;
             }
-            if (replacementState == state) continue;
-            replacements.put(
-                    currentId,
-                    new Replacement(
-                            replacementState,
-                            ac.cult.cultac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(
-                                    replacementState)));
+            if (version.isOlderThan(ClientVersion.V_1_13) && BlockProps.WATERLOGGED.has(replacementState)) {
+                replacementState = BlockProps.WATERLOGGED.with(replacementState, false);
+            }
+            if (replacementState == currentId) continue;
+            replacements.put(currentId, new Replacement(replacementState, replacementState));
         }
 
-        Map<Block, Boolean> legacyMaterialSolidity = new HashMap<>();
+        Map<Integer, Boolean> legacyMaterialSolidity = new HashMap<>();
         if (version == ClientVersion.V_1_8) {
             for (int legacyState = 0; legacyState < 198 * 16; legacyState++) {
                 int currentState = mapStateId(legacyState, toServer);
                 if (currentState >= 0) {
                     legacyMaterialSolidity.putIfAbsent(
-                            Block.stateById(currentState).getBlock(),
+                            DataTables.defaults()
+                                    .registry()
+                                    .blockIndex(
+                                            currentState
+                                                            < DataTables.defaults()
+                                                                    .registry()
+                                                                    .stateCount()
+                                                    ? currentState
+                                                    : 0),
                             !LEGACY_NON_SOLID_MATERIAL_IDS.contains(legacyState >> 4));
                 }
             }
@@ -329,10 +324,6 @@ public final class ViaClientBlockShapeMappings {
         }
     }
 
-    private static BlockState toBlockState(BlockState state) {
-        return state;
-    }
-
     private record Snapshot(EnumMap<ClientVersion, VersionMappings> versions) {
         static Snapshot empty() {
             return new Snapshot(new EnumMap<>(ClientVersion.class));
@@ -366,12 +357,12 @@ public final class ViaClientBlockShapeMappings {
 
     private record VersionMappings(
             Map<Integer, Replacement> replacements,
-            Set<Block> needsReplacementMaterials,
-            Map<Block, Boolean> legacyMaterialSolidity) {
+            Set<Integer> needsReplacementMaterials,
+            Map<Integer, Boolean> legacyMaterialSolidity) {
         boolean isEmpty() {
             return replacements.isEmpty() && needsReplacementMaterials.isEmpty();
         }
     }
 
-    private record Replacement(BlockState blockState, BlockState blockData) {}
+    private record Replacement(int stateId, int dataId) {}
 }

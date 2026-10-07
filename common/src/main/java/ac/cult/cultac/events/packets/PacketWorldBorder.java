@@ -57,6 +57,14 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
         return d0 < 1.0D ? CultMath.lerp(d0, oldDiameter, newDiameter) : newDiameter;
     }
 
+    /** 26.3 WorldBorder.isWithinBounds calls getMin/Max(0.0F), using the previous world-tick size. */
+    public double getBlockInteractionDiameter() {
+        if (!tickBasedLerp) return getCurrentDiameter();
+        if (lerpDurationTicks <= 0L) return newDiameter;
+        double progress = Math.min(1.0D, (double) Math.max(0L, lerpElapsedTicks - 1L) / (double) lerpDurationTicks);
+        return CultMath.lerp(progress, oldDiameter, newDiameter);
+    }
+
     @Override
     public void onPlayerTickEnd(ac.cult.cultac.network.event.PacketReceiveEvent event) {
         // ClientLevel#tick advances the border only while world ticks run.

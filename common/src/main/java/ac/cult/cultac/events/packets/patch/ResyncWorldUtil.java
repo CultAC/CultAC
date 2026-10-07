@@ -1,10 +1,10 @@
 package ac.cult.cultac.events.packets.patch;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.CultMath;
-import net.minecraft.core.BlockPos;
 
 public class ResyncWorldUtil {
     public static void resyncPosition(CultPlayer player, BlockPos pos) {

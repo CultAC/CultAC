@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsW;
@@ -28,14 +29,12 @@ import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.inventory.Inventory;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Queue;
 import java.util.UUID;
-import net.minecraft.world.item.ItemStack;
 import org.junit.Test;
 
 public final class ReachabilityOrderingParityTest {
@@ -96,7 +95,7 @@ public final class ReachabilityOrderingParityTest {
             player.getInventory()
                     .inventory
                     .getInventoryStorage()
-                    .setItem(Inventory.SLOT_CHESTPLATE, new ItemStack(net.minecraft.world.item.Items.ELYTRA));
+                    .setItem(Inventory.SLOT_CHESTPLATE, OfflineCultTestBootstrap.item("minecraft:elytra"));
 
             PacketReceiveEvent event = receiveEvent(player, glideStartPacket());
             new PacketEntityAction().onPlayerCommand(event, player, (ServerboundPlayerCommand) event.getPacket());
@@ -160,7 +159,7 @@ public final class ReachabilityOrderingParityTest {
             player.getInventory()
                     .inventory
                     .getInventoryStorage()
-                    .setItem(Inventory.SLOT_CHESTPLATE, new ItemStack(net.minecraft.world.item.Items.ELYTRA));
+                    .setItem(Inventory.SLOT_CHESTPLATE, OfflineCultTestBootstrap.item("minecraft:elytra"));
 
             PacketReceiveEvent event = dispatchGlideStartThroughManagers(player);
 
@@ -262,19 +261,22 @@ public final class ReachabilityOrderingParityTest {
                     "evaluateItemControlledVehicle", PacketEntity.class);
             evaluate.setAccessible(true);
 
-            PacketEntity pig = new PacketEntity(EntityTypesCompat.PIG, 10);
+            PacketEntity pig = new PacketEntity(EntityTypeIds.PIG, 10);
             evaluate.invoke(runner, pig);
             assertEquals(1, vehicleC.flags);
 
             player.getInventory()
                     .inventory
                     .getInventoryStorage()
-                    .setItem(Inventory.HOTBAR_OFFSET, new ItemStack(net.minecraft.world.item.Items.CARROT_ON_A_STICK));
+                    .setItem(Inventory.HOTBAR_OFFSET, OfflineCultTestBootstrap.item("minecraft:carrot_on_a_stick"));
             evaluate.invoke(runner, pig);
             assertEquals(1, vehicleC.flags);
 
-            player.getInventory().inventory.getInventoryStorage().setItem(Inventory.HOTBAR_OFFSET, ItemStack.EMPTY);
-            PacketEntity strider = new PacketEntity(EntityTypesCompat.STRIDER, 11);
+            player.getInventory()
+                    .inventory
+                    .getInventoryStorage()
+                    .setItem(Inventory.HOTBAR_OFFSET, ac.cult.blocksim.engine.SimItemStack.EMPTY);
+            PacketEntity strider = new PacketEntity(EntityTypeIds.STRIDER, 11);
             evaluate.invoke(runner, strider);
             assertEquals(2, vehicleC.flags);
 
@@ -283,7 +285,7 @@ public final class ReachabilityOrderingParityTest {
                     .getInventoryStorage()
                     .setItem(
                             Inventory.SLOT_OFFHAND,
-                            new ItemStack(net.minecraft.world.item.Items.WARPED_FUNGUS_ON_A_STICK));
+                            OfflineCultTestBootstrap.item("minecraft:warped_fungus_on_a_stick"));
             evaluate.invoke(runner, strider);
             assertEquals(2, vehicleC.flags);
         } finally {
@@ -302,8 +304,8 @@ public final class ReachabilityOrderingParityTest {
                     "evaluateItemControlledVehicle", PacketEntity.class);
             evaluate.setAccessible(true);
 
-            evaluate.invoke(runner, new PacketEntity(EntityTypesCompat.PIG, 10));
-            evaluate.invoke(runner, new PacketEntity(EntityTypesCompat.STRIDER, 11));
+            evaluate.invoke(runner, new PacketEntity(EntityTypeIds.PIG, 10));
+            evaluate.invoke(runner, new PacketEntity(EntityTypeIds.STRIDER, 11));
 
             assertEquals(0, vehicleC.flags);
         } finally {

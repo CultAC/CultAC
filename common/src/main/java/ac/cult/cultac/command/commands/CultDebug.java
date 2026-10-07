@@ -13,7 +13,6 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import net.minecraft.core.registries.BuiltInRegistries;
 import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
@@ -204,8 +203,11 @@ public class CultDebug implements BuildableCommand {
     }
 
     private static String compensatedBlockId(CultPlayer target, int x, int y, int z) {
-        net.minecraft.world.level.block.state.BlockState state = target.compensatedWorld.getBlockStateAt(x, y, z);
-        return ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil.registryKey(BuiltInRegistries.BLOCK, state.getBlock());
+        int state = target.compensatedWorld.getBlockStateIdAt(x, y, z);
+        return ac.cult.blocksim.data.DataTables.defaults()
+                .registry()
+                .block(state)
+                .key();
     }
 
     private void handleDebug(@NotNull CommandContext<Sender> context) {

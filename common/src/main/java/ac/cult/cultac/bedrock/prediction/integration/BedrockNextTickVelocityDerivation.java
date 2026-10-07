@@ -4,11 +4,11 @@ import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import net.minecraft.world.phys.Vec3;
 
 final class BedrockNextTickVelocityDerivation {
     private BedrockNextTickVelocityDerivation() {}

@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.prediction;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
 import ac.cult.cultac.checks.CultProcessor;
@@ -9,16 +10,16 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.PistonData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import java.util.List;
-import net.minecraft.world.phys.Vec3;
 
 public class SuperDebug extends CultProcessor implements PostPredictionListener {
 
@@ -110,7 +111,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         sb.append("\nClient Brand: ");
         sb.append(player.getBrand());
         sb.append("\nServer Version: ");
-        sb.append(net.minecraft.SharedConstants.getCurrentVersion().id());
+        sb.append(ProtocolVersion.V26_3.minecraftVersion());
         sb.append("\nPing: ");
         sb.append(player.getTransactionPing());
         sb.append(" ms\n\n");
@@ -278,9 +279,9 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         for (int y = minY; y <= maxY; y++) {
             for (int z = minZ; z <= maxZ; z++) {
                 for (int x = minX; x <= maxX; x++) {
-                    String text = ac.cult.cultac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(
-                                    player.compensatedWorld.getBlockStateAt(x, y, z))
-                            .toString()
+                    String text = ac.cult.blocksim.data.DataTables.defaults()
+                            .registry()
+                            .debugString(player.compensatedWorld.getBlockStateIdAt(x, y, z))
                             .replace("minecraft:", "");
                     nearbyBlocks[blockIndex(x, y, z, minX, minY, minZ, xSize, zSize)] = text;
                     maxLength = Math.max(text.length(), maxLength);
@@ -410,7 +411,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         }
 
         Vec3 riddenInput = null;
-        if (vehicle.type == EntityTypesCompat.PIG || vehicle.type == EntityTypesCompat.STRIDER) {
+        if (vehicle.type == EntityTypeIds.PIG || vehicle.type == EntityTypeIds.STRIDER) {
             riddenInput = new Vec3(0.0D, 0.0D, 1.0D);
         }
 

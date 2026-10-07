@@ -1,10 +1,10 @@
 package ac.cult.cultac.utils.data;
 
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import java.util.List;
 import lombok.Getter;
-import net.minecraft.core.BlockPos;
 
 public class PistonData implements TransactionOrder {
     private static final int LEGACY_CLIENT_VISIBLE_MOVING_PISTON_TICKS = 3;

@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
@@ -11,7 +12,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import java.util.Optional;
 
 final class BedrockEntityContactFactory {
@@ -44,7 +44,7 @@ final class BedrockEntityContactFactory {
         PlayerDimensionsState dimensions =
                 previous == null ? PlayerDimensionsState.DEFAULT : previous.playerDimensions();
         for (PacketEntity entity : entities.entityMap.values()) {
-            if (entity == null || entity.isDead || entity.getType() != EntityTypesCompat.DOLPHIN) {
+            if (entity == null || entity.isDead || entity.getType() != EntityTypeIds.DOLPHIN) {
                 continue;
             }
             if (isWithinDolphinProximity(

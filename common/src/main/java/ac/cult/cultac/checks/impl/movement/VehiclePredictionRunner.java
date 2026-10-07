@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.movement;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -18,10 +19,9 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import java.util.Set;
-import net.minecraft.world.phys.Vec3;
 
 public class VehiclePredictionRunner extends CultProcessor implements VehicleListener, ClientTickEndListener {
     public VehiclePredictionRunner(CultPlayer playerData) {
@@ -208,11 +208,11 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             return;
         }
 
-        net.minecraft.world.item.Item requiredItem;
-        if (riding != null && riding.type == EntityTypesCompat.PIG) {
-            requiredItem = net.minecraft.world.item.Items.CARROT_ON_A_STICK;
-        } else if (riding != null && riding.type == EntityTypesCompat.STRIDER) {
-            requiredItem = net.minecraft.world.item.Items.WARPED_FUNGUS_ON_A_STICK;
+        ac.cult.blocksim.data.ItemDefinition requiredItem;
+        if (riding != null && riding.type == EntityTypeIds.PIG) {
+            requiredItem = ac.cult.cultac.utils.inventory.ItemTypes.CARROT_ON_A_STICK;
+        } else if (riding != null && riding.type == EntityTypeIds.STRIDER) {
+            requiredItem = ac.cult.cultac.utils.inventory.ItemTypes.WARPED_FUNGUS_ON_A_STICK;
         } else {
             return;
         }
@@ -243,8 +243,8 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         return root != null
                 && (EntityTypeUtil.isBoat(root.type)
                         || EntityTypeUtil.isHorseFamily(root.type)
-                        || root.type == EntityTypesCompat.PIG
-                        || root.type == EntityTypesCompat.STRIDER
+                        || root.type == EntityTypeIds.PIG
+                        || root.type == EntityTypeIds.STRIDER
                         || root instanceof PacketEntityHappyGhast
                         || root instanceof PacketEntityNautilus);
     }

@@ -1,5 +1,7 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseProperties;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -9,9 +11,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySizeable;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
-import net.minecraft.world.entity.EntityAttachment;
-import net.minecraft.world.entity.EntityDimensions;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 /**
  * Yeah, I know this is a bad class
@@ -49,11 +49,10 @@ public class BoundingBoxSize {
 
     private static float getWidthMinusBaby(PacketEntity packetEntity, ClientVersion version) {
         if (packetEntity instanceof PacketEntitySizeable sizeable) {
-            if (EntityTypesCompat.MAGMA_CUBE.equals(packetEntity.type)
-                    || EntityTypesCompat.SLIME.equals(packetEntity.type)) {
+            if ((packetEntity.type == EntityTypeIds.MAGMA_CUBE) || (packetEntity.type == EntityTypeIds.SLIME)) {
                 return 2.04f * (0.255f * (float) sizeable.size);
             }
-            if (EntityTypesCompat.PHANTOM.equals(packetEntity.type)) {
+            if ((packetEntity.type == EntityTypeIds.PHANTOM)) {
                 return 0.9f + sizeable.size * 0.2f;
             }
         }
@@ -120,10 +119,8 @@ public class BoundingBoxSize {
 
         // Vanilla Entity#positionRider subtracts the rider's current, scaled attachment
         // after the vehicle supplies its passenger point, including for stationary seats.
-        Vec3 vehicleAttachment = baseDimensions(passenger)
-                .scale(passenger.scale)
-                .attachments()
-                .get(EntityAttachment.VEHICLE, 0, getAttachmentYaw(passenger));
+        Vec3 vehicleAttachment =
+                nativeVector(baseDimensions(passenger).vehicleAttachment(passenger.scale, getAttachmentYaw(passenger)));
         return new Vec3(x, y, z).add(passengerAttachment).subtract(vehicleAttachment);
     }
 
@@ -134,10 +131,8 @@ public class BoundingBoxSize {
     private static Vec3 getDefaultPassengerAttachmentPoint(PacketEntity vehicle, int passengerIndex) {
         int index = Math.max(passengerIndex, 0);
         float vehicleYaw = getAttachmentYaw(vehicle);
-        Vec3 passengerAttachment = baseDimensions(vehicle)
-                .scale(vehicle.scale)
-                .attachments()
-                .getClamped(EntityAttachment.PASSENGER, index, vehicleYaw);
+        Vec3 passengerAttachment =
+                nativeVector(baseDimensions(vehicle).passengerAttachment(index, vehicle.scale, vehicleYaw));
         if (vehicle instanceof PacketEntityHorse horse) {
             // MCP-Reborn AbstractHorse#getPassengerAttachmentPoint adds this rearing offset to the default point.
             passengerAttachment = passengerAttachment.add(
@@ -205,23 +200,22 @@ public class BoundingBoxSize {
 
     public static double getMyRidingOffset(PacketEntity packetEntity) {
         // Attachment points require virtual passenger pairs to preserve animated offsets.
-        if (EntityTypesCompat.PIGLIN.equals(packetEntity.type)
-                || EntityTypesCompat.ZOMBIFIED_PIGLIN.equals(packetEntity.type)
-                || EntityTypesCompat.ZOMBIE.equals(packetEntity.type)) {
+        if ((packetEntity.type == EntityTypeIds.PIGLIN)
+                || (packetEntity.type == EntityTypeIds.ZOMBIFIED_PIGLIN)
+                || (packetEntity.type == EntityTypeIds.ZOMBIE)) {
             return packetEntity.isBaby ? -0.05 : -0.45;
-        } else if (EntityTypesCompat.SKELETON.equals(packetEntity.type)) {
+        } else if ((packetEntity.type == EntityTypeIds.SKELETON)) {
             return -0.6;
-        } else if (EntityTypesCompat.ENDERMITE.equals(packetEntity.type)
-                || EntityTypesCompat.SILVERFISH.equals(packetEntity.type)) {
+        } else if ((packetEntity.type == EntityTypeIds.ENDERMITE) || (packetEntity.type == EntityTypeIds.SILVERFISH)) {
             return 0.1;
-        } else if (EntityTypesCompat.EVOKER.equals(packetEntity.type)
-                || EntityTypesCompat.ILLUSIONER.equals(packetEntity.type)
-                || EntityTypesCompat.PILLAGER.equals(packetEntity.type)
-                || EntityTypesCompat.RAVAGER.equals(packetEntity.type)
-                || EntityTypesCompat.VINDICATOR.equals(packetEntity.type)
-                || EntityTypesCompat.WITCH.equals(packetEntity.type)) {
+        } else if ((packetEntity.type == EntityTypeIds.EVOKER)
+                || (packetEntity.type == EntityTypeIds.ILLUSIONER)
+                || (packetEntity.type == EntityTypeIds.PILLAGER)
+                || (packetEntity.type == EntityTypeIds.RAVAGER)
+                || (packetEntity.type == EntityTypeIds.VINDICATOR)
+                || (packetEntity.type == EntityTypeIds.WITCH)) {
             return -0.45;
-        } else if (EntityTypesCompat.PLAYER.equals(packetEntity.type)) {
+        } else if ((packetEntity.type == EntityTypeIds.PLAYER)) {
             return -0.35;
         }
 
@@ -239,21 +233,22 @@ public class BoundingBoxSize {
             return 0;
         } else if (EntityTypeUtil.isBoat(packetEntity.type)) {
             return -0.1;
-        } else if (EntityTypesCompat.HOGLIN.equals(packetEntity.type)
-                || EntityTypesCompat.ZOGLIN.equals(packetEntity.type)) {
+        } else if ((packetEntity.type == EntityTypeIds.HOGLIN) || (packetEntity.type == EntityTypeIds.ZOGLIN)) {
             return getHeight(player, packetEntity) - (packetEntity.isBaby ? 0.2 : 0.15);
-        } else if (EntityTypesCompat.LLAMA.equals(packetEntity.type)) {
+        } else if ((packetEntity.type == EntityTypeIds.LLAMA)) {
             return getHeight(player, packetEntity) * 0.67;
-        } else if (EntityTypesCompat.PIGLIN.equals(packetEntity.type)) {
+        } else if ((packetEntity.type == EntityTypeIds.PIGLIN)) {
             return getHeight(player, packetEntity) * 0.92;
-        } else if (EntityTypesCompat.RAVAGER.equals(packetEntity.type)) {
+        } else if ((packetEntity.type == EntityTypeIds.RAVAGER)) {
             return 2.1;
-        } else if (EntityTypesCompat.SKELETON.equals(packetEntity.type)) {
+        } else if ((packetEntity.type == EntityTypeIds.SKELETON)) {
             return (getHeight(player, packetEntity) * 0.75) - 0.1875;
-        } else if (EntityTypesCompat.SPIDER.equals(packetEntity.type)) {
+        } else if ((packetEntity.type == EntityTypeIds.SPIDER)) {
             return getHeight(player, packetEntity) * 0.5;
-        } else if (EntityTypesCompat.STRIDER.equals(packetEntity
-                .type)) { // depends on animation position, good luck getting it exactly, this is the best you can do
+        } else if ((packetEntity.type
+                == EntityTypeIds
+                        .STRIDER)) { // depends on animation position, good luck getting it exactly, this is the best
+            // you can do
             // though
             return getHeight(player, packetEntity) - 0.19;
         }
@@ -262,8 +257,7 @@ public class BoundingBoxSize {
 
     private static float getHeightMinusBaby(PacketEntity packetEntity, ClientVersion version) {
         if (packetEntity instanceof PacketEntitySizeable sizeable) {
-            if (EntityTypesCompat.MAGMA_CUBE.equals(packetEntity.type)
-                    || EntityTypesCompat.SLIME.equals(packetEntity.type)) {
+            if ((packetEntity.type == EntityTypeIds.MAGMA_CUBE) || (packetEntity.type == EntityTypeIds.SLIME)) {
                 return 2.04f * (0.255f * (float) sizeable.size);
             }
         }
@@ -375,7 +369,11 @@ public class BoundingBoxSize {
         };
     }
 
-    private static EntityDimensions baseDimensions(PacketEntity packetEntity) {
-        return packetEntity.type.getDimensions();
+    private static EntityTypes.Type baseDimensions(PacketEntity packetEntity) {
+        return EntityTypeUtil.modelType(packetEntity.type);
+    }
+
+    private static Vec3 nativeVector(ac.cult.blocksim.engine.Vec3 point) {
+        return new Vec3(point.x(), point.y(), point.z());
     }
 }

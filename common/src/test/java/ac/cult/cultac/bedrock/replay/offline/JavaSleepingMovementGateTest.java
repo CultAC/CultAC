@@ -8,9 +8,9 @@ import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.UUID;
-import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public final class JavaSleepingMovementGateTest {

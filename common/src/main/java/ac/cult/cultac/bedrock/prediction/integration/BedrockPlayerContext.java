@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
@@ -16,7 +17,6 @@ import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
-import net.minecraft.world.item.ItemStack;
 
 record BedrockPlayerContext(
         BedrockClientPoseState pose,
@@ -147,17 +147,17 @@ record BedrockPlayerContext(
         if (player == null || player.getInventory() == null) {
             return false;
         }
-        ItemStack boots = player.getInventory().getBoots();
-        return boots != null && boots.getItem() == net.minecraft.world.item.Items.LEATHER_BOOTS;
+        SimItemStack boots = player.getInventory().getBoots();
+        return boots != null && boots.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS;
     }
 
     private static boolean wearingElytra(CultPlayer player) {
         if (player == null || player.getInventory() == null) {
             return false;
         }
-        ItemStack chestplate = player.getInventory().getChestplate();
+        SimItemStack chestplate = player.getInventory().getChestplate();
         return chestplate != null
-                && chestplate.getItem() == net.minecraft.world.item.Items.ELYTRA
+                && chestplate.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.ELYTRA
                 && ItemUtil.getDamageValue(chestplate) < BEDROCK_ELYTRA_MAX_DAMAGE - 1;
     }
 
@@ -212,7 +212,7 @@ record BedrockPlayerContext(
         };
     }
 
-    private static int riptideLevel(ItemStack item) {
+    private static int riptideLevel(SimItemStack item) {
         return Math.max(0, RiptideUtil.getRiptideLevel(item));
     }
 }

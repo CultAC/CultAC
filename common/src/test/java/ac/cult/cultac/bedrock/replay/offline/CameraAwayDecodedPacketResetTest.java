@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsJ;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsX;
 import ac.cult.cultac.checks.impl.elytra.ElytraC;
@@ -12,15 +13,14 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.CompensatedCameraEntity;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import java.util.ArrayDeque;
 import java.util.UUID;
-import net.minecraft.network.protocol.common.ServerboundPongPacket;
 import org.junit.Test;
 
 public final class CameraAwayDecodedPacketResetTest {
@@ -43,7 +43,7 @@ public final class CameraAwayDecodedPacketResetTest {
             setIntField(elytraC, "flags", 5);
             elytraC.exempt = true;
 
-            PacketReceiveEvent event = receiveEvent(player, new ServerboundPongPacket(17));
+            PacketReceiveEvent event = receiveEvent(player, new ServerboundPong(17));
             player.checkManager.dispatchReceiveHandlers(event);
 
             assertEquals(0, intField(badPacketsJ, "rotations"));
@@ -74,7 +74,7 @@ public final class CameraAwayDecodedPacketResetTest {
             setBooleanField(elytraC, "glideThisTick", true);
             setBooleanField(elytraC, "glideLastTick", true);
 
-            PacketReceiveEvent event = receiveEvent(player, new ServerboundPongPacket(18));
+            PacketReceiveEvent event = receiveEvent(player, new ServerboundPong(18));
             player.checkManager.dispatchReceiveHandlers(event);
 
             assertEquals(3, intField(badPacketsJ, "rotations"));
@@ -143,7 +143,7 @@ public final class CameraAwayDecodedPacketResetTest {
         entitiesField.setAccessible(true);
         ArrayDeque<PacketEntity> entities = (ArrayDeque<PacketEntity>) entitiesField.get(player.cameraEntity);
         entities.clear();
-        entities.add(new PacketEntity(EntityTypesCompat.ZOMBIE, 99));
+        entities.add(new PacketEntity(EntityTypeIds.ZOMBIE, 99));
         assertFalse(player.cameraEntity.isSelf());
     }
 
@@ -153,8 +153,8 @@ public final class CameraAwayDecodedPacketResetTest {
     }
 
     private static PacketReceiveEvent<ac.cult.cultac.protocol.packet.serverbound.ServerboundPong> receiveEvent(
-            CultPlayer player, ServerboundPongPacket packet) {
-        return RecordReceiveTestEvents.pong(player, packet.getId());
+            CultPlayer player, ServerboundPong packet) {
+        return RecordReceiveTestEvents.pong(player, packet.id());
     }
 
     private static boolean booleanField(Object target, String name) throws ReflectiveOperationException {

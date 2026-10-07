@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.DeadCheck;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
@@ -37,16 +38,18 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import com.google.common.collect.ClassToInstanceMap;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
@@ -54,10 +57,6 @@ import java.lang.reflect.Method;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.UUID;
-import net.minecraft.core.BlockPos;
-import net.minecraft.network.protocol.common.ServerboundPongPacket;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.level.block.Blocks;
 import org.junit.Test;
 
 public final class OrderedLegacyCheckDispatchTest {
@@ -172,12 +171,12 @@ public final class OrderedLegacyCheckDispatchTest {
             player.checkManager.dispatchReceiveHandlers(receiveEvent(player, action));
             assertTrue(objectField(check, "post") != null);
 
-            PacketReceiveEvent unmatchedPong = receiveEvent(player, new ServerboundPongPacket(90));
+            PacketReceiveEvent unmatchedPong = receiveEvent(player, new ServerboundPong(90));
             player.checkManager.dispatchReceiveHandlers(unmatchedPong);
             assertTrue(objectField(check, "post") != null);
             assertTrue(booleanField(check, "sentFlying"));
 
-            PacketReceiveEvent acceptedPong = receiveEvent(player, new ServerboundPongPacket(91));
+            PacketReceiveEvent acceptedPong = receiveEvent(player, new ServerboundPong(91));
             acceptedPong.setAcceptedTransactionResponse(true);
             player.checkManager.dispatchReceiveHandlers(acceptedPong);
             assertTrue(objectField(check, "post") == null);
@@ -246,10 +245,10 @@ public final class OrderedLegacyCheckDispatchTest {
                     player,
                     BlockPos.ZERO,
                     Direction.DOWN,
-                    net.minecraft.core.Direction.DOWN.get3DDataValue(),
+                    ac.cult.cultac.protocol.value.Direction.DOWN.get3DDataValue(),
                     PlayerAction.START_DESTROY_BLOCK,
                     7,
-                    Blocks.STONE.defaultBlockState());
+                    ac.cult.blocksim.data.BlockIds.STONE.defaultState());
             check.onBlockBreak(blockBreak);
             assertTrue(intField(check, "lastSequence") == 7);
         } finally {
@@ -382,7 +381,7 @@ public final class OrderedLegacyCheckDispatchTest {
                     RecordReceiveTestEvents.tickEnd(player),
                     player,
                     ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END.opaqueValue());
-            player.compensatedEntities.getSelf().mount(new PacketEntity(EntityTypesCompat.OAK_BOAT, 99));
+            player.compensatedEntities.getSelf().mount(new PacketEntity(EntityTypeIds.OAK_BOAT, 99));
             vehicleTimer.handleLegacySteerVehicle();
             vehicleTimer.handleLegacySteerVehicle();
             assertTrue(longField(vehicleTimer, "timerBalanceRealTime") - initial == 50_000_000L);
@@ -445,7 +444,7 @@ public final class OrderedLegacyCheckDispatchTest {
         try {
             MultiActionsE check = player.checkManager.getListener(MultiActionsE.class);
             player.packetStateData.lastSlotSelected = 2;
-            player.packetStateData.itemInUseHand = InteractionHand.MAIN_HAND;
+            player.packetStateData.itemInUseHand = Hand.MAIN_HAND;
             player.packetStateData.setSlowedByUsingItem(true);
             assertTrue(invokeBoolean(check, "isActivelyUsingItem"));
 
@@ -453,12 +452,12 @@ public final class OrderedLegacyCheckDispatchTest {
             assertFalse(invokeBoolean(check, "isActivelyUsingItem"));
 
             player.packetStateData.lastSlotSelected = 2;
-            player.packetStateData.itemInUseHand = InteractionHand.OFF_HAND;
+            player.packetStateData.itemInUseHand = Hand.OFF_HAND;
             player.packetStateData.setSlowedByUsingItem(true);
             player.packetStateData.lastSlotSelected = 3;
             assertTrue(invokeBoolean(check, "isActivelyUsingItem"));
 
-            player.packetStateData.itemInUseHand = InteractionHand.MAIN_HAND;
+            player.packetStateData.itemInUseHand = Hand.MAIN_HAND;
             ServerboundMovePlayer movement = new ServerboundMovePlayer(0, 0, 0, 0, 0, true, false, false, false);
             player.actionManager.onMovePlayerPos(receiveEvent(player, movement), player, movement);
             assertFalse(player.packetStateData.isSlowedByUsingItem());
@@ -523,8 +522,8 @@ public final class OrderedLegacyCheckDispatchTest {
     }
 
     private static PacketReceiveEvent<ac.cult.cultac.protocol.packet.serverbound.ServerboundPong> receiveEvent(
-            CultPlayer player, ServerboundPongPacket packet) {
-        return RecordReceiveTestEvents.pong(player, packet.getId());
+            CultPlayer player, ServerboundPong packet) {
+        return RecordReceiveTestEvents.pong(player, packet.id());
     }
 
     private static boolean booleanField(Object target, String name) throws ReflectiveOperationException {

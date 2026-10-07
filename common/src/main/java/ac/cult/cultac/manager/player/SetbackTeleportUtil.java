@@ -49,6 +49,7 @@ import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -64,7 +65,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.Getter;
 import lombok.Setter;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public class SetbackTeleportUtil extends CultProcessor implements PostPredictionListener {

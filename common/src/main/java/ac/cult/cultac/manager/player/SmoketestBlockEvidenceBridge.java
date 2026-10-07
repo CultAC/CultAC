@@ -1,13 +1,13 @@
 package ac.cult.cultac.manager.player;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import net.minecraft.core.BlockPos;
 
 /** Compares captured client prediction bookkeeping without changing simulated state. */
 final class SmoketestBlockEvidenceBridge {

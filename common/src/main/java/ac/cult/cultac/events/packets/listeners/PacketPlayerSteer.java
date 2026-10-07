@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -8,9 +9,8 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
-import net.minecraft.world.phys.Vec3;
 
 public class PacketPlayerSteer {
     // LOW
@@ -68,8 +68,8 @@ public class PacketPlayerSteer {
 
         return EntityTypeUtil.isBoat(vehicle.type)
                 || EntityTypeUtil.isHorseFamily(vehicle.type)
-                || vehicle.type == EntityTypesCompat.PIG
-                || vehicle.type == EntityTypesCompat.STRIDER
+                || vehicle.type == EntityTypeIds.PIG
+                || vehicle.type == EntityTypeIds.STRIDER
                 || vehicle instanceof PacketEntityHappyGhast
                 || vehicle instanceof PacketEntityNautilus;
     }

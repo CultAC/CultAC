@@ -1,7 +1,6 @@
 package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.cultac.player.CultPlayer;
-import net.minecraft.world.entity.EntityType;
 
 /** Client-visible state used by AbstractNautilus#travelRidden. */
 public final class PacketEntityNautilus extends PacketEntityTrackXRot {
@@ -12,8 +11,7 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
     public double pendingJumpScale;
     public double nextPendingJumpScale;
 
-    public PacketEntityNautilus(
-            CultPlayer player, int entityId, EntityType type, double x, double y, double z, float xRot) {
+    public PacketEntityNautilus(CultPlayer player, int entityId, int type, double x, double y, double z, float xRot) {
         super(player, entityId, type, x, y, z, xRot);
         this.stepHeightAttribute = 1.0D;
     }

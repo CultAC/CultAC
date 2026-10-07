@@ -1,26 +1,29 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.player.CultPlayer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import net.minecraft.tags.FluidTags;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.material.Fluid;
-import net.minecraft.world.level.material.Fluids;
+import java.util.Set;
 
 final class BedrockFluidBlockSampler {
-    boolean isFluid(BlockState state) {
-        return state.getBlock() == Blocks.WATER || state.getBlock() == Blocks.LAVA;
+    private static final Set<String> WATER_TAG =
+            DataTables.defaults().tags().getOrDefault("fluid:minecraft:water", Set.of());
+    private static final Set<String> LAVA_TAG =
+            DataTables.defaults().tags().getOrDefault("fluid:minecraft:lava", Set.of());
+
+    boolean isFluid(int state) {
+        return BlockIds.is(state, BlockIds.WATER) || BlockIds.is(state, BlockIds.LAVA);
     }
 
-    PlacedBlockCollision fluidBlock(CultPlayer player, int x, int y, int z, BlockState blockState, String javaState) {
-        net.minecraft.world.level.material.FluidState fluid = blockState.getFluidState();
-        if (fluid == null || fluid.isEmpty()) {
+    PlacedBlockCollision fluidBlock(CultPlayer player, int x, int y, int z, int blockState, String javaState) {
+        StateFacts fluid = DataTables.defaults().registry().facts(blockState);
+        if (fluid.fluid().equals("minecraft:empty")) {
             return null;
         }
         boolean water = isWater(fluid);
@@ -38,21 +41,21 @@ final class BedrockFluidBlockSampler {
                 new BlockPosition(x, y, z), javaState, blockState, bedrockIdentifier, bedrockState, List.of());
     }
 
-    private static boolean isWater(net.minecraft.world.level.material.FluidState fluid) {
-        return fluid.is(FluidTags.WATER) || isFluidType(fluid.getType(), Fluids.WATER, Fluids.FLOWING_WATER);
+    private static boolean isWater(StateFacts fluid) {
+        return WATER_TAG.contains(fluid.fluid())
+                || fluid.fluid().equals("minecraft:water")
+                || fluid.fluid().equals("minecraft:flowing_water");
     }
 
-    private static boolean isLava(net.minecraft.world.level.material.FluidState fluid) {
-        return fluid.is(FluidTags.LAVA) || isFluidType(fluid.getType(), Fluids.LAVA, Fluids.FLOWING_LAVA);
+    private static boolean isLava(StateFacts fluid) {
+        return LAVA_TAG.contains(fluid.fluid())
+                || fluid.fluid().equals("minecraft:lava")
+                || fluid.fluid().equals("minecraft:flowing_lava");
     }
 
-    private static boolean isFluidType(Fluid actual, Fluid source, Fluid flowing) {
-        return actual == source || actual == flowing;
-    }
-
-    private static int liquidDepth(net.minecraft.world.level.material.FluidState fluid) {
-        return fluid.isSource()
+    private static int liquidDepth(StateFacts fluid) {
+        return fluid.has(StateFacts.FLUID_SOURCE)
                 ? 0
-                : 8 - Math.min(fluid.getAmount(), 8) + (fluid.getValue(BlockStateProperties.FALLING) ? 8 : 0);
+                : 8 - Math.min(fluid.fluidAmount(), 8) + (fluid.fallingFluid() ? 8 : 0);
     }
 }

@@ -42,13 +42,13 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox.AxisEpsilon;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.CollideAxisData.CollideResult;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockMovementEngine implements MovementEngine {

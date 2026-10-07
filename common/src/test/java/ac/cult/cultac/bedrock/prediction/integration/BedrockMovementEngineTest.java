@@ -22,9 +22,9 @@ import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.Set;
-import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public final class BedrockMovementEngineTest {

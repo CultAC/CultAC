@@ -1,5 +1,10 @@
 package ac.cult.cultac.utils.collisions;
 
+import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
@@ -7,43 +12,39 @@ import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.ComplexCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import java.util.Optional;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.LeavesBlock;
-import net.minecraft.world.level.block.state.BlockState;
 
 /** Pre-flattening shapes from Entity/Block sources, selected after Via replacement. */
 final class LegacyJavaBlockShapes {
     private LegacyJavaBlockShapes() {}
 
-    static Optional<CollisionBox> movement(CultPlayer player, BlockState state, int x, int y, int z) {
+    static Optional<CollisionBox> movement(CultPlayer player, int state, int x, int y, int z) {
         if (player == null
-                || state == null
+                || state < 0
                 || player.isBedrockMovement()
                 || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) {
             return Optional.empty();
         }
-        Block material = state.getBlock();
+        var material = DataTables.defaults().registry().block(state);
         CollisionBox shape;
-        if (material == Blocks.FARMLAND) {
+        if (material == BlockIds.FARMLAND) {
             shape = box(0, 0, 0, 1, 1, 1);
-        } else if (material == Blocks.LADDER) {
-            shape = ladder(ac.cult.cultac.utils.nmsutil.NmsBlockTags.getFacing(state));
-        } else if (material == Blocks.LILY_PAD) {
+        } else if (material == BlockIds.LADDER) {
+            shape = ladder(ac.cult.cultac.utils.nmsutil.ClientBlockProperties.facing(state));
+        } else if (material == BlockIds.LILY_PAD) {
             shape = box(0, 0, 0, 1, 1.0 / 64, 1);
-        } else if (material == Blocks.SNOW) {
-            shape = box(
-                    0, 0, 0, 1, (state.getValue(net.minecraft.world.level.block.SnowLayerBlock.LAYERS) - 1) / 8.0, 1);
-        } else if (material == Blocks.ANVIL || material == Blocks.CHIPPED_ANVIL || material == Blocks.DAMAGED_ANVIL) {
-            Direction face = ac.cult.cultac.utils.nmsutil.NmsBlockTags.getFacing(state);
+        } else if (material == BlockIds.SNOW) {
+            shape = box(0, 0, 0, 1, (BlockProps.LAYERS.value(state) - 1) / 8.0, 1);
+        } else if (material == BlockIds.ANVIL
+                || material == BlockIds.CHIPPED_ANVIL
+                || material == BlockIds.DAMAGED_ANVIL) {
+            Direction face = ac.cult.cultac.utils.nmsutil.ClientBlockProperties.facing(state);
             shape = face == Direction.EAST || face == Direction.WEST
                     ? box(0, 0, 0.125, 1, 1, 0.875)
                     : box(0.125, 0, 0, 0.875, 1, 1);
         } else {
-            shape = material == Blocks.IRON_BARS
-                            || material == Blocks.GLASS_PANE
-                            || ac.cult.cultac.utils.nmsutil.NmsBlockTags.name(material)
-                                    .endsWith("_STAINED_GLASS_PANE")
+            shape = material == BlockIds.IRON_BARS
+                            || material == BlockIds.GLASS_PANE
+                            || material.key().endsWith("_stained_glass_pane")
                     ? pane(player, x, y, z)
                     : null;
         }
@@ -73,17 +74,17 @@ final class LegacyJavaBlockShapes {
     }
 
     private static boolean connects(CultPlayer player, int x, int y, int z) {
-        var state = player.compensatedWorld.getBlockStateAt(x, y, z);
-        Block material = state.getBlock();
+        int state = player.compensatedWorld.getBlockStateIdAt(x, y, z);
+        var material = DataTables.defaults().registry().block(state);
         // 1.8 Block#isFullBlock caches isOpaqueCube during construction. Leaves
         // cache true before fancy graphics is enabled; modern leaves never occlude.
-        return state.getBlock() instanceof LeavesBlock
-                || state.isSolidRender()
-                || material == Blocks.GLASS
-                || ac.cult.cultac.utils.nmsutil.NmsBlockTags.name(material).endsWith("_STAINED_GLASS")
-                || material == Blocks.IRON_BARS
-                || material == Blocks.GLASS_PANE
-                || ac.cult.cultac.utils.nmsutil.NmsBlockTags.name(material).endsWith("_STAINED_GLASS_PANE");
+        return BlockFamilies.LEAVES.test(state)
+                || DataTables.defaults().registry().facts(state).has(StateFacts.SOLID_RENDER)
+                || material == BlockIds.GLASS
+                || material.key().endsWith("_stained_glass")
+                || material == BlockIds.IRON_BARS
+                || material == BlockIds.GLASS_PANE
+                || material.key().endsWith("_stained_glass_pane");
     }
 
     private static SimpleCollisionBox box(double x, double y, double z, double xx, double yy, double zz) {

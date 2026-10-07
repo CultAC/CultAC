@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
@@ -14,14 +15,16 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
+import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
+import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
-import net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -66,8 +69,7 @@ public final class BedrockTransportAuthorityTest {
             assertTrue(player.compensatedEntities.vehicles.isServerPlayerPassengerOf(playerVehicle));
             assertFalse(player.compensatedEntities.vehicles.isServerPlayerPassengerOf(unrelatedVehicle));
 
-            player.compensatedEntities.addEntity(
-                    unrelatedVehicle, EntityTypesCompat.OAK_BOAT, Vec3.ZERO, 0.0F, 0.0F, 0);
+            player.compensatedEntities.addEntity(unrelatedVehicle, EntityTypeIds.OAK_BOAT, Vec3.ZERO, 0.0F, 0.0F, 0);
             assertTrue(player.compensatedEntities.vehicles.applyVehiclePassengers(
                     unrelatedVehicle, new int[] {player.entityID}));
             assertEquals(Integer.valueOf(playerVehicle), player.compensatedEntities.vehicles.serverPlayerVehicle);
@@ -82,7 +84,7 @@ public final class BedrockTransportAuthorityTest {
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             int delayedVehicle = 31;
-            player.compensatedEntities.addEntity(delayedVehicle, EntityTypesCompat.OAK_BOAT, Vec3.ZERO, 0.0F, 0.0F, 0);
+            player.compensatedEntities.addEntity(delayedVehicle, EntityTypeIds.OAK_BOAT, Vec3.ZERO, 0.0F, 0.0F, 0);
             assertTrue(player.compensatedEntities.vehicles.applyVehiclePassengers(
                     delayedVehicle, new int[] {player.entityID}));
             assertTrue(player.compensatedEntities.vehicles.hasPlayerPassengerState());
@@ -115,24 +117,21 @@ public final class BedrockTransportAuthorityTest {
 
             EmbeddedChannel channel = (EmbeddedChannel) player.user.getChannel();
             channel.runPendingTasks();
-            var registries = net.minecraft.core.RegistryAccess.fromRegistryOfRegistries(
-                    net.minecraft.core.registries.BuiltInRegistries.REGISTRY);
-            var codec = net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE
-                    .bind(net.minecraft.network.RegistryFriendlyByteBuf.decorator(registries))
-                    .codec();
+            var runtime = player.user.getCultConnection().dispatcher().runtime();
             int sentVehicleSetbacks = 0;
             Object outbound;
             while ((outbound = channel.readOutbound()) != null) {
                 try {
                     if (outbound instanceof io.netty.buffer.ByteBuf frame) {
-                        var decoded =
-                                codec.decode(new net.minecraft.network.RegistryFriendlyByteBuf(frame, registries));
+                        var decoded = runtime.decode(
+                                ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND, Wire.readVarInt(frame), frame);
                         assertFalse(frame.isReadable());
-                        if (decoded instanceof ClientboundMoveVehiclePacket correction) {
+                        if (decoded instanceof ClientboundMoveVehicle correction) {
                             sentVehicleSetbacks++;
-                            assertEquals(safePosition, correction.movingTo().position());
-                            assertEquals(player.xRot, correction.movingTo().yRot(), 0.0F);
-                            assertEquals(player.yRot, correction.movingTo().xRot(), 0.0F);
+                            assertEquals(
+                                    new Vec3d(safePosition.x, safePosition.y, safePosition.z), correction.position());
+                            assertEquals(player.xRot, correction.yaw(), 0.0F);
+                            assertEquals(player.yRot, correction.pitch(), 0.0F);
                         }
                     }
                 } finally {
@@ -188,7 +187,7 @@ public final class BedrockTransportAuthorityTest {
                             teleports.getRequiredSetBack().getTeleportData().getTransaction()),
                     0);
             var required = teleports.getRequiredSetBack();
-            player.compensatedEntities.addEntity(43, EntityTypesCompat.OAK_BOAT, Vec3.ZERO, 0, 0, 0);
+            player.compensatedEntities.addEntity(43, EntityTypeIds.OAK_BOAT, Vec3.ZERO, 0, 0, 0);
             var packet = passengersPacket(43, player.entityID);
             player.packetEntityReplication.onSetPassengers(sendEvent(player, packet), player, packet);
             int proof = player.compensatedEntities.vehicles.serverPlayerVehicleTransaction;

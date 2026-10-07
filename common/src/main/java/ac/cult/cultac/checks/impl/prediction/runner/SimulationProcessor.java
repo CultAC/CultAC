@@ -1,5 +1,8 @@
 package ac.cult.cultac.checks.impl.prediction.runner;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockTags;
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
@@ -44,7 +47,9 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -65,11 +70,12 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
+import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -80,12 +86,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.Generated;
-import net.minecraft.core.BlockPos;
-import net.minecraft.tags.BlockTags;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.jetbrains.annotations.Nullable;
 
@@ -423,8 +423,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             } else {
                 Set<Vec3> existingVectors = this.validPlayerStartingVels;
                 this.validPlayerStartingVels = new HashSet<>();
-                ClientVersion serverVersion =
-                        ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion());
+                ClientVersion serverVersion = ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
                 for (Vec3 vector : existingVectors) {
                     this.validPlayerStartingVels.add(ac.cult.cultac.utils.nmsutil.LegacyTeleportVelocity.apply(
                             this.player.getClientVersion(), serverVersion, teleportData, vector));
@@ -1701,10 +1700,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             return 0;
         }
 
-        ItemStack leggings = this.player.getInventory().getLeggings();
+        SimItemStack leggings = this.player.getInventory().getLeggings();
         return !leggings.isEmpty() && !leggings.getEnchantments().isEmpty()
-                ? ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(
-                        leggings, net.minecraft.world.item.enchantment.Enchantments.SWIFT_SNEAK)
+                ? ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(leggings, "minecraft:swift_sneak")
                 : 0;
     }
 
@@ -1713,10 +1711,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             return 0.0F;
         }
 
-        ItemStack boots = this.player.getInventory().getBoots();
+        SimItemStack boots = this.player.getInventory().getBoots();
         if (!boots.isEmpty() && !boots.getEnchantments().isEmpty()) {
-            float level = ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(
-                    boots, net.minecraft.world.item.enchantment.Enchantments.DEPTH_STRIDER);
+            float level = ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(boots, "minecraft:depth_strider");
             if (level > 3.0F) {
                 level = 3.0F;
             }
@@ -1731,7 +1728,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
     }
 
-    public void handleBlockChange(BlockPos pos, BlockState to) {
+    public void handleBlockChange(BlockPos pos, int to) {
         if (this.lastPrediction != null) {
             if (!this.player.compensatedEntities.getSelf().inVehicle()) {
                 SimulationContext context = this.lastPrediction.getSimulationContext();
@@ -1740,7 +1737,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     SimpleCollisionBox playerMaxExtent = context.getToMaximumExtent();
                     playerMaxExtent.expand(1.0);
                     if (blockCollisionBox.isIntersected(playerMaxExtent)) {
-                        if (NmsBlockTags.isWater(to)) {
+                        if (ClientFluidQueries.modelFluid(to)
+                                .isSame(ClientFluidQueries.modelFluid(BlockIds.WATER.defaultState()))) {
                             this.lastPrediction
                                     .getSimulationContext()
                                     .getWorldData()
@@ -1751,7 +1749,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     .setInFlowingLiquid(DesyncStatus.UNKNOWN);
                         }
 
-                        if (to.getBlock() == Blocks.LAVA) {
+                        if (BlockIds.is(to, BlockIds.LAVA)) {
                             this.lastPrediction
                                     .getSimulationContext()
                                     .getWorldData()
@@ -1766,10 +1764,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     .setWeirdFourteenFifteenLava(DesyncStatus.UNKNOWN);
                         }
 
-                        if (NmsBlockTags.toNmsState(to).is(BlockTags.CLIMBABLE)
-                                || to.getBlock() == Blocks.POWDER_SNOW
+                        if (BlockTags.CLIMBABLE.test(to)
+                                || BlockIds.is(to, BlockIds.POWDER_SNOW)
                                         && this.player.getInventory().getBoots().getItem()
-                                                == net.minecraft.world.item.Items.LEATHER_BOOTS) {
+                                                == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS) {
                             this.lastPrediction
                                     .getSimulationContext()
                                     .getWorldData()
@@ -1803,8 +1801,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
     }
 
-    private boolean changedBlockCanApplyPowderSnowStuckSpeed(SimulationContext context, BlockPos pos, BlockState to) {
-        if (to.getBlock() != Blocks.POWDER_SNOW) {
+    private boolean changedBlockCanApplyPowderSnowStuckSpeed(SimulationContext context, BlockPos pos, int to) {
+        if (!BlockIds.is(to, BlockIds.POWDER_SNOW)) {
             return true;
         }
 

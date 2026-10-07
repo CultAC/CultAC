@@ -15,8 +15,8 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import net.minecraft.world.phys.Vec3;
 
 public class PacketServerTeleport {
     private static final double MOVE_VEHICLE_SNAP_EPSILON = 1.0E-5D;

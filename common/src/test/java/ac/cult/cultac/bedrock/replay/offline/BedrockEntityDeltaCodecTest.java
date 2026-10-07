@@ -2,14 +2,14 @@ package ac.cult.cultac.bedrock.replay.offline;
 
 import static org.junit.Assert.*;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
+import ac.cult.cultac.utils.math.Vec3;
 import io.netty.buffer.Unpooled;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.math.vector.Vector2f;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodec;
@@ -43,9 +43,9 @@ public class BedrockEntityDeltaCodecTest {
             player.bedrockState.offerAuthInputFrame(BedrockAuthInputFrame.builder(player.playerUUID)
                     .protocolVersion(2168)
                     .build());
-            player.compensatedEntities.addEntity(71, EntityTypesCompat.HORSE, new Vec3(0, 64, 0), 0, 0, 0);
+            player.compensatedEntities.addEntity(71, EntityTypeIds.HORSE, new Vec3(0, 64, 0), 0, 0, 0);
             player.compensatedEntities.serverPositionsMap.put(
-                    71, new TrackerData(0, 64, 0, 0, 0, EntityTypesCompat.HORSE, 0));
+                    71, new TrackerData(0, 64, 0, 0, 0, EntityTypeIds.HORSE, 0));
             var horse = (PacketEntityHorse) player.compensatedEntities.getEntity(71);
             horse.hasSaddle = true;
             var session = Mockito.mock(GeyserSession.class, Mockito.RETURNS_DEEP_STUBS);

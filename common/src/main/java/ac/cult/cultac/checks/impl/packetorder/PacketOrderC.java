@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.packetorder;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.DeadCheck;
@@ -13,7 +14,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
 
@@ -67,7 +67,7 @@ public class PacketOrderC extends Check implements CheckListener {
         //  - when renaming the armor stand or in spectator mode: INTERACT_AT + INTERACT
         //  - in all other cases: only INTERACT
         // Just exempt armor stands to be safe
-        if (entity != null && entity.getType() == EntityTypesCompat.ARMOR_STAND) return;
+        if (entity != null && entity.getType() == EntityTypeIds.ARMOR_STAND) return;
 
         final boolean sneaking = packet.sneaking();
 

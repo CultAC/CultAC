@@ -1,7 +1,6 @@
 package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
@@ -9,7 +8,6 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.Vec3d;
-import net.minecraft.world.InteractionHand;
 import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
 import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
 import org.geysermc.geyser.session.GeyserSession;
@@ -37,7 +35,7 @@ final class GeyserItemUse {
         var position = packet.getBlockPosition();
         BlockUtils.restoreCorrectBlock(session, position, packet.getHotbarSlot());
         if (packet.getBlockFace() >= 0 && packet.getBlockFace() < FACES.length) {
-            var face = SpigotConversionUtil.toBukkitFace(FACES[packet.getBlockFace()]);
+            var face = FACES[packet.getBlockFace()];
             BlockUtils.restoreCorrectBlock(
                     session, position.add(face.getModX(), face.getModY(), face.getModZ()), packet.getHotbarSlot());
         }
@@ -77,15 +75,23 @@ final class GeyserItemUse {
                     // Native equipment and active item use have their own observers below.
                     // Only the raycast block actions formerly handled by UseItemHandler
                     // belong in the host block-action runtime (buckets and water plants).
-                    var held = player.getInventory().getHandItem(InteractionHand.MAIN_HAND);
-                    if (held.getItem() instanceof net.minecraft.world.item.BucketItem
-                            || held.getItem() instanceof net.minecraft.world.item.PlaceOnWaterBlockItem) {
+                    var held = player.getInventory().getHandItem(Hand.MAIN_HAND);
+                    if (java.util.List.of(held.definition()
+                                            .bindings()
+                                            .get("classHierarchy")
+                                            .split(","))
+                                    .contains("net.minecraft.world.item.BucketItem")
+                            || java.util.List.of(held.definition()
+                                            .bindings()
+                                            .get("classHierarchy")
+                                            .split(","))
+                                    .contains("net.minecraft.world.item.PlaceOnWaterBlockItem")) {
                         player.compensatedWorld.advanceClientPredictionSequence();
                         PlaceHandler.handleQueuedUseItem(
                                 player, new ServerboundUseItem(Hand.MAIN_HAND, sequence, yaw, pitch));
                     }
-                    player.actionManager.useItem(InteractionHand.MAIN_HAND);
-                    player.getInventory().useItem(InteractionHand.MAIN_HAND, yaw, pitch);
+                    player.actionManager.useItem(Hand.MAIN_HAND);
+                    player.getInventory().useItem(Hand.MAIN_HAND, yaw, pitch);
                 }
             }
             default -> {}

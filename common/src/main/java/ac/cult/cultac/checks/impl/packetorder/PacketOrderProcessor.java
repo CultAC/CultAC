@@ -6,6 +6,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -20,13 +21,12 @@ import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.math.CultMath;
 import lombok.Getter;
-import net.minecraft.SharedConstants;
 import org.jetbrains.annotations.Contract;
 
 @Getter
 public final class PacketOrderProcessor extends Check implements CheckListener {
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     public PacketOrderProcessor(final CultPlayer player) {
         super(player);

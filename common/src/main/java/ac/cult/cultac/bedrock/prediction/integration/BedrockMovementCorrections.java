@@ -11,7 +11,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 /** One outstanding correction on the owning movement loop. */
 public final class BedrockMovementCorrections {

@@ -8,12 +8,12 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundGameEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerCombatKill;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
 import ac.cult.cultac.protocol.value.ClientCommandAction;
 import ac.cult.cultac.protocol.value.GameEventType;
-import net.minecraft.SharedConstants;
 
 @CheckData(
         name = "BadPacketsM",
@@ -22,7 +22,7 @@ import net.minecraft.SharedConstants;
         experimental = true)
 public class BadPacketsM extends Check implements CheckListener {
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     public BadPacketsM(final CultPlayer player) {
         super(player);

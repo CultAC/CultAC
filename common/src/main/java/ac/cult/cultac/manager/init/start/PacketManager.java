@@ -92,6 +92,8 @@ public class PacketManager implements StartableInitable {
                     new PacketPluginMessage()::handle);
             registrar.registerSendListener(PacketListenerPriority.LOW, new PacketServerPlayerRotation());
             registrar.registerSendListener(PacketListenerPriority.NORMAL, new PacketServerRegistries());
+            registrar.registerSendListener(
+                    PacketListenerPriority.LOWEST, new ac.cult.cultac.events.packets.PacketModelRegistryNames());
         });
     }
 }

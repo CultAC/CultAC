@@ -1,7 +1,7 @@
 package ac.cult.cultac.bedrock.protocol;
 
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.UUID;
-import net.minecraft.world.phys.Vec3;
 
 public record BedrockMoveFrame(
         UUID playerUuid,

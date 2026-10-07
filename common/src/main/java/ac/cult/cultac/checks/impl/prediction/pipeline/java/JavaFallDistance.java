@@ -1,24 +1,19 @@
 package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockTags;
+import ac.cult.blocksim.data.FluidTags;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
-import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
-import net.minecraft.core.BlockPos;
-import net.minecraft.tags.BlockTags;
-import net.minecraft.world.level.BlockGetter;
-import net.minecraft.world.level.ClipContext;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.HitResult;
-import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.Shapes;
-import net.minecraft.world.phys.shapes.VoxelShape;
 
 /** Mirrors Java Entity#baseTick/#move and LivingEntity#aiStep, in client tick order. */
 public final class JavaFallDistance {
@@ -80,9 +75,9 @@ public final class JavaFallDistance {
             water = true;
             distance = 0;
         }
-        boolean waterBelow = player.compensatedWorld
-                .getFluidStateAt(BlockPos.containing(end).below())
-                .is(net.minecraft.tags.FluidTags.WATER);
+        boolean waterBelow = FluidTags.WATER.test(ClientFluidQueries.fluidAt(
+                player.compensatedWorld,
+                BlockPos.containing(end.x, end.y, end.z).below()));
         distance = afterMoveForActor(
                 distance,
                 movement.y,
@@ -118,9 +113,10 @@ public final class JavaFallDistance {
             for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++)
                 for (int z = (int) Math.floor(box.minZ); z < Math.ceil(box.maxZ); z++) {
                     BlockPos pos = new BlockPos(x, y, z);
-                    var fluid = player.compensatedWorld.getFluidStateAt(pos);
-                    if (fluid.is(net.minecraft.tags.FluidTags.WATER)
-                            && pos.getY() + fluid.getHeight(player.compensatedWorld, pos) >= box.minY) return true;
+                    var fluid = ClientFluidQueries.fluidAt(player.compensatedWorld, pos);
+                    if (FluidTags.WATER.test(fluid)
+                            && pos.getY() + ClientFluidQueries.height(player.compensatedWorld, pos, fluid) >= box.minY)
+                        return true;
                 }
         return false;
     }
@@ -168,24 +164,18 @@ public final class JavaFallDistance {
     private static boolean crossesResetBlock(CultPlayer player, SimulationContext context, Vec3 movement) {
         Vec3 from = context.getStart();
         Vec3 to = from.add(movement.normalize().scale(Math.min(movement.length(), 8.0)));
-        ClipContext clip =
-                new ClipContext(
-                        from,
-                        to,
-                        ClipContext.Block.FALLDAMAGE_RESETTING,
-                        ClipContext.Fluid.WATER,
-                        NativeBlockCollisionHelper.collisionContext(player, from.y)) {
-                    @Override
-                    public VoxelShape getBlockShape(BlockState state, BlockGetter world, BlockPos pos) {
-                        // ClipContext's player-specific portal branch also requires EntityCollisionContext.
-                        return state.is(BlockTags.FALL_DAMAGE_RESETTING)
-                                        || context.getVehicle() == null
-                                                && (state.getBlock() == Blocks.END_PORTAL
-                                                        || state.getBlock() == Blocks.END_GATEWAY)
-                                ? Shapes.block()
-                                : Shapes.empty();
-                    }
-                };
-        return player.compensatedWorld.clip(clip).getType() != HitResult.Type.MISS;
+        return player.compensatedWorld
+                        .geometry()
+                        .clipResetting(
+                                from,
+                                to,
+                                id -> {
+                                    return BlockTags.FALL_DAMAGE_RESETTING.test(id)
+                                            || context.getVehicle() == null
+                                                    && (BlockIds.is(id, BlockIds.END_PORTAL)
+                                                            || BlockIds.is(id, BlockIds.END_GATEWAY));
+                                },
+                                id -> FluidTags.WATER.test(ClientFluidQueries.modelFluid(id)))
+                != null;
     }
 }

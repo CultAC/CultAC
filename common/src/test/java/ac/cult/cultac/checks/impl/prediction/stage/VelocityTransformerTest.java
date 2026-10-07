@@ -10,9 +10,9 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.TrigHandler;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import java.util.List;
-import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public class VelocityTransformerTest {

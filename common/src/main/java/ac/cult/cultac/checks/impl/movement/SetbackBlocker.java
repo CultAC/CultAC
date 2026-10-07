@@ -8,7 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public class SetbackBlocker extends CultProcessor implements CheckListener {
     public SetbackBlocker(CultPlayer playerData) {

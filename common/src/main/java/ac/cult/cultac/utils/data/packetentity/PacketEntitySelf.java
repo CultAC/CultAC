@@ -1,11 +1,11 @@
 package ac.cult.cultac.utils.data.packetentity;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.sprint.SprintD;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import java.util.Collections;
 import java.util.List;
 import lombok.Getter;
@@ -39,7 +39,7 @@ public class PacketEntitySelf extends PacketEntity {
     }
 
     public PacketEntitySelf(CultPlayer player, PacketEntitySelf old) {
-        super(EntityTypesCompat.PLAYER, player.entityID);
+        super(EntityTypeIds.PLAYER, player.entityID);
         this.player = player;
         if (old != null) {
             carryStateFrom(old);

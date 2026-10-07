@@ -1,15 +1,15 @@
 package ac.cult.cultac.utils.lists;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.InventoryStorage;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import net.minecraft.SharedConstants;
-import net.minecraft.world.item.ItemStack;
 
 /**
  * This is responsible for lag compensation of the player's inventory
@@ -39,7 +39,7 @@ import net.minecraft.world.item.ItemStack;
 public class CorrectingPlayerInventoryStorage extends InventoryStorage {
 
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
     private final CultPlayer player;
     // The key for this map is the inventory slot ID
     // The value for this map is the transaction that we care about
@@ -71,7 +71,7 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
     // This is more meant for pre-1.17 clients, but mojang fucked up netcode AGAIN in 1.17, so
     // we must use this for 1.17 clients as well... at least you tried Mojang.
     @Override
-    public void setItem(int item, ItemStack stack) {
+    public void setItem(int item, SimItemStack stack) {
         // If there is a more recent change to this one, don't override it
         int finalTransaction = serverIsCurrentlyProcessingThesePredictions.getOrDefault(item, -1);
 
@@ -98,8 +98,8 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
         int bukkitSlot = getBukkitSlot(slot); // 8 -> 39, should be 36
 
         if (bukkitSlot != -1) {
-            ItemStack existing = getItem(slot);
-            ItemStack serverside = player.platformPlayer.getInventory().getStack(bukkitSlot, slot);
+            SimItemStack existing = getItem(slot);
+            SimItemStack serverside = player.platformPlayer.getInventory().getStack(bukkitSlot, slot);
 
             if (existing.getItem() != serverside.getItem() || existing.getCount() != serverside.getCount()) {
                 CultAPI.INSTANCE

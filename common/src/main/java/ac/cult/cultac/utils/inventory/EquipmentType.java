@@ -1,10 +1,5 @@
 package ac.cult.cultac.utils.inventory;
 
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.equipment.Equippable;
-
 public enum EquipmentType {
     MAINHAND,
     OFFHAND,
@@ -28,16 +23,15 @@ public enum EquipmentType {
         }
     }
 
-    public static EquipmentType getEquipmentSlotForItem(ItemStack p_147234_) {
-        if (p_147234_ == null || p_147234_.isEmpty()) {
-            return MAINHAND;
-        }
-
-        Equippable equippable = SpigotConversionUtil.toNmsItemStack(p_147234_).get(DataComponents.EQUIPPABLE);
-        return equippable == null ? MAINHAND : fromNmsSlot(equippable.slot());
+    public static EquipmentType getEquipmentSlotForItem(ac.cult.blocksim.engine.SimItemStack stack) {
+        if (stack == null || stack.isEmpty()) return MAINHAND;
+        var equippable = ac.cult.blocksim.data.ItemComponents.equippable(stack.components());
+        return equippable == null
+                ? MAINHAND
+                : fromSlot(ac.cult.cultac.protocol.value.EquipmentSlot.byName(equippable.slot()));
     }
 
-    private static EquipmentType fromNmsSlot(net.minecraft.world.entity.EquipmentSlot slot) {
+    private static EquipmentType fromSlot(ac.cult.cultac.protocol.value.EquipmentSlot slot) {
         return switch (slot) {
             case OFFHAND -> OFFHAND;
             case FEET -> FEET;

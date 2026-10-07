@@ -1,15 +1,14 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.bedrock.player.BedrockBlockLayers;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
@@ -33,7 +32,7 @@ final class GeyserBlockUpdates {
         return packet instanceof UpdateBlockPacket || packet instanceof UpdateSubChunkBlocksPacket;
     }
 
-    void capture(BedrockPacket packet, BedrockCoordinateFrame coordinates, Map<Integer, BlockState> palette) {
+    void capture(BedrockPacket packet, BedrockCoordinateFrame coordinates, Map<Integer, Integer> palette) {
         if (!active()) return;
         if (packet instanceof UpdateBlockPacket block) {
             update(block.getBlockPosition(), block.getDataLayer(), block.getDefinition(), coordinates, palette);
@@ -73,14 +72,14 @@ final class GeyserBlockUpdates {
             int layer,
             BlockDefinition definition,
             BedrockCoordinateFrame coordinates,
-            Map<Integer, BlockState> palette) {
+            Map<Integer, Integer> palette) {
         var world = new BlockPos(
                 Math.addExact(position.getX(), coordinates.originX()),
                 position.getY(),
                 Math.addExact(position.getZ(), coordinates.originZ()));
-        var previous = updates.getOrDefault(world, BedrockBlockLayers.fromJava(Blocks.AIR.defaultBlockState()));
+        var previous = updates.getOrDefault(world, BedrockBlockLayers.fromJava(BlockIds.AIR.defaultState()));
         updates.put(world, previous.withLayer(layer, GeyserBlockStateMappings.resolve(palette, definition)));
     }
 
-    private record Update(BlockPos position, BlockState state) {}
+    private record Update(BlockPos position, int state) {}
 }

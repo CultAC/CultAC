@@ -59,7 +59,6 @@ public class InitManager {
                 .add(new JavaVersion())
                 .add(new ViaVersion())
                 .add(new TAB())
-                .add(ac.cult.cultac.utils.minecraft.IsolatedMinecraft::start)
                 .add(new NetworkManagerStart())
                 .addAll(extraStartableInitables)
                 .build();
@@ -68,7 +67,6 @@ public class InitManager {
                 // Detach the Geyser session taps before Cult's own networking tears down.
                 .add(new TerminateGeyserBedrockBridge())
                 .add(new TerminateNetworkManager())
-                .add(ac.cult.cultac.utils.minecraft.IsolatedMinecraft::stop)
                 .add(ac.cult.cultac.protocol.ProtocolCodecs::close)
                 .add(CultAPI.INSTANCE.getDataStoreLifecycle())
                 .addAll(extraStoppableInitables)

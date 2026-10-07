@@ -3,19 +3,19 @@ package ac.cult.cultac.bedrock.bridge;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.protocol.bedrock.data.BlockChangeEntry;
@@ -62,7 +62,7 @@ public class GeyserBlockUpdatesTest {
         verifyZeroInteractions(h.player.compensatedWorld);
         h.receipts.removeFirst().accept(h.player);
         verify(h.player.compensatedWorld)
-                .handleServerBlockUpdate(new BlockPos(2, 64, 3), Blocks.AIR.defaultBlockState(), 0);
+                .handleServerBlockUpdate(new BlockPos(2, 64, 3), BlockIds.AIR.defaultState(), 0);
         verifyNoMoreInteractions(h.player.compensatedWorld);
     }
 
@@ -97,7 +97,12 @@ public class GeyserBlockUpdatesTest {
         verify(h.player.compensatedWorld)
                 .handleServerBlockUpdate(
                         new BlockPos(2, 64, 3),
-                        Blocks.OAK_STAIRS.defaultBlockState().setValue(BlockStateProperties.WATERLOGGED, true),
+                        BlockProps.WATERLOGGED.with(
+                                DataTables.defaults()
+                                        .registry()
+                                        .block("minecraft:oak_stairs")
+                                        .defaultState(),
+                                true),
                         0);
         h.corrections.begin();
         h.capture(block(0, 101));
@@ -105,7 +110,7 @@ public class GeyserBlockUpdatesTest {
         h.end();
         h.receipts.removeFirst().accept(h.player);
         verify(h.player.compensatedWorld)
-                .handleServerBlockUpdate(new BlockPos(2, 64, 3), Blocks.WATER.defaultBlockState(), 0);
+                .handleServerBlockUpdate(new BlockPos(2, 64, 3), BlockIds.WATER.defaultState(), 0);
     }
 
     @Test
@@ -127,7 +132,10 @@ public class GeyserBlockUpdatesTest {
         packet.getExtraBlocks().clear();
         h.receipts.removeFirst().accept(h.player);
         verify(h.player.compensatedWorld)
-                .handleServerBlockUpdate(new BlockPos(1827, 65, -3384), Blocks.SAND.defaultBlockState(), 0);
+                .handleServerBlockUpdate(
+                        new BlockPos(1827, 65, -3384),
+                        DataTables.defaults().registry().block("minecraft:sand").defaultState(),
+                        0);
     }
 
     @Test
@@ -161,15 +169,15 @@ public class GeyserBlockUpdatesTest {
     private static final class Harness {
         final CultPlayer player = mock(CultPlayer.class);
         final GeyserBlockUpdates corrections = new GeyserBlockUpdates();
-        final Map<Integer, BlockState> palette = Map.of(
+        final Map<Integer, Integer> palette = Map.of(
                 17,
-                Blocks.SAND.defaultBlockState(),
+                DataTables.defaults().registry().block("minecraft:sand").defaultState(),
                 99,
-                Blocks.AIR.defaultBlockState(),
+                BlockIds.AIR.defaultState(),
                 101,
-                Blocks.WATER.defaultBlockState(),
+                BlockIds.WATER.defaultState(),
                 104,
-                Blocks.OAK_STAIRS.defaultBlockState());
+                DataTables.defaults().registry().block("minecraft:oak_stairs").defaultState());
         final List<Consumer<CultPlayer>> receipts = new ArrayList<>();
 
         Harness() throws Exception {

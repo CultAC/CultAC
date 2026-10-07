@@ -1,7 +1,7 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.player.CultPlayer;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public final class FluidFallingAdjustedMovement {
     private FluidFallingAdjustedMovement() {}

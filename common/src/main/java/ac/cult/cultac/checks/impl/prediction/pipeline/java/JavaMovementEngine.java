@@ -17,10 +17,10 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
 import java.util.List;
 import java.util.Set;
-import net.minecraft.world.phys.Vec3;
 
 public final class JavaMovementEngine implements MovementEngine {
     public static final JavaMovementEngine INSTANCE = new JavaMovementEngine();
@@ -152,10 +152,11 @@ public final class JavaMovementEngine implements MovementEngine {
                 && context.getWorldData().getInLava().determinePessimistically()) {
             Vec3 end = context.getStart().add(movement);
             boolean onSurface = ac.cult.cultac.utils.nmsutil.Above.isAbove(end.y)
-                    && !player.compensatedWorld
-                            .getFluidStateAt(
-                                    net.minecraft.core.BlockPos.containing(end).above())
-                            .is(net.minecraft.tags.FluidTags.LAVA);
+                    && !ac.cult.blocksim.data.FluidTags.LAVA.test(
+                            ac.cult.cultac.utils.nmsutil.ClientFluidQueries.fluidAt(
+                                    player.compensatedWorld,
+                                    ac.cult.cultac.protocol.value.BlockPos.containing(end.x, end.y, end.z)
+                                            .above()));
             if (!onSurface)
                 return new JavaInsideBlockEffects.State(
                         state.fallDistance(), state.velocity().scale(0.5).add(0, 0.05, 0), state.stuckSpeed());

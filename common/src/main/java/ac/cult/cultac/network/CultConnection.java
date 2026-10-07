@@ -48,8 +48,8 @@ public final class CultConnection implements CodecState {
         var model = dispatcher.runtime();
         var observed = version == null || version == model.data().version()
                 ? model
-                : ProtocolRuntime.create(ac.cult.cultac.protocol.data.ProtocolData.load(version));
-        packets = new ProjectedPackets(observed, model, () -> platform.packetValues());
+                : model.forData(ac.cult.cultac.protocol.data.ProtocolData.load(version));
+        packets = new ProjectedPackets(observed, model, () -> platform.packetValues(this));
         ownerResolver = Objects.requireNonNull(resolver);
         owner = channel.eventLoop();
     }
@@ -64,8 +64,10 @@ public final class CultConnection implements CodecState {
 
     @Override
     public <T> T require(Class<T> type) {
-        if (type == ac.cult.cultac.utils.minecraft.MinecraftRegistries.class && platform != null)
-            return type.cast(platform.registries());
+        if (type == ac.cult.cultac.utils.latency.ClientWorldRegistries.class && player != null)
+            return type.cast(player.getWorldRegistries());
+        if (type == ac.cult.cultac.protocol.data.RegistryNames.class && platform != null)
+            return type.cast(platform.registryNames());
         return CodecState.EMPTY.require(type);
     }
 

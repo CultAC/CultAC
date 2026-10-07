@@ -1,11 +1,9 @@
 package ac.cult.cultac.utils.change;
 
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.state.BlockState;
+import ac.cult.cultac.protocol.value.BlockPos;
 import org.jetbrains.annotations.NotNull;
 
-public record BlockModification(
-        BlockState oldBlockContents, BlockState newBlockContents, BlockPos location, int tick, Cause cause) {
+public record BlockModification(int oldBlockContents, int newBlockContents, BlockPos location, int tick, Cause cause) {
     @Override
     public @NotNull String toString() {
         return String.format(

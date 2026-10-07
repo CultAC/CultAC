@@ -15,12 +15,12 @@ import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
-import net.minecraft.world.phys.Vec3;
 
 @ToString
 public class PacketModHandler extends Check implements EngineCheck, PostPredictionListener {

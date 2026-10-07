@@ -17,7 +17,7 @@ final class SpawnInfoCodec {
     static PlayerSpawnInfo read(ByteBuf input, boolean varIntGameMode) {
         int dimensionType = Wire.readVarInt(input);
         String dimension = Wire.readIdentifier(input);
-        input.skipBytes(Long.BYTES); // Seed is not consumed.
+        long biomeZoomSeed = input.readLong();
         // 26.3's CommonPlayerSpawnInfo uses GameType.STREAM_CODEC (VarInt).
         int mode = varIntGameMode ? Wire.readVarInt(input) : input.readByte();
         // GameType.byId uses ZERO for every out-of-range ID on all supported versions.
@@ -27,6 +27,16 @@ final class SpawnInfoCodec {
             case 3 -> GameMode.SPECTATOR;
             default -> GameMode.SURVIVAL;
         };
-        return new PlayerSpawnInfo(dimensionType, dimension, gameMode);
+        if (varIntGameMode) Wire.readVarInt(input); // Optional previous game mode
+        else input.readByte();
+        input.readBoolean(); // Debug level
+        input.readBoolean(); // Flat level
+        if (input.readBoolean()) {
+            Wire.readIdentifier(input); // Last-death dimension
+            input.skipBytes(Long.BYTES); // Last-death position
+        }
+        Wire.readVarInt(input); // Portal cooldown
+        int seaLevel = Wire.readVarInt(input); // Present on every supported version (1.21.3+).
+        return new PlayerSpawnInfo(dimensionType, dimension, gameMode, seaLevel, biomeZoomSeed);
     }
 }

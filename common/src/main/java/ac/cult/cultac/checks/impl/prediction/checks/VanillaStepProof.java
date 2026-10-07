@@ -5,10 +5,10 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import java.util.Collections;
 import java.util.List;
-import net.minecraft.world.phys.Vec3;
 
 // Validates steps against Entity#collide's collision-derived candidates.
 final class VanillaStepProof {

@@ -1,8 +1,8 @@
 package ac.cult.cultac.utils.inventory.slot;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.InventoryStorage;
-import net.minecraft.world.item.ItemStack;
 
 public class ResultSlot extends Slot {
 
@@ -11,12 +11,12 @@ public class ResultSlot extends Slot {
     }
 
     @Override
-    public boolean mayPlace(ItemStack p_40178_) {
+    public boolean mayPlace(SimItemStack p_40178_) {
         return false;
     }
 
     @Override
-    public void onTake(CultPlayer player, ItemStack p_150639_) {
+    public void onTake(CultPlayer player, SimItemStack p_150639_) {
         // Resync the player's inventory
     }
 }

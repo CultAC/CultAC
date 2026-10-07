@@ -1,15 +1,15 @@
 package ac.cult.cultac.checks.impl.prediction;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
-import net.minecraft.core.Direction;
-import net.minecraft.world.phys.Vec3;
 
 public class PredVector extends Vec3 {
 

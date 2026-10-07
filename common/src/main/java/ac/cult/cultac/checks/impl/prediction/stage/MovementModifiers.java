@@ -8,12 +8,12 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.data.TransactionOrder;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import net.minecraft.world.phys.Vec3;
 
 public class MovementModifiers {
     public static final String FLUID_HOP_REASON = "swim hop";

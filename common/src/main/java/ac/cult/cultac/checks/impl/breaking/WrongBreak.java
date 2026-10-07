@@ -6,13 +6,12 @@ import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import net.minecraft.SharedConstants;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.state.BlockState;
 
 @CheckData(
         name = "WrongBreak",
@@ -21,7 +20,7 @@ import net.minecraft.world.level.block.state.BlockState;
 public class WrongBreak extends Check implements BlockBreakListener {
     private static final Verbose V = Verbose.of("action={digging}, last=[{mcpos}|null], pos={mcpos}");
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private final int exemptedY = player.getClientVersion().isOlderThan(ClientVersion.V_1_8)
             ? 255
@@ -34,7 +33,7 @@ public class WrongBreak extends Check implements BlockBreakListener {
     }
 
     // The client sometimes sends a weird cancel packet
-    private boolean shouldExempt(final BlockState block, int yPos) {
+    private boolean shouldExempt(final int block, int yPos) {
         // lastLastBlock is always null when this happens, and lastBlock isn't
         if (lastLastBlock != null || lastBlock == null) return false;
 

@@ -1,50 +1,30 @@
 package ac.cult.cultac.bedrock.prediction.geometry;
 
+import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.data.BlockRegistry;
+import ac.cult.blocksim.data.BlockTags;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.data.StateProperty;
 import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.world.BedrockBlockMetadata;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision.BlockContactBehavior;
+import ac.cult.cultac.protocol.value.Direction;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import net.minecraft.core.Direction;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.tags.BlockTags;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.ChorusPlantBlock;
-import net.minecraft.world.level.block.FenceBlock;
-import net.minecraft.world.level.block.IronBarsBlock;
-import net.minecraft.world.level.block.PipeBlock;
-import net.minecraft.world.level.block.PowderSnowBlock;
-import net.minecraft.world.level.block.ScaffoldingBlock;
-import net.minecraft.world.level.block.ShulkerBoxBlock;
-import net.minecraft.world.level.block.StairBlock;
-import net.minecraft.world.level.block.piston.PistonHeadBlock;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.Half;
 
 public final class BedrockCollisionWorldBuilder {
     private static final double POWDER_SNOW_ABOVE_EPSILON = 1.1920929E-7D;
 
-    private static final net.minecraft.tags.TagKey<Block> BARS_TAG = optionalBarsTag();
-
-    @SuppressWarnings("unchecked")
-    private static net.minecraft.tags.TagKey<Block> optionalBarsTag() {
-        try {
-            return (net.minecraft.tags.TagKey<Block>)
-                    BlockTags.class.getField("BARS").get(null);
-        } catch (NoSuchFieldException absentOnOlderServer) {
-            return null;
-        } catch (IllegalAccessException exception) {
-            throw new ExceptionInInitializerError(exception);
-        }
-    }
+    private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
 
     private final BedrockCollisionOverrideCatalog catalog;
 
@@ -52,16 +32,16 @@ public final class BedrockCollisionWorldBuilder {
         this.catalog = Objects.requireNonNull(catalog, "catalog");
     }
 
-    public BlockCollisionWorld build(Map<BlockPosition, BlockState> blockStates) {
+    public BlockCollisionWorld build(Map<BlockPosition, Integer> blockStates) {
         return build(blockStates, BedrockCollisionShapeQuery.NONE);
     }
 
-    public BlockCollisionWorld build(Map<BlockPosition, BlockState> blockStates, BedrockCollisionShapeQuery query) {
+    public BlockCollisionWorld build(Map<BlockPosition, Integer> blockStates, BedrockCollisionShapeQuery query) {
         query = query == null ? BedrockCollisionShapeQuery.NONE : query;
         List<PlacedBlockCollision> blocks = new ArrayList<>();
-        for (Map.Entry<BlockPosition, BlockState> entry : blockStates.entrySet()) {
-            BlockState state = entry.getValue();
-            if (state == null || state.isAir()) {
+        for (Map.Entry<BlockPosition, Integer> entry : blockStates.entrySet()) {
+            Integer state = entry.getValue();
+            if (state == null || isAir(state)) {
                 continue;
             }
             List<WorldCollisionBox> boxes = collisionBoxes(entry.getKey(), state, query);
@@ -83,23 +63,23 @@ public final class BedrockCollisionWorldBuilder {
         return new BlockCollisionWorld(blocks);
     }
 
-    public Map<String, Object> bedrockState(BlockState state) {
-        java.util.OptionalLong mask = catalog.blockPropertyMask(Block.getId(state));
+    public Map<String, Object> bedrockState(int state) {
+        java.util.OptionalLong mask = catalog.blockPropertyMask(state);
         return mask.isPresent() ? Map.of(BedrockBlockMetadata.BLOCK_PROPERTY_MASK, mask.getAsLong()) : Map.of();
     }
 
-    public static boolean hasBedrockBehavior(BlockState state, BedrockCollisionOverrideCatalog catalog) {
-        if (state == null || state.isAir()) {
+    public static boolean hasBedrockBehavior(int state, BedrockCollisionOverrideCatalog catalog) {
+        if (state < 0 || isAir(state)) {
             return false;
         }
-        return manualMovement(state) || catalog != null && catalog.hasOverride(Block.getId(state));
+        return manualMovement(state) || catalog != null && catalog.hasOverride(state);
     }
 
-    public static boolean dynamicMovement(BlockState state) {
+    public static boolean dynamicMovement(int state) {
         return scaffoldingBlock(state) || powderSnowBlock(state);
     }
 
-    public static boolean clientComputedMovement(BlockState state) {
+    public static boolean clientComputedMovement(int state) {
         return pistonArmBlock(state)
                 || stairBlock(state)
                 || fenceBlock(state)
@@ -107,49 +87,49 @@ public final class BedrockCollisionWorldBuilder {
                 || chorusPlantBlock(state);
     }
 
-    public static Set<BlockContactBehavior> contactBehaviors(BlockState state) {
-        if (state == null || state.isAir()) {
+    public static Set<BlockContactBehavior> contactBehaviors(int state) {
+        if (state < 0 || isAir(state)) {
             return Set.of();
         }
 
         EnumSet<BlockContactBehavior> behaviors = EnumSet.noneOf(BlockContactBehavior.class);
-        if (state.getBlock() == Blocks.HONEY_BLOCK) {
+        if (BlockIds.is(state, BlockIds.HONEY_BLOCK)) {
             behaviors.add(BlockContactBehavior.HONEY);
         }
-        if (state.getBlock() == Blocks.SLIME_BLOCK) {
+        if (BlockIds.is(state, BlockIds.SLIME_BLOCK)) {
             behaviors.add(BlockContactBehavior.SLIME);
         }
-        if (state.getBlock() == Blocks.SOUL_SAND) {
+        if (BlockIds.is(state, BlockIds.SOUL_SAND)) {
             behaviors.add(BlockContactBehavior.SOUL_SAND);
         }
-        if (state.getBlock() == Blocks.SOUL_SOIL) {
+        if (BlockIds.is(state, BlockIds.SOUL_SOIL)) {
             behaviors.add(BlockContactBehavior.SOUL_SOIL);
         }
-        if (state.getBlock() == Blocks.COBWEB) {
+        if (BlockIds.is(state, BlockIds.COBWEB)) {
             behaviors.add(BlockContactBehavior.COBWEB);
         }
-        if (state.getBlock() == Blocks.SWEET_BERRY_BUSH) {
+        if (BlockIds.is(state, BlockIds.SWEET_BERRY_BUSH)) {
             behaviors.add(BlockContactBehavior.SWEET_BERRY_BUSH);
         }
-        if (state.getBlock() == Blocks.POWDER_SNOW) {
+        if (BlockIds.is(state, BlockIds.POWDER_SNOW)) {
             behaviors.add(BlockContactBehavior.POWDER_SNOW);
         }
-        if (state.is(BlockTags.CLIMBABLE)) {
+        if (BlockTags.CLIMBABLE.test(state)) {
             behaviors.add(BlockContactBehavior.CLIMBABLE);
         }
-        if (state.getBlock() == Blocks.LADDER) {
+        if (BlockIds.is(state, BlockIds.LADDER)) {
             behaviors.add(BlockContactBehavior.LADDER);
         }
-        if (state.getBlock() == Blocks.VINE) {
+        if (BlockIds.is(state, BlockIds.VINE)) {
             behaviors.add(BlockContactBehavior.WALL_VINE);
         }
-        if (state.getBlock() == Blocks.SCAFFOLDING) {
+        if (BlockIds.is(state, BlockIds.SCAFFOLDING)) {
             behaviors.add(BlockContactBehavior.SCAFFOLDING);
         }
         return behaviors.isEmpty() ? Set.of() : Set.copyOf(behaviors);
     }
 
-    private static boolean manualMovement(BlockState state) {
+    private static boolean manualMovement(int state) {
         return clientComputedMovement(state)
                 || dynamicMovement(state)
                 || movingPistonBlock(state)
@@ -157,7 +137,7 @@ public final class BedrockCollisionWorldBuilder {
     }
 
     private List<WorldCollisionBox> collisionBoxes(
-            BlockPosition position, BlockState state, BedrockCollisionShapeQuery query) {
+            BlockPosition position, int state, BedrockCollisionShapeQuery query) {
         if (movingPistonBlock(state)) {
             return List.of();
         }
@@ -185,7 +165,7 @@ public final class BedrockCollisionWorldBuilder {
         if (shulkerBoxBlock(state)) {
             return List.of(fullBlockBox(position));
         }
-        return catalog.override(Block.getId(state))
+        return catalog.override(state)
                 .map(shape -> bambooBlock(state)
                         ? BedrockBambooCollisionShape.at(position, shape)
                         : overrideCollisionBoxes(position, shape))
@@ -206,7 +186,7 @@ public final class BedrockCollisionWorldBuilder {
         return collisionBoxes.isEmpty() ? List.of(fullBlockBox(position)) : List.copyOf(collisionBoxes);
     }
 
-    private static boolean movementResolvedContactUsesCollisionBoxes(BlockState state) {
+    private static boolean movementResolvedContactUsesCollisionBoxes(int state) {
         return pistonArmBlock(state)
                 || stairBlock(state)
                 || fenceBlock(state)
@@ -214,44 +194,44 @@ public final class BedrockCollisionWorldBuilder {
                 || chorusPlantBlock(state);
     }
 
-    private static boolean movingPistonBlock(BlockState state) {
-        return state.getBlock() == Blocks.MOVING_PISTON;
+    private static boolean movingPistonBlock(int state) {
+        return BlockIds.is(state, BlockIds.MOVING_PISTON);
     }
 
-    private static boolean pistonArmBlock(BlockState state) {
-        return state.getBlock() instanceof PistonHeadBlock || state.getBlock() == Blocks.PISTON_HEAD;
+    private static boolean pistonArmBlock(int state) {
+        return BlockFamilies.PISTON_HEAD.test(state) || BlockIds.is(state, BlockIds.PISTON_HEAD);
     }
 
-    private static boolean stairBlock(BlockState state) {
-        return state.getBlock() instanceof StairBlock || state.is(net.minecraft.tags.BlockTags.STAIRS);
+    private static boolean stairBlock(int state) {
+        return BlockFamilies.STAIR.test(state) || BlockTags.STAIRS.test(state);
     }
 
-    private static boolean fenceBlock(BlockState state) {
-        return state.getBlock() instanceof FenceBlock || state.is(net.minecraft.tags.BlockTags.FENCES);
+    private static boolean fenceBlock(int state) {
+        return BlockFamilies.FENCE.test(state) || BlockTags.FENCES.test(state);
     }
 
-    private static boolean thinFenceBlock(BlockState state) {
-        return state.getBlock() instanceof IronBarsBlock || BARS_TAG != null && state.is(BARS_TAG);
+    private static boolean thinFenceBlock(int state) {
+        return BlockFamilies.IRON_BARS.test(state) || BlockTags.BARS.test(state);
     }
 
-    private static boolean chorusPlantBlock(BlockState state) {
-        return state.getBlock() instanceof ChorusPlantBlock || state.getBlock() == Blocks.CHORUS_PLANT;
+    private static boolean chorusPlantBlock(int state) {
+        return BlockFamilies.CHORUS_PLANT.test(state) || BlockIds.is(state, BlockIds.CHORUS_PLANT);
     }
 
-    private static boolean scaffoldingBlock(BlockState state) {
-        return state.getBlock() instanceof ScaffoldingBlock || state.getBlock() == Blocks.SCAFFOLDING;
+    private static boolean scaffoldingBlock(int state) {
+        return BlockFamilies.SCAFFOLDING.test(state) || BlockIds.is(state, BlockIds.SCAFFOLDING);
     }
 
-    private static boolean powderSnowBlock(BlockState state) {
-        return state.getBlock() instanceof PowderSnowBlock || state.getBlock() == Blocks.POWDER_SNOW;
+    private static boolean powderSnowBlock(int state) {
+        return BlockFamilies.POWDER_SNOW.test(state) || BlockIds.is(state, BlockIds.POWDER_SNOW);
     }
 
-    private static boolean bambooBlock(BlockState state) {
-        return state.getBlock() == Blocks.BAMBOO;
+    private static boolean bambooBlock(int state) {
+        return BlockIds.is(state, BlockIds.BAMBOO);
     }
 
-    private static boolean shulkerBoxBlock(BlockState state) {
-        return state.getBlock() instanceof ShulkerBoxBlock || state.is(net.minecraft.tags.BlockTags.SHULKER_BOXES);
+    private static boolean shulkerBoxBlock(int state) {
+        return BlockFamilies.SHULKER_BOX.test(state) || BlockTags.SHULKER_BOXES.test(state);
     }
 
     private static List<WorldCollisionBox> powderSnowCollisionBoxes(
@@ -278,9 +258,10 @@ public final class BedrockCollisionWorldBuilder {
         return List.copyOf(boxes);
     }
 
-    private static List<WorldCollisionBox> stairCollisionBoxes(BlockPosition position, BlockState state) {
-        boolean upsideDown = state.getValue(StairBlock.HALF) == Half.TOP;
-        int weirdoDirection = stairWeirdoDirection(state.getValue(StairBlock.FACING));
+    private static List<WorldCollisionBox> stairCollisionBoxes(BlockPosition position, int state) {
+        boolean upsideDown = BlockProps.HALF.value(state) == 0;
+        int weirdoDirection =
+                stairWeirdoDirection(Direction.from3DDataValue(BlockProps.HORIZONTAL_FACING.value(state)));
 
         List<BlockAabb> localBoxes = new ArrayList<>(2);
         if (upsideDown) {
@@ -313,11 +294,11 @@ public final class BedrockCollisionWorldBuilder {
         }
     }
 
-    private static List<WorldCollisionBox> fenceCollisionBoxes(BlockPosition position, BlockState state) {
-        boolean negativeX = booleanProperty(state, BlockStateProperties.WEST);
-        boolean positiveX = booleanProperty(state, BlockStateProperties.EAST);
-        boolean negativeZ = booleanProperty(state, BlockStateProperties.NORTH);
-        boolean positiveZ = booleanProperty(state, BlockStateProperties.SOUTH);
+    private static List<WorldCollisionBox> fenceCollisionBoxes(BlockPosition position, int state) {
+        boolean negativeX = booleanProperty(state, BlockProps.WEST);
+        boolean positiveX = booleanProperty(state, BlockProps.EAST);
+        boolean negativeZ = booleanProperty(state, BlockProps.NORTH);
+        boolean positiveZ = booleanProperty(state, BlockProps.SOUTH);
 
         List<BlockAabb> localBoxes = new ArrayList<>(2);
         if (negativeZ || positiveZ) {
@@ -334,11 +315,11 @@ public final class BedrockCollisionWorldBuilder {
         return toWorldBoxes(position, localBoxes);
     }
 
-    private static List<WorldCollisionBox> thinFenceCollisionBoxes(BlockPosition position, BlockState state) {
-        boolean negativeX = booleanProperty(state, BlockStateProperties.WEST);
-        boolean positiveX = booleanProperty(state, BlockStateProperties.EAST);
-        boolean negativeZ = booleanProperty(state, BlockStateProperties.NORTH);
-        boolean positiveZ = booleanProperty(state, BlockStateProperties.SOUTH);
+    private static List<WorldCollisionBox> thinFenceCollisionBoxes(BlockPosition position, int state) {
+        boolean negativeX = booleanProperty(state, BlockProps.WEST);
+        boolean positiveX = booleanProperty(state, BlockProps.EAST);
+        boolean negativeZ = booleanProperty(state, BlockProps.NORTH);
+        boolean positiveZ = booleanProperty(state, BlockProps.SOUTH);
 
         List<BlockAabb> localBoxes = new ArrayList<>(2);
         if (negativeX || positiveX) {
@@ -355,13 +336,13 @@ public final class BedrockCollisionWorldBuilder {
         return toWorldBoxes(position, localBoxes);
     }
 
-    private static List<WorldCollisionBox> chorusPlantCollisionBoxes(BlockPosition position, BlockState state) {
-        boolean down = booleanProperty(state, PipeBlock.DOWN);
-        boolean east = booleanProperty(state, PipeBlock.EAST);
-        boolean north = booleanProperty(state, PipeBlock.NORTH);
-        boolean south = booleanProperty(state, PipeBlock.SOUTH);
-        boolean up = booleanProperty(state, PipeBlock.UP);
-        boolean west = booleanProperty(state, PipeBlock.WEST);
+    private static List<WorldCollisionBox> chorusPlantCollisionBoxes(BlockPosition position, int state) {
+        boolean down = booleanProperty(state, BlockProps.DOWN);
+        boolean east = booleanProperty(state, BlockProps.EAST);
+        boolean north = booleanProperty(state, BlockProps.NORTH);
+        boolean south = booleanProperty(state, BlockProps.SOUTH);
+        boolean up = booleanProperty(state, BlockProps.UP);
+        boolean west = booleanProperty(state, BlockProps.WEST);
 
         BlockAabb localBox = new BlockAabb(
                 west ? 0.0D : 0.125D,
@@ -373,14 +354,13 @@ public final class BedrockCollisionWorldBuilder {
         return List.of(toWorldBox(position, localBox));
     }
 
-    private static List<WorldCollisionBox> pistonArmCollisionBoxes(
-            BlockPosition position, BlockState state, double progress) {
+    private static List<WorldCollisionBox> pistonArmCollisionBoxes(BlockPosition position, int state, double progress) {
         BedrockPistonArmCollisionShape.FacingDirection direction = pistonFacingDirection(state);
         return toWorldBoxes(position, BedrockPistonArmCollisionShape.collisionAabbs(direction, progress));
     }
 
-    private static BedrockPistonArmCollisionShape.FacingDirection pistonFacingDirection(BlockState state) {
-        return switch (state.getValue(PistonHeadBlock.FACING)) {
+    private static BedrockPistonArmCollisionShape.FacingDirection pistonFacingDirection(int state) {
+        return switch (Direction.from3DDataValue(BlockProps.FACING.value(state))) {
             case DOWN -> BedrockPistonArmCollisionShape.FacingDirection.DOWN;
             case UP -> BedrockPistonArmCollisionShape.FacingDirection.UP;
             case SOUTH -> BedrockPistonArmCollisionShape.FacingDirection.POSITIVE_Z;
@@ -403,9 +383,8 @@ public final class BedrockCollisionWorldBuilder {
         return List.of(block);
     }
 
-    private static boolean booleanProperty(
-            BlockState state, net.minecraft.world.level.block.state.properties.BooleanProperty property) {
-        return state.hasProperty(property) && state.getValue(property);
+    private static boolean booleanProperty(int state, StateProperty property) {
+        return property.has(state) && property.booleanValue(state);
     }
 
     private static List<WorldCollisionBox> toWorldBoxes(BlockPosition position, List<BlockAabb> localBoxes) {
@@ -436,7 +415,11 @@ public final class BedrockCollisionWorldBuilder {
                 position.z() + 1.0D);
     }
 
-    public static String javaIdentifier(BlockState state) {
-        return ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil.registryKey(BuiltInRegistries.BLOCK, state.getBlock());
+    private static boolean isAir(int state) {
+        return REGISTRY.facts(state).has(StateFacts.AIR);
+    }
+
+    public static String javaIdentifier(int state) {
+        return REGISTRY.block(state).key();
     }
 }

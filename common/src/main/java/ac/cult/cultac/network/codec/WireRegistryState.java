@@ -2,30 +2,34 @@ package ac.cult.cultac.network.codec;
 
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.data.*;
-import ac.cult.cultac.utils.minecraft.MinecraftRegistries;
-import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import java.util.*;
-import net.minecraft.core.Registry;
 
 /** Connection-owned wire IDs. Shared decoders only borrow this lookup for one invocation. */
 public final class WireRegistryState implements WireValueDecoder.Registries {
     private final ProtocolVersion version;
     private final ModelRegistryData source;
-    private final MinecraftRegistries model;
+    private final java.util.function.Supplier<RegistryNames> model;
     private final Map<String, List<String>> received = new HashMap<>();
+    private boolean awaitingRegistryData;
     private final Set<String> unavailable = new HashSet<>();
 
-    public WireRegistryState(ProtocolVersion version, MinecraftRegistries model) {
+    public WireRegistryState(ProtocolVersion version, java.util.function.Supplier<RegistryNames> model) {
         this.version = version;
         this.source = ModelRegistryData.load(version);
         this.model = model;
     }
 
     public void beginConfiguration() {
-        received.clear();
+        awaitingRegistryData = true;
     }
 
     public void append(WireValueDecoder.RegistryValues packet) {
+        // A tags-only configuration retains original registries. The first contents
+        // packet selects RegistryDataCollector's fresh-registry branch instead.
+        if (awaitingRegistryData) {
+            received.clear();
+            awaitingRegistryData = false;
+        }
         var entries = new ArrayList<>(received.getOrDefault(packet.registry(), List.of()));
         packet.entries().forEach(entry -> entries.add(entry.name()));
         received.put(packet.registry(), List.copyOf(entries));
@@ -51,21 +55,16 @@ public final class WireRegistryState implements WireValueDecoder.Registries {
         return entries == null ? source.registry(registry).size() : entries.size();
     }
 
-    public Registry<?> modelRegistry(String registry) {
-        return model.access().lookupOrThrow(NmsIdentifierUtil.registryKey(registry));
+    public int modelSize(String registry) {
+        return model.get().size(registry);
     }
 
     public boolean hasModelRegistry(String registry) {
-        return model.access().lookup(NmsIdentifierUtil.registryKey(registry)).isPresent();
+        return model.get().contains(registry);
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
     public int modelId(String registry, String name) {
-        Registry values =
-                model.access().lookup(NmsIdentifierUtil.registryKey(registry)).orElse(null);
-        if (values == null) return -1;
-        var value = NmsIdentifierUtil.registryOptional(values, name);
-        return value.isEmpty() ? -1 : values.getId(value.get());
+        return model.get().id(registry, name);
     }
 
     public void unavailable(String registry, String name) {

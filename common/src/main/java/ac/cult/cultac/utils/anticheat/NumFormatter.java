@@ -1,6 +1,6 @@
 package ac.cult.cultac.utils.anticheat;
 
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public class NumFormatter {
     public static String formatVector(Vec3 vector) {

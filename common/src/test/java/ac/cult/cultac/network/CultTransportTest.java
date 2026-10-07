@@ -25,7 +25,6 @@ import io.netty.util.concurrent.DefaultEventExecutor;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import net.minecraft.network.UnconfiguredPipelineHandler;
 import org.junit.jupiter.api.Test;
 
 /** Replacement contract, written before the transport implementation (D1–D7, C1/C2). */
@@ -527,9 +526,8 @@ class CultTransportTest {
             f.channel.pipeline().addBefore("decoder", "plugin", plugin);
             ChannelHandler cultDecoder = f.channel.pipeline().get("cult-decoder"),
                     cultEncoder = f.channel.pipeline().get("cult-encoder");
-            Object event = Class.forName("io.papermc.paper.network.ConnectionEvent")
-                    .getField("COMPRESSION_THRESHOLD_SET")
-                    .get(null);
+            // Host compression events pass through the shared codecs unchanged.
+            Object event = new Object();
             f.channel.pipeline().fireUserEventTriggered(event);
             assertSame(decoder, f.channel.pipeline().get("decoder"));
             assertSame(encoder, f.channel.pipeline().get("encoder"));
@@ -671,11 +669,11 @@ class CultTransportTest {
     @Test
     void nativeConfigurationTasksAndPacketWritesPassSynchronously() throws Exception {
         try (var f = new Fixture(false)) {
-            f.channel.pipeline().replace("decoder", "inbound_config", new UnconfiguredPipelineHandler.Inbound());
+            f.channel.pipeline().replace("decoder", "inbound_config", new ConfigurationInbound());
             assertTrue(f.channel
                     .writeAndFlush(new CultWrite(new ClientboundPing(8), false))
                     .isSuccess());
-            UnconfiguredPipelineHandler.InboundConfigurationTask task = ctx -> {
+            ConfigurationTask task = ctx -> {
                 assertSame(f.channel.eventLoop(), ctx.executor());
                 ctx.pipeline().replace(ctx.name(), "decoder", new ChannelInboundHandlerAdapter());
                 ctx.channel().config().setAutoRead(true);
@@ -707,8 +705,6 @@ class CultTransportTest {
         for (boolean owned : List.of(false, true))
             for (boolean cancel : List.of(false, true)) {
                 try (var f = new Fixture(owned)) {
-                    net.minecraft.SharedConstants.tryDetectVersion();
-                    net.minecraft.server.Bootstrap.bootStrap();
                     var player = mock(CultPlayer.class);
                     var setbacks = mock(SetbackTeleportUtil.class);
                     when(player.getSetbackTeleportUtil()).thenReturn(setbacks);
@@ -1059,6 +1055,31 @@ class CultTransportTest {
         }
     }
 
+    @FunctionalInterface
+    private interface ConfigurationTask {
+        void configure(ChannelHandlerContext context);
+    }
+
+    /** Downstream transport installs its next decoder through an ordered pipeline write. */
+    private static final class ConfigurationInbound extends ChannelDuplexHandler {
+        @Override
+        public void channelRead(ChannelHandlerContext context, Object message) {
+            if (message instanceof ByteBuf) {
+                io.netty.util.ReferenceCountUtil.release(message);
+                throw new io.netty.handler.codec.DecoderException("Packet reached an unconfigured decoder");
+            }
+            context.fireChannelRead(message);
+        }
+
+        @Override
+        public void write(ChannelHandlerContext context, Object message, ChannelPromise promise) {
+            if (message instanceof ConfigurationTask task) {
+                task.configure(context);
+                promise.setSuccess();
+            } else context.write(message, promise);
+        }
+    }
+
     private static final class Fixture implements AutoCloseable {
         final EmbeddedChannel channel = new EmbeddedChannel();
         final TestTransportRoutes routes = new TestTransportRoutes(RUNTIME);
@@ -1124,8 +1145,7 @@ class CultTransportTest {
                         // Vanilla has decoded the bytes before its listener changes the pipeline.
                         ctx.fireChannelRead(message);
                         if (terminal) {
-                            ctx.pipeline()
-                                    .replace(ctx.name(), "inbound_config", new UnconfiguredPipelineHandler.Inbound());
+                            ctx.pipeline().replace(ctx.name(), "inbound_config", new ConfigurationInbound());
                             ctx.channel().config().setAutoRead(false);
                         }
                     } else ctx.fireChannelRead(message);
@@ -1135,7 +1155,7 @@ class CultTransportTest {
 
         void configureInbound() {
             if (channel.pipeline().get("inbound_config") == null) return;
-            UnconfiguredPipelineHandler.InboundConfigurationTask task = ctx -> {
+            ConfigurationTask task = ctx -> {
                 ctx.pipeline().replace(ctx.name(), "decoder", nativeDecoder());
                 ctx.channel().config().setAutoRead(true);
             };

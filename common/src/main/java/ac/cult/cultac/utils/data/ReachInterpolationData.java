@@ -15,22 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package ac.cult.cultac.utils.data;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.util.Mth;
-import net.minecraft.world.phys.Vec3;
 
 // You may not copy the check unless you are licensed under GPL
 public class ReachInterpolationData {
@@ -142,8 +142,8 @@ public class ReachInterpolationData {
 
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
             interpolationPlayer = player;
-            if (EntityTypeUtil.isLiving(entity.type) && entity.type != EntityTypesCompat.SHULKER) {
-                interpolationSteps = entity.type.updateInterval();
+            if (EntityTypeUtil.isLiving(entity.type) && entity.type != EntityTypeIds.SHULKER) {
+                interpolationSteps = EntityTypeUtil.modelType(entity.type).updateInterval();
                 interpolationQueue = new ArrayDeque<>();
                 steppedCurrent = lastStep = new Transform(feet(startingLocation), currentYaw, currentPitch);
                 steppedTarget = new Transform(Vec3.ZERO, 0.0F, 0.0F);
@@ -152,7 +152,7 @@ public class ReachInterpolationData {
                         || currentPitch != targetPitch) {
                     appendSteppedPath(EntityPositionPath.linear(new Vec3(x, y, z)), targetYaw, targetPitch);
                 }
-            } else if (entity.type == EntityTypesCompat.FISHING_BOBBER) {
+            } else if (entity.type == EntityTypeIds.FISHING_BOBBER) {
                 interpolationSteps = 3;
             }
         }
@@ -207,10 +207,10 @@ public class ReachInterpolationData {
                                 step.position(),
                                 yaw == steppedTarget.yaw() && pitch == steppedTarget.pitch()
                                         ? yaw
-                                        : Mth.rotLerp(a, steppedTarget.yaw(), yaw),
+                                        : CultMath.rotLerp(a, steppedTarget.yaw(), yaw),
                                 yaw == steppedTarget.yaw() && pitch == steppedTarget.pitch()
                                         ? pitch
-                                        : Mth.lerp(a, steppedTarget.pitch(), pitch)),
+                                        : CultMath.lerp(a, steppedTarget.pitch(), pitch)),
                         step.tickOffset());
             }
         }
@@ -231,7 +231,7 @@ public class ReachInterpolationData {
         Transform sampled = sampleSteppedMovement();
         steppedCurrent = new Transform(sampled.position(), sampled.yaw() % 360.0F, sampled.pitch() % 360.0F);
         float targetSpeed = Math.max(remainingTicks / interpolationSteps, 1.0F);
-        interpolationSpeed = Mth.lerp(1.0F / interpolationSteps, interpolationSpeed, targetSpeed);
+        interpolationSpeed = CultMath.lerp(1.0F / interpolationSteps, interpolationSpeed, targetSpeed);
         float advance;
         if (relativeTickSpeed * interpolationSpeed < remainingTicks) {
             advance = relativeTickSpeed * interpolationSpeed;
@@ -251,8 +251,8 @@ public class ReachInterpolationData {
                 float a = currentStepTicks / step.ticks();
                 return new Transform(
                         lastStep.position().lerp(step.transform().position(), a),
-                        Mth.rotLerp(a, lastStep.yaw(), step.transform().yaw()),
-                        Mth.lerp(a, lastStep.pitch(), step.transform().pitch()));
+                        CultMath.rotLerp(a, lastStep.yaw(), step.transform().yaw()),
+                        CultMath.lerp(a, lastStep.pitch(), step.transform().pitch()));
             }
             currentStepTicks -= step.ticks();
             lastStep = step.transform();
@@ -318,7 +318,7 @@ public class ReachInterpolationData {
             // the default 3 client ticks.
             return 3;
         }
-        if (entity.type == EntityTypesCompat.SHULKER) {
+        if (entity.type == EntityTypeIds.SHULKER) {
             return 1;
         }
         return EntityTypeUtil.isLiving(entity.type) ? 3 : 1;
@@ -560,7 +560,7 @@ public class ReachInterpolationData {
             return physicalYaw;
         }
 
-        return Mth.rotLerp(1.0F / remainingSteps, physicalYaw, targetYaw);
+        return CultMath.rotLerp(1.0F / remainingSteps, physicalYaw, targetYaw);
     }
 
     public float getExactPitchAfterClientTickFromPhysical(float physicalPitch) {

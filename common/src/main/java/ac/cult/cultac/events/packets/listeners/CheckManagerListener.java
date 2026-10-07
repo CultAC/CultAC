@@ -1,5 +1,7 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
@@ -53,7 +55,9 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundTeleportToEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -62,8 +66,8 @@ import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.anticheat.update.RotationUpdate;
 import ac.cult.cultac.utils.anticheat.update.VehiclePositionUpdate;
+import ac.cult.cultac.utils.blockplace.ClientBlockActions;
 import ac.cult.cultac.utils.blockplace.GhostBlock;
-import ac.cult.cultac.utils.blockplace.VanillaBlockActions;
 import ac.cult.cultac.utils.data.BedrockTranslatedMovementGate;
 import ac.cult.cultac.utils.data.HeadRotation;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
@@ -73,16 +77,11 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.BlockPredictionAckSender;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
 import ac.cult.cultac.utils.nmsutil.TraverseBlocks;
 import java.util.List;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 // TODO: All this stupid one line listeners don't belong here
@@ -952,18 +951,18 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         clearPendingVehicleMoveForInterveningPacket(player);
         dispatchPrePredictionReceive(event, player);
 
-        BlockPos blockPosition = SpigotConversionUtil.toNmsBlockPos(packet.position());
-        BlockState block = player.compensatedWorld.getBlockDataAt(blockPosition);
+        BlockPos blockPosition = packet.position();
+        int block = player.compensatedWorld.getBlockStateIdAt(blockPosition);
 
         if (player.debugBreaks && isBlockBreakAction(action)) {
             player.sendMessage("Break: action=" + action + " state="
-                    + net.minecraft.commands.arguments.blocks.BlockStateParser.serialize(block) + " at "
+                    + DataTables.defaults().registry().serialize(block) + " at "
                     + blockPosition);
         }
 
         if (action == PlayerAction.STOP_DESTROY_BLOCK) {
             // Not unbreakable
-            if (NmsBlockTags.toNmsState(block).getDestroySpeed(player.compensatedWorld, blockPosition) != -1.0f) {
+            if (DataTables.defaults().registry().facts(block).destroyTime() != -1.0f) {
                 player.compensatedWorld.startPredicting();
                 applyClientBreakPrediction(player, blockPosition);
                 player.checkManager.getCheck(AirLiquidPlace.class).handleBlockBreak(blockPosition.immutable());
@@ -996,13 +995,13 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         clearPendingVehicleMoveForInterveningPacket(player);
         dispatchPrePredictionReceive(event, player);
 
-        BlockPos clickedBlock = SpigotConversionUtil.toNmsBlockPos(packet.blockPosition());
-        Vec3 cursor = SpigotConversionUtil.toNmsVec(packet.cursor());
-        Direction blockFace = SpigotConversionUtil.toBukkitFace(packet.blockFace());
-        InteractionHand hand = SpigotConversionUtil.toNmsHand(packet.hand());
+        BlockPos clickedBlock = packet.blockPosition();
+        Vec3 cursor = SpigotConversionUtil.fromProtocolVec(packet.cursor());
+        Direction blockFace = packet.blockFace();
+        Hand hand = packet.hand();
         player.lastBlockPlaceUseItem = System.currentTimeMillis();
 
-        ItemStack placedWith = player.getInventory().getHandItem(hand);
+        SimItemStack placedWith = player.getInventory().getHandItem(hand);
 
         BlockPlace blockPlace = new BlockPlace(
                 player,
@@ -1010,7 +1009,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 clickedBlock,
                 blockFace,
                 placedWith,
-                TraverseBlocks.getNearestHitResult(player, null, true),
+                TraverseBlocks.getNearestHitResult(player, true),
                 packet.sequence());
         blockPlace.setCursor(cursor);
 
@@ -1026,8 +1025,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // Should we call the anticheat placing checks?
         if (!desyncPos
                 && (blockPlace.isBlock()
-                        || placedWith.getItem() == net.minecraft.world.item.Items.FIRE_CHARGE
-                        || placedWith.getItem() == net.minecraft.world.item.Items.END_CRYSTAL)
+                        || placedWith.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.FIRE_CHARGE
+                        || placedWith.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.END_CRYSTAL)
                 && !player.compensatedEntities.getSelf().inVehicle()) {
             player.checkManager.onBlockPlace(blockPlace);
             player.checkManager.queuePostFlyingBlockPlace(blockPlace);
@@ -1060,13 +1059,13 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             // Stop inventory desync from cancelling place
             if (player.platformPlayer != null) {
                 // TODO: Is this unsafe enough to have to run on the main thread?
-                if (hand == InteractionHand.MAIN_HAND) {
-                    ItemStack mainHand =
+                if (hand == Hand.MAIN_HAND) {
+                    SimItemStack mainHand =
                             ItemUtil.copy(player.platformPlayer.getInventory().getMainHand());
                     player.user.write(new Slot(
                             0, player.getInventory().stateID, 36 + player.packetStateData.lastSlotSelected, mainHand));
                 } else {
-                    ItemStack offHand =
+                    SimItemStack offHand =
                             ItemUtil.copy(player.platformPlayer.getInventory().getOffHand());
                     player.user.write(new Slot(0, player.getInventory().stateID, 45, offHand));
                 }
@@ -1313,7 +1312,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
     }
 
     private static void applyClientBreakPrediction(CultPlayer player, BlockPos blockPosition) {
-        VanillaBlockActions.breakBlock(player, blockPosition);
+        ClientBlockActions.breakBlock(player, blockPosition);
     }
 
     private static boolean isBlockBreakAction(PlayerAction action) {

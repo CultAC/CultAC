@@ -1,12 +1,16 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.packet.InventoryPackets.EquipmentEntry;
 import ac.cult.cultac.network.protocol.ClientVersion;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.EntityPose;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ShulkerData;
@@ -15,23 +19,17 @@ import ac.cult.cultac.utils.data.packetentity.*;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
-import com.mojang.datafixers.util.Pair;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.*;
 import java.util.function.Consumer;
-import net.minecraft.util.Mth;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.phys.Vec3;
 
 public class CompensatedEntities {
-    private static final EquipmentSlot SADDLE_EQUIPMENT_SLOT = resolveEquipmentSlot("saddle");
+    public final ClientPlayerModes clientPlayerModes = new ClientPlayerModes();
     private static final String SPRINTING_MODIFIER_ID = "minecraft:sprinting";
     public static final String SNOW_MODIFIER_ID = "minecraft:powder_snow";
     private static final long LOCAL_PLAYER_CLIENT_TICK_ORDER = 0L;
@@ -39,8 +37,7 @@ public class CompensatedEntities {
     public final Int2ObjectOpenHashMap<TrackerData> serverPositionsMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
     private final Int2ObjectOpenHashMap<List<AttributeSnapshot>> pendingAttributes =
             new Int2ObjectOpenHashMap<>(10, 0.7f);
-    private final Int2ObjectOpenHashMap<List<Pair<EquipmentSlot, net.minecraft.world.item.ItemStack>>>
-            pendingEquipment = new Int2ObjectOpenHashMap<>(10, 0.7f);
+    private final Int2ObjectOpenHashMap<List<EquipmentEntry>> pendingEquipment = new Int2ObjectOpenHashMap<>(10, 0.7f);
     public final CompensatedVehicleState vehicles;
     public boolean hasSprintingAttributeEnabled = false;
     public List<SimpleCollisionBox> fishingRodPulls = new EvictingQueue<>(100); // sanity limit to prevent leaks.
@@ -56,8 +53,7 @@ public class CompensatedEntities {
         this.playerEntity = new PacketEntitySelf(player);
         this.vehicles = new CompensatedVehicleState(player, this);
         resetClientTickOrder();
-        this.selfTrackedEntity =
-                new TrackerData(0, 0, 0, 0, 0, EntityTypesCompat.PLAYER, player.lastTransactionSent.get());
+        this.selfTrackedEntity = new TrackerData(0, 0, 0, 0, 0, EntityTypeIds.PLAYER, player.lastTransactionSent.get());
     }
 
     public void resetClientTickOrder() {
@@ -380,10 +376,10 @@ public class CompensatedEntities {
         }
     }
 
-    public void addEntity(int entityID, EntityType entityType, Vec3 position, float xRot, float yRot, int data) {
+    public void addEntity(int entityID, int entityType, Vec3 position, float xRot, float yRot, int data) {
         // Dropped items are all server sided and players can't interact with them (except create them!), save the
         // performance
-        if (entityType == EntityTypesCompat.ITEM) return;
+        if (entityType == EntityTypeIds.ITEM) return;
 
         PacketEntity packetEntity = createTrackedEntity(entityID, entityType, position, xRot, data);
         packetEntity.setClientPhysicalRotation(xRot, yRot);
@@ -402,26 +398,40 @@ public class CompensatedEntities {
         if (pending != null) {
             updateAttributes(entityID, pending);
         }
-        List<Pair<EquipmentSlot, net.minecraft.world.item.ItemStack>> pendingEquipmentUpdates =
-                pendingEquipment.remove(entityID);
+        List<EquipmentEntry> pendingEquipmentUpdates = pendingEquipment.remove(entityID);
         if (pendingEquipmentUpdates != null) {
             updateEntityEquipment(entityID, pendingEquipmentUpdates);
         }
     }
 
-    private PacketEntity createTrackedEntity(int entityID, EntityType entityType, Vec3 position, float xRot, int data) {
+    private PacketEntity createTrackedEntity(int entityID, int entityType, Vec3 position, float xRot, int data) {
+        String typeKey = EntityTypeUtil.modelType(entityType).key();
+        if (typeKey.equals("minecraft:painting")
+                || typeKey.equals("minecraft:item_frame")
+                || typeKey.equals("minecraft:glow_item_frame"))
+            return new PacketEntityHanging(player, entityID, entityType, position, data, typeKey);
+        if (typeKey.equals("minecraft:cat")) return new PacketEntityCat(player, entityID, entityType, position);
+        if (typeKey.equals("minecraft:player")) return new PacketEntityPlayer(player, entityID, entityType, position);
+        if (typeKey.equals("minecraft:armor_stand"))
+            return new PacketEntityArmorStand(player, entityID, entityType, position);
+        if (typeKey.equals("minecraft:creaking"))
+            return new PacketEntityCreaking(player, entityID, entityType, position);
+        if (typeKey.equals("minecraft:interaction"))
+            return new PacketEntityInteraction(player, entityID, entityType, position);
+        if (typeKey.equals("minecraft:spider") || typeKey.equals("minecraft:cave_spider"))
+            return new PacketEntitySpider(player, entityID, entityType, position);
         if (EntityTypeUtil.isCamelFamily(entityType)) {
             return new PacketEntityCamel(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
         if (EntityTypeUtil.isHorseFamily(entityType)) {
             return new PacketEntityHorse(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
-        if (entityType == EntityTypesCompat.SLIME
-                || entityType == EntityTypesCompat.MAGMA_CUBE
-                || entityType == EntityTypesCompat.PHANTOM) {
+        if (entityType == EntityTypeIds.SLIME
+                || entityType == EntityTypeIds.MAGMA_CUBE
+                || entityType == EntityTypeIds.PHANTOM) {
             return new PacketEntitySizeable(player, entityID, entityType, position.x, position.y, position.z);
         }
-        if (EntityTypesCompat.PIG.equals(entityType)) {
+        if ((entityType == EntityTypeIds.PIG)) {
             return new PacketEntityRideable(player, entityID, entityType, position.x, position.y, position.z);
         }
         if (EntityTypeUtil.isHappyGhast(entityType)) {
@@ -430,16 +440,16 @@ public class CompensatedEntities {
         if (EntityTypeUtil.isNautilusFamily(entityType)) {
             return new PacketEntityNautilus(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
-        if (EntityTypesCompat.SHULKER.equals(entityType)) {
+        if ((entityType == EntityTypeIds.SHULKER)) {
             return new PacketEntityShulker(player, entityID, entityType, position.x, position.y, position.z);
         }
-        if (EntityTypesCompat.STRIDER.equals(entityType)) {
+        if ((entityType == EntityTypeIds.STRIDER)) {
             return new PacketEntityStrider(player, entityID, entityType, position.x, position.y, position.z);
         }
-        if (EntityTypeUtil.isBoat(entityType) || EntityTypesCompat.CHICKEN.equals(entityType)) {
+        if (EntityTypeUtil.isBoat(entityType) || (entityType == EntityTypeIds.CHICKEN)) {
             return new PacketEntityTrackXRot(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
-        if (EntityTypesCompat.FISHING_BOBBER.equals(entityType)) {
+        if ((entityType == EntityTypeIds.FISHING_BOBBER)) {
             return new PacketEntityHook(player, entityID, entityType, position.x, position.y, position.z, data);
         }
         return new PacketEntity(player, entityID, entityType, position.x, position.y, position.z);
@@ -463,25 +473,24 @@ public class CompensatedEntities {
         return serverPositionsMap.get(id);
     }
 
-    public void updateEntityEquipment(
-            int entityID, List<Pair<EquipmentSlot, net.minecraft.world.item.ItemStack>> slots) {
+    public void updateEntityEquipment(int entityID, List<EquipmentEntry> slots) {
         PacketEntity entity = getEntity(entityID);
         if (entity == null) {
-            List<Pair<EquipmentSlot, net.minecraft.world.item.ItemStack>> merged = new ArrayList<>();
-            List<Pair<EquipmentSlot, net.minecraft.world.item.ItemStack>> existing = pendingEquipment.remove(entityID);
+            List<EquipmentEntry> merged = new ArrayList<>();
+            List<EquipmentEntry> existing = pendingEquipment.remove(entityID);
             if (existing != null) {
                 merged.addAll(existing);
             }
-            for (Pair<EquipmentSlot, net.minecraft.world.item.ItemStack> slot : slots) {
+            for (EquipmentEntry slot : slots) {
                 int existingIndex = -1;
                 for (int i = 0; i < merged.size(); i++) {
-                    if (merged.get(i).getFirst() == slot.getFirst()) {
+                    if (merged.get(i).slot() == slot.slot()) {
                         existingIndex = i;
                         break;
                     }
                 }
-                Pair<EquipmentSlot, net.minecraft.world.item.ItemStack> copiedSlot =
-                        Pair.of(slot.getFirst(), slot.getSecond().copy());
+                EquipmentEntry copiedSlot =
+                        new EquipmentEntry(slot.slot(), slot.item().copy());
                 if (existingIndex >= 0) {
                     merged.set(existingIndex, copiedSlot);
                 } else {
@@ -492,11 +501,11 @@ public class CompensatedEntities {
             return;
         }
 
-        for (Pair<EquipmentSlot, net.minecraft.world.item.ItemStack> slot : slots) {
-            updateSelfEquipment(entityID, slot.getFirst(), slot.getSecond());
+        for (EquipmentEntry slot : slots) {
+            updateSelfEquipment(entityID, slot.slot(), slot.item());
 
-            if (slot.getFirst() == SADDLE_EQUIPMENT_SLOT) {
-                boolean hasSaddle = !slot.getSecond().isEmpty();
+            if (slot.slot() == EquipmentSlot.SADDLE) {
+                boolean hasSaddle = !slot.item().isEmpty();
                 if (entity instanceof PacketEntityRideable rideable) {
                     rideable.hasSaddle = hasSaddle;
                 }
@@ -506,13 +515,13 @@ public class CompensatedEntities {
                 if (entity instanceof PacketEntityNautilus nautilus) {
                     nautilus.hasSaddle = hasSaddle;
                 }
-            } else if (slot.getFirst() == EquipmentSlot.BODY && entity instanceof PacketEntityHappyGhast happyGhast) {
-                happyGhast.hasBodyArmor = !slot.getSecond().isEmpty();
+            } else if (slot.slot() == EquipmentSlot.BODY && entity instanceof PacketEntityHappyGhast happyGhast) {
+                happyGhast.hasBodyArmor = !slot.item().isEmpty();
             }
         }
     }
 
-    private void updateSelfEquipment(int entityID, EquipmentSlot slot, net.minecraft.world.item.ItemStack stack) {
+    private void updateSelfEquipment(int entityID, EquipmentSlot slot, ac.cult.blocksim.engine.SimItemStack stack) {
         if (entityID != player.entityID) {
             return;
         }
@@ -532,7 +541,7 @@ public class CompensatedEntities {
             inventorySlot = Inventory.SLOT_BOOTS;
         } else if (slot == EquipmentSlot.BODY) {
             inventorySlot = Inventory.SLOT_BODY;
-        } else if (slot == SADDLE_EQUIPMENT_SLOT) {
+        } else if (slot == EquipmentSlot.SADDLE) {
             inventorySlot = Inventory.SLOT_SADDLE;
         } else {
             inventorySlot = -1;
@@ -545,22 +554,45 @@ public class CompensatedEntities {
         // Vanilla's regular equipment broadcast is tracking-only, but a plugin
         // can still send this packet to the player. If it arrives, MCP's client
         // handler applies LivingEntity#setItemSlot even for the local entity.
-        ItemStack converted = SpigotConversionUtil.fromNmsItemStack(stack);
+        SimItemStack converted = stack.copy();
         player.getInventory().inventory.getInventoryStorage().setItem(inventorySlot, converted);
-    }
-
-    private static EquipmentSlot resolveEquipmentSlot(String name) {
-        for (EquipmentSlot slot : EquipmentSlot.values()) {
-            if (name.equals(slot.getName())) {
-                return slot;
-            }
-        }
-        return null;
     }
 
     public void updateEntityMetadata(int entityID, List<EntityMetadata.Entry> watchableObjects) {
         PacketEntity entity = player.compensatedEntities.getEntity(entityID);
         if (entity == null) return;
+        if (entity instanceof PacketEntityHanging hanging) hanging.updateActionMetadata(watchableObjects);
+        if (entity instanceof PacketEntityCat cat)
+            cat.updateActionMetadata(
+                    watchableObjects, player.user.getCultConnection().getObservedProtocol());
+        if (entity instanceof PacketEntityArmorStand stand) stand.updateActionMetadata(watchableObjects);
+        var flags = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_SHARED_FLAGS);
+        if (flags != null && flags.value() instanceof Byte value) entity.actionSharedFlags = value;
+        if (entity.isLivingEntity()) {
+            var pose = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_POSE);
+            if (pose != null && pose.value() instanceof EntityPose value) entity.actionPose = value;
+            var health = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.LIVING_HEALTH);
+            if (health != null && health.value() instanceof Float value) entity.actionAlive = value > 0.0F;
+        }
+        if (entity instanceof PacketEntityCreaking creaking) {
+            var canMove = WatchableIndexUtil.getIndex(watchableObjects, 16);
+            if (canMove != null && canMove.value() instanceof Boolean value) creaking.actionCanMove = value;
+        }
+        if (entity instanceof PacketEntitySpider spider) {
+            var climbing = WatchableIndexUtil.getIndex(watchableObjects, 16);
+            if (climbing != null && climbing.value() instanceof Byte value) spider.actionClimbing = (value & 1) != 0;
+        }
+        if (entity instanceof PacketEntityInteraction interaction) {
+            var width = WatchableIndexUtil.getIndex(watchableObjects, 8);
+            var height = WatchableIndexUtil.getIndex(watchableObjects, 9);
+            if (width != null && width.value() instanceof Float value) interaction.actionWidth = value;
+            if (height != null && height.value() instanceof Float value) interaction.actionHeight = value;
+        }
+        var modelType = EntityTypeUtil.modelType(entity.type);
+        if (modelType != null && modelType.has(ac.cult.blocksim.entity.EntityTypes.ARROW)) {
+            var inGround = WatchableIndexUtil.getIndex(watchableObjects, 10);
+            if (inGround != null && inGround.value() instanceof Boolean value) entity.actionArrowInGround = value;
+        }
 
         WatchableIndexUtil.Layout layout = WatchableIndexUtil.forModel(player.user.getCultConnection());
         applyAgeableMetadata(entity, watchableObjects);
@@ -585,7 +617,7 @@ public class CompensatedEntities {
         }
         applyGravityMetadata(entity, watchableObjects);
 
-        if (entity.type == EntityTypesCompat.FIREWORK_ROCKET) {
+        if (entity.type == EntityTypeIds.FIREWORK_ROCKET) {
             EntityMetadata.Entry fireworkData =
                     WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.FIREWORK_ATTACHED_TO_TARGET);
             if (fireworkData == null) return;
@@ -623,7 +655,7 @@ public class CompensatedEntities {
             PacketEntity entity, List<EntityMetadata.Entry> watchableObjects, WatchableIndexUtil.Layout layout) {
         if (!entity.isSize()) return;
 
-        int sizeIndex = entity.type == EntityTypesCompat.PHANTOM ? WatchableIndexUtil.PHANTOM_SIZE : layout.slimeSize();
+        int sizeIndex = entity.type == EntityTypeIds.PHANTOM ? WatchableIndexUtil.PHANTOM_SIZE : layout.slimeSize();
         EntityMetadata.Entry sizeData = WatchableIndexUtil.getIndex(watchableObjects, sizeIndex);
         if (sizeData == null) return;
 
@@ -665,12 +697,12 @@ public class CompensatedEntities {
 
     private void applyRideableMetadata(
             PacketEntity entity, List<EntityMetadata.Entry> watchableObjects, WatchableIndexUtil.Layout layout) {
-        int saddleIndex = entity.type == EntityTypesCompat.PIG ? layout.pigSaddle() : layout.striderSaddle();
+        int saddleIndex = entity.type == EntityTypeIds.PIG ? layout.pigSaddle() : layout.striderSaddle();
         EntityMetadata.Entry saddleData = WatchableIndexUtil.getIndex(watchableObjects, saddleIndex);
         if (saddleData != null) {
             ((PacketEntityRideable) entity).hasSaddle = (boolean) saddleData.value();
         }
-        if (entity.type == EntityTypesCompat.PIG) {
+        if (entity.type == EntityTypeIds.PIG) {
             EntityMetadata.Entry boostData = WatchableIndexUtil.getIndex(watchableObjects, layout.pigBoostTime());
             if (boostData != null) {
                 ((PacketEntityRideable) entity).boost.onSynced((int) boostData.value());
@@ -754,10 +786,11 @@ public class CompensatedEntities {
 
     /** ClientLevel root/passenger order and client ticking membership. */
     public boolean isTicking(PacketEntity entity) {
-        if (entity.type == EntityTypesCompat.PLAYER) return true;
+        if (entity.type == EntityTypeIds.PLAYER) return true;
         Vec3 position = entity.clientPhysicalPosition;
         return position != null
-                && player.compensatedWorld.isChunkLoaded(Mth.floor(position.x) >> 4, Mth.floor(position.z) >> 4);
+                && player.compensatedWorld.isChunkLoaded(
+                        CultMath.floor(position.x) >> 4, CultMath.floor(position.z) >> 4);
     }
 
     public void tickClientEntities(Consumer<PacketEntity> tick) {
@@ -773,12 +806,14 @@ public class CompensatedEntities {
     }
 
     private static boolean containsPlayer(PacketEntity entity) {
-        if (entity.type == EntityTypesCompat.PLAYER) return true;
+        if (entity.type == EntityTypeIds.PLAYER) return true;
         for (PacketEntity passenger : entity.passengers) if (containsPlayer(passenger)) return true;
         return false;
     }
 
     private void tickEntityTree(PacketEntity entity, Consumer<PacketEntity> tick) {
+        // Player.tick reads isSpectator before its normal tick. Remote players cache PlayerInfo here.
+        if (entity instanceof PacketEntityPlayer remote && remote.actionPresent) remote.cacheInfo(clientPlayerModes);
         if (entity != getSelf()) tick.accept(entity);
         if (entity.getRiding() != null) {
             positionPassenger(entity.getRiding(), entity);

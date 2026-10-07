@@ -1,13 +1,13 @@
 package ac.cult.cultac.utils.inventory.inventory;
 
-import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.data.ModelRegistryData;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.Getter;
-import net.minecraft.core.registries.BuiltInRegistries;
 
 @Getter
 public enum MenuType {
@@ -57,12 +57,9 @@ public enum MenuType {
             return -1;
         }
 
-        for (net.minecraft.world.inventory.MenuType<?> nmsType : BuiltInRegistries.MENU) {
-            if (registryKey.equals(NmsIdentifierUtil.registryKey(BuiltInRegistries.MENU, nmsType))) {
-                return BuiltInRegistries.MENU.getId(nmsType);
-            }
-        }
-        return -1;
+        return ModelRegistryData.load(ProtocolVersion.V26_3)
+                .registry("minecraft:menu")
+                .id(registryKey);
     }
 
     public static MenuType fromRegistryKey(String registryKey) {

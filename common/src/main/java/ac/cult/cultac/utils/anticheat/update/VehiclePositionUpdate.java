@@ -1,10 +1,10 @@
 package ac.cult.cultac.utils.anticheat.update;
 
 import ac.cult.cultac.utils.data.TeleportAcceptData;
+import ac.cult.cultac.utils.math.Vec3;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
-import net.minecraft.world.phys.Vec3;
 
 @AllArgsConstructor
 @Getter

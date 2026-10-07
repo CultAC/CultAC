@@ -128,7 +128,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                         && connection.user().getBedrockBridgeConnection() != null) {
                     player.getSetbackTeleportUtil()
                             .setBedrockPaperVisiblePosition(
-                                    new net.minecraft.world.phys.Vec3(move.x(), move.y(), move.z()));
+                                    new ac.cult.cultac.utils.math.Vec3(move.x(), move.y(), move.z()));
                 }
                 forwardedType = type;
                 forwardedPacket = packet;

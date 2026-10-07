@@ -3,13 +3,13 @@ package ac.cult.cultac.manager.init.start;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import net.minecraft.SharedConstants;
 
 public class TAB implements StartableInitable {
 
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     @Override
     public void start() {

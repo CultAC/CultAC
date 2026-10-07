@@ -15,8 +15,8 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.UUID;
-import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public final class BedrockPlayerTransportGateTest {

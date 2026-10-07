@@ -1,5 +1,7 @@
 package ac.cult.cultac.bedrock.replay.offline;
 
+import ac.cult.blocksim.data.nbt.NbtValue;
+import ac.cult.cultac.utils.latency.CompensatedWorld;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -9,18 +11,11 @@ import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
-import net.minecraft.SharedConstants;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtAccounter;
-import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.Tag;
-import net.minecraft.server.Bootstrap;
-import net.minecraft.world.level.ChunkPos;
 
 final class OfflineBedrockReplayFixtureExporter {
     private static final String AIR = "minecraft:air";
@@ -32,7 +27,6 @@ final class OfflineBedrockReplayFixtureExporter {
             throw new IllegalArgumentException(
                     "usage: <world-region-dir> <scenario-dir> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");
         }
-        bootstrapMinecraft();
         Path regionDir = Path.of(args[0]);
         Path scenarioDir = Path.of(args[1]);
         int minX = Integer.parseInt(args[2]);
@@ -46,7 +40,6 @@ final class OfflineBedrockReplayFixtureExporter {
 
     static void export(Path regionDir, Path scenarioDir, int minX, int minY, int minZ, int maxX, int maxY, int maxZ)
             throws IOException {
-        bootstrapMinecraft();
         int width = maxX - minX + 1;
         int height = maxY - minY + 1;
         int length = maxZ - minZ + 1;
@@ -67,21 +60,22 @@ final class OfflineBedrockReplayFixtureExporter {
             chunks.close();
         }
 
-        CompoundTag blocks = new CompoundTag();
-        CompoundTag paletteTag = new CompoundTag();
-        for (Map.Entry<String, Integer> entry : palette.entrySet()) {
-            paletteTag.putInt(entry.getKey(), entry.getValue());
-        }
-        blocks.put("Palette", paletteTag);
-        blocks.putByteArray("Data", data.toByteArray());
-
-        CompoundTag schematic = new CompoundTag();
-        schematic.putShort("Width", (short) width);
-        schematic.putShort("Height", (short) height);
-        schematic.putShort("Length", (short) length);
-        schematic.putIntArray("Offset", new int[] {minX, minY, minZ});
-        schematic.put("Blocks", blocks);
-        NbtIo.writeCompressed(schematic, scenarioDir.resolve("region.schem"));
+        var paletteValues = new LinkedHashMap<String, NbtValue>();
+        palette.forEach((state, id) -> paletteValues.put(state, new NbtValue.Numeric(NbtValue.Kind.INT, id)));
+        var blockData = new java.util.ArrayList<Long>();
+        for (byte value : data.toByteArray()) blockData.add((long) value);
+        var blocks = new NbtValue.Compound(Map.of(
+                "Palette", new NbtValue.Compound(paletteValues),
+                "Data", new NbtValue.PrimitiveArray(NbtValue.Kind.BYTE_ARRAY, blockData)));
+        var schematic = new NbtValue.Compound(Map.of(
+                "Width", new NbtValue.Numeric(NbtValue.Kind.SHORT, (short) width),
+                "Height", new NbtValue.Numeric(NbtValue.Kind.SHORT, (short) height),
+                "Length", new NbtValue.Numeric(NbtValue.Kind.SHORT, (short) length),
+                "Offset",
+                        new NbtValue.PrimitiveArray(
+                                NbtValue.Kind.INT_ARRAY, List.of((long) minX, (long) minY, (long) minZ)),
+                "Blocks", blocks));
+        OfflineNbt.writeCompressed(schematic, scenarioDir.resolve("region.schem"));
 
         Properties properties = new Properties();
         properties.setProperty("scenario", scenarioDir.getFileName().toString());
@@ -100,15 +94,17 @@ final class OfflineBedrockReplayFixtureExporter {
         return min + (max - min + 1) / 2.0D;
     }
 
-    private static void bootstrapMinecraft() {
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        Bootstrap.validate();
+    private static List<NbtValue> sequence(NbtValue.Compound parent, String key) {
+        return parent.values().get(key) instanceof NbtValue.Sequence value ? value.values() : List.of();
+    }
+
+    private static String text(NbtValue.Compound parent, String key, String fallback) {
+        return parent.values().get(key) instanceof NbtValue.Text value ? value.value() : fallback;
     }
 
     private static final class ChunkCache implements AutoCloseable {
         private final Path regionDir;
-        private final Map<Long, CompoundTag> chunks = new LinkedHashMap<>();
+        private final Map<Long, NbtValue.Compound> chunks = new LinkedHashMap<>();
         private final Map<Long, RawRegionFile> regions = new LinkedHashMap<>();
 
         private ChunkCache(Path regionDir) {
@@ -116,17 +112,17 @@ final class OfflineBedrockReplayFixtureExporter {
         }
 
         private String blockState(int x, int y, int z) throws IOException {
-            CompoundTag chunk = chunk(x >> 4, z >> 4);
+            NbtValue.Compound chunk = chunk(x >> 4, z >> 4);
             if (chunk == null) {
                 return AIR;
             }
             int sectionY = Math.floorDiv(y, 16);
-            CompoundTag section = section(chunk, sectionY);
+            NbtValue.Compound section = section(chunk, sectionY);
             if (section == null) {
                 return AIR;
             }
-            CompoundTag blockStates = section.getCompoundOrEmpty("block_states");
-            ListTag palette = blockStates.getListOrEmpty("palette");
+            NbtValue.Compound blockStates = OfflineNbt.compound(section, "block_states");
+            var palette = sequence(blockStates, "palette");
             if (palette.isEmpty()) {
                 return AIR;
             }
@@ -135,23 +131,25 @@ final class OfflineBedrockReplayFixtureExporter {
             if (paletteIndex < 0 || paletteIndex >= palette.size()) {
                 return AIR;
             }
-            return stateString(palette.getCompoundOrEmpty(paletteIndex));
+            return stateString(
+                    palette.get(paletteIndex) instanceof NbtValue.Compound state
+                            ? state
+                            : new NbtValue.Compound(Map.of()));
         }
 
-        private CompoundTag chunk(int chunkX, int chunkZ) throws IOException {
-            long key = ChunkPos.pack(chunkX, chunkZ);
+        private NbtValue.Compound chunk(int chunkX, int chunkZ) throws IOException {
+            long key = CompensatedWorld.chunkPositionToLong(chunkX, chunkZ);
             if (chunks.containsKey(key)) {
                 return chunks.get(key);
             }
             RawRegionFile region = region(chunkX >> 5, chunkZ >> 5);
-            ChunkPos pos = new ChunkPos(chunkX, chunkZ);
-            CompoundTag chunk = region.read(pos);
+            NbtValue.Compound chunk = region.read(chunkX, chunkZ);
             chunks.put(key, chunk);
             return chunk;
         }
 
         private RawRegionFile region(int regionX, int regionZ) throws IOException {
-            long key = ChunkPos.pack(regionX, regionZ);
+            long key = CompensatedWorld.chunkPositionToLong(regionX, regionZ);
             RawRegionFile region = regions.get(key);
             if (region != null) {
                 return region;
@@ -162,18 +160,22 @@ final class OfflineBedrockReplayFixtureExporter {
             return region;
         }
 
-        private static CompoundTag section(CompoundTag chunk, int sectionY) {
-            for (Tag tag : chunk.getListOrEmpty("sections")) {
-                CompoundTag section = tag.asCompound().orElse(null);
-                if (section != null && section.getByteOr("Y", (byte) 127) == (byte) sectionY) {
+        private static NbtValue.Compound section(NbtValue.Compound chunk, int sectionY) {
+            for (var tag : sequence(chunk, "sections")) {
+                if (tag instanceof NbtValue.Compound section
+                        && section.values().get("Y") instanceof NbtValue.Numeric number
+                        && number.value().byteValue() == (byte) sectionY) {
                     return section;
                 }
             }
             return null;
         }
 
-        private static int paletteIndex(CompoundTag blockStates, int paletteSize, int localIndex) {
-            long[] packed = blockStates.getLongArray("data").orElse(null);
+        private static int paletteIndex(NbtValue.Compound blockStates, int paletteSize, int localIndex) {
+            long[] packed = blockStates.values().get("data") instanceof NbtValue.PrimitiveArray array
+                            && array.kind() == NbtValue.Kind.LONG_ARRAY
+                    ? array.values().stream().mapToLong(Long::longValue).toArray()
+                    : null;
             if (packed == null || packed.length == 0 || paletteSize <= 1) {
                 return 0;
             }
@@ -187,20 +189,20 @@ final class OfflineBedrockReplayFixtureExporter {
             return (int) ((packed[longIndex] >>> bitOffset) & ((1L << bits) - 1L));
         }
 
-        private static String stateString(CompoundTag state) {
-            String name = state.getStringOr("Name", AIR);
-            CompoundTag properties = state.getCompoundOrEmpty("Properties");
-            if (properties.isEmpty()) {
+        private static String stateString(NbtValue.Compound state) {
+            String name = text(state, "Name", AIR);
+            NbtValue.Compound properties = OfflineNbt.compound(state, "Properties");
+            if (properties.values().isEmpty()) {
                 return name;
             }
             StringBuilder builder = new StringBuilder(name).append('[');
             boolean first = true;
-            for (String key : properties.keySet().stream().sorted().toList()) {
+            for (String key : properties.values().keySet().stream().sorted().toList()) {
                 if (!first) {
                     builder.append(',');
                 }
                 first = false;
-                builder.append(key).append('=').append(properties.getStringOr(key, ""));
+                builder.append(key).append('=').append(text(properties, key, ""));
             }
             return builder.append(']').toString();
         }
@@ -233,8 +235,8 @@ final class OfflineBedrockReplayFixtureExporter {
             this.file = new RandomAccessFile(path.toFile(), "r");
         }
 
-        private CompoundTag read(ChunkPos pos) throws IOException {
-            int index = (pos.x() & 31) + (pos.z() & 31) * 32;
+        private NbtValue.Compound read(int chunkX, int chunkZ) throws IOException {
+            int index = (chunkX & 31) + (chunkZ & 31) * 32;
             file.seek(index * 4L);
             int location = file.readInt();
             int sectorOffset = location >>> 8;
@@ -246,13 +248,13 @@ final class OfflineBedrockReplayFixtureExporter {
             file.seek(byteOffset);
             int length = file.readInt();
             if (length <= 1 || length > sectorCount * SECTOR_BYTES) {
-                throw new IOException("invalid chunk length " + length + " in " + pos);
+                throw new IOException("invalid chunk length " + length + " in [" + chunkX + ", " + chunkZ + "]");
             }
             int compression = file.readUnsignedByte();
             byte[] payload = new byte[length - 1];
             file.readFully(payload);
             try (DataInputStream input = new DataInputStream(decompressed(compression, payload))) {
-                return NbtIo.read(input, NbtAccounter.unlimitedHeap());
+                return OfflineNbt.read(input);
             }
         }
 

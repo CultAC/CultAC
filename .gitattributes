@@ -1,0 +1,2 @@
+# Trailing tabs preserve empty columns in the source audit tables.
+block-sim/manifest/*.tsv whitespace=-blank-at-eol

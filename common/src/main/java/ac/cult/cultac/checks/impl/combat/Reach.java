@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package ac.cult.cultac.checks.impl.combat;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -27,14 +28,12 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import java.util.*;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.phys.Vec3;
 
 // You may not copy the check unless you are licensed under GPL
 // @CheckData(name = "Reach", configName = "Reach", setback = 10)
@@ -43,12 +42,12 @@ public class Reach extends Check implements CheckListener, ClientTickEndListener
             int entityId,
             List<Vec3> fromCandidates,
             SimpleCollisionBox targetBox,
-            EntityType type,
+            int type,
             boolean livingEntity,
             boolean exempt) {}
 
     private final List<QueuedAttack> playerAttackQueue = new ArrayList<>();
-    private static final List<EntityType> blacklisted = Arrays.asList(EntityTypesCompat.SHULKER);
+    private static final List<Integer> blacklisted = Arrays.asList(EntityTypeIds.SHULKER);
 
     private boolean cancelImpossibleHits;
     private double threshold;
@@ -97,7 +96,7 @@ public class Reach extends Check implements CheckListener, ClientTickEndListener
             // Dead entities cause false flags (https://github.com/GrimAnticheat/Grim/issues/546)
             if (entity.isDead) return;
 
-            if (entity.type == EntityTypesCompat.ARMOR_STAND) return;
+            if (entity.type == EntityTypeIds.ARMOR_STAND) return;
 
             if (player.gamemode == GameMode.SPECTATOR || player.gamemode == GameMode.CREATIVE) return;
 
@@ -149,7 +148,7 @@ public class Reach extends Check implements CheckListener, ClientTickEndListener
     private boolean isKnownInvalid(PacketEntity reachEntity) {
         // If the entity doesn't exist, or if it is exempt, or if it is dead
         if ((isReachExempt(reachEntity) || !reachEntity.isLivingEntity())
-                && reachEntity.type != EntityTypesCompat.END_CRYSTAL) return false; // exempt
+                && reachEntity.type != EntityTypeIds.END_CRYSTAL) return false; // exempt
 
         if (player.gamemode == GameMode.SPECTATOR || player.gamemode == GameMode.CREATIVE) return false;
 
@@ -174,7 +173,7 @@ public class Reach extends Check implements CheckListener, ClientTickEndListener
             if (result != null) {
                 if ("Missed hitbox".equals(result)) {
                     player.checkManager.getCheck(Hitboxes.class).flag(result);
-                } else if (attack.type() == EntityTypesCompat.PLAYER) {
+                } else if (attack.type() == EntityTypeIds.PLAYER) {
                     flag(result);
                 } else {
                     flag(result + " type="
@@ -228,7 +227,7 @@ public class Reach extends Check implements CheckListener, ClientTickEndListener
     }
 
     private SimpleCollisionBox getReachBox(PacketEntity reachEntity) {
-        if (reachEntity.type == EntityTypesCompat.END_CRYSTAL) { // Hardcode end crystal box
+        if (reachEntity.type == EntityTypeIds.END_CRYSTAL) { // Hardcode end crystal box
             return new SimpleCollisionBox(
                     reachEntity.desyncClientPos.subtract(1, 0, 1), reachEntity.desyncClientPos.add(1, 2, 1));
         }
@@ -248,7 +247,7 @@ public class Reach extends Check implements CheckListener, ClientTickEndListener
 
     private String checkReach(
             SimpleCollisionBox targetBox,
-            EntityType type,
+            int type,
             boolean livingEntity,
             boolean exempt,
             Collection<Vec3> fromCandidates,
@@ -299,7 +298,7 @@ public class Reach extends Check implements CheckListener, ClientTickEndListener
         }
 
         // if the entity is not exempt and the entity is alive
-        if ((!exempt && livingEntity) || type == EntityTypesCompat.END_CRYSTAL) {
+        if ((!exempt && livingEntity) || type == EntityTypeIds.END_CRYSTAL) {
             if (minDistance == Double.MAX_VALUE) {
                 cancelBuffer = 1;
                 return "Missed hitbox";

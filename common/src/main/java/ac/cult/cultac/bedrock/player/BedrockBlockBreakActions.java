@@ -1,15 +1,16 @@
 package ac.cult.cultac.bedrock.player;
 
+import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
-import ac.cult.cultac.utils.blockplace.VanillaBlockActions;
+import ac.cult.cultac.utils.blockplace.ClientBlockActions;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import java.util.List;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.GameMasterBlock;
-import net.minecraft.world.level.block.LiquidBlock;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerBlockActionData;
 
 public final class BedrockBlockBreakActions {
@@ -28,7 +29,7 @@ public final class BedrockBlockBreakActions {
             var local = action.getBlockPosition();
             if (action.getAction() == null || local == null) continue;
             Vec3 world = coordinates.toWorld(new Vec3(local.getX(), local.getY(), local.getZ()));
-            BlockPos pos = BlockPos.containing(world);
+            BlockPos pos = BlockPos.containing(world.x, world.y, world.z);
             if (action.getAction() == org.cloudburstmc.protocol.bedrock.data.PlayerActionType.ABORT_BREAK) {
                 breaking = null;
                 continue;
@@ -38,7 +39,7 @@ public final class BedrockBlockBreakActions {
                 case START_BREAK, BLOCK_CONTINUE_DESTROY -> {
                     breaking = pos;
                     if (canDestroy(player, pos) && BlockBreakSpeed.getBlockDamage(player, pos) >= 1.0) {
-                        VanillaBlockActions.breakBlock(player, pos);
+                        ClientBlockActions.breakBlock(player, pos);
                         breaking = null;
                     }
                 }
@@ -46,7 +47,7 @@ public final class BedrockBlockBreakActions {
                     if (!pos.equals(breaking)) continue;
                     breaking = null;
                     if (!canDestroy(player, pos)) continue;
-                    VanillaBlockActions.breakBlock(player, pos);
+                    ClientBlockActions.breakBlock(player, pos);
                 }
                 default -> {}
             }
@@ -54,13 +55,14 @@ public final class BedrockBlockBreakActions {
     }
 
     private static boolean canDestroy(CultPlayer player, BlockPos pos) {
-        var state = player.compensatedWorld.getBlockStateAt(pos);
+        int state = player.compensatedWorld.getBlockStateIdAt(pos);
+        var facts = DataTables.defaults().registry().facts(state);
         return player.gamemode != GameMode.SPECTATOR
-                && !state.isAir()
-                && !(state.getBlock() instanceof LiquidBlock)
-                && (!(state.getBlock() instanceof GameMasterBlock) || player.canUseGameMasterBlocks())
+                && !facts.has(StateFacts.AIR)
+                && !BlockFamilies.LIQUID.test(state)
+                && (!BlockFamilies.GAME_MASTER.test(state) || player.canUseGameMasterBlocks())
                 && (player.gamemode == GameMode.CREATIVE
                         ? BlockBreakSpeed.getBlockDamage(player, pos) >= 1.0
-                        : state.getDestroySpeed(player.compensatedWorld, pos) >= 0);
+                        : facts.destroyTime() >= 0);
     }
 }

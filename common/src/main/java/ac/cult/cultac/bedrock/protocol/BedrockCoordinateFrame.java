@@ -2,7 +2,7 @@ package ac.cult.cultac.bedrock.protocol;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 /** An immutable, session-local GFP origin. All stored simulation positions remain world positions. */
 public record BedrockCoordinateFrame(int originX, int originZ, long revision) {

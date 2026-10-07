@@ -1,16 +1,16 @@
 package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.world.phys.Vec3;
 
 public final class UnknownCollisionProvider {
     private UnknownCollisionProvider() {}
@@ -42,9 +42,9 @@ public final class UnknownCollisionProvider {
                     canPush = true;
                 }
                 // Bats, parrots, and armor stands cannot
-                if (entity.type == EntityTypesCompat.BAT
-                        || entity.type == EntityTypesCompat.PARROT
-                        || entity.type == EntityTypesCompat.ARMOR_STAND) {
+                if (entity.type == EntityTypeIds.BAT
+                        || entity.type == EntityTypeIds.PARROT
+                        || entity.type == EntityTypeIds.ARMOR_STAND) {
                     canPush = false;
                 }
                 // We ignore some edge cases like horses that are vehicles (why exempt this?) but it's fine.
@@ -54,7 +54,7 @@ public final class UnknownCollisionProvider {
             }
 
             if (ridingStrider
-                    && entity.type == EntityTypesCompat.SHULKER
+                    && entity.type == EntityTypeIds.SHULKER
                     && !player.compensatedEntities.getSelf().getRiding().hasPassenger(entity)) {
                 // Striders suck less.
                 boxes.add(entity.getPossibleCollisionBoxes().expand(1));

@@ -1,27 +1,27 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
+import ac.cult.blocksim.entity.EntityTags;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.tags.EntityTypeTags;
-import net.minecraft.world.phys.shapes.Shapes;
-import net.minecraft.world.phys.shapes.VoxelShape;
 
 /** Immutable entity-dependent shape inputs; never backed by a live server entity. */
 public record JavaCollisionState(
         double fallDistance, boolean walksOnPowderSnow, boolean descending, boolean fallingBlock) {
-    private static final VoxelShape FALLING_SNOW = Shapes.box(0, 0, 0, 1, (double) 0.9F, 1);
+    private static final VoxelShape FALLING_SNOW = Shapes.create(0, 0, 0, 1, (double) 0.9F, 1);
 
     public static JavaCollisionState of(CultPlayer player, PacketEntity actor, double fallDistance) {
         boolean self = actor == player.compensatedEntities.getSelf();
-        boolean walks = BuiltInRegistries.ENTITY_TYPE
-                        .wrapAsHolder(actor.type)
-                        .is(EntityTypeTags.POWDER_SNOW_WALKABLE_MOBS)
-                || self && player.getInventory().getBoots().getItem() == net.minecraft.world.item.Items.LEATHER_BOOTS;
+        boolean walks = EntityTags.POWDER_SNOW_WALKABLE_MOBS.test(actor.type)
+                || self
+                        && player.getInventory().getBoots().getItem()
+                                == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS;
         return new JavaCollisionState(
-                fallDistance, walks, self && player.isSneaking, actor.type == EntityTypesCompat.FALLING_BLOCK);
+                fallDistance, walks, self && player.isSneaking, actor.type == EntityTypeIds.FALLING_BLOCK);
     }
 
     public static JavaCollisionState current(CultPlayer player) {

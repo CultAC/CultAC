@@ -9,8 +9,8 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.Objects;
-import net.minecraft.world.phys.Vec3;
 
 final class BedrockPredVector extends PredVector {
     private final BedrockMovementInputFactory.Input input;

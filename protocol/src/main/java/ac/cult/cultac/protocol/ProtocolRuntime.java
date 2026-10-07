@@ -13,6 +13,8 @@ import java.util.Set;
 /** One eagerly validated runtime per exact server protocol. */
 public final class ProtocolRuntime {
     private final ProtocolData data;
+    private final List<PacketType<?>> catalog;
+    private final int commandInputLimit;
     private final ResolvedPacket<?>[][][] bindings;
     private final Map<Class<?>, PacketType<?>> byRecord;
     private final Map<String, PacketType<?>> byKey;
@@ -21,6 +23,8 @@ public final class ProtocolRuntime {
 
     private ProtocolRuntime(ProtocolData data, List<PacketType<?>> catalog, int commandInputLimit) {
         this.data = data;
+        this.catalog = catalog;
+        this.commandInputLimit = commandInputLimit;
         bindings = new ResolvedPacket<?>[ConnectionPhase.values().length][PacketDirection.values().length][];
         for (ConnectionPhase phase : ConnectionPhase.values()) {
             for (PacketDirection direction : PacketDirection.values()) {
@@ -104,6 +108,11 @@ public final class ProtocolRuntime {
 
     public ProtocolData data() {
         return data;
+    }
+
+    /** The same catalog and host limits resolved against another wire version's data. */
+    public ProtocolRuntime forData(ProtocolData other) {
+        return other == data ? this : new ProtocolRuntime(other, catalog, commandInputLimit);
     }
 
     public boolean supports(PacketType<?> type) {

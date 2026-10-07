@@ -1,40 +1,40 @@
 package ac.cult.cultac.network.packet;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
-import com.mojang.datafixers.util.Pair;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
 import java.util.List;
-import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.item.ItemStack;
 
-/** Consumed inventory values. The platform decodes items with its vanilla ByteBuf helpers. */
+/** Owned inventory values decoded by the versioned protocol component codecs. */
 public final class InventoryPackets {
     private InventoryPackets() {}
 
-    public record CreativeSlot(int slot, ItemStack item) implements ServerboundPacket {}
+    public record CreativeSlot(int slot, SimItemStack item) implements ServerboundPacket {}
 
-    public record Content(int windowId, int stateId, List<ItemStack> items, ItemStack carriedItem)
+    public record Content(int windowId, int stateId, List<SimItemStack> items, SimItemStack carriedItem)
             implements ClientboundPacket {
         public Content {
             items = List.copyOf(items);
         }
     }
 
-    public record Slot(int windowId, int stateId, int slot, ItemStack item) implements ClientboundPacket {}
+    public record Slot(int windowId, int stateId, int slot, SimItemStack item) implements ClientboundPacket {}
 
-    public record PlayerInventory(int slot, ItemStack item) implements ClientboundPacket {}
+    public record PlayerInventory(int slot, SimItemStack item) implements ClientboundPacket {}
 
-    public record Cursor(ItemStack item) implements ClientboundPacket {}
+    public record Cursor(SimItemStack item) implements ClientboundPacket {}
 
     /** Equipment values remain owned by the packet; consumers copy stacks before predicting changes. */
-    public record Equipment(int entityId, List<Pair<EquipmentSlot, net.minecraft.world.item.ItemStack>> slots)
-            implements ClientboundPacket {
+    public record EquipmentEntry(EquipmentSlot slot, ac.cult.blocksim.engine.SimItemStack item) {}
+
+    public record Equipment(int entityId, List<EquipmentEntry> slots) implements ClientboundPacket {
         public Equipment {
             slots = List.copyOf(slots);
         }
     }
 
-    public record MerchantOffer(ItemStack costA, ItemStack costB, ItemStack result, boolean outOfStock) {}
+    public record MerchantOffer(SimItemStack costA, SimItemStack costB, SimItemStack result, boolean outOfStock) {}
 
     public record Offers(int windowId, List<MerchantOffer> offers) implements ClientboundPacket {
         public Offers {

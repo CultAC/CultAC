@@ -1,8 +1,8 @@
 package ac.cult.cultac.utils.inventory.slot;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.InventoryStorage;
-import net.minecraft.world.item.ItemStack;
 
 public class Slot {
     public final int inventoryStorageSlot;
@@ -14,7 +14,7 @@ public class Slot {
         this.inventoryStorageSlot = slot;
     }
 
-    public ItemStack getItem() {
+    public SimItemStack getItem() {
         return container.getItem(inventoryStorageSlot);
     }
 
@@ -26,11 +26,11 @@ public class Slot {
         return inventoryStorageSlot;
     }
 
-    public boolean mayPlace(ItemStack itemstack) {
+    public boolean mayPlace(SimItemStack itemstack) {
         return true;
     }
 
-    public void set(ItemStack itemstack2) {
+    public void set(SimItemStack itemstack2) {
         container.setItem(inventoryStorageSlot, itemstack2);
     }
 
@@ -38,11 +38,11 @@ public class Slot {
         return container.getMaxStackSize();
     }
 
-    public int getMaxStackSize(ItemStack itemstack2) {
+    public int getMaxStackSize(SimItemStack itemstack2) {
         return Math.min(itemstack2.getMaxStackSize(), getMaxStackSize());
     }
 
-    public ItemStack remove(int p_40227_) {
+    public SimItemStack remove(int p_40227_) {
         return this.container.removeItem(this.inventoryStorageSlot, p_40227_);
     }
 
@@ -50,5 +50,5 @@ public class Slot {
         return true;
     }
 
-    public void onTake(CultPlayer player, ItemStack stack) {}
+    public void onTake(CultPlayer player, SimItemStack stack) {}
 }

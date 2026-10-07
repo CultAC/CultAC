@@ -81,6 +81,7 @@ import ac.cult.cultac.utils.latency.CompensatedCooldown;
 import ac.cult.cultac.utils.latency.CompensatedInventory;
 import ac.cult.cultac.utils.latency.KeepAliveProcessor;
 import ac.cult.cultac.utils.lists.EvictingQueue;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import com.google.common.collect.ClassToInstanceMap;
 import com.google.common.collect.ImmutableClassToInstanceMap;
@@ -94,7 +95,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import net.minecraft.world.phys.Vec3;
 
 public class CheckManager {
     private static final List<Class<? extends CheckListener>> SEND_DISPATCH_LISTENER_TYPES = List.of(

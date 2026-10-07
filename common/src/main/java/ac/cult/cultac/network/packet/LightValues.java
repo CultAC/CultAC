@@ -1,12 +1,9 @@
 package ac.cult.cultac.network.packet;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.BitSet;
 import java.util.List;
-import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
 
-/** The six native light values; older hosts expose getters and newer hosts expose record accessors. */
+/** An owned light snapshot; no frame, native codec or mutable caller storage is retained. */
 public record LightValues(
         BitSet skyYMask,
         BitSet blockYMask,
@@ -14,39 +11,50 @@ public record LightValues(
         BitSet emptyBlockYMask,
         List<byte[]> skyUpdates,
         List<byte[]> blockUpdates) {
-    private static final List<Method> ACCESSORS =
-            List.of("skyYMask", "blockYMask", "emptySkyYMask", "emptyBlockYMask", "skyUpdates", "blockUpdates").stream()
-                    .map(LightValues::accessor)
-                    .toList();
-
-    private static Method accessor(String name) {
-        try {
-            try {
-                return ClientboundLightUpdatePacketData.class.getMethod(name);
-            } catch (NoSuchMethodException earlier) {
-                return ClientboundLightUpdatePacketData.class.getMethod(
-                        "get" + Character.toUpperCase(name.charAt(0)) + name.substring(1));
-            }
-        } catch (NoSuchMethodException failure) {
-            throw new ExceptionInInitializerError(failure);
-        }
+    public LightValues {
+        skyYMask = copy(skyYMask);
+        blockYMask = copy(blockYMask);
+        emptySkyYMask = copy(emptySkyYMask);
+        emptyBlockYMask = copy(emptyBlockYMask);
+        skyUpdates = copy(skyUpdates);
+        blockUpdates = copy(blockUpdates);
     }
 
-    @SuppressWarnings("unchecked")
-    public static LightValues fromNative(ClientboundLightUpdatePacketData data) {
-        try {
-            return new LightValues(
-                    (BitSet) ACCESSORS.get(0).invoke(data),
-                    (BitSet) ACCESSORS.get(1).invoke(data),
-                    (BitSet) ACCESSORS.get(2).invoke(data),
-                    (BitSet) ACCESSORS.get(3).invoke(data),
-                    (List<byte[]>) ACCESSORS.get(4).invoke(data),
-                    (List<byte[]>) ACCESSORS.get(5).invoke(data));
-        } catch (ReflectiveOperationException failure) {
-            Throwable cause = failure instanceof InvocationTargetException invocation ? invocation.getCause() : failure;
-            if (cause instanceof RuntimeException runtime) throw runtime;
-            if (cause instanceof Error error) throw error;
-            throw new IllegalStateException("Unable to read native light values", cause);
-        }
+    private static BitSet copy(BitSet bits) {
+        return (BitSet) bits.clone();
+    }
+
+    private static List<byte[]> copy(List<byte[]> arrays) {
+        return arrays.stream().map(byte[]::clone).toList();
+    }
+
+    @Override
+    public BitSet skyYMask() {
+        return copy(skyYMask);
+    }
+
+    @Override
+    public BitSet blockYMask() {
+        return copy(blockYMask);
+    }
+
+    @Override
+    public BitSet emptySkyYMask() {
+        return copy(emptySkyYMask);
+    }
+
+    @Override
+    public BitSet emptyBlockYMask() {
+        return copy(emptyBlockYMask);
+    }
+
+    @Override
+    public List<byte[]> skyUpdates() {
+        return copy(skyUpdates);
+    }
+
+    @Override
+    public List<byte[]> blockUpdates() {
+        return copy(blockUpdates);
     }
 }

@@ -7,12 +7,11 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import net.minecraft.core.BlockPos;
 
 @CheckData(name = "BadPacketsL", stableKey = "cult.badpackets.invalid_dig", description = "Sent impossible dig packet")
 public class BadPacketsL extends Check implements CheckListener {
@@ -41,7 +40,7 @@ public class BadPacketsL extends Check implements CheckListener {
                 && action == PlayerAction.RELEASE_USE_ITEM;
         final boolean isValidFace = faceId == 0 || allowLegacyFace && faceId == 255;
 
-        final BlockPos pos = SpigotConversionUtil.toNmsBlockPos(packet.position());
+        final BlockPos pos = packet.position();
         if (!isValidFace || pos.getX() != 0 || pos.getY() != 0 || pos.getZ() != 0 || packet.sequence() != 0) {
             var buf = V.write(verbose())
                     .mcPos(pos.getX(), pos.getY(), pos.getZ())

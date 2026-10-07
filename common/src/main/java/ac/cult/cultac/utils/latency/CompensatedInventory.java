@@ -1,5 +1,8 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.blocksim.data.ItemDefinition;
+import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -9,7 +12,6 @@ import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.packet.InventoryPackets.Content;
 import ac.cult.cultac.network.packet.InventoryPackets.CreativeSlot;
 import ac.cult.cultac.network.packet.InventoryPackets.MerchantOffer;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
@@ -21,6 +23,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundSelectBundleItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSelectTrade;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -30,6 +33,7 @@ import ac.cult.cultac.utils.inventory.EquipmentType;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.inventory.InventoryStorage;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.inventory.inventory.AbstractContainerMenu;
 import ac.cult.cultac.utils.inventory.inventory.GenericContainerMenu;
@@ -37,19 +41,10 @@ import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import ac.cult.cultac.utils.inventory.slot.Slot;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import lombok.Getter;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.item.BundleItem;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.item.component.BundleContents;
 
 // Updated to support modern 1.17 protocol
 public class CompensatedInventory extends CultProcessor implements CheckListener {
@@ -74,11 +69,11 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         menu = inventory;
     }
 
-    private void setClientCarried(ItemStack stack) {
-        menu.setCarried(stack == null ? ItemStack.EMPTY : stack);
+    private void setClientCarried(SimItemStack stack) {
+        menu.setCarried(stack == null ? SimItemStack.EMPTY : stack);
     }
 
-    public void applyBedrockSlots(int windowId, java.util.Map<Integer, ItemStack> changed) {
+    public void applyBedrockSlots(int windowId, java.util.Map<Integer, SimItemStack> changed) {
         if (windowId != 0 && windowId != openWindowID) return;
         var target = windowId == 0 ? inventory : menu;
         changed.forEach((index, item) -> {
@@ -87,7 +82,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         });
     }
 
-    public void applyBedrockCursor(ItemStack item) {
+    public void applyBedrockCursor(SimItemStack item) {
         setClientCarried(item);
     }
 
@@ -118,30 +113,30 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         });
     }
 
-    public ItemStack getHandItem(InteractionHand handType) {
-        return handType == InteractionHand.MAIN_HAND ? getHeldItem() : getOffHand();
+    public SimItemStack getHandItem(Hand handType) {
+        return handType == Hand.MAIN_HAND ? getHeldItem() : getOffHand();
     }
 
-    public ItemStack getHeldItem() {
-        ItemStack item = inventory.getHeldItem();
-        return item == null ? ItemStack.EMPTY : item;
+    public SimItemStack getHeldItem() {
+        SimItemStack item = inventory.getHeldItem();
+        return item == null ? SimItemStack.EMPTY : item;
     }
 
-    public ItemStack getOffHand() {
-        ItemStack item = inventory.getOffhand();
-        return item == null ? ItemStack.EMPTY : item;
+    public SimItemStack getOffHand() {
+        SimItemStack item = inventory.getOffhand();
+        return item == null ? SimItemStack.EMPTY : item;
     }
 
-    public boolean hasClientSelectedHandItem(Item material) {
+    public boolean hasClientSelectedHandItem(ItemDefinition material) {
         return getClientSelectedHeldItem().getItem() == material || getOffHand().getItem() == material;
     }
 
-    public boolean hasClientSelectableHandItem(Item material) {
+    public boolean hasClientSelectableHandItem(ItemDefinition material) {
         if (getOffHand().getItem() == material) {
             return true;
         }
         for (int slot = 0; slot < 9; slot++) {
-            ItemStack item = inventory.getInventoryStorage().getItem(Inventory.HOTBAR_OFFSET + slot);
+            SimItemStack item = inventory.getInventoryStorage().getItem(Inventory.HOTBAR_OFFSET + slot);
             if (item.getItem() == material) {
                 return true;
             }
@@ -149,34 +144,34 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         return false;
     }
 
-    public ItemStack getClientSelectedHeldItem() {
+    public SimItemStack getClientSelectedHeldItem() {
         int selected = player.packetStateData.lastSlotSelected;
         if (selected < 0 || selected > 8) {
             selected = inventory.selected;
         }
 
-        ItemStack item = inventory.getInventoryStorage().getItem(Inventory.HOTBAR_OFFSET + selected);
-        return item == null ? ItemStack.EMPTY : item;
+        SimItemStack item = inventory.getInventoryStorage().getItem(Inventory.HOTBAR_OFFSET + selected);
+        return item == null ? SimItemStack.EMPTY : item;
     }
 
-    public ItemStack getHelmet() {
-        ItemStack item = inventory.getHelmet();
-        return item == null ? ItemStack.EMPTY : item;
+    public SimItemStack getHelmet() {
+        SimItemStack item = inventory.getHelmet();
+        return item == null ? SimItemStack.EMPTY : item;
     }
 
-    public ItemStack getChestplate() {
-        ItemStack item = inventory.getChestplate();
-        return item == null ? ItemStack.EMPTY : item;
+    public SimItemStack getChestplate() {
+        SimItemStack item = inventory.getChestplate();
+        return item == null ? SimItemStack.EMPTY : item;
     }
 
-    public ItemStack getLeggings() {
-        ItemStack item = inventory.getLeggings();
-        return item == null ? ItemStack.EMPTY : item;
+    public SimItemStack getLeggings() {
+        SimItemStack item = inventory.getLeggings();
+        return item == null ? SimItemStack.EMPTY : item;
     }
 
-    public ItemStack getBoots() {
-        ItemStack item = inventory.getBoots();
-        return item == null ? ItemStack.EMPTY : item;
+    public SimItemStack getBoots() {
+        SimItemStack item = inventory.getBoots();
+        return item == null ? SimItemStack.EMPTY : item;
     }
 
     static int directPlayerInventorySlotToStorageSlot(int slot) {
@@ -203,17 +198,17 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     private boolean isClientClickClaimSane(
             InventoryClick click,
-            List<ItemStack> beforeSlots,
-            ItemStack beforeCarried,
-            List<ItemStack> afterSlots,
-            ItemStack afterCarried,
+            List<SimItemStack> beforeSlots,
+            SimItemStack beforeCarried,
+            List<SimItemStack> afterSlots,
+            SimItemStack afterCarried,
             PredictedResultSlotValidator.ResultAllowance allowance) {
         // Some menus do not expose the offhand slot, but vanilla still uses button 40 for
         // offhand swaps. Include the compensated offhand stack so conservation sees both sides.
         if (isImplicitOffhandSwap(click, afterSlots.size())) {
-            List<ItemStack> beforeWithOffhand = new ArrayList<>(beforeSlots);
-            List<ItemStack> afterWithOffhand = new ArrayList<>(afterSlots);
-            ItemStack offhandBefore = ItemUtil.copy(getOffHand());
+            List<SimItemStack> beforeWithOffhand = new ArrayList<>(beforeSlots);
+            List<SimItemStack> afterWithOffhand = new ArrayList<>(afterSlots);
+            SimItemStack offhandBefore = ItemUtil.copy(getOffHand());
             beforeWithOffhand.add(offhandBefore);
             afterWithOffhand.add(
                     inferOffhandAfterSwap(beforeSlots.get(click.slot()), offhandBefore, afterSlots.get(click.slot())));
@@ -222,13 +217,17 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         }
 
         return PredictedResultSlotValidator.isClientClaimPlausible(
-                beforeSlots,
-                beforeCarried,
-                afterSlots,
-                afterCarried,
+                inventoryValues(beforeSlots),
+                ItemUtil.inventoryValue(beforeCarried),
+                inventoryValues(afterSlots),
+                ItemUtil.inventoryValue(afterCarried),
                 permitsCreativeCreation(click, player.gamemode),
-                allowance == null ? null : allowance.material(),
+                allowance == null ? -1 : allowance.material(),
                 allowance == null ? 0 : allowance.amount());
+    }
+
+    private static List<ac.cult.cultac.utils.inventory.InventoryItem> inventoryValues(List<SimItemStack> slots) {
+        return slots.stream().map(ItemUtil::inventoryValue).toList();
     }
 
     static boolean permitsCreativeCreation(InventoryClick click, GameMode gameMode) {
@@ -246,29 +245,29 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 && click.changedSlots().containsKey(click.slot());
     }
 
-    private static List<ItemStack> copyMenuSlots(AbstractContainerMenu menu) {
-        List<ItemStack> slots = new ArrayList<>(menu.getSlots().size());
+    private static List<SimItemStack> copyMenuSlots(AbstractContainerMenu menu) {
+        List<SimItemStack> slots = new ArrayList<>(menu.getSlots().size());
         for (Slot slot : menu.getSlots()) {
             slots.add(ItemUtil.copy(slot.getItem()));
         }
         return slots;
     }
 
-    private List<ItemStack> resolveChangedSlots(
+    private List<SimItemStack> resolveChangedSlots(
             InventoryClick click,
-            List<ItemStack> beforeSlots,
-            ItemStack beforeCarried,
-            java.util.function.BiPredicate<Integer, ItemStack> matches) {
-        List<ItemStack> afterSlots = new ArrayList<>(beforeSlots);
-        ItemStack clickedSource = click.slot() >= 0 && click.slot() < beforeSlots.size()
+            List<SimItemStack> beforeSlots,
+            SimItemStack beforeCarried,
+            java.util.function.BiPredicate<Integer, SimItemStack> matches) {
+        List<SimItemStack> afterSlots = new ArrayList<>(beforeSlots);
+        SimItemStack clickedSource = click.slot() >= 0 && click.slot() < beforeSlots.size()
                 ? beforeSlots.get(click.slot())
-                : ItemStack.EMPTY;
-        for (Map.Entry<Integer, ItemStack> entry : click.changedSlots().entrySet()) {
+                : SimItemStack.EMPTY;
+        for (Map.Entry<Integer, SimItemStack> entry : click.changedSlots().entrySet()) {
             int slot = entry.getKey();
             if (slot < 0 || slot >= afterSlots.size()) {
                 return null;
             }
-            ItemStack resolved = resolveClaimedStack(
+            SimItemStack resolved = resolveClaimedStack(
                     entry.getValue(),
                     beforeSlots.get(slot),
                     beforeSlots,
@@ -281,43 +280,43 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         return afterSlots;
     }
 
-    private ItemStack resolveAfterCarried(
+    private SimItemStack resolveAfterCarried(
             InventoryClick click,
-            List<ItemStack> beforeSlots,
-            ItemStack beforeCarried,
-            java.util.function.BiPredicate<Integer, ItemStack> matches) {
-        ItemStack clickedSource = click.slot() >= 0 && click.slot() < beforeSlots.size()
+            List<SimItemStack> beforeSlots,
+            SimItemStack beforeCarried,
+            java.util.function.BiPredicate<Integer, SimItemStack> matches) {
+        SimItemStack clickedSource = click.slot() >= 0 && click.slot() < beforeSlots.size()
                 ? beforeSlots.get(click.slot())
-                : ItemStack.EMPTY;
+                : SimItemStack.EMPTY;
         return resolveClaimedStack(
                 click.carriedItem(),
                 beforeCarried,
                 beforeSlots,
                 clickedSource,
-                ItemStack.EMPTY,
+                SimItemStack.EMPTY,
                 candidate -> matches.test(-1, candidate));
     }
 
-    private ItemStack resolveClaimedStack(
-            ItemStack claim,
-            ItemStack previous,
-            List<ItemStack> beforeSlots,
-            ItemStack primarySource,
-            ItemStack secondarySource,
-            java.util.function.Predicate<ItemStack> matches) {
+    private SimItemStack resolveClaimedStack(
+            SimItemStack claim,
+            SimItemStack previous,
+            List<SimItemStack> beforeSlots,
+            SimItemStack primarySource,
+            SimItemStack secondarySource,
+            java.util.function.Predicate<SimItemStack> matches) {
         if (claim == null || claim.isEmpty()) {
-            return ItemStack.EMPTY;
+            return SimItemStack.EMPTY;
         }
 
-        for (ItemStack candidate : new ItemStack[] {previous, primarySource, secondarySource}) {
-            ItemStack resolved = copyWithAmountIfMaterialMatches(candidate, claim.getItem(), claim.getCount());
+        for (SimItemStack candidate : new SimItemStack[] {previous, primarySource, secondarySource}) {
+            SimItemStack resolved = copyWithAmountIfMaterialMatches(candidate, claim.getItem(), claim.getCount());
             if (!resolved.isEmpty() && matches.test(resolved)) {
                 return resolved;
             }
         }
 
-        for (ItemStack candidate : beforeSlots) {
-            ItemStack candidateCopy = copyWithAmountIfMaterialMatches(candidate, claim.getItem(), claim.getCount());
+        for (SimItemStack candidate : beforeSlots) {
+            SimItemStack candidateCopy = copyWithAmountIfMaterialMatches(candidate, claim.getItem(), claim.getCount());
             if (!candidateCopy.isEmpty() && matches.test(candidateCopy)) {
                 return candidateCopy;
             }
@@ -326,11 +325,12 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         return matches.test(claim) ? ItemUtil.copy(claim) : null;
     }
 
-    private static ItemStack copyWithAmountIfMaterialMatches(ItemStack source, Item material, int amount) {
+    private static SimItemStack copyWithAmountIfMaterialMatches(
+            SimItemStack source, ItemDefinition material, int amount) {
         if (source == null || source.isEmpty() || material == null || source.getItem() != material || amount <= 0) {
-            return ItemStack.EMPTY;
+            return SimItemStack.EMPTY;
         }
-        ItemStack copy = ItemUtil.copy(source);
+        SimItemStack copy = ItemUtil.copy(source);
         copy.setCount(amount);
         return copy;
     }
@@ -354,32 +354,38 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             return true;
         }
 
-        List<ItemStack> beforeSlots = copyMenuSlots(menu);
-        ItemStack beforeCarried = ItemUtil.copy(menu.getCarried());
-        List<ItemStack> afterSlots = resolveChangedSlots(click, beforeSlots, beforeCarried, matches);
+        List<SimItemStack> beforeSlots = copyMenuSlots(menu);
+        SimItemStack beforeCarried = ItemUtil.copy(menu.getCarried());
+        List<SimItemStack> afterSlots = resolveChangedSlots(click, beforeSlots, beforeCarried, matches);
         if (afterSlots == null) {
             return false;
         }
-        ItemStack afterCarried = resolveAfterCarried(click, beforeSlots, beforeCarried, matches);
+        SimItemStack afterCarried = resolveAfterCarried(click, beforeSlots, beforeCarried, matches);
         if (afterCarried == null) return false;
 
+        int resultSlot = PredictedResultSlotValidator.resultSlot(serverContainerType);
+        boolean sameResultComponents = resultSlot >= 0
+                && resultSlot < beforeSlots.size()
+                && resultSlot < afterSlots.size()
+                && ItemUtil.isSameItemSameTags(beforeSlots.get(resultSlot), afterSlots.get(resultSlot));
         PredictedResultSlotValidator.ResultAllowance allowance = PredictedResultSlotValidator.dialogResultAllowance(
                 serverContainerType,
                 click.slot(),
-                beforeSlots,
-                beforeCarried,
-                afterSlots,
-                afterCarried,
-                merchantOffers,
-                selectedMerchantOffer);
+                inventoryValues(beforeSlots),
+                ItemUtil.inventoryValue(beforeCarried),
+                inventoryValues(afterSlots),
+                ItemUtil.inventoryValue(afterCarried),
+                PredictedMerchantInventory.values(merchantOffers),
+                selectedMerchantOffer,
+                sameResultComponents);
         if (!isClientClickClaimSane(click, beforeSlots, beforeCarried, afterSlots, afterCarried, allowance)) {
             return false;
         }
 
         // The client already ran the same menu click code and sent the changed slot set.
         // The server treats this as remote prediction state, so Cult mirrors it only after a conservation check.
-        ItemStack clickedBefore = ItemStack.EMPTY;
-        ItemStack offhandBefore = ItemUtil.copy(getOffHand());
+        SimItemStack clickedBefore = SimItemStack.EMPTY;
+        SimItemStack offhandBefore = ItemUtil.copy(getOffHand());
         if (click.slot() >= 0) {
             Slot clickedSlot = menu.getSlot(click.slot());
             if (clickedSlot != null) {
@@ -388,7 +394,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         }
 
         click.changedSlots().forEach((slot, item) -> {
-            ItemStack resolved = afterSlots.get(slot);
+            SimItemStack resolved = afterSlots.get(slot);
             menu.getSlot(slot).set(resolved);
         });
         mirrorImplicitOffhandSwap(click, clickedBefore, offhandBefore);
@@ -411,8 +417,8 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             return false;
         }
 
-        ItemStack clickedBefore = ItemUtil.copy(slot.getItem());
-        ItemStack carriedBefore = ItemUtil.copy(menu.getCarried());
+        SimItemStack clickedBefore = ItemUtil.copy(slot.getItem());
+        SimItemStack carriedBefore = ItemUtil.copy(menu.getCarried());
         if (!isBundle(clickedBefore) && !isBundle(carriedBefore)) {
             return false;
         }
@@ -428,54 +434,50 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     private BundleClickResult predictBundleClick(
-            Slot slot, ItemStack clickedBefore, ItemStack carriedBefore, boolean primary) {
-        net.minecraft.world.item.ItemStack clicked = SpigotConversionUtil.toNmsItemStack(clickedBefore);
-        net.minecraft.world.item.ItemStack carried = SpigotConversionUtil.toNmsItemStack(carriedBefore);
+            Slot slot, SimItemStack clickedBefore, SimItemStack carriedBefore, boolean primary) {
+        SimItemStack clicked = clickedBefore.copy();
+        SimItemStack carried = carriedBefore.copy();
 
         if (hasBundleContents(carried)) {
-            BundleContents.Mutable mutable =
-                    SpigotConversionUtil.mutableBundle(carried.get(DataComponents.BUNDLE_CONTENTS));
+            var mutable = new ac.cult.blocksim.engine.MutableBundleContents(
+                    carried.components().bundle(), ItemUtil.modelItems());
             if (primary && !clicked.isEmpty()) {
                 mutable.tryInsert(clicked);
-                carried.set(DataComponents.BUNDLE_CONTENTS, mutable.toImmutable());
-                return new BundleClickResult(
-                        SpigotConversionUtil.fromNmsItemStack(clicked), SpigotConversionUtil.fromNmsItemStack(carried));
+                carried.bundleContents(mutable.toImmutable());
+                return new BundleClickResult(clicked, carried);
             }
             if (!primary && clicked.isEmpty()) {
-                net.minecraft.world.item.ItemStack removed = mutable.removeOne();
+                ac.cult.blocksim.engine.SimItemStack removed = mutable.removeOne();
                 if (removed == null) {
-                    carried.set(DataComponents.BUNDLE_CONTENTS, mutable.toImmutable());
-                    return new BundleClickResult(ItemStack.EMPTY, SpigotConversionUtil.fromNmsItemStack(carried));
+                    carried.bundleContents(mutable.toImmutable());
+                    return new BundleClickResult(SimItemStack.EMPTY, carried);
                 }
-                ItemStack removedBukkit = SpigotConversionUtil.fromNmsItemStack(removed);
+                SimItemStack removedBukkit = removed;
                 if (slot.mayPlace(removedBukkit)) {
                     clicked = removed;
                 } else {
                     mutable.tryInsert(removed);
                 }
-                carried.set(DataComponents.BUNDLE_CONTENTS, mutable.toImmutable());
-                return new BundleClickResult(
-                        SpigotConversionUtil.fromNmsItemStack(clicked), SpigotConversionUtil.fromNmsItemStack(carried));
+                carried.bundleContents(mutable.toImmutable());
+                return new BundleClickResult(clicked, carried);
             }
         }
 
         if (hasBundleContents(clicked)) {
-            BundleContents.Mutable mutable =
-                    SpigotConversionUtil.mutableBundle(clicked.get(DataComponents.BUNDLE_CONTENTS));
+            var mutable = new ac.cult.blocksim.engine.MutableBundleContents(
+                    clicked.components().bundle(), ItemUtil.modelItems());
             if (primary && !carried.isEmpty()) {
                 mutable.tryInsert(carried);
-                clicked.set(DataComponents.BUNDLE_CONTENTS, mutable.toImmutable());
-                return new BundleClickResult(
-                        SpigotConversionUtil.fromNmsItemStack(clicked), SpigotConversionUtil.fromNmsItemStack(carried));
+                clicked.bundleContents(mutable.toImmutable());
+                return new BundleClickResult(clicked, carried);
             }
             if (!primary && carried.isEmpty()) {
-                net.minecraft.world.item.ItemStack removed = mutable.removeOne();
+                ac.cult.blocksim.engine.SimItemStack removed = mutable.removeOne();
                 if (removed != null) {
                     carried = removed;
                 }
-                clicked.set(DataComponents.BUNDLE_CONTENTS, mutable.toImmutable());
-                return new BundleClickResult(
-                        SpigotConversionUtil.fromNmsItemStack(clicked), SpigotConversionUtil.fromNmsItemStack(carried));
+                clicked.bundleContents(mutable.toImmutable());
+                return new BundleClickResult(clicked, carried);
             }
         }
 
@@ -483,7 +485,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     private boolean bundlePredictionMatchesPacket(InventoryClick click, BundleClickResult result) {
-        ItemStack changedSlot = click.changedSlots().get(click.slot());
+        SimItemStack changedSlot = click.changedSlots().get(click.slot());
         boolean slotChanged = !sameStack(menu.getSlot(click.slot()).getItem(), result.slot());
         if (slotChanged != click.changedSlots().containsKey(click.slot())) {
             return false;
@@ -492,15 +494,15 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 && sameMaterialAndAmount(click.carriedItem(), result.carried());
     }
 
-    private static boolean isBundle(ItemStack stack) {
-        return hasBundleContents(SpigotConversionUtil.toNmsItemStack(stack));
+    private static boolean isBundle(SimItemStack stack) {
+        return hasBundleContents(stack);
     }
 
-    private static boolean hasBundleContents(net.minecraft.world.item.ItemStack stack) {
-        return stack != null && !stack.isEmpty() && stack.has(DataComponents.BUNDLE_CONTENTS);
+    private static boolean hasBundleContents(ac.cult.blocksim.engine.SimItemStack stack) {
+        return stack != null && !stack.isEmpty() && stack.components().has("minecraft:bundle_contents");
     }
 
-    private static boolean sameMaterialAndAmount(ItemStack first, ItemStack second) {
+    private static boolean sameMaterialAndAmount(SimItemStack first, SimItemStack second) {
         if (first == null || first.isEmpty()) {
             return second == null || second.isEmpty();
         }
@@ -510,7 +512,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 && first.getCount() == second.getCount();
     }
 
-    private record BundleClickResult(ItemStack slot, ItemStack carried) {}
+    private record BundleClickResult(SimItemStack slot, SimItemStack carried) {}
 
     @CultPacketHandler
     public void onSelectBundleItem(
@@ -533,7 +535,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     // Bedrock equipment dispatch is independent of Java's queued block actions.
-    public void useItem(InteractionHand hand, float yaw, float pitch) {
+    public void useItem(Hand hand, float yaw, float pitch) {
         mirrorEquipmentUse(hand, getHandItem(hand));
     }
 
@@ -557,21 +559,19 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             return;
         }
 
-        InteractionHand hand = interact.hand() == ac.cult.cultac.protocol.value.Hand.MAIN_HAND
-                ? InteractionHand.MAIN_HAND
-                : InteractionHand.OFF_HAND;
-        ItemStack held = getHandItem(hand);
+        Hand hand = interact.hand();
+        SimItemStack held = getHandItem(hand);
         if (held == null || held.isEmpty()) {
             return;
         }
 
-        ItemStack filledBucket = entityInteractionBucketResult(entity, held.getItem());
+        SimItemStack filledBucket = entityInteractionBucketResult(entity, held.getItem());
         if (filledBucket == null || filledBucket.isEmpty()) {
             return;
         }
 
-        ItemStack handAfter;
-        List<ItemStack> addedItems;
+        SimItemStack handAfter;
+        List<SimItemStack> addedItems;
         if (held.getCount() <= 1) {
             handAfter = filledBucket;
             addedItems = List.of();
@@ -584,34 +584,34 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         applyClientSideUseItemOnResult(hand, handAfter, addedItems);
     }
 
-    private ItemStack entityInteractionBucketResult(PacketEntity entity, Item heldType) {
-        if (heldType == Items.BUCKET && !entity.isBaby && isMilkable(entity.type)) {
-            return new ItemStack(Items.MILK_BUCKET, 1);
+    private SimItemStack entityInteractionBucketResult(PacketEntity entity, ItemDefinition heldType) {
+        if (heldType == ItemTypes.BUCKET && !entity.isBaby && isMilkable(entity.type)) {
+            return ItemUtil.of(ItemTypes.MILK_BUCKET, 1);
         }
 
-        if (heldType != Items.WATER_BUCKET) {
+        if (heldType != ItemTypes.WATER_BUCKET) {
             return null;
         }
 
-        Item bucket = bucketMaterialFor(entity.type);
-        return bucket == null ? null : new ItemStack(bucket, 1);
+        ItemDefinition bucket = bucketMaterialFor(entity.type);
+        return bucket == null ? null : ItemUtil.of(bucket, 1);
     }
 
-    private static boolean isMilkable(EntityType<?> type) {
-        return type == EntityTypesCompat.COW || type == EntityTypesCompat.MOOSHROOM || type == EntityTypesCompat.GOAT;
+    private static boolean isMilkable(int type) {
+        return type == EntityTypeIds.COW || type == EntityTypeIds.MOOSHROOM || type == EntityTypeIds.GOAT;
     }
 
-    private static Item bucketMaterialFor(EntityType<?> type) {
-        if (type == EntityTypesCompat.COD) return Items.COD_BUCKET;
-        if (type == EntityTypesCompat.SALMON) return Items.SALMON_BUCKET;
-        if (type == EntityTypesCompat.PUFFERFISH) return Items.PUFFERFISH_BUCKET;
-        if (type == EntityTypesCompat.TROPICAL_FISH) return Items.TROPICAL_FISH_BUCKET;
-        if (type == EntityTypesCompat.AXOLOTL) return Items.AXOLOTL_BUCKET;
-        if (type == EntityTypesCompat.TADPOLE) return Items.TADPOLE_BUCKET;
+    private static ItemDefinition bucketMaterialFor(int type) {
+        if (type == EntityTypeIds.COD) return ItemTypes.COD_BUCKET;
+        if (type == EntityTypeIds.SALMON) return ItemTypes.SALMON_BUCKET;
+        if (type == EntityTypeIds.PUFFERFISH) return ItemTypes.PUFFERFISH_BUCKET;
+        if (type == EntityTypeIds.TROPICAL_FISH) return ItemTypes.TROPICAL_FISH_BUCKET;
+        if (type == EntityTypeIds.AXOLOTL) return ItemTypes.AXOLOTL_BUCKET;
+        if (type == EntityTypeIds.TADPOLE) return ItemTypes.TADPOLE_BUCKET;
         return null;
     }
 
-    private boolean mirrorEquipmentUse(InteractionHand hand, ItemStack use) {
+    private boolean mirrorEquipmentUse(Hand hand, SimItemStack use) {
         EquipmentType equipmentType = EquipmentType.getEquipmentSlotForItem(use);
         if (equipmentType == null) {
             return false;
@@ -642,7 +642,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         return true;
     }
 
-    private ItemStack getByEquipmentType(EquipmentType type) {
+    private SimItemStack getByEquipmentType(EquipmentType type) {
         return switch (type) {
             case HEAD -> getHelmet();
             case CHEST -> getChestplate();
@@ -650,24 +650,22 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             case FEET -> getBoots();
             case OFFHAND -> getOffHand();
             case MAINHAND -> getHeldItem();
-            default -> ItemStack.EMPTY;
+            default -> SimItemStack.EMPTY;
         };
     }
 
-    private int handStorageSlot(InteractionHand hand) {
-        return hand == InteractionHand.MAIN_HAND
-                ? inventory.selected + Inventory.HOTBAR_OFFSET
-                : Inventory.SLOT_OFFHAND;
+    private int handStorageSlot(Hand hand) {
+        return hand == Hand.MAIN_HAND ? inventory.selected + Inventory.HOTBAR_OFFSET : Inventory.SLOT_OFFHAND;
     }
 
-    public void applyClientSideUseItemOnResult(InteractionHand hand, ItemStack handAfter, List<ItemStack> addedItems) {
-        ItemStack before = getHandItem(hand);
+    public void applyClientSideUseItemOnResult(Hand hand, SimItemStack handAfter, List<SimItemStack> addedItems) {
+        SimItemStack before = getHandItem(hand);
         if (!sameStack(before, handAfter)) {
             inventory.getInventoryStorage().setItem(handStorageSlot(hand), handAfter);
         }
 
         if (addedItems != null) {
-            for (ItemStack addedItem : addedItems) {
+            for (SimItemStack addedItem : addedItems) {
                 if (addedItem == null || addedItem.isEmpty()) {
                     continue;
                 }
@@ -676,7 +674,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         }
     }
 
-    private static boolean sameStack(ItemStack first, ItemStack second) {
+    private static boolean sameStack(SimItemStack first, SimItemStack second) {
         if (first == null || first.isEmpty()) {
             return second == null || second.isEmpty();
         }
@@ -695,7 +693,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     public void dropHeldItem(boolean wholeStack) {
-        ItemStack held = ItemUtil.copy(getHeldItem());
+        SimItemStack held = ItemUtil.copy(getHeldItem());
         if (wholeStack || held.isEmpty() || held.getCount() <= 1) {
             inventory.setHeldItem(null);
         } else {
@@ -723,7 +721,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         if (!event.isCancelled()) setCreativeSlot(packet.slot(), packet.item());
     }
 
-    public void setCreativeSlot(int slot, ItemStack stack) {
+    public void setCreativeSlot(int slot, SimItemStack stack) {
         if (player.gamemode == GameMode.CREATIVE && slot >= 1 && slot <= 45) {
             inventory.getSlot(slot).set(ItemUtil.copy(stack));
         }
@@ -738,12 +736,13 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         menu = inventory;
         openWindowID = 0;
         serverContainerType = MenuType.CRAFTING;
-        menu.setCarried(ItemStack.EMPTY);
+        menu.setCarried(SimItemStack.EMPTY);
         merchantOffers = List.of();
         selectedMerchantOffer = 0;
     }
 
-    private void mirrorImplicitOffhandSwap(InventoryClick click, ItemStack clickedBefore, ItemStack offhandBefore) {
+    private void mirrorImplicitOffhandSwap(
+            InventoryClick click, SimItemStack clickedBefore, SimItemStack offhandBefore) {
         if (click.clickType() != WindowClickType.SWAP
                 || click.button() != NMS_OFFHAND_SWAP_BUTTON
                 || click.slot() < 0) {
@@ -758,8 +757,8 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             return;
         }
 
-        ItemStack clickedAfter = ItemUtil.copy(clickedSlot.getItem());
-        ItemStack offhandAfter = inferOffhandAfterSwap(clickedBefore, offhandBefore, clickedAfter);
+        SimItemStack clickedAfter = ItemUtil.copy(clickedSlot.getItem());
+        SimItemStack offhandAfter = inferOffhandAfterSwap(clickedBefore, offhandBefore, clickedAfter);
         inventory.getInventoryStorage().setItem(Inventory.SLOT_OFFHAND, offhandAfter);
     }
 
@@ -773,13 +772,16 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             return;
         }
 
-        net.minecraft.world.item.ItemStack item = SpigotConversionUtil.toNmsItemStack(slot.getItem());
-        if (!item.has(DataComponents.BUNDLE_CONTENTS)) {
+        SimItemStack item = slot.getItem().copy();
+        if (!item.components().has("minecraft:bundle_contents")) {
             return;
         }
 
-        BundleItem.toggleSelectedItem(item, selectedItemIndex);
-        slot.set(SpigotConversionUtil.fromNmsItemStack(item));
+        var mutable = new ac.cult.blocksim.engine.MutableBundleContents(
+                item.components().bundle(), ItemUtil.modelItems());
+        mutable.toggleSelectedItem(selectedItemIndex);
+        item.bundleContents(mutable.toImmutable());
+        slot.set(item);
     }
 
     private boolean menuExposesOffhand(AbstractContainerMenu sourceMenu) {
@@ -795,13 +797,14 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         return false;
     }
 
-    private ItemStack inferOffhandAfterSwap(ItemStack clickedBefore, ItemStack offhandBefore, ItemStack clickedAfter) {
-        ItemStack clicked = ItemUtil.copy(clickedBefore);
-        ItemStack source = ItemUtil.copy(offhandBefore);
-        ItemStack target = ItemUtil.copy(clickedAfter);
+    private SimItemStack inferOffhandAfterSwap(
+            SimItemStack clickedBefore, SimItemStack offhandBefore, SimItemStack clickedAfter) {
+        SimItemStack clicked = ItemUtil.copy(clickedBefore);
+        SimItemStack source = ItemUtil.copy(offhandBefore);
+        SimItemStack target = ItemUtil.copy(clickedAfter);
 
         if (source.isEmpty()) {
-            return target.isEmpty() ? clicked : ItemStack.EMPTY;
+            return target.isEmpty() ? clicked : SimItemStack.EMPTY;
         }
 
         if (!ItemUtil.isSameItemSameTags(source, target)) {
@@ -810,17 +813,17 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
         int remaining = source.getCount() - target.getCount();
         if (remaining > 0) {
-            ItemStack leftover = ItemUtil.copy(source);
+            SimItemStack leftover = ItemUtil.copy(source);
             leftover.setCount(remaining);
             return leftover;
         }
 
-        return clicked.isEmpty() ? ItemStack.EMPTY : clicked;
+        return clicked.isEmpty() ? SimItemStack.EMPTY : clicked;
     }
 
     public void onBlockPlace(BlockPlace place) {
-        if (player.gamemode != GameMode.CREATIVE && place.getItemStack().getItem() != Items.POWDER_SNOW_BUCKET) {
-            int slot = place.getHand() == InteractionHand.MAIN_HAND
+        if (player.gamemode != GameMode.CREATIVE && place.getItemStack().getItem() != ItemTypes.POWDER_SNOW_BUCKET) {
+            int slot = place.getHand() == Hand.MAIN_HAND
                     ? inventory.selected + Inventory.HOTBAR_OFFSET
                     : Inventory.SLOT_OFFHAND;
             place.getItemStack().setCount(place.getItemStack().getCount() - 1);
@@ -929,7 +932,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             openWindowID = 0;
             serverContainerType = MenuType.CRAFTING;
             menu = inventory;
-            menu.setCarried(ItemStack.EMPTY); // Reset carried item
+            menu.setCarried(SimItemStack.EMPTY); // Reset carried item
             merchantOffers = List.of();
             selectedMerchantOffer = 0;
         });
@@ -937,7 +940,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     @CultPacketHandler
     public void onContainerSetContent(PacketSendEvent<Content> event, CultPlayer player, Content items) {
-        List<ItemStack> slots = items.items();
+        List<SimItemStack> slots = items.items();
         AbstractContainerMenu contentMenu = items.windowId() == 0 ? inventory : menuFromContentSlots(slots.size());
 
         if (items.windowId() == 0) { // Player inventory

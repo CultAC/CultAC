@@ -10,18 +10,17 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 
 @BedrockSupported
 public class Phase extends Check implements PostPredictionListener {
@@ -106,9 +105,9 @@ public class Phase extends Check implements PostPredictionListener {
             if (intersects(newBox, box, bedrock) && !intersects(oldBox, box, bedrock)) {
                 BlockPos blockPos = BlockPos.containing(
                         (box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, (box.minZ + box.maxZ) / 2);
-                BlockState state = player.compensatedWorld.getBlockDataAt(blockPos);
+                int state = player.compensatedWorld.getBlockStateIdAt(blockPos);
                 // We don't attempt to calculate the many ways a block can be updated
-                if (NmsBlockTags.isConnectingBlock(state.getBlock())) {
+                if (ClientBlockProperties.isConnectingBlock(state)) {
                     continue;
                 }
 

@@ -4,6 +4,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.platform.api.manager.ItemResetHandler;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.bukkit.utils.reflection.PaperUtils;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.reflection.ReflectionUtils;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -12,7 +13,6 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import net.minecraft.SharedConstants;
-import net.minecraft.world.InteractionHand;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -22,7 +22,7 @@ import org.jetbrains.annotations.Nullable;
 public class BukkitItemResetHandler implements ItemResetHandler {
     private static final Consumer<Player> resetItemUsage;
     private static final Predicate<Player> isUsingItem;
-    private static final Function<Player, InteractionHand> getItemUsageHand;
+    private static final Function<Player, Hand> getItemUsageHand;
 
     @Override
     public void resetItemUsage(@Nullable PlatformPlayer player) {
@@ -30,7 +30,7 @@ public class BukkitItemResetHandler implements ItemResetHandler {
     }
 
     @Override
-    public @Nullable InteractionHand getItemUsageHand(@Nullable PlatformPlayer player) {
+    public @Nullable Hand getItemUsageHand(@Nullable PlatformPlayer player) {
         return player == null ? null : getItemUsageHand.apply((Player) player.getNative());
     }
 
@@ -85,12 +85,10 @@ public class BukkitItemResetHandler implements ItemResetHandler {
             }
 
             if (legacy) {
-                getItemUsageHand = player -> isUsingItem.test(player) ? InteractionHand.MAIN_HAND : null;
+                getItemUsageHand = player -> isUsingItem.test(player) ? Hand.MAIN_HAND : null;
             } else if (PaperUtils.PAPER && serverProtocol >= 754) {
                 getItemUsageHand = player -> player.isHandRaised()
-                        ? player.getHandRaised() == EquipmentSlot.OFF_HAND
-                                ? InteractionHand.OFF_HAND
-                                : InteractionHand.MAIN_HAND
+                        ? player.getHandRaised() == EquipmentSlot.OFF_HAND ? Hand.OFF_HAND : Hand.MAIN_HAND
                         : null;
             } else {
                 Method method = clazz.getMethod(
@@ -127,8 +125,8 @@ public class BukkitItemResetHandler implements ItemResetHandler {
                     try {
                         return isUsingItem.test(player)
                                 ? ((Enum<?>) method.invoke(getHandle.invoke(player))).ordinal() == 0
-                                        ? InteractionHand.MAIN_HAND
-                                        : InteractionHand.OFF_HAND
+                                        ? Hand.MAIN_HAND
+                                        : Hand.OFF_HAND
                                 : null;
                     } catch (IllegalAccessException | InvocationTargetException e) {
                         throw new RuntimeException(e);

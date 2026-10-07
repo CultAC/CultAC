@@ -4,10 +4,10 @@ import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
+import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.utils.math.Vec3;
 import lombok.Getter;
 import lombok.Setter;
-import net.minecraft.core.Direction;
-import net.minecraft.world.phys.Vec3;
 
 @Getter
 public class TeleportData {

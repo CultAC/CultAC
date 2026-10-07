@@ -8,18 +8,18 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
-import net.minecraft.SharedConstants;
 
 @CheckData(name = "CrashD", stableKey = "cult.crash.lectern", description = "Clicking slots in lectern window")
 public class CrashD extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("clickType={clicktype}, button={sint}");
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private MenuType type = MenuType.UNKNOWN;
     private int lecternId = -1;

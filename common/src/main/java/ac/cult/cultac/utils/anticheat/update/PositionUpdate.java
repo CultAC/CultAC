@@ -2,9 +2,9 @@ package ac.cult.cultac.utils.anticheat.update;
 
 import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
+import ac.cult.cultac.utils.math.Vec3;
 import lombok.Getter;
 import lombok.Setter;
-import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 @Getter

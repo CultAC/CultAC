@@ -2,15 +2,14 @@ package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.VanillaMath;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public class PacketEntityStrider extends PacketEntityRideable {
     public boolean isShaking = false;
     private float walkAnimationSpeed = 0.0F;
     private float walkAnimationPosition = 0.0F;
 
-    public PacketEntityStrider(CultPlayer player, int entityId, EntityType type, double x, double y, double z) {
+    public PacketEntityStrider(CultPlayer player, int entityId, int type, double x, double y, double z) {
         super(player, entityId, type, x, y, z);
     }
 

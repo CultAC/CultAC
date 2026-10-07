@@ -1,28 +1,21 @@
 package ac.cult.cultac.manager.player;
 
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.inventory.InventoryStorage;
-import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.GrowingPlantHeadBlock;
-import net.minecraft.world.level.block.state.BlockState;
 
 final class SmoketestSnapshotBridge {
     private static final String CHANNEL = "cult:smoketest_snapshot";
     private static final int MAGIC = 0x47534D31; // GSM1
-    private static final int VERSION = 4;
-    private static final Pattern REGISTRY_REFERENCE_IDENTITY =
-            Pattern.compile("Reference\\{ResourceKey\\[[^\\]]+\\]=[\\w.$]+@([0-9a-fA-F]+)\\}");
+    private static final int VERSION = 5;
     private static final Pattern RANDOM_INITIAL_AGE =
             Pattern.compile("(?<=[\\[,])age=(?:[0-9]|1[0-9]|2[0-4])(?=[,\\]])");
 
@@ -66,16 +59,14 @@ final class SmoketestSnapshotBridge {
         }
 
         int version = input.readInt();
-        if (version < 1 || version > VERSION) {
+        if (version != VERSION) {
             throw new IOException("unsupported version " + version);
         }
 
         int tick = input.readInt();
         String scenario = input.readUTF();
         int selectedSlot = input.readInt();
-        if (version >= 3) {
-            input.readBoolean(); // expectNoInventoryResync
-        }
+        input.readBoolean(); // expectNoInventoryResync
 
         // Declared fixture regions may exceed one chunk section. Each block needs
         // four ints and a UTF length, so the bounded payload limits allocation.
@@ -86,9 +77,9 @@ final class SmoketestSnapshotBridge {
                     input.readInt(), input.readInt(), input.readInt(), input.readInt(), input.readUTF()));
         }
 
-        List<ItemSnapshot> inventory = version >= 4 ? readItems(input, "inventory") : List.of();
-        List<ItemSnapshot> menu = version >= 4 ? readItems(input, "menu") : List.of();
-        ItemSnapshot carried = version >= 4 ? readItem(input) : ItemSnapshot.UNCHANGED;
+        List<ItemSnapshot> inventory = readItems(input, "inventory");
+        List<ItemSnapshot> menu = readItems(input, "menu");
+        ItemSnapshot carried = readItem(input);
         return new Snapshot(tick, scenario, selectedSlot, blocks, inventory, menu, carried);
     }
 
@@ -100,7 +91,11 @@ final class SmoketestSnapshotBridge {
     }
 
     private static ItemSnapshot readItem(DataInputStream input) throws IOException {
-        return new ItemSnapshot(input.readInt(), input.readUTF(), input.readInt(), input.readUTF());
+        int slot = input.readInt();
+        String key = input.readUTF();
+        int count = input.readInt();
+        int length = checkedCount(input.readInt(), input.available(), "item bytes");
+        return new ItemSnapshot(slot, key, count, input.readNBytes(length));
     }
 
     private static int checkedCount(int count, int max, String name) throws IOException {
@@ -113,14 +108,12 @@ final class SmoketestSnapshotBridge {
     private static void compare(CultPlayer player, Snapshot snapshot) {
         List<String> mismatches = new ArrayList<>();
         for (BlockSnapshot block : snapshot.blocks()) {
-            var compensatedState =
-                    player.compensatedWorld.getBlockStateAt(new BlockPos(block.x(), block.y(), block.z()));
-            int cultStateId = Block.getId(compensatedState);
-            String cultState = String.valueOf(compensatedState);
+            int cultStateId = player.compensatedWorld.getBlockStateIdAt(new BlockPos(block.x(), block.y(), block.z()));
+            String cultState = DataTables.defaults().registry().debugString(cultStateId);
             // Numeric state IDs belong to each protocol's registry and are translated by ViaVersion.
             // Growing heads choose age 0–24 using private client RNG. These ages
             // have identical client behavior; age 25 and all other properties remain exact.
-            if (!blockStatesMatch(block.state(), compensatedState)) {
+            if (!blockStatesMatch(block.state(), cultStateId)) {
                 mismatches.add("block " + block.x() + "," + block.y() + "," + block.z()
                         + " expectedId=" + block.stateId()
                         + " cultId=" + cultStateId
@@ -134,15 +127,37 @@ final class SmoketestSnapshotBridge {
         }
 
         InventoryStorage storage = player.getInventory().inventory.getInventoryStorage();
+        var names = player.user.getCultConnection().require(ac.cult.cultac.protocol.data.RegistryNames.class);
+        var modelNames = ac.cult.cultac.network.codec.ModelRegistryNamesState.defaults();
+        var builtin =
+                ac.cult.blocksim.environment.ClientWorldDefaults.defaults().builtinRegistries();
+        var values = new ac.cult.cultac.network.codec.ModelItemValues(
+                ac.cult.cultac.protocol.ProtocolCodecs.decoder(),
+                ac.cult.cultac.protocol.ProtocolVersion.V26_3,
+                new ac.cult.cultac.protocol.WireValueDecoder.Registries() {
+                    // The validation client writes the model schema. Host static
+                    // IDs may belong to an older backend; dynamic IDs are received.
+                    @Override
+                    public String name(String registry, int id) {
+                        return (builtin.contains(registry) ? modelNames : names).name(registry, id);
+                    }
+
+                    @Override
+                    public int id(String registry, String name) {
+                        return (builtin.contains(registry) ? modelNames : names).id(registry, name);
+                    }
+                },
+                ac.cult.cultac.utils.inventory.ItemUtil.modelItems());
         for (ItemSnapshot item : snapshot.inventory()) {
-            compareItem(mismatches, "inventory", item, storage.getItem(item.slot()));
+            compareItem(values, mismatches, "inventory", item, storage.getItem(item.slot()));
         }
         for (ItemSnapshot item : snapshot.menu()) {
             var slot = player.getInventory().menu.getSlot(item.slot());
-            compareItem(mismatches, "menu", item, slot == null ? null : slot.getItem());
+            compareItem(values, mismatches, "menu", item, slot == null ? null : slot.getItem());
         }
         if (snapshot.carried().slot() == -1) {
             compareItem(
+                    values,
                     mismatches,
                     "carried",
                     snapshot.carried(),
@@ -170,110 +185,40 @@ final class SmoketestSnapshotBridge {
                 + " details=" + String.join(" | ", mismatches.subList(0, Math.min(12, mismatches.size()))));
     }
 
-    static boolean blockStatesMatch(String expected, BlockState modeled) {
-        if (expected.equals(String.valueOf(modeled))) return true;
-        if (!(modeled.getBlock() instanceof GrowingPlantHeadBlock) || modeled.getValue(GrowingPlantHeadBlock.AGE) >= 25)
-            return false;
+    static boolean blockStatesMatch(String expected, int modeled) {
+        var registry = DataTables.defaults().registry();
+        if (expected.equals(registry.debugString(modeled))) return true;
+        if (!registry.block(modeled)
+                        .bindings()
+                        .get("classHierarchy")
+                        .contains("net.minecraft.world.level.block.GrowingPlantHeadBlock")
+                || Integer.parseInt(registry.value(modeled, "age")) >= 25) return false;
         var age = RANDOM_INITIAL_AGE.matcher(expected);
-        return age.find()
-                && age.replaceFirst("age=0").equals(String.valueOf(modeled.setValue(GrowingPlantHeadBlock.AGE, 0)));
+        return age.find() && age.replaceFirst("age=0").equals(registry.debugString(registry.with(modeled, "age", "0")));
     }
 
     private static void compareItem(
-            List<String> mismatches, String owner, ItemSnapshot expected, net.minecraft.world.item.ItemStack item) {
-        net.minecraft.world.item.ItemStack cult = SpigotConversionUtil.toNmsItemStack(item);
-        String key = cult.isEmpty()
-                ? "minecraft:air"
-                : NmsIdentifierUtil.registryKey(BuiltInRegistries.ITEM, cult.getItem());
-        int count = cult.isEmpty() ? 0 : cult.getCount();
-        String components = cult.isEmpty() ? "" : String.valueOf(cult.getComponentsPatch());
-        if (!expected.key().equals(key)
-                || expected.count() != count
-                || !canonicalComponents(expected.components()).equals(canonicalComponents(components))) {
-            mismatches.add(owner + " slot=" + expected.slot()
-                    + " expected=" + expected.key() + "x" + expected.count() + expected.components()
-                    + " cult=" + key + "x" + count + components);
-        }
-    }
-
-    static String canonicalComponents(String value) {
-        if (value == null || value.indexOf('{') < 0) {
-            return value == null ? "" : value;
-        }
-
-        StringBuilder result = new StringBuilder(value.length());
-        boolean quoted = false;
-        boolean escaped = false;
-        for (int index = 0; index < value.length(); index++) {
-            char current = value.charAt(index);
-            // Holder.Reference's toString includes the value's JVM identity hash
-            // (e.g. Potion@abcd). The registry key, not that per-process hash, is
-            // its protocol identity. Keep the key, value class and all components.
-            // Never normalize user-provided quoted text.
-            if (!quoted && current == 'R') {
-                var reference = REGISTRY_REFERENCE_IDENTITY.matcher(value).region(index, value.length());
-                if (reference.lookingAt()) {
-                    result.append(value, index, reference.start(1))
-                            .append("instance")
-                            .append(value, reference.end(1), reference.end());
-                    index = reference.end() - 1;
-                    continue;
-                }
+            ac.cult.cultac.network.codec.ModelItemValues values,
+            List<String> mismatches,
+            String owner,
+            ItemSnapshot expected,
+            ac.cult.blocksim.engine.SimItemStack item) {
+        var cult = item == null ? ac.cult.blocksim.engine.SimItemStack.EMPTY : item;
+        var client = ac.cult.blocksim.engine.SimItemStack.EMPTY;
+        if (expected.components().length > 0) {
+            var input = io.netty.buffer.Unpooled.wrappedBuffer(expected.components());
+            try {
+                client = values.item(input, false);
+                if (input.isReadable()) throw new IllegalStateException("Unread client snapshot item bytes");
+            } finally {
+                input.release();
             }
-            if (current == '"' && !escaped) quoted = !quoted;
-            if (current != '{' || quoted) {
-                result.append(current);
-                escaped = current == '\\' && !escaped;
-                continue;
-            }
-
-            int end = matchingBrace(value, index);
-            if (end < 0) {
-                return value;
-            }
-            String inner = canonicalComponents(value.substring(index + 1, end));
-            List<String> entries = splitTopLevel(inner);
-            entries.sort(String::compareTo);
-            result.append('{').append(String.join(", ", entries)).append('}');
-            index = end;
-            escaped = false;
         }
-        return result.toString();
-    }
-
-    private static int matchingBrace(String value, int start) {
-        int depth = 0;
-        boolean quoted = false;
-        boolean escaped = false;
-        for (int index = start; index < value.length(); index++) {
-            char current = value.charAt(index);
-            if (current == '"' && !escaped) quoted = !quoted;
-            if (!quoted && current == '{') depth++;
-            if (!quoted && current == '}' && --depth == 0) return index;
-            escaped = current == '\\' && !escaped;
+        if (!expected.key().equals(client.itemKey()) || expected.count() != client.count())
+            throw new IllegalStateException("Inconsistent client snapshot item");
+        if (!cult.matches(client)) {
+            mismatches.add(owner + " slot=" + expected.slot() + " expected=" + client + " cult=" + cult);
         }
-        return -1;
-    }
-
-    private static List<String> splitTopLevel(String value) {
-        List<String> entries = new ArrayList<>();
-        int start = 0;
-        int depth = 0;
-        boolean quoted = false;
-        boolean escaped = false;
-        for (int index = 0; index < value.length() - 1; index++) {
-            char current = value.charAt(index);
-            if (current == '"' && !escaped) quoted = !quoted;
-            if (!quoted && (current == '{' || current == '[' || current == '(')) depth++;
-            if (!quoted && (current == '}' || current == ']' || current == ')')) depth--;
-            if (!quoted && depth == 0 && current == ',' && value.charAt(index + 1) == ' ') {
-                entries.add(value.substring(start, index));
-                start = index + 2;
-            }
-            escaped = current == '\\' && !escaped;
-        }
-        entries.add(value.substring(start));
-        return entries;
     }
 
     private record Snapshot(
@@ -287,7 +232,5 @@ final class SmoketestSnapshotBridge {
 
     private record BlockSnapshot(int x, int y, int z, int stateId, String state) {}
 
-    private record ItemSnapshot(int slot, String key, int count, String components) {
-        private static final ItemSnapshot UNCHANGED = new ItemSnapshot(-2, "minecraft:air", 0, "");
-    }
+    private record ItemSnapshot(int slot, String key, int count, byte[] components) {}
 }

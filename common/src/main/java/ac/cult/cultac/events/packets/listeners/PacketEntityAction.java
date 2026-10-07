@@ -1,22 +1,20 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.data.FluidTags;
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.checks.impl.elytra.ElytraA;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import net.minecraft.tags.FluidTags;
-import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.item.ItemStack;
 
 public class PacketEntityAction {
 
@@ -120,8 +118,7 @@ public class PacketEntityAction {
 
     private boolean canGlideUsingEquippedItem(CultPlayer player) {
         for (EquipmentSlot slot : EquipmentSlot.values()) {
-            net.minecraft.world.item.ItemStack itemStack =
-                    SpigotConversionUtil.toNmsItemStack(getEquippedItem(player, slot));
+            ac.cult.blocksim.engine.SimItemStack itemStack = getEquippedItem(player, slot);
             if (canGlideUsing(itemStack, slot)) {
                 return true;
             }
@@ -130,31 +127,11 @@ public class PacketEntityAction {
         return false;
     }
 
-    private static boolean canGlideUsing(net.minecraft.world.item.ItemStack itemStack, EquipmentSlot slot) {
-        try {
-            return (boolean) LivingEntity.class
-                    .getMethod("canGlideUsing", net.minecraft.world.item.ItemStack.class, EquipmentSlot.class)
-                    .invoke(null, itemStack, slot);
-        } catch (NoSuchMethodException ignored) {
-            // Before data-component gliders, the client only accepted a usable
-            // elytra in the chest equipment slot.
-            if (slot != EquipmentSlot.CHEST) {
-                return false;
-            }
-            try {
-                Class<?> elytraItem = Class.forName("net.minecraft.world.item.ElytraItem");
-                return (boolean) elytraItem
-                        .getMethod("isFlyEnabled", net.minecraft.world.item.ItemStack.class)
-                        .invoke(null, itemStack);
-            } catch (ReflectiveOperationException exception) {
-                throw new IllegalStateException("Unable to evaluate legacy elytra", exception);
-            }
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("Unable to evaluate equipped glider", exception);
-        }
+    private static boolean canGlideUsing(ac.cult.blocksim.engine.SimItemStack itemStack, EquipmentSlot slot) {
+        return ac.cult.cultac.utils.inventory.ClientGlider.canUse(itemStack, slot);
     }
 
-    private ItemStack getEquippedItem(CultPlayer player, EquipmentSlot slot) {
+    private SimItemStack getEquippedItem(CultPlayer player, EquipmentSlot slot) {
         return switch (slot) {
             case MAINHAND -> player.getInventory().getHeldItem();
             case OFFHAND -> player.getInventory().getOffHand();
@@ -162,7 +139,7 @@ public class PacketEntityAction {
             case LEGS -> player.getInventory().getLeggings();
             case CHEST -> player.getInventory().getChestplate();
             case HEAD -> player.getInventory().getHelmet();
-            case BODY, SADDLE -> ItemStack.EMPTY;
+            case BODY, SADDLE -> SimItemStack.EMPTY;
         };
     }
 }

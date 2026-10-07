@@ -1,20 +1,20 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
+import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.OptionalDouble;
 import java.util.Set;
-import net.minecraft.util.Mth;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
 
 public final class VelocityCandidates {
     private VelocityCandidates() {}
@@ -142,10 +142,10 @@ public final class VelocityCandidates {
             return OptionalDouble.empty();
         }
 
-        Block onBlock = context.getWorldData().getOnBlock();
+        int onBlock = context.getWorldData().getOnBlock();
         CultPlayer player = result.getPlayer();
         boolean use26Dot2 = player != null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
-        if (use26Dot2 ? !isBouncyBlock(onBlock) : onBlock != Blocks.SLIME_BLOCK) {
+        if (use26Dot2 ? !isBouncyBlock(onBlock) : !BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)) {
             return OptionalDouble.empty();
         }
 
@@ -159,7 +159,7 @@ public final class VelocityCandidates {
             // MCP-Reborn 26.2 Entity#restituteMovementAfterCollisions (Entity.java:803-844)
             double gravity = effectiveGravity(player);
             if (suppressesBounceAtGravity(player.getClientVersion(), deltaY, gravity)
-                    || onBlock == Blocks.HONEY_BLOCK) {
+                    || BlockIds.is(onBlock, BlockIds.HONEY_BLOCK)) {
                 // Below the effective-gravity impact speed (or inside
                 // #suppresses_bounce) the 26.2 client does not bounce at all.
                 return OptionalDouble.empty();
@@ -180,20 +180,19 @@ public final class VelocityCandidates {
         return result.getValidMovements().getClosestTrace().preCollisionVelocity();
     }
 
-    private static boolean isBouncyBlock(Block onBlock) {
-        if (onBlock == null) return false;
+    private static boolean isBouncyBlock(int onBlock) {
+        if (onBlock < 0) return false;
         // Blocks registered with a bounceRestitution in the 26.2 client
         // registry (MCP-Reborn Blocks.java): slime (1.0) and beds (0.75).
-        return onBlock == Blocks.SLIME_BLOCK
-                || "SHELF_MUSHROOM".equals(ac.cult.cultac.utils.nmsutil.NmsBlockTags.name(onBlock))
-                || (NmsBlockTags.isBed(onBlock)
-                        && !"STRAW_BED".equals(ac.cult.cultac.utils.nmsutil.NmsBlockTags.name(onBlock)));
+        return BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)
+                || BlockIds.is(onBlock, BlockIds.SHELF_MUSHROOM)
+                || (ClientBlockProperties.isBed(onBlock) && !BlockIds.is(onBlock, BlockIds.STRAW_BED));
     }
 
-    private static double blockBounciness(PredictionResult result, Block onBlock) {
+    private static double blockBounciness(PredictionResult result, int onBlock) {
         // MCP-Reborn 26.2 Entity#getBlockBounciness: non-living entities (such as
         // boats and minecarts) only receive 80% of the block's restitution.
-        double restitution = onBlock == Blocks.SLIME_BLOCK ? 1.0D : isBouncyBlock(onBlock) ? 0.75D : 0.0D;
+        double restitution = BlockIds.is(onBlock, BlockIds.SLIME_BLOCK) ? 1.0D : isBouncyBlock(onBlock) ? 0.75D : 0.0D;
         PacketEntity vehicle = result.getSimulationContext().getVehicle();
         boolean living = vehicle == null || vehicle.isLivingEntity();
         return living ? restitution : restitution * 0.8D;
@@ -213,7 +212,7 @@ public final class VelocityCandidates {
         // ratio. It deliberately does not clamp it: collision resolution can
         // return movement opposite to deltaMovement when resolving an overlap.
         double portionWithMovement = deltaY == 0.0D ? 0.0D : clippedY / deltaY;
-        double effectiveDrag = Mth.lerp(portionWithMovement, 1.0D, airDrag);
+        double effectiveDrag = CultMath.lerp(portionWithMovement, 1.0D, airDrag);
         return (portionWithMovement * gravity - deltaY) * effectiveDrag * restitution;
     }
 
@@ -252,7 +251,7 @@ public final class VelocityCandidates {
     }
 
     private static boolean isItemControlledRideable(PacketEntity vehicle) {
-        return vehicle.type == EntityTypesCompat.PIG || vehicle.type == EntityTypesCompat.STRIDER;
+        return vehicle.type == EntityTypeIds.PIG || vehicle.type == EntityTypeIds.STRIDER;
     }
 
     private static boolean consumedRequiredStuckSpeedThisMove(PredictionResult result) {
@@ -331,7 +330,7 @@ public final class VelocityCandidates {
 
     private static double applyPostVerticalCollisionBlockVelocity(
             PredictionResult result, double deltaY, double clippedY) {
-        Block onBlock = result.getSimulationContext().getWorldData().getOnBlock();
+        int onBlock = result.getSimulationContext().getWorldData().getOnBlock();
         boolean suppressingBounce = result.getSimulationContext().getVehicle() == null
                 && result.getSimulationContext().isSneaking();
         CultPlayer player = result.getPlayer();
@@ -352,7 +351,7 @@ public final class VelocityCandidates {
                 // #suppresses_bounce (vanilla: honey block) and the impact-speed
                 // gate both force restitution to zero.
                 if (suppressesBounceAtGravity(player.getClientVersion(), deltaY, gravity)
-                        || onBlock == Blocks.HONEY_BLOCK) {
+                        || BlockIds.is(onBlock, BlockIds.HONEY_BLOCK)) {
                     restitution = 0.0D;
                 } else {
                     restitution = Math.max(restitution, blockBounciness(result, onBlock));
@@ -369,16 +368,16 @@ public final class VelocityCandidates {
         }
 
         if (deltaY < 0.0D) {
-            if (onBlock == Blocks.SLIME_BLOCK) {
+            if (BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)) {
                 return -deltaY;
             }
 
-            if (NmsBlockTags.isBed(onBlock)) {
+            if (ClientBlockProperties.isBed(onBlock)) {
                 return -deltaY * 0.66F;
             }
         }
 
-        if (onBlock == Blocks.SLIME_BLOCK || NmsBlockTags.isBed(onBlock)) {
+        if (BlockIds.is(onBlock, BlockIds.SLIME_BLOCK) || ClientBlockProperties.isBed(onBlock)) {
             return deltaY;
         }
 

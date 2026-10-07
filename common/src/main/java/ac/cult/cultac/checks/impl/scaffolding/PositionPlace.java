@@ -1,16 +1,16 @@
 package ac.cult.cultac.checks.impl.scaffolding;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import net.minecraft.SharedConstants;
-import net.minecraft.world.level.block.Blocks;
 
 @CheckData(
         name = "PositionPlace",
@@ -19,7 +19,7 @@ import net.minecraft.world.level.block.Blocks;
 public class PositionPlace extends BlockPlaceCheck {
 
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private boolean didLastMovementIncludePosition;
 
@@ -35,7 +35,7 @@ public class PositionPlace extends BlockPlaceCheck {
 
     @Override
     public void onBlockPlace(final BlockPlace place) {
-        if (place.getMaterial() == Blocks.SCAFFOLDING || player.inVehicle()) return;
+        if (place.getMaterial() == BlockIds.SCAFFOLDING || player.inVehicle()) return;
 
         SimpleCollisionBox combined = getCombinedBox(place);
 

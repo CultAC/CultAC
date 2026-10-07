@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.data;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
 import ac.cult.cultac.player.CultPlayer;
@@ -8,13 +9,10 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 
 public class BoatData {
     public record BoatStatusSample(BoatEntityStatus status, double waterLevel, float landFriction) {}
@@ -197,13 +195,12 @@ public class BoatData {
                 if (j2 != 2) {
                     for (int k2 = k; k2 < l; ++k2) {
                         if (j2 <= 0 || k2 != k && k2 != l - 1) {
-                            BlockState blockData = player.compensatedWorld.getBlockDataAt(l1, k2, i2);
-                            Block blockMaterial = blockData.getBlock();
+                            int blockData = player.compensatedWorld.getBlockStateIdAt(l1, k2, i2);
 
-                            if (blockMaterial != Blocks.LILY_PAD
+                            if (!BlockIds.is(blockData, BlockIds.LILY_PAD)
                                     && ClientBlockShapes.movement(player, blockData, l1, k2, i2)
                                             .isIntersected(axisalignedbb1)) {
-                                f += BlockProperties.getMaterialFriction(blockMaterial);
+                                f += BlockProperties.getMaterialFriction(blockData);
                                 ++k1;
                             }
                         }

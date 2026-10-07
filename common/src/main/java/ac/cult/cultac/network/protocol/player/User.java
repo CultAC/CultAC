@@ -36,11 +36,6 @@ public final class User {
         return cultPlayer == null ? cultConnection.getClientProtocol() : cultPlayer.getClientProtocol();
     }
 
-    public ac.cult.cultac.utils.minecraft.MinecraftRegistries registries() {
-        return java.util.Objects.requireNonNull(
-                cultConnection.platform().registries(), "Connection registry context unavailable");
-    }
-
     public ac.cult.cultac.player.CultPlayer getCultPlayer() {
         return cultConnection.player();
     }

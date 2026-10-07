@@ -36,9 +36,30 @@ final class RecordReceiveFixture implements AutoCloseable {
     }
 
     RecordReceiveFixture(ProtocolVersion version, boolean createPlayer) {
+        this(version, ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap.platformConnection(), createPlayer);
+    }
+
+    /**
+     * A host whose wire is older than the 26.3 model, configured as Paper and Velocity configure
+     * it: the dispatcher speaks the model and the connection owns model values.
+     */
+    static RecordReceiveFixture olderHost(ProtocolVersion observed) {
+        var platform = ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap.platformConnection();
+        var values = new ac.cult.cultac.network.codec.ConnectionModelValues(ProtocolCodecs.decoder());
+        org.mockito.Mockito.when(platform.getObservedProtocol()).thenReturn(observed);
+        org.mockito.Mockito.when(platform.modelValues()).thenReturn(values);
+        // The PlatformConnection defaults, which both platform adapters inherit.
+        org.mockito.Mockito.when(platform.registryNames()).thenAnswer(ignored -> values.registryNames());
+        org.mockito.Mockito.when(platform.packetValues(org.mockito.Mockito.any()))
+                .thenAnswer(invocation -> values.packetValues(observed, invocation.getArgument(0)));
+        return new RecordReceiveFixture(observed, platform, true);
+    }
+
+    private RecordReceiveFixture(ProtocolVersion version, PlatformConnection platform, boolean createPlayer) {
         OfflineCultTestBootstrap.installConfig();
         data = ProtocolData.load(version);
-        var runtime = TestProtocolRuntime.create(data);
+        var runtime = TestProtocolRuntime.create(
+                platform.getObservedProtocol() == null ? data : ProtocolData.load(ProtocolVersion.V26_3));
         manager.configureTransport(
                 runtime, () -> {}, () -> java.util.concurrent.CompletableFuture.completedFuture(null));
         registrar = manager.dispatcher();
@@ -49,7 +70,7 @@ final class RecordReceiveFixture implements AutoCloseable {
         channel.pipeline().addLast("prepender", new ChannelOutboundHandlerAdapter());
         channel.pipeline().addLast("encoder", new ChannelOutboundHandlerAdapter());
         connection = new CultConnection(
-                ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap.platformConnection(),
+                platform,
                 channel,
                 routes,
                 ignored -> null);

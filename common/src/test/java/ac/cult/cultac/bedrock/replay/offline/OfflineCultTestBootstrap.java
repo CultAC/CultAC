@@ -9,38 +9,15 @@ import ac.grim.grimac.api.plugin.GrimPlugin;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
 import java.util.logging.Logger;
-import net.minecraft.core.Registry;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
-import net.minecraft.server.RegistryLayer;
-import net.minecraft.server.packs.PackType;
-import net.minecraft.server.packs.VanillaPackResources;
-import net.minecraft.server.packs.repository.ServerPacksSource;
-import net.minecraft.server.packs.resources.MultiPackResourceManager;
-import net.minecraft.tags.TagLoader;
-import net.minecraft.world.level.block.Blocks;
-import org.bukkit.Bukkit;
-import org.bukkit.Material;
-import org.bukkit.Server;
-import org.bukkit.UnsafeValues;
-import org.bukkit.block.data.BlockData;
-import org.bukkit.craftbukkit.block.data.CraftBlockData;
-import org.bukkit.plugin.PluginManager;
 import org.mockito.Mockito;
 
 public final class OfflineCultTestBootstrap {
     private static boolean networkConfigured;
 
     private static boolean installed;
-    private static UnsafeValues unsafeValues;
-    private static PluginManager pluginManager;
-    private static net.minecraft.core.RegistryAccess.Frozen worldRegistries;
     private static final Map<String, Double> DOUBLE_CONFIG_OVERRIDES = new ConcurrentHashMap<>();
 
     private OfflineCultTestBootstrap() {}
@@ -50,12 +27,8 @@ public final class OfflineCultTestBootstrap {
             initializeProtocolRuntime();
             return;
         }
-        SpongeSchematicCompensatedWorldLoader.bootstrapMinecraft();
         initializeProtocolRuntime();
-        initializePaperGlobalConfiguration();
-        installBukkitServer();
         installPlatformLoader();
-        loadVanillaData();
         ConfigManager config = Mockito.mock(ConfigManager.class);
         Mockito.when(config.getIntElse(Mockito.anyString(), Mockito.anyInt()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
@@ -86,9 +59,8 @@ public final class OfflineCultTestBootstrap {
         if (!networkConfigured) {
             networkConfigured = true;
             manager.configureTransport(
-                    ac.cult.cultac.network.TestProtocolRuntime.create(
-                            ac.cult.cultac.protocol.data.ProtocolData.load(ac.cult.cultac.protocol.ProtocolVersion.of(
-                                    net.minecraft.SharedConstants.getProtocolVersion()))),
+                    ac.cult.cultac.network.TestProtocolRuntime.create(ac.cult.cultac.protocol.data.ProtocolData.load(
+                            ac.cult.cultac.protocol.ProtocolVersion.V26_3)),
                     () -> {},
                     () -> java.util.concurrent.CompletableFuture.completedFuture(null));
         }
@@ -136,50 +108,7 @@ public final class OfflineCultTestBootstrap {
         DOUBLE_CONFIG_OVERRIDES.remove(key);
     }
 
-    private static void loadVanillaData() {
-        VanillaPackResources vanilla = ServerPacksSource.createVanillaPackSource();
-        try (MultiPackResourceManager resources =
-                new MultiPackResourceManager(PackType.SERVER_DATA, List.of(vanilla.fullResources()))) {
-            List<Registry.PendingTags<?>> pendingTags =
-                    TagLoader.loadTagsForExistingRegistries(resources, RegistryLayer.STATIC_ACCESS);
-            pendingTags.forEach(Registry.PendingTags::apply);
-            // 26.3 binds item components after their provider/transformer registries.
-            var base = net.minecraft.core.RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
-            var world = net.minecraft.resources.RegistryDataLoader.load(
-                            resources,
-                            base.listRegistries().toList(),
-                            net.minecraft.resources.RegistryDataLoader.WORLD_REGISTRIES,
-                            Runnable::run)
-                    .join();
-            worldRegistries = world;
-            var context = net.minecraft.core.HolderLookup.Provider.create(
-                    java.util.stream.Stream.concat(base.listRegistries(), world.listRegistries()));
-            BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(context).forEach(pending -> pending.apply());
-        }
-    }
-
-    public static void initializePaperItemEncoder() throws ReflectiveOperationException {
-        installConfig();
-        // Paper's sanitizer initializes its enchantment defaults from the running server.
-        // Supply the loaded vanilla registries for that initialization; the item encoder
-        // and sanitizer themselves still execute their real implementations.
-        if (net.minecraft.server.MinecraftServer.getServer() == null) {
-            var server = Mockito.mock(net.minecraft.server.MinecraftServer.class);
-            Mockito.when(server.registryAccess()).thenReturn(worldRegistries);
-            var current = net.minecraft.server.MinecraftServer.class.getDeclaredField("SERVER");
-            current.setAccessible(true);
-            current.set(null, server);
-            try {
-                Class.forName("io.papermc.paper.util.sanitizer.ItemComponentSanitizer");
-            } finally {
-                current.set(null, null);
-            }
-        } else {
-            Class.forName("io.papermc.paper.util.sanitizer.ItemComponentSanitizer");
-        }
-    }
-
-    /** Dynamic registry IDs in login/respawn use the server encoder's registry. */
+    /** Default fixtures use the bundled names and client-visible world facts. */
     public static ac.cult.cultac.network.PlatformConnection platformConnection() {
         var platform = Mockito.mock(ac.cult.cultac.network.PlatformConnection.class);
         Mockito.doAnswer(invocation -> {
@@ -188,27 +117,26 @@ public final class OfflineCultTestBootstrap {
                 })
                 .when(platform)
                 .runInModel(Mockito.any(Runnable.class));
-        Mockito.when(platform.registries())
-                .thenReturn(new ac.cult.cultac.utils.minecraft.MinecraftRegistries(
-                        () -> net.minecraft.server.MinecraftServer.getServer().registryAccess(),
-                        () -> net.minecraft.server.MinecraftServer.getServer().getResourceManager()));
+        Mockito.when(platform.registryNames())
+                .thenReturn(ac.cult.cultac.network.codec.ModelRegistryNamesState.defaults());
+        Mockito.when(platform.initialWorldData())
+                .thenReturn(ac.cult.cultac.utils.latency.ClientWorldRegistries.modelDefaults());
         return platform;
     }
 
-    public static net.minecraft.core.RegistryAccess.Frozen vanillaRegistries() {
-        installConfig();
-        return worldRegistries;
+    public static java.util.List<ac.cult.cultac.protocol.PacketType<?>> catalog() {
+        var world = new ac.cult.cultac.utils.latency.ClientWorldRegistries(
+                ac.cult.cultac.utils.latency.ClientWorldRegistries.modelDefaults());
+        return ac.cult.cultac.network.codec.ClientPacketCodecs.catalog(
+                context -> ac.cult.cultac.network.codec.ModelRegistryNamesState.defaults(), context -> world);
     }
 
-    public static AutoCloseable withServerRegistries(net.minecraft.core.RegistryAccess.Frozen registries)
-            throws ReflectiveOperationException {
-        var current = net.minecraft.server.MinecraftServer.class.getDeclaredField("SERVER");
-        current.setAccessible(true);
-        Object previous = current.get(null);
-        var server = Mockito.mock(net.minecraft.server.MinecraftServer.class);
-        Mockito.when(server.registryAccess()).thenReturn(registries);
-        current.set(null, server);
-        return () -> current.set(null, previous);
+    public static ac.cult.blocksim.engine.SimItemStack item(String key) {
+        return item(key, 1);
+    }
+
+    public static ac.cult.blocksim.engine.SimItemStack item(String key, int count) {
+        return ac.cult.cultac.utils.inventory.ItemUtil.modelItems().stack(key, count);
     }
 
     private static void installPlatformLoader() {
@@ -239,90 +167,6 @@ public final class OfflineCultTestBootstrap {
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("failed to install offline Cult platform loader", exception);
         }
-    }
-
-    private static void initializePaperGlobalConfiguration() {
-        try {
-            Class<?> globalConfigurationClass = Class.forName("io.papermc.paper.configuration.GlobalConfiguration");
-            java.lang.reflect.Method getMethod = globalConfigurationClass.getDeclaredMethod("get");
-            Object current = getMethod.invoke(null);
-            Object globalConfiguration =
-                    current == null ? globalConfigurationClass.getConstructor().newInstance() : current;
-            // Paper's Connection static initializer reads Misc.maxJoinsPerTick; its
-            // constructor reads PacketLimiter. Supply the same defaults as Paper.
-            for (String field : new String[] {"unsupportedSettings", "misc", "packetLimiter"}) {
-                java.lang.reflect.Field configField = globalConfigurationClass.getField(field);
-                if (configField.get(globalConfiguration) == null) {
-                    Object defaults = configField
-                            .getType()
-                            .getConstructor(globalConfigurationClass)
-                            .newInstance(globalConfiguration);
-                    configField.set(globalConfiguration, defaults);
-                }
-            }
-
-            java.lang.reflect.Method setMethod =
-                    globalConfigurationClass.getDeclaredMethod("set", globalConfigurationClass);
-            setMethod.setAccessible(true);
-            setMethod.invoke(null, globalConfiguration);
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("failed to install offline Paper global config", exception);
-        }
-    }
-
-    private static void installBukkitServer() {
-        if (Bukkit.getServer() != null) {
-            return;
-        }
-        Bukkit.setServer((Server) Proxy.newProxyInstance(
-                Server.class.getClassLoader(),
-                new Class[] {Server.class},
-                (proxy, method, args) -> switch (method.getName()) {
-                    case "getViewDistance",
-                            "getSimulationDistance",
-                            "getSpawnRadius",
-                            "getMaxWorldSize",
-                            "getCurrentTick" -> 10;
-                    case "getPort",
-                            "getMaxPlayers",
-                            "getIdleTimeout",
-                            "getPauseWhenEmptyTime",
-                            "getMaxChainedNeighborUpdates" -> 0;
-                    case "getLogger" -> Logger.getLogger("OfflineBedrockReplay");
-                    case "getUnsafe" -> unsafeValues();
-                    case "getPluginManager" -> pluginManager();
-                    case "createBlockData" -> createBlockData(args);
-                    case "getName",
-                            "getVersion",
-                            "getBukkitVersion",
-                            "getMinecraftVersion",
-                            "getIp",
-                            "getWorldType",
-                            "getUpdateFolder",
-                            "getResourcePack",
-                            "getResourcePackHash",
-                            "getResourcePackPrompt",
-                            "getShutdownMessage",
-                            "getMotd",
-                            "getPermissionMessage" -> "";
-                    case "getWorlds",
-                            "getOnlinePlayers",
-                            "matchPlayer",
-                            "getInitialEnabledPacks",
-                            "getInitialDisabledPacks" -> List.of();
-                    case "getWhitelistedPlayers", "getBannedPlayers", "getOperators", "getIPBans" -> Set.of();
-                    case "isPrimaryThread" -> true;
-                    default -> defaultValue(method.getReturnType());
-                }));
-    }
-
-    private static UnsafeValues unsafeValues() {
-        if (unsafeValues != null) {
-            return unsafeValues;
-        }
-        UnsafeValues unsafeValues = Mockito.mock(UnsafeValues.class);
-        OfflineCultTestBootstrap.unsafeValues = unsafeValues;
-        return OfflineCultTestBootstrap.unsafeValues;
     }
 
     private static final class ReplayConfigManager extends BaseConfigManager {
@@ -379,31 +223,6 @@ public final class OfflineCultTestBootstrap {
         public int getMaxPingKnockback() {
             return 1000;
         }
-    }
-
-    private static PluginManager pluginManager() {
-        if (pluginManager != null) {
-            return pluginManager;
-        }
-        OfflineCultTestBootstrap.pluginManager = (PluginManager) Proxy.newProxyInstance(
-                PluginManager.class.getClassLoader(),
-                new Class<?>[] {PluginManager.class},
-                (proxy, method, args) -> defaultValue(method.getReturnType()));
-        return OfflineCultTestBootstrap.pluginManager;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static BlockData createBlockData(Object[] args) {
-        Material material = args != null && args.length > 0 && args[0] instanceof Material value ? value : Material.AIR;
-        Identifier id = Identifier.fromNamespaceAndPath(
-                material.getKey().getNamespace(), material.getKey().getKey());
-        var block = BuiltInRegistries.BLOCK.getValue(id);
-        var state = block == null ? Blocks.AIR.defaultBlockState() : block.defaultBlockState();
-        BlockData data = CraftBlockData.createData(state);
-        if (args != null && args.length > 1 && args[1] instanceof Consumer<?> consumer) {
-            ((Consumer<BlockData>) consumer).accept(data);
-        }
-        return data;
     }
 
     private static Object defaultValue(Class<?> returnType) {

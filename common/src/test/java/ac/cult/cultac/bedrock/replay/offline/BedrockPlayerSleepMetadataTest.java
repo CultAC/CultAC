@@ -5,7 +5,7 @@ import static org.junit.Assert.*;
 import ac.cult.cultac.bedrock.bridge.GeyserPlayerSleepMetadata;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataMap;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;

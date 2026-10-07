@@ -1,5 +1,7 @@
 package ac.cult.cultac.utils.inventory;
 
+import ac.cult.blocksim.data.ItemDefinition;
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.inventory.inventory.AbstractContainerMenu;
@@ -7,8 +9,6 @@ import ac.cult.cultac.utils.inventory.slot.EquipmentSlot;
 import ac.cult.cultac.utils.inventory.slot.ResultSlot;
 import ac.cult.cultac.utils.inventory.slot.Slot;
 import lombok.Getter;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
 
 public class Inventory extends AbstractContainerMenu {
     public static final int SLOT_OFFHAND = 45;
@@ -50,27 +50,27 @@ public class Inventory extends AbstractContainerMenu {
         addSlot(new Slot(inventoryStorage, 45));
     }
 
-    public ItemStack getHelmet() {
+    public SimItemStack getHelmet() {
         return inventoryStorage.getItem(SLOT_HELMET);
     }
 
-    public ItemStack getChestplate() {
+    public SimItemStack getChestplate() {
         return inventoryStorage.getItem(SLOT_CHESTPLATE);
     }
 
-    public ItemStack getLeggings() {
+    public SimItemStack getLeggings() {
         return inventoryStorage.getItem(SLOT_LEGGINGS);
     }
 
-    public ItemStack getBoots() {
+    public SimItemStack getBoots() {
         return inventoryStorage.getItem(SLOT_BOOTS);
     }
 
-    public ItemStack getOffhand() {
+    public SimItemStack getOffhand() {
         return inventoryStorage.getItem(SLOT_OFFHAND);
     }
 
-    public boolean hasItemType(Item item) {
+    public boolean hasItemType(ItemDefinition item) {
         for (int i = 0; i < inventoryStorage.items.length; ++i) {
             if (inventoryStorage.getItem(i).getItem() == item) {
                 return true;
@@ -79,19 +79,19 @@ public class Inventory extends AbstractContainerMenu {
         return false;
     }
 
-    public ItemStack getHeldItem() {
+    public SimItemStack getHeldItem() {
         return inventoryStorage.getItem(selected + HOTBAR_OFFSET);
     }
 
-    public void setHeldItem(ItemStack item) {
+    public void setHeldItem(SimItemStack item) {
         inventoryStorage.setItem(selected + HOTBAR_OFFSET, item);
     }
 
-    public ItemStack getOffhandItem() {
+    public SimItemStack getOffhandItem() {
         return inventoryStorage.getItem(SLOT_OFFHAND);
     }
 
-    public boolean add(ItemStack p_36055_) {
+    public boolean add(SimItemStack p_36055_) {
         return this.add(-1, p_36055_);
     }
 
@@ -106,7 +106,7 @@ public class Inventory extends AbstractContainerMenu {
         return -1;
     }
 
-    public int getSlotWithRemainingSpace(ItemStack toAdd) {
+    public int getSlotWithRemainingSpace(SimItemStack toAdd) {
         if (this.hasRemainingSpaceForItem(getHeldItem(), toAdd)) {
             return HOTBAR_OFFSET + this.selected;
         } else if (this.hasRemainingSpaceForItem(getOffhand(), toAdd)) {
@@ -123,7 +123,7 @@ public class Inventory extends AbstractContainerMenu {
         }
     }
 
-    private boolean hasRemainingSpaceForItem(ItemStack one, ItemStack two) {
+    private boolean hasRemainingSpaceForItem(SimItemStack one, SimItemStack two) {
         return !one.isEmpty()
                 && ItemUtil.isSameItemSameTags(one, two)
                 && one.getCount() < one.getMaxStackSize()
@@ -139,7 +139,7 @@ public class Inventory extends AbstractContainerMenu {
         return slot < 9 ? HOTBAR_OFFSET + slot : slot;
     }
 
-    private int addResource(ItemStack resource) {
+    private int addResource(SimItemStack resource) {
         int i = this.getSlotWithRemainingSpace(resource);
         if (i == -1) {
             i = this.getFreeSlot();
@@ -148,9 +148,9 @@ public class Inventory extends AbstractContainerMenu {
         return i == -1 ? resource.getCount() : this.addResource(i, resource);
     }
 
-    private int addResource(int slot, ItemStack stack) {
+    private int addResource(int slot, SimItemStack stack) {
         int i = stack.getCount();
-        ItemStack itemstack = inventoryStorage.getItem(slot);
+        SimItemStack itemstack = inventoryStorage.getItem(slot);
 
         if (itemstack.isEmpty()) {
             itemstack = stack.copy();
@@ -176,7 +176,7 @@ public class Inventory extends AbstractContainerMenu {
         }
     }
 
-    public boolean add(int p_36041_, ItemStack p_36042_) {
+    public boolean add(int p_36041_, SimItemStack p_36042_) {
         if (p_36042_.isEmpty()) {
             return false;
         } else {

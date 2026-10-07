@@ -5,19 +5,13 @@ import static org.junit.jupiter.api.Assertions.*;
 import ac.cult.cultac.protocol.data.ModelRegistryData;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.Unpooled;
-import java.net.URL;
-import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 class ProtocolCodecsTest {
-    @TempDir
-    Path directory;
-
     @Test
     void tagRenamesRetainTheLastSuppliedValueAndItsPosition() {
         var tags = new LinkedHashMap<String, List<String>>();
@@ -114,13 +108,13 @@ class ProtocolCodecsTest {
     }
 
     @Test
-    void sharedLibraryClosesAndReopensWithoutRetainingTheOldClassloader() {
+    void sharedLibraryClosesAndReopensUsingThePluginClassloader() {
         var old = ProtocolCodecs.decoder();
         ProtocolCodecs.close();
         assertThrows(IllegalStateException.class, () -> old.mappings(ProtocolVersion.V26_3, ProtocolVersion.V26_3));
         var reopened = ProtocolCodecs.decoder();
         assertNotSame(old, reopened);
-        assertNotSame(old.getClass().getClassLoader(), reopened.getClass().getClassLoader());
+        assertSame(ProtocolCodecs.class.getClassLoader(), reopened.getClass().getClassLoader());
         assertEquals(
                 0,
                 reopened.mappings(ProtocolVersion.V26_3, ProtocolVersion.V26_3).blockState(0));
@@ -167,33 +161,22 @@ class ProtocolCodecsTest {
     }
 
     @Test
-    void privateLoaderIgnoresParentMappingResourcesAndSharesTheProtocolSpi() throws Exception {
-        URL jar = getClass().getResource("/runtime/protocol-codecs.jar");
-        assertNotNull(jar);
-        // URLClassLoader accepts the extracted file, not the enclosing engine resource URL.
-        Path extracted = directory.resolve("codecs.jar");
-        try (var input = jar.openStream()) {
-            java.nio.file.Files.copy(input, extracted);
-        }
-        URL poison = new URL("file:/unrelated-proxy-mappings/");
-        var parent = new ClassLoader(getClass().getClassLoader()) {
-            @Override
-            public URL getResource(String name) {
-                return name.startsWith("assets/viaversion/") ? poison : super.getResource(name);
-            }
-        };
-        try (var loader = new ProtocolCodecs.CodecLoader(extracted.toUri().toURL(), parent)) {
-            String resource = "assets/viaversion/data/mappings-26.2to26.3.nbt";
-            assertNotNull(loader.getResource(resource));
-            assertNotEquals(poison, loader.getResource(resource));
-            assertEquals(
-                    1, java.util.Collections.list(loader.getResources(resource)).size());
-            assertSame(
-                    ac.cult.cultac.protocol.WireValueDecoder.class,
-                    loader.loadClass(ac.cult.cultac.protocol.WireValueDecoder.class.getName()));
-            assertSame(
-                    loader,
-                    loader.loadClass("com.viaversion.viaversion.api.Via").getClassLoader());
-        }
+    void shadedLibraryUsesPrivateClassesAndResourcesAlongsideExternalVia() {
+        var codecs = ProtocolCodecs.decoder();
+        assertEquals(
+                "ac.cult.cultac.codec.PrivateCodecService", codecs.getClass().getName());
+        assertSame(ProtocolCodecs.class.getClassLoader(), codecs.getClass().getClassLoader());
+        assertTrue(ac.cult.shaded.vialib.api.Via.isLoaded());
+        assertFalse(com.viaversion.viaversion.api.Via.isLoaded());
+        String privateResource = "/assets/ac/cult/shaded/vialib/core/data/mappings-26.2to26.3.nbt";
+        String externalResource = "/assets/viaversion/data/mappings-26.2to26.3.nbt";
+        assertNotNull(ProtocolCodecs.class.getResource(privateResource));
+        assertNotNull(com.viaversion.viaversion.api.Via.class.getResource(externalResource));
+        assertNotEquals(
+                ProtocolCodecs.class.getResource(privateResource),
+                com.viaversion.viaversion.api.Via.class.getResource(externalResource));
+        assertEquals(
+                "ac.cult.shaded.vialib.exception.InformativeException",
+                ac.cult.shaded.vialib.exception.InformativeException.class.getName());
     }
 }

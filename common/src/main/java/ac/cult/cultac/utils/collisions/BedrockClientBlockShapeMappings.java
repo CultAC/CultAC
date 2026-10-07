@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.collisions;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideShape;
@@ -11,6 +12,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.ComplexCollisionBox;
@@ -21,9 +23,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
 
 public final class BedrockClientBlockShapeMappings {
     // The bundled generator targets the latest Java version supported by this CultAC build.
@@ -36,10 +35,10 @@ public final class BedrockClientBlockShapeMappings {
 
     public static void initialize() {
         BedrockCollisionOverrideCatalog artifact = BedrockCollisionOverrideCatalog.bundled();
-        int nativeModelProtocol = net.minecraft.SharedConstants.getProtocolVersion();
+        int nativeModelProtocol = ProtocolVersion.V26_3.protocol();
         int[] mappings = BedrockServerStateMappings.create(
                 nativeModelProtocol,
-                Block.BLOCK_STATE_REGISTRY.size(),
+                ac.cult.blocksim.data.DataTables.defaults().registry().stateCount(),
                 CATALOG_JAVA_VERSION.getProtocolVersion(),
                 artifact.javaStateCount());
         Snapshot snapshot = build(artifact.forServerStates(mappings));
@@ -63,69 +62,60 @@ public final class BedrockClientBlockShapeMappings {
         SNAPSHOT.set(Snapshot.empty());
     }
 
-    static Optional<CollisionBox> movement(CultPlayer player, BlockState state, int x, int y, int z) {
-        if (player == null || player.bedrockState == null || state == null) {
-            return Optional.empty();
-        }
-        BlockState blockState = toBlockState(state);
-        if (blockState == null) {
-            return Optional.empty();
-        }
+    static Optional<CollisionBox> movement(CultPlayer player, int state, int x, int y, int z) {
+        if (player == null || player.bedrockState == null || state < 0) return Optional.empty();
         Snapshot snapshot = SNAPSHOT.get();
-        Entry entry = snapshot.entry(Block.getId(blockState));
+        Entry entry = snapshot.entry(state);
         if (entry == null) {
             return Optional.empty();
         }
         if (entry.dynamicMovement()) {
-            return buildDynamicMovement(snapshot.catalog(), player, blockState, x, y, z);
+            return buildDynamicMovement(snapshot.catalog(), player, state, x, y, z);
         }
         return Optional.of(entry.movement().copy().offset(x, y, z));
     }
 
-    static Optional<CollisionBox> visual(CultPlayer player, BlockState state, int x, int y, int z) {
+    static Optional<CollisionBox> visual(CultPlayer player, int state, int x, int y, int z) {
         return Optional.empty();
     }
 
     static Snapshot build(BedrockCollisionOverrideCatalog catalog) {
         Map<Integer, Entry> entries = new HashMap<>();
-        for (BlockState state : Block.BLOCK_STATE_REGISTRY) {
-            int javaStateId = Block.getId(state);
+        for (int id = 0;
+                id < ac.cult.blocksim.data.DataTables.defaults().registry().stateCount();
+                id++) {
+            int javaStateId = id;
             Optional<BedrockCollisionOverrideShape> override = catalog.override(javaStateId);
-            boolean dynamicMovement = BedrockCollisionWorldBuilder.dynamicMovement(state);
-            boolean clientComputedMovement = BedrockCollisionWorldBuilder.clientComputedMovement(state);
+            boolean dynamicMovement = BedrockCollisionWorldBuilder.dynamicMovement(javaStateId);
+            boolean clientComputedMovement = BedrockCollisionWorldBuilder.clientComputedMovement(javaStateId);
             if (dynamicMovement) {
                 entries.put(javaStateId, new Entry(null, true, clientComputedMovement));
                 continue;
             }
             if (clientComputedMovement) {
-                CollisionBox movement = bedrockMovement(catalog, state, BedrockCollisionShapeQuery.NONE);
+                CollisionBox movement = bedrockMovement(catalog, javaStateId, BedrockCollisionShapeQuery.NONE);
                 entries.put(javaStateId, new Entry(movement, false, true));
                 continue;
             }
             Optional<CollisionBox> movement = override.map(shape -> fromLocalBoxes(shape.boxes()))
-                    .or(() -> VersionedJavaBlockShapes.movement(
-                            CATALOG_JAVA_VERSION,
-                            ac.cult.cultac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(state),
-                            0,
-                            0,
-                            0));
+                    .or(() -> VersionedJavaBlockShapes.movement(CATALOG_JAVA_VERSION, javaStateId, 0, 0, 0));
             movement.ifPresent(shape -> entries.put(javaStateId, new Entry(shape, false, false)));
         }
         return new Snapshot(Map.copyOf(entries), catalog.shapeCount(), catalog);
     }
 
     private static Optional<CollisionBox> buildDynamicMovement(
-            BedrockCollisionOverrideCatalog catalog, CultPlayer player, BlockState state, int x, int y, int z) {
+            BedrockCollisionOverrideCatalog catalog, CultPlayer player, int state, int x, int y, int z) {
         BlockPosition position = new BlockPosition(x, y, z);
-        BlockCollisionWorld world = new BedrockCollisionWorldBuilder(catalog)
-                .build(Map.of(position, state), bedrockQuery(player, position, state));
+        BlockCollisionWorld world =
+                new BedrockCollisionWorldBuilder(catalog).build(Map.of(position, state), bedrockQuery(player));
         return Optional.of(world.blockAt(position)
                 .map(block -> fromWorldBoxes(block.collisionBoxes()))
                 .orElse(NoCollisionBox.INSTANCE));
     }
 
     private static CollisionBox bedrockMovement(
-            BedrockCollisionOverrideCatalog catalog, BlockState state, BedrockCollisionShapeQuery query) {
+            BedrockCollisionOverrideCatalog catalog, int state, BedrockCollisionShapeQuery query) {
         BlockPosition position = new BlockPosition(0, 0, 0);
         BlockCollisionWorld world = new BedrockCollisionWorldBuilder(catalog).build(Map.of(position, state), query);
         return world.blockAt(position)
@@ -133,16 +123,7 @@ public final class BedrockClientBlockShapeMappings {
                 .orElse(NoCollisionBox.INSTANCE);
     }
 
-    public static boolean clientComputedMovement(BlockState state) {
-        return BedrockCollisionWorldBuilder.clientComputedMovement(state);
-    }
-
-    private static BlockState toBlockState(BlockState state) {
-        return state;
-    }
-
-    private static BedrockCollisionShapeQuery bedrockQuery(
-            CultPlayer player, BlockPosition position, BlockState state) {
+    private static BedrockCollisionShapeQuery bedrockQuery(CultPlayer player) {
         if (player == null || player.boundingBox == null) {
             return BedrockCollisionShapeQuery.NONE;
         }
@@ -153,8 +134,8 @@ public final class BedrockClientBlockShapeMappings {
     }
 
     private static boolean wearingLeatherBoots(CultPlayer player) {
-        ItemStack boots = player.getInventory().getBoots();
-        return boots != null && boots.getItem() == net.minecraft.world.item.Items.LEATHER_BOOTS;
+        SimItemStack boots = player.getInventory().getBoots();
+        return boots != null && boots.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS;
     }
 
     private static CollisionBox fromLocalBoxes(List<BlockAabb> boxes) {

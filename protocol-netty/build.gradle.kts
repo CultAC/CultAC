@@ -1,6 +1,5 @@
 plugins {
     cult.`base-conventions`
-    id("io.papermc.paperweight.userdev")
 }
 
 repositories {
@@ -24,7 +23,6 @@ configurations.configureEach {
 
 dependencies {
     api(project(":common"))
-    paperweight.paperDevBundle(providers.gradleProperty("paperDevBundleVersion").get())
     compileOnly("io.netty:netty-transport:4.2.16.Final")
     compileOnly("io.netty:netty-codec-base:4.2.16.Final")
     testImplementation("io.netty:netty-transport:4.2.16.Final")
@@ -35,8 +33,7 @@ dependencies {
 
 tasks.test { useJUnitPlatform() }
 
-// Classes are emitted with --release 21. Native compilation resolves the Java 25
-// Paper bundle, while consumers on older bundles can run this same bytecode.
+// Classes are emitted with --release 21 for consumers on older JVMs.
 for (variant in listOf("apiElements", "runtimeElements")) {
     configurations.named(variant) {
         attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 21)

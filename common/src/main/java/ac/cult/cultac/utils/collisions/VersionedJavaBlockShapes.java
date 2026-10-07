@@ -1,5 +1,8 @@
 package ac.cult.cultac.utils.collisions;
 
+import ac.cult.blocksim.data.BlockDefinition;
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
@@ -7,24 +10,20 @@ import ac.cult.cultac.utils.collisions.datatypes.NoCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Predicate;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
+import java.util.function.IntPredicate;
 
 final class VersionedJavaBlockShapes {
     private static final List<ShapeOverride> MOVEMENT_OVERRIDES = List.of(
             movement(
-                    state -> ac.cult.cultac.utils.nmsutil.NmsBlockTags.name(state.getBlock())
-                            .equals("PALE_MOSS_CARPET"),
+                    state -> BlockIds.is(state, BlockIds.PALE_MOSS_CARPET),
                     VersionedJavaBlockShapes::paleMossCarpetMovement),
-            movement(Blocks.PITCHER_CROP, VersionedJavaBlockShapes::pitcherCropMovement));
+            movement(BlockIds.PITCHER_CROP, VersionedJavaBlockShapes::pitcherCropMovement));
 
     private static final List<ShapeOverride> VISUAL_OVERRIDES = List.of();
 
     private VersionedJavaBlockShapes() {}
 
-    static Optional<CollisionBox> movement(CultPlayer player, BlockState state, int x, int y, int z) {
+    static Optional<CollisionBox> movement(CultPlayer player, int state, int x, int y, int z) {
         Optional<CollisionBox> legacy = LegacyJavaBlockShapes.movement(player, state, x, y, z);
         if (legacy.isPresent()) return legacy;
         if (!canUseVersionedJavaShape(player, state)) {
@@ -33,7 +32,7 @@ final class VersionedJavaBlockShapes {
         return movement(player.getClientVersion(), state, x, y, z);
     }
 
-    static Optional<CollisionBox> visual(CultPlayer player, BlockState state, int x, int y, int z) {
+    static Optional<CollisionBox> visual(CultPlayer player, int state, int x, int y, int z) {
         if (!canUseVersionedJavaShape(player, state)) {
             return Optional.empty();
         }
@@ -42,23 +41,23 @@ final class VersionedJavaBlockShapes {
 
     // The same Java geometry rules serve Java clients and the sparse Bedrock catalog's baseline.
     // State remains in the server registry; only the requested shape version changes.
-    static Optional<CollisionBox> movement(ClientVersion shapeVersion, BlockState state, int x, int y, int z) {
-        if (state == null || shapeVersion == null || shapeVersion.isOlderThan(ClientVersion.V_1_21_2)) {
+    static Optional<CollisionBox> movement(ClientVersion shapeVersion, int state, int x, int y, int z) {
+        if (state < 0 || shapeVersion == null || shapeVersion.isOlderThan(ClientVersion.V_1_21_2)) {
             return Optional.empty();
         }
         return firstMatch(MOVEMENT_OVERRIDES, shapeVersion, state, x, y, z);
     }
 
-    private static boolean canUseVersionedJavaShape(CultPlayer player, BlockState state) {
+    private static boolean canUseVersionedJavaShape(CultPlayer player, int state) {
         return player != null
                 && player.bedrockState == null
-                && state != null
+                && state >= 0
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
                 && player.getClientVersion().isOlderThan(ClientVersion.V_26_2);
     }
 
     private static Optional<CollisionBox> firstMatch(
-            List<ShapeOverride> overrides, ClientVersion shapeVersion, BlockState state, int x, int y, int z) {
+            List<ShapeOverride> overrides, ClientVersion shapeVersion, int state, int x, int y, int z) {
         for (ShapeOverride override : overrides) {
             if (override.matches(state)) {
                 return override.create(shapeVersion, state, x, y, z);
@@ -68,7 +67,7 @@ final class VersionedJavaBlockShapes {
     }
 
     private static Optional<CollisionBox> paleMossCarpetMovement(
-            ClientVersion shapeVersion, BlockState state, int x, int y, int z) {
+            ClientVersion shapeVersion, int state, int x, int y, int z) {
         if (shapeVersion.isNewerThanOrEquals(ClientVersion.V_26_2)) {
             return Optional.empty();
         }
@@ -82,12 +81,11 @@ final class VersionedJavaBlockShapes {
     }
 
     private static Optional<CollisionBox> pitcherCropMovement(
-            ClientVersion shapeVersion, BlockState state, int x, int y, int z) {
-        if (!state.hasProperty(net.minecraft.world.level.block.PitcherCropBlock.AGE)
-                || state.getValue(net.minecraft.world.level.block.PitcherCropBlock.AGE) != 0
-                || !state.hasProperty(net.minecraft.world.level.block.PitcherCropBlock.HALF)
-                || state.getValue(net.minecraft.world.level.block.PitcherCropBlock.HALF)
-                        != net.minecraft.world.level.block.state.properties.DoubleBlockHalf.UPPER) {
+            ClientVersion shapeVersion, int state, int x, int y, int z) {
+        if (!BlockProps.AGE_4.has(state)
+                || BlockProps.AGE_4.value(state) != 0
+                || !BlockProps.DOUBLE_BLOCK_HALF.has(state)
+                || BlockProps.DOUBLE_BLOCK_HALF.value(state) != 0) {
             return Optional.empty();
         }
         // Vanilla PitcherCropBlock#getCollisionShape checks AGE first through 1.21.4;
@@ -98,17 +96,16 @@ final class VersionedJavaBlockShapes {
                         : NoCollisionBox.INSTANCE);
     }
 
-    private static boolean isRaisedMossyCarpet(BlockState state) {
+    private static boolean isRaisedMossyCarpet(int state) {
         // Vanilla MossyCarpetBlock.BASE is the shared "bottom" property.
-        var bottom = net.minecraft.world.level.block.state.properties.BlockStateProperties.BOTTOM;
-        return state.hasProperty(bottom) && !state.getValue(bottom);
+        return BlockProps.BOTTOM.has(state) && !BlockProps.BOTTOM.booleanValue(state);
     }
 
-    private static ShapeOverride movement(Block material, ShapeFactory factory) {
-        return movement(state -> state.getBlock() == material, factory);
+    private static ShapeOverride movement(BlockDefinition material, ShapeFactory factory) {
+        return movement(state -> BlockIds.is(state, material), factory);
     }
 
-    private static ShapeOverride movement(Predicate<BlockState> matcher, ShapeFactory factory) {
+    private static ShapeOverride movement(IntPredicate matcher, ShapeFactory factory) {
         return new ShapeOverride(matcher, factory);
     }
 
@@ -123,18 +120,18 @@ final class VersionedJavaBlockShapes {
                 z + maxZ / 16.0D);
     }
 
-    private record ShapeOverride(Predicate<BlockState> matcher, ShapeFactory factory) {
-        boolean matches(BlockState state) {
+    private record ShapeOverride(IntPredicate matcher, ShapeFactory factory) {
+        boolean matches(int state) {
             return matcher.test(state);
         }
 
-        Optional<CollisionBox> create(ClientVersion shapeVersion, BlockState state, int x, int y, int z) {
+        Optional<CollisionBox> create(ClientVersion shapeVersion, int state, int x, int y, int z) {
             return factory.create(shapeVersion, state, x, y, z);
         }
     }
 
     @FunctionalInterface
     private interface ShapeFactory {
-        Optional<CollisionBox> create(ClientVersion shapeVersion, BlockState state, int x, int y, int z);
+        Optional<CollisionBox> create(ClientVersion shapeVersion, int state, int x, int y, int z);
     }
 }

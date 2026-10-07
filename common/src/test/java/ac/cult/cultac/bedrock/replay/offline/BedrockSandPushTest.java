@@ -2,14 +2,14 @@ package ac.cult.cultac.bedrock.replay.offline;
 
 import static org.junit.Assert.*;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -33,7 +33,14 @@ public class BedrockSandPushTest {
             for (int x = 2373; x <= 2377; x++)
                 for (int z = -3507; z <= -3503; z++) {
                     player.compensatedWorld.ensureValidationChunkLoaded(x >> 4, z >> 4);
-                    player.compensatedWorld.updateBlock(x, 77, z, Blocks.STONE.defaultBlockState());
+                    player.compensatedWorld.updateBlock(
+                            x,
+                            77,
+                            z,
+                            DataTables.defaults()
+                                    .registry()
+                                    .block("minecraft:stone")
+                                    .defaultState());
                 }
             player.x = player.lastX = start.x;
             player.y = player.lastY = start.y;
@@ -52,7 +59,14 @@ public class BedrockSandPushTest {
             };
             for (int i = 0; i < (sand ? frames.length : 2); i++) {
                 if (i == 1 && sand)
-                    player.compensatedWorld.updateBlock(2375, 78, -3506, Blocks.SAND.defaultBlockState());
+                    player.compensatedWorld.updateBlock(
+                            2375,
+                            78,
+                            -3506,
+                            DataTables.defaults()
+                                    .registry()
+                                    .block("minecraft:sand")
+                                    .defaultState());
                 var row = frames[i];
                 var feet = origin.toWorld(new Vec3(row[0], 78, row[1]));
                 var velocity = new Vec3(row[2], -0.0784F, row[3]);

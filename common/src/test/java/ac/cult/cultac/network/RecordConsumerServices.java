@@ -12,8 +12,6 @@ final class RecordConsumerServices implements AutoCloseable {
     private final Object originalLoader;
     private final Object originalStore;
     private final ac.cult.cultac.manager.config.BaseConfigManager originalConfig;
-    private final io.papermc.paper.configuration.GlobalConfiguration global;
-    private final io.papermc.paper.configuration.GlobalConfiguration.Misc originalMisc;
 
     RecordConsumerServices() throws Exception {
         ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap.installConfig();
@@ -28,9 +26,6 @@ final class RecordConsumerServices implements AutoCloseable {
         var loadedConfig = new ac.cult.cultac.manager.config.BaseConfigManager();
         loadedConfig.load(originalConfig.getConfig());
         config.set(CultAPI.INSTANCE, loadedConfig);
-        global = io.papermc.paper.configuration.GlobalConfiguration.get();
-        originalMisc = global.misc;
-        if (global.misc == null) global.misc = global.new Misc();
         ac.cult.cultac.platform.api.manager.MessagePlaceHolderManager placeholders = (player, text) -> text;
         loader.set(
                 CultAPI.INSTANCE,
@@ -67,6 +62,5 @@ final class RecordConsumerServices implements AutoCloseable {
         loader.set(CultAPI.INSTANCE, originalLoader);
         dataStore.set(CultAPI.INSTANCE, originalStore);
         config.set(CultAPI.INSTANCE, originalConfig);
-        global.misc = originalMisc;
     }
 }

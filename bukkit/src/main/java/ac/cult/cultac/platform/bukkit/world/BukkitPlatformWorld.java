@@ -1,13 +1,12 @@
 package ac.cult.cultac.platform.bukkit.world;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.platform.api.world.PlatformChunk;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import java.util.UUID;
 import net.minecraft.SharedConstants;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.jetbrains.annotations.NotNull;
@@ -24,17 +23,17 @@ public record BukkitPlatformWorld(@NotNull World bukkitWorld) implements Platfor
     }
 
     @Override
-    public BlockState getBlockAt(int x, int y, int z) {
+    public int getBlockAt(int x, int y, int z) {
         if (LEGACY_SERVER_VERSION) {
             org.bukkit.block.Block block = bukkitWorld.getBlockAt(x, y, z);
             @SuppressWarnings({"deprecation", "UnstableApiUsage"})
             int blockId = (block.getType().getId() << 4) | block.getData();
-            return Block.stateById(blockId);
+            return BukkitPlatformChunk.toModelState(blockId);
         } else {
-            if (BukkitPlatformChunk.isIllegalY(bukkitWorld, y)) return Blocks.AIR.defaultBlockState();
-            return ((org.bukkit.craftbukkit.block.data.CraftBlockData)
+            if (BukkitPlatformChunk.isIllegalY(bukkitWorld, y)) return BlockIds.AIR.defaultState();
+            return BukkitPlatformChunk.toModelState(Block.getId(((org.bukkit.craftbukkit.block.data.CraftBlockData)
                             bukkitWorld.getBlockAt(x, y, z).getBlockData())
-                    .getState();
+                    .getState()));
         }
     }
 

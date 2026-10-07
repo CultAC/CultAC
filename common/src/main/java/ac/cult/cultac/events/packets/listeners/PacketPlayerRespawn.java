@@ -1,5 +1,7 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.data.HolderSets;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsE;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsF;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsG;
@@ -17,13 +19,8 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
-import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.Vec3;
 
 public class PacketPlayerRespawn {
 
@@ -69,13 +66,11 @@ public class PacketPlayerRespawn {
         player.packetStateData.showsDeathScreen = packet.showDeathScreen();
 
         var spawnInfo = packet.spawnInfo();
-        var dimensionType = player.user
-                .registries()
-                .access()
-                .lookupOrThrow(Registries.DIMENSION_TYPE)
-                .byIdOrThrow(spawnInfo.dimensionTypeId());
+        var dimensionType = player.getWorldRegistries().dimension(spawnInfo.dimensionTypeId());
         player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
                 spawnInfo.gameMode().name());
+        player.isInvulnerable = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE
+                || player.gamemode == ac.cult.cultac.protocol.value.GameMode.SPECTATOR;
         // ClientPacketListener.handleLogin sets the local player's ID from this packet.
         // A proxy may rewrite it independently of the backend's native entity ID.
         player.entityID = packet.playerId();
@@ -94,11 +89,14 @@ public class PacketPlayerRespawn {
                 .getSelf()
                 .setDefaultBlockInteractionRange(player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE);
         player.compensatedEntities.selfTrackedEntity =
-                new TrackerData(0, 0, 0, 0, 0, EntityTypesCompat.PLAYER, player.lastTransactionSent.get());
-        player.dimension = NmsIdentifierUtil.resourceKey(Registries.DIMENSION, spawnInfo.dimension());
+                new TrackerData(0, 0, 0, 0, 0, EntityTypeIds.PLAYER, player.lastTransactionSent.get());
+        player.dimension = HolderSets.identifier(spawnInfo.dimension());
         player.world = spawnInfo.dimension();
-        player.compensatedWorld.setLastClientboundDimension(player.world, dimensionType);
+        player.compensatedWorld.setLastClientboundDimension(player.world, dimensionType.dimension());
+        player.compensatedWorld.onClientLogin();
         player.compensatedWorld.setDimension(player.world, dimensionType);
+        player.compensatedWorld.clientSeaLevel(spawnInfo.seaLevel());
+        player.compensatedWorld.clientBiomeZoomSeed(spawnInfo.biomeZoomSeed());
         player.compensatedWorld.resetClientPredictions();
         final long joinedAt = System.currentTimeMillis();
         player.lastJoinedWorld = joinedAt;
@@ -107,19 +105,15 @@ public class PacketPlayerRespawn {
     @CultPacketHandler
     public void onRespawn(PacketSendEvent<ClientboundRespawn> event, CultPlayer player, ClientboundRespawn packet) {
         var spawnInfo = packet.spawnInfo();
-        ResourceKey<Level> dimension = NmsIdentifierUtil.resourceKey(Registries.DIMENSION, spawnInfo.dimension());
+        String dimension = HolderSets.identifier(spawnInfo.dimension());
         String worldName = spawnInfo.dimension();
-        var dimensionType = player.user
-                .registries()
-                .access()
-                .lookupOrThrow(Registries.DIMENSION_TYPE)
-                .byIdOrThrow(spawnInfo.dimensionTypeId());
+        var dimensionType = player.getWorldRegistries().dimension(spawnInfo.dimensionTypeId());
         final List<Runnable> afterSend = event.getTasksAfterSend();
         afterSend.add(player::sendTransaction);
         boolean worldChange = player.compensatedWorld.isLastClientboundDimensionChange(worldName);
         String previousClientboundDimension =
                 player.compensatedWorld.getLastClientboundDimension().dimension();
-        player.compensatedWorld.setLastClientboundDimension(worldName, dimensionType);
+        player.compensatedWorld.setLastClientboundDimension(worldName, dimensionType.dimension());
 
         // Force the player to accept a teleport before respawning
         // (We won't process movements until they accept a teleport, we won't let movements though either)
@@ -165,8 +159,7 @@ public class PacketPlayerRespawn {
             player.checkManager.getExplosionHandler().exempt();
 
             if (setbacks.isDebug()) {
-                LogUtil.info(player.getName() + " respawned! World=" + worldName + " DimensionName="
-                        + NmsIdentifierUtil.resourceKey(dimension));
+                LogUtil.info(player.getName() + " respawned! World=" + worldName + " DimensionName=" + dimension);
             }
             // Keep latency-visible entity/player state ordered behind Cult's respawn transaction.
             if (worldChange) {
@@ -199,7 +192,7 @@ public class PacketPlayerRespawn {
             player.cameraEntity.reset();
             player.compensatedEntities.resetClientTickOrder();
             player.compensatedEntities.selfTrackedEntity =
-                    new TrackerData(0, 0, 0, 0, 0, EntityTypesCompat.PLAYER, player.lastTransactionSent.get());
+                    new TrackerData(0, 0, 0, 0, 0, EntityTypeIds.PLAYER, player.lastTransactionSent.get());
 
             player.isSprinting = false;
             player.vehicleData.camelSprintingState = SprintingState.STOPPED;
@@ -208,11 +201,18 @@ public class PacketPlayerRespawn {
             player.refreshPlayerPose();
             player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
                     spawnInfo.gameMode().name());
+            player.isInvulnerable = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE
+                    || player.gamemode == ac.cult.cultac.protocol.value.GameMode.SPECTATOR;
             player.compensatedEntities
                     .getSelf()
                     .setDefaultBlockInteractionRange(
                             player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE);
             player.compensatedWorld.setDimension(worldName, dimensionType);
+            // ClientPacketListener creates a new ClientLevel only when the dimension key changes.
+            if (worldChange) {
+                player.compensatedWorld.clientSeaLevel(spawnInfo.seaLevel());
+                player.compensatedWorld.clientBiomeZoomSeed(spawnInfo.biomeZoomSeed());
+            }
         };
         player.latencyUtils.addRealTimeTaskNext(applyRespawnState);
     }

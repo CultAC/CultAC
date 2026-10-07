@@ -14,6 +14,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
@@ -22,7 +23,6 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.AllArgsConstructor;
-import net.minecraft.world.phys.Vec3;
 
 // We will verify the player's reach against what a lower ping/more stable player would see
 // By doing this we defeat a lot of ping-manipulation based reach cheats
@@ -84,7 +84,7 @@ public class FairReach extends Check implements CheckListener {
                 () -> applyChanges(entityId, x, y, z, hasAppliedChanges), max_ping_compensation);
     }
 
-    private void addEntity(int entityId, net.minecraft.world.phys.Vec3 spawnPosition) {
+    private void addEntity(int entityId, ac.cult.cultac.utils.math.Vec3 spawnPosition) {
         targetPlayers.put(
                 entityId, new FairReachEntity(entityId, new Vec3(spawnPosition.x, spawnPosition.y, spawnPosition.z)));
     }

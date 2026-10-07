@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
@@ -18,8 +19,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -28,10 +28,7 @@ public final class BedrockMoveVehicleTransportTest {
     public void equineVariantsRequireSaddleAndValidatedMovement() {
         OfflineCultTestBootstrap.installConfig();
         for (var type : java.util.List.of(
-                EntityTypesCompat.DONKEY,
-                EntityTypesCompat.MULE,
-                EntityTypesCompat.SKELETON_HORSE,
-                EntityTypesCompat.ZOMBIE_HORSE)) {
+                EntityTypeIds.DONKEY, EntityTypeIds.MULE, EntityTypeIds.SKELETON_HORSE, EntityTypeIds.ZOMBIE_HORSE)) {
             CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
             try {
                 mountHorse(player, 71, type);
@@ -267,7 +264,7 @@ public final class BedrockMoveVehicleTransportTest {
             player.bedrockState.offerAuthInputFrame(BedrockAuthInputFrame.builder(player.playerUUID)
                     .protocolVersion(944)
                     .build());
-            player.compensatedEntities.addEntity(entityId, EntityTypesCompat.HORSE, Vec3.ZERO, 0.0F, 0.0F, 0);
+            player.compensatedEntities.addEntity(entityId, EntityTypeIds.HORSE, Vec3.ZERO, 0.0F, 0.0F, 0);
             ((PacketEntityHorse) player.compensatedEntities.getEntity(entityId)).hasSaddle = true;
             // Mount window: the server passenger timeline is installed while getRiding() is not.
             player.compensatedEntities.vehicles.setServerVehicle(
@@ -297,10 +294,10 @@ public final class BedrockMoveVehicleTransportTest {
     }
 
     private static void mountHorse(CultPlayer player, int entityId) {
-        mountHorse(player, entityId, EntityTypesCompat.HORSE);
+        mountHorse(player, entityId, EntityTypeIds.HORSE);
     }
 
-    private static void mountHorse(CultPlayer player, int entityId, net.minecraft.world.entity.EntityType<?> type) {
+    private static void mountHorse(CultPlayer player, int entityId, int type) {
         player.bedrockState.offerAuthInputFrame(BedrockAuthInputFrame.builder(player.playerUUID)
                 .protocolVersion(944)
                 .build());
@@ -337,7 +334,7 @@ public final class BedrockMoveVehicleTransportTest {
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             int vehicleId = 51;
-            player.compensatedEntities.addEntity(vehicleId, EntityTypesCompat.HORSE, Vec3.ZERO, 0.0F, 0.0F, 0);
+            player.compensatedEntities.addEntity(vehicleId, EntityTypeIds.HORSE, Vec3.ZERO, 0.0F, 0.0F, 0);
             ((PacketEntityHorse) player.compensatedEntities.getEntity(vehicleId)).hasSaddle = true;
             player.compensatedEntities.vehicles.setServerVehicle(
                     vehicleId, new int[] {player.entityID}, player.lastTransactionSent.get());

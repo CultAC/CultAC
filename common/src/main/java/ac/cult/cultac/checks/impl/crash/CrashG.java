@@ -7,15 +7,15 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
-import net.minecraft.SharedConstants;
 
 @CheckData(name = "CrashG", stableKey = "cult.crash.negative_sequence", description = "Sent negative sequence id")
 public class CrashG extends BlockPlaceCheck implements BlockBreakListener {
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     public CrashG(CultPlayer player) {
         super(player);

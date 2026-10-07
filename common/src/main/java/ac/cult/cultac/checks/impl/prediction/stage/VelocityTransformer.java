@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.prediction.stage;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -9,16 +10,15 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
+import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.WaterCurrent;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Setter;
-import net.minecraft.util.Mth;
-import net.minecraft.world.phys.Vec3;
 
 @Setter
 @AllArgsConstructor
@@ -77,7 +77,7 @@ public class VelocityTransformer {
     private boolean shouldThresholdBeforeItemControlledRiddenInput(CultPlayer player) {
         PacketEntity vehicle = simulationContext.getVehicle();
         return vehicle != null
-                && (vehicle.type == EntityTypesCompat.PIG || vehicle.type == EntityTypesCompat.STRIDER)
+                && (vehicle.type == EntityTypeIds.PIG || vehicle.type == EntityTypeIds.STRIDER)
                 && player.packetStateData.isVehicleMovementFromClientTick()
                 && canUseItemControlledMovement(player, vehicle);
     }
@@ -180,7 +180,7 @@ public class VelocityTransformer {
     }
 
     private boolean isVehicleControlSwitchTimingUnproven(CultPlayer player, PacketEntity vehicle) {
-        return (vehicle.type == EntityTypesCompat.PIG || vehicle.type == EntityTypesCompat.STRIDER)
+        return (vehicle.type == EntityTypeIds.PIG || vehicle.type == EntityTypeIds.STRIDER)
                 && player.packetStateData.isVehicleMovementFromClientTick()
                 && (player.compensatedEntities.vehicles.canOpenVehicleSwitchBufferForMovementPacket(vehicle)
                         || player.compensatedEntities.vehicles.isVehicleSwitchBufferActiveFor(vehicle));
@@ -196,7 +196,7 @@ public class VelocityTransformer {
     }
 
     private Vec3 getExactControlledRideableInput(CultPlayer player, PacketEntity vehicle) {
-        if (vehicle.type == EntityTypesCompat.PIG || vehicle.type == EntityTypesCompat.STRIDER) {
+        if (vehicle.type == EntityTypeIds.PIG || vehicle.type == EntityTypeIds.STRIDER) {
             // Pig#getRiddenInput and Strider#getRiddenInput ignore controller selfInput and return
             // Vec3(0, 0, 1) once the saddled first passenger can control the mount.
             return new Vec3(0.0D, 0.0D, 1.0D);
@@ -339,8 +339,8 @@ public class VelocityTransformer {
         float forward = 0.0F;
         float vertical = 0.0F;
         if (forwardKey != 0.0F) {
-            forward = Mth.cos(controllerPitch * ((float) Math.PI / 180.0F));
-            vertical = -Mth.sin(controllerPitch * ((float) Math.PI / 180.0F));
+            forward = CultMath.cos(controllerPitch * ((float) Math.PI / 180.0F));
+            vertical = -CultMath.sin(controllerPitch * ((float) Math.PI / 180.0F));
             if (forwardKey < 0.0F) {
                 forward *= -0.5F;
                 vertical *= -0.5F;
@@ -404,20 +404,20 @@ public class VelocityTransformer {
             return Vec3.ZERO;
         }
 
-        float rawLength = Mth.sqrt(rawLengthSqr);
+        float rawLength = CultMath.sqrt(rawLengthSqr);
         float normalizedX = xxa / rawLength;
         float normalizedZ = zza / rawLength;
 
         float modifiedX = normalizedX * 0.98F;
         float modifiedZ = normalizedZ * 0.98F;
-        float modifiedLength = Mth.sqrt(modifiedX * modifiedX + modifiedZ * modifiedZ);
+        float modifiedLength = CultMath.sqrt(modifiedX * modifiedX + modifiedZ * modifiedZ);
         if (modifiedLength > 0.0F) {
             float unitX = modifiedX / modifiedLength;
             float unitZ = modifiedZ / modifiedLength;
             float absX = Math.abs(unitX);
             float absZ = Math.abs(unitZ);
             float ratio = absZ > absX ? absX / absZ : absZ / absX;
-            float distanceToUnitSquare = Mth.sqrt(1.0F + Mth.square(ratio));
+            float distanceToUnitSquare = CultMath.sqrt(1.0F + CultMath.square(ratio));
             float scale = Math.min(modifiedLength * distanceToUnitSquare, 1.0F);
             modifiedX = unitX * scale;
             modifiedZ = unitZ * scale;
@@ -676,8 +676,9 @@ public class VelocityTransformer {
         // MCP-Reborn 26.1/26.2 Entity#calculateViewVector(xRot, yRot).
         float pitchRadians = controllerPitch * ((float) Math.PI / 180.0F);
         float yawRadians = -controllerYaw * ((float) Math.PI / 180.0F);
-        float cosPitch = Mth.cos(pitchRadians);
-        return new Vec3(Mth.sin(yawRadians) * cosPitch, -Mth.sin(pitchRadians), Mth.cos(yawRadians) * cosPitch);
+        float cosPitch = CultMath.cos(pitchRadians);
+        return new Vec3(
+                CultMath.sin(yawRadians) * cosPitch, -CultMath.sin(pitchRadians), CultMath.cos(yawRadians) * cosPitch);
     }
 
     static double groundJumpVelocityY(ClientVersion version, double currentVelocityY, double jumpPower) {

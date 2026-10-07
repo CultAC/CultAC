@@ -10,9 +10,9 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.phys.Vec3;
 
 @CheckData(
         name = "BadPacketsU",
@@ -39,8 +39,8 @@ public class BadPacketsU extends Check implements CheckListener {
         // except y gets wrapped?
         final int expectedY = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8) ? 4095 : 255;
 
-        final BlockPos pos = SpigotConversionUtil.toNmsBlockPos(packet.blockPosition());
-        final Vec3 cursor = SpigotConversionUtil.toNmsVec(packet.cursor());
+        final BlockPos pos = packet.blockPosition();
+        final Vec3 cursor = SpigotConversionUtil.fromProtocolVec(packet.cursor());
 
         if (pos.getX() != -1
                 || pos.getY() != expectedY

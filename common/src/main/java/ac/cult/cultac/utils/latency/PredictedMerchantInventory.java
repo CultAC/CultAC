@@ -1,11 +1,11 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.network.packet.InventoryPackets.MerchantOffer;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.inventory.inventory.AbstractContainerMenu;
 import ac.cult.cultac.utils.inventory.slot.Slot;
 import java.util.List;
-import net.minecraft.world.item.ItemStack;
 
 final class PredictedMerchantInventory {
     private static final int PAYMENT_A_SLOT = 0;
@@ -52,29 +52,13 @@ final class PredictedMerchantInventory {
         updateResultSlot(menu, offers, selectedTrade);
     }
 
-    static boolean matchesResult(
-            List<ItemStack> slots, List<MerchantOffer> offers, int selectedTrade, ItemStack result) {
-        if (slots == null || slots.size() < 3 || offers == null || isEmpty(result)) {
-            return false;
-        }
-
-        MerchantOffer offer =
-                findSatisfiedOffer(offers, slots.get(PAYMENT_A_SLOT), slots.get(PAYMENT_B_SLOT), selectedTrade);
-        if (offer == null) {
-            offer = findSatisfiedOffer(offers, slots.get(PAYMENT_B_SLOT), slots.get(PAYMENT_A_SLOT), selectedTrade);
-        }
-        return offer != null
-                && offer.result().getItem() == result.getItem()
-                && offer.result().getCount() == result.getCount();
-    }
-
     private static boolean movePaymentSlotBackToInventory(AbstractContainerMenu menu, int paymentSlot) {
         Slot slot = menu.getSlot(paymentSlot);
         if (slot == null) {
             return false;
         }
 
-        ItemStack stack = slot.getItem();
+        SimItemStack stack = slot.getItem();
         if (isEmpty(stack)) {
             return true;
         }
@@ -83,12 +67,12 @@ final class PredictedMerchantInventory {
             return false;
         }
 
-        slot.set(isEmpty(stack) ? ItemStack.EMPTY : stack);
+        slot.set(isEmpty(stack) ? SimItemStack.EMPTY : stack);
         return true;
     }
 
     private static boolean moveItemStackTo(
-            AbstractContainerMenu menu, ItemStack stack, int startSlot, int endSlot, boolean backwards) {
+            AbstractContainerMenu menu, SimItemStack stack, int startSlot, int endSlot, boolean backwards) {
         boolean moved = false;
         int index = backwards ? endSlot - 1 : startSlot;
 
@@ -96,7 +80,7 @@ final class PredictedMerchantInventory {
             while (!isEmpty(stack) && inRange(index, startSlot, endSlot, backwards)) {
                 Slot slot = menu.getSlot(index);
                 if (slot != null) {
-                    ItemStack existing = slot.getItem();
+                    SimItemStack existing = slot.getItem();
                     if (!isEmpty(existing) && ItemUtil.isSameItemSameTags(stack, existing)) {
                         int combined = existing.getCount() + stack.getCount();
                         int max = slot.getMaxStackSize(existing);
@@ -139,7 +123,7 @@ final class PredictedMerchantInventory {
     }
 
     private static void moveFromInventoryToPaymentSlot(
-            AbstractContainerMenu menu, int paymentSlotIndex, ItemStack cost) {
+            AbstractContainerMenu menu, int paymentSlotIndex, SimItemStack cost) {
         Slot paymentSlot = menu.getSlot(paymentSlotIndex);
         if (paymentSlot == null || isEmpty(cost)) {
             return;
@@ -151,12 +135,14 @@ final class PredictedMerchantInventory {
                 continue;
             }
 
-            ItemStack source = sourceSlot.getItem();
-            if (isEmpty(source) || !PredictedResultSlotValidator.costMatches(cost, source)) {
+            SimItemStack source = sourceSlot.getItem();
+            if (isEmpty(source)
+                    || !MerchantOfferSelection.costMatches(
+                            ItemUtil.inventoryValue(cost), ItemUtil.inventoryValue(source))) {
                 continue;
             }
 
-            ItemStack payment = paymentSlot.getItem();
+            SimItemStack payment = paymentSlot.getItem();
             if (!isEmpty(payment) && !ItemUtil.isSameItemSameTags(source, payment)) {
                 continue;
             }
@@ -167,10 +153,10 @@ final class PredictedMerchantInventory {
                 continue;
             }
 
-            ItemStack newPayment = ItemUtil.copy(source);
+            SimItemStack newPayment = ItemUtil.copy(source);
             newPayment.setCount(paymentAmount + movedAmount);
             source.setCount(source.getCount() - movedAmount);
-            sourceSlot.set(isEmpty(source) ? ItemStack.EMPTY : source);
+            sourceSlot.set(isEmpty(source) ? SimItemStack.EMPTY : source);
             paymentSlot.set(newPayment);
 
             if (newPayment.getCount() >= source.getMaxStackSize()) {
@@ -185,11 +171,11 @@ final class PredictedMerchantInventory {
             return;
         }
 
-        ItemStack buyA;
-        ItemStack buyB;
+        SimItemStack buyA;
+        SimItemStack buyB;
         if (isEmpty(menu.getSlot(PAYMENT_A_SLOT).getItem())) {
             buyA = menu.getSlot(PAYMENT_B_SLOT).getItem();
-            buyB = ItemStack.EMPTY;
+            buyB = SimItemStack.EMPTY;
         } else {
             buyA = menu.getSlot(PAYMENT_A_SLOT).getItem();
             buyB = menu.getSlot(PAYMENT_B_SLOT).getItem();
@@ -200,45 +186,30 @@ final class PredictedMerchantInventory {
             offer = findSatisfiedOffer(offers, buyB, buyA, selectedTrade);
         }
 
-        resultSlot.set(offer == null ? ItemStack.EMPTY : ItemUtil.copy(offer.result()));
+        resultSlot.set(offer == null ? SimItemStack.EMPTY : ItemUtil.copy(offer.result()));
     }
 
     private static MerchantOffer findSatisfiedOffer(
-            List<MerchantOffer> offers, ItemStack buyA, ItemStack buyB, int selectedTrade) {
-        int index = findSatisfiedOfferIndex(offers, buyA, buyB, selectedTrade);
+            List<MerchantOffer> offers, SimItemStack buyA, SimItemStack buyB, int selectedTrade) {
+        int index = MerchantOfferSelection.findSatisfiedOfferIndex(
+                values(offers), ItemUtil.inventoryValue(buyA), ItemUtil.inventoryValue(buyB), selectedTrade);
         return index < 0 ? null : offers.get(index);
     }
 
-    private static int findSatisfiedOfferIndex(
-            List<MerchantOffer> offers, ItemStack buyA, ItemStack buyB, int selectedTrade) {
-        // Vanilla treats hint 0 as "search all offers" and only pins positive hints.
-        if (selectedTrade > 0 && selectedTrade < offers.size()) {
-            MerchantOffer offer = offers.get(selectedTrade);
-            return satisfiedBy(offer, buyA, buyB) ? selectedTrade : -1;
-        }
-
-        for (int index = 0; index < offers.size(); index++) {
-            if (satisfiedBy(offers.get(index), buyA, buyB)) {
-                return index;
-            }
-        }
-        return -1;
+    /** Temporary storage edge; the selection and conservation rules receive owned values. */
+    static List<MerchantOfferSelection.Offer> values(List<MerchantOffer> offers) {
+        return offers == null
+                ? null
+                : offers.stream()
+                        .map(offer -> offer == null
+                                ? null
+                                : new MerchantOfferSelection.Offer(
+                                        ItemUtil.inventoryValue(offer.costA()), ItemUtil.inventoryValue(offer.costB()),
+                                        ItemUtil.inventoryValue(offer.result()), offer.outOfStock()))
+                        .toList();
     }
 
-    private static boolean satisfiedBy(MerchantOffer offer, ItemStack buyA, ItemStack buyB) {
-        if (offer == null
-                || offer.outOfStock()
-                || !PredictedResultSlotValidator.costMatches(offer.costA(), buyA)
-                || buyA.getCount() < offer.costA().getCount()) {
-            return false;
-        }
-        return isEmpty(offer.costB())
-                ? isEmpty(buyB)
-                : PredictedResultSlotValidator.costMatches(offer.costB(), buyB)
-                        && buyB.getCount() >= offer.costB().getCount();
-    }
-
-    private static boolean isEmpty(ItemStack stack) {
+    private static boolean isEmpty(SimItemStack stack) {
         return stack == null || stack.isEmpty();
     }
 }

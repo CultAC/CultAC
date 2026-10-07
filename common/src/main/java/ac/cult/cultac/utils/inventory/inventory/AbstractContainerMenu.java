@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.inventory.inventory;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.slot.Slot;
@@ -7,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
-import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.NotNull;
 
 public abstract class AbstractContainerMenu {
@@ -22,16 +22,16 @@ public abstract class AbstractContainerMenu {
 
     @Getter
     @NotNull
-    ItemStack carriedItem;
+    SimItemStack carriedItem;
 
     public AbstractContainerMenu(CultPlayer player, Inventory playerInventory) {
         this.player = player;
         this.playerInventory = playerInventory;
-        this.carriedItem = ItemStack.EMPTY;
+        this.carriedItem = SimItemStack.EMPTY;
     }
 
     public AbstractContainerMenu() {
-        this.carriedItem = ItemStack.EMPTY;
+        this.carriedItem = SimItemStack.EMPTY;
     }
 
     public Slot addSlot(Slot slot) {
@@ -46,19 +46,19 @@ public abstract class AbstractContainerMenu {
         }
     }
 
-    public ItemStack getCarried() {
+    public SimItemStack getCarried() {
         return getCarriedItem();
     }
 
-    public void setCarried(ItemStack stack) {
-        carriedItem = stack == null ? ItemStack.EMPTY : stack;
+    public void setCarried(SimItemStack stack) {
+        carriedItem = stack == null ? SimItemStack.EMPTY : stack;
     }
 
-    public ItemStack getPlayerInventoryItem(int slot) {
+    public SimItemStack getPlayerInventoryItem(int slot) {
         return playerInventory.getInventoryStorage().getItem(slot);
     }
 
-    public void setPlayerInventoryItem(int slot, ItemStack stack) {
+    public void setPlayerInventoryItem(int slot, SimItemStack stack) {
         playerInventory.getInventoryStorage().setItem(slot, stack);
     }
 

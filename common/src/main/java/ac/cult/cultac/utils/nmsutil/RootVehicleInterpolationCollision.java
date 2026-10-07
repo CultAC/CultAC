@@ -1,10 +1,11 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public final class RootVehicleInterpolationCollision {
     private static final double SAME_POSITION_DISTANCE_SQ = 1.0E-10D;
@@ -92,7 +93,7 @@ public final class RootVehicleInterpolationCollision {
 
     private static boolean packetEntityCanBeCollidedWith(PacketEntity entity) {
         return EntityTypeUtil.isBoat(entity.type)
-                || entity.type == EntityTypesCompat.SHULKER
+                || entity.type == EntityTypeIds.SHULKER
                 || EntityTypeUtil.isHappyGhast(entity.type);
     }
 

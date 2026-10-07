@@ -1,15 +1,16 @@
 package ac.cult.cultac.utils.data;
 
+import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.BlockTags;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
+import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import java.util.Objects;
 import lombok.Getter;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.state.BlockState;
 
 public class ShulkerData {
     public static final int BLOCK_ANIMATION_TICKS = 10;
@@ -53,9 +54,9 @@ public class ShulkerData {
 
     public Direction getFacing(CultPlayer player) {
         if (blockPos != null) {
-            BlockState state = player.compensatedWorld.getBlockStateAt(blockPos);
-            if (NmsBlockTags.isShulkerBox(state)) {
-                return NmsBlockTags.getFacing(state);
+            int state = player.compensatedWorld.getBlockStateIdAt(blockPos);
+            if (BlockTags.SHULKER_BOXES.test(state) || BlockFamilies.SHULKER_BOX.test(state)) {
+                return ClientBlockProperties.facing(state);
             }
         } else if (entity instanceof PacketEntityShulker) {
             return ((PacketEntityShulker) entity).facing.getOppositeFace();

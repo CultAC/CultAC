@@ -1,7 +1,7 @@
 package ac.cult.cultac.checks.impl.prediction;
 
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.Objects;
-import net.minecraft.world.phys.Vec3;
 
 /**
  * Profile-owned state captured at an accepted tick boundary for a later setback.

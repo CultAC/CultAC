@@ -8,12 +8,12 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.WaterCurrent;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.world.phys.Vec3;
 
 public class BoatTransform implements UncertaintyHandler {
     @Override

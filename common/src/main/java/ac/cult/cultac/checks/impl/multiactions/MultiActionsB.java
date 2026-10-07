@@ -5,8 +5,8 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
-import net.minecraft.world.InteractionHand;
 
 @CheckData(
         name = "MultiActionsB",
@@ -35,6 +35,6 @@ public class MultiActionsB extends Check implements BlockBreakListener {
     private boolean isActivelyUsingItem() {
         return player.packetStateData.isSlowedByUsingItem()
                 && (player.packetStateData.lastSlotSelected == player.packetStateData.getSlowedByUsingItemSlot()
-                        || player.packetStateData.itemInUseHand == InteractionHand.OFF_HAND);
+                        || player.packetStateData.itemInUseHand == Hand.OFF_HAND);
     }
 }

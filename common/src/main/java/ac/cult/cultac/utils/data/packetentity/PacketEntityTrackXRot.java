@@ -1,16 +1,14 @@
 package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.cultac.player.CultPlayer;
-import net.minecraft.util.Mth;
-import net.minecraft.world.entity.EntityType;
+import ac.cult.cultac.utils.math.CultMath;
 
 public class PacketEntityTrackXRot extends PacketEntity {
     public float packetYaw;
     public float interpYaw;
     public int steps = 0;
 
-    public PacketEntityTrackXRot(
-            CultPlayer player, int entityId, EntityType type, double x, double y, double z, float xRot) {
+    public PacketEntityTrackXRot(CultPlayer player, int entityId, int type, double x, double y, double z, float xRot) {
         super(player, entityId, type, x, y, z);
         this.packetYaw = xRot;
         this.interpYaw = xRot;
@@ -25,8 +23,8 @@ public class PacketEntityTrackXRot extends PacketEntity {
             return;
         }
         if (steps > 0) {
-            // MCP-Reborn InterpolationHandler#interpolate uses Mth.rotLerp, which wraps yaw deltas.
-            interpYaw = interpYaw + (Mth.wrapDegrees(packetYaw - interpYaw) / steps--);
+            // MCP-Reborn InterpolationHandler#interpolate uses CultMath.rotLerp, which wraps yaw deltas.
+            interpYaw = interpYaw + (CultMath.wrapDegrees(packetYaw - interpYaw) / steps--);
         }
     }
 }

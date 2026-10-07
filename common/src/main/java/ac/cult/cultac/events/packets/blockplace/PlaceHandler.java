@@ -1,18 +1,18 @@
 package ac.cult.cultac.events.packets.blockplace;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
+import ac.cult.cultac.utils.blockplace.ClientBlockActions;
 import ac.cult.cultac.utils.blockplace.SmoketestPredictionSafety;
-import ac.cult.cultac.utils.blockplace.VanillaBlockActions;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.TraverseBlocks;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.phys.Vec3;
 
 public class PlaceHandler {
     public static void handleQueuedUseItem(CultPlayer player, ServerboundUseItem place) {
@@ -70,27 +70,27 @@ public class PlaceHandler {
     }
 
     private static void handleUseItem(CultPlayer player, ServerboundUseItem place) {
-        VanillaBlockActions.use(player, SpigotConversionUtil.toNmsHand(place.hand()));
+        ClientBlockActions.use(player, place.hand());
     }
 
     private static void handleUseItemOn(CultPlayer player, ServerboundUseItemOn place) {
-        InteractionHand hand = SpigotConversionUtil.toNmsHand(place.hand());
-        VanillaBlockActions.useOn(
+        Hand hand = place.hand();
+        ClientBlockActions.useOn(
                 player,
                 createUseItemOnBlockPlace(player, place, player.getInventory().getHandItem(hand)));
     }
 
     private static BlockPlace createUseItemOnBlockPlace(
-            CultPlayer player, ServerboundUseItemOn place, ItemStack placedWith) {
+            CultPlayer player, ServerboundUseItemOn place, SimItemStack placedWith) {
         BlockPlace blockPlace = new BlockPlace(
                 player,
-                SpigotConversionUtil.toNmsHand(place.hand()),
-                SpigotConversionUtil.toNmsBlockPos(place.blockPosition()),
-                SpigotConversionUtil.toBukkitFace(place.blockFace()),
+                place.hand(),
+                place.blockPosition(),
+                place.blockFace(),
                 placedWith,
-                TraverseBlocks.getNearestHitResult(player, null, true),
+                TraverseBlocks.getNearestHitResult(player, true),
                 place.sequence());
-        blockPlace.setCursor(SpigotConversionUtil.toNmsVec(place.cursor()));
+        blockPlace.setCursor(SpigotConversionUtil.fromProtocolVec(place.cursor()));
         blockPlace.setInside(place.insideBlock());
         return blockPlace;
     }

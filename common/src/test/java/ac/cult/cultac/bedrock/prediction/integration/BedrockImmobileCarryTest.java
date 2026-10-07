@@ -23,9 +23,9 @@ import ac.cult.cultac.bedrock.prediction.world.FluidState;
 import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.Set;
-import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public final class BedrockImmobileCarryTest {

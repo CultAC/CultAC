@@ -22,7 +22,6 @@ import io.netty.channel.local.LocalServerChannel;
 import io.netty.util.ReferenceCountUtil;
 import java.util.UUID;
 import java.util.concurrent.*;
-import net.minecraft.network.Connection;
 
 /** Real independent I/O/packet loops around the manager's actual User creation and close. */
 final class InboundConsumerFixture implements AutoCloseable {
@@ -37,7 +36,6 @@ final class InboundConsumerFixture implements AutoCloseable {
     final CompletableFuture<Void> received = new CompletableFuture<>();
     final ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
     final Channel listener, client, server;
-    final Connection connection;
     final CultConnection transport;
 
     InboundConsumerFixture() throws Exception {
@@ -82,8 +80,6 @@ final class InboundConsumerFixture implements AutoCloseable {
                                     ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap.platformConnection();
                             org.mockito.Mockito.when(platform.authenticatedProfile())
                                     .thenReturn(new User.Profile(uuid, "InboundConsumer"));
-                            var nativeConnection = org.mockito.Mockito.mock(Connection.class);
-                            nativeConnection.channel = channel;
                             var wire = manager.createConnection(platform, channel);
                             wire.phase(PacketDirection.SERVERBOUND, ConnectionPhase.CONFIGURATION);
                             wire.phase(PacketDirection.CLIENTBOUND, ConnectionPhase.CONFIGURATION);
@@ -93,7 +89,7 @@ final class InboundConsumerFixture implements AutoCloseable {
                                 @Override
                                 public void channelActive(ChannelHandlerContext ctx) {
                                     try {
-                                        accepted.complete(new Binding(channel, nativeConnection, wire, selectedOwner));
+                                        accepted.complete(new Binding(channel, wire, selectedOwner));
                                     } catch (Throwable failure) {
                                         accepted.completeExceptionally(failure);
                                     }
@@ -132,7 +128,6 @@ final class InboundConsumerFixture implements AutoCloseable {
                 .channel();
         Binding binding = accepted.get(5, TimeUnit.SECONDS);
         server = binding.channel;
-        connection = binding.connection;
         transport = binding.transport;
         routes = transport.dispatcher();
         owner = binding.owner;
@@ -188,9 +183,5 @@ final class InboundConsumerFixture implements AutoCloseable {
         owners.shutdownGracefully(0, 5, TimeUnit.SECONDS).sync();
     }
 
-    private record Binding(
-            Channel channel,
-            Connection connection,
-            CultConnection transport,
-            io.netty.util.concurrent.EventExecutor owner) {}
+    private record Binding(Channel channel, CultConnection transport, io.netty.util.concurrent.EventExecutor owner) {}
 }

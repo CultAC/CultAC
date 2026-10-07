@@ -7,16 +7,16 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import lombok.Getter;
 import net.kyori.adventure.text.Component;
-import net.minecraft.SharedConstants;
 
 public class ClientBrand extends Check implements CheckListener {
 
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private static final String CHANNEL =
             SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_13) ? "minecraft:brand" : "MC|Brand";

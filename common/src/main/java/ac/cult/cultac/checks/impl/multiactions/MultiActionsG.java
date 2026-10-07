@@ -6,6 +6,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSpectatorAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
@@ -44,8 +45,7 @@ public class MultiActionsG extends BlockPlaceCheck {
     public void onInteractEntity(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
         int action = (packet.action() == ac.cult.cultac.protocol.value.InteractAction.ATTACK
-                        && net.minecraft.SharedConstants.getProtocolVersion()
-                                >= ac.cult.cultac.protocol.ProtocolVersion.V26_1.protocol())
+                        && ProtocolVersion.V26_3.protocol() >= ac.cult.cultac.protocol.ProtocolVersion.V26_1.protocol())
                 ? ACTION_ATTACK
                 : ACTION_INTERACT;
         if (isCheckActive() && flag(writeAction(action)) && shouldModifyPackets()) {

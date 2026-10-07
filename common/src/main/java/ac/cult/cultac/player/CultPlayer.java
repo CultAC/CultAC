@@ -1,5 +1,6 @@
 package ac.cult.cultac.player;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
@@ -28,6 +29,7 @@ import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -51,9 +53,9 @@ import ac.cult.cultac.utils.latency.LatencyUtils;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.TrigHandler;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.GrimUser;
@@ -83,11 +85,6 @@ import lombok.Setter;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TranslatableComponent;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import net.minecraft.SharedConstants;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.phys.Vec3;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -192,6 +189,7 @@ public class CultPlayer implements GrimUser {
     public boolean isFlying;
     public boolean canFly;
     public boolean canInstabuild;
+    public boolean isInvulnerable;
     public boolean isSwimming;
     public boolean isGliding;
     public boolean isRiptidePose = false;
@@ -246,7 +244,7 @@ public class CultPlayer implements GrimUser {
     public int minPlayerAttackSlow = 0;
     public int maxPlayerAttackSlow = 0;
     public @MonotonicNonNull GameMode gamemode;
-    public @MonotonicNonNull ResourceKey<Level> dimension;
+    public @MonotonicNonNull String dimension;
     public @Nullable String world;
     public @Nullable Vec3 bedPosition;
     public long lastBlockPlaceUseItem = 0;
@@ -763,7 +761,7 @@ public class CultPlayer implements GrimUser {
 
         return EntityTypeUtil.isBoat(entity.type)
                 || entity.isMinecart()
-                || entity.type == EntityTypesCompat.SHULKER
+                || entity.type == EntityTypeIds.SHULKER
                 || EntityTypeUtil.isHappyGhast(entity.type);
     }
 
@@ -963,6 +961,11 @@ public class CultPlayer implements GrimUser {
         return checkManager.getSimulationProcessor().getLastTickSkip().hasOccurredSince(ticks);
     }
 
+    public ac.cult.cultac.utils.latency.ClientWorldRegistries getWorldRegistries() {
+        if (registryState == null) registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
+        return registryState.worldRegistries(user.getCultConnection().platform()::initialWorldData);
+    }
+
     public CompensatedInventory getInventory() {
         return checkManager.getInventory();
     }
@@ -984,7 +987,7 @@ public class CultPlayer implements GrimUser {
         return new PacketWorld() {
             @Override
             public int getBlockStateId(int x, int y, int z) {
-                return Block.getId(world.getBlockStateAt(x, y, z));
+                return world.getBlockStateIdAt(x, y, z);
             }
 
             @Override
@@ -1099,7 +1102,7 @@ public class CultPlayer implements GrimUser {
         }
         // Offline fixtures and pre-authentication callers may have no identity.
         // Never cache this fallback or resolve a different session by account UUID.
-        return ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+        return ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
     }
 
     @Override

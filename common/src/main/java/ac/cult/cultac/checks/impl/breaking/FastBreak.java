@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.breaking;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockBreakListener;
@@ -9,17 +10,13 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import java.util.Set;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
 
 // Based loosely off of Hawk BlockBreakSpeedSurvival
 // Also based loosely off of NoCheatPlus FastBreak
@@ -28,10 +25,6 @@ import net.minecraft.world.level.block.state.BlockState;
 public class FastBreak extends Check implements BlockBreakListener {
     private static final Verbose V =
             Verbose.of("[delay={ulong}ms|diff={f64:%.1f}ms, balance={f64:%.1f}ms], type={block}");
-
-    // For some reason these states flag and I don't know why.
-    // Better to just exempt to not annoy legit players.
-    private static final Set<Block> EXEMPT_STATES = Set.of();
 
     public FastBreak(CultPlayer player) {
         super(player);
@@ -70,7 +63,7 @@ public class FastBreak extends Check implements BlockBreakListener {
             }
 
             if (blockDelayBalance > 1000) { // If more than a second of advantage
-                int type = BuiltInRegistries.BLOCK.getId(blockBreak.block.getBlock());
+                int type = DataTables.defaults().registry().blockIndex(blockBreak.block);
                 if (flag(V.write(verbose())
                                 .bool(true)
                                 .ulong((long) breakDelay)
@@ -100,7 +93,7 @@ public class FastBreak extends Check implements BlockBreakListener {
             }
 
             if (blockBreakBalance > 1000) { // If more than a second of advantage
-                int type = BuiltInRegistries.BLOCK.getId(blockBreak.block.getBlock());
+                int type = DataTables.defaults().registry().blockIndex(blockBreak.block);
                 if (flag(V.write(verbose())
                                 .bool(false)
                                 .ulong(0)
@@ -143,8 +136,8 @@ public class FastBreak extends Check implements BlockBreakListener {
         }
     }
 
-    private double getClientBlockDamage(BlockState serverState) {
-        BlockState clientState = ViaClientBlockShapeMappings.clientBlockState(player, serverState);
+    private double getClientBlockDamage(int serverState) {
+        int clientState = ViaClientBlockShapeMappings.clientBlockStateId(player, serverState);
         return BlockBreakSpeed.getBlockDamage(player, player.getInventory().getHeldItem(), clientState);
     }
 

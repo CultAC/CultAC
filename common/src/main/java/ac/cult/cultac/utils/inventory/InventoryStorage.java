@@ -1,17 +1,17 @@
 package ac.cult.cultac.utils.inventory;
 
-import net.minecraft.world.item.ItemStack;
+import ac.cult.blocksim.engine.SimItemStack;
 
 public class InventoryStorage {
-    protected ItemStack[] items;
+    protected SimItemStack[] items;
     int size;
 
     public InventoryStorage(int size) {
-        this.items = new ItemStack[size];
+        this.items = new SimItemStack[size];
         this.size = size;
 
         for (int i = 0; i < size; i++) {
-            items[i] = ItemStack.EMPTY;
+            items[i] = SimItemStack.EMPTY;
         }
     }
 
@@ -19,18 +19,18 @@ public class InventoryStorage {
         return size;
     }
 
-    public void setItem(int item, ItemStack stack) {
-        items[item] = stack == null ? ItemStack.EMPTY : stack;
+    public void setItem(int item, SimItemStack stack) {
+        items[item] = stack == null ? SimItemStack.EMPTY : stack;
     }
 
-    public ItemStack getItem(int index) {
+    public SimItemStack getItem(int index) {
         return items[index];
     }
 
-    public ItemStack removeItem(int slot, int amount) {
+    public SimItemStack removeItem(int slot, int amount) {
         return slot >= 0 && slot < items.length && !items[slot].isEmpty() && amount > 0
                 ? ItemUtil.split(items[slot], amount)
-                : ItemStack.EMPTY;
+                : SimItemStack.EMPTY;
     }
 
     public int getMaxStackSize() {

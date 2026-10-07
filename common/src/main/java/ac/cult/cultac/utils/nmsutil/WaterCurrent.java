@@ -1,13 +1,13 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.data.FluidTags;
+import ac.cult.blocksim.engine.SimFluidState;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import net.minecraft.core.BlockPos;
-import net.minecraft.tags.FluidTags;
-import net.minecraft.world.level.material.FluidState;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public final class WaterCurrent {
     private WaterCurrent() {}
@@ -64,12 +64,12 @@ public final class WaterCurrent {
             for (int y = minY; y <= maxY; y++) {
                 for (int z = minZ; z <= maxZ; z++) {
                     mutablePos.set(x, y, z);
-                    FluidState fluidState = player.compensatedWorld.getFluidState(mutablePos);
+                    SimFluidState fluidState = ClientFluidQueries.fluidAt(player.compensatedWorld, mutablePos);
                     if (!ClientFluidQueries.is(player, fluidState, FluidTags.WATER)) {
                         continue;
                     }
 
-                    double fluidTop = y + fluidState.getHeight(player.compensatedWorld, mutablePos);
+                    double fluidTop = y + ClientFluidQueries.height(player.compensatedWorld, mutablePos, fluidState);
                     if (fluidTop < fluidBox.minY) {
                         continue;
                     }
@@ -118,7 +118,7 @@ public final class WaterCurrent {
             SimpleCollisionBox entityBox,
             boolean playerEntity,
             Vec3 velocityBeforeCurrent,
-            net.minecraft.tags.TagKey<net.minecraft.world.level.material.Fluid> fluidTag,
+            FluidTags fluidTag,
             double scale) {
         SimpleCollisionBox fluidBox = entityBox.copy().expand(-0.001D);
 
@@ -139,12 +139,12 @@ public final class WaterCurrent {
             for (int y = minY; y <= maxY; y++) {
                 for (int z = minZ; z <= maxZ; z++) {
                     mutablePos.set(x, y, z);
-                    FluidState fluidState = player.compensatedWorld.getFluidState(mutablePos);
+                    SimFluidState fluidState = ClientFluidQueries.fluidAt(player.compensatedWorld, mutablePos);
                     if (!ClientFluidQueries.is(player, fluidState, fluidTag)) {
                         continue;
                     }
 
-                    double fluidTop = y + fluidState.getHeight(player.compensatedWorld, mutablePos);
+                    double fluidTop = y + ClientFluidQueries.height(player.compensatedWorld, mutablePos, fluidState);
                     if (fluidTop < fluidBox.minY) {
                         continue;
                     }

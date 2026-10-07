@@ -1,20 +1,17 @@
 package ac.cult.cultac.checks.impl.verbose;
 
+import ac.cult.blocksim.data.BlockDefinition;
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
-import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import ac.grim.grimac.api.storage.verbose.VerboseSchema;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
 import java.util.List;
-import net.minecraft.SharedConstants;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.level.block.Block;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,7 +29,7 @@ public final class VerboseCodecs {
 
     static {
         VerboseTags.registerEnum("face", Direction.values());
-        var version = ProtocolVersion.of(SharedConstants.getProtocolVersion());
+        var version = ProtocolVersion.V26_3;
         var digging = java.util.Arrays.stream(PlayerAction.values())
                 .filter(action ->
                         (action != PlayerAction.CHANGE_DESTROY_DIRECTION || version.atLeast(ProtocolVersion.V26_3))
@@ -44,7 +41,7 @@ public final class VerboseCodecs {
         VerboseTags.registerEnumLower(
                 "clicktype_lower", ac.cult.cultac.utils.inventory.inventory.WindowClickType.values());
         VerboseTags.registerEnum("entityaction", PlayerCommandAction.values());
-        VerboseTags.registerEnum("hand", InteractionHand.values());
+        VerboseTags.registerEnum("hand", Hand.values());
         VerboseTags.register(
                 "block", List.of(VerboseSchema.TypeTag.ZZ), (in, ctx, out, fmt) -> out.append(blockName(in.rzz())));
         VerboseTags.register(
@@ -82,7 +79,7 @@ public final class VerboseCodecs {
 
     /** Keep stored action IDs aligned with the server's existing verbose decoder. */
     public static int digging(@Nullable PlayerAction action) {
-        return action == null ? 0 : action.wireId(ProtocolVersion.of(SharedConstants.getProtocolVersion())) + 1;
+        return action == null ? 0 : action.wireId(ProtocolVersion.V26_3) + 1;
     }
 
     /**
@@ -91,37 +88,38 @@ public final class VerboseCodecs {
      * {@code -1} when the block has no id in the player's version
      * (server-only states render as {@code unknown}).
      */
-    public static int block(@NotNull Block type, @NotNull ClientVersion version) {
-        return BuiltInRegistries.BLOCK.getId(type);
+    public static int block(@NotNull BlockDefinition type, @NotNull ClientVersion version) {
+        return DataTables.defaults().registry().blockIndex(type.defaultState());
     }
 
     /** Encoder for {@code {item}}: the server's built-in registry item id. */
-    public static int item(@NotNull Item type, @NotNull ClientVersion version) {
-        return BuiltInRegistries.ITEM.getId(type);
+    public static int item(@NotNull ac.cult.blocksim.data.ItemDefinition type, @NotNull ClientVersion version) {
+        return type.id();
     }
 
-    /** Encoder for {@code {entity}}: the server's built-in registry entity-type id. */
-    public static int entity(@NotNull EntityType<?> type, @NotNull ClientVersion version) {
-        return BuiltInRegistries.ENTITY_TYPE.getId(type);
+    /** Encoder for {@code {entity}}: the shared model entity-type id. */
+    public static int entity(int type, @NotNull ClientVersion version) {
+        return type;
     }
 
     private static @NotNull String blockName(int id) {
         if (id < 0) return "unknown";
-        Block type = BuiltInRegistries.BLOCK.byId(id);
-        return type == null ? "unknown(" + id + ")" : NmsIdentifierUtil.registryKey(BuiltInRegistries.BLOCK, type);
+        var blocks = DataTables.defaults().registry().blocks();
+        return id < blocks.size() ? blocks.get(id).key() : BlockIds.AIR.key();
     }
 
     private static @NotNull String itemTypeName(int id) {
         if (id < 0) return "";
-        Item type = BuiltInRegistries.ITEM.byId(id);
-        return type == null ? "unknown(" + id + ")" : NmsIdentifierUtil.registryKey(BuiltInRegistries.ITEM, type);
+        var items = ac.cult.cultac.protocol.data.ModelRegistryData.load(ProtocolVersion.V26_3)
+                .registry("minecraft:item");
+        return id >= items.size() ? "unknown(" + id + ")" : items.name(id);
     }
 
     private static @NotNull String entityTypeName(int entityId) {
-        EntityType<?> entityType = BuiltInRegistries.ENTITY_TYPE.byId(entityId);
-        return entityType == null
+        var types = ac.cult.blocksim.entity.EntityTypes.defaults();
+        return entityId < 0 || entityId >= types.types().size()
                 ? "unknown"
-                : NmsIdentifierUtil.registryKey(BuiltInRegistries.ENTITY_TYPE, entityType);
+                : types.byId(entityId).key();
     }
 
     private static @NotNull String humanFormattedOffset(double offset) {

@@ -6,15 +6,15 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAnimate;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.phys.Vec3;
 
 public class PacketSelfMetadataListener {
 
@@ -122,14 +122,9 @@ public class PacketSelfMetadataListener {
                                                                 .isNewerThanOrEquals(
                                                                         ac.cult.cultac.network.protocol.ClientVersion
                                                                                 .V_26_3)
-                                                        && "straw_bed"
-                                                                .equals(ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil
-                                                                        .registryPath(
-                                                                                net.minecraft.core.registries
-                                                                                        .BuiltInRegistries.BLOCK,
-                                                                                player.compensatedWorld
-                                                                                        .getBlockState(bedPos)
-                                                                                        .getBlock()))
+                                                        && ac.cult.blocksim.data.BlockIds.is(
+                                                                player.compensatedWorld.getBlockStateIdAt(bedPos),
+                                                                ac.cult.blocksim.data.BlockIds.STRAW_BED)
                                                 ? 0.375
                                                 : 0.6875),
                                 bedPos.getZ() + 0.5);

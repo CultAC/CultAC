@@ -62,10 +62,7 @@ if (gradle.startParameter.isBuildScan) {
 
 rootProject.name = "cultac"
 include("common")
-include("placement-api")
-include("placement-runtime")
-include("vanilla-runtime")
-include("vanilla-bootstrap")
+include("block-sim", "block-sim-generator")
 include("velocity-bootstrap", "velocity-platform")
 include("velocity-validation")
 project(":velocity-validation").projectDir = file("validation/velocity/harness")

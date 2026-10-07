@@ -1,5 +1,9 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockRegistry;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
@@ -13,9 +17,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import net.minecraft.world.level.block.state.BlockState;
 
 final class BedrockSolidBlockSampler {
+    private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
     private final BedrockFluidBlockSampler fluidBlocks;
 
     BedrockSolidBlockSampler(BedrockFluidBlockSampler fluidBlocks) {
@@ -38,7 +42,7 @@ final class BedrockSolidBlockSampler {
 
     private static PlacedBlockCollision javaCollisionBlock(
             CultPlayer player,
-            BlockState blockState,
+            int blockState,
             BlockPosition position,
             String javaState,
             BedrockCollisionWorldBuilder worldBuilder) {
@@ -65,7 +69,7 @@ final class BedrockSolidBlockSampler {
             List<BlockPosition> powderSnowBlocks,
             BlockCollisionWorld staticGeneratedWorld,
             BlockCollisionWorld actorIndependentWorld,
-            Map<BlockPosition, BlockState> dynamicGeneratedBlockStates,
+            Map<BlockPosition, Integer> dynamicGeneratedBlockStates,
             List<PlacedBlockCollision> javaCollisionBlocks,
             List<PlacedBlockCollision> fluidCollisionBlocks) {
         BedrockSolidBlockSample {
@@ -77,7 +81,7 @@ final class BedrockSolidBlockSampler {
             fluidCollisionBlocks = fluidCollisionBlocks == null ? List.of() : List.copyOf(fluidCollisionBlocks);
         }
 
-        private static Map<BlockPosition, BlockState> immutableMap(Map<BlockPosition, BlockState> input) {
+        private static Map<BlockPosition, Integer> immutableMap(Map<BlockPosition, Integer> input) {
             if (input == null || input.isEmpty()) {
                 return Map.of();
             }
@@ -90,8 +94,8 @@ final class BedrockSolidBlockSampler {
         private final BedrockCollisionOverrideCatalog geometry;
         private final BedrockCollisionWorldBuilder worldBuilder;
         private final List<BlockPosition> powderSnowBlocks = new ArrayList<>();
-        private final Map<BlockPosition, BlockState> staticGeneratedBlockStates = new LinkedHashMap<>();
-        private final Map<BlockPosition, BlockState> dynamicGeneratedBlockStates = new LinkedHashMap<>();
+        private final Map<BlockPosition, Integer> staticGeneratedBlockStates = new LinkedHashMap<>();
+        private final Map<BlockPosition, Integer> dynamicGeneratedBlockStates = new LinkedHashMap<>();
         private final List<PlacedBlockCollision> javaCollisionBlocks = new ArrayList<>();
         private final List<PlacedBlockCollision> fluidCollisionBlocks = new ArrayList<>();
 
@@ -102,8 +106,10 @@ final class BedrockSolidBlockSampler {
         }
 
         private void add(int x, int y, int z) {
-            BlockState blockState = player.compensatedWorld.getBlockStateAt(x, y, z);
-            if (blockState.isAir() && blockState.getFluidState().isEmpty()) {
+            int blockState = player.compensatedWorld.getBlockStateIdAt(x, y, z);
+            StateFacts facts = REGISTRY.facts(blockState);
+            boolean air = facts.has(StateFacts.AIR);
+            if (air && facts.fluid().equals("minecraft:empty")) {
                 return;
             }
             BlockPosition position = new BlockPosition(x, y, z);
@@ -112,10 +118,10 @@ final class BedrockSolidBlockSampler {
             if (fluidBlock != null) {
                 fluidCollisionBlocks.add(fluidBlock);
             }
-            if (blockState.getBlock() == net.minecraft.world.level.block.Blocks.POWDER_SNOW) {
+            if (BlockIds.is(blockState, BlockIds.POWDER_SNOW)) {
                 powderSnowBlocks.add(position);
             }
-            if (blockState.isAir() || fluidBlocks.isFluid(blockState)) {
+            if (air || fluidBlocks.isFluid(blockState)) {
                 return;
             }
             if (!BedrockCollisionWorldBuilder.hasBedrockBehavior(blockState, geometry)) {

@@ -14,7 +14,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfile;
 import ac.cult.cultac.player.CultPlayer;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockMovementProfile implements MovementProfile {

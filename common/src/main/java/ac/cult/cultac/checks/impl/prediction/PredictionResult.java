@@ -10,12 +10,12 @@ import ac.cult.cultac.utils.anticheat.StringReturner;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import lombok.*;
-import net.minecraft.world.phys.Vec3;
 
 @Data
 @RequiredArgsConstructor

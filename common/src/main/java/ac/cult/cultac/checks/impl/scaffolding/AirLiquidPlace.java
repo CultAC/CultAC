@@ -1,16 +1,17 @@
 package ac.cult.cultac.checks.impl.scaffolding;
 
+import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.change.BlockModification;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
 
 @CheckData(
         name = "AirLiquidPlace",
@@ -62,7 +63,7 @@ public class AirLiquidPlace extends BlockPlaceCheck {
         if (player.gamemode == GameMode.CREATIVE) return;
 
         BlockPos blockPos = place.getPlacedAgainstBlockLocation();
-        Block placeAgainst = player.compensatedWorld.getMaterialAt(blockPos.getX(), blockPos.getY(), blockPos.getZ());
+        int placeAgainst = player.compensatedWorld.getBlockStateIdAt(blockPos);
 
         int currentTick = CultAPI.INSTANCE.getTickManager().currentTick;
         // this is actual more lenient than we need to be, We can check up to 1 ticks for all changes at location sand
@@ -77,13 +78,13 @@ public class AirLiquidPlace extends BlockPlaceCheck {
         // Check if old block from instant breaking in same tick as the current placement was valid
         // There should only be one block here for legit clients
         for (BlockModification blockModification : blockModifications) {
-            Block oldType = blockModification.oldBlockContents().getBlock();
-            if (!oldType.defaultBlockState().isAir() && !NmsBlockTags.isNoPlaceLiquid(oldType)) {
+            int oldState = blockModification.oldBlockContents();
+            if (isValidSupport(oldState)) {
                 return;
             }
         }
 
-        if (placeAgainst.defaultBlockState().isAir() || NmsBlockTags.isNoPlaceLiquid(placeAgainst)) { // fail
+        if (!isValidSupport(placeAgainst)) { // fail
             if (flag() && shouldModifyPackets() && shouldCancel()) {
                 place.resync();
             }
@@ -92,11 +93,20 @@ public class AirLiquidPlace extends BlockPlaceCheck {
 
     public void handleBlockBreak(BlockPos pos) {
         player.blockHistory.add(new BlockModification(
-                player.compensatedWorld.getBlockDataAt(pos.getX(), pos.getY(), pos.getZ()),
-                Blocks.AIR.defaultBlockState(),
+                player.compensatedWorld.getBlockStateIdAt(pos),
+                BlockIds.AIR.defaultState(),
                 pos,
                 CultAPI.INSTANCE.getTickManager().currentTick,
                 BlockModification.Cause.START_DIGGING));
+    }
+
+    private static boolean isValidSupport(int state) {
+        // The original material query inspected the block's default state.
+        var registry = DataTables.defaults().registry();
+        int defaultState = registry.block(state).defaultState();
+        var facts = registry.facts(defaultState);
+        return !facts.has(StateFacts.AIR)
+                && !(BlockFamilies.LIQUID.test(defaultState) && facts.has(StateFacts.FLUID_SOURCE));
     }
 
     @Override

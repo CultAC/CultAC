@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseProperties;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -14,12 +15,11 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.debug.Debuggable;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.Collection;
 import java.util.List;
-import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 public final class CompensatedVehicleState implements Debuggable {
@@ -435,12 +435,13 @@ public final class CompensatedVehicleState implements Debuggable {
         if (hasUnprovenCurrentTickItemControl(vehicle)) {
             return false;
         }
-        if (vehicle.type == EntityTypesCompat.PIG) {
-            return player.getInventory().hasClientSelectableHandItem(net.minecraft.world.item.Items.CARROT_ON_A_STICK);
-        }
-        if (vehicle.type == EntityTypesCompat.STRIDER) {
+        if (vehicle.type == EntityTypeIds.PIG) {
             return player.getInventory()
-                    .hasClientSelectableHandItem(net.minecraft.world.item.Items.WARPED_FUNGUS_ON_A_STICK);
+                    .hasClientSelectableHandItem(ac.cult.cultac.utils.inventory.ItemTypes.CARROT_ON_A_STICK);
+        }
+        if (vehicle.type == EntityTypeIds.STRIDER) {
+            return player.getInventory()
+                    .hasClientSelectableHandItem(ac.cult.cultac.utils.inventory.ItemTypes.WARPED_FUNGUS_ON_A_STICK);
         }
         return false;
     }
@@ -651,22 +652,23 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     private boolean isItemControlledVehicleType(@Nullable PacketEntity vehicle) {
-        return vehicle != null && (vehicle.type == EntityTypesCompat.PIG || vehicle.type == EntityTypesCompat.STRIDER);
+        return vehicle != null && (vehicle.type == EntityTypeIds.PIG || vehicle.type == EntityTypeIds.STRIDER);
     }
 
     private boolean canLocalClientAuthoritativelyMove(PacketEntity vehicle) {
         if ("cushion"
                 .equals(ac.cult.cultac.utils.nmsutil.EntityTypeUtil.getKey(vehicle.type)
                         .getPath())) return false;
-        if (vehicle.type == EntityTypesCompat.PIG) {
+        if (vehicle.type == EntityTypeIds.PIG) {
             return hasSaddle(vehicle)
                     && player.getInventory()
-                            .hasClientSelectedHandItem(net.minecraft.world.item.Items.CARROT_ON_A_STICK);
+                            .hasClientSelectedHandItem(ac.cult.cultac.utils.inventory.ItemTypes.CARROT_ON_A_STICK);
         }
-        if (vehicle.type == EntityTypesCompat.STRIDER) {
+        if (vehicle.type == EntityTypeIds.STRIDER) {
             return hasSaddle(vehicle)
                     && player.getInventory()
-                            .hasClientSelectedHandItem(net.minecraft.world.item.Items.WARPED_FUNGUS_ON_A_STICK);
+                            .hasClientSelectedHandItem(
+                                    ac.cult.cultac.utils.inventory.ItemTypes.WARPED_FUNGUS_ON_A_STICK);
         }
         if (vehicle instanceof PacketEntityHorse horse) return horse.hasSaddle;
         if (vehicle instanceof PacketEntityNautilus nautilus) return nautilus.hasSaddle;

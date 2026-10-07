@@ -20,11 +20,11 @@ import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.List;
 import java.util.Set;
-import net.minecraft.world.phys.Vec3;
 
 /** Owned by the compensated vehicle entity, so an entity replacement cannot inherit its motion. */
 public record BedrockVehiclePredictionState(PredictionCommit commit, PredictionResult previousPrediction) {

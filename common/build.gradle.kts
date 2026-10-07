@@ -1,9 +1,9 @@
 import versioning.BuildConfig
+import java.io.File
 
 plugins {
     `maven-publish`
     cult.`base-conventions`
-    id("io.papermc.paperweight.userdev")
 }
 
 repositories {
@@ -43,9 +43,7 @@ repositories {
     mavenCentral()
 }
 
-// The current Paper API is built for Java 25, but Cult's classes target Java 21 so
-// final Paper releases across the declared 1.21+ server range can parse the jar. Resolve the
-// compile classpath using the API's runtime level without raising Cult's emitted bytecode.
+// Emit Java 21 classes; optional platform integrations may publish newer JVM variants.
 configurations.matching { it.name.endsWith("CompileClasspath") || it.name.endsWith("RuntimeClasspath") || it.name in listOf("compileClasspath", "runtimeClasspath") }.configureEach {
     attributes.attribute(
         org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE,
@@ -99,8 +97,6 @@ val generateBedrockMovementCollisionOverrides = tasks.register<Exec>("generateBe
 }
 
 tasks.processResources {
-    dependsOn(":protocol-codec:shadowJar")
-    from(project(":protocol-codec").layout.buildDirectory.file("libs/protocol-codecs.jar")) { into("runtime") }
     // An explicit required input prevents accidentally shipping a jar without geometry.
     inputs.file(bedrockMovementCollisionOverridesResource).withPropertyName("bedrockCollisionCatalog")
     // Allows an explicit regeneration and build in one invocation without making
@@ -109,9 +105,8 @@ tasks.processResources {
 }
 
 dependencies {
-    implementation(project(":placement-runtime"))
+    api(project(":block-sim"))
     api(project(":protocol"))
-    paperweight.paperDevBundle(providers.gradleProperty("paperDevBundleVersion").get())
 
     api(libs.cloud.core)
     api(libs.cloud.processors.requirements)
@@ -123,9 +118,11 @@ dependencies {
     }
     // Bump snakeyaml (transitive dep of configuralize) 1.29 -> 2.2+ for geyser-fabric
     api(libs.snakeyaml)
-    // Paper/Minecraft provides fastutil. Keeping it off the runtime classpath is
-    // also required for NMS method descriptors that expose fastutil types.
-    compileOnly(libs.fastutil)
+    api(libs.fastutil)
+    api("com.google.code.gson:gson:2.13.2")
+    api("com.google.guava:guava:33.5.0-jre")
+    api("org.joml:joml:1.10.9")
+    compileOnly("org.checkerframework:checker-qual:3.49.5")
     api(libs.adventure.text.minimessage)
     api(libs.jetbrains.annotations)
     api(libs.hikaricp)
@@ -148,7 +145,7 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testImplementation(project(":protocol-netty"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    testRuntimeOnly(libs.fastutil)
+    testRuntimeOnly(libs.cult.internal.shims)
 
 
     testImplementation("junit:junit:4.13.2")
@@ -169,6 +166,8 @@ dependencies {
 }
 
 tasks.withType<Test>().configureEach {
+    // Pure fixtures retain their original platform semantics without loading Paper.
+    systemProperty("CultPlatformOverride", "BUKKIT")
     val replayRoot = rootProject.file(providers.gradleProperty("bedrockReplayRoot")
         .getOrElse("bedrock-smoketest-scenarios"))
     systemProperty("bedrockReplayRoot", replayRoot.absolutePath)
@@ -176,11 +175,11 @@ tasks.withType<Test>().configureEach {
 }
 
 tasks.test {
-    dependsOn(":placement-runtime:jar")
-    systemProperty("placementRuntimeJar", project(":placement-runtime").layout.buildDirectory.file("libs/placement-runtime.jar").get().asFile.absolutePath)
+    dependsOn(":protocol-netty:classes", ":velocity-platform:classes")
+    systemProperty("cult.pureClassDirectories", listOf("common", "protocol", "protocol-netty", "velocity-platform")
+        .joinToString(File.pathSeparator) { rootProject.file("$it/build/classes/java/main").absolutePath })
     useJUnitPlatform()
-    // Native registry bootstrap plus the combined transport/replay fixtures exceed
-    // Gradle's default 512 MiB worker heap. Match the offline replay test worker.
+    // The combined transport/replay fixtures share the offline worker heap.
     maxHeapSize = "2g"
     jvmArgs("--add-opens", "java.base/java.lang=ALL-UNNAMED")
     System.getProperty("exportBedrockFixtures")?.let {
@@ -195,6 +194,7 @@ tasks.register<Test>("offlineBedrockReplayTest") {
     description = "Runs the fast offline Bedrock replay harness tests without launching Paper, Geyser, or Floodgate."
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform()
     maxHeapSize = "2g"
     jvmArgs("--add-opens", "java.base/java.lang=ALL-UNNAMED")
     System.getProperty("exportBedrockFixtures")?.let {
@@ -214,35 +214,11 @@ publishing.publications.create<MavenPublication>("maven") {
     from(components["java"])
 }
 
-// Exercise actual Bukkit server-position delivery on this module's pinned Paper runtime.
-tasks.named<JavaCompile>("compileTestJava") {
-    source(rootProject.file("bukkit/src/main/java/ac/cult/cultac/utils/blockplace/CompensatedPlacementWorld.java"))
-}
-
 sourceSets.test { java.srcDir(rootProject.file("protocol/src/fixtures/java")) }
 
-// Classes are emitted with --release 21. Native compilation resolves the Java 25
-// Paper bundle, while consumers on older bundles can run this same bytecode.
+// Consumers run the shared engine on Java 21.
 for (variant in listOf("apiElements", "runtimeElements")) {
     configurations.named(variant) {
         attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 21)
     }
 }
-
-// Keep the shared engine compilable against Mojang's vanilla API. Paper-only
-// methods otherwise compile here but fail when the same class runs on Velocity.
-val compileVanillaAudit by tasks.registering(JavaCompile::class) {
-    group = "verification"
-    description = "Compiles shared sources against the pinned vanilla model without Paper APIs."
-    dependsOn(":vanilla-runtime:prepareVanilla", tasks.named("generateEffectiveLombokConfig"))
-    source(sourceSets.main.get().allJava)
-    javaCompiler.set(javaToolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(25)) })
-    destinationDirectory.set(layout.buildDirectory.dir("vanilla-audit/classes"))
-    val runtime = project(":vanilla-runtime").layout.buildDirectory.dir("runtime")
-    classpath = sourceSets.main.get().compileClasspath.filter {
-        !it.path.contains("/paperweight/") && !it.name.startsWith("paper-api-") && !it.name.startsWith("paper-26")
-    } + files(runtime.map { it.file("client.jar") }) + fileTree(runtime.map { it.dir("lib") }) { include("**/*.jar") }
-    options.annotationProcessorPath = configurations.annotationProcessor.get()
-    options.release.set(21)
-}
-tasks.check { dependsOn(compileVanillaAudit) }

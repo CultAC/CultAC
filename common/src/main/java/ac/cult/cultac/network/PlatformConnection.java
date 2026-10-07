@@ -16,7 +16,18 @@ public interface PlatformConnection {
     @Nullable
     PlayerBinding playerBinding();
 
-    ac.cult.cultac.utils.minecraft.MinecraftRegistries registries();
+    /** Current model IDs for packet conversion: received registries on connections with model values. */
+    default ac.cult.cultac.protocol.data.RegistryNames registryNames() {
+        var values = modelValues();
+        return values == null
+                ? ac.cult.cultac.network.codec.ModelRegistryNamesState.defaults()
+                : values.registryNames();
+    }
+
+    /** Owned initial world facts; received configuration packets replace them. */
+    default ac.cult.cultac.utils.latency.ClientWorldRegistries.Data initialWorldData() {
+        return ac.cult.cultac.utils.latency.ClientWorldRegistries.modelDefaults();
+    }
 
     /** Encoding at Cult's actual pipeline position; null selects the native dispatcher encoding. */
     @Nullable
@@ -30,13 +41,19 @@ public interface PlatformConnection {
         return null;
     }
 
-    default ac.cult.cultac.protocol.PacketValueAdapter packetValues() {
+    /** Present when the observed wire can differ from the 26.3 model; shared by every platform. */
+    @Nullable
+    default ac.cult.cultac.network.codec.ConnectionModelValues modelValues() {
         return null;
+    }
+
+    default ac.cult.cultac.protocol.PacketValueAdapter packetValues(CultConnection connection) {
+        var values = modelValues();
+        return values == null ? null : values.packetValues(getObservedProtocol(), connection);
     }
 
     /**
      * Runs connection work that started on a bridge's own thread, such as Geyser's tick loop.
-     * Platforms that bind Minecraft's registries per connection activate them here.
      */
     default void runInModel(Runnable task) {
         task.run();

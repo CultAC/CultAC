@@ -25,6 +25,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
 import ac.cult.cultac.utils.floodgate.GeyserUtil;
 import ac.cult.cultac.utils.latency.GeyserQueue;
+import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
@@ -38,7 +39,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import net.minecraft.world.phys.Vec3;
 import org.cloudburstmc.math.vector.Vector2f;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.protocol.bedrock.BedrockSession;
@@ -484,12 +484,12 @@ public final class GeyserBedrockBridgeRuntime {
                 && Float.isFinite(vector.getZ());
     }
 
-    static net.minecraft.core.BlockPos worldBlock(
+    static ac.cult.cultac.protocol.value.BlockPos worldBlock(
             GeyserSession session, org.cloudburstmc.math.vector.Vector3i position) {
         var adapter = GFP_ADAPTERS.get(session);
         var frame = adapter == null ? BedrockCoordinateFrame.IDENTITY : adapter.coordinateFrame();
         var world = frame.toWorld(new Vec3(position.getX(), position.getY(), position.getZ()));
-        return net.minecraft.core.BlockPos.containing(world);
+        return ac.cult.cultac.protocol.value.BlockPos.containing(world.x, world.y, world.z);
     }
 
     private static final class PacketTapHandler implements BedrockPacketHandler {

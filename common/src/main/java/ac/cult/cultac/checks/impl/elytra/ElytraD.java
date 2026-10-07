@@ -6,17 +6,13 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.inventory.ItemUtil;
-import net.minecraft.SharedConstants;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.equipment.Equippable;
 
 @CheckData(
         name = "ElytraD",
@@ -25,7 +21,7 @@ import net.minecraft.world.item.equipment.Equippable;
         experimental = true)
 public class ElytraD extends Check implements PostPredictionListener {
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private boolean setback;
 
@@ -63,9 +59,9 @@ public class ElytraD extends Check implements PostPredictionListener {
 
     private boolean canGlide() {
         // don't check the client/server version, this is relevant for all
-        final net.minecraft.world.item.ItemStack chestPlate =
+        final ac.cult.blocksim.engine.SimItemStack chestPlate =
                 player.getInventory().getChestplate();
-        if (chestPlate.getItem() == net.minecraft.world.item.Items.ELYTRA
+        if (chestPlate.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.ELYTRA
                 && ItemUtil.getDamageValue(chestPlate) < ItemUtil.getMaxDamage(chestPlate) - 1) return true;
 
         // if the server or client doesn't support glider components return false
@@ -79,15 +75,8 @@ public class ElytraD extends Check implements PostPredictionListener {
                 || isGlider(player.getInventory().getOffHand(), EquipmentSlot.OFFHAND);
     }
 
-    private static boolean isGlider(net.minecraft.world.item.ItemStack stack, EquipmentSlot slot) {
-        ItemStack nms = SpigotConversionUtil.toNmsItemStack(stack);
-        if (!nms.has(DataComponents.GLIDER)
-                || (nms.isDamageableItem() && nms.getDamageValue() >= (nms.getMaxDamage() - 1))) {
-            return false;
-        }
-
-        Equippable equippable = nms.get(DataComponents.EQUIPPABLE);
-        return equippable != null && equippable.slot() == slot;
+    private static boolean isGlider(ac.cult.blocksim.engine.SimItemStack stack, EquipmentSlot slot) {
+        return ac.cult.cultac.utils.inventory.ClientGlider.canUse(stack, slot);
     }
 
     private void resyncPose() {

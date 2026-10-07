@@ -7,11 +7,13 @@ import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.manager.tick.Tickable;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.blockplace.GhostBlock;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
+import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Map;
@@ -19,10 +21,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 
 // Agreement with bukkit is more important than agreement with the client (for buckets)
 //
@@ -84,7 +82,8 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
             for (GhostBlock ghostBlock : pseudoPlaces) {
                 // ignore end crystals
                 if (ghostBlock.getItemUsed() != null
-                        && ghostBlock.getItemUsed().getItem() == net.minecraft.world.item.Items.END_CRYSTAL) continue;
+                        && ghostBlock.getItemUsed().getItem() == ac.cult.cultac.utils.inventory.ItemTypes.END_CRYSTAL)
+                    continue;
 
                 final SimpleCollisionBox place = new SimpleCollisionBox(ghostBlock.getPosition()).expandMax(0, 0.5, 0);
                 if (place.isIntersected(movement)) {
@@ -154,7 +153,7 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
         return false;
     }
 
-    public void handleUpdateServerBlockState(BlockPos position, BlockState newState) {
+    public void handleUpdateServerBlockState(BlockPos position, int newState) {
         GhostData existing = unknownStuff.get(position);
         if (existing != null) {
             existing.serverState = newState;
@@ -173,7 +172,7 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
     }
 
     // This method is called if and only if it isn't placed on a known desync pos
-    public void handleBlockPlace(BlockPos placeBox, BlockState original, BlockState newState, BlockPlace place) {
+    public void handleBlockPlace(BlockPos placeBox, int original, int newState, BlockPlace place) {
         if (player.platformPlayer == null || !player.platformPlayer.hasServerAuthority()) return;
         // Assume permanent desync
         if (place.isUseItem()) {
@@ -185,9 +184,11 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
             original = existing.getServerState();
         }
 
-        Block type = newState.getBlock();
-        double height =
-                NmsBlockTags.isFence(type) || NmsBlockTags.isWall(type) || NmsBlockTags.isFenceGate(type) ? 1.5 : 1;
+        double height = ClientBlockProperties.isFence(newState)
+                        || ClientBlockProperties.isWall(newState)
+                        || ClientBlockProperties.isFenceGate(newState)
+                ? 1.5
+                : 1;
 
         GhostData ghostData = new GhostData(
                 placeBox,
@@ -231,8 +232,8 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
     public final class GhostData {
         final BlockPos placedPos;
         final SimpleCollisionBox placedBox;
-        BlockState serverState;
-        final BlockState clientState;
+        int serverState;
+        final int clientState;
         final BlockPlace place;
         LinkedList<GhostData> revertIfReverted = null;
 
@@ -241,11 +242,7 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
         int ticks;
 
         public GhostData(
-                BlockPos placedPos,
-                SimpleCollisionBox placedBox,
-                BlockState serverState,
-                BlockState clientState,
-                BlockPlace place) {
+                BlockPos placedPos, SimpleCollisionBox placedBox, int serverState, int clientState, BlockPlace place) {
             this.placedPos = placedPos;
             this.placedBox = placedBox;
             this.serverState = serverState;
@@ -262,7 +259,7 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
             if (isReverted) return;
             if (player.compensatedWorld.hasPendingBlockPrediction(placedPos)) return;
             player.compensatedWorld.applyBlockChangeRawDANGER(
-                    placedPos.getX(), placedPos.getY(), placedPos.getZ(), NmsBlockTags.toNmsState(getServerState()));
+                    placedPos.getX(), placedPos.getY(), placedPos.getZ(), getServerState());
             setReverted(true);
             // We must also revert all blocks that were placed on this reverted block
             if (revertIfReverted != null) {

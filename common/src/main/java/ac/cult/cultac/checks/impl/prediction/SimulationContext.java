@@ -1,10 +1,13 @@
 package ac.cult.cultac.checks.impl.prediction;
 
+import ac.cult.blocksim.data.BlockTags;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
@@ -13,20 +16,15 @@ import ac.cult.cultac.utils.data.packetentity.*;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.TrigHandler;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.cult.cultac.utils.nmsutil.Friction;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
-import net.minecraft.core.BlockPos;
-import net.minecraft.tags.BlockTags;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.phys.Vec3;
 
 @Getter
 @ToString
@@ -400,7 +398,7 @@ public class SimulationContext {
 
         // The game uses values known as flyingSpeed for some vehicles in the air
         if (vehicle != null) {
-            if (vehicle.type == EntityTypesCompat.PIG
+            if (vehicle.type == EntityTypeIds.PIG
                     || vehicle instanceof PacketEntityHorse
                     || vehicle instanceof PacketEntityStrider
                     || vehicle instanceof PacketEntityNautilus) {
@@ -444,9 +442,9 @@ public class SimulationContext {
         if (vehicle instanceof PacketEntityRideable) {
             PacketEntityRideable rideable = (PacketEntityRideable) vehicle;
             double speed = rideable.movementSpeedAttribute;
-            if (vehicle.type == EntityTypesCompat.PIG) {
+            if (vehicle.type == EntityTypeIds.PIG) {
                 speed *= 0.225D;
-            } else if (vehicle.type == EntityTypesCompat.STRIDER) {
+            } else if (vehicle.type == EntityTypeIds.STRIDER) {
                 speed *= isMountedStriderSuffocating(player) ? 0.35F : 0.55F;
             }
             return (float) (speed * rideable.boost.factor(player.getClientVersion()));
@@ -465,10 +463,10 @@ public class SimulationContext {
         // super.tick() reaches LivingEntity#travelRidden/getRiddenSpeed.
         BlockPos blockPos =
                 new BlockPos((int) Math.floor(start.x), (int) Math.floor(start.y), (int) Math.floor(start.z));
-        Block currentBlock = player.compensatedWorld.getBlockStateAt(blockPos).getBlock();
-        Block legacyBlock = BlockProperties.getOnPos(player, lastTickMainSupportingBlockData, start);
-        boolean warm = NmsBlockTags.hasBlockTag(currentBlock, BlockTags.STRIDER_WARM_BLOCKS)
-                || NmsBlockTags.hasBlockTag(legacyBlock, BlockTags.STRIDER_WARM_BLOCKS)
+        int currentBlock = player.compensatedWorld.getBlockStateIdAt(blockPos);
+        int legacyBlock = BlockProperties.getOnPos(player, lastTickMainSupportingBlockData, start);
+        boolean warm = BlockTags.STRIDER_WARM_BLOCKS.test(currentBlock)
+                || BlockTags.STRIDER_WARM_BLOCKS.test(legacyBlock)
                 || player.compensatedWorld.getLavaFluidLevelAt(blockPos) > 0.0D;
         return !warm;
     }

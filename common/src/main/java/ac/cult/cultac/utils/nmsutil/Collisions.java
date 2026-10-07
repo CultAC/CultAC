@@ -1,16 +1,23 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.data.BlockTags;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.events.packets.PacketWorldBorder;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.Pair;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -18,19 +25,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Predicate;
-import net.minecraft.core.BlockPos;
-import net.minecraft.tags.BlockTags;
-import net.minecraft.world.level.BlockGetter;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.PowderSnowBlock;
-import net.minecraft.world.level.block.SweetBerryBushBlock;
-import net.minecraft.world.level.block.WebBlock;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.Vec3;
 
 public class Collisions {
     private static final double COLLISION_EPSILON = 1.0E-7;
@@ -483,10 +477,11 @@ public class Collisions {
                             int x = currX | chunkXGlobalPos;
                             int z = currZ | chunkZGlobalPos;
 
-                            BlockState data = section.getState(CachedChunk.index(x & 0xF, y & 0xF, z & 0xF));
-
-                            if (data.isAir()) continue;
-                            Block material = data.getBlock();
+                            int data = section.getStateId(CachedChunk.index(x & 0xF, y & 0xF, z & 0xF));
+                            var facts = ac.cult.blocksim.data.DataTables.defaults()
+                                    .registry()
+                                    .facts(data);
+                            if (facts.has(ac.cult.blocksim.data.StateFacts.AIR)) continue;
                             CollisionBox collisionBox =
                                     ClientBlockShapes.movement(player, data, x, y, z, entityBottom, actor);
                             if (collisionBox.isNull()) continue;
@@ -496,8 +491,10 @@ public class Collisions {
                                     + ((z == minBlockZ || z == maxBlockZ) ? 1 : 0);
 
                             if (edgeCount != 3
-                                    && (edgeCount != 1 || data.hasLargeCollisionShape())
-                                    && (edgeCount != 2 || material == Blocks.PISTON_HEAD)) {
+                                    && (edgeCount != 1 || facts.has(ac.cult.blocksim.data.StateFacts.LARGE_COLLISION))
+                                    && (edgeCount != 2
+                                            || ac.cult.blocksim.data.BlockIds.is(
+                                                    data, ac.cult.blocksim.data.BlockIds.PISTON_HEAD))) {
                                 // Don't add to a list if we only care if the player intersects with the block
                                 if (!onlyCheckCollide) {
                                     collisionBox.downCast(listOfBlocks);
@@ -674,7 +671,7 @@ public class Collisions {
         for (int i = blockPosX; i <= blockPos2X; ++i) {
             for (int j = blockPosY; j <= blockPos2Y; ++j) {
                 for (int k = blockPosZ; k <= blockPos2Z; ++k) {
-                    BlockState block = player.compensatedWorld.getBlockDataAt(i, j, k);
+                    int block = player.compensatedWorld.getBlockStateIdAt(i, j, k);
                     Vec3 blockStuckSpeed = getStuckSpeedForBlock(player, block, powderSnowCanApply);
                     if (blockStuckSpeed != null) {
                         // Legacy/provisional contact summary. Java 26.2 commits actual
@@ -723,7 +720,7 @@ public class Collisions {
         for (int i = blockPosX; i <= blockPos2X; ++i) {
             for (int j = blockPosY; j <= blockPos2Y; ++j) {
                 for (int k = blockPosZ; k <= blockPos2Z; ++k) {
-                    BlockState block = player.compensatedWorld.getBlockDataAt(i, j, k);
+                    int block = player.compensatedWorld.getBlockStateIdAt(i, j, k);
                     Vec3 blockStuckSpeed = getStuckSpeedForBlock(player, block, powderSnowCanApply);
                     if (blockStuckSpeed != null && sweptFullBlockEntityInside(fromAabb, toAabb, i, j, k)) {
                         // MCP-Reborn Entity#checkInsideBlocks replays the move
@@ -810,7 +807,7 @@ public class Collisions {
                 toAabb,
                 axisOrderMovement,
                 (x, y, z) -> getStuckSpeedForBlock(
-                        player, player.compensatedWorld.getBlockDataAt(x, y, z), powderSnowCanApply));
+                        player, player.compensatedWorld.getBlockStateIdAt(x, y, z), powderSnowCanApply));
     }
 
     static Vec3 resolveOrderedStuckSpeed26Dot2(
@@ -851,7 +848,8 @@ public class Collisions {
     private static int visitInsideSegment26Dot2(
             SimpleCollisionBox from, SimpleCollisionBox to, LongSet visited, int budget, InsideBlockVisitor visitor) {
         int[] iteration = {0};
-        AABB deflated = new AABB(to.minX, to.minY, to.minZ, to.maxX, to.maxY, to.maxZ).deflate(1.0E-5F);
+        SimpleCollisionBox deflated = SimpleCollisionBox.between(to.minX, to.minY, to.minZ, to.maxX, to.maxY, to.maxZ)
+                .deflate(1.0E-5F);
         boolean movedFar = boxCenter(from).distanceToSqr(boxCenter(to)) > CultMath.square(0.9999900000002526);
         forEachBlockIntersectedBetween26Dot2(boxCenter(from), boxCenter(to), to, (pos, step) -> {
             if (step >= budget) return false;
@@ -885,7 +883,7 @@ public class Collisions {
     private static boolean forEachBlockIntersectedBetween26Dot2(
             Vec3 from, Vec3 to, SimpleCollisionBox boxAtTarget, OrderedBlockVisitor visitor) {
         Vec3 travel = to.subtract(from);
-        AABB target = new AABB(
+        SimpleCollisionBox target = SimpleCollisionBox.between(
                         boxAtTarget.minX,
                         boxAtTarget.minY,
                         boxAtTarget.minZ,
@@ -894,14 +892,16 @@ public class Collisions {
                         boxAtTarget.maxZ)
                 .deflate(1.0E-5F);
         if (travel.lengthSqr() < CultMath.square(1.0E-5F)) {
-            for (BlockPos pos : BlockPos.betweenClosed(target)) {
+            for (BlockPos pos : BlockPos.betweenClosed(
+                    BlockPos.containing(target.minX, target.minY, target.minZ),
+                    BlockPos.containing(target.maxX, target.maxY, target.maxZ))) {
                 if (!visitor.visit(pos, 0)) return false;
             }
             return true;
         }
 
         LongSet visited = new LongOpenHashSet();
-        if (!forEachBlockInDirection26Dot2(target.move(travel.scale(-1.0D)), travel, 0, (pos, step) -> {
+        if (!forEachBlockInDirection26Dot2(target.move(-travel.x, -travel.y, -travel.z), travel, 0, (pos, step) -> {
             if (!visitor.visit(pos, step)) return false;
             visited.add(pos.asLong());
             return true;
@@ -914,7 +914,7 @@ public class Collisions {
     }
 
     private static boolean forEachBlockInDirection26Dot2(
-            AABB box, Vec3 direction, int iteration, OrderedBlockVisitor visitor) {
+            SimpleCollisionBox box, Vec3 direction, int iteration, OrderedBlockVisitor visitor) {
         return forEachBlockInDirection26Dot2(
                 CultMath.floor(box.minX),
                 CultMath.floor(box.minY),
@@ -968,7 +968,7 @@ public class Collisions {
     }
 
     private static int addBlocksAlongTravel26Dot2(
-            LongSet visited, Vec3 travel, AABB target, OrderedBlockVisitor visitor) {
+            LongSet visited, Vec3 travel, SimpleCollisionBox target, OrderedBlockVisitor visitor) {
         int[] corner = furthestCorner26Dot2(travel);
         Vec3 center = target.getCenter();
         Vec3 toCorner = new Vec3(
@@ -1007,7 +1007,7 @@ public class Collisions {
                 nextZ += deltaZ;
             }
 
-            Optional<Vec3> hit = AABB.clip(x, y, z, x + 1.0D, y + 1.0D, z + 1.0D, fromCorner, toCorner);
+            Optional<Vec3> hit = SimpleCollisionBox.clip(x, y, z, x + 1.0D, y + 1.0D, z + 1.0D, fromCorner, toCorner);
             if (hit.isEmpty()) continue;
             iterations++;
             Vec3 point = hit.get();
@@ -1234,10 +1234,11 @@ public class Collisions {
         for (int x = blockPosX; x <= blockPos2X; ++x) {
             for (int y = blockPosY; y <= blockPos2Y; ++y) {
                 for (int z = blockPosZ; z <= blockPos2Z; ++z) {
-                    BlockState block = player.compensatedWorld.getBlockDataAt(x, y, z);
+                    int block = player.compensatedWorld.getBlockStateIdAt(x, y, z);
                     Vec3 blockStuckSpeed = getStuckSpeedForBlock(player, block);
                     if (blockStuckSpeed != null && sweptFullBlockEntityInside(fromAabb, toAabb, x, y, z)) {
-                        hits.add(x + "," + y + "," + z + ":" + block.getBlock() + "=" + blockStuckSpeed);
+                        hits.add(x + "," + y + "," + z + ":"
+                                + DataTables.defaults().registry().block(block).key() + "=" + blockStuckSpeed);
                     }
                 }
             }
@@ -1246,10 +1247,11 @@ public class Collisions {
     }
 
     private static void appendStuckSpeedHit(CultPlayer player, List<String> hits, int x, int y, int z, String mode) {
-        BlockState block = player.compensatedWorld.getBlockDataAt(x, y, z);
+        int block = player.compensatedWorld.getBlockStateIdAt(x, y, z);
         Vec3 blockStuckSpeed = getStuckSpeedForBlock(player, block);
         if (blockStuckSpeed != null) {
-            hits.add(x + "," + y + "," + z + ":" + block.getBlock() + "=" + blockStuckSpeed + ":" + mode);
+            hits.add(x + "," + y + "," + z + ":"
+                    + DataTables.defaults().registry().block(block).key() + "=" + blockStuckSpeed + ":" + mode);
         }
     }
 
@@ -1312,27 +1314,26 @@ public class Collisions {
                 && c < maxC + COLLISION_EPSILON;
     }
 
-    public static Vec3 getStuckSpeedForBlock(CultPlayer player, BlockState blockData) {
-        return getStuckSpeedForBlock(player, blockData, true);
+    public static Vec3 getStuckSpeedForBlock(CultPlayer player, int state) {
+        return getStuckSpeedForBlock(player, state, true);
     }
 
-    public static Vec3 getStuckSpeedForBlock(CultPlayer player, BlockState blockData, boolean powderSnowCanApply) {
-        Block block = NmsBlockTags.toNmsState(blockData).getBlock();
+    public static Vec3 getStuckSpeedForBlock(CultPlayer player, int state, boolean powderSnowCanApply) {
 
         // Vanilla applies these through entityInside -> Entity.makeStuckInBlock. Calling
         // that path would mutate a live/detached entity, so Cult mirrors the NMS constants
-        // after identifying the affected block by its NMS behavior class.
-        if (block instanceof WebBlock) {
+        // after identifying the affected block by its generated behavior family.
+        if (BlockFamilies.WEB.test(state)) {
             return getCobwebStuckSpeed(player);
         }
 
-        if (block instanceof SweetBerryBushBlock
+        if (BlockFamilies.SWEET_BERRY_BUSH.test(state)
                 && (player.isBedrockMovement()
                         || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14))) {
             return SWEET_BERRY_BUSH_STUCK_SPEED;
         }
 
-        if (block instanceof PowderSnowBlock
+        if (BlockFamilies.POWDER_SNOW.test(state)
                 && (player.isBedrockMovement()
                         || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_17))) {
             return powderSnowCanApply ? POWDER_SNOW_STUCK_SPEED : null;
@@ -1361,7 +1362,7 @@ public class Collisions {
                     if (doesBlockSuffocate(player, x, y, z)) {
                         // Mojang re-added soul sand pushing by checking if the player is actually in the block
                         // (This is why from 1.14-1.15 soul sand didn't push)
-                        BlockState data = player.compensatedWorld.getBlockStateAt(x, y, z);
+                        int data = player.compensatedWorld.getBlockStateIdAt(x, y, z);
                         CollisionBox box = ClientBlockShapes.movement(player, data, x, y, z);
 
                         if (!box.isIntersected(playerBB)) continue;
@@ -1376,17 +1377,18 @@ public class Collisions {
     }
 
     public static boolean doesBlockSuffocate(CultPlayer player, int x, int y, int z) {
-        BlockState data = player.compensatedWorld.getBlockStateAt(x, y, z);
-        return doesBlockSuffocate(data, player.compensatedWorld, new BlockPos(x, y, z));
+        int state = player.compensatedWorld.getBlockStateIdAt(x, y, z);
+        // BlockBehaviour's predicate uses generated state/full-shape facts. The
+        // shulker predicate sees no block entity in CompensatedWorld, as before.
+        return DataTables.defaults().registry().facts(state).has(StateFacts.SUFFOCATING);
     }
 
-    public static boolean doesBlockSuffocate(BlockState state, BlockGetter level, BlockPos pos) {
-        return state.isSuffocating(level, pos);
+    @FunctionalInterface
+    public interface StatePredicate {
+        boolean test(int state, BlockPos pos);
     }
 
-    // Thanks Tuinity
-    public static boolean hasMaterial(
-            CultPlayer player, SimpleCollisionBox checkBox, Predicate<Pair<BlockState, BlockPos>> searchingFor) {
+    public static boolean hasState(CultPlayer player, SimpleCollisionBox checkBox, StatePredicate searchingFor) {
         int minBlockX = (int) Math.floor(checkBox.minX);
         int maxBlockX = (int) Math.floor(checkBox.maxX);
         int minBlockY = (int) Math.floor(checkBox.minY);
@@ -1436,11 +1438,8 @@ public class Collisions {
                             int x = currX | chunkXGlobalPos;
                             int z = currZ | chunkZGlobalPos;
 
-                            BlockState data = section.getState(CachedChunk.index(x & 0xF, y & 0xF, z & 0xF));
-
-                            if (searchingFor.test(new Pair<>(
-                                    ac.cult.cultac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(data),
-                                    new BlockPos(x, y, z)))) return true;
+                            int data = section.getStateId(CachedChunk.index(x & 0xF, y & 0xF, z & 0xF));
+                            if (searchingFor.test(data, new BlockPos(x, y, z))) return true;
                         }
                     }
                 }
@@ -1457,48 +1456,42 @@ public class Collisions {
         int blockX = (int) Math.floor(x);
         int blockY = (int) Math.floor(y);
         int blockZ = (int) Math.floor(z);
-        BlockState nmsState = player.compensatedWorld.getBlockStateAt(blockX, blockY, blockZ);
+        int state = player.compensatedWorld.getBlockStateIdAt(blockX, blockY, blockZ);
         if (gliding
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)
-                && canGlideThrough(nmsState)) {
+                && canGlideThrough(state)) {
             return false;
         }
-        if (isClimbable(nmsState)) {
+        if (isClimbable(state)) {
             return true;
         }
 
-        return trapdoorUsableAsLadder(player, x, y, z, nmsState);
+        return trapdoorUsableAsLadder(player, x, y, z, state);
     }
 
-    private static boolean canGlideThrough(BlockState state) {
-        Block material = ac.cult.cultac.network.protocol.util.SpigotConversionUtil.fromNmsBlockState(state)
-                .getBlock();
-        return switch (ac.cult.cultac.utils.nmsutil.NmsBlockTags.name(material)) {
-            case "VINE",
-                    "TWISTING_VINES",
-                    "TWISTING_VINES_PLANT",
-                    "WEEPING_VINES",
-                    "WEEPING_VINES_PLANT",
-                    "CAVE_VINES",
-                    "CAVE_VINES_PLANT" -> true;
-            default -> false;
-        };
+    private static boolean canGlideThrough(int state) {
+        return BlockIds.is(state, BlockIds.VINE)
+                || BlockIds.is(state, BlockIds.TWISTING_VINES)
+                || BlockIds.is(state, BlockIds.TWISTING_VINES_PLANT)
+                || BlockIds.is(state, BlockIds.WEEPING_VINES)
+                || BlockIds.is(state, BlockIds.WEEPING_VINES_PLANT)
+                || BlockIds.is(state, BlockIds.CAVE_VINES)
+                || BlockIds.is(state, BlockIds.CAVE_VINES_PLANT);
     }
 
-    public static boolean isClimbable(BlockState state) {
-        return state.is(BlockTags.CLIMBABLE);
+    public static boolean isClimbable(int state) {
+        return BlockTags.CLIMBABLE.test(state);
     }
 
-    public static boolean trapdoorUsableAsLadder(
-            CultPlayer player, double x, double y, double z, BlockState blockState) {
+    public static boolean trapdoorUsableAsLadder(CultPlayer player, double x, double y, double z, int blockState) {
         if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) return false;
-        if (!NmsBlockTags.isTrapdoor(blockState)) return false;
-        if (NmsBlockTags.getBoolean(blockState, BlockStateProperties.OPEN)) {
-            BlockState blockBelow = player.compensatedWorld.getBlockStateAt(
+        if (!ClientBlockProperties.isTrapdoor(blockState)) return false;
+        if (BlockProps.OPEN.has(blockState) && BlockProps.OPEN.booleanValue(blockState)) {
+            int blockBelow = player.compensatedWorld.getBlockStateIdAt(
                     (int) Math.floor(x), (int) Math.floor(y - 1), (int) Math.floor(z));
 
-            if (blockBelow.getBlock() == Blocks.LADDER) {
-                return NmsBlockTags.getFacing(blockState) == NmsBlockTags.getFacing(blockBelow);
+            if (BlockIds.is(blockBelow, BlockIds.LADDER)) {
+                return ClientBlockProperties.facing(blockState) == ClientBlockProperties.facing(blockBelow);
             }
         }
 

@@ -9,7 +9,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportData;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 import org.junit.Test;
 
 public class PhaseTeleportTest {

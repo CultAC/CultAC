@@ -1,13 +1,13 @@
 package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.math.Vec3;
 
 public class FluidPush implements UncertaintyHandler {
     private static final double WATER_CURRENT_RADIUS = 0.014D;
@@ -57,7 +57,7 @@ public class FluidPush implements UncertaintyHandler {
 
     private boolean isPigOrStriderRoot(SimulationContext context) {
         PacketEntity vehicle = context.getVehicle();
-        return vehicle != null && (vehicle.type == EntityTypesCompat.PIG || vehicle.type == EntityTypesCompat.STRIDER);
+        return vehicle != null && (vehicle.type == EntityTypeIds.PIG || vehicle.type == EntityTypeIds.STRIDER);
     }
 
     private boolean isPigOrStriderWater(SimulationContext context) {

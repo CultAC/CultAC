@@ -1,11 +1,11 @@
 package ac.cult.cultac.platform.api.player;
 
-import net.minecraft.world.item.ItemStack;
+import ac.cult.blocksim.engine.SimItemStack;
 
 public interface PlatformInventory {
-    ItemStack getStack(int bukkitSlot, int vanillaSlot);
+    SimItemStack getStack(int bukkitSlot, int vanillaSlot);
 
-    ItemStack getMainHand();
+    SimItemStack getMainHand();
 
-    ItemStack getOffHand();
+    SimItemStack getOffHand();
 }

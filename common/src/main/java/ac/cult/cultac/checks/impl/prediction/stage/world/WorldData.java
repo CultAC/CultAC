@@ -7,7 +7,6 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
-import net.minecraft.world.level.block.Block;
 
 @AllArgsConstructor
 @Getter
@@ -45,7 +44,8 @@ public class WorldData {
     @Setter
     DesyncStatus weirdFourteenFifteenLava;
 
-    Block onBlock;
+    // Default model state identifies the supporting block, independent of its properties.
+    int onBlock;
     StuckEdgeData sneak;
     BubbleColumnData bubbleColumn;
     PistonPushes pistonPushes;

@@ -1,18 +1,20 @@
 package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
+import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.*;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.Shapes;
-import net.minecraft.world.phys.shapes.VoxelShape;
+import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 
 /** 26.1/26.2 Entity#checkInsideBlocks and the movement-affecting block callbacks. */
 public final class JavaInsideBlockEffects {
@@ -34,22 +36,21 @@ public final class JavaInsideBlockEffects {
         boolean living = actor.isLivingEntity();
         boolean stuckAllowed = context.getVehicle() != null || !player.isFlying;
         boolean powderAllowed = !living
-                || player.compensatedWorld
-                                .getBlockStateAt(BlockPos.containing(end))
-                                .getBlock()
-                        == Blocks.POWDER_SNOW;
+                || BlockIds.is(
+                        player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(end.x, end.y, end.z)),
+                        BlockIds.POWDER_SNOW);
         // AbstractBoat#tick invokes applyEffectsFromBlocks twice. The second pass
         // has no recorded axis-dependent movement and uses oldPosition -> position.
         int passes = actor.isBoat() ? 2 : 1;
         for (int pass = 0; pass < passes; pass++) {
             Collisions.visitInsideBlocks26Dot2(
                     from, to, pass == 0 ? originalMovement : null, (segmentFrom, segmentTo, pos, precise) -> {
-                        var block = player.compensatedWorld.getBlockStateAt(pos);
-                        boolean powder = block.getBlock() instanceof PowderSnowBlock;
-                        boolean web = block.getBlock() instanceof WebBlock;
-                        boolean berry = block.getBlock() instanceof SweetBerryBushBlock;
-                        boolean honey = block.getBlock() instanceof HoneyBlock;
-                        boolean bubble = block.getBlock() instanceof BubbleColumnBlock;
+                        int block = player.compensatedWorld.getBlockStateIdAt(pos);
+                        boolean powder = BlockFamilies.POWDER_SNOW.test(block);
+                        boolean web = BlockFamilies.WEB.test(block);
+                        boolean berry = BlockFamilies.SWEET_BERRY_BUSH.test(block);
+                        boolean honey = BlockFamilies.HONEY.test(block);
+                        boolean bubble = BlockFamilies.BUBBLE_COLUMN.test(block);
                         if (!powder && !web && !berry && !honey && !bubble) return false;
                         VoxelShape shape = powder
                                 ? JavaCollisionState.of(player, actor, current[0].fallDistance())
@@ -65,8 +66,8 @@ public final class JavaInsideBlockEffects {
                             if (web) speed = Collisions.getCobwebStuckSpeed(player);
                             if (berry
                                     && living
-                                    && !actor.type.equals(ac.cult.cultac.utils.nmsutil.EntityTypesCompat.FOX)
-                                    && !actor.type.equals(ac.cult.cultac.utils.nmsutil.EntityTypesCompat.BEE))
+                                    && actor.type != ac.cult.blocksim.entity.EntityTypeIds.FOX
+                                    && actor.type != ac.cult.blocksim.entity.EntityTypeIds.BEE)
                                 speed = new Vec3(0.8F, 0.75, 0.8F);
                         }
                         if (speed != null) state = new State(0, state.velocity(), speed);
@@ -74,17 +75,20 @@ public final class JavaInsideBlockEffects {
                             state = new State(0, slideVelocity(state.velocity()), state.stuckSpeed());
                         }
                         if (bubble && precise && (context.getVehicle() != null || !player.isFlying)) {
-                            var above = player.compensatedWorld.getBlockStateAt(pos.above());
-                            boolean surface = above.getCollisionShape(player.compensatedWorld, pos)
+                            int above = player.compensatedWorld.getBlockStateIdAt(pos.above());
+                            boolean surface = player.compensatedWorld
+                                            .geometry()
+                                            .collision(above, pos)
                                             .isEmpty()
-                                    && above.getFluidState().isEmpty();
+                                    && ac.cult.cultac.utils.nmsutil.ClientFluidQueries.modelFluid(above)
+                                            .isEmpty();
                             // AbstractBoat overrides the surface callback without changing client velocity.
                             if (context.getVehicle() == null) {
                                 // Player bubble velocity uses the existing uncertainty handler;
                                 // committing it here would force one pose and apply it twice.
                                 if (!surface) state = new State(0, state.velocity(), state.stuckSpeed());
                             } else if (!surface || !actor.isBoat()) {
-                                state = bubble(state, surface, block.getValue(BubbleColumnBlock.DRAG_DOWN));
+                                state = bubble(state, surface, BlockProps.DRAG.booleanValue(block));
                             }
                         }
                         current[0] = state;
@@ -95,10 +99,11 @@ public final class JavaInsideBlockEffects {
     }
 
     static boolean intersects(SimpleCollisionBox from, SimpleCollisionBox to, VoxelShape shape, BlockPos pos) {
-        AABB box = new AABB(from.minX, from.minY, from.minZ, from.maxX, from.maxY, from.maxZ);
+        SimpleCollisionBox box =
+                SimpleCollisionBox.between(from.minX, from.minY, from.minZ, from.maxX, from.maxY, from.maxZ);
         return box.collidedAlongVector(
                 new Vec3(to.minX - from.minX, to.minY - from.minY, to.minZ - from.minZ),
-                shape.move(pos.getX(), pos.getY(), pos.getZ()).toAabbs());
+                NativeBlockCollisionHelper.toBoxes(shape.move(pos.getX(), pos.getY(), pos.getZ())));
     }
 
     static boolean slides(Vec3 end, BlockPos pos, double width, boolean landed, double velocityY) {

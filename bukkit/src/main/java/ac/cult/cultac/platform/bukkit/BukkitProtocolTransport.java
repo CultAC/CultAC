@@ -1,7 +1,7 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.network.CultNetworkManager;
-import ac.cult.cultac.network.codec.NativePacketCodecs;
+import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.ProtocolData;
@@ -17,10 +17,14 @@ final class BukkitProtocolTransport {
 
     static void initialize(CultNetworkManager manager, JavaPlugin plugin) {
         var version = ProtocolVersion.of(SharedConstants.getProtocolVersion());
+        // The dispatcher speaks the 26.3 model; an older host's wire is projected per connection.
+        // Every connection's value codecs load here rather than on the first event loop.
+        ac.cult.cultac.protocol.ProtocolCodecs.decoder();
         var runtime = ProtocolRuntime.create(
-                ProtocolData.load(version),
-                NativePacketCodecs.catalog(
-                        net.minecraft.server.MinecraftServer.getServer().registryAccess()),
+                ProtocolData.load(ProtocolVersion.V26_3),
+                ClientPacketCodecs.catalog(
+                        context -> context.state().require(ac.cult.cultac.protocol.data.RegistryNames.class),
+                        context -> context.state().require(ac.cult.cultac.utils.latency.ClientWorldRegistries.class)),
                 commandInputLimit(version));
         var injector = new PaperInjector(manager);
         var listener = new BukkitConnectionListener(manager);

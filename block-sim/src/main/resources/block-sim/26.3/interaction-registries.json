@@ -1,0 +1,4924 @@
+{
+  "block_transformer": {
+    "minecraft:axe": [
+      {
+        "block_state_provider": {
+          "type": "minecraft:rule_based",
+          "rules": [
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oak_wood"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_oak_wood",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oak_log"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_oak_log",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:dark_oak_wood"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_dark_oak_wood",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:dark_oak_log"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_dark_oak_log",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:pale_oak_wood"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_pale_oak_wood",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:pale_oak_log"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_pale_oak_log",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:poplar_wood"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_poplar_wood",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:poplar_log"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_poplar_log",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:acacia_wood"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_acacia_wood",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:acacia_log"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_acacia_log",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:cherry_wood"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_cherry_wood",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:cherry_log"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_cherry_log",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:birch_wood"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_birch_wood",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:birch_log"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_birch_log",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:jungle_wood"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_jungle_wood",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:jungle_log"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_jungle_log",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:spruce_wood"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_spruce_wood",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:spruce_log"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_spruce_log",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:warped_stem"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_warped_stem",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:warped_hyphae"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_warped_hyphae",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:crimson_stem"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_crimson_stem",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:crimson_hyphae"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_crimson_hyphae",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:mangrove_wood"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_mangrove_wood",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:mangrove_log"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_mangrove_log",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:bamboo_block"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:stripped_bamboo_block",
+                  "properties": {
+                    "axis": "y"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "item_damage_per_use": 1,
+        "sound": "minecraft:item.axe.strip"
+      },
+      {
+        "block_state_provider": {
+          "type": "minecraft:rule_based",
+          "rules": [
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_block"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_cut_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:cut_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_cut_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_cut_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_cut_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_cut_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_chiseled_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:chiseled_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_chiseled_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_chiseled_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_chiseled_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_chiseled_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_cut_copper_slab"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:cut_copper_slab",
+                  "properties": {
+                    "type": "bottom",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_cut_copper_slab"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_cut_copper_slab",
+                  "properties": {
+                    "type": "bottom",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_cut_copper_slab"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_cut_copper_slab",
+                  "properties": {
+                    "type": "bottom",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_cut_copper_stairs"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:cut_copper_stairs",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "shape": "straight",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_cut_copper_stairs"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_cut_copper_stairs",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "shape": "straight",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_cut_copper_stairs"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_cut_copper_stairs",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "shape": "straight",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_copper_trapdoor"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_trapdoor",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "open": "false",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_copper_trapdoor"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_trapdoor",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "open": "false",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_copper_trapdoor"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_trapdoor",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "open": "false",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_copper_bars"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_bars",
+                  "properties": {
+                    "east": "false",
+                    "north": "false",
+                    "south": "false",
+                    "waterlogged": "false",
+                    "west": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_copper_bars"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_bars",
+                  "properties": {
+                    "east": "false",
+                    "north": "false",
+                    "south": "false",
+                    "waterlogged": "false",
+                    "west": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_copper_bars"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_bars",
+                  "properties": {
+                    "east": "false",
+                    "north": "false",
+                    "south": "false",
+                    "waterlogged": "false",
+                    "west": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_copper_grate"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_grate",
+                  "properties": {
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_copper_grate"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_grate",
+                  "properties": {
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_copper_grate"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_grate",
+                  "properties": {
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_copper_bulb"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_bulb",
+                  "properties": {
+                    "lit": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_copper_bulb"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_bulb",
+                  "properties": {
+                    "lit": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_copper_bulb"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_bulb",
+                  "properties": {
+                    "lit": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_copper_lantern"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_lantern",
+                  "properties": {
+                    "hanging": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_copper_lantern"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_lantern",
+                  "properties": {
+                    "hanging": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_copper_lantern"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_lantern",
+                  "properties": {
+                    "hanging": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_copper_golem_statue"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_golem_statue",
+                  "properties": {
+                    "copper_golem_pose": "standing",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_copper_golem_statue"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_golem_statue",
+                  "properties": {
+                    "copper_golem_pose": "standing",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_copper_golem_statue"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_golem_statue",
+                  "properties": {
+                    "copper_golem_pose": "standing",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_lightning_rod"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:lightning_rod",
+                  "properties": {
+                    "facing": "up",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_lightning_rod"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_lightning_rod",
+                  "properties": {
+                    "facing": "up",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_lightning_rod"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_lightning_rod",
+                  "properties": {
+                    "facing": "up",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_copper_chain"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_chain",
+                  "properties": {
+                    "axis": "y",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_copper_chain"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_chain",
+                  "properties": {
+                    "axis": "y",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_copper_chain"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_chain",
+                  "properties": {
+                    "axis": "y",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "item_damage_per_use": 1,
+        "particle": "scrape",
+        "sound": "minecraft:item.axe.scrape"
+      },
+      {
+        "block_state_provider": {
+          "type": "minecraft:rule_based",
+          "rules": [
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_copper_chest"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_chest",
+                  "properties": {
+                    "type": "single",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_copper_chest"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_chest",
+                  "properties": {
+                    "type": "single",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_copper_chest"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_chest",
+                  "properties": {
+                    "type": "single",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "item_damage_per_use": 1,
+        "particle": "scrape",
+        "sound": "minecraft:item.axe.scrape",
+        "transform_type": "copper_chest",
+        "update_from_neighbors": false
+      },
+      {
+        "block_state_provider": {
+          "type": "minecraft:rule_based",
+          "rules": [
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:exposed_copper_door"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_door",
+                  "properties": {
+                    "facing": "north",
+                    "half": "lower",
+                    "hinge": "left",
+                    "open": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:weathered_copper_door"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_door",
+                  "properties": {
+                    "facing": "north",
+                    "half": "lower",
+                    "hinge": "left",
+                    "open": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:oxidized_copper_door"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_door",
+                  "properties": {
+                    "facing": "north",
+                    "half": "lower",
+                    "hinge": "left",
+                    "open": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "item_damage_per_use": 1,
+        "particle": "scrape",
+        "sound": "minecraft:item.axe.scrape",
+        "update_from_neighbors": false
+      },
+      {
+        "block_state_provider": {
+          "type": "minecraft:rule_based",
+          "rules": [
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_copper_block"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_block"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_cut_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:cut_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_cut_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_cut_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_cut_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_cut_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_cut_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_cut_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_cut_copper_slab"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:cut_copper_slab",
+                  "properties": {
+                    "type": "bottom",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_cut_copper_slab"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_cut_copper_slab",
+                  "properties": {
+                    "type": "bottom",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_cut_copper_slab"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_cut_copper_slab",
+                  "properties": {
+                    "type": "bottom",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_cut_copper_slab"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_cut_copper_slab",
+                  "properties": {
+                    "type": "bottom",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_cut_copper_stairs"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:cut_copper_stairs",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "shape": "straight",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_cut_copper_stairs"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_cut_copper_stairs",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "shape": "straight",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_cut_copper_stairs"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_cut_copper_stairs",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "shape": "straight",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_cut_copper_stairs"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_cut_copper_stairs",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "shape": "straight",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_chiseled_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:chiseled_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_chiseled_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_chiseled_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_chiseled_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_chiseled_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_chiseled_copper"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_chiseled_copper"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_copper_trapdoor"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_trapdoor",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "open": "false",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_copper_trapdoor"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_trapdoor",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "open": "false",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_copper_trapdoor"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_trapdoor",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "open": "false",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_copper_trapdoor"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_copper_trapdoor",
+                  "properties": {
+                    "facing": "north",
+                    "half": "bottom",
+                    "open": "false",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_copper_bars"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_bars",
+                  "properties": {
+                    "east": "false",
+                    "north": "false",
+                    "south": "false",
+                    "waterlogged": "false",
+                    "west": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_copper_bars"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_bars",
+                  "properties": {
+                    "east": "false",
+                    "north": "false",
+                    "south": "false",
+                    "waterlogged": "false",
+                    "west": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_copper_bars"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_bars",
+                  "properties": {
+                    "east": "false",
+                    "north": "false",
+                    "south": "false",
+                    "waterlogged": "false",
+                    "west": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_copper_bars"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_copper_bars",
+                  "properties": {
+                    "east": "false",
+                    "north": "false",
+                    "south": "false",
+                    "waterlogged": "false",
+                    "west": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_copper_grate"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_grate",
+                  "properties": {
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_copper_grate"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_grate",
+                  "properties": {
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_copper_grate"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_grate",
+                  "properties": {
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_copper_grate"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_copper_grate",
+                  "properties": {
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_copper_bulb"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_bulb",
+                  "properties": {
+                    "lit": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_copper_bulb"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_bulb",
+                  "properties": {
+                    "lit": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_copper_bulb"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_bulb",
+                  "properties": {
+                    "lit": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_copper_bulb"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_copper_bulb",
+                  "properties": {
+                    "lit": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_copper_golem_statue"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_golem_statue",
+                  "properties": {
+                    "copper_golem_pose": "standing",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_copper_golem_statue"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_golem_statue",
+                  "properties": {
+                    "copper_golem_pose": "standing",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_copper_golem_statue"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_golem_statue",
+                  "properties": {
+                    "copper_golem_pose": "standing",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_copper_golem_statue"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_copper_golem_statue",
+                  "properties": {
+                    "copper_golem_pose": "standing",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_lightning_rod"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:lightning_rod",
+                  "properties": {
+                    "facing": "up",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_lightning_rod"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_lightning_rod",
+                  "properties": {
+                    "facing": "up",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_lightning_rod"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_lightning_rod",
+                  "properties": {
+                    "facing": "up",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_lightning_rod"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_lightning_rod",
+                  "properties": {
+                    "facing": "up",
+                    "powered": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_copper_lantern"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_lantern",
+                  "properties": {
+                    "hanging": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_copper_lantern"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_lantern",
+                  "properties": {
+                    "hanging": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_copper_lantern"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_lantern",
+                  "properties": {
+                    "hanging": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_copper_lantern"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_copper_lantern",
+                  "properties": {
+                    "hanging": "false",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_copper_chain"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_chain",
+                  "properties": {
+                    "axis": "y",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_copper_chain"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_chain",
+                  "properties": {
+                    "axis": "y",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_copper_chain"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_chain",
+                  "properties": {
+                    "axis": "y",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_copper_chain"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_copper_chain",
+                  "properties": {
+                    "axis": "y",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "item_damage_per_use": 1,
+        "particle": "wax_off",
+        "sound": "minecraft:item.axe.wax_off"
+      },
+      {
+        "block_state_provider": {
+          "type": "minecraft:rule_based",
+          "rules": [
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_copper_chest"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_chest",
+                  "properties": {
+                    "type": "single",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_copper_chest"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_chest",
+                  "properties": {
+                    "type": "single",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_copper_chest"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_chest",
+                  "properties": {
+                    "type": "single",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_copper_chest"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_copper_chest",
+                  "properties": {
+                    "type": "single",
+                    "facing": "north",
+                    "waterlogged": "false"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "item_damage_per_use": 1,
+        "particle": "wax_off",
+        "sound": "minecraft:item.axe.wax_off",
+        "transform_type": "copper_chest",
+        "update_from_neighbors": false
+      },
+      {
+        "block_state_provider": {
+          "type": "minecraft:rule_based",
+          "rules": [
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_copper_door"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:copper_door",
+                  "properties": {
+                    "facing": "north",
+                    "half": "lower",
+                    "hinge": "left",
+                    "open": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_exposed_copper_door"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:exposed_copper_door",
+                  "properties": {
+                    "facing": "north",
+                    "half": "lower",
+                    "hinge": "left",
+                    "open": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_weathered_copper_door"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:weathered_copper_door",
+                  "properties": {
+                    "facing": "north",
+                    "half": "lower",
+                    "hinge": "left",
+                    "open": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:waxed_oxidized_copper_door"
+              },
+              "then": {
+                "type": "minecraft:copy_properties",
+                "source": {
+                  "id": "minecraft:oxidized_copper_door",
+                  "properties": {
+                    "facing": "north",
+                    "half": "lower",
+                    "hinge": "left",
+                    "open": "false",
+                    "powered": "false"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "item_damage_per_use": 1,
+        "particle": "wax_off",
+        "sound": "minecraft:item.axe.wax_off",
+        "update_from_neighbors": false
+      }
+    ],
+    "minecraft:hoe": [
+      {
+        "block_state_provider": {
+          "type": "minecraft:rule_based",
+          "rules": [
+            {
+              "if_true": {
+                "type": "minecraft:all_of",
+                "predicates": [
+                  {
+                    "type": "minecraft:matching_block_tag",
+                    "tag": "minecraft:turns_into_farmland"
+                  },
+                  {
+                    "type": "minecraft:matching_block_tag",
+                    "offset": [
+                      0,
+                      1,
+                      0
+                    ],
+                    "tag": "minecraft:air"
+                  }
+                ]
+              },
+              "then": {
+                "id": "minecraft:farmland",
+                "properties": {
+                  "moisture": "0"
+                }
+              }
+            },
+            {
+              "if_true": {
+                "type": "minecraft:all_of",
+                "predicates": [
+                  {
+                    "type": "minecraft:matching_blocks",
+                    "blocks": "minecraft:coarse_dirt"
+                  },
+                  {
+                    "type": "minecraft:matching_block_tag",
+                    "offset": [
+                      0,
+                      1,
+                      0
+                    ],
+                    "tag": "minecraft:air"
+                  }
+                ]
+              },
+              "then": {
+                "id": "minecraft:dirt"
+              }
+            }
+          ]
+        },
+        "disallowed_faces": [
+          "down"
+        ],
+        "item_damage_per_use": 1,
+        "sound": "minecraft:item.hoe.till"
+      },
+      {
+        "block_state_provider": {
+          "type": "minecraft:rule_based",
+          "rules": [
+            {
+              "if_true": {
+                "type": "minecraft:matching_blocks",
+                "blocks": "minecraft:rooted_dirt"
+              },
+              "then": {
+                "id": "minecraft:dirt"
+              }
+            }
+          ]
+        },
+        "drop_strategy": "clicked_face",
+        "item_damage_per_use": 1,
+        "loot": "minecraft:till/rooted_dirt",
+        "sound": "minecraft:item.hoe.till"
+      }
+    ],
+    "minecraft:shovel": [
+      {
+        "block_state_provider": {
+          "type": "minecraft:rule_based",
+          "rules": [
+            {
+              "if_true": {
+                "type": "minecraft:all_of",
+                "predicates": [
+                  {
+                    "type": "minecraft:matching_block_tag",
+                    "tag": "minecraft:turns_into_dirt_path"
+                  },
+                  {
+                    "type": "minecraft:matching_block_tag",
+                    "offset": [
+                      0,
+                      1,
+                      0
+                    ],
+                    "tag": "minecraft:air"
+                  }
+                ]
+              },
+              "then": {
+                "id": "minecraft:dirt_path"
+              }
+            }
+          ]
+        },
+        "disallowed_faces": [
+          "down"
+        ],
+        "item_damage_per_use": 1,
+        "sound": "minecraft:item.shovel.flatten"
+      }
+    ]
+  },
+  "block_state_provider": {
+    "minecraft:cave_vines_body": {
+      "type": "minecraft:weighted",
+      "entries": [
+        {
+          "data": "minecraft:cave_vines_plant",
+          "weight": 4
+        },
+        {
+          "data": {
+            "id": "minecraft:cave_vines_plant",
+            "properties": {
+              "berries": "true"
+            }
+          },
+          "weight": 1
+        }
+      ]
+    },
+    "minecraft:cave_vines_head": {
+      "type": "minecraft:randomized_int",
+      "property": "age",
+      "source": {
+        "type": "minecraft:weighted",
+        "entries": [
+          {
+            "data": "minecraft:cave_vines",
+            "weight": 4
+          },
+          {
+            "data": {
+              "id": "minecraft:cave_vines",
+              "properties": {
+                "age": "0",
+                "berries": "true"
+              }
+            },
+            "weight": 1
+          }
+        ]
+      },
+      "values": {
+        "type": "minecraft:uniform",
+        "max_inclusive": 25,
+        "min_inclusive": 23
+      }
+    },
+    "minecraft:flower_flower_forest": {
+      "type": "minecraft:noise",
+      "noise": {
+        "base_amplitude": 0.955388882960065,
+        "base_octave": 0
+      },
+      "scale": 0.020833334,
+      "seed": 2345,
+      "states": [
+        "minecraft:dandelion",
+        "minecraft:poppy",
+        "minecraft:allium",
+        "minecraft:azure_bluet",
+        "minecraft:red_tulip",
+        "minecraft:orange_tulip",
+        "minecraft:white_tulip",
+        "minecraft:pink_tulip",
+        "minecraft:oxeye_daisy",
+        "minecraft:cornflower",
+        "minecraft:lily_of_the_valley"
+      ]
+    },
+    "minecraft:flower_meadow": {
+      "type": "minecraft:dual_noise",
+      "noise": {
+        "base_amplitude": 0.955388882960065,
+        "base_octave": -3
+      },
+      "scale": 1.0,
+      "seed": 2345,
+      "slow_noise": {
+        "base_amplitude": 0.955388882960065,
+        "base_octave": -10
+      },
+      "slow_scale": 1.0,
+      "states": [
+        "minecraft:tall_grass",
+        "minecraft:allium",
+        "minecraft:poppy",
+        "minecraft:azure_bluet",
+        "minecraft:dandelion",
+        "minecraft:cornflower",
+        "minecraft:oxeye_daisy",
+        "minecraft:short_grass"
+      ],
+      "variety": [
+        1,
+        3
+      ]
+    },
+    "minecraft:flower_plain": {
+      "type": "minecraft:noise_threshold",
+      "default_state": "minecraft:dandelion",
+      "high_chance": 0.33333334,
+      "high_states": [
+        "minecraft:poppy",
+        "minecraft:azure_bluet",
+        "minecraft:oxeye_daisy",
+        "minecraft:cornflower"
+      ],
+      "low_states": [
+        "minecraft:orange_tulip",
+        "minecraft:red_tulip",
+        "minecraft:pink_tulip",
+        "minecraft:white_tulip"
+      ],
+      "noise": {
+        "base_amplitude": 0.955388882960065,
+        "base_octave": 0
+      },
+      "scale": 0.005,
+      "seed": 2345,
+      "threshold": -0.8
+    },
+    "minecraft:mangrove_propagule": {
+      "type": "minecraft:randomized_int",
+      "property": "age",
+      "source": {
+        "id": "minecraft:mangrove_propagule",
+        "properties": {
+          "age": "0",
+          "hanging": "true",
+          "stage": "0",
+          "waterlogged": "false"
+        }
+      },
+      "values": {
+        "type": "minecraft:uniform",
+        "max_inclusive": 4,
+        "min_inclusive": 0
+      }
+    },
+    "minecraft:podzol_beneath_tree": {
+      "type": "minecraft:rule_based",
+      "rules": [
+        {
+          "if_true": {
+            "type": "minecraft:matching_block_tag",
+            "tag": "minecraft:beneath_tree_podzol_replaceable"
+          },
+          "then": {
+            "id": "minecraft:podzol",
+            "properties": {
+              "snowy": "false"
+            }
+          }
+        }
+      ]
+    },
+    "minecraft:soil_beneath_tree": {
+      "type": "minecraft:rule_based",
+      "rules": [
+        {
+          "if_true": {
+            "type": "minecraft:not",
+            "predicate": {
+              "type": "minecraft:matching_block_tag",
+              "tag": "minecraft:cannot_replace_below_tree_trunk"
+            }
+          },
+          "then": {
+            "id": "minecraft:dirt"
+          }
+        }
+      ]
+    }
+  },
+  "enchantment": {
+    "minecraft:aqua_affinity": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.aqua_affinity"
+      },
+      "effects": {
+        "minecraft:attributes": [
+          {
+            "amount": {
+              "type": "minecraft:linear",
+              "base": 4.0,
+              "per_level_above_first": 4.0
+            },
+            "attribute": "minecraft:submerged_mining_speed",
+            "id": "minecraft:enchantment.aqua_affinity",
+            "operation": "add_multiplied_total"
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 41,
+        "per_level_above_first": 0
+      },
+      "max_level": 1,
+      "min_cost": {
+        "base": 1,
+        "per_level_above_first": 0
+      },
+      "slots": [
+        "head"
+      ],
+      "supported_items": "#minecraft:enchantable/head_armor",
+      "weight": 2
+    },
+    "minecraft:bane_of_arthropods": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.bane_of_arthropods"
+      },
+      "effects": {
+        "minecraft:damage": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 2.5,
+                "per_level_above_first": 2.5
+              }
+            },
+            "requirements": {
+              "type": "minecraft:entity_properties",
+              "entity": "this",
+              "predicate": {
+                "minecraft:entity_type": "#minecraft:sensitive_to_bane_of_arthropods"
+              }
+            }
+          }
+        ],
+        "minecraft:post_attack": [
+          {
+            "affected": "victim",
+            "effect": {
+              "type": "minecraft:apply_mob_effect",
+              "max_amplifier": 3.0,
+              "max_duration": {
+                "type": "minecraft:linear",
+                "base": 1.5,
+                "per_level_above_first": 0.5
+              },
+              "min_amplifier": 3.0,
+              "min_duration": 1.5,
+              "to_apply": "minecraft:slowness"
+            },
+            "enchanted": "attacker",
+            "requirements": {
+              "type": "minecraft:all_of",
+              "terms": [
+                {
+                  "type": "minecraft:entity_properties",
+                  "entity": "this",
+                  "predicate": {
+                    "minecraft:entity_type": "#minecraft:sensitive_to_bane_of_arthropods"
+                  }
+                },
+                {
+                  "type": "minecraft:damage_source_properties",
+                  "predicate": {
+                    "is_direct": true
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/damage",
+      "max_cost": {
+        "base": 25,
+        "per_level_above_first": 8
+      },
+      "max_level": 5,
+      "min_cost": {
+        "base": 5,
+        "per_level_above_first": 8
+      },
+      "primary_items": "#minecraft:enchantable/melee_weapon",
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/weapon",
+      "weight": 5
+    },
+    "minecraft:binding_curse": {
+      "anvil_cost": 8,
+      "description": {
+        "translate": "enchantment.minecraft.binding_curse"
+      },
+      "effects": {
+        "minecraft:prevent_armor_change": {}
+      },
+      "max_cost": {
+        "base": 50,
+        "per_level_above_first": 0
+      },
+      "max_level": 1,
+      "min_cost": {
+        "base": 25,
+        "per_level_above_first": 0
+      },
+      "slots": [
+        "armor"
+      ],
+      "supported_items": "#minecraft:enchantable/equippable",
+      "weight": 1
+    },
+    "minecraft:blast_protection": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.blast_protection"
+      },
+      "effects": {
+        "minecraft:attributes": [
+          {
+            "amount": {
+              "type": "minecraft:linear",
+              "base": 0.15,
+              "per_level_above_first": 0.15
+            },
+            "attribute": "minecraft:explosion_knockback_resistance",
+            "id": "minecraft:enchantment.blast_protection",
+            "operation": "add_value"
+          }
+        ],
+        "minecraft:damage_protection": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 2.0,
+                "per_level_above_first": 2.0
+              }
+            },
+            "requirements": {
+              "type": "minecraft:damage_source_properties",
+              "predicate": {
+                "tags": [
+                  {
+                    "expected": true,
+                    "id": "#minecraft:is_explosion"
+                  },
+                  {
+                    "expected": false,
+                    "id": "#minecraft:bypasses_invulnerability"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/armor",
+      "max_cost": {
+        "base": 13,
+        "per_level_above_first": 8
+      },
+      "max_level": 4,
+      "min_cost": {
+        "base": 5,
+        "per_level_above_first": 8
+      },
+      "slots": [
+        "armor"
+      ],
+      "supported_items": "#minecraft:enchantable/armor",
+      "weight": 2
+    },
+    "minecraft:breach": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.breach"
+      },
+      "effects": {
+        "minecraft:armor_effectiveness": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": -0.15,
+                "per_level_above_first": -0.15
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/damage",
+      "max_cost": {
+        "base": 65,
+        "per_level_above_first": 9
+      },
+      "max_level": 4,
+      "min_cost": {
+        "base": 15,
+        "per_level_above_first": 9
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/mace",
+      "weight": 2
+    },
+    "minecraft:channeling": {
+      "anvil_cost": 8,
+      "description": {
+        "translate": "enchantment.minecraft.channeling"
+      },
+      "effects": {
+        "minecraft:hit_block": [
+          {
+            "effect": {
+              "type": "minecraft:all_of",
+              "effects": [
+                {
+                  "type": "minecraft:summon_entity",
+                  "entity": "minecraft:lightning_bolt"
+                },
+                {
+                  "type": "minecraft:play_sound",
+                  "pitch": 1.0,
+                  "sound": "minecraft:item.trident.thunder",
+                  "volume": 5.0
+                }
+              ]
+            },
+            "requirements": {
+              "type": "minecraft:all_of",
+              "terms": [
+                {
+                  "type": "minecraft:weather_check",
+                  "thundering": true
+                },
+                {
+                  "type": "minecraft:entity_properties",
+                  "entity": "this",
+                  "predicate": {
+                    "minecraft:entity_type": "minecraft:trident"
+                  }
+                },
+                {
+                  "type": "minecraft:location_check",
+                  "predicate": {
+                    "block": {
+                      "blocks": "#minecraft:lightning_rods"
+                    },
+                    "can_see_sky": true
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "minecraft:post_attack": [
+          {
+            "affected": "victim",
+            "effect": {
+              "type": "minecraft:all_of",
+              "effects": [
+                {
+                  "type": "minecraft:summon_entity",
+                  "entity": "minecraft:lightning_bolt"
+                },
+                {
+                  "type": "minecraft:play_sound",
+                  "pitch": 1.0,
+                  "sound": "minecraft:item.trident.thunder",
+                  "volume": 5.0
+                }
+              ]
+            },
+            "enchanted": "attacker",
+            "requirements": {
+              "type": "minecraft:all_of",
+              "terms": [
+                {
+                  "type": "minecraft:weather_check",
+                  "thundering": true
+                },
+                {
+                  "type": "minecraft:entity_properties",
+                  "entity": "this",
+                  "predicate": {
+                    "minecraft:location": {
+                      "can_see_sky": true
+                    }
+                  }
+                },
+                {
+                  "type": "minecraft:entity_properties",
+                  "entity": "direct_attacker",
+                  "predicate": {
+                    "minecraft:entity_type": "minecraft:trident"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 50,
+        "per_level_above_first": 0
+      },
+      "max_level": 1,
+      "min_cost": {
+        "base": 25,
+        "per_level_above_first": 0
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/trident",
+      "weight": 1
+    },
+    "minecraft:density": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.density"
+      },
+      "effects": {
+        "minecraft:smash_damage_per_fallen_block": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 0.5,
+                "per_level_above_first": 0.5
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/damage",
+      "max_cost": {
+        "base": 25,
+        "per_level_above_first": 8
+      },
+      "max_level": 5,
+      "min_cost": {
+        "base": 5,
+        "per_level_above_first": 8
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/mace",
+      "weight": 5
+    },
+    "minecraft:depth_strider": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.depth_strider"
+      },
+      "effects": {
+        "minecraft:attributes": [
+          {
+            "amount": {
+              "type": "minecraft:linear",
+              "base": 0.33333334,
+              "per_level_above_first": 0.33333334
+            },
+            "attribute": "minecraft:water_movement_efficiency",
+            "id": "minecraft:enchantment.depth_strider",
+            "operation": "add_value"
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/boots",
+      "max_cost": {
+        "base": 25,
+        "per_level_above_first": 10
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 10,
+        "per_level_above_first": 10
+      },
+      "slots": [
+        "feet"
+      ],
+      "supported_items": "#minecraft:enchantable/foot_armor",
+      "weight": 2
+    },
+    "minecraft:efficiency": {
+      "anvil_cost": 1,
+      "description": {
+        "translate": "enchantment.minecraft.efficiency"
+      },
+      "effects": {
+        "minecraft:attributes": [
+          {
+            "amount": {
+              "type": "minecraft:levels_squared",
+              "added": 1.0
+            },
+            "attribute": "minecraft:mining_efficiency",
+            "id": "minecraft:enchantment.efficiency",
+            "operation": "add_value"
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 51,
+        "per_level_above_first": 10
+      },
+      "max_level": 5,
+      "min_cost": {
+        "base": 1,
+        "per_level_above_first": 10
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/mining",
+      "weight": 10
+    },
+    "minecraft:feather_falling": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.feather_falling"
+      },
+      "effects": {
+        "minecraft:damage_protection": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 3.0,
+                "per_level_above_first": 3.0
+              }
+            },
+            "requirements": {
+              "type": "minecraft:damage_source_properties",
+              "predicate": {
+                "tags": [
+                  {
+                    "expected": true,
+                    "id": "#minecraft:is_fall"
+                  },
+                  {
+                    "expected": false,
+                    "id": "#minecraft:bypasses_invulnerability"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 11,
+        "per_level_above_first": 6
+      },
+      "max_level": 4,
+      "min_cost": {
+        "base": 5,
+        "per_level_above_first": 6
+      },
+      "slots": [
+        "armor"
+      ],
+      "supported_items": "#minecraft:enchantable/foot_armor",
+      "weight": 5
+    },
+    "minecraft:fire_aspect": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.fire_aspect"
+      },
+      "effects": {
+        "minecraft:post_attack": [
+          {
+            "affected": "victim",
+            "effect": {
+              "type": "minecraft:ignite",
+              "duration": {
+                "type": "minecraft:linear",
+                "base": 4.0,
+                "per_level_above_first": 4.0
+              }
+            },
+            "enchanted": "attacker",
+            "requirements": {
+              "type": "minecraft:damage_source_properties",
+              "predicate": {
+                "is_direct": true
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 60,
+        "per_level_above_first": 20
+      },
+      "max_level": 2,
+      "min_cost": {
+        "base": 10,
+        "per_level_above_first": 20
+      },
+      "primary_items": "#minecraft:enchantable/melee_weapon",
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/fire_aspect",
+      "weight": 2
+    },
+    "minecraft:fire_protection": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.fire_protection"
+      },
+      "effects": {
+        "minecraft:attributes": [
+          {
+            "amount": {
+              "type": "minecraft:linear",
+              "base": -0.15,
+              "per_level_above_first": -0.15
+            },
+            "attribute": "minecraft:burning_time",
+            "id": "minecraft:enchantment.fire_protection",
+            "operation": "add_multiplied_base"
+          }
+        ],
+        "minecraft:damage_protection": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 2.0,
+                "per_level_above_first": 2.0
+              }
+            },
+            "requirements": {
+              "type": "minecraft:damage_source_properties",
+              "predicate": {
+                "tags": [
+                  {
+                    "expected": true,
+                    "id": "#minecraft:is_fire"
+                  },
+                  {
+                    "expected": false,
+                    "id": "#minecraft:bypasses_invulnerability"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/armor",
+      "max_cost": {
+        "base": 18,
+        "per_level_above_first": 8
+      },
+      "max_level": 4,
+      "min_cost": {
+        "base": 10,
+        "per_level_above_first": 8
+      },
+      "slots": [
+        "armor"
+      ],
+      "supported_items": "#minecraft:enchantable/armor",
+      "weight": 5
+    },
+    "minecraft:flame": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.flame"
+      },
+      "effects": {
+        "minecraft:projectile_spawned": [
+          {
+            "effect": {
+              "type": "minecraft:ignite",
+              "duration": 100.0
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 50,
+        "per_level_above_first": 0
+      },
+      "max_level": 1,
+      "min_cost": {
+        "base": 20,
+        "per_level_above_first": 0
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/bow",
+      "weight": 2
+    },
+    "minecraft:fortune": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.fortune"
+      },
+      "exclusive_set": "#minecraft:exclusive_set/mining",
+      "max_cost": {
+        "base": 65,
+        "per_level_above_first": 9
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 15,
+        "per_level_above_first": 9
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/mining_loot",
+      "weight": 2
+    },
+    "minecraft:frost_walker": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.frost_walker"
+      },
+      "effects": {
+        "minecraft:damage_immunity": [
+          {
+            "effect": {},
+            "requirements": {
+              "type": "minecraft:damage_source_properties",
+              "predicate": {
+                "tags": [
+                  {
+                    "expected": true,
+                    "id": "#minecraft:burn_from_stepping"
+                  },
+                  {
+                    "expected": false,
+                    "id": "#minecraft:bypasses_invulnerability"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "minecraft:location_changed": [
+          {
+            "effect": {
+              "type": "minecraft:replace_disk",
+              "block_state": {
+                "id": "minecraft:frosted_ice",
+                "properties": {
+                  "age": "0"
+                }
+              },
+              "height": 1.0,
+              "offset": [
+                0,
+                -1,
+                0
+              ],
+              "predicate": {
+                "type": "minecraft:all_of",
+                "predicates": [
+                  {
+                    "type": "minecraft:matching_block_tag",
+                    "offset": [
+                      0,
+                      1,
+                      0
+                    ],
+                    "tag": "minecraft:air"
+                  },
+                  {
+                    "type": "minecraft:matching_blocks",
+                    "blocks": "minecraft:water"
+                  },
+                  {
+                    "type": "minecraft:matching_fluids",
+                    "fluids": "minecraft:water"
+                  },
+                  {
+                    "type": "minecraft:unobstructed"
+                  }
+                ]
+              },
+              "radius": {
+                "type": "minecraft:clamped",
+                "max": 16.0,
+                "min": 0.0,
+                "value": {
+                  "type": "minecraft:linear",
+                  "base": 3.0,
+                  "per_level_above_first": 1.0
+                }
+              },
+              "trigger_game_event": "minecraft:block_place"
+            },
+            "requirements": {
+              "type": "minecraft:all_of",
+              "terms": [
+                {
+                  "type": "minecraft:entity_properties",
+                  "entity": "this",
+                  "predicate": {
+                    "minecraft:flags": {
+                      "is_on_ground": true
+                    }
+                  }
+                },
+                {
+                  "type": "minecraft:inverted",
+                  "term": {
+                    "type": "minecraft:entity_properties",
+                    "entity": "this",
+                    "predicate": {
+                      "minecraft:vehicle": {}
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/boots",
+      "max_cost": {
+        "base": 25,
+        "per_level_above_first": 10
+      },
+      "max_level": 2,
+      "min_cost": {
+        "base": 10,
+        "per_level_above_first": 10
+      },
+      "slots": [
+        "feet"
+      ],
+      "supported_items": "#minecraft:enchantable/foot_armor",
+      "weight": 2
+    },
+    "minecraft:impaling": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.impaling"
+      },
+      "effects": {
+        "minecraft:damage": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 2.5,
+                "per_level_above_first": 2.5
+              }
+            },
+            "requirements": {
+              "type": "minecraft:entity_properties",
+              "entity": "this",
+              "predicate": {
+                "minecraft:entity_type": "#minecraft:sensitive_to_impaling"
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/damage",
+      "max_cost": {
+        "base": 21,
+        "per_level_above_first": 8
+      },
+      "max_level": 5,
+      "min_cost": {
+        "base": 1,
+        "per_level_above_first": 8
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/trident",
+      "weight": 2
+    },
+    "minecraft:infinity": {
+      "anvil_cost": 8,
+      "description": {
+        "translate": "enchantment.minecraft.infinity"
+      },
+      "effects": {
+        "minecraft:ammo_use": [
+          {
+            "effect": {
+              "type": "minecraft:set",
+              "value": 0.0
+            },
+            "requirements": {
+              "type": "minecraft:match_tool",
+              "predicate": {
+                "items": "minecraft:arrow"
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/bow",
+      "max_cost": {
+        "base": 50,
+        "per_level_above_first": 0
+      },
+      "max_level": 1,
+      "min_cost": {
+        "base": 20,
+        "per_level_above_first": 0
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/bow",
+      "weight": 1
+    },
+    "minecraft:knockback": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.knockback"
+      },
+      "effects": {
+        "minecraft:knockback": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 1.0,
+                "per_level_above_first": 1.0
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 55,
+        "per_level_above_first": 20
+      },
+      "max_level": 2,
+      "min_cost": {
+        "base": 5,
+        "per_level_above_first": 20
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/melee_weapon",
+      "weight": 5
+    },
+    "minecraft:looting": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.looting"
+      },
+      "effects": {
+        "minecraft:equipment_drops": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 0.01,
+                "per_level_above_first": 0.01
+              }
+            },
+            "enchanted": "attacker",
+            "requirements": {
+              "type": "minecraft:entity_properties",
+              "entity": "attacker",
+              "predicate": {
+                "minecraft:entity_type": "minecraft:player"
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 65,
+        "per_level_above_first": 9
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 15,
+        "per_level_above_first": 9
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/melee_weapon",
+      "weight": 2
+    },
+    "minecraft:loyalty": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.loyalty"
+      },
+      "effects": {
+        "minecraft:trident_return_acceleration": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 1.0,
+                "per_level_above_first": 1.0
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 50,
+        "per_level_above_first": 0
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 12,
+        "per_level_above_first": 7
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/trident",
+      "weight": 5
+    },
+    "minecraft:luck_of_the_sea": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.luck_of_the_sea"
+      },
+      "effects": {
+        "minecraft:fishing_luck_bonus": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 1.0,
+                "per_level_above_first": 1.0
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 65,
+        "per_level_above_first": 9
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 15,
+        "per_level_above_first": 9
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/fishing",
+      "weight": 2
+    },
+    "minecraft:lunge": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.lunge"
+      },
+      "effects": {
+        "minecraft:post_piercing_attack": [
+          {
+            "effect": {
+              "type": "minecraft:all_of",
+              "effects": [
+                {
+                  "type": "minecraft:change_item_damage",
+                  "amount": 1.0
+                },
+                {
+                  "type": "minecraft:apply_exhaustion",
+                  "amount": {
+                    "type": "minecraft:linear",
+                    "base": 4.0,
+                    "per_level_above_first": 4.0
+                  }
+                },
+                {
+                  "type": "minecraft:apply_impulse",
+                  "coordinate_scale": [
+                    1.0,
+                    0.0,
+                    1.0
+                  ],
+                  "direction": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "magnitude": {
+                    "type": "minecraft:linear",
+                    "base": 0.458,
+                    "per_level_above_first": 0.458
+                  }
+                },
+                {
+                  "type": "minecraft:play_sound",
+                  "pitch": 1.0,
+                  "sound": [
+                    "minecraft:item.spear.lunge_1",
+                    "minecraft:item.spear.lunge_2",
+                    "minecraft:item.spear.lunge_3"
+                  ],
+                  "volume": 1.0
+                }
+              ]
+            },
+            "requirements": {
+              "type": "minecraft:all_of",
+              "terms": [
+                {
+                  "type": "minecraft:inverted",
+                  "term": {
+                    "type": "minecraft:entity_properties",
+                    "entity": "this",
+                    "predicate": {
+                      "minecraft:vehicle": {}
+                    }
+                  }
+                },
+                {
+                  "type": "minecraft:entity_properties",
+                  "entity": "this",
+                  "predicate": {
+                    "minecraft:flags": {
+                      "is_fall_flying": false
+                    }
+                  }
+                },
+                {
+                  "type": "minecraft:entity_properties",
+                  "entity": "this",
+                  "predicate": {
+                    "minecraft:flags": {
+                      "is_in_water": false
+                    }
+                  }
+                },
+                {
+                  "type": "minecraft:any_of",
+                  "terms": [
+                    {
+                      "type": "minecraft:inverted",
+                      "term": {
+                        "type": "minecraft:entity_properties",
+                        "entity": "this",
+                        "predicate": {
+                          "minecraft:type_specific/player": {}
+                        }
+                      }
+                    },
+                    {
+                      "type": "minecraft:entity_properties",
+                      "entity": "this",
+                      "predicate": {
+                        "minecraft:type_specific/player": {
+                          "gamemode": [
+                            "creative"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "type": "minecraft:entity_properties",
+                      "entity": "this",
+                      "predicate": {
+                        "minecraft:type_specific/player": {
+                          "food": {
+                            "level": {
+                              "min": 7
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 25,
+        "per_level_above_first": 8
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 5,
+        "per_level_above_first": 8
+      },
+      "slots": [
+        "hand"
+      ],
+      "supported_items": "#minecraft:enchantable/lunge",
+      "weight": 5
+    },
+    "minecraft:lure": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.lure"
+      },
+      "effects": {
+        "minecraft:fishing_time_reduction": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 5.0,
+                "per_level_above_first": 5.0
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 65,
+        "per_level_above_first": 9
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 15,
+        "per_level_above_first": 9
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/fishing",
+      "weight": 2
+    },
+    "minecraft:mending": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.mending"
+      },
+      "effects": {
+        "minecraft:repair_with_xp": [
+          {
+            "effect": {
+              "type": "minecraft:multiply",
+              "factor": 2.0
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 75,
+        "per_level_above_first": 25
+      },
+      "max_level": 1,
+      "min_cost": {
+        "base": 25,
+        "per_level_above_first": 25
+      },
+      "slots": [
+        "any"
+      ],
+      "supported_items": "#minecraft:enchantable/durability",
+      "weight": 2
+    },
+    "minecraft:multishot": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.multishot"
+      },
+      "effects": {
+        "minecraft:projectile_count": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 2.0,
+                "per_level_above_first": 2.0
+              }
+            }
+          }
+        ],
+        "minecraft:projectile_spread": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 10.0,
+                "per_level_above_first": 10.0
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/crossbow",
+      "max_cost": {
+        "base": 50,
+        "per_level_above_first": 0
+      },
+      "max_level": 1,
+      "min_cost": {
+        "base": 20,
+        "per_level_above_first": 0
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/crossbow",
+      "weight": 2
+    },
+    "minecraft:piercing": {
+      "anvil_cost": 1,
+      "description": {
+        "translate": "enchantment.minecraft.piercing"
+      },
+      "effects": {
+        "minecraft:projectile_piercing": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 1.0,
+                "per_level_above_first": 1.0
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/crossbow",
+      "max_cost": {
+        "base": 50,
+        "per_level_above_first": 0
+      },
+      "max_level": 4,
+      "min_cost": {
+        "base": 1,
+        "per_level_above_first": 10
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/crossbow",
+      "weight": 10
+    },
+    "minecraft:power": {
+      "anvil_cost": 1,
+      "description": {
+        "translate": "enchantment.minecraft.power"
+      },
+      "effects": {
+        "minecraft:damage": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 1.0,
+                "per_level_above_first": 0.5
+              }
+            },
+            "requirements": {
+              "type": "minecraft:entity_properties",
+              "entity": "direct_attacker",
+              "predicate": {
+                "minecraft:entity_type": "#minecraft:arrows"
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 16,
+        "per_level_above_first": 10
+      },
+      "max_level": 5,
+      "min_cost": {
+        "base": 1,
+        "per_level_above_first": 10
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/bow",
+      "weight": 10
+    },
+    "minecraft:projectile_protection": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.projectile_protection"
+      },
+      "effects": {
+        "minecraft:damage_protection": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 2.0,
+                "per_level_above_first": 2.0
+              }
+            },
+            "requirements": {
+              "type": "minecraft:damage_source_properties",
+              "predicate": {
+                "tags": [
+                  {
+                    "expected": true,
+                    "id": "#minecraft:is_projectile"
+                  },
+                  {
+                    "expected": false,
+                    "id": "#minecraft:bypasses_invulnerability"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/armor",
+      "max_cost": {
+        "base": 9,
+        "per_level_above_first": 6
+      },
+      "max_level": 4,
+      "min_cost": {
+        "base": 3,
+        "per_level_above_first": 6
+      },
+      "slots": [
+        "armor"
+      ],
+      "supported_items": "#minecraft:enchantable/armor",
+      "weight": 5
+    },
+    "minecraft:protection": {
+      "anvil_cost": 1,
+      "description": {
+        "translate": "enchantment.minecraft.protection"
+      },
+      "effects": {
+        "minecraft:damage_protection": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 1.0,
+                "per_level_above_first": 1.0
+              }
+            },
+            "requirements": {
+              "type": "minecraft:damage_source_properties",
+              "predicate": {
+                "tags": [
+                  {
+                    "expected": false,
+                    "id": "#minecraft:bypasses_invulnerability"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/armor",
+      "max_cost": {
+        "base": 12,
+        "per_level_above_first": 11
+      },
+      "max_level": 4,
+      "min_cost": {
+        "base": 1,
+        "per_level_above_first": 11
+      },
+      "slots": [
+        "armor"
+      ],
+      "supported_items": "#minecraft:enchantable/armor",
+      "weight": 10
+    },
+    "minecraft:punch": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.punch"
+      },
+      "effects": {
+        "minecraft:knockback": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 1.0,
+                "per_level_above_first": 1.0
+              }
+            },
+            "requirements": {
+              "type": "minecraft:entity_properties",
+              "entity": "direct_attacker",
+              "predicate": {
+                "minecraft:entity_type": "#minecraft:arrows"
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 37,
+        "per_level_above_first": 20
+      },
+      "max_level": 2,
+      "min_cost": {
+        "base": 12,
+        "per_level_above_first": 20
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/bow",
+      "weight": 2
+    },
+    "minecraft:quick_charge": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.quick_charge"
+      },
+      "effects": {
+        "minecraft:crossbow_charge_time": {
+          "type": "minecraft:add",
+          "value": {
+            "type": "minecraft:linear",
+            "base": -0.25,
+            "per_level_above_first": -0.25
+          }
+        },
+        "minecraft:crossbow_charging_sounds": [
+          {
+            "end": "minecraft:item.crossbow.loading_end",
+            "start": "minecraft:item.crossbow.quick_charge_1"
+          },
+          {
+            "end": "minecraft:item.crossbow.loading_end",
+            "start": "minecraft:item.crossbow.quick_charge_2"
+          },
+          {
+            "end": "minecraft:item.crossbow.loading_end",
+            "start": "minecraft:item.crossbow.quick_charge_3"
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 50,
+        "per_level_above_first": 0
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 12,
+        "per_level_above_first": 20
+      },
+      "slots": [
+        "mainhand",
+        "offhand"
+      ],
+      "supported_items": "#minecraft:enchantable/crossbow",
+      "weight": 5
+    },
+    "minecraft:respiration": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.respiration"
+      },
+      "effects": {
+        "minecraft:attributes": [
+          {
+            "amount": {
+              "type": "minecraft:linear",
+              "base": 1.0,
+              "per_level_above_first": 1.0
+            },
+            "attribute": "minecraft:oxygen_bonus",
+            "id": "minecraft:enchantment.respiration",
+            "operation": "add_value"
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 40,
+        "per_level_above_first": 10
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 10,
+        "per_level_above_first": 10
+      },
+      "slots": [
+        "head"
+      ],
+      "supported_items": "#minecraft:enchantable/head_armor",
+      "weight": 2
+    },
+    "minecraft:riptide": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.riptide"
+      },
+      "effects": {
+        "minecraft:trident_sound": [
+          "minecraft:item.trident.riptide_1",
+          "minecraft:item.trident.riptide_2",
+          "minecraft:item.trident.riptide_3"
+        ],
+        "minecraft:trident_spin_attack_strength": {
+          "type": "minecraft:add",
+          "value": {
+            "type": "minecraft:linear",
+            "base": 1.5,
+            "per_level_above_first": 0.75
+          }
+        }
+      },
+      "exclusive_set": "#minecraft:exclusive_set/riptide",
+      "max_cost": {
+        "base": 50,
+        "per_level_above_first": 0
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 17,
+        "per_level_above_first": 7
+      },
+      "slots": [
+        "hand"
+      ],
+      "supported_items": "#minecraft:enchantable/trident",
+      "weight": 2
+    },
+    "minecraft:sharpness": {
+      "anvil_cost": 1,
+      "description": {
+        "translate": "enchantment.minecraft.sharpness"
+      },
+      "effects": {
+        "minecraft:damage": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 1.0,
+                "per_level_above_first": 0.5
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/damage",
+      "max_cost": {
+        "base": 21,
+        "per_level_above_first": 11
+      },
+      "max_level": 5,
+      "min_cost": {
+        "base": 1,
+        "per_level_above_first": 11
+      },
+      "primary_items": "#minecraft:enchantable/melee_weapon",
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/sharp_weapon",
+      "weight": 10
+    },
+    "minecraft:silk_touch": {
+      "anvil_cost": 8,
+      "description": {
+        "translate": "enchantment.minecraft.silk_touch"
+      },
+      "effects": {
+        "minecraft:block_experience": [
+          {
+            "effect": {
+              "type": "minecraft:set",
+              "value": 0.0
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/mining",
+      "max_cost": {
+        "base": 65,
+        "per_level_above_first": 0
+      },
+      "max_level": 1,
+      "min_cost": {
+        "base": 15,
+        "per_level_above_first": 0
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/mining_loot",
+      "weight": 1
+    },
+    "minecraft:smite": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.smite"
+      },
+      "effects": {
+        "minecraft:damage": [
+          {
+            "effect": {
+              "type": "minecraft:add",
+              "value": {
+                "type": "minecraft:linear",
+                "base": 2.5,
+                "per_level_above_first": 2.5
+              }
+            },
+            "requirements": {
+              "type": "minecraft:entity_properties",
+              "entity": "this",
+              "predicate": {
+                "minecraft:entity_type": "#minecraft:sensitive_to_smite"
+              }
+            }
+          }
+        ]
+      },
+      "exclusive_set": "#minecraft:exclusive_set/damage",
+      "max_cost": {
+        "base": 25,
+        "per_level_above_first": 8
+      },
+      "max_level": 5,
+      "min_cost": {
+        "base": 5,
+        "per_level_above_first": 8
+      },
+      "primary_items": "#minecraft:enchantable/melee_weapon",
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/weapon",
+      "weight": 5
+    },
+    "minecraft:soul_speed": {
+      "anvil_cost": 8,
+      "description": {
+        "translate": "enchantment.minecraft.soul_speed"
+      },
+      "effects": {
+        "minecraft:location_changed": [
+          {
+            "effect": {
+              "type": "minecraft:all_of",
+              "effects": [
+                {
+                  "type": "minecraft:attribute",
+                  "amount": {
+                    "type": "minecraft:linear",
+                    "base": 0.0405,
+                    "per_level_above_first": 0.0105
+                  },
+                  "attribute": "minecraft:movement_speed",
+                  "id": "minecraft:enchantment.soul_speed",
+                  "operation": "add_value"
+                },
+                {
+                  "type": "minecraft:attribute",
+                  "amount": 1.0,
+                  "attribute": "minecraft:movement_efficiency",
+                  "id": "minecraft:enchantment.soul_speed",
+                  "operation": "add_value"
+                }
+              ]
+            },
+            "requirements": {
+              "type": "minecraft:all_of",
+              "terms": [
+                {
+                  "type": "minecraft:inverted",
+                  "term": {
+                    "type": "minecraft:entity_properties",
+                    "entity": "this",
+                    "predicate": {
+                      "minecraft:vehicle": {}
+                    }
+                  }
+                },
+                {
+                  "type": "minecraft:any_of",
+                  "terms": [
+                    {
+                      "type": "minecraft:all_of",
+                      "terms": [
+                        {
+                          "type": "minecraft:enchantment_active_check",
+                          "active": true
+                        },
+                        {
+                          "type": "minecraft:entity_properties",
+                          "entity": "this",
+                          "predicate": {
+                            "minecraft:flags": {
+                              "is_flying": false
+                            }
+                          }
+                        },
+                        {
+                          "type": "minecraft:any_of",
+                          "terms": [
+                            {
+                              "type": "minecraft:entity_properties",
+                              "entity": "this",
+                              "predicate": {
+                                "minecraft:movement_affected_by": {
+                                  "block": {
+                                    "blocks": "#minecraft:soul_speed_blocks"
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "type": "minecraft:entity_properties",
+                              "entity": "this",
+                              "predicate": {
+                                "minecraft:flags": {
+                                  "is_on_ground": false
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "minecraft:all_of",
+                      "terms": [
+                        {
+                          "type": "minecraft:enchantment_active_check",
+                          "active": false
+                        },
+                        {
+                          "type": "minecraft:entity_properties",
+                          "entity": "this",
+                          "predicate": {
+                            "minecraft:flags": {
+                              "is_flying": false
+                            },
+                            "minecraft:movement_affected_by": {
+                              "block": {
+                                "blocks": "#minecraft:soul_speed_blocks"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "effect": {
+              "type": "minecraft:change_item_damage",
+              "amount": 1.0
+            },
+            "requirements": {
+              "type": "minecraft:all_of",
+              "terms": [
+                {
+                  "type": "minecraft:random_chance",
+                  "chance": {
+                    "type": "minecraft:enchantment_level",
+                    "amount": 0.04
+                  }
+                },
+                {
+                  "type": "minecraft:entity_properties",
+                  "entity": "this",
+                  "predicate": {
+                    "minecraft:flags": {
+                      "is_on_ground": true
+                    },
+                    "minecraft:movement_affected_by": {
+                      "block": {
+                        "blocks": "#minecraft:soul_speed_blocks"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "minecraft:tick": [
+          {
+            "effect": {
+              "type": "minecraft:spawn_particles",
+              "horizontal_position": {
+                "type": "in_bounding_box"
+              },
+              "horizontal_velocity": {
+                "movement_scale": -0.2
+              },
+              "particle": {
+                "type": "minecraft:soul"
+              },
+              "speed": 1.0,
+              "vertical_position": {
+                "type": "entity_position",
+                "offset": 0.1
+              },
+              "vertical_velocity": {
+                "base": 0.1
+              }
+            },
+            "requirements": {
+              "type": "minecraft:entity_properties",
+              "entity": "this",
+              "predicate": {
+                "minecraft:flags": {
+                  "is_flying": false,
+                  "is_on_ground": true
+                },
+                "minecraft:movement": {
+                  "horizontal_speed": {
+                    "min": 9.999999747378752E-6
+                  }
+                },
+                "minecraft:movement_affected_by": {
+                  "block": {
+                    "blocks": "#minecraft:soul_speed_blocks"
+                  }
+                },
+                "minecraft:periodic_tick": 5
+              }
+            }
+          },
+          {
+            "effect": {
+              "type": "minecraft:play_sound",
+              "pitch": {
+                "type": "minecraft:uniform",
+                "max_exclusive": 1.0,
+                "min_inclusive": 0.6
+              },
+              "sound": "minecraft:particle.soul_escape",
+              "volume": 0.6
+            },
+            "requirements": {
+              "type": "minecraft:all_of",
+              "terms": [
+                {
+                  "type": "minecraft:random_chance",
+                  "chance": 0.35
+                },
+                {
+                  "type": "minecraft:entity_properties",
+                  "entity": "this",
+                  "predicate": {
+                    "minecraft:flags": {
+                      "is_flying": false,
+                      "is_on_ground": true
+                    },
+                    "minecraft:movement": {
+                      "horizontal_speed": {
+                        "min": 9.999999747378752E-6
+                      }
+                    },
+                    "minecraft:movement_affected_by": {
+                      "block": {
+                        "blocks": "#minecraft:soul_speed_blocks"
+                      }
+                    },
+                    "minecraft:periodic_tick": 5
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 25,
+        "per_level_above_first": 10
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 10,
+        "per_level_above_first": 10
+      },
+      "slots": [
+        "feet"
+      ],
+      "supported_items": "#minecraft:enchantable/foot_armor",
+      "weight": 1
+    },
+    "minecraft:sweeping_edge": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.sweeping_edge"
+      },
+      "effects": {
+        "minecraft:attributes": [
+          {
+            "amount": {
+              "type": "minecraft:fraction",
+              "denominator": {
+                "type": "minecraft:linear",
+                "base": 2.0,
+                "per_level_above_first": 1.0
+              },
+              "numerator": {
+                "type": "minecraft:linear",
+                "base": 1.0,
+                "per_level_above_first": 1.0
+              }
+            },
+            "attribute": "minecraft:sweeping_damage_ratio",
+            "id": "minecraft:enchantment.sweeping_edge",
+            "operation": "add_value"
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 20,
+        "per_level_above_first": 9
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 5,
+        "per_level_above_first": 9
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/sweeping",
+      "weight": 2
+    },
+    "minecraft:swift_sneak": {
+      "anvil_cost": 8,
+      "description": {
+        "translate": "enchantment.minecraft.swift_sneak"
+      },
+      "effects": {
+        "minecraft:attributes": [
+          {
+            "amount": {
+              "type": "minecraft:linear",
+              "base": 0.15,
+              "per_level_above_first": 0.15
+            },
+            "attribute": "minecraft:sneaking_speed",
+            "id": "minecraft:enchantment.swift_sneak",
+            "operation": "add_value"
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 75,
+        "per_level_above_first": 25
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 25,
+        "per_level_above_first": 25
+      },
+      "slots": [
+        "legs"
+      ],
+      "supported_items": "#minecraft:enchantable/leg_armor",
+      "weight": 1
+    },
+    "minecraft:thorns": {
+      "anvil_cost": 8,
+      "description": {
+        "translate": "enchantment.minecraft.thorns"
+      },
+      "effects": {
+        "minecraft:post_attack": [
+          {
+            "affected": "attacker",
+            "effect": {
+              "type": "minecraft:all_of",
+              "effects": [
+                {
+                  "type": "minecraft:damage_entity",
+                  "damage_type": "minecraft:thorns",
+                  "max_damage": 5.0,
+                  "min_damage": 1.0
+                },
+                {
+                  "type": "minecraft:change_item_damage",
+                  "amount": 2.0
+                }
+              ]
+            },
+            "enchanted": "victim",
+            "requirements": {
+              "type": "minecraft:random_chance",
+              "chance": {
+                "type": "minecraft:enchantment_level",
+                "amount": {
+                  "type": "minecraft:linear",
+                  "base": 0.15,
+                  "per_level_above_first": 0.15
+                }
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 60,
+        "per_level_above_first": 20
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 10,
+        "per_level_above_first": 20
+      },
+      "primary_items": "#minecraft:enchantable/chest_armor",
+      "slots": [
+        "any"
+      ],
+      "supported_items": "#minecraft:enchantable/armor",
+      "weight": 1
+    },
+    "minecraft:unbreaking": {
+      "anvil_cost": 2,
+      "description": {
+        "translate": "enchantment.minecraft.unbreaking"
+      },
+      "effects": {
+        "minecraft:item_damage": [
+          {
+            "effect": {
+              "type": "minecraft:remove_binomial",
+              "chance": {
+                "type": "minecraft:fraction",
+                "denominator": {
+                  "type": "minecraft:linear",
+                  "base": 10.0,
+                  "per_level_above_first": 5.0
+                },
+                "numerator": {
+                  "type": "minecraft:linear",
+                  "base": 2.0,
+                  "per_level_above_first": 2.0
+                }
+              }
+            },
+            "requirements": {
+              "type": "minecraft:match_tool",
+              "predicate": {
+                "items": "#minecraft:enchantable/armor"
+              }
+            }
+          },
+          {
+            "effect": {
+              "type": "minecraft:remove_binomial",
+              "chance": {
+                "type": "minecraft:fraction",
+                "denominator": {
+                  "type": "minecraft:linear",
+                  "base": 2.0,
+                  "per_level_above_first": 1.0
+                },
+                "numerator": {
+                  "type": "minecraft:linear",
+                  "base": 1.0,
+                  "per_level_above_first": 1.0
+                }
+              }
+            },
+            "requirements": {
+              "type": "minecraft:inverted",
+              "term": {
+                "type": "minecraft:match_tool",
+                "predicate": {
+                  "items": "#minecraft:enchantable/armor"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 55,
+        "per_level_above_first": 8
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 5,
+        "per_level_above_first": 8
+      },
+      "slots": [
+        "any"
+      ],
+      "supported_items": "#minecraft:enchantable/durability",
+      "weight": 5
+    },
+    "minecraft:vanishing_curse": {
+      "anvil_cost": 8,
+      "description": {
+        "translate": "enchantment.minecraft.vanishing_curse"
+      },
+      "effects": {
+        "minecraft:prevent_equipment_drop": {}
+      },
+      "max_cost": {
+        "base": 50,
+        "per_level_above_first": 0
+      },
+      "max_level": 1,
+      "min_cost": {
+        "base": 25,
+        "per_level_above_first": 0
+      },
+      "slots": [
+        "any"
+      ],
+      "supported_items": "#minecraft:enchantable/vanishing",
+      "weight": 1
+    },
+    "minecraft:wind_burst": {
+      "anvil_cost": 4,
+      "description": {
+        "translate": "enchantment.minecraft.wind_burst"
+      },
+      "effects": {
+        "minecraft:post_attack": [
+          {
+            "affected": "attacker",
+            "effect": {
+              "type": "minecraft:explode",
+              "block_interaction": "trigger",
+              "immune_blocks": "#minecraft:blocks_wind_charge_explosions",
+              "knockback_multiplier": {
+                "type": "minecraft:lookup",
+                "fallback": {
+                  "type": "minecraft:linear",
+                  "base": 1.5,
+                  "per_level_above_first": 0.35
+                },
+                "values": [
+                  1.2,
+                  1.75,
+                  2.2
+                ]
+              },
+              "large_particle": {
+                "type": "minecraft:gust_emitter_large"
+              },
+              "radius": 3.5,
+              "small_particle": {
+                "type": "minecraft:gust_emitter_small"
+              },
+              "sound": "minecraft:entity.wind_charge.wind_burst"
+            },
+            "enchanted": "attacker",
+            "requirements": {
+              "type": "minecraft:entity_properties",
+              "entity": "direct_attacker",
+              "predicate": {
+                "minecraft:flags": {
+                  "is_flying": false
+                },
+                "minecraft:movement": {
+                  "fall_distance": {
+                    "min": 1.5
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "max_cost": {
+        "base": 65,
+        "per_level_above_first": 9
+      },
+      "max_level": 3,
+      "min_cost": {
+        "base": 15,
+        "per_level_above_first": 9
+      },
+      "slots": [
+        "mainhand"
+      ],
+      "supported_items": "#minecraft:enchantable/mace",
+      "weight": 2
+    }
+  },
+  "jukebox_song": {
+    "minecraft:11": {
+      "comparator_output": 11,
+      "description": {
+        "translate": "jukebox_song.minecraft.11"
+      },
+      "length_in_seconds": 71.0,
+      "sound_event": "minecraft:music_disc.11"
+    },
+    "minecraft:13": {
+      "comparator_output": 1,
+      "description": {
+        "translate": "jukebox_song.minecraft.13"
+      },
+      "length_in_seconds": 178.0,
+      "sound_event": "minecraft:music_disc.13"
+    },
+    "minecraft:5": {
+      "comparator_output": 15,
+      "description": {
+        "translate": "jukebox_song.minecraft.5"
+      },
+      "length_in_seconds": 178.0,
+      "sound_event": "minecraft:music_disc.5"
+    },
+    "minecraft:blocks": {
+      "comparator_output": 3,
+      "description": {
+        "translate": "jukebox_song.minecraft.blocks"
+      },
+      "length_in_seconds": 345.0,
+      "sound_event": "minecraft:music_disc.blocks"
+    },
+    "minecraft:bounce": {
+      "comparator_output": 8,
+      "description": {
+        "translate": "jukebox_song.minecraft.bounce"
+      },
+      "length_in_seconds": 234.0,
+      "sound_event": "minecraft:music_disc.bounce"
+    },
+    "minecraft:cat": {
+      "comparator_output": 2,
+      "description": {
+        "translate": "jukebox_song.minecraft.cat"
+      },
+      "length_in_seconds": 185.0,
+      "sound_event": "minecraft:music_disc.cat"
+    },
+    "minecraft:chirp": {
+      "comparator_output": 4,
+      "description": {
+        "translate": "jukebox_song.minecraft.chirp"
+      },
+      "length_in_seconds": 185.0,
+      "sound_event": "minecraft:music_disc.chirp"
+    },
+    "minecraft:creator": {
+      "comparator_output": 12,
+      "description": {
+        "translate": "jukebox_song.minecraft.creator"
+      },
+      "length_in_seconds": 176.0,
+      "sound_event": "minecraft:music_disc.creator"
+    },
+    "minecraft:creator_music_box": {
+      "comparator_output": 11,
+      "description": {
+        "translate": "jukebox_song.minecraft.creator_music_box"
+      },
+      "length_in_seconds": 73.0,
+      "sound_event": "minecraft:music_disc.creator_music_box"
+    },
+    "minecraft:far": {
+      "comparator_output": 5,
+      "description": {
+        "translate": "jukebox_song.minecraft.far"
+      },
+      "length_in_seconds": 174.0,
+      "sound_event": "minecraft:music_disc.far"
+    },
+    "minecraft:lava_chicken": {
+      "comparator_output": 9,
+      "description": {
+        "translate": "jukebox_song.minecraft.lava_chicken"
+      },
+      "length_in_seconds": 134.0,
+      "sound_event": "minecraft:music_disc.lava_chicken"
+    },
+    "minecraft:mall": {
+      "comparator_output": 6,
+      "description": {
+        "translate": "jukebox_song.minecraft.mall"
+      },
+      "length_in_seconds": 197.0,
+      "sound_event": "minecraft:music_disc.mall"
+    },
+    "minecraft:mellohi": {
+      "comparator_output": 7,
+      "description": {
+        "translate": "jukebox_song.minecraft.mellohi"
+      },
+      "length_in_seconds": 96.0,
+      "sound_event": "minecraft:music_disc.mellohi"
+    },
+    "minecraft:otherside": {
+      "comparator_output": 14,
+      "description": {
+        "translate": "jukebox_song.minecraft.otherside"
+      },
+      "length_in_seconds": 195.0,
+      "sound_event": "minecraft:music_disc.otherside"
+    },
+    "minecraft:pigstep": {
+      "comparator_output": 13,
+      "description": {
+        "translate": "jukebox_song.minecraft.pigstep"
+      },
+      "length_in_seconds": 149.0,
+      "sound_event": "minecraft:music_disc.pigstep"
+    },
+    "minecraft:precipice": {
+      "comparator_output": 13,
+      "description": {
+        "translate": "jukebox_song.minecraft.precipice"
+      },
+      "length_in_seconds": 299.0,
+      "sound_event": "minecraft:music_disc.precipice"
+    },
+    "minecraft:relic": {
+      "comparator_output": 14,
+      "description": {
+        "translate": "jukebox_song.minecraft.relic"
+      },
+      "length_in_seconds": 218.0,
+      "sound_event": "minecraft:music_disc.relic"
+    },
+    "minecraft:stal": {
+      "comparator_output": 8,
+      "description": {
+        "translate": "jukebox_song.minecraft.stal"
+      },
+      "length_in_seconds": 150.0,
+      "sound_event": "minecraft:music_disc.stal"
+    },
+    "minecraft:strad": {
+      "comparator_output": 9,
+      "description": {
+        "translate": "jukebox_song.minecraft.strad"
+      },
+      "length_in_seconds": 188.0,
+      "sound_event": "minecraft:music_disc.strad"
+    },
+    "minecraft:tears": {
+      "comparator_output": 10,
+      "description": {
+        "translate": "jukebox_song.minecraft.tears"
+      },
+      "length_in_seconds": 175.0,
+      "sound_event": "minecraft:music_disc.tears"
+    },
+    "minecraft:wait": {
+      "comparator_output": 12,
+      "description": {
+        "translate": "jukebox_song.minecraft.wait"
+      },
+      "length_in_seconds": 238.0,
+      "sound_event": "minecraft:music_disc.wait"
+    },
+    "minecraft:ward": {
+      "comparator_output": 10,
+      "description": {
+        "translate": "jukebox_song.minecraft.ward"
+      },
+      "length_in_seconds": 251.0,
+      "sound_event": "minecraft:music_disc.ward"
+    }
+  },
+  "instrument": {
+    "minecraft:admire_goat_horn": {
+      "description": {
+        "translate": "instrument.minecraft.admire_goat_horn"
+      },
+      "range": 256.0,
+      "sound_event": "minecraft:item.goat_horn.sound.4",
+      "use_duration": 7.0
+    },
+    "minecraft:call_goat_horn": {
+      "description": {
+        "translate": "instrument.minecraft.call_goat_horn"
+      },
+      "range": 256.0,
+      "sound_event": "minecraft:item.goat_horn.sound.5",
+      "use_duration": 7.0
+    },
+    "minecraft:dream_goat_horn": {
+      "description": {
+        "translate": "instrument.minecraft.dream_goat_horn"
+      },
+      "range": 256.0,
+      "sound_event": "minecraft:item.goat_horn.sound.7",
+      "use_duration": 7.0
+    },
+    "minecraft:feel_goat_horn": {
+      "description": {
+        "translate": "instrument.minecraft.feel_goat_horn"
+      },
+      "range": 256.0,
+      "sound_event": "minecraft:item.goat_horn.sound.3",
+      "use_duration": 7.0
+    },
+    "minecraft:ponder_goat_horn": {
+      "description": {
+        "translate": "instrument.minecraft.ponder_goat_horn"
+      },
+      "range": 256.0,
+      "sound_event": "minecraft:item.goat_horn.sound.0",
+      "use_duration": 7.0
+    },
+    "minecraft:seek_goat_horn": {
+      "description": {
+        "translate": "instrument.minecraft.seek_goat_horn"
+      },
+      "range": 256.0,
+      "sound_event": "minecraft:item.goat_horn.sound.2",
+      "use_duration": 7.0
+    },
+    "minecraft:sing_goat_horn": {
+      "description": {
+        "translate": "instrument.minecraft.sing_goat_horn"
+      },
+      "range": 256.0,
+      "sound_event": "minecraft:item.goat_horn.sound.1",
+      "use_duration": 7.0
+    },
+    "minecraft:yearn_goat_horn": {
+      "description": {
+        "translate": "instrument.minecraft.yearn_goat_horn"
+      },
+      "range": 256.0,
+      "sound_event": "minecraft:item.goat_horn.sound.6",
+      "use_duration": 7.0
+    }
+  }
+}

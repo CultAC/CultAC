@@ -2,8 +2,8 @@ package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import net.minecraft.world.phys.Vec3;
 
 /** Interpolates ordinary entity updates after their client receipt. */
 public final class BedrockEntityInterpolation {
@@ -60,6 +60,8 @@ public final class BedrockEntityInterpolation {
     }
 
     private float angle(float from, float to) {
-        return remaining == 1 ? to : from + net.minecraft.util.Mth.wrapDegrees(to - from) * (1.0F / remaining);
+        return remaining == 1
+                ? to
+                : from + ac.cult.cultac.utils.math.CultMath.wrapDegrees(to - from) * (1.0F / remaining);
     }
 }

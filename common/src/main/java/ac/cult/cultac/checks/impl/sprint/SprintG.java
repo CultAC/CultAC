@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.sprint;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -8,7 +9,6 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 
 @CheckData(
         name = "SprintG",
@@ -48,7 +48,7 @@ public class SprintG extends Check implements PostPredictionListener {
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13)
                 && wasLastPredictionCompleteChecked
                 && isChecked
-                && !(riding != null && riding.type == EntityTypesCompat.CAMEL)
+                && !(riding != null && riding.type == EntityTypeIds.CAMEL)
                 && !player.isSwimming) {
             if (player.isSprinting) {
                 flagWithSetback();

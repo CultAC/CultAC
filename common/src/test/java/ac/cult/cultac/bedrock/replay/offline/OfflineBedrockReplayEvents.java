@@ -1,9 +1,13 @@
 package ac.cult.cultac.bedrock.replay.offline;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.data.ShulkerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
+import ac.cult.cultac.utils.math.Vec3;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -16,13 +20,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 
 final class OfflineBedrockReplayEvents {
     static final double DEFAULT_SPEED_MULTIPLIER = 20.0D;
@@ -100,21 +97,22 @@ final class OfflineBedrockReplayEvents {
 
     private static void applySetBlock(CultPlayer player, JsonObject event) throws IOException {
         BlockPos pos = blockPos(event);
-        BlockState state = blockState(event);
+        int state = blockState(event);
         applyBlockNow(player.compensatedWorld, pos, state);
         player.compensatedWorld.updateBlock(pos.getX(), pos.getY(), pos.getZ(), state);
     }
 
     private static void applyPiston(CultPlayer player, JsonObject event) throws IOException {
         BlockPos pos = blockPos(event);
-        BlockState state = blockState(event);
+        int state = blockState(event);
         applyBlockNow(player.compensatedWorld, pos, state);
         int transaction = nextTransaction(player, event);
         int triggerType = intValue(event, "triggerType", intValue(event, "action", 0));
         int triggerData = event.has("triggerData")
                 ? event.get("triggerData").getAsInt()
                 : direction(event, "direction", state).get3DDataValue();
-        player.compensatedWorld.pistons.handleBlockEvent(pos, state.getBlock(), triggerType, triggerData, transaction);
+        player.compensatedWorld.pistons.handleBlockEvent(
+                pos, DataTables.defaults().registry().blockIndex(state), triggerType, triggerData, transaction);
         confirmTransaction(player, transaction);
     }
 
@@ -124,8 +122,11 @@ final class OfflineBedrockReplayEvents {
         if (entityId < 0) {
             throw new IOException("add_entity requires entityId");
         }
-        EntityType entityType = (EntityType) BuiltInRegistries.ENTITY_TYPE.getValue(
-                Identifier.parse(string(event, "entityType", string(event, "entity", "minecraft:pig"))));
+        int entityType = java.util.Objects.requireNonNull(
+                        ac.cult.blocksim.entity.EntityTypes.defaults()
+                                .byKey(string(event, "entityType", string(event, "entity", "minecraft:pig"))),
+                        "Unknown replay entity")
+                .id();
         Vec3 position = vector(event, "position", "pos", "location");
         float yaw = (float) doubleValue(event, "yaw", 0.0D);
         float pitch = (float) doubleValue(event, "pitch", 0.0D);
@@ -192,7 +193,7 @@ final class OfflineBedrockReplayEvents {
         player.compensatedWorld.openShulkerBoxes.add(data);
     }
 
-    private static void applyBlockNow(CompensatedWorld world, BlockPos pos, BlockState state) {
+    private static void applyBlockNow(CompensatedWorld world, BlockPos pos, int state) {
         int chunkX = pos.getX() >> 4;
         int chunkZ = pos.getZ() >> 4;
         long chunkKey = CompensatedWorld.chunkPositionToLong(chunkX, chunkZ);
@@ -207,7 +208,7 @@ final class OfflineBedrockReplayEvents {
         }
         CompensatedWorld.CachedSection section = chunk.getOrCreateSection(sectionIndex);
         if (section != null) {
-            section.setState(
+            section.setStateId(
                     CompensatedWorld.CachedChunk.index(pos.getX() & 0xF, pos.getY() & 0xF, pos.getZ() & 0xF), state);
         }
     }
@@ -229,7 +230,7 @@ final class OfflineBedrockReplayEvents {
         return player.lastTransactionSent.get() + 1;
     }
 
-    private static BlockState blockState(JsonObject event) throws IOException {
+    private static int blockState(JsonObject event) throws IOException {
         return OfflineBlockStateParser.parse(string(event, "block", string(event, "state", "minecraft:air")));
     }
 
@@ -244,18 +245,14 @@ final class OfflineBedrockReplayEvents {
                 intValue(pos, "z", intValue(event, "z", 0)));
     }
 
-    private static Direction direction(JsonObject event, String key, BlockState state) {
+    private static Direction direction(JsonObject event, String key, int state) {
         String name = string(event, key, "");
         if (!name.isBlank()) {
-            return Direction.valueOf(name.toUpperCase());
+            return Direction.valueOf(name.toUpperCase(java.util.Locale.ROOT));
         }
-        if (state.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.FACING)) {
-            return state.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.FACING);
-        }
-        if (state.hasProperty(
-                net.minecraft.world.level.block.state.properties.BlockStateProperties.HORIZONTAL_FACING)) {
-            return state.getValue(
-                    net.minecraft.world.level.block.state.properties.BlockStateProperties.HORIZONTAL_FACING);
+        var registry = DataTables.defaults().registry();
+        if (registry.hasProperty(state, "facing")) {
+            return Direction.valueOf(registry.value(state, "facing").toUpperCase(java.util.Locale.ROOT));
         }
         return Direction.NORTH;
     }

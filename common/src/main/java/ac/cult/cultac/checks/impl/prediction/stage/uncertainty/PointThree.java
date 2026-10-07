@@ -1,17 +1,16 @@
 package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
-import ac.cult.cultac.utils.nmsutil.NmsBlockTags;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
+import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 
 public class PointThree implements UncertaintyHandler {
 
@@ -95,7 +94,8 @@ public class PointThree implements UncertaintyHandler {
         if (result == null) return false;
 
         WorldData data = result.getSimulationContext().getWorldData();
-        boolean isBounce = data.getOnBlock() == Blocks.SLIME_BLOCK || NmsBlockTags.isBed(data.getOnBlock());
+        boolean isBounce =
+                BlockIds.is(data.getOnBlock(), BlockIds.SLIME_BLOCK) || ClientBlockProperties.isBed(data.getOnBlock());
         return data.maybeInLiquid()
                 || data.getClimbing().determineOptimistically()
                 || result.getSimulationContext().usesFallFlyingMovement()
@@ -115,8 +115,8 @@ public class PointThree implements UncertaintyHandler {
         }
 
         // TODO: If we want to be TECHNICALLY correct on ALL edge cases, get the frictions and stuff around the player
-        Block onBlock = lastResult == null
-                ? Blocks.STONE
+        int onBlock = lastResult == null
+                ? BlockIds.STONE.defaultState()
                 : lastResult.getSimulationContext().getWorldData().getOnBlock();
 
         boolean recoveringFromLastTickSkip = context.getLastTickSkip().getRaw() == 1;

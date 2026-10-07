@@ -11,9 +11,9 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.IsUsingItem;
 import lombok.Setter;
-import net.minecraft.world.phys.Vec3;
 
 // @CheckData(name = "NoSlow", stableKey = "cult.movement.noslow")
 public class NoSlow extends Check implements PostPredictionListener {

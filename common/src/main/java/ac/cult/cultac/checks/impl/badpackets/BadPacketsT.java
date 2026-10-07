@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.badpackets;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -11,7 +12,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.nmsutil.EntityTypesCompat;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import java.util.Optional;
 
@@ -65,7 +65,7 @@ public class BadPacketsT extends Check implements CheckListener {
         }
 
         // Make sure our target entity is actually a player (Player NPCs work too)
-        if (packetEntity.getType() != EntityTypesCompat.PLAYER) {
+        if (packetEntity.getType() != EntityTypeIds.PLAYER) {
             // We can't check for any entity that is not a player
             return;
         }

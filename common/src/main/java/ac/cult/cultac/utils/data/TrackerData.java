@@ -2,14 +2,12 @@ package ac.cult.cultac.utils.data;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import net.minecraft.world.entity.EntityType;
 
 @Data
 @AllArgsConstructor
 public class TrackerData {
 
-    public TrackerData(
-            double x, double y, double z, float xRot, float yRot, EntityType entityType, int lastTransactionHung) {
+    public TrackerData(double x, double y, double z, float xRot, float yRot, int entityType, int lastTransactionHung) {
         this.x = x;
         this.y = y;
         this.z = z;
@@ -25,7 +23,7 @@ public class TrackerData {
     double x, y, z;
     double codecBaseX, codecBaseY, codecBaseZ;
     float xRot, yRot;
-    EntityType entityType;
+    int entityType;
     int lastTransactionHung;
     boolean onGround;
     int legacyPointEightMountedUpon;

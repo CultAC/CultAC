@@ -10,7 +10,6 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.GameMode;
-import ac.cult.cultac.utils.nmsutil.NmsIdentifierUtil;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.UUID;
@@ -31,15 +30,23 @@ public final class BukkitConnectionAdapter implements PlatformConnection {
     private static final Method PROFILE_ID = profileMethod("id", "getId");
     private static final Method PROFILE_NAME = profileMethod("name", "getName");
     private static final Method PLAYER_LEVEL = playerLevelMethod();
-    private static final ac.cult.cultac.utils.minecraft.MinecraftRegistries REGISTRIES =
-            new ac.cult.cultac.utils.minecraft.MinecraftRegistries(
-                    () -> net.minecraft.server.MinecraftServer.getServer().registryAccess(),
-                    () -> net.minecraft.server.MinecraftServer.getServer().getResourceManager());
     private final Connection connection;
+    /** Received model registry names and older-wire values; Velocity owns the same per connection. */
+    private final ac.cult.cultac.network.codec.ConnectionModelValues model =
+            new ac.cult.cultac.network.codec.ConnectionModelValues(ac.cult.cultac.protocol.ProtocolCodecs.decoder());
 
     @Override
-    public ac.cult.cultac.utils.minecraft.MinecraftRegistries registries() {
-        return REGISTRIES;
+    public ac.cult.cultac.utils.latency.ClientWorldRegistries.Data initialWorldData() {
+        // Host registry values use the host's own schemas, which are the model's only on a 26.3 host.
+        if (NATIVE_PROTOCOL != ProtocolVersion.V26_3)
+            return ac.cult.cultac.utils.latency.ClientWorldRegistries.modelDefaults();
+        return BukkitWorldRegistries.read(
+                net.minecraft.server.MinecraftServer.getServer().registryAccess());
+    }
+
+    @Override
+    public ac.cult.cultac.network.codec.ConnectionModelValues modelValues() {
+        return model;
     }
 
     public BukkitConnectionAdapter(Connection connection) {
@@ -153,10 +160,14 @@ public final class BukkitConnectionAdapter implements PlatformConnection {
         }
         target.gamemode =
                 GameMode.valueOf(handle.gameMode.getGameModeForPlayer().name());
-        target.dimension = level.dimension();
-        target.world = NmsIdentifierUtil.resourceKey(target.dimension);
-        target.compensatedWorld.setLastClientboundDimension(target.world, level.dimensionType());
-        target.compensatedWorld.setDimension(target.world, level.dimensionType());
+        target.dimension = NmsIdentifierUtil.resourceKey(level.dimension());
+        target.world = target.dimension;
+        var dimensions = net.minecraft.server.MinecraftServer.getServer()
+                .registryAccess()
+                .lookupOrThrow(net.minecraft.core.registries.Registries.DIMENSION_TYPE);
+        var dimension = target.getWorldRegistries().dimension(dimensions.getId(level.dimensionType()));
+        target.compensatedWorld.setLastClientboundDimension(target.world, dimension.dimension());
+        target.compensatedWorld.setDimension(target.world, dimension);
         target.lastJoinedWorld = System.currentTimeMillis();
     }
 

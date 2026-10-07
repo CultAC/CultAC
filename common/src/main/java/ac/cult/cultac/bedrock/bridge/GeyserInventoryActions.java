@@ -2,7 +2,6 @@ package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerWindow;
-import ac.cult.cultac.network.protocol.util.SpigotConversionUtil;
 import ac.cult.cultac.player.CultPlayer;
 import java.util.HashMap;
 import java.util.Map;
@@ -63,9 +62,9 @@ final class GeyserInventoryActions {
         return result;
     }
 
-    private static Map<Integer, net.minecraft.world.item.ItemStack> changes(
+    private static Map<Integer, ac.cult.blocksim.engine.SimItemStack> changes(
             CultPlayer player, GeyserSession session, ItemStack[] before, Inventory inventory) {
-        var changed = new HashMap<Integer, net.minecraft.world.item.ItemStack>();
+        var changed = new HashMap<Integer, ac.cult.blocksim.engine.SimItemStack>();
         for (int slot = 0; slot < before.length; slot++) {
             ItemStack after = inventory.getItem(slot).copy().getItemStack();
             if (!Objects.equals(before[slot], after)) changed.put(slot, convert(player, session, after));
@@ -73,9 +72,14 @@ final class GeyserInventoryActions {
         return changed;
     }
 
-    private static net.minecraft.world.item.ItemStack convert(
+    private static ac.cult.blocksim.engine.SimItemStack convert(
             CultPlayer player, GeyserSession session, ItemStack item) {
-        return SpigotConversionUtil.fromNmsItemStack(
-                GeyserItemStacks.toServerItem(() -> player.user.registries().access(), session, item));
+        if (item == null || item.getAmount() <= 0) return ac.cult.blocksim.engine.SimItemStack.EMPTY;
+        return GeyserItemStacks.toModelItem(
+                session,
+                item,
+                player.registryState
+                        .blockSimulatorRegistries(ac.cult.blocksim.data.DataTables.defaults())
+                        .items());
     }
 }

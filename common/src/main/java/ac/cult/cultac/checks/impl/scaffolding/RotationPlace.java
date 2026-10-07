@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.scaffolding;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -8,6 +9,7 @@ import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.Pair;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.Ray;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
@@ -16,8 +18,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
 
 @CheckData(
@@ -37,7 +37,7 @@ public class RotationPlace extends BlockPlaceCheck {
 
     @Override
     public void onBlockPlace(final BlockPlace place) {
-        if (place.getMaterial() == Blocks.SCAFFOLDING) return;
+        if (place.getMaterial() == BlockIds.SCAFFOLDING) return;
         if (!player.cameraEntity.isSelf()) return; // you don't send flying packets when spectating entities
         if (player.inVehicle()) return;
         if (flagBuffer > 0 && !didRayTraceHit(place)) {
@@ -52,7 +52,7 @@ public class RotationPlace extends BlockPlaceCheck {
     // Use post flying because it has the correct rotation, and can't false easily.
     @Override
     public void onPostFlyingBlockPlace(BlockPlace place) {
-        if (place.getMaterial() == Blocks.SCAFFOLDING) return;
+        if (place.getMaterial() == BlockIds.SCAFFOLDING) return;
         if (!player.cameraEntity.isSelf()) return; // you don't send flying packets when spectating entities
         if (player.inVehicle()) return;
 

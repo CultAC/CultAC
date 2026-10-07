@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject Minecraft code/data in distributables, including nested archives."""
+"""Reject Minecraft code/data and ASM in distributables, including nested archives."""
 import io
 from pathlib import Path, PurePosixPath
 import sys
@@ -14,6 +14,11 @@ def verify(source, label):
             if any(parts[index:index + 2] in (("net", "minecraft"), ("data", "minecraft"), ("assets", "minecraft"))
                    for index in range(len(parts) - 1)):
                 raise ValueError(f"Bundled Minecraft payload: {label}!/{name}")
+            if name.endswith(".class") and (
+                    any(parts[index:index + 2] == ("com", "mojang") for index in range(len(parts) - 1))
+                    or any(parts[index:index + 3] == ("org", "objectweb", "asm") for index in range(len(parts) - 2))
+                    or "ac/cult/cultac/shaded/asm/" in name):
+                raise ValueError(f"Bundled Mojang or ASM class: {label}!/{name}")
             if name.startswith(("placement-26.3/", "interaction-26.3/")):
                 raise ValueError(f"Bundled vanilla profile: {label}!/{name}")
             if entry.is_dir():

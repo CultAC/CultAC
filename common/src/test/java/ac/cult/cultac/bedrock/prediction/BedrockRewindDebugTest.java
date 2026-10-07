@@ -9,11 +9,11 @@ import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Locale;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
-import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public class BedrockRewindDebugTest {

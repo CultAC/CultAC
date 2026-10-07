@@ -7,13 +7,13 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPaddleBoat;
 import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import net.minecraft.SharedConstants;
 
 @CheckData(
         name = "VehicleF",
@@ -23,7 +23,7 @@ import net.minecraft.SharedConstants;
 public class VehicleF extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("sent=({bool}, {bool}), expected=({bool}, {bool})");
     private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
+            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private PacketEntity lastTickVehicle;
 

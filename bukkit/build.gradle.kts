@@ -53,8 +53,7 @@ repositories {
     mavenCentral()
 }
 
-// See common/build.gradle.kts: compile against the Java 25 Paper runtime level while
-// emitting Java 21 bytecode so older supported servers can parse the jar.
+// Compile the host boundary against Paper's Java 25 API while emitting Java 21 bytecode.
 configurations.configureEach {
     attributes.attribute(
         org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE,
@@ -62,9 +61,7 @@ configurations.configureEach {
     )
 }
 
-// paperweight-userdev on :common exposes several extra consumable variants.
-// Without attributes, `shadow(project(":common"))` is ambiguous;
-// pin the standard library attributes so it resolves to :common's runtimeElements jar.
+// Resolve the shared engine's standard runtime jar for the shaded distributable.
 configurations.named("shadow") {
     attributes {
         attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
@@ -237,13 +234,11 @@ tasks {
 
     shadowJar {
         minimize {
-            // The complete protocol catalog and backend are loaded as a unit. During
-            // staged migration not every transport entry point has a direct caller yet.
+            // Keep the complete protocol catalog and transport handlers.
             exclude(project(":protocol"))
             exclude(project(":protocol-netty"))
-            exclude(project(":placement-runtime"))
-            // Used by placement-runtime's class transform, which is kept whole above.
-            exclude(dependency("org.ow2.asm:asm:.*"))
+            // The library is already filtered and relocated before compilation.
+            exclude(project(":protocol-codec"))
         }
 
         exclude("META-INF/services/javax.annotation.processing.Processor")
@@ -284,6 +279,12 @@ tasks.withType<ShadowJar>().configureEach {
     doLast {
         check(ProcessBuilder("python3", rootProject.file("scripts/verify-no-bundled-minecraft.py").path,
             archiveFile.get().asFile.path).inheritIO().start().waitFor() == 0)
+        val codecAudit = ProcessBuilder("python3", rootProject.file("scripts/verify-vialib-packaging.py").path,
+            "--library", rootProject.project(":protocol-codec").layout.buildDirectory.file("libs/vialib.jar").get().asFile.path,
+            archiveFile.get().asFile.path).redirectErrorStream(true).start()
+        val codecAuditOutput = codecAudit.inputStream.bufferedReader().use { it.readText() }
+        check(codecAudit.waitFor() == 0) { codecAuditOutput }
+        logger.lifecycle(codecAuditOutput.trim())
         val forbiddenOracle = Regex("protocol/(validation|oracle|legacy)/|protocolvalidation/|protocol[-_]oracle|protocol[-_]validation|legacy[-_.]?extractor", RegexOption.IGNORE_CASE)
         ZipFile(archiveFile.get().asFile).use { archive ->
             for (required in listOf(

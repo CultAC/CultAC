@@ -55,6 +55,7 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
             player.canFly = packet.canFly();
             player.isFlying = packet.flying();
             player.canInstabuild = packet.instabuild();
+            player.isInvulnerable = packet.invulnerable();
             player.flySpeed = packet.flyingSpeed();
         });
     }

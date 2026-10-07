@@ -3,8 +3,8 @@ package ac.cult.cultac.platform.api.player;
 import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.math.Vec3;
 import net.kyori.adventure.text.Component;
-import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 public interface PlatformPlayer extends CultEntity, OfflinePlatformPlayer {
