@@ -83,7 +83,7 @@ public class HorizontalAnalyzer implements EngineCheck {
         }
 
         if (isSlowed) {
-            double maxDirLength = getSneakingMaxInputAxis(playerSpeed, result.getSimulationContext().getSwiftSneakLevel());
+            double maxDirLength = getSneakingMaxInputAxis(playerSpeed, result.getSimulationContext().getSneakingSpeed());
             speedFlagAmount = Math.max(absInput.x - maxDirLength, absInput.z - maxDirLength);
 
             if (!result.getSimulationContext().getWorldData().maybeInLiquid() && speedFlagAmount > 0.001) {
@@ -148,8 +148,10 @@ public class HorizontalAnalyzer implements EngineCheck {
         return axisExcess > HORIZONTAL_INPUT_UNCERTAINTY ? axisExcess : 0.0D;
     }
 
-    static double getSneakingMaxInputAxis(double playerSpeed, int swiftSneakLevel) {
-        return playerSpeed * 1.3D * 0.295D + (0.15D * swiftSneakLevel);
+    static double getSneakingMaxInputAxis(double playerSpeed, float sneakingSpeed) {
+        // LocalPlayer#modifyInput scales input by 0.98F and then by the
+        // sneaking factor. Both must scale with moveRelative's acceleration.
+        return playerSpeed * 1.3D * (0.98F * sneakingSpeed);
     }
 
     public static double minDistanceToValidMovementAngle(double angleMin, double angleMax) {

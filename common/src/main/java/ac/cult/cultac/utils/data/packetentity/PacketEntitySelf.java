@@ -15,6 +15,7 @@ import java.util.List;
 
 public class PacketEntitySelf extends PacketEntity {
     public double playerSpeed = 0.1f;
+    public double sneakingSpeed = 0.3D;
     // 26.2 movement attributes (Attributes#BOUNCINESS / FRICTION_MODIFIER /
     // AIR_DRAG_MODIFIER), tracked from server attribute packets. Defaults are
     // the vanilla values and leave movement unchanged.
@@ -52,6 +53,7 @@ public class PacketEntitySelf extends PacketEntity {
         this.gravity = old.gravity;
         this.stepHeightAttribute = old.stepHeightAttribute;
         this.playerSpeed = old.playerSpeed;
+        this.sneakingSpeed = old.sneakingSpeed;
         this.bounciness = old.bounciness;
         this.frictionModifier = old.frictionModifier;
         this.airDragModifier = old.airDragModifier;

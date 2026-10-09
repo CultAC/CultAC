@@ -1419,6 +1419,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
          player.pose,
          player.getScale()
       );
+      if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21)) {
+         context.setSneakingSpeed((float) player.compensatedEntities.getSelf().sneakingSpeed);
+      }
       context.setBoatInputs(player.boatData.vehicleKeys);
       context.setProfileCarry(this.profileCarry);
       context.setBedrockTeleport(player.isBedrockMovement() ? this.bedrockTeleport : null);
