@@ -13,6 +13,7 @@ import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.packetentity.*;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
+import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.TrigHandler;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
@@ -53,6 +54,8 @@ public class SimulationContext {
     Integer jumpAmplifier;
     float depthStriderLevel;
     int swiftSneakLevel;
+    @Setter
+    float sneakingSpeed;
     // This is NOT the same thing as
     DesyncStatus isSprinting;
     int minAttackSlow, maxAttackSlow;
@@ -113,6 +116,9 @@ public class SimulationContext {
         this.jumpAmplifier = jumpAmplifier;
         this.depthStriderLevel = depthStriderLevel;
         this.swiftSneakLevel = swiftSneakLevel;
+        // Pre-1.21 LocalPlayer computes this factor from Swift Sneak. Modern
+        // contexts replace it with the transaction-compensated attribute.
+        this.sneakingSpeed = CultMath.clampFloat(0.3F + 0.15F * swiftSneakLevel, 0.0F, 1.0F);
         this.isSprinting = isSprinting;
         this.minAttackSlow = minAttackSlow;
         this.maxAttackSlow = maxAttackSlow;

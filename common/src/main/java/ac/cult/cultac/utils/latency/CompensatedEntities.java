@@ -219,6 +219,14 @@ public class CompensatedEntities {
                     player.compensatedEntities.getSelf().movementEfficiency = calculateAttribute(snapshot, 0.0, 1.0);
                 }
 
+                // 1.21 added player.sneaking_speed; 1.21.2 removed the player prefix.
+                // Swift Sneak is already included in this attribute's modifiers.
+                if (!player.isBedrockMovement() && supportsAttributes(ClientVersion.V_1_21)
+                        && (matchesAttributeName(snapshot, "sneaking_speed")
+                        || matchesAttributeName(snapshot, "player.sneaking_speed"))) {
+                    player.compensatedEntities.getSelf().sneakingSpeed = calculateAttribute(snapshot, 0.0, 1.0, Set.of());
+                }
+
                 if (matchesAttribute(snapshot, "block_interaction_range")) {
                     player.compensatedEntities.getSelf().setBlockInteractionRange(calculateAttribute(snapshot, 0.0, 64.0));
                 }
