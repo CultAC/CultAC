@@ -37,11 +37,13 @@ import ac.cult.cultac.checks.impl.prediction.profile.MovementProfile;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.PositionListener;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -65,7 +67,9 @@ import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -109,6 +113,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     float lastYRot = 0.0F;
     boolean lastGliding = false;
     boolean lastMovementWasSetback = false;
+    CarriedPush carriedPush = CarriedPush.IDENTITY;
     PredictionCarry profileCarry;
     private boolean bedrockSleepingStateObserved;
     private TeleportData bedrockTeleport;
@@ -273,7 +278,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (!this.player.compensatedEntities.vehicles.hasPlayerPassengerState()
                 && !this.player.packetStateData.hasPassengerRotationThisClientTick()) {
             if (!this.player.isBedrockMovement()) {
-                if (!this.player.packetStateData.receivedMovementThisClientTick) {
+                if (!this.player.packetStateData.receivedMovementThisClientTick
+                        && CheckManagerListener.localPlayerTicked(this.player)) {
                     PredictionResult result = this.advanceNoPositionClientTick(
                             new Vec3(this.player.x, this.player.y, this.player.z), this.player.xRot, this.player.yRot);
                     if (this.isAcceptedNoPositionTick(result)) {
@@ -293,6 +299,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     this.lastOnGround = DesyncStatus.UNKNOWN;
                 }
             }
+        }
+        if (this.player.packetStateData.flyingStopAfterTravel) {
+            this.stopFlyingAfterTravel();
         }
     }
 
@@ -388,6 +397,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.player.boundingBox =
                 GetBoundingBox.getCollisionBoxForPlayer(this.player, position.x, position.y, position.z);
         if (!this.player.compensatedEntities.getSelf().inVehicle()) {
+            this.carriedPush = this.carriedPush.after(teleportData);
             Set<Vec3> existingVectors = this.validPlayerStartingVels;
             this.validPlayerStartingVels = new HashSet<>();
 
@@ -890,6 +900,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.player.getSetbackTeleportUtil().executeViolationSetback();
             return null;
         } else {
+            boolean flyingThroughTravel = this.keepsFlyingThroughTravel(onGround);
             boolean predictionOnGround = this.movementStartOnGround(onGround);
             this.player.onGround = predictionOnGround;
             MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
@@ -955,6 +966,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             }
 
             this.commitPredictionState(result, to, diff, xRot, yRot, movementProfile, preparedCommit);
+            if (flyingThroughTravel) {
+                this.stopFlyingAfterTravel();
+            }
             this.activeBedrockSetbackState = null;
             long took = System.nanoTime() - start;
             computeTimeNS = (long) (computeTimeNS * 499L / 500.0 + took / 500.0);
@@ -1004,6 +1018,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.player.isGliding = false;
             }
             this.lastPrediction = result;
+            this.carriedPush = CarriedPush.IDENTITY;
             this.lastXRot = xRot;
             this.lastYRot = yRot;
             this.player.minPlayerAttackSlow = 0;
@@ -1112,17 +1127,54 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     private PredictionResult advanceNoPositionClientTick(Vec3 position, float xRot, float yRot) {
+        boolean flyingThroughTravel = this.keepsFlyingThroughTravel(this.player.onGround);
+        // LocalPlayer#sendPosition withholds a move within 2.0E-4 of xLast; no travel reaches one past the guard.
+        Vec3 sent = this.player.packetStateData.lastSentTickPosition;
+        Vec3 end = sent == null || sent.equals(position) || sent.distanceToSqr(position) > TRAVEL_FLAG_DISTANCE_SQR
+                ? position
+                : sent;
+        Vec3 movement = end == position ? Vec3.ZERO : end.subtract(position);
         MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
-        PredictionResult result =
-                this.callPrediction(Vec3.ZERO, position, position, true, xRot, yRot, null, movementProfile);
+        PredictionResult result = this.callPrediction(movement, position, end, true, xRot, yRot, null, movementProfile);
         this.handlePossibleRealities(result);
         this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(result);
         if (result.getFlags().isEmpty() && !result.isExempt()) {
-            this.callPredictionEndListeners(result, null);
-            this.commitPredictionState(result, position, Vec3.ZERO, xRot, yRot, movementProfile);
+            PredictionResult committed = result;
+            if (end != position) {
+                // The withheld position lies anywhere within the threshold; the client is where it travelled.
+                PredictionResult travelled =
+                        this.callPrediction(movement, position, end, false, xRot, yRot, null, movementProfile);
+                if (travelled.getFlags().isEmpty() && !travelled.isExempt()) {
+                    this.handlePossibleRealities(travelled);
+                    committed = travelled;
+                    movement = travelled.getAcceptedClosestToTarget();
+                    end = position.add(movement);
+                }
+                this.commitPlayerPosition(end);
+            }
+            this.callPredictionEndListeners(committed, null);
+            this.commitPredictionState(committed, end, movement, xRot, yRot, movementProfile);
+        }
+        if (flyingThroughTravel) {
+            this.stopFlyingAfterTravel();
         }
 
         return result;
+    }
+
+    // LocalPlayer#aiStep stops flight after a grounded travel; an airborne stop is the double-jump toggle.
+    private boolean keepsFlyingThroughTravel(boolean onGround) {
+        if (!this.player.packetStateData.flyingStopAfterTravel) return false;
+        if (onGround) return true;
+        this.player.packetStateData.flyingStopAfterTravel = false;
+        this.player.isFlying = false;
+        return false;
+    }
+
+    private void stopFlyingAfterTravel() {
+        this.player.packetStateData.flyingStopAfterTravel = false;
+        this.player.isFlying = false;
+        this.player.refreshPlayerPose();
     }
 
     private boolean isAcceptedNoPositionTick(PredictionResult result) {
@@ -1645,14 +1697,19 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             context.setServerUseTracked(player.itemUseBurst.tracking());
         }
         context.setSprintModifier(this.sprintModifierAtTravel(player, riding));
-        context.setProfileCarry(this.profileCarry);
-        context.setBedrockTeleport(player.isBedrockMovement() ? this.bedrockTeleport : null);
-        context = movementProfile.createContext(player, context, authoredMovementFrame);
         DesyncStatus contextLastOnGround = riding == null
                 ? this.lastOnGround
                 : (player.packetStateData.vehicleMovementOnGroundPresent
                         ? DesyncStatus.fromBoolean(player.packetStateData.vehicleMovementStartOnGround)
                         : this.lastOnGround);
+        if (riding == null) {
+            context.setMovementEfficiency((float) player.compensatedEntities.getSelf().movementEfficiency);
+        }
+        PacketEntity traveller = riding == null ? player.compensatedEntities.getSelf() : riding;
+        context.setWaterMovementEfficiency(getWaterMovementEfficiency(traveller, contextLastOnGround));
+        context.setProfileCarry(this.profileCarry);
+        context.setBedrockTeleport(player.isBedrockMovement() ? this.bedrockTeleport : null);
+        context = movementProfile.createContext(player, context, authoredMovementFrame);
         MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
         context.setWorldData(
                 engine.buildWorld(this.worldStageBuilder, player, context, lastPrediction, contextLastOnGround));
@@ -1688,6 +1745,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return !leggings.isEmpty() && !leggings.getEnchantments().isEmpty()
                 ? ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(leggings, "minecraft:swift_sneak")
                 : 0;
+    }
+
+    private static float getWaterMovementEfficiency(PacketEntity traveller, DesyncStatus onGround) {
+        // The nautilus and happy ghast override travel and never reach LivingEntity#travelInWater
+        if (traveller instanceof PacketEntityNautilus || traveller instanceof PacketEntityHappyGhast) return 0.0F;
+        float efficiency = (float) traveller.waterMovementEfficiency;
+        return onGround == DesyncStatus.FALSE ? efficiency * 0.5F : efficiency;
     }
 
     private float getDepthStriderLevel() {
@@ -1807,6 +1871,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     @Generated
     public PredictionResult getLastPrediction() {
         return this.lastPrediction;
+    }
+
+    public CarriedPush getCarriedPush() {
+        return this.carriedPush;
     }
 
     @Generated

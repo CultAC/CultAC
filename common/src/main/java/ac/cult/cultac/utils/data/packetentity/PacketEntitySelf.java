@@ -4,6 +4,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.sprint.SprintD;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientAttributeInstance;
@@ -15,6 +16,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class PacketEntitySelf extends PacketEntity {
     public double playerSpeed = 0.1f;
+    public double jumpStrength = 0.42F;
     // 26.2 movement attributes (Attributes#BOUNCINESS / FRICTION_MODIFIER /
     // AIR_DRAG_MODIFIER), tracked from server attribute packets. Defaults are
     // the vanilla values and leave movement unchanged.
@@ -38,6 +40,14 @@ public class PacketEntitySelf extends PacketEntity {
     public final ClientAttributeInstance entityInteractionRange = new ClientAttributeInstance(3.0D, 0.0D, 64.0D);
     // LocalPlayer#modifyInput reads the synced attribute, including plugin and enchantment modifiers.
     public final ClientAttributeInstance sneakingSpeed = new ClientAttributeInstance(0.3D, 0.0D, 1.0D);
+    // The instances behind blockBreakSpeed .. waterMovementEfficiency: handleRespawn copies bases and modifiers apart.
+    private final ClientAttributeInstance blockBreakSpeedAttribute = new ClientAttributeInstance(1.0D, 0.0D, 1024.0D);
+    private final ClientAttributeInstance miningEfficiencyAttribute = new ClientAttributeInstance(0.0D, 0.0D, 1024.0D);
+    private final ClientAttributeInstance submergedMiningSpeedAttribute =
+            new ClientAttributeInstance(0.2D, 0.0D, 20.0D);
+    private final ClientAttributeInstance movementEfficiencyAttribute = new ClientAttributeInstance(0.0D, 0.0D, 1.0D);
+    private final ClientAttributeInstance waterMovementEfficiencyAttribute =
+            new ClientAttributeInstance(0.0D, 0.0D, 1.0D);
 
     public PacketEntitySelf(CultPlayer player) {
         this(player, null);
@@ -57,15 +67,42 @@ public class PacketEntitySelf extends PacketEntity {
         this.gravity = old.gravity;
         this.stepHeightAttribute = old.stepHeightAttribute;
         this.playerSpeed = old.playerSpeed;
+        this.jumpStrength = old.jumpStrength;
         this.bounciness = old.bounciness;
         this.frictionModifier = old.frictionModifier;
         this.airDragModifier = old.airDragModifier;
-        this.blockBreakSpeed = old.blockBreakSpeed;
-        this.miningEfficiency = old.miningEfficiency;
-        this.submergedMiningSpeed = old.submergedMiningSpeed;
+        this.blockBreakSpeedAttribute.copyFrom(old.blockBreakSpeedAttribute);
+        this.miningEfficiencyAttribute.copyFrom(old.miningEfficiencyAttribute);
+        this.submergedMiningSpeedAttribute.copyFrom(old.submergedMiningSpeedAttribute);
+        this.movementEfficiencyAttribute.copyFrom(old.movementEfficiencyAttribute);
+        this.waterMovementEfficiencyAttribute.copyFrom(old.waterMovementEfficiencyAttribute);
+        refreshAttributeValues();
         this.blockInteractionRange.copyFrom(old.blockInteractionRange);
         this.entityInteractionRange.copyFrom(old.entityInteractionRange);
         this.sneakingSpeed.copyFrom(old.sneakingSpeed);
+    }
+
+    /** ClientPacketListener#handleUpdateAttributes for the attributes behind this player's cached scalars. */
+    public void onAttributeSnapshot(AttributeSnapshot snapshot) {
+        ClientAttributeInstance instance = switch (snapshot.attribute()) {
+            case "minecraft:block_break_speed" -> blockBreakSpeedAttribute;
+            case "minecraft:mining_efficiency" -> miningEfficiencyAttribute;
+            case "minecraft:submerged_mining_speed" -> submergedMiningSpeedAttribute;
+            case "minecraft:movement_efficiency" -> movementEfficiencyAttribute;
+            case "minecraft:water_movement_efficiency" -> waterMovementEfficiencyAttribute;
+            default -> null;
+        };
+        if (instance == null) return;
+        instance.onServerSnapshot(snapshot);
+        refreshAttributeValues();
+    }
+
+    private void refreshAttributeValues() {
+        blockBreakSpeed = blockBreakSpeedAttribute.value();
+        miningEfficiency = miningEfficiencyAttribute.value();
+        submergedMiningSpeed = submergedMiningSpeedAttribute.value();
+        movementEfficiency = movementEfficiencyAttribute.value();
+        waterMovementEfficiency = waterMovementEfficiencyAttribute.value();
     }
 
     public boolean inVehicle() {
@@ -122,6 +159,12 @@ public class PacketEntitySelf extends PacketEntity {
             blockInteractionRange.clearModifiers();
             entityInteractionRange.clearModifiers();
             sneakingSpeed.clearModifiers();
+            blockBreakSpeedAttribute.clearModifiers();
+            miningEfficiencyAttribute.clearModifiers();
+            submergedMiningSpeedAttribute.clearModifiers();
+            movementEfficiencyAttribute.clearModifiers();
+            waterMovementEfficiencyAttribute.clearModifiers();
+            refreshAttributeValues();
         }
     }
 

@@ -23,6 +23,11 @@ public class PredVector extends Vec3 {
     @Getter
     boolean isKnockback = false;
 
+    // Set from a set_entity_motion, current or overridden; only isKnockback feeds the velocity checks.
+    @Getter
+    @Setter
+    boolean isEntityMotion = false;
+
     @Getter
     boolean isBoundedStep = false;
 
@@ -46,6 +51,7 @@ public class PredVector extends Vec3 {
         this.lastVector = lastVector;
         this.isJump = lastVector.isJump;
         this.isKnockback = lastVector.isKnockback;
+        this.isEntityMotion = lastVector.isEntityMotion;
         this.isBoundedStep = lastVector.isBoundedStep;
         this.isTickSkip = lastVector.isTickSkip;
         this.attackSlows = lastVector.attackSlows;
@@ -67,6 +73,7 @@ public class PredVector extends Vec3 {
     public void addPacketModifier(TransactionVel packetModifier) {
         if (packetModifier.isVelocity()) {
             isKnockback = true;
+            isEntityMotion = true;
         }
 
         // Null check
@@ -104,6 +111,7 @@ public class PredVector extends Vec3 {
             }
             if (modifier.isVelocity()) {
                 isKnockback = true;
+                isEntityMotion = true;
             }
         }
         packetModifiers = merged;

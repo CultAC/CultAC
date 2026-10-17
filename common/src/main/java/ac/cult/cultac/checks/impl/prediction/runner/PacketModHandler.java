@@ -114,7 +114,8 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         }
         if (predictionComplete.isTeleport()) {
             handleTeleport(predictionComplete.getPredictionResult().getSetBackData());
-            handleAllDoneWithVels();
+            // A velocity the teleport carries through is the client's delta movement for its next tick.
+            if (this.wasExempt) handleAllDoneWithVels();
             return;
         }
 
@@ -235,14 +236,15 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
 
     private void transformPendingPacketVelocities(TeleportData data) {
         if (shouldTransformPacketVelocity(data, this.secondBread)) {
-            this.secondBread.setVel(transformPendingPacketVelocity(data, this.secondBread.getVel()));
+            this.secondBread.setVel(transformPendingPacketVelocity(data, this.secondBread));
         }
         if (shouldTransformPacketVelocity(data, this.firstBread)) {
-            this.firstBread.setVel(transformPendingPacketVelocity(data, this.firstBread.getVel()));
+            this.firstBread.setVel(transformPendingPacketVelocity(data, this.firstBread));
         }
         for (TransactionVel overriddenVel : this.overriddenVels) {
             if (shouldTransformPacketVelocity(data, overriddenVel)) {
-                overriddenVel.setVel(transformPendingPacketVelocity(data, overriddenVel.getVel()));
+                // MovementModifiers starts from each overridden vector as a whole delta movement.
+                overriddenVel.setVel(data.applyToVelocity(overriddenVel.getVel()));
             }
         }
     }
@@ -251,8 +253,11 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         return velocity != null && velocity.getTransaction() <= data.getTransaction();
     }
 
-    private Vec3 transformPendingPacketVelocity(TeleportData data, Vec3 velocity) {
-        return data.transformInheritedVelocity(velocity);
+    private Vec3 transformPendingPacketVelocity(TeleportData data, TransactionVel velocity) {
+        // A replacement becomes the whole delta movement; an explosion's addend takes only the linear part.
+        return velocity.isVelocity()
+                ? data.applyToVelocity(velocity.getVel())
+                : data.transformInheritedVelocity(velocity.getVel());
     }
 
     protected boolean shouldUseBundledProof() {

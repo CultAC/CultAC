@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -19,6 +20,7 @@ import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
+import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
@@ -52,6 +54,7 @@ public class WorldStageBuilder {
     private static final StuckEdgeData NOT_ON_EDGE = new StuckEdgeData(false, false, false, false, false);
 
     private final SupportScan supportScan = new SupportScan();
+    private int collidingTickingBeforePlayer;
 
     public WorldData generateWorldData(
             CultPlayer player,
@@ -158,6 +161,9 @@ public class WorldStageBuilder {
 
         boolean isSuffocating = mightBeSuffocating(player, simulationContext);
         int numColliding = getNumEntitiesCollidingWith(simulationContext);
+        CarriedPush carriedPush = player.checkManager.getSimulationProcessor().getCarriedPush();
+        int numCarriedPushing = pushersFromLastTick(simulationContext, lastPrediction, !carriedPush.isZero());
+        int numPushing = collidingTickingBeforePlayer + numCarriedPushing;
         int onBlock = BlockProperties.getOnPos(player, mainSupportingBlockData, to);
 
         SimpleCollisionBox minExtent = simulationContext.getFromMinimumExtent();
@@ -235,6 +241,10 @@ public class WorldStageBuilder {
                 climbingAtStart,
                 climbing,
                 numColliding,
+                numColliding - collidingTickingBeforePlayer,
+                numPushing,
+                numCarriedPushing,
+                carriedPush,
                 onBlock,
                 stuckEdgeData,
                 bubble,
@@ -451,8 +461,20 @@ public class WorldStageBuilder {
         return box.isCollided(fluidCollision);
     }
 
+    /** Contacts ticking after the player last tick, whose push lands in this travel on the axes a teleport kept. */
+    private static int pushersFromLastTick(SimulationContext context, PredictionResult lastPrediction, boolean kept) {
+        if (context.getVehicle() != null
+                || lastPrediction == null
+                || lastPrediction.getSimulationContext() == null
+                || !kept) {
+            return 0;
+        }
+        return lastPrediction.getSimulationContext().getWorldData().getNumCollidingTickingAfterPlayer();
+    }
+
     private int getNumEntitiesCollidingWith(SimulationContext context) {
         int numColliding = 0;
+        collidingTickingBeforePlayer = 0;
         List<SimpleCollisionBox> entityCollisionBoxes = null;
         List<HardCollidingEntityCollision> hardCollidingEntityCollisions = null;
 
@@ -467,8 +489,10 @@ public class WorldStageBuilder {
             playerBox.expand(0.2); // bit more because why not
             SimpleCollisionBox entityBounds = new SimpleCollisionBox();
             SimpleCollisionBox entityScratch = new SimpleCollisionBox();
+            CompensatedEntities entities = context.getEntities();
+            long playerTickOrder = entities.getSelf().getClientTickOrder();
 
-            for (PacketEntity entity : context.getEntities().entityMap.values()) {
+            for (PacketEntity entity : entities.entityMap.values()) {
                 boolean boatLike = ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(entity.type);
                 boolean minecartLike = entity.isMinecart();
                 boolean bedrockHardCollidingEntity = entity.type == EntityTypeIds.STRIDER
@@ -479,6 +503,7 @@ public class WorldStageBuilder {
                 // The one exemption to a living entity is an armor stand (matters due to plugins sending them)
                 if (!entity.isLivingEntity() && !hardCollidingEntity || entity.type == EntityTypeIds.ARMOR_STAND)
                     continue;
+                if (entities.sharesRootVehicleWithSelf(entity)) continue;
 
                 // MCP-Reborn push/collision checks use the entity's concrete
                 // bounding box, not the reach-expanded uncertainty box.
@@ -486,6 +511,7 @@ public class WorldStageBuilder {
 
                 if (playerBox.isCollided(entityBox)) {
                     numColliding++;
+                    if (entities.clientTickOrder(entity) < playerTickOrder) collidingTickingBeforePlayer++;
                     if (hardCollidingEntity) {
                         if (hardCollidingEntityCollisions == null) hardCollidingEntityCollisions = new ArrayList<>();
                         hardCollidingEntityCollisions.add(
@@ -682,11 +708,7 @@ public class WorldStageBuilder {
             if (!player.isBedrockMovement()) {
                 // These counts bound possible callbacks; the estimated pose cannot bound all client boxes.
                 return GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x,
-                        y,
-                        z,
-                        context.getMaxWidth() * context.getScale(),
-                        context.getMaxHeight() * context.getScale());
+                        x, y, z, context.getMaxWidth(), context.getMaxHeight());
             }
             return GetBoundingBox.getBoundingBoxFromPosAndSize(
                     x,

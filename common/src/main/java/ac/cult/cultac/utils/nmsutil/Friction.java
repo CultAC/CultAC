@@ -146,21 +146,31 @@ public final class Friction {
         boolean skeletonHorse =
                 context.getVehicle() != null && context.getVehicle().type == EntityTypeIds.SKELETON_HORSE;
         boolean dolphinsGrace = context.getEntities().getPotionLevelForPlayer(MovementEffect.DOLPHINS_GRACE) != null;
-        return getSwimFriction(skeletonHorse, dolphinsGrace, context.getDepthStriderLevel());
+        return getSwimFriction(skeletonHorse, dolphinsGrace, context.getWaterMovementEfficiency());
     }
 
-    public static List<Double> getSwimFriction(boolean skeletonHorse, boolean dolphinsGrace, float depthStriderLevel) {
-        if (skeletonHorse || dolphinsGrace) {
+    public static List<Double> getSwimFriction(
+            boolean skeletonHorse, boolean dolphinsGrace, float waterMovementEfficiency) {
+        // LivingEntity#travelInWater: Dolphin's Grace replaces the traveller's slowdown after the efficiency lerp.
+        if (dolphinsGrace) {
             return Collections.singletonList(0.96);
+        }
+        // SkeletonHorse#getWaterSlowDown.
+        if (skeletonHorse) {
+            return Collections.singletonList(applyWaterMovementEfficiency(waterMovementEfficiency, 0.96));
         }
 
         // Keep the existing broad candidate set; narrowing this to DesyncStatus changes
         // movement prediction behavior under latency.
-        return Arrays.asList(applyDepthStrider(depthStriderLevel, 0.9), applyDepthStrider(depthStriderLevel, 0.8));
+        return Arrays.asList(
+                applyWaterMovementEfficiency(waterMovementEfficiency, 0.9),
+                applyWaterMovementEfficiency(waterMovementEfficiency, 0.8));
     }
 
-    public static double applyDepthStrider(float depthStriderLevel, double friction) {
-        return friction + ((0.54600006F - friction) * depthStriderLevel / 3.0F);
+    public static double applyWaterMovementEfficiency(float waterMovementEfficiency, double friction) {
+        if (waterMovementEfficiency <= 0.0F) return friction;
+        float slowDown = (float) friction;
+        return slowDown + (0.54600006F - slowDown) * waterMovementEfficiency;
     }
 
     public static float getPlayerFriction(

@@ -419,7 +419,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
     }
 
     // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced.
-    private static boolean localPlayerTicked(CultPlayer player) {
+    public static boolean localPlayerTicked(CultPlayer player) {
         return !player.isBedrockMovement()
                 && (player.packetStateData.playerLoadedIntoLevel
                         || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4));
@@ -573,6 +573,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.packetStateData.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             player.packetStateData.playerLoadedIntoLevel = true;
+            if (packet.hasPosition()) player.packetStateData.lastSentTickPosition = position;
             // LocalPlayer#sendPosition sends this tick's START/STOP_SPRINTING before its movement.
             onLocalPlayerSprintTick(player);
         }
@@ -984,8 +985,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             // Not unbreakable
             if (DataTables.defaults().registry().facts(block).destroyTime() != -1.0f) {
                 player.compensatedWorld.startPredicting();
-                applyClientBreakPrediction(player, blockPosition);
-                player.compensatedWorld.stopPredicting(packet.sequence());
+                try {
+                    applyClientBreakPrediction(player, blockPosition);
+                } finally {
+                    player.compensatedWorld.stopPredicting(packet.sequence());
+                }
             }
         }
 
@@ -995,8 +999,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             // Instant breaking, no damage means it is unbreakable by creative players (with swords)
             if (damage >= 1) {
                 player.compensatedWorld.startPredicting();
-                applyClientBreakPrediction(player, blockPosition);
-                player.compensatedWorld.stopPredicting(packet.sequence());
+                try {
+                    applyClientBreakPrediction(player, blockPosition);
+                } finally {
+                    player.compensatedWorld.stopPredicting(packet.sequence());
+                }
             } else if (player.debugBreaks) {
                 player.sendMessage("Break start has no immediate world change: damage=" + damage);
             }
@@ -1111,6 +1118,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
 
             player.packetStateData.acceptedClientTick++;
             player.packetStateData.lastClientTickEndTransaction = player.lastTransactionReceived.get();
+            if (localPlayerTicked(player)) player.packetStateData.localPlayerTickedSinceSpawn = true;
             player.serverOpenedInventoryThisTick = false;
             player.packetStateData.carriedItemChangedThisClientTick = false;
         }
@@ -1216,6 +1224,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         boolean changed = player.xRot != yaw || player.yRot != pitch;
         HeadRotation from =
                 rotationOrigin(player.xRot, player.yRot, yaw, pitch, player.isBedrockMovement() ? null : accepted);
+        player.yawBeforeLook = Float.isNaN(player.mountYaw) ? player.xRot : player.mountYaw;
+        player.mountYaw = Float.NaN;
         player.xRot = yaw;
         player.yRot = pitch;
         RotationUpdate update = new RotationUpdate(

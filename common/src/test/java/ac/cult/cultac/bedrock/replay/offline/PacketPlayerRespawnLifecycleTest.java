@@ -316,6 +316,28 @@ public final class PacketPlayerRespawnLifecycleTest {
     }
 
     @Test
+    public void onlyAJavaRespawnInTheSameLevelTicksThePlayerAfterKeptEntities() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        for (boolean bedrock : new boolean[] {false, true}) {
+            CultPlayer player = offlinePlayer(bedrock);
+            try {
+                var entities = player.compensatedEntities;
+                entities.addEntity(7, EntityTypeIds.ZOMBIE, new Vec3(1, 64, 1), 0, 0, 0);
+                ClientboundRespawn respawn = respawnPacket();
+                new PacketPlayerRespawn()
+                        .onRespawn(sendEvent(player, ClientboundPackets.RESPAWN, respawn), player, respawn);
+                player.lastTransactionReceived.set(1);
+                player.latencyUtils.handleNettySyncTransaction(1);
+
+                long kept = entities.getEntity(7).getClientTickOrder();
+                assertEquals("bedrock " + bedrock, !bedrock, entities.getSelf().getClientTickOrder() > kept);
+            } finally {
+                OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+            }
+        }
+    }
+
+    @Test
     public void unacknowledgedPlacementsDoNotSurviveALevelReplacement() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         for (String replacement : new String[] {"login", "configuration", "world change", "same world"}) {

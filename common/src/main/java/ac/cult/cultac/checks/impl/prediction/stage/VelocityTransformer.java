@@ -590,8 +590,13 @@ public class VelocityTransformer {
             final float f2 = simulationContext.getTrig().sin(xRotRadians);
             final float f3 = simulationContext.getTrig().cos(xRotRadians);
 
-            final double blockSpeedFactor = BlockProperties.getBlockSpeedFactor(
-                    player, simulationContext.getLastTickMainSupportingBlockData(), simulationContext.getStart());
+            final double blockSpeedFactor = CultMath.lerp(
+                    (float) horse.movementEfficiency,
+                    BlockProperties.getBlockSpeedFactor(
+                            player,
+                            simulationContext.getLastTickMainSupportingBlockData(),
+                            simulationContext.getStart()),
+                    1.0F);
 
             final double scale = 22.2222F * f * horse.movementSpeedAttribute * blockSpeedFactor;
             Vec3 dashVec = new Vec3(-f2, 0.0, f3)
@@ -631,11 +636,14 @@ public class VelocityTransformer {
                 }
                 PredVector modified;
 
-                float jumpPower = 0.42f * (onHoney ? 0.5f : 1.0f);
+                float jumpPower = (float) player.compensatedEntities.getSelf().jumpStrength * (onHoney ? 0.5f : 1.0f);
 
                 if (simulationContext.getJumpAmplifier() != null) {
                     jumpPower += 0.1f * (simulationContext.getJumpAmplifier() + 1);
                 }
+
+                // LivingEntity#jumpFromGround does nothing at or below 1.0E-5F.
+                if (jumpPower <= 1.0E-5F) continue;
 
                 modified = vector.withY(groundJumpVelocityY(vector.y, jumpPower), "Jumping set Y");
                 modified.setJump();
@@ -668,8 +676,11 @@ public class VelocityTransformer {
         // controller look in CultPlayer; the vehicle packet carries the root's
         // separately smoothed rotation in SimulationContext.
         Vec3 look = getExactNautilusDashLook(player.xRot, player.yRot);
-        float blockSpeedFactor = BlockProperties.getBlockSpeedFactor(
-                player, simulationContext.getLastTickMainSupportingBlockData(), simulationContext.getStart());
+        float blockSpeedFactor = CultMath.lerp(
+                (float) nautilus.movementEfficiency,
+                BlockProperties.getBlockSpeedFactor(
+                        player, simulationContext.getLastTickMainSupportingBlockData(), simulationContext.getStart()),
+                1.0F);
         double waterMultiplier = inWater ? 1.2F : 0.5F;
         double magnitude =
                 waterMultiplier * nautilus.pendingJumpScale * nautilus.movementSpeedAttribute * blockSpeedFactor;

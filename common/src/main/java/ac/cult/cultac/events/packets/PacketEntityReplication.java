@@ -1010,7 +1010,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             PacketEntity entity = player.compensatedEntities.getEntity(entityId);
 
             if (entity == null) return;
-            entity.isDead = true;
+            // LivingEntity#handleEntityEvent(3) only plays a Player's death sound; other living entities die.
+            if (entity.type != EntityTypeIds.PLAYER) entity.isDead = true;
         }
 
         // These are native server status codes, before ViaVersion rewrites the packet.
@@ -1128,14 +1129,34 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             queueVehicleProtocolResync(transaction, resyncState);
         }
         player.latencyUtils.addRealTimeTask(transaction, () -> {
+            PacketEntity mounted = player.compensatedEntities.getEntity(vehicleId);
+            boolean firstMount = mountsLocalPlayer && mounted != null && !ridesIndirectly(mounted);
             player.compensatedEntities.vehicles.applyVehiclePassengers(vehicleId, passengers);
             if (mountsLocalPlayer) {
                 player.vehicleData.wasVehicleSwitch = true;
+            }
+            // ClientPacketListener#handleSetEntityPassengersPacket turns a player newly aboard a boat to its yaw.
+            if (firstMount && mounted.isBoat()) {
+                player.headYaw = mounted.clientPhysicalYaw;
+                player.unclampedHeadYaw = Float.NaN;
+                player.headArcFrom = Float.NaN;
+                player.boatYawBeforeTurn = mounted.clientPhysicalYaw;
+                player.mountYaw = mounted.clientPhysicalYaw;
             }
             if (resyncState != null) {
                 applyVehicleProtocolResync(transaction, resyncState);
             }
         });
+    }
+
+    // Entity#hasIndirectPassenger for the local player.
+    private boolean ridesIndirectly(PacketEntity vehicle) {
+        for (PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
+                riding != null;
+                riding = riding.getRiding()) {
+            if (riding == vehicle) return true;
+        }
+        return false;
     }
 
     private int transactionForSetPassengers(

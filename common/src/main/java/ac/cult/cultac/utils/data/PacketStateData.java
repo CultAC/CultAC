@@ -15,6 +15,8 @@ public class PacketStateData {
     public boolean lastPacketMatchedTeleportPosition = false;
     // Minecraft#tick sends ServerboundClientTickEndPacket after LocalPlayer#tick, proving whether movement happened.
     public boolean receivedMovementThisClientTick = false;
+    // A flight stop LocalPlayer#aiStep may have sent after travel on landing; that tick still travelled flying.
+    public boolean flyingStopAfterTravel = false;
     // Geyser forwards each auth frame before its movement. A horse move
     // precedes the rider's rotation; tick-end closes frames without movement.
     public final BedrockTranslatedMovementGate bedrockTranslatedMovement = new BedrockTranslatedMovementGate();
@@ -24,6 +26,9 @@ public class PacketStateData {
     // ClientPacketListener#hasClientLoaded: cleared by login and respawn, set with ServerboundPlayerLoadedPacket.
     // LocalPlayer#tick only runs while it is set. A connection attached mid-session starts loaded.
     public boolean playerLoadedIntoLevel = true;
+    // A tick end of a client tick that ran LocalPlayer#tick came since the last login or respawn. Java attacks before
+    // it are cancelled: ServerGamePacketListenerImpl#hasClientLoaded drops them on vanilla.
+    public boolean localPlayerTickedSinceSpawn = true;
     public int lastSlotSelected;
     // Packet-ordered mirror of LocalPlayer's active item state.  Checks must not
     // read Bukkit's server-thread active item because the attack/use ordering is
@@ -45,6 +50,8 @@ public class PacketStateData {
     public boolean clientMovementInputUpdatedThisClientTick = false;
     public Vec3 clientMovementInput = new Vec3(0, 0, 0);
     public Vec3 clientSidePosition = new Vec3(0, 0, 0);
+    // LocalPlayer#xLast: the position of the client's last tick movement packet, unknown until one arrives.
+    public Vec3 lastSentTickPosition = null;
     // LocalPlayer#tick emits passenger Rot immediately before MoveVehicle; packet-handler echoes send MoveVehicle
     // alone.
     private boolean awaitingVehicleMoveAfterPassengerRotation = false;

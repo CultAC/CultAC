@@ -105,7 +105,9 @@ public class HorizontalAnalyzer implements EngineCheck {
 
         if (isSlowed) {
             double maxDirLength = getSneakingMaxInputAxis(
-                    playerSpeed, sprintMultiplier, result.getSimulationContext().getSwiftSneakLevel());
+                    playerSpeed,
+                    sprintMultiplier,
+                    player.compensatedEntities.getSelf().sneakingSpeed.value());
             double requiredAxis = Math.min(
                     Math.max(absInputX, absInputZ),
                     minimumFlushInputAxis(
@@ -200,8 +202,9 @@ public class HorizontalAnalyzer implements EngineCheck {
         return axisExcess > HORIZONTAL_INPUT_UNCERTAINTY ? axisExcess : 0.0D;
     }
 
-    static double getSneakingMaxInputAxis(double playerSpeed, double sprintMultiplier, int swiftSneakLevel) {
-        return playerSpeed * sprintMultiplier * 0.295D + (0.15D * swiftSneakLevel);
+    // LocalPlayer#modifyInput scales the normalized input by 0.98F and sneaking_speed
+    static double getSneakingMaxInputAxis(double playerSpeed, double sprintMultiplier, double sneakingSpeed) {
+        return playerSpeed * sprintMultiplier * 0.98D * sneakingSpeed;
     }
 
     public static double minDistanceToValidMovementAngle(double angleMin, double angleMax) {

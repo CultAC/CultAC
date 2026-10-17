@@ -62,6 +62,11 @@ public class CompensatedEntities {
         playerEntity.setClientTickOrder(LOCAL_PLAYER_CLIENT_TICK_ORDER);
     }
 
+    /** ClientLevel#addEntity appends a LocalPlayer replacing one in a retained level after every entity there. */
+    public void appendSelfToClientTickOrder() {
+        playerEntity.setClientTickOrder(nextClientEntityTickOrder++);
+    }
+
     /** A replacement ClientLevel cannot retain remote entities or their queued values. */
     public void clearClientLevel() {
         entityMap.clear();
@@ -139,6 +144,29 @@ public class CompensatedEntities {
         return playerEntity.getRiding() != null ? playerEntity.getRiding() : playerEntity;
     }
 
+    /** The ClientLevel#tickEntities place of {@code entity}; a passenger ticks with the root of its vehicle chain. */
+    public long clientTickOrder(PacketEntity entity) {
+        if (entity.getRiding() == null) return entity.getClientTickOrder();
+        PacketEntity root = rootOf(entity);
+        return root == null ? entity.getClientTickOrder() : root.getClientTickOrder();
+    }
+
+    /** Entity#isPassengerOfSameVehicle against the local player, which makes Entity#push skip the pair. */
+    public boolean sharesRootVehicleWithSelf(PacketEntity entity) {
+        PacketEntity root = rootOf(entity);
+        return root != null && root == rootOf(playerEntity);
+    }
+
+    // Null inside a riding cycle (a server mounting a vehicle on its own passenger), which has no root.
+    private PacketEntity rootOf(PacketEntity entity) {
+        PacketEntity root = entity;
+        for (int hops = 0; root.getRiding() != null; hops++) {
+            if (hops > entityMap.size()) return null;
+            root = root.getRiding();
+        }
+        return root;
+    }
+
     // TODO: This doesn't belong here at all
     public double getPlayerMovementSpeed() {
         double speed = player.compensatedEntities.getSelf().playerSpeed;
@@ -177,11 +205,17 @@ public class CompensatedEntities {
                 }
 
                 if (matchesAttribute(snapshot, "gravity")) {
-                    player.compensatedEntities.getSelf().gravity = calculateAttribute(snapshot, 0.0, 1024.0);
+                    player.compensatedEntities.getSelf().gravity = calculateAttribute(snapshot, -1.0, 1.0);
                 }
+
+                player.compensatedEntities.getSelf().onAttributeSnapshot(snapshot);
 
                 if (matchesAttribute(snapshot, "step_height")) {
                     player.compensatedEntities.getSelf().stepHeightAttribute = calculateAttribute(snapshot, 0.0, 10.0);
+                }
+
+                if (matchesAttribute(snapshot, "jump_strength")) {
+                    player.compensatedEntities.getSelf().jumpStrength = calculateAttribute(snapshot, 0.0, 32.0);
                 }
 
                 // 26.2 attributes (Attributes#BOUNCINESS / FRICTION_MODIFIER /
@@ -210,18 +244,6 @@ public class CompensatedEntities {
                 if (matchesAttribute(snapshot, "sneaking_speed")) {
                     player.compensatedEntities.getSelf().sneakingSpeed.onServerSnapshot(snapshot);
                 }
-
-                if (matchesAttribute(snapshot, "block_break_speed")) {
-                    player.compensatedEntities.getSelf().blockBreakSpeed = calculateAttribute(snapshot, 0.0, 1024.0);
-                }
-
-                if (matchesAttribute(snapshot, "mining_efficiency")) {
-                    player.compensatedEntities.getSelf().miningEfficiency = calculateAttribute(snapshot, 0.0, 1024.0);
-                }
-
-                if (matchesAttribute(snapshot, "submerged_mining_speed")) {
-                    player.compensatedEntities.getSelf().submergedMiningSpeed = calculateAttribute(snapshot, 0.0, 20.0);
-                }
             }
         }
 
@@ -240,11 +262,19 @@ public class CompensatedEntities {
                 }
 
                 if (matchesAttribute(snapshot, "gravity")) {
-                    entity.gravity = calculateAttribute(snapshot, 0.0, 1024.0);
+                    entity.gravity = calculateAttribute(snapshot, -1.0, 1.0);
                 }
 
                 if (matchesAttribute(snapshot, "step_height")) {
                     entity.stepHeightAttribute = calculateAttribute(snapshot, 0.0, 10.0);
+                }
+
+                if (entityID != player.entityID && matchesAttribute(snapshot, "movement_efficiency")) {
+                    entity.movementEfficiency = calculateAttribute(snapshot, 0.0, 1.0);
+                }
+
+                if (entityID != player.entityID && matchesAttribute(snapshot, "water_movement_efficiency")) {
+                    entity.waterMovementEfficiency = calculateAttribute(snapshot, 0.0, 1.0);
                 }
 
                 if (supportsAttributes(ClientVersion.V_26_2) && matchesAttribute(snapshot, "bounciness")) {
@@ -268,7 +298,7 @@ public class CompensatedEntities {
                 }
 
                 if (matchesAttribute(snapshot, "jump_strength")) {
-                    horse.jumpStrength = calculateAttribute(snapshot, 0.0, 2.0);
+                    horse.jumpStrength = calculateAttribute(snapshot, 0.0, 32.0);
                 }
             }
         }

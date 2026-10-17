@@ -1,11 +1,15 @@
 package ac.cult.cultac.utils.visibility;
 
 import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.ItemComponents;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
@@ -19,7 +23,7 @@ public final class ClientVisibility {
     private static final double CLIP_EPSILON = 1.0E-7;
     private final CultPlayer player;
 
-    private record Selection(String heldItem, ac.cult.blocksim.data.ItemComponents.AttackRange attackRange) {}
+    private record Selection(String heldItem, ItemComponents.AttackRange attackRange) {}
 
     private final List<Selection> selections = new ArrayList<>();
     private Selection activeSelection;
@@ -39,27 +43,115 @@ public final class ClientVisibility {
         var held = player.getInventory().inventory.getInventoryStorage().getItem(36 + slot);
         var attack = player.isClientUsingItem()
                 ? selections.getFirst().attackRange()
-                : held == null || held.isEmpty()
-                        ? null
-                        : ac.cult.blocksim.data.ItemComponents.attackRange(held.components());
+                : held == null || held.isEmpty() ? null : ItemComponents.attackRange(held.components());
         var candidate = new Selection(held == null || held.isEmpty() ? "minecraft:air" : held.itemKey(), attack);
         // Keyboard hotbar selection happens after pick; MouseHandler.onScroll can
         // change it before pick. The selected-slot packet does not identify which.
         if (!selections.contains(candidate)) selections.add(candidate);
     }
 
-    /** An item AttackRange LocalPlayer#raycastHitResult may have picked with, and its ray scale bound. */
-    public record ItemPick(float hitboxMargin, double rayScale) {}
+    /**
+     * An item AttackRange LocalPlayer#raycastHitResult may have picked with, for one camera: ProjectileUtil#getHitEntitiesAlong's
+     * ray runs from {@code rayStart} looks to {@code rayEnd} looks plus the positive part of one of the camera's possible
+     * known {@code movements} (x, y and z in turn) along the look. {@code rayScale} bounds every pick's ray length.
+     */
+    public record ItemPick(float hitboxMargin, double rayStart, double rayEnd, double rayScale, double[] movements) {}
 
     /** The item picks Minecraft#pick may have made before this tick's attack. */
     public List<ItemPick> attackItemPicks() {
         beginSelection();
         List<ItemPick> picks = new ArrayList<>();
+        double[] selfMovements = null;
         for (Selection selection : selections) {
             var attack = selection.attackRange();
-            if (attack != null) picks.add(new ItemPick(attack.hitboxMargin(), nativeItemRayScale(attack)));
+            if (attack == null) continue;
+            double rayScale = nativeItemRayScale(attack);
+            for (PacketEntity camera : player.cameraEntity.getPossibilities()) {
+                if (camera == player.compensatedEntities.getSelf()) {
+                    if (selfMovements == null) selfMovements = knownMovements();
+                    boolean creative = player.gamemode == GameMode.CREATIVE;
+                    float min = creative ? attack.minCreativeReach() : attack.minReach();
+                    float max = creative ? attack.maxCreativeReach() : attack.maxReach();
+                    picks.add(new ItemPick(attack.hitboxMargin(), min, max, rayScale, selfMovements));
+                    continue;
+                }
+                Vec3 movement = camera.deltaMovement;
+                double[] movements = {movement.x, movement.y, movement.z};
+                if (camera.type == EntityTypeIds.PLAYER) {
+                    // AttackRange#effectiveMinRange/#effectiveMaxRange read the camera player's own game mode.
+                    picks.add(new ItemPick(
+                            attack.hitboxMargin(), attack.minReach(), attack.maxReach(), rayScale, movements));
+                    picks.add(new ItemPick(
+                            attack.hitboxMargin(),
+                            attack.minCreativeReach(),
+                            attack.maxCreativeReach(),
+                            rayScale,
+                            movements));
+                } else {
+                    picks.add(new ItemPick(
+                            attack.hitboxMargin(),
+                            attack.minReach() * attack.mobFactor(),
+                            attack.maxReach() * attack.mobFactor(),
+                            rayScale,
+                            movements));
+                }
+            }
         }
         return picks;
+    }
+
+    // Entity#getKnownMovement at the pick, x, y and z in turn: what the last tick left, then in wire order each motion
+    // handled since (Entity#lerpMotion replaces it) and explosion (Entity#push adds to it), or not yet when unanswered.
+    private double[] knownMovements() {
+        int tickEnd = player.packetStateData.lastClientTickEndTransaction;
+        var knockback = player.checkManager.getKnockbackHandler();
+        var explosion = player.checkManager.getExplosionHandler();
+        TransactionVel motion = knockback.secondBread;
+        TransactionVel push = explosion.secondBread;
+        List<Vec3> left = new ArrayList<>();
+        int replaced = tickEnd;
+        if (motion != null && motion.getTransaction() > tickEnd) {
+            left.add(motion.getVel());
+            replaced = motion.getTransaction();
+        } else {
+            left.addAll(player.checkManager.getSimulationProcessor().getLastDerivedNextTickVelocities());
+            if (left.isEmpty()) left.add(Vec3.ZERO);
+            // Handled before the last tick end, by a tick no prediction committed.
+            if (motion != null) left.add(motion.getVel());
+            if (push != null && push.getTransaction() <= tickEnd) {
+                for (int i = 0, size = left.size(); i < size; i++)
+                    left.add(left.get(i).add(push.getVel()));
+            }
+        }
+        // An explosion's velocity sums the explosions since the tick end or the last motion.
+        Vec3 pushed = push != null && push.getTransaction() > replaced ? push.getVel() : Vec3.ZERO;
+        TransactionVel pendingMotion = knockback.firstBread;
+        TransactionVel pendingPush = explosion.firstBread;
+        int count = left.size() * (pendingPush == null ? 1 : 2) + (pendingMotion == null ? 0 : 1);
+        double[] movements = new double[3 * count];
+        int index = 0;
+        for (Vec3 velocity : left) {
+            index = putMovement(movements, index, velocity.add(pushed));
+            if (pendingPush != null) index = putMovement(movements, index, velocity.add(pendingPush.getVel()));
+        }
+        if (pendingMotion != null) {
+            Vec3 velocity = pendingMotion.getVel();
+            if (pendingPush != null && pendingPush.getTransaction() > pendingMotion.getTransaction())
+                velocity = velocity.add(pendingPush.getVel());
+            putMovement(movements, index, velocity);
+        }
+        return movements;
+    }
+
+    private static int putMovement(double[] movements, int index, Vec3 velocity) {
+        return putMovement(movements, index, velocity.x, velocity.y, velocity.z);
+    }
+
+    private static int putMovement(double[] movements, int index, double x, double y, double z) {
+        movements[index] = x;
+        movements[index + 1] = y;
+        movements[index + 2] = z;
+        return index + 3;
     }
 
     private boolean hiddenForEverySelection(java.util.function.Supplier<Boolean> query) {
@@ -234,7 +326,7 @@ public final class ClientVisibility {
 
     private boolean entityHidden(SimpleCollisionBox target, double positionError, double pickRadius) {
         double defaultRange = player.compensatedEntities.getSelf().getEntityInteractionRange();
-        ac.cult.blocksim.data.ItemComponents.AttackRange attack = selectionAttackRange();
+        ItemComponents.AttackRange attack = selectionAttackRange();
         double itemRange = attack == null ? 0 : Math.sqrt(3) * nativeItemRayScale(attack);
         double margin = attack == null ? pickRadius : Math.max(pickRadius, attack.hitboxMargin());
         for (Vec3 eye :
@@ -253,12 +345,12 @@ public final class ClientVisibility {
                 eye, envelope, null, blockers(eye, envelope, null, range), null, range);
     }
 
-    private ac.cult.blocksim.data.ItemComponents.AttackRange selectionAttackRange() {
+    private ItemComponents.AttackRange selectionAttackRange() {
         return activeSelection == null ? currentAttackRange() : activeSelection.attackRange();
     }
 
-    private ac.cult.blocksim.data.ItemComponents.AttackRange currentAttackRange() {
-        if (player.gamemode == ac.cult.cultac.protocol.value.GameMode.SPECTATOR) return null;
+    private ItemComponents.AttackRange currentAttackRange() {
+        if (player.gamemode == GameMode.SPECTATOR) return null;
         if (player.getClientVersion().isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_21_11)) return null;
         var hand = player.isClientUsingItem()
                 ? player.getClientItemUseHand()
@@ -273,9 +365,7 @@ public final class ClientVisibility {
                     .inventory
                     .getInventoryStorage()
                     .getItem(36 + player.packetStateData.getSlowedByUsingItemSlot());
-        return item == null || item.isEmpty()
-                ? null
-                : ac.cult.blocksim.data.ItemComponents.attackRange(item.components());
+        return item == null || item.isEmpty() ? null : ItemComponents.attackRange(item.components());
     }
 
     private Iterable<Vec3> eyes(
@@ -423,10 +513,8 @@ public final class ClientVisibility {
         return x * x + y * y + z * z <= range * range;
     }
 
-    private double nativeItemRayScale(ac.cult.blocksim.data.ItemComponents.AttackRange attack) {
-        double range = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE
-                ? attack.maxCreativeReach()
-                : attack.maxReach();
+    private double nativeItemRayScale(ItemComponents.AttackRange attack) {
+        double range = player.gamemode == GameMode.CREATIVE ? attack.maxCreativeReach() : attack.maxReach();
         double speed = 0;
         for (Vec3 velocity : player.checkManager.getSimulationProcessor().getLastDerivedNextTickVelocities())
             speed = Math.max(speed, velocity.length());
@@ -445,7 +533,7 @@ public final class ClientVisibility {
         for (var camera : player.cameraEntity.getPossibilities())
             if (camera != player.compensatedEntities.getSelf()) {
                 speed = Math.max(speed, camera.deltaMovement.length());
-                if (camera.type != ac.cult.blocksim.entity.EntityTypeIds.PLAYER)
+                if (camera.type != EntityTypeIds.PLAYER)
                     range = Math.max(range, attack.maxReach() * attack.mobFactor());
             }
         // Mth's sin/cos lookup and float products bound each view component by

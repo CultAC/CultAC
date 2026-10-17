@@ -6,6 +6,7 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 
 public final class BlockSpeedFactors {
@@ -26,14 +27,20 @@ public final class BlockSpeedFactors {
             // Entity#move applies getBlockSpeedFactor on the root entity itself.
             // A mounted player's supporting block can differ from the ridden root,
             // especially while passenger attachment/interpolation offsets are active.
-            return getEntityBlockSpeedFactor(
-                    player, result.getSimulationContext().getEnd());
+            return CultMath.lerp(
+                    (float) vehicle.movementEfficiency,
+                    getEntityBlockSpeedFactor(
+                            player, result.getSimulationContext().getEnd()),
+                    1.0F);
         }
 
-        return BlockProperties.getBlockSpeedFactor(
-                player,
-                result.getSimulationContext().getWorldData().getMainSupportingBlockPos(),
-                result.getSimulationContext().getEnd());
+        return CultMath.lerp(
+                result.getSimulationContext().getMovementEfficiency(),
+                BlockProperties.getBlockSpeedFactor(
+                        player,
+                        result.getSimulationContext().getWorldData().getMainSupportingBlockPos(),
+                        result.getSimulationContext().getEnd()),
+                1.0F);
     }
 
     public static float playerForResult(CultPlayer player, PredictionResult result) {

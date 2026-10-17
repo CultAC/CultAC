@@ -93,7 +93,13 @@ public final class JavaMovementEngine implements MovementEngine {
                 target,
                 playerPos,
                 attemptedMovementExtents,
-                PROBE_DIMENSIONS,
+                context.getScale() == 1.0F || context.getVehicle() != null
+                        ? PROBE_DIMENSIONS
+                        : new CollisionModifier.ProbeDimensions(
+                                context.getMaxWidth(),
+                                context.getMinHeight(),
+                                context.getMaxHeight(),
+                                SimpleCollisionBox.AxisEpsilon.JAVA),
                 JavaFallDistance.beforeMove(player, context, initialStartingVelocity),
                 !canStep);
     }

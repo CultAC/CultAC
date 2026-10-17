@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -24,7 +25,16 @@ public class EntityPush implements UncertaintyHandler {
             PredictionResult lastContext,
             PredVector start,
             Vec3 end) {
-        return handleEntityPush(start, end, context.getWorldData().getNumColliding());
+        WorldData world = context.getWorldData();
+        int carried = world.getNumCarriedPushing();
+        // ClientPacketListener#handleSetEntityMotion replaces the delta movement that carries last tick's push.
+        CarriedPush carriedPush = world.getCarriedPush();
+        if (carried == 0 || carriedPush.isIdentity() && !start.isEntityMotion()) {
+            return handleEntityPush(start, end, world.getNumPushing());
+        }
+        PredVector pushed =
+                start.isEntityMotion() ? start : carriedPush.push(start, end, maxHorizontalImpulse(carried));
+        return handleEntityPush(pushed, end, world.getNumPushing() - carried);
     }
 
     public static PredVector handleEntityPush(PredVector start, Vec3 end, int collidingEntities) {

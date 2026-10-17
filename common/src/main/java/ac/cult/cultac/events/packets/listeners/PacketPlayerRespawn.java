@@ -101,6 +101,8 @@ public class PacketPlayerRespawn {
         player.compensatedEntities.playerEntity = freshSelf;
         // ClientPacketListener#handleLogin clears clientLoaded until ServerboundPlayerLoadedPacket.
         player.packetStateData.playerLoadedIntoLevel = false;
+        player.packetStateData.lastSentTickPosition = null;
+        if (!player.isBedrockMovement()) player.onLocalPlayerCreated();
         if (!player.isBedrockMovement()) {
             // Minecraft#clearClientLevel discards the LocalPlayer before a reconfiguration login.
             player.isSprinting = false;
@@ -298,7 +300,8 @@ public class PacketPlayerRespawn {
                         .getCheck(ac.cult.cultac.checks.impl.badpackets.BadPacketsV.class)
                         .onNewLocalPlayer();
             }
-            player.compensatedEntities.resetClientTickOrder();
+            if (worldChange || player.isBedrockMovement()) player.compensatedEntities.resetClientTickOrder();
+            else player.compensatedEntities.appendSelfToClientTickOrder();
             player.compensatedEntities.selfTrackedEntity =
                     new TrackerData(0, 0, 0, 0, 0, EntityTypeIds.PLAYER, player.lastTransactionSent.get());
 
@@ -306,6 +309,8 @@ public class PacketPlayerRespawn {
             // wasSprinting, and copies the old shared flags, only for KEEP_ENTITY_DATA.
             // ClientPacketListener#handleRespawn clears clientLoaded until ServerboundPlayerLoadedPacket.
             player.packetStateData.playerLoadedIntoLevel = false;
+            player.packetStateData.lastSentTickPosition = null;
+            if (!player.isBedrockMovement()) player.onLocalPlayerCreated();
             player.sprintState.onRespawn(keepEntityData, keepAttributeModifiers);
             player.attackStrength.reset();
             player.combatAttributes.onRespawn(keepAttributeModifiers);

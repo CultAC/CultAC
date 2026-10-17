@@ -210,6 +210,22 @@ public class CultPlayer implements GrimUser {
     // The client does not tell us last tick's rotation, so we must assume the worst case
     public float lastTickXRot;
     public float lastTickYRot;
+    // LocalPlayer's yHeadRot: Player#aiStep copies the yaw, a boat's positionRider adds deltaRotation before
+    // clampRotation clamps only the yaw, and ClientPacketListener#handleSetEntityPassengersPacket sets a boat's yaw on
+    // a first mount.
+    public float headYaw;
+    // The head yaw a boat's clampRotation left unclamped this tick, NaN when the head may only follow the yaw.
+    public float unclampedHeadYaw = Float.NaN;
+    // The head yaws from headArcFrom through headArcLength degrees further that the head may hold instead, NaN when
+    // none: those a boat's clampRotation may have pulled the yaw back from after an unseen mouse turn.
+    public float headArcFrom = Float.NaN;
+    public float headArcLength;
+    // The boat yaw at the last tick end or first mount, which the next mouse turn's clampRotation bounds against.
+    public float boatYawBeforeTurn = Float.NaN;
+    // The yaw the client held before this tick's rotation packet.
+    public float yawBeforeLook;
+    // The yaw a first boat mount set before the client's next rotation packet, NaN when none did.
+    public float mountYaw = Float.NaN;
     public boolean onGround;
     public boolean lastOnGround;
     public boolean isSneaking;
@@ -305,6 +321,64 @@ public class CultPlayer implements GrimUser {
     public boolean shouldEnforceMovementSetbacks() {
         return movementPlatform == MovementPlatform.JAVA
                 || (bedrockState != null && bedrockState.shouldEnforceSetbacks());
+    }
+
+    /** A login or respawn replaced the LocalPlayer, which has not ticked yet. */
+    public void onLocalPlayerCreated() {
+        packetStateData.localPlayerTickedSinceSpawn = false;
+        headArcFrom = Float.NaN;
+        unclampedHeadYaw = Float.NaN;
+        boatYawBeforeTurn = Float.NaN;
+    }
+
+    /**
+     * The head yaw a client tick ends with: the yaw it sends, or, in a boat whose clampRotation pulled the yaw back,
+     * the yaw Player#aiStep copied plus the boat's deltaRotation, from the last yaw when no mouse turn came between, or
+     * from within 105 degrees of the boat yaw the mouse turn's clampRotation bounded it to.
+     */
+    public void tickHeadYaw() {
+        float before = yawBeforeLook;
+        yawBeforeLook = xRot;
+        // LocalPlayer#tick, and with it Player#aiStep, only runs once the client has loaded; before 1.21.4, from login.
+        if (!packetStateData.playerLoadedIntoLevel && !getClientVersion().isOlderThan(ClientVersion.V_1_21_4)) return;
+        float boatYawBefore = boatYawBeforeTurn;
+        headYaw = xRot;
+        unclampedHeadYaw = Float.NaN;
+        headArcFrom = Float.NaN;
+        boatYawBeforeTurn = Float.NaN;
+        PacketEntity self = compensatedEntities.getSelf();
+        PacketEntity boat = self.getRiding();
+        if (boat == null || !boat.isBoat()) return;
+        float boatYaw = boat.clientPhysicalYaw;
+        boatYawBeforeTurn = boatYaw;
+        // AbstractBoat#deltaRotation only turns a boat its controlling passenger drives.
+        float turn = !boat.passengers.isEmpty() && boat.passengers.get(0) == self ? boatData.deltaRotation : 0;
+        float yaw = before + turn;
+        float delta = CultMath.wrapDegrees(yaw - boatYaw);
+        float target = CultMath.clamp(delta, -105.0F, 105.0F);
+        if (target != delta && yaw + target - delta == xRot) unclampedHeadYaw = yaw;
+        if (Float.isNaN(boatYawBefore)) return;
+        // The head lies more than 105 degrees to the sent yaw's side of the boat, and within 105 of the turned
+        // reference, the boat yaw the mouse turn clamped against advanced by deltaRotation.
+        float side = CultMath.wrapDegrees(xRot - boatYaw) > 0 ? 1.0F : -1.0F;
+        float reference = side * CultMath.wrapDegrees(boatYawBefore + turn - boatYaw);
+        float near;
+        float far;
+        if (reference >= 0) {
+            near = 105.0F;
+            far = Math.min(180.0F, reference + 105.0F);
+        } else if (reference <= -75.0F) {
+            near = Math.max(105.0F, reference + 255.0F);
+            far = 180.0F;
+        } else {
+            return;
+        }
+        if (far <= near) return;
+        float edge = xRot + side * (far - 105.0F);
+        float edgeDelta = CultMath.wrapDegrees(edge - boatYaw);
+        if (edge + CultMath.clamp(edgeDelta, -105.0F, 105.0F) - edgeDelta != xRot) return;
+        headArcFrom = xRot + (side > 0 ? near - 105.0F : 105.0F - far);
+        headArcLength = far - near;
     }
 
     public void onPacketCancel() {

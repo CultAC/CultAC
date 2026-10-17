@@ -4,15 +4,22 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.manager.config.BaseConfigManager;
+import ac.cult.cultac.network.codec.ModelRegistryNamesState;
+import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.data.ProtocolData;
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.testing.CodecFixture;
+import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -117,6 +124,23 @@ final class RecordReceiveFixture implements AutoCloseable {
         assertTrue(channel.writeInbound(frame));
         assertSame(frame, channel.readInbound());
         frame.release();
+    }
+
+    /** A respawn into the current level keeping {@code dataToKeep}, applied once the client answers its ping. */
+    void respawn(byte dataToKeep) {
+        // The End's dimension type keeps the fixture level's 0..256 height.
+        var spawnInfo = new PlayerSpawnInfo(
+                ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:the_end"),
+                player.compensatedWorld.getLastClientboundDimension().dimension(),
+                GameMode.SURVIVAL);
+        var packet = new ClientboundRespawn(spawnInfo, dataToKeep);
+        var event = new PacketSendEvent<>(user, ConnectionPhase.PLAY, ClientboundPackets.RESPAWN, packet, false);
+        new PacketPlayerRespawn().onRespawn(event, player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+        for (int id = player.lastTransactionReceived.get() + 1; id <= player.lastTransactionSent.get(); id++) {
+            player.lastTransactionReceived.set(id);
+            player.latencyUtils.handleNettySyncTransaction(id);
+        }
     }
 
     /** Sets observe-only on the shared test config until closed. */

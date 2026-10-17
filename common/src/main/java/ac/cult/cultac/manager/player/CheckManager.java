@@ -887,6 +887,7 @@ public class CheckManager {
             } finally {
                 dispatchingTickEnd = false;
             }
+            player.tickHeadYaw();
             player.visibilityDebug.update();
         }
     }

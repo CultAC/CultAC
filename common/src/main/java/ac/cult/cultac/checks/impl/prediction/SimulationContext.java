@@ -80,6 +80,12 @@ public class SimulationContext {
     // Whether movement_speed may carry minecraft:sprinting during travel
     @Setter
     boolean sprintModifier = true;
+    // The movement_efficiency attribute during travel; LivingEntity#getBlockSpeedFactor lerps the block's factor to 1
+    @Setter
+    float movementEfficiency;
+    // The water_movement_efficiency attribute as LivingEntity#travelInWater reads it, halved off the ground
+    @Setter
+    float waterMovementEfficiency;
 
     int minAttackSlow, maxAttackSlow;
     // WorldData must be generated based on movement state...
@@ -289,14 +295,14 @@ public class SimulationContext {
         if (getVehicle() != null) {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, 0.6f, 1.8f);
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
     }
 
     public SimpleCollisionBox getToMaximumExtent() {
         if (getVehicle() != null) {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, 0.6f, 1.8f)
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight())
                 .expand(getMovementThreshold());
     }
 
@@ -304,7 +310,7 @@ public class SimulationContext {
         if (getVehicle() != null) {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), 0.6f);
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, 0.6f, 0.6f)
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMinHeight())
                 .expand(-getMovementThreshold());
     }
 
@@ -322,7 +328,7 @@ public class SimulationContext {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(
                     start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(start.x, start.y, start.z, 0.6f, 1.8f);
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
     }
 
     public SimpleCollisionBox getFromMinimumExtent() {
@@ -330,14 +336,14 @@ public class SimulationContext {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(
                     start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(start.x, start.y, start.z, getMaxWidth(), 0.6f);
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(start.x, start.y, start.z, getMaxWidth(), getMinHeight());
     }
 
     public SimpleCollisionBox getToCubeCollision() {
         if (getVehicle() != null) {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, 0.6f, 0.6f);
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMinHeight());
     }
 
     public SimpleCollisionBox getToActualPose() {
@@ -373,8 +379,10 @@ public class SimulationContext {
     }
 
     private double sprintSpeedMultiplier(CultPlayer player, boolean onGround, boolean fluid) {
-        // Fluid, creative flight and vehicle travel keep their existing allowance.
-        if (vehicle != null || fluid || player.isFlying) return 1.3D;
+        // Creative flight and vehicle travel keep their existing allowance.
+        if (vehicle != null || player.isFlying) return 1.3D;
+        // LivingEntity#travelInFluid moves by a fluid speed that already includes any sprint modifier
+        if (fluid) return 1.0D;
         if (onGround) return sprintModifier ? 1.3D : 1.0D;
         return isSprinting.determineOptimistically() ? 1.3D : 1.0D;
     }
@@ -402,14 +410,19 @@ public class SimulationContext {
         if (getVehicle() != null) {
             return BoundingBoxSize.getWidth(getVehicle(), version, getBedrockInput() != null);
         }
-        return 0.6f;
+        return 0.6f * scale;
     }
 
     public float getMaxHeight() {
         if (getVehicle() != null) {
             return BoundingBoxSize.getHeight(getVehicle(), version, getBedrockInput() != null);
         }
-        return 1.8f;
+        return 1.8f * scale;
+    }
+
+    /** The smallest player pose height (swimming, gliding, crawling) at the player's scale. */
+    public float getMinHeight() {
+        return 0.6f * scale;
     }
 
     private float getFrictionInfluencedSpeed(float friction, CultPlayer player) {
@@ -439,8 +452,10 @@ public class SimulationContext {
         if (water) {
             float speed = 0.02f;
 
-            if (depthStriderLevel > 0) {
-                speed += (normalSpeed * 1.3 - speed) * depthStriderLevel / 3.0F;
+            if (waterMovementEfficiency > 0) {
+                // A player's getSpeed carries minecraft:sprinting only while applied; a vehicle's is getRiddenSpeed
+                float livingSpeed = (float) (vehicle == null && sprintModifier ? normalSpeed * 1.3 : normalSpeed);
+                speed += (livingSpeed - speed) * waterMovementEfficiency;
             }
             return speed;
         }

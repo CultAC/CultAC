@@ -1,6 +1,7 @@
 package ac.cult.cultac.checks.impl.prediction.stage.world;
 
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
 import lombok.AllArgsConstructor;
@@ -39,6 +40,10 @@ public class WorldData {
     DesyncStatus climbing;
 
     int numColliding;
+    int numCollidingTickingAfterPlayer;
+    int numPushing;
+    int numCarriedPushing;
+    CarriedPush carriedPush;
 
     // Default model state identifies the supporting block, independent of its properties.
     int onBlock;

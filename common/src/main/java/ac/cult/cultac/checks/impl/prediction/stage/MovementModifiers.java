@@ -163,6 +163,7 @@ public class MovementModifiers {
         for (TransactionVel order : player.checkManager.getKnockbackHandler().overriddenVels) {
             PredVector overriddenVel = new PredVector(order.getVel());
             overriddenVel.setTickSkip(canTickSkip);
+            overriddenVel.setEntityMotion(true);
             start.add(overriddenVel);
         }
 

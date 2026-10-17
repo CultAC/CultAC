@@ -49,7 +49,9 @@ public class Sneaking implements UncertaintyHandler {
             // Thanks Physiq for this terminal velocity formula
             double multiplier = lastOnEdge != null && lastOnEdge.isZeroHorizBug()
                     ? 1.3
-                    : isSlowed ? 0.3 + Math.min(context.getSwiftSneakLevel() * 0.15, 0.7) : 1;
+                    : isSlowed
+                            ? player.compensatedEntities.getSelf().sneakingSpeed.value()
+                            : 1;
             double sprintingMovementHidden = (friction * maxSpeed * multiplier) / (1 - friction);
 
             SimpleCollisionBox collide = new SimpleCollisionBox(start, start);

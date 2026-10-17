@@ -136,6 +136,7 @@ class CloudOffTest {
             player.z = -1.5;
             player.registryState = new ClientComponentRegistries();
             player.getSetbackTeleportUtil().hasFullyLoaded = true;
+            player.packetStateData.localPlayerTickedSinceSpawn = true;
             var world = player.compensatedWorld;
             var dimension = player.getWorldRegistries().dimension("minecraft:overworld");
             world.setLastClientboundDimension("minecraft:overworld", dimension.dimension());
