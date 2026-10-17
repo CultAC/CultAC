@@ -4,6 +4,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
 public interface RuntimeInstance {
+    /** Shown to a player whose connection cannot be attached; it names neither the anticheat nor the cause. */
+    String CONNECTION_REFUSED = "Unable to connect. Please try again.";
+
     void load() throws Exception;
 
     void start() throws Exception;

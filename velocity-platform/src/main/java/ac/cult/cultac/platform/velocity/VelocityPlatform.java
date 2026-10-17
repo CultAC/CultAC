@@ -224,7 +224,9 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     void attach(com.velocitypowered.api.proxy.Player player, Channel channel) {
         var owner = bedrockOwner(channel);
         if (owner == null && new VelocityClientSupport(proxy).isBedrock(player.getUniqueId())) {
-            throw new IllegalStateException("Bedrock session requires a Geyser bridge on this proxy");
+            player.disconnect(VelocityTransport.REFUSED);
+            LogUtil.warn("Disconnected " + player.getUsername() + "; Bedrock session without a Geyser bridge");
+            return;
         }
         transport.attach(player, channel, owner, null);
     }

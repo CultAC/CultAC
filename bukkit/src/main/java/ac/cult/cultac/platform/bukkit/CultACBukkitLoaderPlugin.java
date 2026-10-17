@@ -9,7 +9,9 @@ import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.command.CommandService;
 import ac.cult.cultac.platform.api.manager.ItemResetHandler;
+import ac.cult.cultac.platform.api.manager.MainThreadPermissions;
 import ac.cult.cultac.platform.api.manager.MessagePlaceHolderManager;
+import ac.cult.cultac.platform.api.manager.PermissionRegistrationManager;
 import ac.cult.cultac.platform.api.manager.PlatformPluginManager;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayerFactory;
@@ -34,6 +36,7 @@ import ac.grim.grimac.api.plugin.GrimPlugin;
 import ac.grim.grimac.internal.platform.bukkit.resolver.BukkitResolverRegistrar;
 import java.util.concurrent.Executor;
 import lombok.Getter;
+import org.bukkit.Bukkit;
 import org.bukkit.command.BlockCommandSender;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
@@ -71,7 +74,10 @@ public final class CultACBukkitLoaderPlugin implements PlatformLoader {
     private final MessagePlaceHolderManager messagePlaceHolderManager = new BukkitMessagePlaceHolderManager();
 
     @Getter
-    private final BukkitPermissionRegistrationManager permissionManager = new BukkitPermissionRegistrationManager();
+    private final PermissionRegistrationManager permissionManager = new MainThreadPermissions(
+            new BukkitPermissionRegistrationManager(),
+            Bukkit::isPrimaryThread,
+            task -> getScheduler().getGlobalRegionScheduler().run(getPlugin(), task));
 
     public CultACBukkitLoaderPlugin(JavaPlugin nativePlugin) {
         LOADER = nativePlugin;

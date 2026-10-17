@@ -8,9 +8,12 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
+import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.reload.api.RuntimeInstance;
 import com.velocitypowered.api.event.EventTask;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
+import com.velocitypowered.api.network.ProtocolVersion;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import io.netty.channel.Channel;
@@ -22,6 +25,8 @@ import net.kyori.adventure.text.Component;
 
 /** Intercepts client-facing frames, after Velocity's entity-ID rewriting and before compression. */
 final class VelocityTransport {
+    static final Component REFUSED = Component.text(RuntimeInstance.CONNECTION_REFUSED);
+
     @FunctionalInterface
     interface AdapterFactory {
         PlatformConnection create(Player player, Channel channel, PacketOwner bedrock);
@@ -63,6 +68,12 @@ final class VelocityTransport {
     }
 
     synchronized void install() {
+        if (ProtocolVersion.MAXIMUM_VERSION.getProtocol() > VelocityProtocols.NEWEST.protocol()) {
+            LogUtil.warn("This Velocity build accepts Minecraft "
+                    + ProtocolVersion.MAXIMUM_VERSION.getMostRecentSupportedVersion()
+                    + "; CultAC supports up to " + VelocityProtocols.NEWEST.minecraftVersion()
+                    + " and disconnects newer clients");
+        }
         if (ac.cult.cultac.runtime.RuntimeEnvironment.host() != null) {
             running = true;
             return;
@@ -91,12 +102,13 @@ final class VelocityTransport {
             boolean translated = bedrock != null || clients.isBedrock(player.getUniqueId());
             // A Bedrock session needs the Geyser bridge's tap; never inspect it as a Java client.
             if (translated && bedrock == null) {
-                player.disconnect(Component.text(
-                        "CultAC on this proxy inspects Bedrock players only through Geyser on this proxy."));
+                player.disconnect(REFUSED);
+                LogUtil.warn("Disconnected " + player.getUsername() + "; Bedrock session without a Geyser bridge");
                 return null;
             }
         } catch (Throwable failure) {
-            CultNetworkManager.reportFailure("Velocity login channel lookup", failure);
+            player.disconnect(REFUSED);
+            LogUtil.error("Disconnected " + player.getUsername() + "; Velocity login channel lookup failed", failure);
             return null;
         }
         CompletableFuture<Void> attached;
@@ -111,10 +123,13 @@ final class VelocityTransport {
         } catch (Throwable failure) {
             attached = CompletableFuture.failedFuture(failure);
         }
-        // An exceptional PostLogin task can also make the proxy reject login.
-        // Keep any installed Cult handlers and resume the host event normally.
+        // Velocity logs an exceptional PostLogin task and admits the player, so a failed attach disconnects them.
         return EventTask.resumeWhenComplete(attached.handle((ignored, failure) -> {
-            if (failure != null) CultNetworkManager.reportFailure("Velocity connection attachment", failure);
+            if (failure != null && channel.isActive()) {
+                player.disconnect(REFUSED);
+                LogUtil.error(
+                        "Disconnected " + player.getUsername() + "; Velocity connection attachment failed", failure);
+            }
             return null;
         }));
     }
@@ -135,7 +150,7 @@ final class VelocityTransport {
         if (!running) {
             return;
         }
-        if (VelocityProtocols.disconnectOutdatedClient(player, channel)) return;
+        if (VelocityProtocols.disconnectUnsupportedClient(player, channel)) return;
         var pipeline = channel.pipeline();
         if (pipeline.get("minecraft-decoder") == null || pipeline.get("minecraft-encoder") == null) {
             throw new IllegalStateException("Unsupported Velocity client pipeline: " + pipeline.names());

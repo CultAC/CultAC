@@ -38,6 +38,7 @@ public final class GenerationManager implements AutoCloseable {
     private final Map<String, Object> shared = new LinkedHashMap<>();
     private final HostApiRouter api = new HostApiRouter(this);
     private Generation current;
+    private String bundledDigest;
     private boolean closing;
     private final CompletableFuture<Void> shutdown = new CompletableFuture<>();
     private final java.util.concurrent.atomic.AtomicInteger ticks = new java.util.concurrent.atomic.AtomicInteger();
@@ -119,34 +120,44 @@ public final class GenerationManager implements AutoCloseable {
     public void loadInitial(InputStream embedded) throws Exception {
         Files.createDirectories(directory.resolve("updates"));
         Files.createDirectories(directory.resolve("runtime"));
+        Path bundled = directory.resolve("runtime/default.jar");
+        try (embedded) {
+            if (embedded == null) throw new IOException("Bootstrap contains no default runtime");
+            Files.copy(embedded, bundled, StandardCopyOption.REPLACE_EXISTING);
+        }
+        bundledDigest =
+                RuntimeArtifact.inspect(bundled, platform, loaderVersion).digest();
+        Generation generation = null;
         Path marker = directory.resolve("runtime/current.properties");
-        Path selected;
         if (Files.exists(marker)) {
-            if (embedded != null) embedded.close();
-            var properties = new Properties();
-            try (var input = Files.newInputStream(marker)) {
-                properties.load(input);
-            }
-            selected = directory
-                    .resolve("runtime")
-                    .resolve(properties.getProperty("artifact"))
-                    .normalize();
-            if (!selected.startsWith(directory.resolve("runtime")))
-                throw new IOException("Invalid active runtime path");
-            var descriptor = RuntimeArtifact.inspect(selected, platform, loaderVersion);
-            if (!descriptor.digest().equals(properties.getProperty("sha256")))
-                throw new IOException("Active runtime digest changed");
-        } else {
-            selected = directory.resolve("runtime/default.jar");
-            try (embedded) {
-                if (embedded == null) throw new IOException("Bootstrap contains no default runtime");
-                Files.copy(embedded, selected, StandardCopyOption.REPLACE_EXISTING);
+            try {
+                generation = loadPersisted(marker);
+            } catch (Exception failure) {
+                report.accept("Starting the bundled CultAC runtime; the persisted runtime failed to load: " + failure);
             }
         }
-        var generation = prepare(selected, false);
+        if (generation == null) generation = prepare(bundled, false);
         synchronized (this) {
             current = generation;
         }
+    }
+
+    /** @return null when the marker belongs to another bundled runtime */
+    private Generation loadPersisted(Path marker) throws Exception {
+        var properties = new Properties();
+        try (var input = Files.newInputStream(marker)) {
+            properties.load(input);
+        }
+        if (!bundledDigest.equals(properties.getProperty("bundled"))) return null;
+        Path selected = directory
+                .resolve("runtime")
+                .resolve(properties.getProperty("artifact"))
+                .normalize();
+        if (!selected.startsWith(directory.resolve("runtime"))) throw new IOException("Invalid active runtime path");
+        var descriptor = RuntimeArtifact.inspect(selected, platform, loaderVersion);
+        if (!descriptor.digest().equals(properties.getProperty("sha256")))
+            throw new IOException("Active runtime digest changed");
+        return prepare(selected, false);
     }
 
     public void startInitial() throws Exception {
@@ -165,6 +176,17 @@ public final class GenerationManager implements AutoCloseable {
         }
         synchronized (this) {
             generation.state = State.CURRENT;
+            try (var homes = Files.list(directory.resolve("runtime/generations"))) {
+                for (var home : homes.toList()) {
+                    if (generations.containsKey(home.getFileName().toString())) continue;
+                    try {
+                        deleteHome(home);
+                    } catch (IOException failure) {
+                        report.accept(
+                                "CultAC leftover runtime cleanup failed for " + home.getFileName() + ": " + failure);
+                    }
+                }
+            }
         }
     }
 
@@ -513,6 +535,7 @@ public final class GenerationManager implements AutoCloseable {
                         .relativize(generation.home.resolve("runtime.jar"))
                         .toString());
         properties.setProperty("sha256", generation.artifact.digest());
+        properties.setProperty("bundled", bundledDigest);
         Path temporary = directory.resolve("runtime/current.properties.tmp");
         try (var output = Files.newOutputStream(temporary)) {
             properties.store(output, "CultAC active runtime");

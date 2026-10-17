@@ -104,6 +104,7 @@ public class InitManager {
 
     public void stop() {
         IllegalStateException failure = null;
+        Error error = null;
         for (StoppableInitable initable : initializersOnStop) {
             try {
                 initable.stop();
@@ -111,7 +112,14 @@ public class InitManager {
                 LogUtil.error("Failed to stop " + initable.getClass().getSimpleName(), e);
                 if (failure == null) failure = new IllegalStateException("CultAC cleanup failed");
                 failure.addSuppressed(e);
+            } catch (Error e) {
+                if (error == null) error = e;
+                else error.addSuppressed(e);
             }
+        }
+        if (error != null) {
+            if (failure != null) error.addSuppressed(failure);
+            throw error;
         }
         if (failure != null && ac.cult.cultac.runtime.RuntimeEnvironment.host() != null) throw failure;
         stopped = true;

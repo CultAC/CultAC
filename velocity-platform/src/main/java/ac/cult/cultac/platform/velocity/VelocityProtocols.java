@@ -2,6 +2,7 @@ package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.velocitypowered.api.proxy.Player;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
@@ -13,13 +14,25 @@ import net.kyori.adventure.text.Component;
 final class VelocityProtocols {
     record Versions(ProtocolVersion observed, ProtocolVersion client) {}
 
+    static final ProtocolVersion NEWEST = ProtocolVersion.values()[ProtocolVersion.values().length - 1];
+
     private VelocityProtocols() {}
 
-    static boolean disconnectOutdatedClient(Player player, Channel channel) {
-        // Check the raw protocol before resolving Cult's supported wire formats.
-        if (player.getProtocolVersion().getProtocol() >= ClientVersion.V_1_21_2.getProtocolVersion()) return false;
+    static boolean disconnectUnsupportedClient(Player player, Channel channel) {
+        // Check the client's original protocol before resolving Cult's supported wire formats.
         var pipeline = channel.pipeline();
-        if (pipeline.get("via-decoder") != null && pipeline.get("via-encoder") != null) return false;
+        ChannelHandler viaDecoder = pipeline.get("via-decoder");
+        ChannelHandler viaEncoder = pipeline.get("via-encoder");
+        int protocol = viaDecoder != null && viaEncoder != null
+                ? originalVersion(viaDecoder, viaEncoder, channel)
+                : player.getProtocolVersion().getProtocol();
+        if (protocol > NEWEST.protocol()) {
+            LogUtil.warn("Disconnected " + player.getUsername() + "; client protocol " + protocol
+                    + " is newer than CultAC supports (" + NEWEST.protocol() + ")");
+            player.disconnect(VelocityTransport.REFUSED);
+            return true;
+        }
+        if (protocol >= ClientVersion.V_1_21_2.getProtocolVersion()) return false;
         player.disconnect(Component.text("Outdated client! Please use Minecraft 1.21.2 or newer."));
         return true;
     }
@@ -40,6 +53,10 @@ final class VelocityProtocols {
         if (viaDecoder == null || viaEncoder == null) {
             throw new IllegalStateException("Incomplete Velocity Via codec pair");
         }
+        return new Versions(decoded, ProtocolVersion.of(originalVersion(viaDecoder, viaEncoder, channel)));
+    }
+
+    private static int originalVersion(ChannelHandler viaDecoder, ChannelHandler viaEncoder, Channel channel) {
         try {
             Object decoderConnection = invoke(viaDecoder, "connection");
             Object encoderConnection = invoke(viaEncoder, "connection");
@@ -51,7 +68,7 @@ final class VelocityProtocols {
             }
             Object info = invoke(decoderConnection, "getProtocolInfo");
             Object original = invoke(info, "protocolVersion");
-            return new Versions(decoded, ProtocolVersion.of((int) invoke(original, "getOriginalVersion")));
+            return (int) invoke(original, "getOriginalVersion");
         } catch (ReflectiveOperationException failure) {
             throw new IllegalStateException("Unsupported physical Velocity Via protocol identity", failure);
         }

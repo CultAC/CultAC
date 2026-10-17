@@ -1,5 +1,6 @@
 package ac.cult.velocity;
 
+import ac.cult.reload.api.RuntimeInstance;
 import ac.cult.reload.host.CommandRouting;
 import ac.cult.reload.host.GenerationManager;
 import ac.grim.grimac.api.GrimAPIProvider;
@@ -20,6 +21,8 @@ import io.netty.channel.Channel;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import net.kyori.adventure.text.Component;
 import org.slf4j.Logger;
 
 @Plugin(
@@ -35,10 +38,13 @@ import org.slf4j.Logger;
             @Dependency(id = "viabackwards", optional = true)
         })
 public final class CultVelocityPlugin {
+    private static final Component REFUSED = Component.text(RuntimeInstance.CONNECTION_REFUSED);
+
     private final ProxyServer proxy;
     private final Logger logger;
     private final Path directory;
     private GenerationManager engine;
+    private volatile boolean stopping;
     private java.lang.reflect.Method connectionMethod, channelMethod;
 
     @Inject
@@ -52,6 +58,19 @@ public final class CultVelocityPlugin {
     // dependencies register its LAST handler before ours when it is installed.
     @Subscribe(order = PostOrder.LAST)
     public void initialize(ProxyInitializeEvent event) throws Exception {
+        try {
+            var hostLoader = proxy.getClass().getClassLoader();
+            connectionMethod = Class.forName(
+                            "com.velocitypowered.proxy.connection.client.ConnectedPlayer", false, hostLoader)
+                    .getMethod("getConnection");
+            channelMethod = connectionMethod.getReturnType().getMethod("getChannel");
+        } catch (ReflectiveOperationException failure) {
+            logger.error(
+                    "CultAC is disabled and players join uninspected: this Velocity build has no"
+                            + " ConnectedPlayer.getConnection().getChannel(). Update CultAC for this Velocity build.",
+                    failure);
+            return;
+        }
         try {
             engine = new GenerationManager(
                     directory,
@@ -72,11 +91,6 @@ public final class CultVelocityPlugin {
                     .repeat(java.time.Duration.ofMillis(50))
                     .schedule();
             GrimAPIProvider.init((GrimAbstractAPI) engine.publicApi());
-            var hostLoader = proxy.getClass().getClassLoader();
-            connectionMethod = Class.forName(
-                            "com.velocitypowered.proxy.connection.client.ConnectedPlayer", false, hostLoader)
-                    .getMethod("getConnection");
-            channelMethod = connectionMethod.getReturnType().getMethod("getChannel");
             var metadata = proxy.getCommandManager()
                     .metaBuilder("cult")
                     .aliases("cultac", "grim", "grimac")
@@ -131,29 +145,41 @@ public final class CultVelocityPlugin {
                 }
             }
             engine = null;
-            proxy.shutdown(net.kyori.adventure.text.Component.text("CultAC failed to initialize. See the proxy log."));
-            throw failure;
+            logger.error("CultAC is disabled and players join uninspected: it failed to initialize.", failure);
         }
     }
 
     @Subscribe
     public EventTask login(PostLoginEvent event) {
         if (engine == null) return null;
+        var player = event.getPlayer();
         try {
-            var player = event.getPlayer();
             var channel = (Channel) channelMethod.invoke(connectionMethod.invoke(player));
             channel.closeFuture().addListener(ignored -> engine.disconnect(channel));
             return EventTask.resumeWhenComplete(CompletableFuture.runAsync(
-                    () -> {
-                        try {
-                            engine.attach(channel, player);
-                        } catch (Exception failure) {
-                            throw new java.util.concurrent.CompletionException(failure);
+                            () -> {
+                                if (!channel.isActive()) return;
+                                try {
+                                    engine.attach(channel, player);
+                                } catch (Exception failure) {
+                                    throw new CompletionException(failure);
+                                }
+                            },
+                            channel.eventLoop())
+                    .exceptionally(failure -> {
+                        if (channel.isActive()) {
+                            if (!stopping)
+                                logger.error("Cannot inspect " + player.getUsername() + "; disconnecting", failure);
+                            player.disconnect(REFUSED);
                         }
-                    },
-                    channel.eventLoop()));
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("Cannot access Velocity client channel", failure);
+                        return null;
+                    }));
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            logger.error(
+                    "Cannot access the Velocity client channel of " + player.getUsername() + "; disconnecting",
+                    failure);
+            player.disconnect(REFUSED);
+            return null;
         }
     }
 
@@ -185,6 +211,7 @@ public final class CultVelocityPlugin {
 
     @Subscribe
     public void shutdown(ProxyShutdownEvent event) throws Exception {
+        stopping = true;
         if (engine != null) {
             Path installed = proxy.getPluginManager()
                     .fromInstance(this)
