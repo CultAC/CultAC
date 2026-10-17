@@ -6,9 +6,7 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundGameEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerCombatKill;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
@@ -21,9 +19,6 @@ import ac.cult.cultac.protocol.value.GameEventType;
         description = "Tried to respawn while alive",
         experimental = true)
 public class BadPacketsM extends Check implements CheckListener {
-    private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
-
     public BadPacketsM(final CultPlayer player) {
         super(player);
     }
@@ -56,10 +51,6 @@ public class BadPacketsM extends Check implements CheckListener {
     @CultPacketHandler
     public void onGameEvent(
             PacketSendEvent<ClientboundGameEvent> event, CultPlayer player, ClientboundGameEvent packet) {
-        if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8)) {
-            return;
-        }
-
         if (packet.event() == GameEventType.WIN_GAME) {
             if (packet.param() != 0 && packet.param() != 1) {
                 return; // client ignores this
@@ -75,11 +66,6 @@ public class BadPacketsM extends Check implements CheckListener {
         }
 
         if (packet.event() == GameEventType.IMMEDIATE_RESPAWN) {
-            if (player.getClientVersion().getProtocolVersion() < 573 // PE ClientVersion.V_1_15
-                    || SERVER_VERSION.getProtocolVersion() < 573) { // PE ServerVersion.V_1_15
-                return;
-            }
-
             player.sendTransaction();
             final boolean enabled = packet.param() == 0f;
             player.latencyUtils.addRealTimeTaskNow(() -> player.packetStateData.showsDeathScreen = enabled);
@@ -89,10 +75,6 @@ public class BadPacketsM extends Check implements CheckListener {
     @CultPacketHandler
     public void onPlayerCombatKill(
             PacketSendEvent<ClientboundPlayerCombatKill> event, CultPlayer player, ClientboundPlayerCombatKill packet) {
-        if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8)) {
-            return;
-        }
-
         if (packet.playerId() == player.entityID) {
             player.sendTransaction();
             player.latencyUtils.addRealTimeTaskNow(this::onDeathCombatEvent);

@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
@@ -19,16 +18,9 @@ public class ElytraF extends Check implements PostPredictionListener {
         super(player);
     }
 
-    @Override
-    public boolean isApplicable() {
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9);
-    }
-
     @CultPacketHandler
     public void onPlayerCommand(
             PacketReceiveEvent<ServerboundPlayerCommand> event, CultPlayer player, ServerboundPlayerCommand packet) {
-        if (!isApplicable()) return;
-
         if (packet.action() == PlayerCommandAction.START_FLYING_WITH_ELYTRA
                 && player.packetStateData.packetPlayerOnGround
                 && flag()) {
@@ -43,7 +35,6 @@ public class ElytraF extends Check implements PostPredictionListener {
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!isApplicable()) return;
         if (setback) {
             setback = false;
             setbackIfAboveSetbackVL();

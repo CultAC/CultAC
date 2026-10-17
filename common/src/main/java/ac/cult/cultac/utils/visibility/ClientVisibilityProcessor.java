@@ -32,7 +32,6 @@ public final class ClientVisibilityProcessor extends CultProcessor implements Ch
     public void onMove(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         if (player.isBedrockMovement()) return;
-        if (!player.supportsEndTick()) visibility.endSelection();
         positionReported = packet.hasPosition();
         movedThisTick = true;
     }
@@ -90,7 +89,7 @@ public final class ClientVisibilityProcessor extends CultProcessor implements Ch
     }
 
     private double positionError() {
-        return positionReported && !player.canSkipTicks() ? 0 : player.getMovementThreshold();
+        return positionReported ? 0 : player.getMovementThreshold();
     }
 
     @Override

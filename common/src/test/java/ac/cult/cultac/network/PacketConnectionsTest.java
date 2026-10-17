@@ -97,6 +97,29 @@ class PacketConnectionsTest {
     }
 
     @Test
+    void outdatedClientIsNeverAuthenticated() throws Exception {
+        var calls = new AtomicInteger();
+        connections.hooks(new UserLifecycleHooks() {
+            @Override
+            public void onAuthenticated(User user) {
+                calls.incrementAndGet();
+            }
+        });
+        var uuid = UUID.randomUUID();
+        var session = session(uuid);
+        when(session.platform().disconnectOutdatedClient()).thenReturn(true);
+        try {
+            session.prepare();
+            assertEquals(0, calls.get());
+            assertNull(session.user());
+            assertNull(session.player());
+            assertNull(connections.getUser(uuid));
+        } finally {
+            close(session);
+        }
+    }
+
+    @Test
     void disconnectAndShutdownShareIdempotentOwnerCleanup() throws Exception {
         var session = session(UUID.randomUUID());
         try {

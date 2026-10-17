@@ -528,7 +528,6 @@ public class CultPlayer implements GrimUser {
     public float getMaxUpStep() {
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
         if (riding == null) {
-            if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_20_5)) return 0.6F;
             Double stepHeight = compensatedEntities.getSelf().stepHeightAttribute;
             return stepHeight == null ? 0.6f : stepHeight.floatValue();
         }
@@ -537,8 +536,7 @@ public class CultPlayer implements GrimUser {
             return 0f;
         }
 
-        if ((isBedrockMovement() || getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5))
-                && riding.stepHeightAttribute != null) {
+        if (riding.stepHeightAttribute != null) {
             return riding.stepHeightAttribute.floatValue();
         }
 
@@ -743,15 +741,10 @@ public class CultPlayer implements GrimUser {
     }
 
     private int nextTransactionId() {
-        boolean legacyAcknowledgement =
-                !isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_17);
         int id;
         boolean used;
         do {
-            // ViaBackwards only forwards pre-1.17 pings as inventory acknowledgements
-            // when the id fits a signed short. Otherwise it replies itself, before the
-            // client processes the preceding packets, invalidating our transaction proof.
-            id = nextWireId(wireIds, legacyAcknowledgement);
+            id = nextWireId(wireIds);
             used = false;
             for (SentTransaction sent : transactionsSent) used |= sent.id() == id;
             used |= transactionsPendingSend.containsKey(id);
@@ -759,12 +752,8 @@ public class CultPlayer implements GrimUser {
         return id;
     }
 
-    /**
-     * A ping id; {@code legacy} keeps it within a signed short. Otherwise it lies outside that range, which is left to
-     * pings from the backend.
-     */
-    static int nextWireId(SecureRandom random, boolean legacy) {
-        if (legacy) return Short.MIN_VALUE + random.nextInt(1 << 16);
+    /** A ping id outside the signed-short range, which is left to pings from the backend. */
+    static int nextWireId(SecureRandom random) {
         int id;
         do {
             id = random.nextInt();
@@ -830,7 +819,6 @@ public class CultPlayer implements GrimUser {
     }
 
     public float getScale() {
-        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_20_5)) return 1.0F;
         return compensatedEntities == null ? 1.0f : compensatedEntities.getSelf().scale;
     }
 
@@ -858,8 +846,6 @@ public class CultPlayer implements GrimUser {
 
     private Pose determineCurrentPoseLikeVanilla() {
         Pose desiredPose = getDesiredPoseLikeVanilla();
-        // EntityPlayerSP before 1.14 has no collision-driven crawling fallback.
-        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_14)) return desiredPose;
         if (compensatedWorld == null || compensatedEntities == null) {
             return desiredPose;
         }
@@ -887,17 +873,6 @@ public class CultPlayer implements GrimUser {
     private Pose getDesiredPoseLikeVanilla() {
         if (isInBed) {
             return Pose.SLEEPING;
-        }
-        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_9)) {
-            // 1.8 EntityPlayer#getEyeHeight subtracts 0.08F while sneaking,
-            // but its body remains 0.6F by 1.8F (including creative flight).
-            return isSneaking ? Pose.EIGHT_CROUCHING : Pose.STANDING;
-        }
-        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_14)) {
-            if (isGliding) return Pose.FALL_FLYING;
-            if (getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13) && isSwimming) return Pose.SWIMMING;
-            if (getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13) && isRiptidePose) return Pose.SPIN_ATTACK;
-            return isSneaking ? Pose.NINE_CROUCHING : Pose.STANDING;
         }
         if (isSwimming) {
             return Pose.SWIMMING;
@@ -1110,15 +1085,10 @@ public class CultPlayer implements GrimUser {
         reload(CultAPI.INSTANCE.getConfigManager().getConfig());
     }
 
-    public boolean isPointThree() {
-        return !isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_18_2);
-    }
-
     public double getMovementThreshold() {
-        // EntityPlayerSP#onUpdateWalkingPlayer reports coordinates only after
-        // squared displacement exceeds 9.0E-4. LocalPlayer changed this to
-        // (2.0E-4)^2 in 1.18.2; a status/rotation packet is not zero movement.
-        return isPointThree() ? 0.03 : 0.0002;
+        // LocalPlayer reports coordinates only after squared displacement exceeds
+        // (2.0E-4)^2; a status/rotation packet is not zero movement.
+        return 0.0002;
     }
 
     // Alright, someone at mojang decided to not send a flying packet every tick with 1.9
@@ -1142,7 +1112,7 @@ public class CultPlayer implements GrimUser {
 
     @Contract(pure = true)
     public boolean usesModernJavaItemUse() {
-        return !isBedrockMovement() && supportsEndTick();
+        return !isBedrockMovement();
     }
 
     public boolean isClientUsingItem() {
@@ -1153,16 +1123,6 @@ public class CultPlayer implements GrimUser {
 
     public ac.cult.cultac.protocol.value.Hand getClientItemUseHand() {
         return usesModernJavaItemUse() ? clientItemUse.hand() : packetStateData.itemInUseHand;
-    }
-
-    public boolean supportsEndTick() {
-        return getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                && getObservedProtocol().atLeast(ac.cult.cultac.protocol.ProtocolVersion.V1_21_3);
-    }
-
-    @Contract(pure = true)
-    public boolean canSkipTicks() {
-        return getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9) && !supportsEndTick();
     }
 
     public boolean canThePlayerBeCloseToZeroMovement(int ticks) {
@@ -1179,12 +1139,6 @@ public class CultPlayer implements GrimUser {
     }
 
     public List<Double> getPossibleEyeHeights() { // We don't return sleeping eye height
-        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_9)) {
-            return Arrays.asList((double) (1.62F - 0.08F), (double) 1.62F);
-        }
-        if (!isBedrockMovement() && getClientVersion().isOlderThan(ClientVersion.V_1_14)) {
-            return Arrays.asList(0.4D, 1.54D, 1.62D);
-        }
         double scale = getScale();
         return Arrays.asList(0.4 * scale, 1.27 * scale, 1.62 * scale);
     }
@@ -1249,10 +1203,6 @@ public class CultPlayer implements GrimUser {
                 && compensatedEntities.getSelf().getOpLevel() >= 2;
     }
 
-    public boolean supportsBundles() {
-        return getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19_4);
-    }
-
     /** Until the client provably handles new abilities, only the values that refuse item-use starts are certain. */
     public void abilitiesSent(boolean instabuild, boolean invulnerable) {
         canInstabuild &= instabuild;
@@ -1275,7 +1225,7 @@ public class CultPlayer implements GrimUser {
             event.getTasksAfterSend().add(this::sendTransaction);
             return;
         }
-        if (supportsBundles() && !event.isInsideBundle()) event.bundle();
+        if (!event.isInsideBundle()) event.bundle();
         latencyUtils.addRealTimeTask(proof.transaction(), task);
     }
 

@@ -79,7 +79,6 @@ import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
@@ -318,9 +317,17 @@ public class CheckManager {
                 new BadPacketsWindow(player),
                 new BadPacketsZ(player),
                 player.packetOrderProcessor,
+                new PacketOrderA(player),
                 new PacketOrderB(player),
                 new PacketOrderC(player),
                 new PacketOrderD(player),
+                new PacketOrderF(player),
+                new PacketOrderG(player),
+                new PacketOrderH(player),
+                new PacketOrderJ(player),
+                new PacketOrderK(player),
+                new PacketOrderL(player),
+                new PacketOrderM(player),
                 new PacketOrderO(player),
                 new SelfInteract(player),
                 new MultiActionsA(player),
@@ -328,6 +335,7 @@ public class CheckManager {
                 new MultiActionsC(player),
                 new MultiActionsD(player),
                 new MultiActionsE(player),
+                new MultiActionsH(player),
                 new MultiActionsI(player),
                 new MultiActionsJ(player),
                 new MultiActionsL(player),
@@ -337,6 +345,8 @@ public class CheckManager {
                 new MultiActionsQ(player),
                 new MultiActionsR(player),
                 new MultiActionsS(player),
+                new MultiInteractA(player),
+                new MultiInteractB(player),
                 player.openWindow,
                 new VehicleA(player),
                 new VehicleB(player),
@@ -352,6 +362,7 @@ public class CheckManager {
                 new InvalidBreak(player),
                 new PositionBreakA(player),
                 new PositionBreakB(player),
+                new MultiBreak(player),
                 new AutoclickerLimit(player),
                 new SetbackBlocker(player)));
     }
@@ -401,16 +412,8 @@ public class CheckManager {
                 player.keepSprint,
                 player.compensatedFireworks,
                 player.lastInstanceManager,
-                new PacketOrderA(player),
                 new PacketOrderE(player),
-                new PacketOrderF(player),
-                new PacketOrderG(player),
-                new PacketOrderH(player),
                 new PacketOrderI(player),
-                new PacketOrderJ(player),
-                new PacketOrderK(player),
-                new PacketOrderL(player),
-                new PacketOrderM(player),
                 new BadPacketsX(player),
                 new SprintA(player),
                 new SprintB(player),
@@ -421,9 +424,6 @@ public class CheckManager {
                 new SprintG(player),
                 new SprintH(player),
                 new ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump(player),
-                new MultiActionsH(player),
-                new MultiInteractA(player),
-                new MultiInteractB(player),
                 new ElytraA(player),
                 new ElytraB(player),
                 new ElytraC(player),
@@ -433,8 +433,7 @@ public class CheckManager {
                 new ElytraG(player),
                 new ElytraH(player),
                 new ElytraI(player),
-                new ElytraJ(player),
-                new MultiBreak(player)));
+                new ElytraJ(player)));
     }
 
     private static ClassToInstanceMap<BlockPlaceCheck> buildBlockPlaceChecks(CultPlayer player) {
@@ -529,7 +528,7 @@ public class CheckManager {
         registerEarlyReceive(registrations, packetChecks.get(MultiActionsA.class));
         registerEarlyReceive(registrations, packetChecks.get(MultiActionsE.class));
         registerEarlyReceive(registrations, packetChecks.get(FastBreak.class));
-        registerEarlyReceive(registrations, postPredictionCheck.get(MultiBreak.class));
+        registerEarlyReceive(registrations, packetChecks.get(MultiBreak.class));
         registerEarlyReceive(registrations, packetChecks.get(NoSwingBreak.class));
 
         var packetOrder = packetChecks.getInstance(PacketOrderO.class);
@@ -564,7 +563,6 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(FairReach.class));
         registerReceive(registrations, packetChecks.get(BadPacketsWindow.class));
         registerReceive(registrations, packetChecks.get(CompensatedInventory.class));
-        registerReceive(registrations, player.openWindow);
         registerReceive(registrations, packetChecks.get(PacketPlayerAbilities.class));
         registerReceive(registrations, packetChecks.get(KeepAliveProcessor.class));
         registerReceive(registrations, packetChecks.get(BadPacketsO.class));
@@ -616,9 +614,8 @@ public class CheckManager {
         registerTickEnd(packetChecks.get(AutoclickerLimit.class));
         registerTickEnd(packetChecks.get(PacketWorldBorder.class));
         registerTickEnd(positionCheck.get(CompensatedCooldown.class));
-        registerTickEnd(postPredictionCheck.get(MultiActionsH.class));
+        registerTickEnd(packetChecks.get(MultiActionsH.class));
         registerTickEnd(postPredictionCheck.get(SprintH.class));
-        registerTickEnd(packetChecks.get(MultiActionsM.class));
         registerTickEnd(player.openWindow);
 
         registerReceive(registrations, postPredictionCheck.get(Phase.class));
@@ -627,7 +624,7 @@ public class CheckManager {
         // AimDuplicateLook (rotation listener) declares no packet handlers; registering it for
         // receive dispatch would throw in registerReceive at CheckManager construction.
 
-        for (Class<? extends PostPredictionListener> type : List.of(
+        for (Class<? extends CheckListener> type : List.of(
                 PacketOrderA.class,
                 PacketOrderE.class,
                 PacketOrderF.class,
@@ -652,7 +649,7 @@ public class CheckManager {
                 ElytraH.class,
                 ElytraI.class,
                 ElytraJ.class)) {
-            registerReceive(registrations, postPredictionCheck.get(type));
+            registerReceive(registrations, allCheckListeners.get(type));
         }
         for (Class<? extends BlockPlaceCheck> type :
                 List.of(MultiPlace.class, MultiActionsF.class, MultiActionsG.class, PacketOrderN.class)) {
@@ -873,15 +870,6 @@ public class CheckManager {
 
         dispatchNonAsyncReceive(packet);
 
-        if (routedPacket instanceof ServerboundMovePlayer
-                && player.compensatedWorld.pistons.usesLegacyCollision()
-                && !player.packetStateData.lastPacketWasTeleport) {
-            // 1.7/1.8 send a movement, rotation or status packet every player tick,
-            // before World#updateEntities ticks TileEntityPiston. Phase is one of
-            // the receive handlers above and must still see the movement's phase.
-            player.compensatedWorld.pistons.onLegacyMovementTick();
-        }
-
         if (packet.getPacketType() == ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END) {
             // MCP-Reborn Minecraft#tick sends ServerboundClientTickEndPacket only
             // after ClientLevel#tickEntities and Level#tickBlockEntities have
@@ -1001,7 +989,6 @@ public class CheckManager {
             }
             check.onPositionUpdate(position);
         }
-        if (!player.supportsEndTick()) player.visibilityDebug.update();
     }
 
     public void onRotationUpdate(final RotationUpdate rotation) {
@@ -1026,7 +1013,6 @@ public class CheckManager {
             }
             check.process(update);
         }
-        if (!player.supportsEndTick()) player.visibilityDebug.update();
     }
 
     public void onPredictionFinish(final PredictionComplete complete) {
@@ -1035,16 +1021,6 @@ public class CheckManager {
                 continue;
             }
             check.onPredictionComplete(complete);
-        }
-        // Some block-place checks also consume completed predictions.
-        for (BlockPlaceCheck check : blockPlaceCheck.values()) {
-            if (!(check instanceof PostPredictionListener postPredictionListener)) {
-                continue;
-            }
-            if (!shouldDispatch(check)) {
-                continue;
-            }
-            postPredictionListener.onPredictionComplete(complete);
         }
         for (PostPredictionListener check : pseudoCheck.values()) {
             if (!shouldDispatch(check)) {

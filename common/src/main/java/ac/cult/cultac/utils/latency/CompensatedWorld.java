@@ -1048,13 +1048,6 @@ public class CompensatedWorld {
         removeInvalidPistonLikeStuff(0);
     }
 
-    public void onLegacyPredictionTick() {
-        // Pre-1.9 movement/status packets delimit ticks. Their piston pass runs
-        // after all movement handlers, including Phase, rather than per prediction.
-        tickClientWorldState(!pistons.usesLegacyCollision());
-        pruneOrphanedShulkerBoxes();
-    }
-
     public void onClientTickEnd() {
         if (!player.isBedrockMovement()
                 && (!player.packetStateData.serverTicksFrozen
@@ -1188,7 +1181,7 @@ public class CompensatedWorld {
         if (transactionId == 0) {
             // End-of-client-tick path: advance time-based state instead of
             // pruning by transaction watermark.
-            tickClientWorldState(true);
+            tickClientWorldState();
         } else {
             // Transaction path: drop entries the client has provably seen.
             pistons.removeSentBefore(transactionId);
@@ -1197,10 +1190,10 @@ public class CompensatedWorld {
         pruneOrphanedShulkerBoxes();
     }
 
-    private void tickClientWorldState(boolean advancePistons) {
+    private void tickClientWorldState() {
         tickRecentClientCollisionChanges();
         tickRecentClientFluidChanges();
-        if (advancePistons) pistons.tickClientTickEnd();
+        pistons.tickClientTickEnd();
         openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
     }
 
@@ -1226,9 +1219,7 @@ public class CompensatedWorld {
         if (openShulkerBoxes.isEmpty() && pistons.hasNoPushSources()) {
             // Push consumers only read these boxes, so the three empty pushes share one.
             SimpleCollisionBox empty = new SimpleCollisionBox();
-            PistonPushes result = new PistonPushes(empty, empty, empty, Collections.emptySet());
-            result.setPistonMovementPhased(pistons.usesLegacyCollision());
-            return result;
+            return new PistonPushes(empty, empty, empty, Collections.emptySet());
         }
 
         SimpleCollisionBox queryBox = pistons.createPistonQueryBox(context);
@@ -1237,10 +1228,7 @@ public class CompensatedWorld {
 
         SimpleCollisionBox pistonPush = pistonResult.getPistonPush();
         SimpleCollisionBox combinedPushes = pistonPush.copy().union(shulkerPushes);
-        PistonPushes result =
-                new PistonPushes(combinedPushes, pistonPush, shulkerPushes, pistonResult.getSlimeBlockLaunches());
-        result.setPistonMovementPhased(pistonResult.isPistonMovementPhased());
-        return result;
+        return new PistonPushes(combinedPushes, pistonPush, shulkerPushes, pistonResult.getSlimeBlockLaunches());
     }
 
     // Expands the query box by every colliding open shulker box lid and

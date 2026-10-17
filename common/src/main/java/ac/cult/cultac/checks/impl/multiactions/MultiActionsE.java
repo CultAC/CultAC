@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -33,10 +32,7 @@ public class MultiActionsE extends Check implements CheckListener {
         dropping = false;
 
         if (!droppedBeforeSwing && isActivelyUsingItem()) {
-            // This is possible to false on 1.7.
-            if (!player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_7_10)
-                    && flag()
-                    && shouldModifyPackets()) {
+            if (flag() && shouldModifyPackets()) {
                 event.setCancelled(true);
                 player.onPacketCancel();
             }
@@ -48,10 +44,8 @@ public class MultiActionsE extends Check implements CheckListener {
             PacketReceiveEvent<ServerboundPlayerAction> event, CultPlayer player, ServerboundPlayerAction packet) {
         // 1.15+ Minecraft#handleKeybinds swings right after a successful drop,
         // which is the only way to swing while using an item.
-        if (player.getClientVersion().getProtocolVersion() >= 573) {
-            PlayerAction action = packet.action();
-            dropping = action == PlayerAction.DROP_ITEM || action == PlayerAction.DROP_ALL_ITEMS;
-        }
+        PlayerAction action = packet.action();
+        dropping = action == PlayerAction.DROP_ITEM || action == PlayerAction.DROP_ALL_ITEMS;
     }
 
     // The drop and its swing are sent before the tick's movement packet and tick end.

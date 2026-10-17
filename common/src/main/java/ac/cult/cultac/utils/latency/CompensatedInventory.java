@@ -255,7 +255,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         }
 
         player.latencyUtils.addRealTimeTask(transaction.transaction(), task);
-        if (!player.isBedrockMovement() && player.supportsBundles()) {
+        if (!player.isBedrockMovement()) {
             // ChannelPacketHandler bundles a replacement group and preserves an
             // enclosing vanilla bundle. Putting the proof in that group makes
             // ClientPacketListener#handleBundlePacket process the update and ping

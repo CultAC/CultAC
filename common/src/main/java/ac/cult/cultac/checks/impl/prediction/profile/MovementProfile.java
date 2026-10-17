@@ -46,7 +46,7 @@ public interface MovementProfile {
     }
 
     default boolean shouldUseBundledPacketProof(CultPlayer player) {
-        return player.supportsBundles();
+        return true;
     }
 
     default boolean usesJavaEntityMoveStuckSpeed(CultPlayer player) {

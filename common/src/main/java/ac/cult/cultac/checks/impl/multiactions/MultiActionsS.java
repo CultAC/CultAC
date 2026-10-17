@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.DecodedPacketReceiveListener;
 import ac.cult.cultac.checks.type.LegacyPacketEventSemantics;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.*;
 import ac.cult.cultac.protocol.value.*;
@@ -21,14 +20,13 @@ public class MultiActionsS extends Check implements DecodedPacketReceiveListener
         super(player);
     }
 
-    private final boolean dropsWithSwing = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_15);
     private boolean swing;
 
     @Override
     public void onDecodedPacketReceive(PacketReceiveEvent event) {
         if (event.getPacket() instanceof ServerboundSwing) {
             if (swing) flag();
-            if (dropsWithSwing && player.openWindow.mustBeOpen()) {
+            if (player.openWindow.mustBeOpen()) {
                 swing = true;
                 return;
             }

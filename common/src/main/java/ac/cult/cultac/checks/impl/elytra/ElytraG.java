@@ -23,15 +23,9 @@ public class ElytraG extends Check implements PostPredictionListener {
         super(player);
     }
 
-    @Override
-    public boolean isApplicable() {
-        return player.getClientVersion().getProtocolVersion() >= 735; // PE ClientVersion.V_1_16
-    }
-
     @CultPacketHandler
     public void onPlayerCommand(
             PacketReceiveEvent<ServerboundPlayerCommand> event, CultPlayer player, ServerboundPlayerCommand packet) {
-        if (!isApplicable()) return;
         if (packet.action() == PlayerCommandAction.START_FLYING_WITH_ELYTRA
                 && player.compensatedEntities.hasPotionEffect(MovementEffect.LEVITATION)
                 && flag()) {
@@ -46,7 +40,6 @@ public class ElytraG extends Check implements PostPredictionListener {
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!isApplicable()) return;
         if (setback) {
             setbackIfAboveSetbackVL();
             setback = false;

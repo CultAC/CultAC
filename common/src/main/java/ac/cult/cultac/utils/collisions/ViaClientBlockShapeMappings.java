@@ -1,8 +1,6 @@
 package ac.cult.cultac.utils.collisions;
 
-import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.DataTables;
-import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import ac.cult.cultac.player.CultPlayer;
@@ -16,9 +14,6 @@ import com.viaversion.viaversion.api.data.Mappings;
 import com.viaversion.viaversion.api.protocol.Protocol;
 import com.viaversion.viaversion.api.protocol.ProtocolPathEntry;
 import com.viaversion.viaversion.protocols.v1_12_2to1_13.Protocol1_12_2To1_13;
-import it.unimi.dsi.fastutil.ints.Int2BooleanMap;
-import it.unimi.dsi.fastutil.ints.Int2BooleanMaps;
-import it.unimi.dsi.fastutil.ints.Int2BooleanOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMaps;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -32,13 +27,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class ViaClientBlockShapeMappings {
-    // Block#isSolid from the vanilla 1.8 block registry (IDs 0..197).
-    // This is material metadata, not collision-shape fullness. E.g. slabs are
-    // solid material and ladders are not, regardless of their collision boxes.
-    private static final Set<Integer> LEGACY_NON_SOLID_MATERIAL_IDS = Set.of(
-            0, 6, 8, 9, 10, 11, 27, 28, 31, 32, 37, 38, 39, 40, 50, 51, 55, 59, 65, 66, 69, 75, 76, 77, 78, 83, 90, 93,
-            94, 104, 105, 106, 111, 115, 119, 127, 131, 132, 140, 141, 142, 143, 144, 149, 150, 157, 171, 175);
-    private static final ClientVersion MINIMUM_SUPPORTED_VERSION = ClientVersion.V_1_8;
+    private static final ClientVersion MINIMUM_SUPPORTED_VERSION = ClientVersion.V_1_21_2;
     private static final ClassValue<Optional<Method>> LEGACY_BLOCK_REWRITERS = new ClassValue<>() {
         @Override
         protected Optional<Method> computeValue(Class<?> type) {
@@ -117,15 +106,6 @@ public final class ViaClientBlockShapeMappings {
         return mapping != null && !mapping.replacements().isEmpty();
     }
 
-    public static boolean legacyMaterialIsSolid(CultPlayer player, int state) {
-        VersionMappings mapping = SNAPSHOT.get().versions().get(player.getClientVersion());
-        boolean solid = DataTables.defaults().registry().facts(state).has(StateFacts.SOLID);
-        return mapping == null
-                ? solid
-                : mapping.legacyMaterialSolidity()
-                        .getOrDefault(DataTables.defaults().registry().blockIndex(state), solid);
-    }
-
     private static Replacement replacement(CultPlayer player, int state) {
         if (player == null || player.bedrockState != null || state < 0) return null;
         return SNAPSHOT.get().replacement(player.getClientVersion(), state);
@@ -153,7 +133,7 @@ public final class ViaClientBlockShapeMappings {
             }
 
             VersionMappings versionMappings =
-                    buildVersionMappings(version, serverConnection.reversed(), clientConnection.reversed());
+                    buildVersionMappings(serverConnection.reversed(), clientConnection.reversed());
             if (!versionMappings.isEmpty()) {
                 mappings.put(version, versionMappings);
             }
@@ -163,7 +143,7 @@ public final class ViaClientBlockShapeMappings {
     }
 
     private static VersionMappings buildVersionMappings(
-            ClientVersion version, List<ProtocolPathEntry> toServer, List<ProtocolPathEntry> toClient) {
+            List<ProtocolPathEntry> toServer, List<ProtocolPathEntry> toClient) {
         // Via loads mapping data asynchronously; a registered path does not mean
         // its mappings are ready. Finish both directions before caching states.
         for (ProtocolPathEntry entry : toServer) {
@@ -176,7 +156,7 @@ public final class ViaClientBlockShapeMappings {
                     .getProtocolManager()
                     .completeMappingDataLoading(entry.protocol().getClass());
         }
-        BitSet representedCurrentStates = representedCurrentStates(version, toServer, toClient);
+        BitSet representedCurrentStates = representedCurrentStates(toServer);
         var replacements = new Int2ObjectOpenHashMap<Replacement>();
         Set<Integer> needsReplacementByMaterial = new HashSet<>();
 
@@ -199,47 +179,14 @@ public final class ViaClientBlockShapeMappings {
 
             int replacementState =
                     normalizedReplacement < DataTables.defaults().registry().stateCount() ? normalizedReplacement : 0;
-            // Neighbour-derived properties (stairs, fences, panes) are not in
-            // pre-flattening metadata. Preserve them for an existing block; the
-            // versioned shape layer supplies the historical geometry.
-            if (version.isOlderThan(ClientVersion.V_1_13)
-                    && DataTables.defaults().registry().sameBlock(replacementState, currentId)) {
-                replacementState = currentId;
-            }
-            if (version.isOlderThan(ClientVersion.V_1_13) && BlockProps.WATERLOGGED.has(replacementState)) {
-                replacementState = BlockProps.WATERLOGGED.with(replacementState, false);
-            }
             if (replacementState == currentId) continue;
             replacements.put(currentId, new Replacement(replacementState, replacementState));
         }
 
-        var legacyMaterialSolidity = new Int2BooleanOpenHashMap();
-        if (version == ClientVersion.V_1_8) {
-            for (int legacyState = 0; legacyState < 198 * 16; legacyState++) {
-                int currentState = mapStateId(legacyState, toServer);
-                if (currentState >= 0) {
-                    legacyMaterialSolidity.putIfAbsent(
-                            DataTables.defaults()
-                                    .registry()
-                                    .blockIndex(
-                                            currentState
-                                                            < DataTables.defaults()
-                                                                    .registry()
-                                                                    .stateCount()
-                                                    ? currentState
-                                                    : 0),
-                            !LEGACY_NON_SOLID_MATERIAL_IDS.contains(legacyState >> 4));
-                }
-            }
-        }
-        return new VersionMappings(
-                Int2ObjectMaps.unmodifiable(replacements),
-                Set.copyOf(needsReplacementByMaterial),
-                Int2BooleanMaps.unmodifiable(legacyMaterialSolidity));
+        return new VersionMappings(Int2ObjectMaps.unmodifiable(replacements), Set.copyOf(needsReplacementByMaterial));
     }
 
-    static BitSet representedCurrentStates(
-            ClientVersion version, List<ProtocolPathEntry> toServer, List<ProtocolPathEntry> toClient) {
+    static BitSet representedCurrentStates(List<ProtocolPathEntry> toServer) {
         BitSet represented = new BitSet();
         int initialStateCount = initialStateCount(toServer);
         if (initialStateCount <= 0) {
@@ -248,13 +195,7 @@ public final class ViaClientBlockShapeMappings {
 
         for (int stateId = 0; stateId < initialStateCount; stateId++) {
             int currentState = mapStateId(stateId, toServer);
-            // Pre-flattening forward protocols share numeric IDs and may have no
-            // mapping table before 1.12.2 -> 1.13. That table includes blocks an
-            // older client cannot represent. Require the clientbound translation
-            // to preserve the original ID/data before treating it as native.
-            if (currentState >= 0
-                    && (version.isNewerThanOrEquals(ClientVersion.V_1_13)
-                            || mapStateId(currentState, toClient) == stateId)) {
+            if (currentState >= 0) {
                 represented.set(currentState);
             }
         }
@@ -367,10 +308,7 @@ public final class ViaClientBlockShapeMappings {
         }
     }
 
-    private record VersionMappings(
-            Int2ObjectMap<Replacement> replacements,
-            Set<Integer> needsReplacementMaterials,
-            Int2BooleanMap legacyMaterialSolidity) {
+    private record VersionMappings(Int2ObjectMap<Replacement> replacements, Set<Integer> needsReplacementMaterials) {
         boolean isEmpty() {
             return replacements.isEmpty() && needsReplacementMaterials.isEmpty();
         }

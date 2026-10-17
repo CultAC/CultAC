@@ -6,7 +6,6 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
@@ -54,7 +53,7 @@ public final class SprintE extends Check implements PostPredictionListener {
                 && wasHardHorizontalCollision
                 && !startedSprintingThisTick
                 && !player.inVehicle()
-                && (!inWater || player.getClientVersion().isOlderThan(ClientVersion.V_1_13))) {
+                && !inWater) {
             if (player.isSprinting) {
                 flagWithSetback();
             } else {

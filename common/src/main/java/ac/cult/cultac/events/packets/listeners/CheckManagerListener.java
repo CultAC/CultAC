@@ -543,17 +543,6 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 && !player.user.getObservedProtocol().atLeast(ac.cult.cultac.protocol.ProtocolVersion.V26_3));
         player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
         player.packetStateData.lastPacketMatchedTeleportPosition = teleportData.isMatchedTeleportPosition();
-        player.packetStateData.lastPacketWasOnePointSeventeenDuplicate = isOnePointSeventeenDuplicate(
-                player.getClientVersion(),
-                player.packetStateData.lastPacketWasTeleport,
-                packet.hasPosition(),
-                packet.hasRotation(),
-                player.compensatedEntities.getSelf().inVehicle(),
-                player.packetStateData.packetPlayerOnGround,
-                packet.onGround(),
-                player.packetStateData.clientSidePosition,
-                movementPosition,
-                player.getMovementThreshold());
         if (teleportData.isMatchedTeleportPosition()
                 && teleportData.getTeleportData() != null
                 && player.compensatedEntities.vehicles.hasPendingServerDismount()) {
@@ -585,10 +574,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             player.packetStateData.playerLoadedIntoLevel = true;
             // LocalPlayer#sendPosition sends this tick's START/STOP_SPRINTING before its movement.
-            // The 1.17 duplicate is sent from MultiPlayerGameMode#useItem, before aiStep.
-            if (!player.packetStateData.lastPacketWasOnePointSeventeenDuplicate) {
-                onLocalPlayerSprintTick(player);
-            }
+            onLocalPlayerSprintTick(player);
         }
 
         dispatchPrePredictionReceive(event, player);
@@ -1165,7 +1151,6 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // Finally, remove the packet state variables on this packet
         if (player.packetStateData.lastPacketWasTeleport) player.packetStateData.teleportedThisClientTick = true;
         player.packetStateData.lastPacketWasTeleport = false;
-        player.packetStateData.lastPacketWasOnePointSeventeenDuplicate = false;
         player.packetStateData.lastPacketMatchedTeleportPosition = false;
         player.packetStateData.lastPacketProvenVehiclePhysicalMovement = null;
         player.packetStateData.clearDesiredOnGround();
@@ -1259,14 +1244,13 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         // We can set the new pos after the places
-        if (hasPosition && !player.packetStateData.lastPacketWasOnePointSeventeenDuplicate) {
+        if (hasPosition) {
             player.packetStateData.clientSidePosition = VectorUtils.clampVector(new Vec3(x, y, z));
             final ac.cult.cultac.manager.player.MovementData movementData = player.getMovementData();
             movementData.handle(x, y, z);
         }
 
         if (!player.packetStateData.lastPacketWasTeleport
-                && !player.packetStateData.lastPacketWasOnePointSeventeenDuplicate
                 && !player.packetStateData.lastPacketMatchedTeleportPosition) {
             player.packetStateData.packetPlayerOnGround = onGround;
         }
@@ -1285,7 +1269,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
 
             final ac.cult.cultac.utils.data.packetentity.PacketEntitySelf selfEntity =
                     player.compensatedEntities.getSelf();
-            if (!selfEntity.inVehicle() && !player.packetStateData.lastPacketWasOnePointSeventeenDuplicate) {
+            if (!selfEntity.inVehicle()) {
                 player.lastX = player.x;
                 player.lastY = player.y;
                 player.lastZ = player.z;
@@ -1306,35 +1290,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // Teleport acknowledgements do not consume per-movement state.
         if (!teleportData.isTeleport()) {
             player.vehicleData.wasVehicleSwitch = false;
-            player.packetStateData.horseInteractCausedForcedRotation = false;
         }
-    }
-
-    static boolean isOnePointSeventeenDuplicate(
-            ClientVersion clientVersion,
-            boolean teleport,
-            boolean hasPosition,
-            boolean hasRotation,
-            boolean inVehicle,
-            boolean previousOnGround,
-            boolean packetOnGround,
-            Vec3 previousPosition,
-            Vec3 packetPosition,
-            double movementThreshold) {
-        if (teleport
-                || clientVersion.isOlderThan(ClientVersion.V_1_17)
-                || clientVersion.isNewerThanOrEquals(ClientVersion.V_1_21)
-                || !hasPosition
-                || !hasRotation) {
-            return false;
-        }
-
-        if (inVehicle) {
-            return true;
-        }
-
-        return previousOnGround == packetOnGround
-                && previousPosition.distanceToSqr(packetPosition) < movementThreshold * movementThreshold;
     }
 
     private static void applyClientBreakPrediction(CultPlayer player, BlockPos blockPosition) {

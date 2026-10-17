@@ -21,14 +21,6 @@ public class PacketPlayerWindow {
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         if (player.isBedrockMovement()) {
             handleMovePlayer(event, player);
-        } else if (player.getClientVersion().isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_12_2)
-                && !player.inVehicle()
-                && !event.isCancelled()
-                && Collisions.hasState(
-                        player,
-                        player.boundingBox.copy().expand(0.03),
-                        (state, pos) -> BlockIds.is(state, BlockIds.NETHER_PORTAL))) {
-            player.openWindow.maybeClose();
         }
     }
 
@@ -41,8 +33,7 @@ public class PacketPlayerWindow {
     @CultPacketHandler
     public void onContainerClick(PacketReceiveEvent<InventoryClick> event, CultPlayer player, InventoryClick packet) {
         if (player.isBedrockMovement()) handleInventory(player, true);
-        else if (!player.openWindow.clientSendsOpenInventoryPacket && packet.windowId() == 0 && !event.isCancelled())
-            player.openWindow.onClientOpenOrCloseWindow(true);
+        else if (packet.windowId() == 0 && !event.isCancelled()) player.openWindow.onClientOpenOrCloseWindow(true);
     }
 
     @CultPacketHandler

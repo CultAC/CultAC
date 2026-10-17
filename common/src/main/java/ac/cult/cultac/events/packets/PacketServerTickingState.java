@@ -71,7 +71,7 @@ public class PacketServerTickingState extends CultProcessor implements CheckList
         if (player.usesModernJavaItemUse()) {
             var proof = player.appendTrailingProofTransaction(event);
             if (proof != null) {
-                if (player.supportsBundles() && !event.isInsideBundle()) event.bundle();
+                if (!event.isInsideBundle()) event.bundle();
                 player.latencyUtils.addRealTimeTask(proof.transaction(), update);
                 return;
             }

@@ -1,7 +1,6 @@
 package ac.cult.cultac.utils.visibility;
 
 import ac.cult.blocksim.data.BlockFamilies;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
@@ -363,13 +362,7 @@ public final class ClientVisibility {
         // Entity#getEyePosition uses the pose's discrete EntityDimensions eye
         // height. Avatar.POSES (26.3) has 1.62F, 1.27F and .4F; scale is a float
         // product. Include the tracked height separately for sleeping/forced poses.
-        var version = player.getClientVersion();
-        Pose crouching = version.isOlderThan(ClientVersion.V_1_9)
-                ? Pose.EIGHT_CROUCHING
-                : version.isOlderThan(ClientVersion.V_1_14) ? Pose.NINE_CROUCHING : Pose.CROUCHING;
-        List<Pose> poses = version.isOlderThan(ClientVersion.V_1_9)
-                ? List.of(Pose.STANDING, crouching)
-                : List.of(Pose.STANDING, crouching, Pose.SWIMMING);
+        List<Pose> poses = List.of(Pose.STANDING, Pose.CROUCHING, Pose.SWIMMING);
         for (Pose pose : poses) {
             Vec3 eye = origin.add(0, pose.eyeHeight * player.getScale(), 0);
             if (!eyes.contains(eye)) eyes.add(eye);

@@ -23,7 +23,7 @@ public class VelocityTransformerTest {
 
     @Test
     public void olderPlayersZeroSmallAxesIndependently() {
-        for (ClientVersion version : List.of(ClientVersion.V_1_9, ClientVersion.V_1_21_2, ClientVersion.V_1_21_4)) {
+        for (ClientVersion version : List.of(ClientVersion.V_1_21_2, ClientVersion.V_1_21_4)) {
             assertEquals(new Vec3(0, 0, 0.08), threshold(version, true, new Vec3(0.002, -0.002, 0.08)));
             assertEquals(new Vec3(0.08, 0, 0), threshold(version, true, new Vec3(0.08, 0.002, -0.002)));
             assertEquals(new Vec3(0, 0, 0), threshold(version, true, new Vec3(0.0025, 0, -0.0025)));
@@ -39,12 +39,9 @@ public class VelocityTransformerTest {
     }
 
     @Test
-    public void legacyCutoffAndStrictBoundaryArePreserved() {
-        assertEquals(Vec3.ZERO, threshold(ClientVersion.V_1_8, true, new Vec3(0.004, -0.004, 0.004)));
+    public void strictBoundaryIsPreserved() {
         Vec3 boundary = new Vec3(0.003, -0.003, 0.003);
         assertEquals(boundary, threshold(ClientVersion.V_1_21_4, true, boundary));
-        Vec3 legacyBoundary = new Vec3(0.005, -0.005, 0.005);
-        assertEquals(legacyBoundary, threshold(ClientVersion.V_1_8, true, legacyBoundary));
     }
 
     @Test

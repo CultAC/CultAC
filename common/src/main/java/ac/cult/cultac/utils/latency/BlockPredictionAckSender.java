@@ -78,6 +78,6 @@ public final class BlockPredictionAckSender {
 
         // Vanilla processes bundled sub-packets in order and only then replies to the ping.
         // This makes the pong an exact marker for the client applying the ack and updates.
-        player.user.write(packets, player.supportsBundles());
+        player.user.write(packets, true);
     }
 }

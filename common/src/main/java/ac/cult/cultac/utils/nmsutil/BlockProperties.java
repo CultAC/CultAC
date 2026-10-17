@@ -3,8 +3,6 @@ package ac.cult.cultac.utils.nmsutil;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
-import ac.cult.blocksim.data.StateFacts;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
@@ -22,42 +20,18 @@ public class BlockProperties {
      * Returns the block's default model state, preserving the material-only identity of this query.
      */
     public static int getOnPos(CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
-        if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_19_4)) {
-            // Entity#moveEntity uses the center below the feet, with a fallback
-            // for the upper half of fences, walls and gates.
-            int block = player.compensatedWorld.getBlockStateIdAt(
-                    BlockPos.containing(playerPos.x, playerPos.y - 0.2F, playerPos.z));
-            if (BLOCKS.facts(block).has(StateFacts.AIR)) {
-                int below = player.compensatedWorld.getBlockStateIdAt(
-                        BlockPos.containing(playerPos.x, playerPos.y - 1.2F, playerPos.z));
-                if (ClientBlockProperties.isFence(below)
-                        || ClientBlockProperties.isWall(below)
-                        || ClientBlockProperties.isFenceGate(below))
-                    return BLOCKS.block(below).defaultState();
-            }
-            return BLOCKS.block(block).defaultState();
-        }
         return BLOCKS.block(getOnPosState(player, playerPos, mainSupportingBlockData, 0.2F))
                 .defaultState();
     }
 
     public static float getFriction(
             CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
-        if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_19_4)) {
-            double below = player.getClientVersion().isOlderThan(ClientVersion.V_1_15) ? 1.0D : 0.5000001D;
-            int material = player.compensatedWorld.getBlockStateIdAt(
-                    BlockPos.containing(playerPos.x, playerPos.y - below, playerPos.z));
-            return getMaterialFriction(material);
-        }
         int underPlayer = getBlockPosBelowThatAffectsMyMovement(player, mainSupportingBlockData, playerPos);
         return getMaterialFriction(underPlayer);
     }
 
     public static float getBlockSpeedFactor(
             CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
-        // Before 1.15 soul sand is an inside-block callback. Applying the
-        // modern speed factor as well would slow the same movement twice.
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_15)) return 1.0F;
         if (player.isGliding || player.isFlying) return 1.0f;
 
         int inBlock = player.compensatedWorld.getBlockStateIdAt(
@@ -75,7 +49,6 @@ public class BlockProperties {
 
     public static boolean onHoneyBlock(
             CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_15)) return false;
         int inBlock = player.compensatedWorld.getBlockStateIdAt(
                 CultMath.floor(playerPos.x), CultMath.floor(playerPos.y), CultMath.floor(playerPos.z));
         // MCP-Reborn Entity#getBlockJumpFactor reads the entity's current

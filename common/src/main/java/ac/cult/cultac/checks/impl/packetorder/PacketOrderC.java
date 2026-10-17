@@ -46,8 +46,7 @@ public class PacketOrderC extends Check implements CheckListener {
 
     @Override
     public boolean isApplicable() {
-        return player.getClientVersion().isNewerThan(ClientVersion.V_1_7_10) // 1.7 players do not send INTERACT_AT
-                && player.getClientVersion().isOlderThan(ClientVersion.V_26_1); // 26.1 players do not send INTERACT
+        return player.getClientVersion().isOlderThan(ClientVersion.V_26_1); // 26.1 players do not send INTERACT
     }
 
     private Verbose.Writer writeKind(int kind) {

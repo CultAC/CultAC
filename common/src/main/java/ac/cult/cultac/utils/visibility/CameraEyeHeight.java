@@ -18,7 +18,7 @@ final class CameraEyeHeight {
         if (type.equals("player")) {
             if (entity.actionPose == EntityPose.DYING) return 1.62F;
             height = switch (entity.actionPose) {
-                case CROUCHING -> version.isOlderThan(ClientVersion.V_1_14) ? 1.54F : 1.27F;
+                case CROUCHING -> 1.27F;
                 case FALL_FLYING, SWIMMING, SPIN_ATTACK -> .4F;
                 default -> 1.62F;
             };

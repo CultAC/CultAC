@@ -1,9 +1,7 @@
 package ac.cult.cultac.network;
 
 import ac.cult.cultac.network.logging.JavaPacketLogger;
-import ac.cult.cultac.network.packet.LegacyViaInputBridge;
 import ac.cult.cultac.network.protocol.player.User;
-import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -207,11 +205,5 @@ public final class CultNetworkManager {
     public Object getChannel(UUID uuid) {
         User user = getUser(uuid);
         return user == null ? null : user.getChannel();
-    }
-
-    static void clearChannelState(User user) {
-        if (ViaVersionUtil.isAvailable()) {
-            LegacyViaInputBridge.remove(user);
-        }
     }
 }

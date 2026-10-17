@@ -30,8 +30,6 @@ final class VersionedJavaBlockShapes {
     private VersionedJavaBlockShapes() {}
 
     static Optional<CollisionBox> movement(CultPlayer player, int state, int x, int y, int z) {
-        Optional<CollisionBox> legacy = LegacyJavaBlockShapes.movement(player, state, x, y, z);
-        if (legacy.isPresent()) return legacy;
         if (!canUseVersionedJavaShape(player, state)) {
             return Optional.empty();
         }
@@ -48,7 +46,7 @@ final class VersionedJavaBlockShapes {
     // The same Java geometry rules serve Java clients and the sparse Bedrock catalog's baseline.
     // State remains in the server registry; only the requested shape version changes.
     static Optional<CollisionBox> movement(ClientVersion shapeVersion, int state, int x, int y, int z) {
-        if (state < 0 || shapeVersion == null || shapeVersion.isOlderThan(ClientVersion.V_1_21_2)) {
+        if (state < 0 || shapeVersion == null) {
             return Optional.empty();
         }
         return firstMatch(MOVEMENT_OVERRIDES, shapeVersion, state, x, y, z);
@@ -58,7 +56,6 @@ final class VersionedJavaBlockShapes {
         return player != null
                 && player.bedrockState == null
                 && state >= 0
-                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
                 && player.getClientVersion().isOlderThan(ClientVersion.V_26_3);
     }
 
@@ -79,9 +76,6 @@ final class VersionedJavaBlockShapes {
         }
         if (isRaisedMossyCarpet(state)) {
             return Optional.of(NoCollisionBox.INSTANCE);
-        }
-        if (shapeVersion.isOlderThan(ClientVersion.V_1_21_2)) {
-            return Optional.of(box(x, y, z, 0.0D, 0.0D, 0.0D, 16.0D, 1.0D, 16.0D));
         }
         return Optional.empty();
     }

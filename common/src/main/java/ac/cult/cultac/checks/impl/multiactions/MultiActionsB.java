@@ -3,7 +3,6 @@ package ac.cult.cultac.checks.impl.multiactions;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockBreakListener;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
@@ -20,11 +19,6 @@ public class MultiActionsB extends Check implements BlockBreakListener {
 
     public void onBlockBreak(BlockBreak blockBreak) {
         if (isActivelyUsingItem()) {
-            // this is vanilla on 1.7
-            if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_7_10)) {
-                return;
-            }
-
             if (flag() && shouldModifyPackets()) {
                 blockBreak.cancel();
             }

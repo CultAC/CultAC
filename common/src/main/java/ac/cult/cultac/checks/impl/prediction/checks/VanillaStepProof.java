@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.prediction.checks;
 
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
@@ -34,9 +33,7 @@ final class VanillaStepProof {
     boolean canStandAtDestination(CultPlayer player, PredictionResult result) {
         return hasUnknownCollisionAtDestination(result)
                 || hasCollisionDirectlyBelowDestination(player, result)
-                || (result.getValidMovements().isCanStep()
-                        && player.getClientVersion().usesModernEntityStepCollision()
-                        && hasSourceProvenStepCandidate(player, result));
+                || (result.getValidMovements().isCanStep() && hasSourceProvenStepCandidate(player, result));
     }
 
     private boolean needsStepProof(CultPlayer player, PredictionResult result) {
@@ -44,8 +41,7 @@ final class VanillaStepProof {
             return false;
         }
 
-        // Pre-1.14 clients can resolve a zero-Y step through legacy collision paths.
-        return result.getTarget().y != 0.0D || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14);
+        return true;
     }
 
     private boolean hasUnknownCollisionAtDestination(PredictionResult result) {
@@ -68,9 +64,8 @@ final class VanillaStepProof {
     }
 
     private boolean hasSourceProvenStepCandidate(CultPlayer player, PredictionResult result) {
-        boolean requireSelectedStep = player.getClientVersion().usesModernEntityStepCollision()
-                && !hasUnknownCollisionAtDestination(result)
-                && !hasCollisionDirectlyBelowDestination(player, result);
+        boolean requireSelectedStep =
+                !hasUnknownCollisionAtDestination(result) && !hasCollisionDirectlyBelowDestination(player, result);
         Vec3 target = result.getTarget();
         double desiredY = result.getInitialStartingVel().y;
         if (collidesToAcceptedY(player, result, target.x, desiredY, target.z, requireSelectedStep)) {

@@ -4,7 +4,6 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.math.CultMath;
@@ -45,12 +44,11 @@ public class Ladder implements UncertaintyHandler {
                 if (!player.compensatedEntities.getEntityInControl().hasGravity) grav = 0;
 
                 // TODO: Handle unknown fluid correctly
-                if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14)
-                        && lastResult
-                                .getSimulationContext()
-                                .getWorldData()
-                                .getInWater()
-                                .determinePessimistically()) {
+                if (lastResult
+                        .getSimulationContext()
+                        .getWorldData()
+                        .getInWater()
+                        .determinePessimistically()) {
                     Vec3 modified = start.withY(0.2D * 0.8F);
                     modified = FluidFallingAdjustedMovement.getFluidFallingAdjustedMovement(
                             player, grav, falling, modified);

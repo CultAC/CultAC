@@ -7,7 +7,6 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.DecodedPacketReliability;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -37,19 +36,8 @@ public class BadPacketsX extends Check implements PostPredictionListener, Decode
 
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) {
-            if (flags > 0) {
-                setbackIfAboveSetbackVL();
-            }
-
-            flags = 0;
-            return;
-        }
-
-        if (player.isTickingReliablyFor(3)) {
-            for (; flags > 0; flags--) {
-                flagWithSetback();
-            }
+        if (flags > 0) {
+            setbackIfAboveSetbackVL();
         }
 
         flags = 0;
@@ -67,7 +55,10 @@ public class BadPacketsX extends Check implements PostPredictionListener, Decode
             case PRESS_SHIFT_KEY, RELEASE_SHIFT_KEY -> {
                 if (DecodedPacketReliability.nativeInputFamilyReliable(
                         player.getClientVersion(), player.getObservedProtocol())) {
-                    handleLegacySneakAction();
+                    if (sneak && flag()) {
+                        flags++;
+                    }
+                    sneak = true;
                 }
             }
             case START_SPRINTING, STOP_SPRINTING -> {
@@ -76,7 +67,7 @@ public class BadPacketsX extends Check implements PostPredictionListener, Decode
                 }
 
                 if (sprint) {
-                    if (player.canSkipTicks() || flag()) {
+                    if (flag()) {
                         flags++;
                     }
                 }
@@ -85,18 +76,6 @@ public class BadPacketsX extends Check implements PostPredictionListener, Decode
             }
             default -> {}
         }
-    }
-
-    public void handleLegacySneakAction() {
-        if (!player.cameraEntity.isSelf()) {
-            sprint = sneak = false;
-            return;
-        }
-
-        if (sneak && (player.canSkipTicks() || flag())) {
-            flags++;
-        }
-        sneak = true;
     }
 
     // isTickPacket: movement packets reset unless they answered a teleport
@@ -111,9 +90,7 @@ public class BadPacketsX extends Check implements PostPredictionListener, Decode
     // isTickPacket: tick end resets for 1.21.2+ clients when no movement arrived this client tick
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (!player.cameraEntity.isSelf()
-                || (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                        && !player.packetStateData.receivedMovementThisClientTick)) {
+        if (!player.cameraEntity.isSelf() || !player.packetStateData.receivedMovementThisClientTick) {
             sprint = sneak = false;
         }
     }

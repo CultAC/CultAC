@@ -65,10 +65,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         SimItemStack heldStack = player.getInventory().getHandItem(hand);
         if (heldStack == null) heldStack = SimItemStack.EMPTY;
 
-        this.blocking = heldStack.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.SHIELD
-                || (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)
-                        && ac.cult.cultac.utils.inventory.ItemUtil.name(heldStack.getItem())
-                                .endsWith("_SWORD"));
+        this.blocking = heldStack.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.SHIELD;
 
         if (player.usesModernJavaItemUse()) {
             // ClientBlockActions owns modern action prediction, including bow ammo,
@@ -116,8 +113,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     private boolean canStartUsingItem(SimItemStack stack) {
         if (stack == null
                 || stack.isEmpty()
-                || (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
-                        && player.checkManager.getCompensatedCooldown().hasItem(stack))) {
+                || player.checkManager.getCompensatedCooldown().hasItem(stack)) {
             return false;
         }
 
@@ -155,9 +151,6 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         // The compact legacy path retained by this fork. These are the baseline
         // items whose use can be proven without guessing projectile inventory.
         ac.cult.blocksim.data.ItemDefinition material = stack.getItem();
-        // 1.8 ItemSword#onItemRightClick sets a 72000-tick BLOCK use action.
-        if (version.isOlderThan(ClientVersion.V_1_9)
-                && ac.cult.cultac.utils.inventory.ItemUtil.name(material).endsWith("_SWORD")) return true;
         if (material == ac.cult.cultac.utils.inventory.ItemTypes.SHIELD
                 || material == ac.cult.cultac.utils.inventory.ItemTypes.SPYGLASS
                 || material == ac.cult.cultac.utils.inventory.ItemTypes.GOAT_HORN) {

@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
@@ -30,9 +29,6 @@ public class BadPacketsZ extends Check implements CheckListener {
     @CultPacketHandler
     public void onPlayerInput(
             PacketReceiveEvent<ServerboundPlayerInput> event, CultPlayer player, ServerboundPlayerInput packet) {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) {
-            return;
-        }
         if (sent) {
             flag();
         }

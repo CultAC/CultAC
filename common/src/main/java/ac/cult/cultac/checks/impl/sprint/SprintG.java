@@ -45,7 +45,6 @@ public class SprintG extends Check implements PostPredictionListener {
         if (wasTouchingWater
                 && (wasWasTouchingWater || player.getClientVersion() == ClientVersion.V_1_21_4)
                 && !player.wasEyeInWater
-                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13)
                 && wasLastPredictionCompleteChecked
                 && isChecked
                 && !(riding != null && riding.type == EntityTypeIds.CAMEL)

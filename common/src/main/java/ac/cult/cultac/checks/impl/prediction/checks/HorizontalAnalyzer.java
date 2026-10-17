@@ -7,7 +7,6 @@ import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -83,23 +82,18 @@ public class HorizontalAnalyzer implements EngineCheck {
                     speedFlagAmount);
         }
 
-        boolean isSlowed = result.getSimulationContext().isSneaking()
-                && result.getSimulationContext().getVersion().isOlderThanOrEquals(ClientVersion.V_1_14_4);
-        // 1.14-1.14.4 uses both for slowing, not just one
-        if (result.getSimulationContext().getVersion().isNewerThanOrEquals(ClientVersion.V_1_14)) {
-            // TODO: If we want to, require sent a sneaking packet in the last tick to allow tick skip exempt
-            isSlowed = result.getSimulationContext().isLastSneaking()
-                    && !result.getInitialStartingVel().isTickSkip();
-            Vec3 from = result.getSimulationContext().getStart();
+        // TODO: If we want to, require sent a sneaking packet in the last tick to allow tick skip exempt
+        boolean isSlowed = result.getSimulationContext().isLastSneaking()
+                && !result.getInitialStartingVel().isTickSkip();
+        Vec3 from = result.getSimulationContext().getStart();
 
-            // The logic is that if the player has collisions above this, they will simply go into swimming position
-            SimpleCollisionBox oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(from.x, from.y, from.z, 0.6f, 0.6f)
-                    .expand(-SimpleCollisionBox.COLLISION_EPSILON);
-            if (!Collisions.isEmpty(player, oldBox)) {
-                isSlowed = false;
-            }
-            if (player.inVehicle()) isSlowed = false;
+        // The logic is that if the player has collisions above this, they will simply go into swimming position
+        SimpleCollisionBox oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(from.x, from.y, from.z, 0.6f, 0.6f)
+                .expand(-SimpleCollisionBox.COLLISION_EPSILON);
+        if (!Collisions.isEmpty(player, oldBox)) {
+            isSlowed = false;
         }
+        if (player.inVehicle()) isSlowed = false;
 
         if (isSlowed
                 && !player.isFlying

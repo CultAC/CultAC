@@ -16,15 +16,12 @@ public final class CompensatedOpenWindow
     private final Set<@Nullable Window> possibleOpenWindows = new HashSet<>(2);
     private long openPlayerInventoryTransaction = Long.MIN_VALUE;
     private long closeTransaction = Long.MIN_VALUE;
-    public final boolean clientSendsOpenInventoryPacket;
 
     @Getter
     private int ticksOpen;
 
     public CompensatedOpenWindow(CultPlayer player) {
         this.player = player;
-        clientSendsOpenInventoryPacket =
-                player.getClientVersion().isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_12);
         possibleOpenWindows.add(null);
     }
 
@@ -94,26 +91,13 @@ public final class CompensatedOpenWindow
         if (!player.isBedrockMovement()) onClientTick();
     }
 
-    @ac.cult.cultac.network.CultPacketHandler
-    public void onMovePlayer(
-            ac.cult.cultac.network.event.PacketReceiveEvent<
-                            ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer>
-                    event,
-            CultPlayer player,
-            ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer packet) {
-        if (!player.isBedrockMovement()
-                && !player.supportsEndTick()
-                && !player.packetStateData.lastPacketWasTeleport
-                && !player.packetStateData.lastPacketWasOnePointSeventeenDuplicate) onClientTick();
-    }
-
     public void onClientTick() {
         ticksOpen = mustBeOpen() ? ticksOpen + 1 : 0;
     }
 
     public boolean mustBeOpen() {
         for (Window window : possibleOpenWindows) {
-            if (window == null || window.canDesync(player)) return false;
+            if (window == null) return false;
         }
         return true;
     }
@@ -122,10 +106,5 @@ public final class CompensatedOpenWindow
         return new HashSet<>(possibleOpenWindows);
     }
 
-    public record Window(int id, long transaction, @Nullable MenuType type) {
-        public boolean canDesync(CultPlayer player) {
-            return player.getClientVersion().isOlderThanOrEquals(ac.cult.cultac.network.protocol.ClientVersion.V_1_8)
-                    && type == MenuType.BEACON;
-        }
-    }
+    public record Window(int id, long transaction, @Nullable MenuType type) {}
 }

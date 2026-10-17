@@ -2,22 +2,19 @@ package ac.cult.cultac.checks.impl.packetorder;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
-import ac.cult.cultac.checks.type.PostPredictionListener;
+import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
-import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import java.util.ArrayDeque;
 
 @CheckData(
         name = "PacketOrderK",
         stableKey = "cult.packetorder.inventory_open_order",
         description = "Opened, clicked, or closed inventory in the wrong packet order",
         experimental = true)
-public class PacketOrderK extends Check implements PostPredictionListener {
+public class PacketOrderK extends Check implements CheckListener {
     // Shape index == KIND_* constant value.
     private static final Verbose V =
             Verbose.of("open, clicking={bool}, closing={bool}").or("click").or("close");
@@ -28,31 +25,6 @@ public class PacketOrderK extends Check implements PostPredictionListener {
 
     public PacketOrderK(final CultPlayer player) {
         super(player);
-    }
-
-    private final ArrayDeque<FlagData> flags = new ArrayDeque<>();
-
-    private Verbose.Writer write(int kind, boolean clicking, boolean closing) {
-        Verbose.Writer writer = V.write(verbose(), kind);
-        if (kind == KIND_OPEN) writer.bool(clicking).bool(closing);
-        return writer;
-    }
-
-    @CultPacketHandler
-    public void onClientCommand(
-            PacketReceiveEvent<ServerboundClientCommand> event, CultPlayer player, ServerboundClientCommand packet) {
-        // The 26.2 enum has no OPEN_INVENTORY_ACHIEVEMENT (removed in 1.12)
-        if (!packet.action().name().equals("OPEN_INVENTORY_ACHIEVEMENT")) return;
-
-        if (player.packetOrderProcessor.isClickingInInventory() || player.packetOrderProcessor.isClosingInventory()) {
-            boolean clicking = player.packetOrderProcessor.isClickingInInventory();
-            boolean closing = player.packetOrderProcessor.isClosingInventory();
-            if (!player.canSkipTicks()) {
-                flag(write(KIND_OPEN, clicking, closing));
-            } else {
-                flags.add(new FlagData(KIND_OPEN, clicking, closing));
-            }
-        }
     }
 
     @CultPacketHandler
@@ -70,29 +42,10 @@ public class PacketOrderK extends Check implements PostPredictionListener {
 
     private void onClickOrClose(PacketReceiveEvent event, CultPlayer player, int kind) {
         if (player.packetOrderProcessor.isOpeningInventory()) {
-            if (!player.canSkipTicks()) {
-                if (flag(write(kind, false, false)) && shouldModifyPackets() && kind == KIND_CLICK) {
-                    event.setCancelled(true);
-                    player.onPacketCancel();
-                }
-            } else {
-                flags.add(new FlagData(kind, false, false));
+            if (flag(V.write(verbose(), kind)) && shouldModifyPackets() && kind == KIND_CLICK) {
+                event.setCancelled(true);
+                player.onPacketCancel();
             }
         }
     }
-
-    @Override
-    public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) return;
-
-        if (player.isTickingReliablyFor(3)) {
-            for (FlagData data : flags) {
-                flag(write(data.kind(), data.clicking(), data.closing()));
-            }
-        }
-
-        flags.clear();
-    }
-
-    private record FlagData(int kind, boolean clicking, boolean closing) {}
 }

@@ -26,8 +26,7 @@ public class BadPacketsWindow extends Check implements CheckListener {
     @CultPacketHandler
     public void onContainerClick(PacketReceiveEvent<InventoryClick> event, CultPlayer player, InventoryClick packet) {
         int windowId = packet.windowId();
-        if (windowId == 0 && !player.openWindow.clientSendsOpenInventoryPacket && !player.openWindow.mustBeOpen())
-            return;
+        if (windowId == 0 && !player.openWindow.mustBeOpen()) return;
         for (CompensatedOpenWindow.Window window : player.openWindow.getPossibilities()) {
             if (window != null && window.id() == windowId) return;
         }

@@ -6,7 +6,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.InteractAction;
@@ -28,22 +27,14 @@ public class BadPacketsT extends Check implements CheckListener {
 
     public BadPacketsT(final CultPlayer player) {
         super(player);
-        // pre-1.9 expands hitboxes by 0.1 on all sides; this is not lenience, it is vanilla.
-        double expansion = player.getClientVersion().isOlderThan(ClientVersion.V_1_9) ? 0.1f : 0;
-        maxHorizontalDisplacement = 0.3001 + expansion;
-        minVerticalDisplacement = -0.0001 - expansion;
-        maxVerticalDisplacement = 1.8001 + expansion;
-    }
-
-    @Override
-    public boolean isApplicable() {
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8);
+        maxHorizontalDisplacement = 0.3001;
+        minVerticalDisplacement = -0.0001;
+        maxVerticalDisplacement = 1.8001;
     }
 
     @CultPacketHandler
     public void onInteract(
             final PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
-        if (!isApplicable()) return;
 
         // Only INTERACT_AT actually has an interaction vector
         if (packet.action() != InteractAction.INTERACT_AT) return;

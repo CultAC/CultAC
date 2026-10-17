@@ -19,7 +19,6 @@ public class ProxyAlertMessenger implements PluginMessageListener {
 
     public ProxyAlertMessenger() {
         usingProxy = ProxyAlertMessenger.getBooleanFromFile("spigot.yml", "settings.bungeecord")
-                || ProxyAlertMessenger.getBooleanFromFile("paper.yml", "settings.velocity-support.enabled")
                 || ProxyAlertMessenger.getBooleanFromFile("config/paper-global.yml", "proxies.velocity.enabled");
 
         if (usingProxy) {

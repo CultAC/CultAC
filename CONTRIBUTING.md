@@ -8,7 +8,7 @@ make the process go more smoothly.*
 ### Pull Request Guidelines
 
 - **Compatibility**
-  - The plugin must not entirely break with legacy clients (1.8-1.21.1), you may exempt older clients
+  - Clients older than 1.21.2 are not supported and are disconnected; don't add code for them
   - The plugin must be able to run on Java 17 or higher. Changes that don't support Java 17 at runtime will not be accepted.
 
 - **Non-acceptable pull requests**

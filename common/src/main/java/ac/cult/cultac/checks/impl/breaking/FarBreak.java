@@ -5,9 +5,7 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
@@ -23,8 +21,6 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
         experimental = true)
 public class FarBreak extends Check implements BlockBreakListener {
     private static final Verbose V = Verbose.of("distance={f64:%.2f}");
-    private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private boolean didLastMovementIncludePosition;
 
@@ -52,7 +48,7 @@ public class FarBreak extends Check implements BlockBreakListener {
         }
 
         double maxReach = player.compensatedEntities.getSelf().getBlockInteractionRange();
-        if (didLastMovementIncludePosition || canSkipTicks()) {
+        if (didLastMovementIncludePosition) {
             double threshold = player.getMovementThreshold();
             maxReach += Math.hypot(threshold, threshold);
         }
@@ -63,11 +59,5 @@ public class FarBreak extends Check implements BlockBreakListener {
                 blockBreak.cancel();
             }
         }
-    }
-
-    private boolean canSkipTicks() {
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
-                && !(player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                        && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21_2));
     }
 }

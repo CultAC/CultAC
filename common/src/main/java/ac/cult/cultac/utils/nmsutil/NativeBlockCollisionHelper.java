@@ -43,18 +43,10 @@ public final class NativeBlockCollisionHelper {
             return NoCollisionBox.INSTANCE;
         }
 
-        if (BlockIds.is(state, BlockIds.MOVING_PISTON) && player.compensatedWorld.pistons.usesLegacyCollision()) {
-            // VoxelShape discards degenerate boxes, but 1.8's AABB collision loop
-            // can clip movement crossing a zero-thickness piston face.
-            return player.compensatedWorld.pistons.getLegacyMovingPistonCollisionBox(new BlockPos(x, y, z));
-        }
-
         VoxelShape shape = getCollisionShape(player, state, x, y, z, entityBottom, actor);
         // Entity#collideWithShapes scans VoxelShape's cells, including internal
         // faces when a server update places the actor partly inside a shape.
-        boolean voxelMovement = !player.isBedrockMovement()
-                && player.getClientVersion()
-                        .isNewerThanOrEquals(ac.cult.cultac.network.protocol.ClientVersion.V_1_21_2);
+        boolean voxelMovement = !player.isBedrockMovement();
         if (voxelMovement && !shape.isEmpty())
             return new ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox(shape, shape == Shapes.block())
                     .offset(x, y, z);

@@ -29,9 +29,6 @@ client-brand:
         - "^lunarclient:v\\d+\\.\\d+\\.\\d+-\\d{4},(?:fabric|forge)$"
         - "^Feather Fabric$"
         - "^labymod$"
-    # Cult umieści na czarnej liście konkretne wersje Forge, które zawierają wbudowane modyfikacje Reach (Forge 1.18.2 do 1.19.3).
-    # Ustawienie tej opcji na fałsz umożliwi tym klientom połączenie się z serwerem. Wyłączasz tę opcję na własne ryzyko.
-    disconnect-blacklisted-forge-versions: true
 
 spectators:
     # Ukryj wszystkich widzów z uprawnieniem cult.spectator, niezależnie od tego, czy są oni faktycznie aktywnymi widzami

@@ -4,7 +4,6 @@ import ac.cult.blocksim.data.ItemComponents;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.InventoryPackets.CreativeSlot;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -18,7 +17,6 @@ import ac.cult.cultac.utils.data.ClientAttackStrength;
 import ac.cult.cultac.utils.data.ClientCombatAttributes;
 import ac.cult.cultac.utils.data.ClientSprintState.AttackReset;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 
 public class PacketPlayerAttack {
@@ -114,8 +112,6 @@ public class PacketPlayerAttack {
      * 0.9 strength. Combat attributes come from the client's bundle-proven server snapshots.
      */
     private static AttackReset attackReset(CultPlayer player, PacketEntity target) {
-        // Without ServerboundClientTickEnd the ticks since the last reset are not all counted.
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return AttackReset.POSSIBLE;
         AttackReset hurt = target == null ? AttackReset.POSSIBLE : clientHurt(target.type);
         if (hurt == AttackReset.NONE) return AttackReset.NONE;
 
@@ -167,13 +163,6 @@ public class PacketPlayerAttack {
                     onLocalAttack(player, entity);
                 } else if (entity != null) {
                     player.maxPlayerAttackSlow += 1;
-                }
-            } else if (interact.action() == InteractAction.INTERACT) {
-                // Interacting with a horse in versions 1.13- will cause the client to
-                // set the player's rotation to the horse's rotation (modern PacketPlayerAttack)
-                if (player.compensatedEntities.getEntity(interact.entityId()) instanceof PacketEntityHorse
-                        && player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_13)) {
-                    player.packetStateData.horseInteractCausedForcedRotation = true;
                 }
             }
         }

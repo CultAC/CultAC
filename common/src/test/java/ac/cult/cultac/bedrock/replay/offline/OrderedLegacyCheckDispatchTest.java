@@ -385,8 +385,9 @@ public final class OrderedLegacyCheckDispatchTest {
                     player,
                     ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END.opaqueValue());
             player.compensatedEntities.getSelf().mount(new PacketEntity(EntityTypeIds.OAK_BOAT, 99));
-            vehicleTimer.handleLegacySteerVehicle();
-            vehicleTimer.handleLegacySteerVehicle();
+            ServerboundPlayerInput input = new ServerboundPlayerInput(true, false, false, false, false, false, false);
+            player.checkManager.dispatchPrePredictionReceive(RecordReceiveTestEvents.input(player, input));
+            player.checkManager.dispatchPrePredictionReceive(RecordReceiveTestEvents.input(player, input));
             assertTrue(longField(vehicleTimer, "timerBalanceRealTime") - initial == 50_000_000L);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);

@@ -3,7 +3,6 @@ package ac.cult.cultac.checks.impl.scaffolding;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
@@ -16,7 +15,6 @@ import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import org.joml.Vector3f;
 
@@ -101,14 +99,7 @@ public class RotationPlace extends BlockPlaceCheck {
         // End checking if the player is in the block
 
         // 1.9+ players could be a tick behind because we don't get skipped ticks
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) {
-            possibleLookDirs.add(new Vector3f(player.lastTickXRot, player.lastTickYRot, 0));
-        }
-
-        // 1.7 players do not have any of these issues! They are always on the latest look vector
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_8)) {
-            possibleLookDirs = Collections.singletonList(new Vector3f(player.xRot, player.yRot, 0));
-        }
+        possibleLookDirs.add(new Vector3f(player.lastTickXRot, player.lastTickYRot, 0));
 
         final double distance = player.compensatedEntities.getSelf().getBlockInteractionRange();
         for (double d : possibleEyeHeights) {

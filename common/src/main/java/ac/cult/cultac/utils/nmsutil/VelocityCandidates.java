@@ -35,12 +35,6 @@ public final class VelocityCandidates {
     /** Adds the candidates to the empty {@code validPlayerStartingVels} and returns it. */
     static Set<Vec3> derive(
             PredictionResult result, PredictionResult lastPrediction, Vec3 diff, Set<Vec3> validPlayerStartingVels) {
-        // Preserve the existing prediction candidate space for legacy soul-sand uncertainty.
-        int soulSandCount = result.getSimulationContext().getWorldData().getSoulSandCount();
-        if (soulSandCount != 0) {
-            double multiplier = Math.pow(0.4, soulSandCount);
-            diff = diff.multiply(multiplier, 1, multiplier);
-        }
         Vec3 positionOnlyDelta = result.getValidMovements().getPositionOnlyDelta();
         if (positionOnlyDelta.lengthSqr() > 1.0E-14) {
             // MCP-Reborn has a few packet-visible Entity#move paths that do not
@@ -70,11 +64,8 @@ public final class VelocityCandidates {
 
         // Before 1.21.2, BouncyBlock handles vertical bounce uncertainty. Do not
         // replace its falling/zero carry with a mandatory bounce from a probe.
-        // TODO: Should this be expanded to earlier client versions?
         OptionalDouble requiredPostCollisionY =
-                player != null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                        ? requiredPacketVisibleSlimeBounceY(result, collisionMovementY)
-                        : OptionalDouble.empty();
+                player != null ? requiredPacketVisibleSlimeBounceY(result, collisionMovementY) : OptionalDouble.empty();
         if (requiredPostCollisionY.isPresent()) {
             diff = new Vec3(diff.x, requiredPostCollisionY.getAsDouble(), diff.z);
             isY = false;
@@ -126,7 +117,6 @@ public final class VelocityCandidates {
         PacketEntity vehicle = context == null ? null : context.getVehicle();
         if (context == null
                 || vehicle != null && (EntityTypeUtil.isBoat(vehicle.type) || vehicle instanceof PacketEntityHappyGhast)
-                || player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_15_2)
                 || player.getClientVersion() == ClientVersion.V_1_21_4
                 || context.getWorldData().getInWater().determineOptimistically()
                 || !context.getWorldData().getInLava().determinePessimistically()) {

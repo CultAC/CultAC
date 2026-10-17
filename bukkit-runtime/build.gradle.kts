@@ -82,7 +82,6 @@ dependencies {
     compileOnly(libs.luckperms)
 
     implementation(libs.cloud.paper)
-    implementation(libs.adventure.platform.bukkit)
     implementation(libs.cult.bukkit.internal)
 
     implementation(project(":common"))

@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.checks.type.PostFlyingBlockBreakListener;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.PlayerAction;
@@ -18,7 +17,6 @@ import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 @CheckData(
@@ -98,14 +96,7 @@ public class RotationBreak extends Check implements BlockBreakListener, PostFlyi
                 Arrays.asList(new float[] {player.lastTickXRot, player.yRot}, new float[] {player.xRot, player.yRot}));
 
         // 1.9+ players could be a tick behind because we don't get skipped ticks
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) {
-            possibleLookDirs.add(new float[] {player.lastTickXRot, player.lastTickYRot});
-        }
-
-        // 1.7 players do not have any of these issues! They are always on the latest look vector
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_8)) {
-            possibleLookDirs = Collections.singletonList(new float[] {player.xRot, player.yRot});
-        }
+        possibleLookDirs.add(new float[] {player.lastTickXRot, player.lastTickYRot});
 
         final double distance = player.compensatedEntities.getSelf().getBlockInteractionRange();
         for (double d : player.getPossibleEyeHeights()) {

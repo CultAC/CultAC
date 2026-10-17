@@ -49,10 +49,7 @@ public final class ClientBlockShapes {
     /** Apply the shared Java version catalog to an already-observed local shape. */
     public static ac.cult.blocksim.engine.shapes.VoxelShape versionedMovementShape(
             CultPlayer player, int state, ac.cult.blocksim.engine.shapes.VoxelShape observed) {
-        if (player == null
-                || player.isBedrockMovement()
-                || player.getClientVersion().isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_21_2))
-            return observed;
+        if (player == null || player.isBedrockMovement()) return observed;
         var alternative = VersionedJavaBlockShapes.movement(player, state, 0, 0, 0);
         if (alternative.isEmpty()) return observed;
         if (alternative.get() instanceof ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox voxel)

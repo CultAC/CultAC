@@ -57,10 +57,9 @@ public class ChatC extends Check implements CheckListener {
         }
 
         boolean sprinting = MultiActionsC.isVerboseSprinting(player);
-        boolean sneaking = MultiActionsC.isVerboseSneaking(player);
         boolean input = MultiActionsC.isVerboseInput(player);
-        if ((sprinting || sneaking || input)
-                && flag(V.write(verbose()).bool(sprinting).bool(sneaking).bool(input))
+        if ((sprinting || input)
+                && flag(V.write(verbose()).bool(sprinting).bool(false).bool(input))
                 && shouldModifyPackets()) {
             event.setCancelled(true);
             player.onPacketCancel();

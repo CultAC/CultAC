@@ -109,17 +109,14 @@ public class CompensatedEntities {
     }
 
     public Integer getLevitationAmplifier() {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) return null;
         return getPotionLevelForPlayer(MovementEffect.LEVITATION);
     }
 
     public Integer getSlowFallingAmplifier() {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_13)) return null;
         return getPotionLevelForPlayer(MovementEffect.SLOW_FALLING);
     }
 
     public Integer getDolphinsGraceAmplifier() {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_13)) return null;
         return getPotionLevelForPlayer(MovementEffect.DOLPHINS_GRACE);
     }
 
@@ -174,16 +171,16 @@ public class CompensatedEntities {
                             calculateAttribute(snapshot, 0.0, 1024.0, EXCLUDED_MODIFIER_IDS);
                 }
 
-                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "scale")) {
+                if (matchesAttribute(snapshot, "scale")) {
                     player.compensatedEntities.getSelf().scale = (float) calculateAttribute(snapshot, 0.0625, 16.0);
                     selfScaleChanged = true;
                 }
 
-                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "gravity")) {
+                if (matchesAttribute(snapshot, "gravity")) {
                     player.compensatedEntities.getSelf().gravity = calculateAttribute(snapshot, 0.0, 1024.0);
                 }
 
-                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "step_height")) {
+                if (matchesAttribute(snapshot, "step_height")) {
                     player.compensatedEntities.getSelf().stepHeightAttribute = calculateAttribute(snapshot, 0.0, 10.0);
                 }
 
@@ -202,17 +199,15 @@ public class CompensatedEntities {
                     player.compensatedEntities.getSelf().airDragModifier = calculateAttribute(snapshot, 0.0, 2048.0);
                 }
 
-                if (supportsAttributes(ClientVersion.V_1_20_5)
-                        && matchesAttribute(snapshot, "block_interaction_range")) {
+                if (matchesAttribute(snapshot, "block_interaction_range")) {
                     player.compensatedEntities.getSelf().blockInteractionRange.onServerSnapshot(snapshot);
                 }
 
-                if (supportsAttributes(ClientVersion.V_1_20_5)
-                        && matchesAttribute(snapshot, "entity_interaction_range")) {
+                if (matchesAttribute(snapshot, "entity_interaction_range")) {
                     player.compensatedEntities.getSelf().entityInteractionRange.onServerSnapshot(snapshot);
                 }
 
-                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "sneaking_speed")) {
+                if (matchesAttribute(snapshot, "sneaking_speed")) {
                     player.compensatedEntities.getSelf().sneakingSpeed.onServerSnapshot(snapshot);
                 }
 
@@ -239,16 +234,16 @@ public class CompensatedEntities {
 
         if (entity != null) {
             for (AttributeSnapshot snapshot : objects) {
-                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "scale")) {
+                if (matchesAttribute(snapshot, "scale")) {
                     entity.scale = (float) calculateAttribute(snapshot, 0.0625, 16.0);
                     entityScaleChanged = true;
                 }
 
-                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "gravity")) {
+                if (matchesAttribute(snapshot, "gravity")) {
                     entity.gravity = calculateAttribute(snapshot, 0.0, 1024.0);
                 }
 
-                if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "step_height")) {
+                if (matchesAttribute(snapshot, "step_height")) {
                     entity.stepHeightAttribute = calculateAttribute(snapshot, 0.0, 10.0);
                 }
 
@@ -771,7 +766,6 @@ public class CompensatedEntities {
     }
 
     private void applyGravityMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
-        if (!player.isBedrockMovement() && player.getClientVersion().isOlderThan(ClientVersion.V_1_10)) return;
         EntityMetadata.Entry gravityData =
                 WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_NO_GRAVITY);
         if (gravityData != null && gravityData.value() instanceof Boolean noGravity) {

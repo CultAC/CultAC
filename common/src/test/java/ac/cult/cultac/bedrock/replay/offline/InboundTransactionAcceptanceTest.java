@@ -46,53 +46,6 @@ public final class InboundTransactionAcceptanceTest {
     }
 
     @Test
-    public void legacyTransactionsSurviveInventoryAcknowledgementsWithoutPrematureConfirmation() throws Exception {
-        OfflineCultTestBootstrap.installConfig();
-        // Protocol 754 is the final pre-ping release; protocol 47 covers the 1.8 path.
-        for (int protocol : new int[] {47, 754}) {
-            CultPlayer player = offlineJavaPlayer(ClientVersion.fromProtocolVersion(protocol));
-            try {
-                var transactions = new java.util.ArrayList<CultPlayer.TrackedTransaction>();
-                var ids = new java.util.HashSet<Integer>();
-                var completed = new java.util.ArrayList<Integer>();
-                for (int i = 0; i < 512; i++) {
-                    var transaction = createTrackedTransaction(player);
-                    transactions.add(transaction);
-                    // ViaBackwards requires this exact equality to send CONTAINER_ACK.
-                    assertEquals(transaction.id(), (int) (short) transaction.id());
-                    assertTrue("Pending and sent transactions must have distinct ids", ids.add(transaction.id()));
-                    player.latencyUtils.addRealTimeTask(
-                            transaction.transaction(), () -> completed.add(transaction.transaction()));
-                    // Leave alternating packets pending to cover deferred/bundled allocation too.
-                    if ((i & 1) == 0) {
-                        player.markTrackedTransactionPacketSent(transaction);
-                    }
-                }
-                assertEquals(0, player.lastTransactionReceived.get());
-                assertTrue(completed.isEmpty());
-
-                for (var transaction : transactions) {
-                    player.markTrackedTransactionPacketSent(transaction);
-                }
-                // The final odd entry was written last. Its signed-short echo must
-                // release all preceding compensation tasks, once, in order.
-                var last = transactions.getLast();
-                assertTrue(player.addTransactionResponse((short) last.id()));
-                assertEquals(last.transaction(), player.lastTransactionReceived.get());
-                assertEquals(
-                        transactions.stream()
-                                .map(CultPlayer.TrackedTransaction::transaction)
-                                .toList(),
-                        completed);
-                assertFalse(player.addTransactionResponse((short) last.id()));
-                assertEquals(transactions.size(), completed.size());
-            } finally {
-                OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
-            }
-        }
-    }
-
-    @Test
     public void acceptedResponseFactIsScopedToTheCurrentReceiveEvent() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = offlineJavaPlayer();

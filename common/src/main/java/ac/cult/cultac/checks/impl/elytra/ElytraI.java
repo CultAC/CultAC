@@ -23,15 +23,9 @@ public class ElytraI extends Check implements PostPredictionListener {
         super(player);
     }
 
-    @Override
-    public boolean isApplicable() {
-        return player.getClientVersion().getProtocolVersion() >= 573; // PE ClientVersion.V_1_15
-    }
-
     @CultPacketHandler
     public void onPlayerCommand(
             PacketReceiveEvent<ServerboundPlayerCommand> event, CultPlayer player, ServerboundPlayerCommand packet) {
-        if (!isApplicable()) return;
         if (packet.action() == PlayerCommandAction.START_FLYING_WITH_ELYTRA && wasTouchingWater() && flag()) {
             setback = true;
             if (shouldModifyPackets()) {
@@ -55,7 +49,6 @@ public class ElytraI extends Check implements PostPredictionListener {
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!isApplicable()) return;
         if (setback) {
             setback = false;
             setbackIfAboveSetbackVL();

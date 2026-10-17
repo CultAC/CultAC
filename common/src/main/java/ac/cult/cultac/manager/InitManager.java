@@ -61,7 +61,6 @@ public class InitManager {
                 .add(CultAPI.INSTANCE.getDataStoreLifecycle())
                 .add(new JavaVersion())
                 .add(new ViaVersion())
-                .add(new TAB())
                 .add(new NetworkManagerStart())
                 .addAll(extraStartableInitables)
                 .build();

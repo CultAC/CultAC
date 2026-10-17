@@ -4,9 +4,7 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -19,20 +17,16 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.inventory.InventoryClick;
-import ac.cult.cultac.utils.math.CultMath;
 import lombok.Getter;
 import org.jetbrains.annotations.Contract;
 
 @Getter
 public final class PacketOrderProcessor extends Check implements CheckListener {
-    private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
-
     public PacketOrderProcessor(final CultPlayer player) {
         super(player);
     }
 
-    private boolean openingInventory; // only pre 1.12 clients on pre 1.12 servers
+    private boolean openingInventory;
     private boolean swapping;
     private boolean dropping;
     private boolean interacting;
@@ -44,8 +38,6 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
     private boolean placing;
     private boolean using;
     private boolean picking;
-    private boolean clickingInInventory;
-    private boolean closingInventory;
     private boolean quickMoveClicking;
     private boolean pickUpClicking;
     private boolean leavingBed;
@@ -56,11 +48,6 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
     @CultPacketHandler
     public void onClientCommand(
             PacketReceiveEvent<ServerboundClientCommand> event, CultPlayer player, ServerboundClientCommand packet) {
-
-        if (SERVER_VERSION.getProtocolVersion() < 335 && packet.action().name().equals("OPEN_INVENTORY_ACHIEVEMENT")) {
-            openingInventory = true;
-        }
-
         maybeReset(player, false);
     }
 
@@ -124,11 +111,6 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
         maybeReset(player, false);
     }
 
-    public void handleLegacySneakAction() {
-        sneaking = true;
-        maybeReset(player, false);
-    }
-
     @CultPacketHandler
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
         using = true;
@@ -153,8 +135,6 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
 
     @CultPacketHandler
     public void onContainerClick(PacketReceiveEvent<InventoryClick> event, CultPlayer player, InventoryClick packet) {
-        clickingInInventory = true;
-
         switch (packet.clickType()) {
             case QUICK_MOVE -> quickMoveClicking = true;
             case PICKUP, PICKUP_ALL -> pickUpClicking = true;
@@ -169,8 +149,6 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
             PacketReceiveEvent<ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose> event,
             CultPlayer player,
             ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose packet) {
-        closingInventory = true;
-
         maybeReset(player, false);
     }
 
@@ -184,10 +162,7 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
     // isTickPacket: tick end resets for 1.21.2+ clients when no movement arrived this client tick
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        maybeReset(
-                player,
-                player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                        && !player.packetStateData.receivedMovementThisClientTick);
+        maybeReset(player, !player.packetStateData.receivedMovementThisClientTick);
     }
 
     @CultPacketHandler
@@ -196,11 +171,7 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
     }
 
     private void maybeReset(CultPlayer player, boolean tickPacket) {
-        if (!player.cameraEntity.isSelf()
-                || tickPacket
-                || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)
-                        && !player.compensatedWorld.isChunkLoaded(
-                                CultMath.floor(player.x) >> 4, CultMath.floor(player.z) >> 4)) {
+        if (!player.cameraEntity.isSelf() || tickPacket) {
             openingInventory = false;
             swapping = false;
             dropping = false;
@@ -213,8 +184,6 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
             picking = false;
             sprinting = false;
             sneaking = false;
-            clickingInInventory = false;
-            closingInventory = false;
             quickMoveClicking = false;
             pickUpClicking = false;
             leavingBed = false;

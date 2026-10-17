@@ -33,15 +33,9 @@ public class SprintH extends Check implements ac.cult.cultac.checks.type.PostPre
                 && shouldModifyPackets()) player.closeInventorySafely();
     }
 
-    @CultPacketHandler
-    public void onMovePlayer(
-            PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (!player.supportsEndTick() && !player.packetStateData.lastPacketWasTeleport) onTick();
-    }
-
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
-        if (player.supportsEndTick()) onTick();
+        onTick();
     }
 
     private void onTick() {

@@ -393,7 +393,7 @@ public class CultDebug implements BuildableCommand {
                         new ac.cult.cultac.network.CultWrite(
                                 new ac.cult.cultac.network.packet.WorldPackets.BlockUpdate(pos, state), silent),
                         transaction.packet()),
-                target.supportsBundles());
+                true);
         sender.sendMessage(Component.text(
                 "Sent " + (silent ? "silent " : "") + "ghost " + expectedId + " to " + target.getName() + " at "
                         + pos.getX() + " " + pos.getY() + " " + pos.getZ(),

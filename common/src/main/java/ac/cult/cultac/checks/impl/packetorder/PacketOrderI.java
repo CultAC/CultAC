@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -21,7 +20,6 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import java.util.ArrayDeque;
 import org.jetbrains.annotations.NotNull;
 
 @CheckData(
@@ -51,7 +49,6 @@ public class PacketOrderI extends Check implements PostPredictionListener {
     private BlockPos startedDiggingPos;
     private int startedDiggingState;
     private boolean digging;
-    private final ArrayDeque<FlagData> flags = new ArrayDeque<>();
 
     static String typeName(int type) {
         return switch (type) {
@@ -93,13 +90,9 @@ public class PacketOrderI extends Check implements PostPredictionListener {
         } else if (player.packetOrderProcessor.isReleasing() || player.packetOrderProcessor.isDigging()) {
             boolean releasing = player.packetOrderProcessor.isReleasing();
             boolean digging = player.packetOrderProcessor.isDigging();
-            if (!player.canSkipTicks()) {
-                if (flag(write(TYPE_INTERACT, false, false, false, releasing, digging)) && shouldModifyPackets()) {
-                    event.setCancelled(true);
-                    player.onPacketCancel();
-                }
-            } else {
-                flags.add(new FlagData(TYPE_INTERACT, false, false, false, releasing, digging));
+            if (flag(write(TYPE_INTERACT, false, false, false, releasing, digging)) && shouldModifyPackets()) {
+                event.setCancelled(true);
+                player.onPacketCancel();
             }
         }
 
@@ -133,13 +126,9 @@ public class PacketOrderI extends Check implements PostPredictionListener {
 
         if (player.packetOrderProcessor.isReleasing() || digging) {
             boolean releasing = player.packetOrderProcessor.isReleasing();
-            if (!player.canSkipTicks()) {
-                if (flag(write(TYPE_PLACE_USE, false, false, false, releasing, digging)) && shouldModifyPackets()) {
-                    event.setCancelled(true);
-                    player.onPacketCancel();
-                }
-            } else {
-                flags.add(new FlagData(TYPE_PLACE_USE, false, false, false, releasing, digging));
+            if (flag(write(TYPE_PLACE_USE, false, false, false, releasing, digging)) && shouldModifyPackets()) {
+                event.setCancelled(true);
+                player.onPacketCancel();
             }
         }
 
@@ -169,12 +158,7 @@ public class PacketOrderI extends Check implements PostPredictionListener {
                     boolean rightClicking = player.packetOrderProcessor.isRightClicking();
                     boolean picking = player.packetOrderProcessor.isPicking();
                     boolean digging = player.packetOrderProcessor.isDigging();
-                    if (!player.canSkipTicks()) {
-                        if (flag(write(TYPE_RELEASE, attacking, rightClicking, picking, false, digging))) {
-                            setback = true;
-                        }
-                    } else {
-                        flags.add(new FlagData(TYPE_RELEASE, attacking, rightClicking, picking, false, digging));
+                    if (flag(write(TYPE_RELEASE, attacking, rightClicking, picking, false, digging))) {
                         setback = true;
                     }
                 }
@@ -209,9 +193,7 @@ public class PacketOrderI extends Check implements PostPredictionListener {
     // isTickPacket: tick end resets for 1.21.2+ clients when no movement arrived this client tick
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (!player.cameraEntity.isSelf()
-                || (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                        && !player.packetStateData.receivedMovementThisClientTick)) {
+        if (!player.cameraEntity.isSelf() || !player.packetStateData.receivedMovementThisClientTick) {
             resetDiggingState();
         }
     }
@@ -229,37 +211,15 @@ public class PacketOrderI extends Check implements PostPredictionListener {
     }
 
     private boolean shouldCheckPlacingWhileDigging() {
-        return !exemptPlacingWhileDigging && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8);
+        return !exemptPlacingWhileDigging;
     }
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) {
-            if (setback) {
-                setbackIfAboveSetbackVL();
-                setback = false;
-            }
-            return;
+        if (setback) {
+            setbackIfAboveSetbackVL();
+            setback = false;
         }
-
-        if (player.isTickingReliablyFor(3)) {
-            for (FlagData data : flags) {
-                if (flag(write(
-                                data.type(),
-                                data.attacking(),
-                                data.rightClicking(),
-                                data.picking(),
-                                data.releasing(),
-                                data.digging()))
-                        && setback) {
-                    setbackIfAboveSetbackVL();
-                    setback = false;
-                }
-            }
-        }
-
-        flags.clear();
-        setback = false;
     }
 
     private void onAttack(PacketReceiveEvent event, CultPlayer player) {
@@ -271,14 +231,9 @@ public class PacketOrderI extends Check implements PostPredictionListener {
             boolean picking = player.packetOrderProcessor.isPicking();
             boolean releasing = player.packetOrderProcessor.isReleasing();
             boolean digging = player.packetOrderProcessor.isDigging();
-            if (!player.canSkipTicks()) {
-                if (flag(write(TYPE_ATTACK, false, rightClicking, picking, releasing, digging))
-                        && shouldModifyPackets()) {
-                    event.setCancelled(true);
-                    player.onPacketCancel();
-                }
-            } else {
-                flags.add(new FlagData(TYPE_ATTACK, false, rightClicking, picking, releasing, digging));
+            if (flag(write(TYPE_ATTACK, false, rightClicking, picking, releasing, digging)) && shouldModifyPackets()) {
+                event.setCancelled(true);
+                player.onPacketCancel();
             }
         }
     }
@@ -287,7 +242,4 @@ public class PacketOrderI extends Check implements PostPredictionListener {
     public void onReload(@NotNull ConfigManager config) {
         exemptPlacingWhileDigging = config.getBooleanElse(getConfigName() + ".exempt-placing-while-digging", false);
     }
-
-    private record FlagData(
-            int type, boolean attacking, boolean rightClicking, boolean picking, boolean releasing, boolean digging) {}
 }

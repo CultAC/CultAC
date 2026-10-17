@@ -28,15 +28,8 @@ public class PacketOrderO extends Check implements CheckListener {
         super(player);
     }
 
-    @Override
-    public boolean isApplicable() {
-        return player.supportsEndTick();
-    }
-
     // Any packet may intervene between movement and tick end, so this observes the whole stream.
     public void onNonAsyncPacket(PacketReceiveEvent<?> event, CultPlayer player, ServerboundPacket packet) {
-        if (!isApplicable()) return;
-
         if (event.getPacketType() == ServerboundPackets.CLIENT_TICK_END) {
             flying = false;
         }

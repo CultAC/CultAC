@@ -26,15 +26,10 @@ public final class TickTimer extends Check implements CheckListener {
         super(player);
     }
 
-    @Override
-    public boolean isApplicable() {
-        return player.supportsEndTick();
-    }
-
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (!isApplicable() || player.packetStateData.lastPacketWasTeleport) return;
+        if (player.packetStateData.lastPacketWasTeleport) return;
 
         if (!receivedTickEnd
                 && flagWithSetback(V.write(verbose()).bool(false).uint(flyingPackets))
@@ -51,8 +46,6 @@ public final class TickTimer extends Check implements CheckListener {
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (!isApplicable()) return;
-
         receivedTickEnd = true;
         if (flyingPackets > 1
                 && flagWithSetback(V.write(verbose()).bool(true).uint(flyingPackets))

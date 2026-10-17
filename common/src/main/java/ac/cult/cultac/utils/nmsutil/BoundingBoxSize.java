@@ -59,7 +59,7 @@ public class BoundingBoxSize {
 
         String path = EntityTypeUtil.getKey(packetEntity.type).getPath();
         if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
-            return version.isNewerThanOrEquals(ClientVersion.V_1_9) ? 0.4F : 0.6F;
+            return 0.4F;
         }
         float exactWidth = baseDimensions(packetEntity).width();
         return Float.isNaN(exactWidth) ? 0.6f : exactWidth;
@@ -264,7 +264,7 @@ public class BoundingBoxSize {
 
         String path = EntityTypeUtil.getKey(packetEntity.type).getPath();
         if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
-            return version.isNewerThanOrEquals(ClientVersion.V_1_9) ? 0.5F : 0.7F;
+            return 0.5F;
         }
         float exactHeight = baseDimensions(packetEntity).height();
         return Float.isNaN(exactHeight) ? 1.95f : exactHeight;

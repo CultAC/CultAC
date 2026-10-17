@@ -46,7 +46,7 @@ public class BadPacketsG extends Check implements CheckListener {
         }
     }
 
-    public boolean handleLegacySneak(boolean sneaking) {
+    private boolean handleLegacySneak(boolean sneaking) {
         boolean rejected = false;
         // The player may send two START_SNEAKING packets if they respawned.
         if (lastSneaking == sneaking && !respawn) {

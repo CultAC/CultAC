@@ -24,7 +24,6 @@ import org.jetbrains.annotations.NotNull;
 public class AirLiquidBreak extends Check implements BlockBreakListener {
     private static final Verbose V = Verbose.of("block={block}, type={digging}");
 
-    public final boolean noFireHitbox = player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_15_2);
     private int lastTick;
     private boolean didLastFlag;
     // Initialize to non-null values to prevent NPE when checking for blockType properties and if position equals old
@@ -73,7 +72,6 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
                 || BlockIds.is(block, BlockIds.LAVA)
                 || BlockIds.is(block, BlockIds.BUBBLE_COLUMN)
                 || BlockIds.is(block, BlockIds.MOVING_PISTON)
-                || BlockIds.is(block, BlockIds.FIRE) && noFireHitbox
                 // or the client claims to have broken an unbreakable block
                 || ClientBlockProperties.defaultDestroyTime(block) == -1.0f
                         && blockBreak.action == PlayerAction.STOP_DESTROY_BLOCK

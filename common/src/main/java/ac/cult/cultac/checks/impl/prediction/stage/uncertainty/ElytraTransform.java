@@ -3,7 +3,6 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
@@ -100,10 +99,7 @@ public class ElytraTransform implements UncertaintyHandler {
         double velocityHorizLength = new Vec3(vector.x, 0, vector.z).length();
         double length = lookVector.length();
 
-        // Mojang changed from using their math to using regular java math in 1.18.2 elytra movement
-        double vertCosRotation = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_18_2)
-                ? Math.cos(yRotRadians)
-                : player.trigHandler.cos(yRotRadians);
+        double vertCosRotation = Math.cos(yRotRadians);
         // Modern clients retain this intermediate as a double. Casting it back
         // to float here produces measurable 1.20.2+ glide drift.
         vertCosRotation = vertCosRotation * vertCosRotation * Math.min(1.0D, length / 0.4D);

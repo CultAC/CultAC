@@ -32,8 +32,8 @@ Each connection also announces the plugin's name, version and build commit, whet
 enforcing, and a SHA-256 hash of the config files. The hash tells the service that the configuration changed; it does
 not carry the files' contents.
 
-Java clients of 1.21.2 (protocol 768) and newer are streamed; older clients are not uploaded. Bedrock players are
-announced with their session facts and the reason they are not streamed, and nothing more.
+Java clients are streamed. Bedrock players are announced with their session facts and the reason they are not
+streamed, and nothing more.
 
 ## What is never uploaded
 

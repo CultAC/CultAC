@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -49,8 +48,7 @@ public class NoSwingBreak extends Check implements BlockBreakListener {
     // isTickPacket: tick end counts for 1.21.2+ clients when no movement arrived this client tick
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                && !player.packetStateData.receivedMovementThisClientTick) {
+        if (!player.packetStateData.receivedMovementThisClientTick) {
             onTickPacket();
         }
     }

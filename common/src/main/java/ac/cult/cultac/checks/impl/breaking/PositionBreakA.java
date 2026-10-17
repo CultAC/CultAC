@@ -7,9 +7,7 @@ import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
@@ -23,8 +21,6 @@ import ac.grim.grimac.api.storage.verbose.VerboseTags;
         description = "Tried to break a block face from an impossible eye position")
 public class PositionBreakA extends Check implements BlockBreakListener {
     private static final Verbose V = Verbose.of("action={digging}, face={face}");
-    private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
     private boolean didLastMovementIncludePosition;
 
@@ -54,7 +50,7 @@ public class PositionBreakA extends Check implements BlockBreakListener {
 
         SimpleCollisionBox eyePositions = new SimpleCollisionBox(
                 player.x, player.y + minEyeHeight, player.z, player.x, player.y + maxEyeHeight, player.z);
-        if (!didLastMovementIncludePosition || canSkipTicks()) {
+        if (!didLastMovementIncludePosition) {
             eyePositions.expand(player.getMovementThreshold());
         }
 
@@ -83,11 +79,5 @@ public class PositionBreakA extends Check implements BlockBreakListener {
                 && shouldModifyPackets()) {
             blockBreak.cancel();
         }
-    }
-
-    private boolean canSkipTicks() {
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
-                && !(player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                        && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21_2));
     }
 }

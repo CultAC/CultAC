@@ -39,10 +39,6 @@ public class WorldData {
     DesyncStatus climbing;
 
     int numColliding;
-    int soulSandCount;
-
-    @Setter
-    DesyncStatus weirdFourteenFifteenLava;
 
     // Default model state identifies the supporting block, independent of its properties.
     int onBlock;

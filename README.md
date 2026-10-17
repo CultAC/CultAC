@@ -14,8 +14,7 @@ Discord: https://discord.gg/nyeVp7UFau
 
 
 * Java client support: 1.21.2 though 26.3
-  * Pre-1.21.2 players will be disconnected if ViaVersion is on the backend and Cult is on the proxy
-  * Pre-1.21.2 player support is deprecated
+  * Older clients are not supported and are disconnected when they join (observe-only lets them join uninspected)
 * Paper 1.21.2, 1.21.11, 26.2, or 26.3.
 * Velocity; see the [CultAC Companion](paper-companion/README.md) for backend servers behind the Velocity plugin
 

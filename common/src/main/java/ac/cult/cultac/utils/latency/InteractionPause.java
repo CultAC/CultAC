@@ -3,7 +3,6 @@ package ac.cult.cultac.utils.latency;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
 import ac.cult.cultac.network.packet.InventoryPackets;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
@@ -127,8 +126,7 @@ public final class InteractionPause {
     private void resync() {
         active = false;
         generation++;
-        boolean acknowledges =
-                highestSequence >= 0 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19);
+        boolean acknowledges = highestSequence >= 0;
         int blocks = ResyncWorldUtil.sendServerStates(player, positions, acknowledges ? highestSequence : -1);
         int slots = player.getInventory().resyncFromServerView();
         LogUtil.info("Cult interaction resync player=" + player.getName()

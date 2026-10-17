@@ -45,9 +45,7 @@ import ac.cult.cultac.checks.type.PositionListener;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -259,13 +257,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
     }
 
-    private boolean canSpeculatePointThreeFromMovementPacket() {
-        return this.player.isBedrockMovement()
-                ? false
-                : this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
-                        && this.player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2);
-    }
-
     private boolean isPassengerRotationOnlyTick(ServerboundMovePlayer packet) {
         return packet.rotationOnly()
                 && (this.player.packetStateData.hasPassengerRotationThisClientTick()
@@ -282,8 +273,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (!this.player.compensatedEntities.vehicles.hasPlayerPassengerState()
                 && !this.player.packetStateData.hasPassengerRotationThisClientTick()) {
             if (!this.player.isBedrockMovement()) {
-                if (!this.player.packetStateData.receivedMovementThisClientTick
-                        && !this.player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) {
+                if (!this.player.packetStateData.receivedMovementThisClientTick) {
                     PredictionResult result = this.advanceNoPositionClientTick(
                             new Vec3(this.player.x, this.player.y, this.player.z), this.player.xRot, this.player.yRot);
                     if (this.isAcceptedNoPositionTick(result)) {
@@ -356,13 +346,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     public void onPositionUpdate(PositionUpdate positionUpdate) {
         if (positionUpdate.getTeleportData().isTeleport()) {
             this.handleTeleport(positionUpdate.getTeleportData());
-            if (this.canSpeculatePointThreeFromMovementPacket() && !this.couldPotentiallyTickSkip) {
-                this.couldPotentiallyTickSkip = this.tryToAchievePointThree(
-                                positionUpdate.getFrom(), this.player.xRot, this.player.yRot)
-                        .getFlags()
-                        .stream()
-                        .allMatch(flag -> flag.getCheck() instanceof NoFallPseudo);
-            }
         } else {
             if (!this.player.isBedrockMovement()
                     && (this.player.checkManager.getKnockbackHandler().hasPacketVelocity()
@@ -393,20 +376,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             }
 
             this.player.onGround = packetOnGround;
-            boolean didSkip = this.canSpeculatePointThreeFromMovementPacket()
-                    && !this.couldPotentiallyTickSkip
-                    && this.tryToAchievePointThree(positionUpdate.getFrom(), this.player.xRot, this.player.yRot)
-                            .getFlags()
-                            .isEmpty();
-            if (didSkip) {
-                this.couldPotentiallyTickSkip = true;
-            }
         }
     }
 
     private void handleTeleport(TeleportAcceptData teleportAcceptData) {
         TeleportData teleportData = teleportAcceptData.getTeleportData();
-        this.player.compensatedWorld.pistons.onLegacyPlayerTeleport();
         PredictionResult result =
                 new PredictionResult(this.player, null, null, null, teleportData, new ArrayList(), new ArrayList());
         result.setTeleport(true);
@@ -414,35 +388,18 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.player.boundingBox =
                 GetBoundingBox.getCollisionBoxForPlayer(this.player, position.x, position.y, position.z);
         if (!this.player.compensatedEntities.getSelf().inVehicle()) {
-            if (this.player.isBedrockMovement()
-                    || this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
-                Set<Vec3> existingVectors = this.validPlayerStartingVels;
-                this.validPlayerStartingVels = new HashSet<>();
+            Set<Vec3> existingVectors = this.validPlayerStartingVels;
+            this.validPlayerStartingVels = new HashSet<>();
 
-                for (Vec3 vector : existingVectors) {
-                    this.validPlayerStartingVels.add(
-                            this.player.isBedrockMovement() ? Vec3.ZERO : teleportData.applyToVelocity(vector));
-                }
+            for (Vec3 vector : existingVectors) {
+                this.validPlayerStartingVels.add(
+                        this.player.isBedrockMovement() ? Vec3.ZERO : teleportData.applyToVelocity(vector));
+            }
 
-                if (!teleportData.isRelativeDeltaX()
-                        && !teleportData.isRelativeDeltaY()
-                        && !teleportData.isRelativeDeltaZ()) {
-                    this.lastFlying.setRaw(20);
-                }
-            } else {
-                Set<Vec3> existingVectors = this.validPlayerStartingVels;
-                this.validPlayerStartingVels = new HashSet<>();
-                ClientVersion serverVersion = ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
-                for (Vec3 vector : existingVectors) {
-                    this.validPlayerStartingVels.add(ac.cult.cultac.utils.nmsutil.LegacyTeleportVelocity.apply(
-                            this.player.getClientVersion(), serverVersion, teleportData, vector));
-                }
-                if (this.validPlayerStartingVels.isEmpty()) {
-                    this.validPlayerStartingVels.add(ac.cult.cultac.utils.nmsutil.LegacyTeleportVelocity.apply(
-                            this.player.getClientVersion(), serverVersion, teleportData, Vec3.ZERO));
-                }
-                if (teleportData.isAbsolute() || this.player.getClientVersion().isOlderThan(ClientVersion.V_1_9))
-                    this.lastFlying.setRaw(20);
+            if (!teleportData.isRelativeDeltaX()
+                    && !teleportData.isRelativeDeltaY()
+                    && !teleportData.isRelativeDeltaZ()) {
+                this.lastFlying.setRaw(20);
             }
         }
 
@@ -1155,14 +1112,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     private PredictionResult advanceNoPositionClientTick(Vec3 position, float xRot, float yRot) {
-        // Grim 3.0 keeps pre-tick-end clients anchored to their last reported
-        // position. The next position packet includes their unreported movement;
-        // committing zero here destroys that velocity/position relationship.
-        // 1.8 supplies a status/rotation packet every tick, so this probe (rather
-        // than speculative skipped packets) establishes its PointThree candidate.
-        if (!this.player.supportsEndTick()) {
-            return this.tryToAchievePointThree(position, xRot, yRot);
-        }
         MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
         PredictionResult result =
                 this.callPrediction(Vec3.ZERO, position, position, true, xRot, yRot, null, movementProfile);
@@ -1735,10 +1684,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     private int getSwiftSneakLevel() {
-        if (this.player.getClientVersion().isOlderThan(ClientVersion.V_1_19)) {
-            return 0;
-        }
-
         SimItemStack leggings = this.player.getInventory().getLeggings();
         return !leggings.isEmpty() && !leggings.getEnchantments().isEmpty()
                 ? ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(leggings, "minecraft:swift_sneak")
@@ -1746,10 +1691,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     private float getDepthStriderLevel() {
-        if (this.player.getClientVersion().isOlderThan(ClientVersion.V_1_8)) {
-            return 0.0F;
-        }
-
         SimItemStack boots = this.player.getInventory().getBoots();
         if (!boots.isEmpty() && !boots.getEnchantments().isEmpty()) {
             float level = ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(boots, "minecraft:depth_strider");
@@ -1797,10 +1738,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     .getSimulationContext()
                                     .getWorldData()
                                     .setInFlowingLiquid(DesyncStatus.UNKNOWN);
-                            this.lastPrediction
-                                    .getSimulationContext()
-                                    .getWorldData()
-                                    .setWeirdFourteenFifteenLava(DesyncStatus.UNKNOWN);
                         }
 
                         if (BlockTags.CLIMBABLE.test(to)
@@ -1821,18 +1758,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     .getWorldData()
                                     .setStuckSpeed(new StuckSpeedData(null, stuckSpeed));
                             this.validPlayerStartingVels.add(Vec3.ZERO);
-                        }
-
-                        if (this.canSpeculatePointThreeFromMovementPacket() && !this.couldPotentiallyTickSkip) {
-                            boolean isPointThree = this.tryToAchievePointThree(
-                                            new Vec3(this.player.x, this.player.y, this.player.z),
-                                            this.player.xRot,
-                                            this.player.yRot)
-                                    .getFlags()
-                                    .isEmpty();
-                            if (isPointThree) {
-                                this.couldPotentiallyTickSkip = true;
-                            }
                         }
                     }
                 }

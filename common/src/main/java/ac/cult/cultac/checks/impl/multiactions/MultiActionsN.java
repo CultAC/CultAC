@@ -31,11 +31,4 @@ public class MultiActionsN extends Check implements CheckListener {
             player.onPacketCancel();
         }
     }
-
-    public boolean onLegacyOpenInventory() {
-        return player.openWindow.mustBeOpen()
-                && player.openWindow.getTicksOpen() != 0
-                && flag()
-                && shouldModifyPackets();
-    }
 }

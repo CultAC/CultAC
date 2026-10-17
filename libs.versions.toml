@@ -1,7 +1,6 @@
 [versions]
 # --- Platform Dependencies ---
 adventure = "4.23.0"
-adventure-platform-bukkit = "4.4.0"
 cloud = "2.0.0"
 cloud-paper = "2.0.1"
 cloud-processors-requirements = "1.0.0-rc.1"
@@ -35,7 +34,6 @@ protobuf-plugin = "0.10.0"
 
 [libraries]
 # --- Core Frameworks: Adventure (Text) & Cloud (Commands) ---
-adventure-platform-bukkit = { group = "net.kyori", name = "adventure-platform-bukkit", version.ref = "adventure-platform-bukkit" }
 adventure-text-minimessage = { group = "net.kyori", name = "adventure-text-minimessage", version.ref = "adventure" }
 cloud-core = { group = "org.incendo", name = "cloud-core", version.ref = "cloud" }
 cloud-paper = { group = "org.incendo", name = "cloud-paper", version.ref = "cloud-paper" }

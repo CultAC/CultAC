@@ -3,7 +3,6 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
@@ -24,11 +23,6 @@ public class CollisionModifier implements UncertaintyHandler {
         {Collisions.Axis.Y, Collisions.Axis.Z, Collisions.Axis.X},
         {Collisions.Axis.X, Collisions.Axis.Z, Collisions.Axis.Y},
         {Collisions.Axis.Z, Collisions.Axis.X, Collisions.Axis.Y}
-    };
-    private static final Collisions.Axis[][] REPORTING_EXPAND_ORDERS = {
-        {Collisions.Axis.Y, Collisions.Axis.Z, Collisions.Axis.X},
-        {Collisions.Axis.X, Collisions.Axis.Z, Collisions.Axis.Y},
-        {Collisions.Axis.X, Collisions.Axis.Y, Collisions.Axis.Z}
     };
 
     // Probe scratch: one instance probes on one thread at a time, and none of these escapes a probe.
@@ -120,11 +114,6 @@ public class CollisionModifier implements UncertaintyHandler {
             double clamped = CultMath.clamp(end.y, start.y, collide.getYPos().getResult());
             start = start.withY(clamped, "collide +y");
         }
-
-        // Legacy Entity#moveEntity always commits the clipped bounding box.
-        if (context != null
-                && context.getVersion() != null
-                && context.getVersion().isOlderThan(ClientVersion.V_1_14)) return start;
         Vec3 packetVisibleMovement =
                 applyEntityMovePositionCommitGuard(attempted, start, attempted.collisionStuckSpeedMultiplier(context));
         return packetVisibleMovement == start ? start : start.with(packetVisibleMovement, "Entity#move setPos guard");
@@ -279,12 +268,11 @@ public class CollisionModifier implements UncertaintyHandler {
             });
         }
 
-        boolean modernOrder = context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_14);
         boolean groundedOrder = context.getLastOnGround().determineOptimistically();
 
         // Brute force the current-client axis order possibilities exposed by the server-observable movement envelope.
         for (int orderIndex = 0; orderIndex < PROBE_ORDERS.length; orderIndex++) {
-            if (((orderIndex & 1) != 0 && !modernOrder) || (orderIndex >= 2 && !groundedOrder)) continue;
+            if (orderIndex >= 2 && !groundedOrder) continue;
             var order = PROBE_ORDERS[orderIndex];
             double iterX = playerPos.x, iterY = playerPos.y, iterZ = playerPos.z;
             for (Collisions.Axis axis : order) {
@@ -518,33 +506,9 @@ public class CollisionModifier implements UncertaintyHandler {
         double epsilon = isPositive ? axisEpsilon : -axisEpsilon;
         amount += epsilon;
 
-        // Restore Grim 3.0's collision-constrained reporting extent. Old clients
-        // can be up to 0.03 from their last reported coordinates; collision
-        // clipping, rather than proximity, bounds where that body can be.
-        double reportingExtent = !isVehicle && context.getVersion().isOlderThan(ClientVersion.V_1_18_2) ? 0.03D : 0.0D;
         SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                probeBox, posX, posY, posZ, (float) (dimensions.width() - reportingExtent), (float)
-                        (dimensions.initialHeight() - reportingExtent));
-        if (reportingExtent > 0) {
-            var expandOrder = REPORTING_EXPAND_ORDERS[axis.ordinal()];
-            for (Collisions.Axis expandAxis : expandOrder) {
-                if (expandAxis == axis) {
-                    expandUpwards(
-                            playerBox,
-                            collisions,
-                            axis,
-                            epsilon,
-                            dimensions.maxHeight() - dimensions.initialHeight(),
-                            dimensions.epsilon());
-                }
-                double positive = Collisions.collideAxis(
-                        reportingExtent * 2, playerBox, collisions, expandAxis, dimensions.epsilon());
-                double negative = Collisions.collideAxis(
-                        -reportingExtent * 2, playerBox, collisions, expandAxis, dimensions.epsilon());
-                expandInAxis(playerBox, expandAxis, positive);
-                expandInAxis(playerBox, expandAxis, negative);
-            }
-        } else if (!isVehicle) {
+                probeBox, posX, posY, posZ, dimensions.width(), dimensions.initialHeight());
+        if (!isVehicle) {
             expandUpwards(
                     playerBox,
                     collisions,
@@ -594,13 +558,6 @@ public class CollisionModifier implements UncertaintyHandler {
             }
         }
         playerBox.expandToCoordinate(x, y, z); // Height uncertainty for bounding box
-    }
-
-    private static void expandInAxis(SimpleCollisionBox box, Collisions.Axis axis, double amount) {
-        box.expandToCoordinate(
-                axis == Collisions.Axis.X ? amount : 0,
-                axis == Collisions.Axis.Y ? amount : 0,
-                axis == Collisions.Axis.Z ? amount : 0);
     }
 
     @AllArgsConstructor

@@ -8,7 +8,6 @@ import ac.cult.cultac.checks.impl.prediction.checks.EngineCheck;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.event.PacketSendEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -217,7 +216,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     public void handleTeleport(TeleportData data) {
         if (data == null) {
             markVelocityOverriddenByTeleport();
-        } else if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
+        } else {
             if (!hasRelativeDelta(data)) {
                 markVelocityOverriddenByTeleport();
                 return;
@@ -226,12 +225,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             // applies PositionMoveRotation#calculateAbsolute to the current
             // delta movement. Relative delta flags preserve packet-applied
             // client velocity through the teleport, one axis at a time.
-            transformPendingPacketVelocities(data, true);
-        } else if (data.isAbsolute()) {
-            markVelocityOverriddenByTeleport();
-        } else {
-            // Relative teleport only preserved some of it (or none of it)
-            transformPendingPacketVelocities(data, false);
+            transformPendingPacketVelocities(data);
         }
     }
 
@@ -239,16 +233,16 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         return data.isRelativeDeltaX() || data.isRelativeDeltaY() || data.isRelativeDeltaZ();
     }
 
-    private void transformPendingPacketVelocities(TeleportData data, boolean useDeltaFlags) {
+    private void transformPendingPacketVelocities(TeleportData data) {
         if (shouldTransformPacketVelocity(data, this.secondBread)) {
-            this.secondBread.setVel(transformPendingPacketVelocity(data, this.secondBread.getVel(), useDeltaFlags));
+            this.secondBread.setVel(transformPendingPacketVelocity(data, this.secondBread.getVel()));
         }
         if (shouldTransformPacketVelocity(data, this.firstBread)) {
-            this.firstBread.setVel(transformPendingPacketVelocity(data, this.firstBread.getVel(), useDeltaFlags));
+            this.firstBread.setVel(transformPendingPacketVelocity(data, this.firstBread.getVel()));
         }
         for (TransactionVel overriddenVel : this.overriddenVels) {
             if (shouldTransformPacketVelocity(data, overriddenVel)) {
-                overriddenVel.setVel(transformPendingPacketVelocity(data, overriddenVel.getVel(), useDeltaFlags));
+                overriddenVel.setVel(transformPendingPacketVelocity(data, overriddenVel.getVel()));
             }
         }
     }
@@ -257,8 +251,8 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         return velocity != null && velocity.getTransaction() <= data.getTransaction();
     }
 
-    private Vec3 transformPendingPacketVelocity(TeleportData data, Vec3 velocity, boolean useDeltaFlags) {
-        return useDeltaFlags ? data.transformInheritedVelocity(velocity) : data.modifyVector(velocity);
+    private Vec3 transformPendingPacketVelocity(TeleportData data, Vec3 velocity) {
+        return data.transformInheritedVelocity(velocity);
     }
 
     protected boolean shouldUseBundledProof() {
@@ -345,8 +339,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         // then LocalPlayer#tick consumes that delta before Minecraft#tick sends
         // ServerboundClientTickEndPacket. Once Cult has seen that tick-end after the
         // packet's proof transaction, the previous modifier is already consumed.
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                && player.packetStateData.lastClientTickEndTransaction >= previous.getTransaction()) {
+        if (player.packetStateData.lastClientTickEndTransaction >= previous.getTransaction()) {
             return false;
         }
 

@@ -2,32 +2,25 @@ package ac.cult.cultac.checks.impl.combat;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
-import ac.cult.cultac.checks.type.PostPredictionListener;
+import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.Vec3d;
-import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import java.util.ArrayList;
 
 @CheckData(
         name = "MultiInteractB",
         stableKey = "cult.multiinteract.interact_at_position_changed",
         description = "Sent multiple entity interaction packets with different hit positions in one tick",
         experimental = true)
-public class MultiInteractB extends Check implements PostPredictionListener {
+public class MultiInteractB extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("pos={f64}, {f64}, {f64}, lastPos={f64}, {f64}, {f64}");
-    private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
 
-    private final ArrayList<FlagData> flags = new ArrayList<>();
     private Vec3d lastPos;
     private boolean hasInteracted;
 
@@ -48,20 +41,16 @@ public class MultiInteractB extends Check implements PostPredictionListener {
         }
 
         if (hasInteracted && !pos.equals(lastPos)) {
-            if (!canSkipTicks()) {
-                if (flag(V.write(verbose())
-                                .f64(pos.x())
-                                .f64(pos.y())
-                                .f64(pos.z())
-                                .f64(lastPos.x())
-                                .f64(lastPos.y())
-                                .f64(lastPos.z()))
-                        && shouldModifyPackets()) {
-                    event.setCancelled(true);
-                    player.onPacketCancel();
-                }
-            } else {
-                flags.add(new FlagData(pos.x(), pos.y(), pos.z(), lastPos.x(), lastPos.y(), lastPos.z()));
+            if (flag(V.write(verbose())
+                            .f64(pos.x())
+                            .f64(pos.y())
+                            .f64(pos.z())
+                            .f64(lastPos.x())
+                            .f64(lastPos.y())
+                            .f64(lastPos.z()))
+                    && shouldModifyPackets()) {
+                event.setCancelled(true);
+                player.onPacketCancel();
             }
         }
 
@@ -81,37 +70,8 @@ public class MultiInteractB extends Check implements PostPredictionListener {
     // isTickPacket: tick end resets for 1.21.2+ clients when no movement arrived this client tick
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (!player.cameraEntity.isSelf()
-                || (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                        && !player.packetStateData.receivedMovementThisClientTick)) {
+        if (!player.cameraEntity.isSelf() || !player.packetStateData.receivedMovementThisClientTick) {
             hasInteracted = false;
         }
     }
-
-    @Override
-    public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!canSkipTicks()) return;
-
-        if (player.isTickingReliablyFor(3)) {
-            for (FlagData data : flags) {
-                flag(V.write(verbose())
-                        .f64(data.posX())
-                        .f64(data.posY())
-                        .f64(data.posZ())
-                        .f64(data.lastPosX())
-                        .f64(data.lastPosY())
-                        .f64(data.lastPosZ()));
-            }
-        }
-
-        flags.clear();
-    }
-
-    private boolean canSkipTicks() {
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
-                && !(player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                        && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_21_2));
-    }
-
-    private record FlagData(double posX, double posY, double posZ, double lastPosX, double lastPosY, double lastPosZ) {}
 }

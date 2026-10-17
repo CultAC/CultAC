@@ -68,13 +68,6 @@ public enum ClientVersion {
         return protocolVersion;
     }
 
-    // TODO: Should we add anticheat logic here? I mean, it kind of makes sense
-    public boolean usesModernEntityStepCollision() {
-        // Entity#collide uses the legacy two-probe step calculation through 1.20.6. 1.21/protocol
-        // 767 is the first stable release using collectCandidateStepUpHeights.
-        return isNewerThanOrEquals(V_1_21);
-    }
-
     public static ClientVersion fromProtocolVersion(int protocolVersion) {
         ClientVersion selected = V_1_7_10;
         for (ClientVersion version : values()) {

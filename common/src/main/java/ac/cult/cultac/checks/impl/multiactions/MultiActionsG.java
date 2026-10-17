@@ -4,7 +4,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -84,8 +83,7 @@ public class MultiActionsG extends BlockPlaceCheck {
 
     public boolean isCheckActive() {
         PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)
-                && !player.vehicleData.wasVehicleSwitch // one tick off?
+        return !player.vehicleData.wasVehicleSwitch // one tick off?
                 && player.inVehicle()
                 && riding != null
                 && EntityTypeUtil.isBoat(riding.type)

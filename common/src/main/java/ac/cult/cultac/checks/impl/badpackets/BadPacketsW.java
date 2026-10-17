@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSpectatorAction;
@@ -52,14 +51,7 @@ public class BadPacketsW extends Check implements CheckListener {
     }
 
     private boolean isInvalidEntityTarget(int entityId) {
-        if (player.compensatedEntities.entityMap.containsKey(entityId)
-                || player.compensatedEntities.serverPositionsMap.containsKey(entityId)) {
-            return false;
-        }
-
-        // Pre-1.14 clients may still target an entity removed during this server
-        // transaction because their ray-trace entity list updates later.
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14)
-                || !player.packetEntityReplication.wasDespawnedThisTransaction(entityId);
+        return !player.compensatedEntities.entityMap.containsKey(entityId)
+                && !player.compensatedEntities.serverPositionsMap.containsKey(entityId);
     }
 }

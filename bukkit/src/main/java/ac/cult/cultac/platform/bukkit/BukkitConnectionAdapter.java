@@ -2,6 +2,7 @@ package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.PlatformConnection;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.util.FoliaCompatUtil;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaConnectionProtocol;
@@ -10,11 +11,13 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import net.minecraft.network.Connection;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerConfigurationPacketListenerImpl;
@@ -30,6 +33,7 @@ public final class BukkitConnectionAdapter implements PlatformConnection {
     private static final Method PROFILE_ID = profileMethod("id", "getId");
     private static final Method PROFILE_NAME = profileMethod("name", "getName");
     private static final Method PLAYER_LEVEL = playerLevelMethod();
+    private static final String OUTDATED_CLIENT = "Outdated client! Please use Minecraft 1.21.2 or newer.";
     private final Connection connection;
     /** Received model registry names and older-wire values; Velocity owns the same per connection. */
     private final ac.cult.cultac.network.codec.ConnectionModelValues model =
@@ -65,6 +69,26 @@ public final class BukkitConnectionAdapter implements PlatformConnection {
         if (protocol == -1) protocol = net.minecraft.SharedConstants.getProtocolVersion();
         if (protocol < 768 || protocol > 777) return null;
         return ProtocolVersion.of(protocol);
+    }
+
+    @Override
+    public boolean disconnectOutdatedClient() {
+        if (!ViaVersionUtil.isAvailable()) return false;
+        int protocol = ViaConnectionProtocol.originalProtocol(connection.channel);
+        if (protocol <= 0 || protocol >= ClientVersion.V_1_21_2.getProtocolVersion()) return false;
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            User.Profile profile = authenticatedProfile();
+            LogUtil.warn("Not inspecting " + (profile == null ? "a client" : profile.getName()) + "; protocol "
+                    + protocol + " is older than 1.21.2");
+            return true;
+        }
+        if (connection.getPacketListener() instanceof ServerConfigurationPacketListenerImpl listener) {
+            MinecraftServer.getServer()
+                    .execute(() -> listener.disconnect(net.minecraft.network.chat.Component.literal(OUTDATED_CLIENT)));
+        } else {
+            disconnect(Component.text(OUTDATED_CLIENT));
+        }
+        return true;
     }
 
     @Override

@@ -18,7 +18,6 @@ public class UncertaintyPipeline {
             new Honey(), // This fucks up elytras.
             new BouncyBlock(), // Although elytra is technically after this, +Y movements don't affect XZ with elytra
             new Ladder(), // No climbing while using an elytra
-            new XZBug(), // Only applies in X direction
             new FishingRod(), // No clue where this goes, but it's pre-tick, so I'll throw it here.
             new PointThree(),
             new Sneaking(),
@@ -35,6 +34,6 @@ public class UncertaintyPipeline {
             ));
 
     public static final List<UncertaintyHandler> MODIFIERS_FOR_SETBACKS = MODIFIERS.stream()
-            .filter(modifier -> !(modifier instanceof PointThree || modifier instanceof XZBug))
+            .filter(modifier -> !(modifier instanceof PointThree))
             .collect(Collectors.toList());
 }

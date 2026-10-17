@@ -2,29 +2,23 @@ package ac.cult.cultac.checks.impl.packetorder;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
-import ac.cult.cultac.checks.type.PostPredictionListener;
+import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.value.PlayerAction;
-import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import java.util.ArrayDeque;
-import org.jetbrains.annotations.Nullable;
 
 @CheckData(
         name = "PacketOrderG",
         stableKey = "cult.packetorder.hotbar_inventory_manage_order",
         description = "Managed hotbar or inventory while performing another conflicting action",
         experimental = true)
-public class PacketOrderG extends Check implements PostPredictionListener {
+public class PacketOrderG extends Check implements CheckListener {
     private static final Verbose V = Verbose.of(
             "action={str}, attacking={bool}, releasing={bool}, rightClicking={bool}, picking={bool}, digging={bool}");
 
-    static final int ACTION_OPEN_INVENTORY = 0;
     static final int ACTION_SWAP = 1;
     static final int ACTION_DROP = 2;
 
@@ -32,21 +26,16 @@ public class PacketOrderG extends Check implements PostPredictionListener {
         super(player);
     }
 
-    private final ArrayDeque<FlagData> flags = new ArrayDeque<>();
-
     static String actionName(int action) {
         return switch (action) {
-            case ACTION_OPEN_INVENTORY -> "openInventory";
             case ACTION_SWAP -> "swap";
             case ACTION_DROP -> "drop";
             default -> "unknown";
         };
     }
 
-    private static int action(@Nullable PlayerAction action) {
-        return action == null
-                ? ACTION_OPEN_INVENTORY
-                : action == PlayerAction.SWAP_ITEM_WITH_OFFHAND ? ACTION_SWAP : ACTION_DROP;
+    private static int action(PlayerAction action) {
+        return action == PlayerAction.SWAP_ITEM_WITH_OFFHAND ? ACTION_SWAP : ACTION_DROP;
     }
 
     @CultPacketHandler
@@ -60,16 +49,7 @@ public class PacketOrderG extends Check implements PostPredictionListener {
         onAction(event, player, action);
     }
 
-    @CultPacketHandler
-    public void onClientCommand(
-            PacketReceiveEvent<ServerboundClientCommand> event, CultPlayer player, ServerboundClientCommand packet) {
-        // The 26.2 enum has no OPEN_INVENTORY_ACHIEVEMENT (removed in 1.12)
-        if (packet.action().name().equals("OPEN_INVENTORY_ACHIEVEMENT")) {
-            onAction(event, player, null);
-        }
-    }
-
-    private void onAction(PacketReceiveEvent event, CultPlayer player, @Nullable PlayerAction action) {
+    private void onAction(PacketReceiveEvent event, CultPlayer player, PlayerAction action) {
         if (player.packetOrderProcessor.isAttackingOrStabbing()
                 || player.packetOrderProcessor.isReleasing()
                 || player.packetOrderProcessor.isRightClicking()
@@ -81,55 +61,24 @@ public class PacketOrderG extends Check implements PostPredictionListener {
             boolean rightClicking = player.packetOrderProcessor.isRightClicking();
             boolean picking = player.packetOrderProcessor.isPicking();
             boolean digging = player.packetOrderProcessor.isDigging();
-            if (!player.canSkipTicks()) {
-                if (flag(V.write(verbose())
-                                .str(actionName(actionKind))
-                                .bool(attacking)
-                                .bool(releasing)
-                                .bool(rightClicking)
-                                .bool(picking)
-                                .bool(digging))
-                        && shouldModifyPackets()
-                        && canCancel(action)) {
-                    event.setCancelled(true);
-                    player.onPacketCancel();
-                }
-            } else {
-                flags.add(new FlagData(actionKind, attacking, releasing, rightClicking, picking, digging));
+            if (flag(V.write(verbose())
+                            .str(actionName(actionKind))
+                            .bool(attacking)
+                            .bool(releasing)
+                            .bool(rightClicking)
+                            .bool(picking)
+                            .bool(digging))
+                    && shouldModifyPackets()
+                    && canCancel(action)) {
+                event.setCancelled(true);
+                player.onPacketCancel();
             }
         }
     }
 
-    private boolean canCancel(@Nullable PlayerAction action) {
+    private boolean canCancel(PlayerAction action) {
         return action != PlayerAction.RELEASE_USE_ITEM
-                && ((action != PlayerAction.DROP_ITEM && action != PlayerAction.DROP_ALL_ITEMS)
-                        || player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8));
+                && action != PlayerAction.DROP_ITEM
+                && action != PlayerAction.DROP_ALL_ITEMS;
     }
-
-    @Override
-    public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) return;
-
-        if (player.isTickingReliablyFor(3)) {
-            for (FlagData data : flags) {
-                flag(V.write(verbose())
-                        .str(actionName(data.action()))
-                        .bool(data.attacking())
-                        .bool(data.releasing())
-                        .bool(data.rightClicking())
-                        .bool(data.picking())
-                        .bool(data.digging()));
-            }
-        }
-
-        flags.clear();
-    }
-
-    private record FlagData(
-            int action,
-            boolean attacking,
-            boolean releasing,
-            boolean rightClicking,
-            boolean picking,
-            boolean digging) {}
 }

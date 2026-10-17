@@ -13,9 +13,6 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
-import ac.cult.cultac.utils.collisions.LegacyPistonCollision;
-import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
-import ac.cult.cultac.utils.collisions.datatypes.NoCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.PistonData;
 import ac.cult.cultac.utils.data.PistonPushes;
@@ -40,7 +37,6 @@ public final class CompensatedWorldPistons {
     private final CompensatedWorld world;
     private final Set<PistonData> activePistons = new HashSet<>();
     private final Long2ObjectOpenHashMap<MovingPistonState> movingPistonStates = new Long2ObjectOpenHashMap<>();
-    private final List<LegacyPistonMovement> lastLegacyPistonMovements = new ArrayList<>();
 
     CompensatedWorldPistons(CultPlayer player, CompensatedWorld world) {
         this.player = player;
@@ -272,10 +268,7 @@ public final class CompensatedWorldPistons {
     }
 
     void receiveBlockEntityData(ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate packet) {
-        if (player.isBedrockMovement()
-                || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)
-                || !packet.type().equals("minecraft:piston")
-                || packet.tag() == null) return;
+        if (player.isBedrockMovement() || !packet.type().equals("minecraft:piston") || packet.tag() == null) return;
         var state = movingPistonStates.get(packet.position().asLong());
         // MovingPistonBlock.newBlockEntity returns null. Updates and chunk tags
         // cannot create one; ClientPacketListener only loads an existing entity.
@@ -337,23 +330,7 @@ public final class CompensatedWorldPistons {
         advanceClientPistonTick();
     }
 
-    public boolean usesLegacyCollision() {
-        return !player.isBedrockMovement() && player.getClientVersion().isOlderThan(ClientVersion.V_1_9);
-    }
-
-    public void onLegacyMovementTick() {
-        if (usesLegacyCollision()) advanceClientPistonTick();
-    }
-
-    public void onLegacyPlayerTeleport() {
-        // ViaRewind resolves relative positions before sending S08 with flags=0.
-        // NetHandlerPlayClient#handlePlayerPosLook then resets all motion axes.
-        // Neither that teleport nor its immediate echo ticks the tile entities.
-        if (usesLegacyCollision()) lastLegacyPistonMovements.clear();
-    }
-
     private void advanceClientPistonTick() {
-        if (usesLegacyCollision()) captureLegacyPistonMovement();
         captureClientTickPistonMovement();
         activePistons.removeIf(PistonData::tickIfGuaranteedFinished);
         tickMovingPistonStates();
@@ -362,12 +339,11 @@ public final class CompensatedWorldPistons {
     void clear() {
         activePistons.clear();
         movingPistonStates.clear();
-        lastLegacyPistonMovements.clear();
     }
 
     /** Whether no piston can push the player, so every push this pass is the empty box. */
     boolean hasNoPushSources() {
-        return usesLegacyCollision() ? lastLegacyPistonMovements.isEmpty() : activePistons.isEmpty();
+        return activePistons.isEmpty();
     }
 
     SimpleCollisionBox createPistonQueryBox(SimulationContext context) {
@@ -376,7 +352,7 @@ public final class CompensatedWorldPistons {
             // 26.3 Minecraft#tick sends changes after travel and block entities.
             // Keep the existing envelope query, including where travel can end.
             playerBox.union(context.getToMaximumExtent());
-        } else if (!usesClientTickEndPistonPhase() && !usesLegacyCollision()) {
+        } else if (!usesClientTickEndPistonPhase()) {
             playerBox.union(context.getToMaximumExtent());
             playerBox.expand(0.2);
         }
@@ -395,7 +371,6 @@ public final class CompensatedWorldPistons {
     }
 
     public PistonPushes tickPlayerInPistonPushingArea(SimpleCollisionBox playerBox) {
-        if (usesLegacyCollision()) return legacyPistonPushes(playerBox);
         Set<Direction> launches = null;
         SimpleCollisionBox pistonPushes = new SimpleCollisionBox();
         boolean currentPass = reportsAfterBlockEntities();
@@ -476,65 +451,6 @@ public final class CompensatedWorldPistons {
         return false;
     }
 
-    private void captureLegacyPistonMovement() {
-        lastLegacyPistonMovements.clear();
-        // World#updateEntities runs local travel/sendPosition before tile
-        // entities. Preserve this pass independently of the live tiles: the
-        // third update launches/pushes once more, then removes the tile.
-        for (MovingPistonState state : movingPistonStates.values()) {
-            float progress = state.progress();
-            if (!state.extending && progress < 1.0F) continue;
-            CollisionBox collision = LegacyPistonCollision.pushing(
-                    player,
-                    state.movedState,
-                    state.pos,
-                    state.direction,
-                    state.extending,
-                    Math.min(1.0F, progress + 0.5F));
-            if (!(collision instanceof SimpleCollisionBox box)) continue;
-            boolean launch = state.extending
-                    && BlockIds.is(state.movedState, BlockIds.SLIME_BLOCK)
-                    && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8);
-            lastLegacyPistonMovements.add(
-                    new LegacyPistonMovement(box, state.direction, progress >= 1.0F ? 0.25D : 0.5625D, launch));
-        }
-    }
-
-    private PistonPushes legacyPistonPushes(SimpleCollisionBox playerBox) {
-        Set<Direction> launches = null;
-        SimpleCollisionBox pushes = new SimpleCollisionBox();
-        for (LegacyPistonMovement movement : lastLegacyPistonMovements) {
-            if (!playerBox.isIntersected(movement.box)) continue;
-            Direction direction = movement.direction;
-            if (movement.launch) {
-                // 1.8 assigns motion on the facing axis; this branch does not
-                // call moveEntity and contributes no position-only shove.
-                if (launches == null) launches = new HashSet<>();
-                launches.add(direction);
-            } else {
-                // 1.7/1.8 moveEntity receives .5 + .0625 during extension,
-                // and .25 on completion (also when retracting, still facing
-                // forward). There is no modern .01 epsilon or .51 axis cap.
-                double x = direction.getModX() * movement.amount;
-                double y = direction.getModY() * movement.amount;
-                double z = direction.getModZ() * movement.amount;
-                pushes.minX += Math.min(0, x);
-                pushes.maxX += Math.max(0, x);
-                pushes.minY += Math.min(0, y);
-                pushes.maxY += Math.max(0, y);
-                pushes.minZ += Math.min(0, z);
-                pushes.maxZ += Math.max(0, z);
-                playerBox.expandToCoordinate(x, y, z);
-            }
-        }
-        PistonPushes result = new PistonPushes(
-                pushes, pushes, new SimpleCollisionBox(), launches == null ? Collections.emptySet() : launches);
-        result.setPistonMovementPhased(true);
-        return result;
-    }
-
-    private record LegacyPistonMovement(SimpleCollisionBox box, Direction direction, double amount, boolean launch) {}
-
     public boolean reportsAfterBlockEntities() {
         return !player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3);
     }
@@ -578,9 +494,7 @@ public final class CompensatedWorldPistons {
         // LocalPlayer#tick sends movement, then Minecraft#tick sends tick-end.
         // Their next movement therefore reports the same completed piston sweep
         // as 1.21.5+. Preserve the existing Bedrock phase selection.
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)
-                || (!player.isBedrockMovement()
-                        && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2));
+        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5) || !player.isBedrockMovement();
     }
 
     private static List<SimpleCollisionBox> retractingSourceFixBoxes(BlockPos sourcePos, Direction pistonDirection) {
@@ -625,7 +539,7 @@ public final class CompensatedWorldPistons {
             if (!BlockIds.is(world.getBlockStateIdAt(state.pos()), BlockIds.MOVING_PISTON)) {
                 return true;
             }
-            boolean remove = state.tickIfGuaranteedFinished(usesLegacyCollision());
+            boolean remove = state.tickIfGuaranteedFinished();
             if (remove) {
                 finished.add(state);
             }
@@ -643,7 +557,6 @@ public final class CompensatedWorldPistons {
             return;
         }
 
-        // Legacy TileEntityPiston#update restores the stored state immediately.
         // Modern PistonMovingBlockEntity#tick removes the client block entity
         // after five death ticks, then replaces MOVING_PISTON with the moved
         // state after neighbor-shape resolution, or the raw movedState when that
@@ -948,33 +861,7 @@ public final class CompensatedWorldPistons {
         if (movingPiston == null) {
             return Shapes.empty();
         }
-        if (usesLegacyCollision()) {
-            CollisionBox collision = getLegacyMovingPistonCollisionBox(pos);
-            if (!(collision instanceof SimpleCollisionBox box)
-                    || box.maxX <= box.minX
-                    || box.maxY <= box.minY
-                    || box.maxZ <= box.minZ) {
-                return Shapes.empty();
-            }
-            // Volume-only consumers use the same legacy bounds. Movement itself
-            // takes the direct AABB path so a degenerate face is not discarded.
-            return Shapes.create(
-                    box.minX - pos.getX(),
-                    box.minY - pos.getY(),
-                    box.minZ - pos.getZ(),
-                    box.maxX - pos.getX(),
-                    box.maxY - pos.getY(),
-                    box.maxZ - pos.getZ());
-        }
         return movingPiston.getCollisionShape(world, pos);
-    }
-
-    public CollisionBox getLegacyMovingPistonCollisionBox(BlockPos pos) {
-        MovingPistonState state = movingPistonStates.get(pos.asLong());
-        return state == null
-                ? NoCollisionBox.INSTANCE
-                : LegacyPistonCollision.movement(
-                        player, state.movedState, pos, state.direction, state.extending, state.previousProgress());
     }
 
     private static final class MovingPistonState {
@@ -999,12 +886,11 @@ public final class CompensatedWorldPistons {
             return pos;
         }
 
-        private boolean tickIfGuaranteedFinished(boolean legacy) {
+        private boolean tickIfGuaranteedFinished() {
             progressO = progress;
             if (progressO >= 1.0F) {
-                // Modern client entities wait five additional ticks. Legacy
-                // TileEntityPiston completes on the third pass without that wait.
-                if (legacy || deathTicks >= 5) return true;
+                // Client piston entities wait five additional ticks.
+                if (deathTicks >= 5) return true;
                 deathTicks++;
             } else {
                 progress += 0.5F;
@@ -1015,10 +901,6 @@ public final class CompensatedWorldPistons {
 
         private float progress() {
             return progress;
-        }
-
-        private float previousProgress() {
-            return progressO;
         }
 
         private float extendedProgress(float progress) {

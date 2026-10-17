@@ -6,7 +6,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundChat;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommand;
@@ -26,9 +25,7 @@ public class ChatB extends Check implements CheckListener {
     @CultPacketHandler
     public void onChatMessage(PacketReceiveEvent<ServerboundChat> event, CultPlayer player, ServerboundChat packet) {
         String message = packet.message();
-        if (message.isEmpty()
-                || !message.trim().equals(message)
-                || message.startsWith("/") && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19)) {
+        if (message.isEmpty() || !message.trim().equals(message) || message.startsWith("/")) {
             if (flag(V.write(verbose()).bool(true).str(message)) && shouldModifyPackets()) {
                 player.onPacketCancel();
                 event.setCancelled(true);

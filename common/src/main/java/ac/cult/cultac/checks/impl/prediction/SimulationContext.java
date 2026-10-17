@@ -281,8 +281,8 @@ public class SimulationContext {
                 && !worldData.maybeInLiquid();
     }
 
-    private double getMovementThreshold(ClientVersion version) {
-        return version.isOlderThan(ClientVersion.V_1_18_2) ? 0.03 : 0.0002;
+    private double getMovementThreshold() {
+        return 0.0002;
     }
 
     public SimpleCollisionBox getToMaxPose() {
@@ -297,7 +297,7 @@ public class SimulationContext {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
         }
         return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, 0.6f, 1.8f)
-                .expand(getMovementThreshold(version));
+                .expand(getMovementThreshold());
     }
 
     public SimpleCollisionBox getToMinimumExtent() {
@@ -305,7 +305,7 @@ public class SimulationContext {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), 0.6f);
         }
         return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, 0.6f, 0.6f)
-                .expand(-getMovementThreshold(version));
+                .expand(-getMovementThreshold());
     }
 
     /** {@code end.subtract(start)}, shared until {@code end} changes. */
@@ -440,9 +440,6 @@ public class SimulationContext {
             float speed = 0.02f;
 
             if (depthStriderLevel > 0) {
-                if (version.isOlderThan(ClientVersion.V_1_13)) {
-                    return speed + ((float) normalSpeed - speed) * depthStriderLevel / 3.0F;
-                }
                 speed += (normalSpeed * 1.3 - speed) * depthStriderLevel / 3.0F;
             }
             return speed;
@@ -454,10 +451,6 @@ public class SimulationContext {
 
         float onGroundSpeed = (float) (normalSpeed * (0.21600002f / (friction * friction * friction)));
         if (isOnGround) {
-            if (version.isOlderThan(ClientVersion.V_1_13)) {
-                float drag = friction * 0.91F;
-                return (float) normalSpeed * (0.16277136F / (drag * drag * drag));
-            }
             // MCP-Reborn 26.2 LivingEntity#getFrictionInfluencedSpeed receives the
             // friction_modifier-adjusted block friction and only boosts movement
             // speed on slippery blocks (friction > 0.6).

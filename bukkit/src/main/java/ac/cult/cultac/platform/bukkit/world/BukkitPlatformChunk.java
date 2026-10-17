@@ -2,7 +2,6 @@ package ac.cult.cultac.platform.bukkit.world;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.world.PlatformChunk;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -20,16 +19,11 @@ import org.jetbrains.annotations.NotNull;
 
 @RequiredArgsConstructor
 public class BukkitPlatformChunk implements PlatformChunk {
-    private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
-
     private static final ModelBlockStates MODEL_STATES =
-            ModelBlockStates.load(ProtocolVersion.of(SERVER_VERSION.getProtocolVersion()), ProtocolVersion.V26_3);
+            ModelBlockStates.load(ProtocolVersion.of(SharedConstants.getProtocolVersion()), ProtocolVersion.V26_3);
 
-    private static final boolean CUSTOMIZABLE_WORLD_HEIGHT = SERVER_VERSION.getProtocolVersion() >= 755;
     private static final Map<BlockData, Integer> blockDataToId =
             CultAPI.INSTANCE.getPlatform() == Platform.FOLIA ? new ConcurrentHashMap<>() : new HashMap<>();
-    private static final boolean isFlat = SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_1_13);
     private final @NotNull Chunk chunk;
 
     @Override
@@ -40,17 +34,11 @@ public class BukkitPlatformChunk implements PlatformChunk {
 
         org.bukkit.block.Block block = chunk.getBlock(x, y, z);
 
-        return isFlat // Cache blockDataToID because Strings are expensive
-                ? blockDataToId.computeIfAbsent(
-                        block.getBlockData(),
-                        data -> toModelState(
-                                Block.getId(((org.bukkit.craftbukkit.block.data.CraftBlockData) data).getState())))
-                : getLegacyBlockID(block);
-    }
-
-    @SuppressWarnings({"deprecation", "UnstableApiUsage"})
-    private static int getLegacyBlockID(@NotNull org.bukkit.block.Block block) {
-        return toModelState((block.getType().getId() << 4) | block.getData());
+        // Cache blockDataToID because Strings are expensive
+        return blockDataToId.computeIfAbsent(
+                block.getBlockData(),
+                data -> toModelState(
+                        Block.getId(((org.bukkit.craftbukkit.block.data.CraftBlockData) data).getState())));
     }
 
     static int toModelState(int hostState) {
@@ -58,9 +46,7 @@ public class BukkitPlatformChunk implements PlatformChunk {
     }
 
     public static boolean isIllegalY(@NotNull World world, int y) {
-        int minY = CUSTOMIZABLE_WORLD_HEIGHT ? world.getMinHeight() : 0;
-        int maxY = CUSTOMIZABLE_WORLD_HEIGHT ? world.getMaxHeight() : 255;
-        return minY > y || y > maxY;
+        return world.getMinHeight() > y || y > world.getMaxHeight();
     }
 
     public static boolean isIllegalPosition(World world, int x, int y, int z) {

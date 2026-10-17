@@ -15,9 +15,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
         description = "Sprinting while using an item",
         setback = 5,
         experimental = true)
-@DeadCheck(
-        reason = DeadCheck.Reason.VERSION_GATED,
-        detail = "Returns for protocol >= 485 except exactly 1.21.4; dead for all 1.21.2+ clients except 1.21.4.")
+@DeadCheck(reason = DeadCheck.Reason.VERSION_GATED, detail = "Returns for every client except 1.21.4.")
 public class SprintC extends Check implements PostPredictionListener {
     private boolean flaggedLastTick = false;
 
@@ -34,7 +32,7 @@ public class SprintC extends Check implements PostPredictionListener {
             ClientVersion version = player.getClientVersion();
 
             // https://bugs.mojang.com/browse/MC-152728
-            if (version.getProtocolVersion() >= 485 && version != ClientVersion.V_1_21_4) { // PE ClientVersion.V_1_14_2
+            if (version != ClientVersion.V_1_21_4) {
                 return;
             }
 
@@ -42,7 +40,7 @@ public class SprintC extends Check implements PostPredictionListener {
             PredictionResult result = predictionComplete.getPredictionResult();
             boolean wasTouchingWater = result != null
                     && result.getSimulationContext().getWorldData().getInWater().determinePessimistically();
-            if (!wasTouchingWater || version.isOlderThan(ClientVersion.V_1_13)) {
+            if (!wasTouchingWater) {
                 flaggedLastTick = false;
                 return;
             }

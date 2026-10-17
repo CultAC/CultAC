@@ -37,12 +37,12 @@ public class BukkitSenderFactory extends SenderFactory<CommandSender> implements
         if (sender instanceof Player
                 || sender instanceof ConsoleCommandSender
                 || sender instanceof RemoteConsoleCommandSender) {
-            BukkitComponentSender.sendMessage(sender, message);
+            sender.sendMessage(message);
         } else {
             CultAPI.INSTANCE
                     .getScheduler()
                     .getGlobalRegionScheduler()
-                    .run(CultAPI.INSTANCE.getGrimPlugin(), () -> BukkitComponentSender.sendMessage(sender, message));
+                    .run(CultAPI.INSTANCE.getGrimPlugin(), () -> sender.sendMessage(message));
         }
     }
 

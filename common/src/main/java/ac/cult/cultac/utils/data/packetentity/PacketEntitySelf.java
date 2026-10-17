@@ -3,9 +3,7 @@ package ac.cult.cultac.utils.data.packetentity;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.sprint.SprintD;
 import ac.cult.cultac.network.packet.EntityPositionPath;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientAttributeInstance;
@@ -99,20 +97,11 @@ public class PacketEntitySelf extends PacketEntity {
     }
 
     public double getBlockInteractionRange() {
-        // Pre-1.20.5 MultiPlayerGameMode#getPickRange: 5.0 in creative, otherwise 4.5.
-        if (hasLegacyInteractionRanges()) return player.gamemode == GameMode.CREATIVE ? 5.0D : 4.5D;
         return blockInteractionRange.value();
     }
 
     public double getEntityInteractionRange() {
-        // Pre-1.20.5 GameRenderer#pick: 6.0 with MultiPlayerGameMode#hasFarPickRange (creative), otherwise 3.0.
-        if (hasLegacyInteractionRanges()) return player.gamemode == GameMode.CREATIVE ? 6.0D : 3.0D;
         return entityInteractionRange.value();
-    }
-
-    // Via drops the interaction range attributes for clients that predate them.
-    private boolean hasLegacyInteractionRanges() {
-        return !player.isBedrockMovement() && player.getClientVersion().isOlderThan(ClientVersion.V_1_20_5);
     }
 
     /**

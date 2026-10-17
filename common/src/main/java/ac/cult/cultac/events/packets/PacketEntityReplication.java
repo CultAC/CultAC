@@ -342,10 +342,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     // Another valid solution is to simply spam more transactions, but let's not waste bandwidth.
     private final List<Integer> despawnedEntitiesThisTransaction = new ArrayList<>();
 
-    public boolean wasDespawnedThisTransaction(int entityId) {
-        return despawnedEntitiesThisTransaction.contains(entityId);
-    }
-
     public PacketEntityReplication(CultPlayer player) {
         super(player);
     }
@@ -949,7 +945,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             }
             // handleBundlePacket applies the attribute snapshot and its proof in one client task,
             // before the next client tick. Keep an existing wire bundle rather than nesting one.
-            if (player.supportsBundles() && !event.isInsideBundle()) event.bundle();
+            if (!event.isInsideBundle()) event.bundle();
             player.latencyUtils.addRealTimeTask(
                     proof.transaction(), () -> player.compensatedEntities.updateAttributes(entityID, values));
             return;
@@ -971,7 +967,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             // consumption autonomously. Group the event and proof so its replacement is before one
             // precise client tick, retaining only the unreported selected-slot/active-use ambiguity.
             var proof = player.appendTrailingProofTransaction(event);
-            if (proof != null && player.supportsBundles() && !event.isInsideBundle()) event.bundle();
+            if (proof != null && !event.isInsideBundle()) event.bundle();
             player.itemUseBurst.serverComplete(proof);
             Runnable apply = () -> {
                 if (player.usesModernJavaItemUse()) {
@@ -1147,9 +1143,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             @Nullable VehicleMountResyncState mountResyncState,
             @Nullable SelfDismountResyncState dismountResyncState) {
         List<CultWrite> resyncPackets = resyncPackets(mountResyncState, dismountResyncState);
-        boolean useDelimiter = resyncPackets.isEmpty()
-                ? shouldUseEntityTrackingBundleDelimiter()
-                : shouldUseVehicleProtocolBundleDelimiter();
+        boolean useDelimiter = !resyncPackets.isEmpty() || useReachBundleDelimiter;
         CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, resyncPackets, useDelimiter);
         return proof == null ? player.lastTransactionSent.get() : proof.transaction();
     }
@@ -1398,12 +1392,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private CultPlayer.TrackedTransaction appendTrailingProofTransaction(PacketSendEvent<?> event) {
-        return appendTrailingProofTransaction(event, List.of(), shouldUseEntityTrackingBundleDelimiter());
+        return appendTrailingProofTransaction(event, List.of(), useReachBundleDelimiter);
     }
 
     @Nullable
     public CultPlayer.TrackedTransaction appendVehicleProtocolProofTransaction(PacketSendEvent<?> event) {
-        return appendTrailingProofTransaction(event, List.of(), shouldUseVehicleProtocolBundleDelimiter());
+        return appendTrailingProofTransaction(event, List.of(), true);
     }
 
     @Nullable
@@ -1423,16 +1417,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private void writeProofGroupNow(CultPlayer.TrackedTransaction proof, List<CultWrite> packetsBeforeProof) {
         var packets = new ArrayList<CultWrite>(packetsBeforeProof);
         packets.add(proof.packet());
-        player.user.write(packets, shouldUseVehicleProtocolBundleDelimiter());
+        player.user.write(packets, true);
         player.markTrackedTransactionPacketSent(proof);
-    }
-
-    private boolean shouldUseEntityTrackingBundleDelimiter() {
-        return useReachBundleDelimiter && player.supportsBundles();
-    }
-
-    private boolean shouldUseVehicleProtocolBundleDelimiter() {
-        return player.supportsBundles();
     }
 
     private void handleMoveEntity(PacketSendEvent<?> event, EntityMovement movement) {
@@ -1441,7 +1427,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         var backendTicks = player.backendTicks();
         if (backendTicks != null && movement.kind() != MovementKind.TELEPORT_ENTITY)
             backendTicks.onEntityTracked(movement.entityId(), System.nanoTime());
-        boolean useDelimiterProof = shouldUseEntityTrackingBundleDelimiter();
+        boolean useDelimiterProof = useReachBundleDelimiter;
         if (!useDelimiterProof && !hasSentPreWavePacket) {
             hasSentPreWavePacket = true;
             player.sendTransaction();

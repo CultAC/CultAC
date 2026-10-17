@@ -4,7 +4,6 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.StuckEdgeData;
@@ -45,8 +44,7 @@ public class Sneaking implements UncertaintyHandler {
 
             Vec3 from = result.getSimulationContext().getStart();
             SimpleCollisionBox oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(from.x, from.y, from.z, 0.6f, 0.6f);
-            boolean isSlowed = result.getSimulationContext().getVersion().isOlderThanOrEquals(ClientVersion.V_1_14)
-                    || Collisions.isEmpty(player, oldBox);
+            boolean isSlowed = Collisions.isEmpty(player, oldBox);
 
             // Thanks Physiq for this terminal velocity formula
             double multiplier = lastOnEdge != null && lastOnEdge.isZeroHorizBug()

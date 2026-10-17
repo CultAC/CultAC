@@ -41,6 +41,11 @@ public interface PlatformConnection {
         return null;
     }
 
+    /** Disconnects a client older than 1.21.2 (in observe-only, leaves it untracked); true when it is not to be tracked. */
+    default boolean disconnectOutdatedClient() {
+        return false;
+    }
+
     /** The backend server this connection is in, where the platform has several; null otherwise. */
     @Nullable
     default String backendName() {

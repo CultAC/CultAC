@@ -40,7 +40,6 @@ public final class CameraAwayDecodedPacketResetTest {
             setBooleanField(elytraC, "glideThisTick", true);
             setBooleanField(elytraC, "glideLastTick", true);
             setBooleanField(elytraC, "setback", true);
-            setIntField(elytraC, "flags", 5);
             elytraC.exempt = true;
 
             PacketReceiveEvent event = receiveEvent(player, new ServerboundPong(17));
@@ -53,7 +52,6 @@ public final class CameraAwayDecodedPacketResetTest {
             assertFalse(booleanField(elytraC, "glideThisTick"));
             assertFalse(booleanField(elytraC, "glideLastTick"));
             assertTrue(booleanField(elytraC, "setback"));
-            assertEquals(5, intField(elytraC, "flags"));
             assertTrue(elytraC.exempt);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);

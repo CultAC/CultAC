@@ -42,6 +42,7 @@ final class PacketConnections {
         var platform = session.platform();
         var profile = platform == null ? null : platform.authenticatedProfile();
         if (profile == null || profile.getUUID() == null) return;
+        if (platform.disconnectOutdatedClient()) return;
         var user = authenticate(session, profile.getUUID(), profile.getName());
         if (user != null) completeLogin(user, platform.playerBinding());
     }
@@ -57,9 +58,6 @@ final class PacketConnections {
             promote(user);
             var continued = session.continuation();
             if (continued != null && session.player() != null) continued.restore(session.player());
-            if (ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil.isAvailable()) {
-                ac.cult.cultac.network.packet.LegacyViaInputBridge.install(user);
-            }
             return user;
         } catch (RuntimeException | Error failure) {
             finishDisconnect(session);
@@ -135,11 +133,7 @@ final class PacketConnections {
         try {
             if (user != null) {
                 currentByUuid.remove(user.getUUID(), session);
-                try {
-                    CultAPI.INSTANCE.getPlayerDataManager().onDisconnect(user, transferred);
-                } finally {
-                    CultNetworkManager.clearChannelState(user);
-                }
+                CultAPI.INSTANCE.getPlayerDataManager().onDisconnect(user, transferred);
             }
         } finally {
             // Shutdown must still find a session while owner cleanup is in progress.

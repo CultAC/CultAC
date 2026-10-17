@@ -9,7 +9,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import java.util.ArrayDeque;
 
 @CheckData(
         name = "PacketOrderE",
@@ -35,7 +34,6 @@ public class PacketOrderE extends Check implements PostPredictionListener {
         super(player);
     }
 
-    private final ArrayDeque<Integer> flags = new ArrayDeque<>();
     private boolean setback;
 
     /** Expands the flag bitmask into the template's individual bool fields. */
@@ -57,7 +55,7 @@ public class PacketOrderE extends Check implements PostPredictionListener {
             PacketReceiveEvent<ServerboundSetCarriedItem> event, CultPlayer player, ServerboundSetCarriedItem packet) {
         int currentFlags = currentFlags();
         if (currentFlags != 0) {
-            if (player.canSkipTicks() && flags.add(currentFlags) || flag(write(currentFlags))) {
+            if (flag(write(currentFlags))) {
                 if (player.packetOrderProcessor.isUsing()) {
                     setback = true;
                 }
@@ -67,25 +65,10 @@ public class PacketOrderE extends Check implements PostPredictionListener {
 
     @Override
     public void onPredictionComplete(PredictionComplete predictionComplete) {
-        if (!player.canSkipTicks()) {
-            if (setback) {
-                setback = false;
-                setbackIfAboveSetbackVL();
-            }
-            return;
+        if (setback) {
+            setback = false;
+            setbackIfAboveSetbackVL();
         }
-
-        if (player.isTickingReliablyFor(3)) {
-            for (int currentFlags : flags) {
-                if (flag(write(currentFlags)) && setback) {
-                    setback = false;
-                    setbackIfAboveSetbackVL();
-                }
-            }
-        }
-
-        setback = false;
-        flags.clear();
     }
 
     private int currentFlags() {

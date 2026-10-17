@@ -62,12 +62,6 @@ public class BadPacketsR extends Check implements CheckListener {
         }
     }
 
-    public void handleLegacySteerVehicle() {
-        if (player.inVehicle()) {
-            positions++;
-        }
-    }
-
     @CultPacketHandler
     public void onMoveVehicle(
             final PacketReceiveEvent<ServerboundMoveVehicle> event, CultPlayer player, ServerboundMoveVehicle packet) {

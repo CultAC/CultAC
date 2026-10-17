@@ -24,10 +24,7 @@ public abstract class CultProcessor implements AbstractProcessor, ConfigReloadab
     }
 
     protected final boolean canCancelInventoryAction(ac.cult.cultac.protocol.value.PlayerAction action) {
-        return action != ac.cult.cultac.protocol.value.PlayerAction.RELEASE_USE_ITEM
-                && (!isDrop(action)
-                        || player.getClientVersion()
-                                .isOlderThanOrEquals(ac.cult.cultac.network.protocol.ClientVersion.V_1_8));
+        return action != ac.cult.cultac.protocol.value.PlayerAction.RELEASE_USE_ITEM && !isDrop(action);
     }
 
     public CultPlayer getPlayer() {

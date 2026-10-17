@@ -29,7 +29,6 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
 import ac.cult.cultac.network.CultWrite;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
@@ -721,7 +720,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         var relatives = Relative.unpack(relativeMask);
         var correction = new CultWrite(
                 new ClientboundPlayerPosition(teleportId, point, Vec3d.ZERO, 0.0F, 0.0F, relatives), true);
-        if (player.isBedrockMovement() || !player.supportsBundles()) {
+        if (player.isBedrockMovement()) {
             player.user.write(correction);
             return;
         }
@@ -1029,7 +1028,6 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             // Consume its single response at the same transaction boundary as a
             // normal teleport, without applying the reported passenger position.
             if (!player.isBedrockMovement()
-                    && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
                     && receivedTransaction == teleportPos.getTransaction()
                     && teleportPos.isSentWhileVehicle()
                     && !teleportPos.isSentDuringVehicleDismount()

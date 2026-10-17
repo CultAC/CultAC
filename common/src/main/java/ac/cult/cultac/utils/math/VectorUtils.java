@@ -56,9 +56,7 @@ public class VectorUtils {
 
     public static Vector3dm normalize(ClientVersion version, Vector3dm vec) {
         double d0 = getVanillaLength(version, vec);
-        return version.isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                ? modern$normalize(vec, d0)
-                : legacy$normalize(vec, d0);
+        return modern$normalize(vec, d0);
     }
 
     public static double getVanillaLength(ClientVersion version, Vector3dm vec) {
@@ -67,13 +65,7 @@ public class VectorUtils {
 
     public static double getVanillaLength(ClientVersion version, double x, double y, double z) {
         double lengthSquared = x * x + y * y + z * z;
-        return version.getProtocolVersion() < 755
-                ? (float) Math.sqrt(lengthSquared)
-                : Math.sqrt(lengthSquared); // PE ClientVersion.V_1_17
-    }
-
-    private static Vector3dm legacy$normalize(Vector3dm vec, double d0) {
-        return d0 < 1.0E-4D ? new Vector3dm() : new Vector3dm(vec.getX() / d0, vec.getY() / d0, vec.getZ() / d0);
+        return Math.sqrt(lengthSquared);
     }
 
     private static Vector3dm modern$normalize(Vector3dm vec, double d0) {

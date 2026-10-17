@@ -84,8 +84,7 @@ public final class ClientFluidQueries {
 
     /** Classify one compensated cell without changing the caller's body-query bounds. */
     public static Sample sample(CultPlayer player, int block, BlockPos pos) {
-        if (usesTagBasedFluidRules(player)
-                || (!player.isBedrockMovement() && player.getClientVersion().isOlderThan(ClientVersion.V_1_13))) {
+        if (usesTagBasedFluidRules(player)) {
             SimFluidState fluid = fluidAt(player.compensatedWorld, pos);
             if (fluid.isEmpty()) return Sample.EMPTY;
             return new Sample(

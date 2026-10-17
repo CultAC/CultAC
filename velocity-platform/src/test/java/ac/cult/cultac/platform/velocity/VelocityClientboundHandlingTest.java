@@ -57,7 +57,6 @@ class VelocityClientboundHandlingTest {
     private void checkVehicleProof(ProtocolVersion version, boolean serverBundle) {
         try (var fixture = new Fixture(version)) {
             var proof = new CultPlayer.TrackedTransaction(1, new CultWrite(new ClientboundPing(123), false));
-            when(fixture.player.supportsBundles()).thenReturn(true);
             // The player now owns appending and tracking a proof group. Exercise
             // that current contract, retaining the exact wire-order assertions below.
             doAnswer(call -> {
@@ -191,7 +190,6 @@ class VelocityClientboundHandlingTest {
                     })
                     .when(fixture.player)
                     .sendTransaction();
-            when(fixture.player.supportsBundles()).thenReturn(true);
             doCallRealMethod().when(fixture.player).runAtTrailingProof(any(), any());
             if (proofSendable) {
                 doAnswer(call -> {

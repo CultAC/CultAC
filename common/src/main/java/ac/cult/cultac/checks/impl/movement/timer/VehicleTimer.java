@@ -71,10 +71,6 @@ public class VehicleTimer extends AbstractTimerCheck {
         recordTimerEvent(event, true, false);
     }
 
-    public boolean handleLegacySteerVehicle() {
-        return recordTimerEventForPacketDecision(false, shouldCountVehicleInputForTimer());
-    }
-
     private boolean shouldCountMoveVehicleForTimer() {
         // Ignore teleports
         if (player.packetStateData.lastPacketWasTeleport) return false;

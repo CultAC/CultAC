@@ -87,9 +87,8 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>A segment starts at each clientbound play {@code login} and ends at the next {@code start_configuration} or the
  * disconnect. The {@link SegmentBinder} names the backend a segment belongs to, and the segment uploads on that
- * backend's socket; frames wait until it is bound and the service has answered its JOIN. Java clients of protocol 768
- * and newer are streamed, and older ones are not uploaded; Bedrock players are only announced, with a JOIN saying why
- * and a LEAVE.
+ * backend's socket; frames wait until it is bound and the service has answered its JOIN. Java clients are streamed;
+ * Bedrock players are only announced, with a JOIN saying why and a LEAVE.
  */
 public final class CloudCapture implements PlayerObserver {
     static final String INBOUND = "cult-cloud-in";

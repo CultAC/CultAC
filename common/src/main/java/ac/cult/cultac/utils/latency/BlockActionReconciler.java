@@ -3,7 +3,6 @@ package ac.cult.cultac.utils.latency;
 import ac.cult.blocksim.SimAction;
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
 import ac.cult.cultac.network.packet.InventoryPackets;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
@@ -30,7 +29,7 @@ public final class BlockActionReconciler {
     }
 
     public void forwarded(int sequence) {
-        if (!player.isBedrockMovement() && usesPredictionAcks()) lastForwarded = Math.max(lastForwarded, sequence);
+        if (!player.isBedrockMovement()) lastForwarded = Math.max(lastForwarded, sequence);
     }
 
     /** Called after the backend acknowledgement and its preceding updates are client-confirmed. */
@@ -91,7 +90,7 @@ public final class BlockActionReconciler {
     }
 
     private Correction correction(int sequence) {
-        return new Correction(sequence, usesPredictionAcks() ? lastForwarded : -1);
+        return new Correction(sequence, lastForwarded);
     }
 
     private void enqueue(Correction correction) {
@@ -126,17 +125,13 @@ public final class BlockActionReconciler {
             slots.add(new InventoryPackets.Slot(
                     0, inventory.serverStateId(), slot, inventory.serverSlotForCorrection(slot)));
         }
-        BlockPredictionAckSender.sendCorrections(player, correction.sequence, usesPredictionAcks(), updates, slots);
+        BlockPredictionAckSender.sendCorrections(player, correction.sequence, true, updates, slots);
     }
 
     public void reset() {
         pending.clear();
         lastForwarded = -1;
         lastConfirmedServerAck = -1;
-    }
-
-    private boolean usesPredictionAcks() {
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19);
     }
 
     private static boolean isPredictedDig(PlayerAction action) {

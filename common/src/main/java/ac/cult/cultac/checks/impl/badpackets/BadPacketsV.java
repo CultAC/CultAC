@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -43,8 +42,6 @@ public class BadPacketsV extends Check implements CheckListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (player.canSkipTicks() || player.packetStateData.lastPacketWasOnePointSeventeenDuplicate) return;
-
         // isTickPacket: movement packets count unless they answered a teleport
         if (player.packetStateData.lastPacketWasTeleport) {
             lastTeleportTicks.reset();
@@ -52,8 +49,7 @@ public class BadPacketsV extends Check implements CheckListener {
         }
 
         if (packet.hasPosition()) {
-            int positionAtLeastEveryNTicks =
-                    player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8) ? 20 : 19;
+            int positionAtLeastEveryNTicks = 19;
 
             if (noReminderTicks < positionAtLeastEveryNTicks && !lastTeleportTicks.hasOccurredSince(1)) {
                 final double x = packet.xOr(player.x);
@@ -79,9 +75,7 @@ public class BadPacketsV extends Check implements CheckListener {
     // isTickPacket: tick end counts for 1.21.2+ clients when no movement arrived this client tick
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (player.canSkipTicks()) return;
-        if (!player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                || player.packetStateData.receivedMovementThisClientTick) return;
+        if (player.packetStateData.receivedMovementThisClientTick) return;
 
         noReminderTicks++;
     }

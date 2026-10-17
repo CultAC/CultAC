@@ -99,13 +99,7 @@ public class PacketSelfMetadataListener {
                         player.isGliding = isGliding;
                         player.refreshPlayerPose();
                     };
-                    if (player.supportsBundles()) {
-                        bundledSharedFlags = applySharedFlags;
-                    } else {
-                        if (!hasSendTransaction) player.sendTransaction();
-                        hasSendTransaction = true;
-                        player.latencyUtils.addRealTimeTaskNow(applySharedFlags);
-                    }
+                    bundledSharedFlags = applySharedFlags;
                 }
             }
 
@@ -160,7 +154,7 @@ public class PacketSelfMetadataListener {
                     var proof = player.appendTrailingProofTransaction(event);
                     player.itemUseBurst.serverFlags((byte) handValue, proof);
                     if (proof != null) {
-                        if (player.supportsBundles() && !event.isInsideBundle()) event.bundle();
+                        if (!event.isInsideBundle()) event.bundle();
                         player.latencyUtils.addRealTimeTask(proof.transaction(), () -> {
                             player.isRiptidePose = isRiptiding;
                             player.refreshPlayerPose();

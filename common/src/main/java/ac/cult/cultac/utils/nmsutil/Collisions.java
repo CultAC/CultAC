@@ -42,7 +42,7 @@ public class Collisions {
 
     public static Vec3 collide(
             CultPlayer player, SimpleCollisionBox box, double desiredX, double desiredY, double desiredZ) {
-        return collide(player, box, desiredX, desiredY, desiredZ, getAxisStepOrder(player, desiredX, desiredZ), true);
+        return collide(player, box, desiredX, desiredY, desiredZ, getAxisStepOrder(desiredX, desiredZ), true);
     }
 
     public static Vec3 collideWithAdditionalCollisionBoxes(
@@ -58,7 +58,7 @@ public class Collisions {
                 desiredX,
                 desiredY,
                 desiredZ,
-                getAxisStepOrder(player, desiredX, desiredZ),
+                getAxisStepOrder(desiredX, desiredZ),
                 true,
                 box.minY,
                 additionalCollisionBoxes);
@@ -148,8 +148,7 @@ public class Collisions {
 
         SimpleCollisionBox grabBoxesBB = box.copy();
         double stepUpHeight = player.getMaxUpStep();
-        boolean separateStepQuery =
-                !player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
+        boolean separateStepQuery = !player.isBedrockMovement();
 
         if (desiredX == 0.0 && desiredZ == 0.0) {
             if (desiredY > 0.0) {
@@ -197,18 +196,6 @@ public class Collisions {
         if (stepUpHeight > 0.0F
                 && movingIntoGround
                 && (collisionResult.x != desiredX || collisionResult.z != desiredZ)) {
-            if (!player.getClientVersion().usesModernEntityStepCollision()) {
-                return collideLegacyStep(
-                        box,
-                        desiredMovementCollisionBoxes,
-                        order,
-                        collisionResult,
-                        desiredX,
-                        player.getClientVersion().isOlderThan(ClientVersion.V_1_14) ? 0.0D : desiredY,
-                        desiredZ,
-                        stepUpHeight);
-            }
-
             // MCP-Reborn and ero-minecraft-source 1.21 Entity#collide no longer
             // tries a fixed maxUpStep and then falls back down. It builds a
             // search box from the post-downward-collision start, tries each
@@ -259,45 +246,6 @@ public class Collisions {
                 collisionBoxes.add(box);
             }
         }
-    }
-
-    private static Vec3 collideLegacyStep(
-            SimpleCollisionBox box,
-            List<SimpleCollisionBox> collisions,
-            List<Axis> order,
-            Vec3 collisionResult,
-            double desiredX,
-            double desiredY,
-            double desiredZ,
-            double stepUpHeight) {
-        Vec3 directStep = collideBoundingBoxLegacy(new Vec3(desiredX, stepUpHeight, desiredZ), box, collisions, order);
-        Vec3 verticalStep = collideBoundingBoxLegacy(
-                new Vec3(0.0D, stepUpHeight, 0.0D),
-                box.copy().expandToCoordinate(desiredX, 0.0D, desiredZ),
-                collisions,
-                order);
-
-        if (verticalStep.y < stepUpHeight) {
-            Vec3 horizontalAfterStep = collideBoundingBoxLegacy(
-                            new Vec3(desiredX, 0.0D, desiredZ), box.copy().offset(verticalStep), collisions, order)
-                    .add(verticalStep);
-            if (getHorizontalDistanceSqr(horizontalAfterStep) > getHorizontalDistanceSqr(directStep)) {
-                directStep = horizontalAfterStep;
-            }
-        }
-
-        if (getHorizontalDistanceSqr(directStep) > getHorizontalDistanceSqr(collisionResult)) {
-            Vec3 downwardStep = collideBoundingBoxLegacy(
-                    new Vec3(0.0D, -directStep.y + desiredY, 0.0D), box.copy().offset(directStep), collisions, order);
-            return directStep.add(downwardStep);
-        }
-
-        return collisionResult;
-    }
-
-    private static List<Axis> getAxisStepOrder(CultPlayer player, double x, double z) {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_14)) return Y_X_Z;
-        return getAxisStepOrder(x, z);
     }
 
     private static List<Axis> getAxisStepOrder(Vec3 movement) {
@@ -455,8 +403,7 @@ public class Collisions {
             boolean onlyCheckCollide,
             double entityBottom,
             JavaCollisionState actor) {
-        boolean modernJava =
-                !player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
+        boolean modernJava = !player.isBedrockMovement();
         if (modernJava)
             ac.cult.blocksim.data.Box.validateBounds(
                     wantedBB.minX, wantedBB.minY, wantedBB.minZ, wantedBB.maxX, wantedBB.maxY, wantedBB.maxZ);
@@ -672,8 +619,7 @@ public class Collisions {
             double x = vec3.getX();
             double z = vec3.getZ();
 
-            double maxStepDown =
-                    player.getClientVersion().isOlderThan(ClientVersion.V_1_11) ? -1.0D : -player.getMaxUpStep();
+            double maxStepDown = -player.getMaxUpStep();
 
             while (x != 0.0 && isEmpty(player, player.boundingBox.copy().offset(x, maxStepDown, 0.0))) {
                 if (x < 0.05D && x >= -0.05D) {
@@ -720,9 +666,7 @@ public class Collisions {
 
     public static boolean isAboveGround(CultPlayer player, boolean lastOnGround, SimpleCollisionBox playerBB) {
         // https://bugs.mojang.com/browse/MC-2404
-        return lastOnGround
-                || (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_16_2)
-                        && !isEmpty(player, playerBB.copy().offset(0.0, -player.getMaxUpStep(), 0.0)));
+        return lastOnGround || !isEmpty(player, playerBB.copy().offset(0.0, -player.getMaxUpStep(), 0.0));
     }
 
     public static boolean isSlidingDown(CultPlayer player, int locationX, int locationY, int locationZ, Vec3 pos) {
@@ -745,10 +689,7 @@ public class Collisions {
 
     public static Vec3 checkStuckSpeed(CultPlayer player, SimpleCollisionBox aabb, boolean powderSnowCanApply) {
         // Use the bounding box for after the player's movement is applied
-        double expandAmount =
-                player.getClientVersion().isOlderThan(ClientVersion.V_1_19_4) && !player.isBedrockMovement()
-                        ? 0.001D
-                        : 1e-7;
+        double expandAmount = 1e-7;
         Vec3 blockPos = new Vec3(aabb.minX + expandAmount, aabb.minY + expandAmount, aabb.minZ + expandAmount);
         Vec3 blockPos2 = new Vec3(aabb.maxX - expandAmount, aabb.maxY - expandAmount, aabb.maxZ - expandAmount);
 
@@ -788,10 +729,7 @@ public class Collisions {
 
     public static Vec3 checkStuckSpeedAlongMovement(
             CultPlayer player, SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb, boolean powderSnowCanApply) {
-        double expandAmount =
-                player.getClientVersion().isOlderThan(ClientVersion.V_1_19_4) && !player.isBedrockMovement()
-                        ? 0.001D
-                        : 1e-7;
+        double expandAmount = 1e-7;
         int blockPosX = CultMath.floor(Math.min(fromAabb.minX, toAabb.minX) + expandAmount);
         int blockPosY = CultMath.floor(Math.min(fromAabb.minY, toAabb.minY) + expandAmount);
         int blockPosZ = CultMath.floor(Math.min(fromAabb.minZ, toAabb.minZ) + expandAmount);
@@ -1343,10 +1281,7 @@ public class Collisions {
     }
 
     private static String collectDirectStuckSpeedHits(CultPlayer player, SimpleCollisionBox aabb) {
-        double expandAmount =
-                player.getClientVersion().isOlderThan(ClientVersion.V_1_19_4) && !player.isBedrockMovement()
-                        ? 0.001D
-                        : 1e-7;
+        double expandAmount = 1e-7;
         Vec3 blockPos = new Vec3(aabb.minX + expandAmount, aabb.minY + expandAmount, aabb.minZ + expandAmount);
         Vec3 blockPos2 = new Vec3(aabb.maxX - expandAmount, aabb.maxY - expandAmount, aabb.maxZ - expandAmount);
 
@@ -1376,10 +1311,7 @@ public class Collisions {
     private static String collectSweptStuckSpeedHits(
             CultPlayer player, SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb) {
         SimpleCollisionBox sweptCandidates = fromAabb.copy().union(toAabb);
-        double expandAmount =
-                player.getClientVersion().isOlderThan(ClientVersion.V_1_19_4) && !player.isBedrockMovement()
-                        ? 0.001D
-                        : 1e-7;
+        double expandAmount = 1e-7;
         Vec3 blockPos = new Vec3(
                 sweptCandidates.minX + expandAmount,
                 sweptCandidates.minY + expandAmount,
@@ -1512,15 +1444,11 @@ public class Collisions {
             return getCobwebStuckSpeed(player);
         }
 
-        if (BlockFamilies.SWEET_BERRY_BUSH.test(state)
-                && (player.isBedrockMovement()
-                        || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14))) {
+        if (BlockFamilies.SWEET_BERRY_BUSH.test(state)) {
             return SWEET_BERRY_BUSH_STUCK_SPEED;
         }
 
-        if (BlockFamilies.POWDER_SNOW.test(state)
-                && (player.isBedrockMovement()
-                        || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_17))) {
+        if (BlockFamilies.POWDER_SNOW.test(state)) {
             return powderSnowCanApply ? POWDER_SNOW_STUCK_SPEED : null;
         }
         return null;
@@ -1528,15 +1456,12 @@ public class Collisions {
 
     public static Vec3 getCobwebStuckSpeed(CultPlayer player) {
         return getCobwebStuckSpeed(
-                player.getClientVersion(),
                 player.compensatedEntities.getEntityInControl().isLivingEntity(),
                 player.compensatedEntities.getPotionLevelForPlayer(MovementEffect.WEAVING) != null);
     }
 
-    static Vec3 getCobwebStuckSpeed(ClientVersion version, boolean living, boolean weaving) {
-        return version.isNewerThanOrEquals(ClientVersion.V_1_20_5) && living && weaving
-                ? WEAVING_COBWEB_STUCK_SPEED
-                : COBWEB_STUCK_SPEED;
+    static Vec3 getCobwebStuckSpeed(boolean living, boolean weaving) {
+        return living && weaving ? WEAVING_COBWEB_STUCK_SPEED : COBWEB_STUCK_SPEED;
     }
 
     public static boolean suffocatesAt(CultPlayer player, SimpleCollisionBox playerBB) {
@@ -1676,7 +1601,6 @@ public class Collisions {
     }
 
     public static boolean trapdoorUsableAsLadder(CultPlayer player, double x, double y, double z, int blockState) {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) return false;
         if (!ClientBlockProperties.isTrapdoor(blockState)) return false;
         if (BlockProps.OPEN.has(blockState) && BlockProps.OPEN.booleanValue(blockState)) {
             int blockBelow = player.compensatedWorld.getBlockStateIdAt(

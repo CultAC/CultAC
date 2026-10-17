@@ -488,9 +488,6 @@ public class VelocityTransformer {
 
     public static PredVector applyMovementThreshold(PredVector vector, ClientVersion version, boolean playerEntity) {
         double minimumMovement = 0.003D;
-        if (version.isOlderThanOrEquals(ClientVersion.V_1_8)) {
-            minimumMovement = 0.005D;
-        }
 
         // LivingEntity#aiStep switched players from per-axis cutoffs to a
         // horizontal-length cutoff in 1.21.5. Ridden entities retain per-axis cutoffs.
@@ -640,8 +637,7 @@ public class VelocityTransformer {
                     jumpPower += 0.1f * (simulationContext.getJumpAmplifier() + 1);
                 }
 
-                modified = vector.withY(
-                        groundJumpVelocityY(simulationContext.getVersion(), vector.y, jumpPower), "Jumping set Y");
+                modified = vector.withY(groundJumpVelocityY(vector.y, jumpPower), "Jumping set Y");
                 modified.setJump();
 
                 if (isSprinting) {
@@ -689,10 +685,8 @@ public class VelocityTransformer {
                 CultMath.sin(yawRadians) * cosPitch, -CultMath.sin(pitchRadians), CultMath.cos(yawRadians) * cosPitch);
     }
 
-    static double groundJumpVelocityY(ClientVersion version, double currentVelocityY, double jumpPower) {
-        // Java changed jumpFromGround to preserve a larger existing Y velocity
-        // in 24w33a, released in 1.21.2 (ero-minecraft-source b167552d6f;
-        // MCP-Reborn LivingEntity.java:2332-2339).
-        return version.isNewerThanOrEquals(ClientVersion.V_1_21_2) ? Math.max(currentVelocityY, jumpPower) : jumpPower;
+    static double groundJumpVelocityY(double currentVelocityY, double jumpPower) {
+        // jumpFromGround preserves a larger existing Y velocity (MCP-Reborn LivingEntity.java:2332-2339).
+        return Math.max(currentVelocityY, jumpPower);
     }
 }

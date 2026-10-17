@@ -141,10 +141,6 @@ public class TeleportData {
         this.bedrockTransportRevision = revision;
     }
 
-    public boolean isAbsolute() {
-        return !isRelativeX() && !isRelativeY() && !isRelativeZ();
-    }
-
     public Vec3 applyToVelocity(Vec3 vector) {
         Vec3 transformed = rotateDeltaIfRequired(vector);
         return new Vec3(
@@ -165,10 +161,6 @@ public class TeleportData {
             transformed = transformed.with(Direction.Axis.Z, 0);
         }
         return transformed;
-    }
-
-    public Vec3 modifyVector(Vec3 vector) {
-        return new Vec3(isRelativeX() ? vector.x : 0, isRelativeY() ? vector.y : 0, isRelativeZ() ? vector.z : 0);
     }
 
     private Vec3 rotateDeltaIfRequired(Vec3 vector) {

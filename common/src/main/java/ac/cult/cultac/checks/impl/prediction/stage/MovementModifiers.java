@@ -181,11 +181,6 @@ public class MovementModifiers {
             }
         }
 
-        boolean legacyPistonPass = state.getWorldData().getPistonPushes().isPistonMovementPhased();
-        if (includeSlimePistonLaunches && legacyPistonPass) {
-            addSlimePistonLaunches(start, state);
-        }
-
         // TODO: This is too brute forcey, we don't need duplicates in certain situations.
         // TODO: This should just be refactored for 1.20.4+ clients with tick end and bundle packet!
         for (int eventIndex = 0, eventCount = packetEventsInOrder.size(); eventIndex < eventCount; eventIndex++) {
@@ -207,7 +202,7 @@ public class MovementModifiers {
 
         // The legacy launch happened in the preceding block-entity pass,
         // before this tick's queued velocity/explosion packets were processed.
-        if (includeSlimePistonLaunches && !legacyPistonPass) {
+        if (includeSlimePistonLaunches) {
             addSlimePistonLaunches(start, state);
         }
 

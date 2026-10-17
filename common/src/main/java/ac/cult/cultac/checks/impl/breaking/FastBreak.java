@@ -6,7 +6,6 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
@@ -112,7 +111,6 @@ public class FastBreak extends Check implements BlockBreakListener {
 
     // Find the most optimal block damage using the animation packet, which is sent at least once a tick when breaking
     // blocks
-    // On 1.8 clients, via screws with this packet meaning we must fall back to the 1.8 idle flying packet
     //
     // listen for flying packets because some block breaks can happen before the next animation (somehow???), causing
     // onGround desync
@@ -124,9 +122,7 @@ public class FastBreak extends Check implements BlockBreakListener {
 
     @CultPacketHandler
     public void onSwing(PacketReceiveEvent<ServerboundSwing> event, CultPlayer player, ServerboundSwing packet) {
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) {
-            updateMaximumBlockDamage();
-        }
+        updateMaximumBlockDamage();
     }
 
     private void updateMaximumBlockDamage() {

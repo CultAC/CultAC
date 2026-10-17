@@ -92,9 +92,7 @@ public class TraverseBlocks {
     public static @Nullable HitData getNearestHitResult(CultPlayer player, boolean sourcesHaveHitbox) {
         Vec3 startingPos = new Vec3(player.x, player.y + player.getEyeHeight(), player.z);
         Ray trace = new Ray(player, startingPos.x, startingPos.y, startingPos.z, player.xRot, player.yRot);
-        if (!player.isBedrockMovement()
-                && player.getClientVersion()
-                        .isNewerThanOrEquals(ac.cult.cultac.network.protocol.ClientVersion.V_1_21_2)) {
+        if (!player.isBedrockMovement()) {
             Vector3dm end = trace.getPointAtDistance(getBlockInteractionRange(player));
             // Modern BlockGetter.clip uses VoxelShape's inside/epsilon behavior and
             // interaction face overrides, with the original client's outline.

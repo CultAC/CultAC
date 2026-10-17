@@ -1,26 +1,17 @@
 package ac.cult.cultac.platform.bukkit.entity;
 
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.platform.bukkit.utils.convert.BukkitConversionUtils;
-import ac.cult.cultac.platform.bukkit.utils.reflection.PaperUtils;
 import ac.cult.cultac.platform.bukkit.world.BukkitPlatformWorld;
 import ac.cult.cultac.utils.math.Location;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import net.minecraft.SharedConstants;
 import org.bukkit.entity.Entity;
 import org.jetbrains.annotations.NotNull;
 
 public class BukkitCultEntity implements CultEntity {
-
-    private static final ClientVersion SERVER_VERSION =
-            ClientVersion.fromProtocolVersion(SharedConstants.getProtocolVersion());
-
-    protected static final boolean CAN_USE_DIRECT_GETTERS =
-            SERVER_VERSION.isNewerThan(ClientVersion.V_1_20) && PaperUtils.PAPER;
 
     private final Entity entity;
     private BukkitPlatformWorld bukkitPlatformWorld;
@@ -46,7 +37,7 @@ public class BukkitCultEntity implements CultEntity {
     @Override
     public CompletableFuture<Boolean> teleportAsync(Location location) {
         org.bukkit.Location bLoc = BukkitConversionUtils.toBukkitLocation(location);
-        return PaperUtils.teleportAsync(this.entity, bLoc);
+        return this.entity.teleportAsync(bLoc);
     }
 
     @Override
@@ -84,23 +75,12 @@ public class BukkitCultEntity implements CultEntity {
 
     @Override
     public double distanceSquared(double oX, double oY, double oZ) {
-        if (CAN_USE_DIRECT_GETTERS) {
-            double x = this.entity.getX();
-            double y = this.entity.getY();
-            double z = this.entity.getZ();
-            double distX = (x - oX) * (x - oX);
-            double distY = (y - oY) * (y - oY);
-            double distZ = (z - oZ) * (z - oZ);
-            return distX + distY + distZ;
-        } else {
-            org.bukkit.Location location = this.entity.getLocation();
-            double x = location.getX();
-            double y = location.getY();
-            double z = location.getZ();
-            double distX = (x - oX) * (x - oX);
-            double distY = (y - oY) * (y - oY);
-            double distZ = (z - oZ) * (z - oZ);
-            return distX + distY + distZ;
-        }
+        double x = this.entity.getX();
+        double y = this.entity.getY();
+        double z = this.entity.getZ();
+        double distX = (x - oX) * (x - oX);
+        double distY = (y - oY) * (y - oY);
+        double distZ = (z - oZ) * (z - oZ);
+        return distX + distY + distZ;
     }
 }

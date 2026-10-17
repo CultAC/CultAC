@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.PositionListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
 import ac.cult.cultac.utils.data.CooldownData;
@@ -32,7 +31,7 @@ public class CompensatedCooldown extends CultProcessor implements PositionListen
     }
 
     private boolean usesClientTickEnd() {
-        return !player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
+        return !player.isBedrockMovement();
     }
 
     private void tick() {

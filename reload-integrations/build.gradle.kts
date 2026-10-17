@@ -2,7 +2,6 @@ plugins { cult.`base-conventions` }
 repositories {
     maven("https://repo.opencollab.dev/maven-releases/")
     maven("https://repo.opencollab.dev/maven-snapshots/")
-    maven("https://repo.viaversion.com") { content { includeGroup("com.viaversion") } }
     mavenCentral()
 }
 java.toolchain.languageVersion.set(JavaLanguageVersion.of(25))
@@ -11,7 +10,6 @@ configurations.configureEach { attributes.attribute(org.gradle.api.attributes.ja
 dependencies {
     api(project(":reload-api"))
     compileOnly(libs.geyser.core)
-    compileOnly(libs.viaversion)
 }
 for (variant in listOf("apiElements", "runtimeElements")) {
     configurations.named(variant) { attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 21) }

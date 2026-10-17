@@ -4,7 +4,6 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.checks.type.BlockBreakListener;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.PlayerAction;
@@ -19,7 +18,6 @@ import ac.grim.grimac.api.storage.verbose.VerboseTags;
 public class PositionBreakB extends Check implements BlockBreakListener {
     private static final Verbose V = Verbose.of("lastFace={face}, action={digging}");
 
-    private final boolean allowLegacyFace = player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_7_10);
     private Direction lastFace;
 
     public PositionBreakB(CultPlayer player) {
@@ -38,9 +36,7 @@ public class PositionBreakB extends Check implements BlockBreakListener {
         }
 
         if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) { // PE DiggingAction.CANCELLED_DIGGING
-            // as of https://github.com/ViaVersion/ViaRewind/commit/e7b0606e187afbccf98ef7c88d3f3af27fe11da3,
-            // ViaRewind maps face 255 for 1.7 clients to 0. Let's allow both, just to be safe
-            lastFace = blockBreak.faceId == 0 || allowLegacyFace && blockBreak.faceId == 255 ? null : blockBreak.face;
+            lastFace = blockBreak.faceId == 0 ? null : blockBreak.face;
         }
     }
 }

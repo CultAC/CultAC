@@ -1,7 +1,6 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.network.protocol.util.SpigotReflectionUtil;
 import ac.cult.cultac.platform.api.OnlineMode;
 import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.PlatformServer;
@@ -49,7 +48,6 @@ public class BukkitPlatformServer implements PlatformServer {
     @Override
     public boolean isProxyForwardingEnabled() {
         return configBoolean("spigot.yml", "settings.bungeecord")
-                || configBoolean("paper.yml", "settings.velocity-support.enabled")
                 || configBoolean("config/paper-global.yml", "proxies.velocity.enabled");
     }
 
@@ -95,7 +93,7 @@ public class BukkitPlatformServer implements PlatformServer {
         if (CultAPI.INSTANCE.getPlatform() == Platform.FOLIA) {
             return Double.NaN;
         }
-        return SpigotReflectionUtil.getTPS();
+        return Bukkit.getTPS()[0];
     }
 
     /** The server's software, target tick length and combat settings, read once. */

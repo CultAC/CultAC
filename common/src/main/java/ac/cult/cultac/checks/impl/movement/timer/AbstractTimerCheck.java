@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 
@@ -171,9 +170,7 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
         // ViaVersion cannot carry the 1.21.2 tick-end packet through an older
         // backend protocol. In that case the backend receives the traditional
         // one-movement-per-tick clock and must use that observable boundary.
-        return serverSupportsClientTickEnd
-                && !player.isBedrockMovement()
-                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
+        return serverSupportsClientTickEnd && !player.isBedrockMovement();
     }
 
     @Override

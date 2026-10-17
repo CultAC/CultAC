@@ -8,9 +8,7 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
 import ac.cult.cultac.platform.bukkit.entity.BukkitCultEntity;
-import ac.cult.cultac.platform.bukkit.sender.BukkitComponentSender;
 import ac.cult.cultac.platform.bukkit.utils.convert.BukkitConversionUtils;
-import ac.cult.cultac.platform.bukkit.utils.reflection.PaperUtils;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.common.arguments.CommonCultArguments;
@@ -89,7 +87,7 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
         if (CommonCultArguments.USE_CHAT_FAST_BYPASS.value() && user != null) {
             user.sendMessage(message);
         } else {
-            BukkitComponentSender.sendMessage(bukkitPlayer, message);
+            bukkitPlayer.sendMessage(message);
         }
     }
 
@@ -131,12 +129,7 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
 
     @Override
     public Vec3 getPosition() {
-        if (CAN_USE_DIRECT_GETTERS) {
-            return new Vec3(this.bukkitPlayer.getX(), this.bukkitPlayer.getY(), this.bukkitPlayer.getZ());
-        } else {
-            org.bukkit.Location location = this.bukkitPlayer.getLocation();
-            return new Vec3(location.getX(), location.getY(), location.getZ());
-        }
+        return new Vec3(this.bukkitPlayer.getX(), this.bukkitPlayer.getY(), this.bukkitPlayer.getZ());
     }
 
     @Override
@@ -171,7 +164,7 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
     @Override
     public CompletableFuture<Boolean> teleportAsync(Location location) {
         org.bukkit.Location bLoc = BukkitConversionUtils.toBukkitLocation(location);
-        return PaperUtils.teleportAsync(this.bukkitPlayer, bLoc);
+        return this.bukkitPlayer.teleportAsync(bLoc);
     }
 
     @Override

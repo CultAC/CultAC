@@ -24,13 +24,9 @@ public class PacketOrderB extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("[pre-attack|post-attack]");
 
     // 1.9 packet order: INTERACT -> ANIMATION
-    // 1.8 packet order: ANIMATION -> INTERACT
     // Both are sent from the same click, before the tick's movement packet and tick end.
-    private final boolean is1_9 = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9);
-
-    private boolean sentAnimationSinceLastAttack = player.getClientVersion().isNewerThan(ClientVersion.V_1_8);
+    private boolean sentAnimationSinceLastAttack = true;
     private boolean sentAttack;
-    private boolean sentAnimation;
 
     public PacketOrderB(final CultPlayer player) {
         super(player);
@@ -44,7 +40,7 @@ public class PacketOrderB extends Check implements CheckListener {
             return;
         }
 
-        sentAnimationSinceLastAttack = sentAnimation = true;
+        sentAnimationSinceLastAttack = true;
         sentAttack = false;
     }
 
@@ -84,13 +80,12 @@ public class PacketOrderB extends Check implements CheckListener {
         checkPostAttack();
     }
 
-    // The attack's swing is sent before the tick's movement packet and tick end,
-    // and a 1.8 swing only pays for an attack in its own tick.
+    // The attack's swing is sent before the tick's movement packet and tick end.
     private void checkPostAttack() {
-        if (sentAttack && is1_9) {
+        if (sentAttack) {
             flag(V.write(verbose()).bool(false));
         }
-        sentAttack = sentAnimation = false;
+        sentAttack = false;
     }
 
     private void onAttack(PacketReceiveEvent<?> event) {
@@ -100,7 +95,7 @@ public class PacketOrderB extends Check implements CheckListener {
         }
 
         sentAttack = true;
-        if (is1_9 ? !sentAnimationSinceLastAttack : !sentAnimation) {
+        if (!sentAnimationSinceLastAttack) {
             sentAttack = false;
             if (flag(V.write(verbose()).bool(true)) && shouldModifyPackets()) {
                 event.setCancelled(true);
@@ -108,6 +103,6 @@ public class PacketOrderB extends Check implements CheckListener {
             }
         }
 
-        sentAnimationSinceLastAttack = sentAnimation = false;
+        sentAnimationSinceLastAttack = false;
     }
 }

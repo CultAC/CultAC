@@ -28,11 +28,6 @@ public class PacketOrderD extends Check implements CheckListener {
         super(player);
     }
 
-    @Override
-    public boolean isApplicable() {
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9);
-    }
-
     private boolean sentMainhand;
     private int requiredEntity;
     private boolean requiredSneaking;
@@ -40,9 +35,8 @@ public class PacketOrderD extends Check implements CheckListener {
     @CultPacketHandler
     public void onInteract(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
-        if (!isApplicable()
-                || !DecodedPacketReliability.interactionFamilyReliable(
-                        player.getClientVersion(), player.getObservedProtocol())) return;
+        if (!DecodedPacketReliability.interactionFamilyReliable(
+                player.getClientVersion(), player.getObservedProtocol())) return;
 
         final InteractAction action = packet.action();
         if (action == InteractAction.ATTACK) return;
@@ -93,7 +87,6 @@ public class PacketOrderD extends Check implements CheckListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (!isApplicable()) return;
         if (!player.packetStateData.lastPacketWasTeleport) {
             sentMainhand = false;
         }
@@ -102,9 +95,7 @@ public class PacketOrderD extends Check implements CheckListener {
     // isTickPacket: tick end resets for 1.21.2+ clients when no movement arrived this client tick
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (!isApplicable()) return;
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
-                && !player.packetStateData.receivedMovementThisClientTick) {
+        if (!player.packetStateData.receivedMovementThisClientTick) {
             sentMainhand = false;
         }
     }

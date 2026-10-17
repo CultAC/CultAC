@@ -12,12 +12,7 @@ public class PacketStateData {
     public boolean lastPacketWasTeleport = false;
     // lastPacketWasTeleport lasts one packet; this keeps whether any packet of the client tick accepted a teleport.
     public boolean teleportedThisClientTick = false;
-    // Vanilla 1.17 through 1.20.6 can emit a redundant PosRot packet at the
-    // movement threshold. It carries look state, but is not another movement.
-    public boolean lastPacketWasOnePointSeventeenDuplicate = false;
     public boolean lastPacketMatchedTeleportPosition = false;
-    // If true, the player's rotation was forced to the horse's rotation only on 1.13-
-    public boolean horseInteractCausedForcedRotation = false;
     // Minecraft#tick sends ServerboundClientTickEndPacket after LocalPlayer#tick, proving whether movement happened.
     public boolean receivedMovementThisClientTick = false;
     // Geyser forwards each auth frame before its movement. A horse move

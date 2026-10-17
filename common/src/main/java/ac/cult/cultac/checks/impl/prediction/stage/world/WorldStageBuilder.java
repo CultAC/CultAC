@@ -31,7 +31,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntPredicate;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -69,13 +68,6 @@ public class WorldStageBuilder {
         SimpleCollisionBox minFluid = simulationContext.getFromMinimumExtent().expand(-expandAmount);
         SimpleCollisionBox maxFluid = simulationContext.getFromMaximumExtent().expand(-expandAmount);
 
-        if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_12_2)) {
-            // so maxY becomes less than minY because mojang is fucking stupid.
-            // But it gets sorted to the right values
-            maxFluid.expand(0, -0.4, 0);
-            minFluid.expand(0, -0.4, 0);
-        }
-
         double minFluidReferenceY = simulationContext.getFromMinimumExtent().minY;
         double maxFluidReferenceY = simulationContext.getVehicle() != null
                 ? minFluidReferenceY
@@ -101,23 +93,6 @@ public class WorldStageBuilder {
             isInLava = DesyncStatus.UNKNOWN;
             touchingLava = DesyncStatus.UNKNOWN;
             isInFlowingFluid = DesyncStatus.UNKNOWN;
-        }
-
-        // 1.14-1.15 use end of tick logic to check if in lava, so just hack around it since no one elses these client
-        // versions
-        DesyncStatus weirdFourteenFifteenLava = DesyncStatus.FALSE;
-        if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_15_2)
-                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14)) {
-            weirdFourteenFifteenLava = DesyncStatus.fromBoolean(Collisions.hasState(
-                    player,
-                    simulationContext.getToMaximumExtent(),
-                    block -> BlockIds.is(block, BlockIds.LAVA),
-                    (block, pos) -> true));
-            // too lazy to do this correctly, this will do. (solves issues like between tick stuff... mostly)
-            if (lastPrediction != null) {
-                isInLava = isInLava.addBoolean(
-                        lastPrediction.getSimulationContext().getWorldData().weirdFourteenFifteenLava);
-            }
         }
 
         if (player.packetStateData.riptideLevel > 0) {
@@ -165,27 +140,6 @@ public class WorldStageBuilder {
             climbing = DesyncStatus.UNKNOWN;
         }
 
-        float feetBoxSize = (float) (player.getMovementThreshold() * 2);
-        SimpleCollisionBox feetBB =
-                GetBoundingBox.getBoundingBoxFromPosAndSize(to.x, to.y, to.z, feetBoxSize, feetBoxSize);
-
-        if (player.isPointThree()) {
-            AtomicReference<DesyncStatus> feetClimbing = new AtomicReference<>(climbing);
-            Collisions.hasState(player, feetBB, (state, blockPos) -> {
-                boolean onClimbable = Collisions.onClimbable(player, blockPos.getX(), blockPos.getY(), blockPos.getZ());
-                CollisionBox blockCollision = ClientBlockShapes.movement(player, state, 0, 0, 0);
-
-                // The player can't occupy this block, so we don't care.
-                if (!onClimbable && blockCollision.isFullBlock()) {
-                    return false;
-                }
-
-                feetClimbing.set(feetClimbing.get().addBoolean(onClimbable));
-                return false;
-            });
-            climbing = feetClimbing.get();
-        }
-
         // Pigs and striders are the only vehicle that can climb
         if (simulationContext.getVehicle() != null
                 && !(simulationContext.getVehicle() instanceof PacketEntityStrider
@@ -216,9 +170,6 @@ public class WorldStageBuilder {
         // Java 1.21.2+ sends tick-end after the block-entity pass. Its piston,
         // shulker and recent world state already advance in CheckManager at that
         // boundary, including idle ticks; prediction must not advance them again.
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) {
-            player.compensatedWorld.onLegacyPredictionTick();
-        }
         StuckSpeedData stuckSpeedData = calculateStuckSpeed(player, simulationContext, push);
 
         // Eye-fluid state is sampled at the movement start position.
@@ -270,8 +221,6 @@ public class WorldStageBuilder {
                 && (simulationContext.getVehicle() == null
                         || simulationContext.getVehicle() instanceof PacketEntityHorse);
 
-        int soulSandCount = getSoulSandCount(player, simulationContext);
-
         return new WorldData(
                 desyncLastOnGround,
                 isInWater,
@@ -286,8 +235,6 @@ public class WorldStageBuilder {
                 climbingAtStart,
                 climbing,
                 numColliding,
-                soulSandCount,
-                weirdFourteenFifteenLava,
                 onBlock,
                 stuckEdgeData,
                 bubble,
@@ -303,22 +250,6 @@ public class WorldStageBuilder {
         Vec3 position = context.getStart();
         DesyncStatus climbingAtStart = DesyncStatus.fromBoolean(
                 Collisions.onClimbable(player, position.x, position.y, position.z, context.isGliding()));
-        if (player.isPointThree()) {
-            AtomicReference<DesyncStatus> climbing = new AtomicReference<>(climbingAtStart);
-            float feetBoxSize = (float) (player.getMovementThreshold() * 2);
-            SimpleCollisionBox feetBB = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                    position.x, position.y, position.z, feetBoxSize, feetBoxSize);
-            Collisions.hasState(player, feetBB, (state, blockPos) -> {
-                boolean onClimbable = Collisions.onClimbable(
-                        player, blockPos.getX(), blockPos.getY(), blockPos.getZ(), context.isGliding());
-                CollisionBox blockCollision = ClientBlockShapes.movement(player, state, 0, 0, 0);
-                if (onClimbable || !blockCollision.isFullBlock()) {
-                    climbing.set(climbing.get().addBoolean(onClimbable));
-                }
-                return false;
-            });
-            return climbing.get();
-        }
         return climbingAtStart;
     }
 
@@ -357,13 +288,7 @@ public class WorldStageBuilder {
         state.setWaterTimingUncertain(player.compensatedWorld.hasRecentClientWaterChanges(box));
         state.setLavaTimingUncertain(player.compensatedWorld.hasRecentClientLavaChanges(box));
 
-        boolean oldLavaLogic = player.getClientVersion().isOlderThan(ClientVersion.V_1_14);
         SimpleCollisionBox lavaCollision = box.copy();
-        if (oldLavaLogic) {
-            lavaCollision.expand(-0.1f, 0, -0.1f);
-            state.inLava = Collisions.hasState(
-                    player, lavaCollision, block -> BlockIds.is(block, BlockIds.LAVA), (block, pos) -> true);
-        }
 
         Collisions.hasState(player, box, (block, pos) -> {
             boolean isInsideFluid = false;
@@ -380,7 +305,7 @@ public class WorldStageBuilder {
                 isInsideFluid = status;
             }
 
-            if (!oldLavaLogic && fluid.lava()) {
+            if (fluid.lava()) {
                 double fluidHeight = fluid.height();
                 // 1.14 doesn't care about actual lava collision box
                 boolean status = calculateStatusForFluid(player, lavaCollision, fluidHeight, pos);
@@ -463,10 +388,7 @@ public class WorldStageBuilder {
         return false;
     }
 
-    // 1.12- suffocation logic: Does the block at my feet + 0.5 or the block at my head suffocate me?
-    // 1.13 suffocation logic: Does the block at my feet + 0.5 (if swimming) or my feet and head suffocate me?
-    //
-    // 1.14 suffocation logic: Does minY to maxY exist in a block?
+    // Does minY to maxY exist in a block?
     private boolean suffocatesAt(CultPlayer player, int x, int z) {
         SimpleCollisionBox axisAlignedBB = new SimpleCollisionBox(
                         x, player.boundingBox.minY, z, x + 1.0, player.boundingBox.maxY, z + 1.0, false)
@@ -475,11 +397,7 @@ public class WorldStageBuilder {
     }
 
     private boolean moveToClosestSpace(CultPlayer player, double xPos, double yPos, double zPos) {
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14)) {
-            return moveTowardsClosestSpaceModern(player, xPos, zPos);
-        } else {
-            return moveTowardsClosestSpaceLegacy(player, xPos, yPos, zPos);
-        }
+        return moveTowardsClosestSpaceModern(player, xPos, zPos);
     }
 
     private boolean moveTowardsClosestSpaceModern(CultPlayer player, double xPosition, double zPosition) {
@@ -525,61 +443,12 @@ public class WorldStageBuilder {
         return direction != null;
     }
 
-    private boolean moveTowardsClosestSpaceLegacy(CultPlayer player, double x, double lastY, double z) {
-        int floorX = CultMath.floor(x);
-        int floorZ = CultMath.floor(z);
-        int floorY = CultMath.floor(lastY + 0.5);
-
-        double d0 = x - floorX;
-        double d1 = z - floorZ;
-
-        // 1.13 has slightly different logic for swimming, but no one uses 1.13 clients,
-        // and it's a slight situational bypass rather than anything major so who cares.
-        boolean suffocates = !clearAbove(player, floorX, floorY, floorZ);
-
-        if (suffocates) {
-            double d2 = 9999.0D;
-            if (clearAbove(player, floorX - 1, floorY, floorZ) && d0 < d2) {
-                return true;
-            }
-
-            if (clearAbove(player, floorX + 1, floorY, floorZ) && 1.0D - d0 < d2) {
-                return true;
-            }
-
-            if (clearAbove(player, floorX, floorY, floorZ - 1) && d1 < d2) {
-                return true;
-            }
-
-            if (clearAbove(player, floorX, floorY, floorZ + 1) && 1.0D - d1 < d2) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean clearAbove(CultPlayer player, int x, int y, int z) {
-        return !Collisions.doesBlockSuffocate(player, x, y, z) && !Collisions.doesBlockSuffocate(player, x, y + 1, z);
-    }
-
     private boolean calculateStatusForFluid(
             CultPlayer player, SimpleCollisionBox box, double fluidHeight, BlockPos fluidPos) {
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13)) {
-            SimpleCollisionBox fluidCollision = new SimpleCollisionBox(fluidPos);
-            fluidCollision.maxY = fluidCollision.minY + fluidHeight;
+        SimpleCollisionBox fluidCollision = new SimpleCollisionBox(fluidPos);
+        fluidCollision.maxY = fluidCollision.minY + fluidHeight;
 
-            return box.isCollided(fluidCollision);
-        } else {
-            return isLegacyFluidIn(box, fluidPos.getY(), fluidHeight);
-        }
-    }
-
-    private boolean isLegacyFluidIn(SimpleCollisionBox box, int y, double fluidHeight) {
-        if (fluidHeight == 0) return false;
-        if (y < Math.floor(box.minY)) return false;
-        if (y >= Math.ceil(box.maxY)) return false;
-        double d0 = (float) (y + 1) - fluidHeight;
-        return CultMath.ceil(box.maxY) >= d0;
+        return box.isCollided(fluidCollision);
     }
 
     private int getNumEntitiesCollidingWith(SimulationContext context) {
@@ -681,63 +550,61 @@ public class WorldStageBuilder {
         int[] airDownwards = new int[1];
         Set<Long> visitedBlocks = new HashSet<>();
 
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13)) {
-            double movementX = to.x - from.x;
-            double movementY = to.y - from.y;
-            double movementZ = to.z - from.z;
-            if (movementX * movementX + movementY * movementY + movementZ * movementZ > 0.0) {
-                // MCP-Reborn Entity#move records the clipped movement plus the original axis order.
-                // Entity#checkInsideBlocks then replays that movement one axis at a time before
-                // BubbleColumnBlock#entityInside applies Entity#onAboveBubbleColumn/onInsideBubbleColumn.
-                double stepX = from.x, stepY = from.y, stepZ = from.z;
-                for (Direction.Axis axis : axisStepOrder(context.getTarget())) {
-                    double movementOnAxis = switch (axis) {
-                        case X -> movementX;
-                        case Y -> movementY;
-                        case Z -> movementZ;
-                    };
-                    if (movementOnAxis == 0.0) {
-                        continue;
-                    }
-
-                    Direction direction = positiveDirection(axis);
-                    double nextX = stepX + movementOnAxis * direction.getModX();
-                    double nextY = stepY + movementOnAxis * direction.getModY();
-                    double nextZ = stepZ + movementOnAxis * direction.getModZ();
-                    accumulateBubbleColumns(
-                            player,
-                            context,
-                            stepX,
-                            stepY,
-                            stepZ,
-                            nextX,
-                            nextY,
-                            nextZ,
-                            visitedBlocks,
-                            pushUpwards,
-                            pushDownwards,
-                            airUpwards,
-                            airDownwards);
-                    stepX = nextX;
-                    stepY = nextY;
-                    stepZ = nextZ;
+        double movementX = to.x - from.x;
+        double movementY = to.y - from.y;
+        double movementZ = to.z - from.z;
+        if (movementX * movementX + movementY * movementY + movementZ * movementZ > 0.0) {
+            // MCP-Reborn Entity#move records the clipped movement plus the original axis order.
+            // Entity#checkInsideBlocks then replays that movement one axis at a time before
+            // BubbleColumnBlock#entityInside applies Entity#onAboveBubbleColumn/onInsideBubbleColumn.
+            double stepX = from.x, stepY = from.y, stepZ = from.z;
+            for (Direction.Axis axis : axisStepOrder(context.getTarget())) {
+                double movementOnAxis = switch (axis) {
+                    case X -> movementX;
+                    case Y -> movementY;
+                    case Z -> movementZ;
+                };
+                if (movementOnAxis == 0.0) {
+                    continue;
                 }
-            } else {
+
+                Direction direction = positiveDirection(axis);
+                double nextX = stepX + movementOnAxis * direction.getModX();
+                double nextY = stepY + movementOnAxis * direction.getModY();
+                double nextZ = stepZ + movementOnAxis * direction.getModZ();
                 accumulateBubbleColumns(
                         player,
                         context,
-                        from.x,
-                        from.y,
-                        from.z,
-                        to.x,
-                        to.y,
-                        to.z,
+                        stepX,
+                        stepY,
+                        stepZ,
+                        nextX,
+                        nextY,
+                        nextZ,
                         visitedBlocks,
                         pushUpwards,
                         pushDownwards,
                         airUpwards,
                         airDownwards);
+                stepX = nextX;
+                stepY = nextY;
+                stepZ = nextZ;
             }
+        } else {
+            accumulateBubbleColumns(
+                    player,
+                    context,
+                    from.x,
+                    from.y,
+                    from.z,
+                    to.x,
+                    to.y,
+                    to.z,
+                    visitedBlocks,
+                    pushUpwards,
+                    pushDownwards,
+                    airUpwards,
+                    airDownwards);
         }
 
         return new BubbleColumnData(airUpwards[0], pushUpwards[0], airDownwards[0], pushDownwards[0]);
@@ -841,23 +708,6 @@ public class WorldStageBuilder {
                 && box.maxZ - inset > pos.getZ();
     }
 
-    private int getSoulSandCount(CultPlayer player, SimulationContext context) {
-        // Through 1.14.4, SoulSandBlock#entityInside multiplies velocity once
-        // per intersected block. The block speed factor replaces this in 1.15.
-        if (context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_15)) return 0;
-
-        SimpleCollisionBox playerBox = context.getToActualPose().expand(-0.001);
-
-        int[] soulSandCount = new int[1];
-        Collisions.hasState(player, playerBox, block -> BlockIds.is(block, BlockIds.SOUL_SAND), (block, pos) -> {
-            if (BlockIds.is(block, BlockIds.SOUL_SAND)) {
-                soulSandCount[0]++;
-            }
-            return false;
-        });
-        return soulSandCount[0];
-    }
-
     public DesyncStatus isSlidingDown(CultPlayer player, SimulationContext context) {
         // MCP-Reborn Entity#move records the movement path, and Entity#baseTick
         // later calls checkInsideBlocks(movements). HoneyBlock#entityInside can
@@ -915,9 +765,6 @@ public class WorldStageBuilder {
             SimpleCollisionBox to,
             boolean powderSnowCanApply) {
         Vec3 endpoint = Collisions.checkStuckSpeed(player, to, powderSnowCanApply);
-        // Entity#moveEntity calls doBlockCollisions on the final bounding box.
-        // Passing through a cell during the move does not run its callback.
-        if (!player.isBedrockMovement() && context.getVersion().isOlderThan(ClientVersion.V_1_13)) return endpoint;
         boolean ordered =
                 player.bedrockState == null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
         Vec3 path = ordered
