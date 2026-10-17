@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.anticheat.StringReturner;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import java.util.List;
 
@@ -23,7 +24,8 @@ public class FlagCaller extends CultProcessor implements PostPredictionListener 
             List<PredictionResult.Flag> flags =
                     predictionComplete.getPredictionResult().getFlags();
 
-            for (PredictionResult.Flag flag : flags) {
+            for (int i = 0; i < flags.size(); i++) {
+                PredictionResult.Flag flag = flags.get(i);
                 if (!sharedSetbacks && !(flag.getCheck() instanceof BedrockMovement)) continue;
                 if (flag.getCheck() instanceof BedrockMovement movement) {
                     movement.flagMovement(
@@ -31,9 +33,9 @@ public class FlagCaller extends CultProcessor implements PostPredictionListener 
                             predictionComplete.getPredictionResult().getIdentifier());
                     continue;
                 }
-                flag.getCheck()
-                        .flag(flag.getVerbose().getString() + " " + "\u00a78"
-                                + predictionComplete.getPredictionResult().getIdentifier());
+                StringReturner verbose = flag.getVerbose();
+                int identifier = predictionComplete.getPredictionResult().getIdentifier();
+                flag.getCheck().flag(() -> verbose.getString() + " " + "\u00a78" + identifier);
             }
         }
     }

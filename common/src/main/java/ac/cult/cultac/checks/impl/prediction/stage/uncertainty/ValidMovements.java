@@ -18,6 +18,10 @@ import lombok.ToString;
 // They range from blocks pushing the user out of them, to pistons pushing a user
 @ToString
 public class ValidMovements {
+    /** Collision data for the collision-ignored pass, shared by every player; writes to it throw. */
+    private static final CollideAxisData COLLISION_IGNORED = CollideAxisData.immutable(
+            new CollideAxisData.CollideResult(false, 0), null, null, new CollideAxisData.CollideResult(false, 0));
+
     PredVector initialStartingVel;
     transient CultPlayer player;
 
@@ -51,6 +55,9 @@ public class ValidMovements {
 
     private final List<UncertaintyHandler> uncertaintyHandlers;
 
+    @ToString.Exclude
+    private final MovementTrace startTrace;
+
     public ValidMovements(PredVector initialStartingVel, CultPlayer player, PredictionResult result, boolean canStep) {
         this(initialStartingVel, player, result, canStep, UncertaintyPipeline.MODIFIERS);
     }
@@ -66,6 +73,7 @@ public class ValidMovements {
         this.result = result;
         this.canStep = canStep;
         this.uncertaintyHandlers = uncertaintyHandlers;
+        this.startTrace = MovementTrace.start(initialStartingVel);
 
         result.setValidMovements(this);
     }
@@ -75,8 +83,7 @@ public class ValidMovements {
     }
 
     public MovementTrace transformTraceTowards(Vec3 end, PredictionResult lastResult) {
-        // Vectors are immutable, so we need to make a copy
-        MovementTrace trace = MovementTrace.start(initialStartingVel);
+        MovementTrace trace = startTrace;
 
         for (UncertaintyHandler handler : uncertaintyHandlers) {
             trace = handler.handleMovementTrace(
@@ -103,12 +110,7 @@ public class ValidMovements {
     public Vec3 computeCollisionIgnoredMovement(PredictionResult lastResult) {
         // Select one complete movement with the existing uncertainty handlers.
         // In particular, Fireworks must share its radius between Y and X/Z.
-        result.setCollideAxisData(new CollideAxisData(
-                new CollideAxisData.CollideResult(false, 0),
-                null,
-                null,
-                new CollideAxisData.CollideResult(false, 0),
-                new java.util.ArrayList<>()));
+        result.setCollideAxisData(COLLISION_IGNORED);
         computeClosest(lastResult);
         return closestToTarget;
     }

@@ -15,6 +15,8 @@ import java.util.function.Function;
 
 /** Authoritative identity, player attachment and transport state for one channel. */
 public final class CultConnection implements CodecState {
+    private static final int CONTEXT_SLOTS = 256;
+
     private final Channel channel;
     private final PlatformConnection platform;
     boolean loginNotified;
@@ -35,6 +37,8 @@ public final class CultConnection implements CodecState {
     private volatile PacketLogObserver packetObserver = PacketLogObserver.NONE;
     private io.netty.util.concurrent.GenericFutureListener<io.netty.util.concurrent.Future<? super Void>> closeListener;
     private volatile ConnectionContinuation continuation;
+    /** Codec contexts bound to this connection, by base identity; a slot holds one immutable context or none. */
+    private final ProtocolContext[] contexts = new ProtocolContext[CONTEXT_SLOTS];
 
     public void packetObserver(PacketLogObserver observer) {
         packetObserver = Objects.requireNonNull(observer);
@@ -113,6 +117,14 @@ public final class CultConnection implements CodecState {
         if (type == ac.cult.cultac.protocol.data.RegistryNames.class && platform != null)
             return type.cast(platform.registryNames());
         return CodecState.EMPTY.require(type);
+    }
+
+    @Override
+    public ProtocolContext bind(ProtocolContext base) {
+        int slot = System.identityHashCode(base) & (CONTEXT_SLOTS - 1);
+        ProtocolContext bound = contexts[slot];
+        if (bound == null || !bound.binds(base, this)) contexts[slot] = bound = base.withState(this);
+        return bound;
     }
 
     public boolean disconnected() {

@@ -235,6 +235,16 @@ public class PredVector extends Vec3 {
         return new PredVector(x, y, z, this, reason);
     }
 
+    /** {@link #withXYZ}, or this vector itself when every component keeps its bits; {@code reason} then stays out of the lineage. */
+    public PredVector withXYZOrSelf(double x, double y, double z, String reason) {
+        if (Double.doubleToRawLongBits(x) == Double.doubleToRawLongBits(this.x)
+                && Double.doubleToRawLongBits(y) == Double.doubleToRawLongBits(this.y)
+                && Double.doubleToRawLongBits(z) == Double.doubleToRawLongBits(this.z)) {
+            return this;
+        }
+        return new PredVector(x, y, z, this, reason);
+    }
+
     public PredVector withX(double x, String reason) {
         return new PredVector(x, y, z, this, reason);
     }

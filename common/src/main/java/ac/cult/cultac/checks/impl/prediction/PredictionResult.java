@@ -33,7 +33,7 @@ public class PredictionResult {
     CollideAxisData collideAxisData;
     ValidMovements validMovements;
 
-    List<Flag> flags = new ArrayList<>();
+    List<Flag> flags = List.of();
     double flagSeverity = 0; // Cache for performance and to allow exempting
     private Boolean cachedAnyRealityControlsVerticalMovement;
     private Boolean cachedAnyRealityDidTickSkipGravity;
@@ -86,6 +86,7 @@ public class PredictionResult {
             return;
         }
         this.flagSeverity += flagSeverity;
+        if (flags.isEmpty()) flags = new ArrayList<>(2);
         flags.add(new Flag(check, message, flagSeverity));
     }
 

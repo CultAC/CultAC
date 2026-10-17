@@ -225,7 +225,6 @@ class ClientItemActionsTest {
 
     private static final class World implements StubWorldView {
         private final Map<BlockPos, Integer> states = new HashMap<>();
-        private int brightness = 15;
         private boolean entityHit;
         private boolean occupied, colliding, peaceful;
         private boolean experimentalMinecarts;
@@ -241,7 +240,6 @@ class ClientItemActionsTest {
         public String dimensionKey() { return "minecraft:overworld"; }
         public boolean creakingActiveAt(BlockPos pos) { return false; }
         public boolean waterEvaporatesAt(BlockPos pos) { return false; }
-        public int rawBrightnessAt(BlockPos pos) { return brightness; }
         public BlockEntityData blockEntityAt(BlockPos pos) { return entities.get(pos); }
         public Vec3 borderHit(Vec3 from, Vec3 to) { return null; }
         public boolean hasPickableEntityHit(Vec3 from, Vec3 to, SimPlayer player) { return entityHit; }
@@ -266,27 +264,21 @@ class ClientItemActionsTest {
             new SimInput(world, player, new SimCooldowns(0, Map.of()), MINING, BreakSession.State.initial(ITEMS.empty()), tags));
     }
     private static SimResult use(World world, SimPlayer player) { return use(world, player, Direction.UP, HolderSets.Overlay.EMPTY); }
-    @Test void mushroomPlacementChecksLightUnlessTheSupportOverridesIt() {
+    @Test void mushroomPlacesOnSolidOrOverridingSupport() {
         for (String item : new String[]{"brown_mushroom", "red_mushroom"}) {
             var owner = player(item, 2, false);
             var world = new World(state("stone"));
-            world.brightness = 12;
             var placed = use(world, owner);
             assertTrue(placed.interaction().consumesAction());
             assertEquals(state(item), placed.writes().getFirst().newState());
             assertEquals(1, placed.player().hand(Hand.MAIN_HAND).count());
-            for (int light : new int[]{13, 15}) {
-                world.brightness = light;
-                var rejected = use(world, owner);
-                assertFalse(rejected.interaction().consumesAction());
-                assertTrue(rejected.writes().isEmpty());
-                assertEquals(2, rejected.player().hand(Hand.MAIN_HAND).count());
-            }
             world.states.put(POS, state("mycelium"));
             assertTrue(use(world, owner).interaction().consumesAction());
             world.states.put(POS, state("air"));
-            world.brightness = 0;
-            assertFalse(use(world, owner).interaction().consumesAction());
+            var rejected = use(world, owner);
+            assertFalse(rejected.interaction().consumesAction());
+            assertTrue(rejected.writes().isEmpty());
+            assertEquals(2, rejected.player().hand(Hand.MAIN_HAND).count());
         }
     }
 
@@ -561,7 +553,7 @@ class ClientItemActionsTest {
         assertEquals(InteractionKind.SUCCESS, use(new World(torchflower), player("bone_meal", 1, false)).interaction().kind());
     }
 
-    @Test void boneMealRespectsConnectedHeadsLightAndWaterSource() {
+    @Test void boneMealRespectsConnectedHeadsAndWaterSource() {
         var owner = player("bone_meal", 2, false);
         var kelp = new World(state("kelp_plant"));
         assertEquals(InteractionKind.PASS, use(kelp, owner).interaction().kind());
@@ -571,9 +563,6 @@ class ClientItemActionsTest {
 
         int lower = DATA.registry().with(state("pitcher_crop"), "half", "lower");
         var pitcher = new World(lower);
-        pitcher.brightness = 7;
-        assertEquals(InteractionKind.PASS, use(pitcher, owner).interaction().kind());
-        pitcher.brightness = 8;
         assertEquals(InteractionKind.SUCCESS, use(pitcher, owner).interaction().kind());
         pitcher.states.put(POS, DATA.registry().with(lower, "age", "2"));
         pitcher.states.put(POS.relative(Direction.UP), state("stone"));

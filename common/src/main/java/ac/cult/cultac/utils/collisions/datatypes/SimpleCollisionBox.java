@@ -353,6 +353,42 @@ public class SimpleCollisionBox implements CollisionBox {
         return new SimpleCollisionBox(minX, minY, minZ, maxX, maxY, maxZ, isFullBlock);
     }
 
+    /** Overwrites this box with {@code other}'s bounds and full-block flag, as {@link #copy()} would produce. */
+    public SimpleCollisionBox set(SimpleCollisionBox other) {
+        this.minX = other.minX;
+        this.minY = other.minY;
+        this.minZ = other.minZ;
+        this.maxX = other.maxX;
+        this.maxY = other.maxY;
+        this.maxZ = other.maxZ;
+        this.isFullBlock = other.isFullBlock;
+        return this;
+    }
+
+    /** Sets these bounds as {@link #SimpleCollisionBox(double, double, double, double, double, double)} would. */
+    public SimpleCollisionBox set(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
+        return set(
+                minX,
+                minY,
+                minZ,
+                maxX,
+                maxY,
+                maxZ,
+                minX == 0 && minY == 0 && minZ == 0 && maxX == 1 && maxY == 1 && maxZ == 1);
+    }
+
+    public SimpleCollisionBox set(
+            double minX, double minY, double minZ, double maxX, double maxY, double maxZ, boolean fullBlock) {
+        this.minX = minX;
+        this.maxX = maxX;
+        this.minY = minY;
+        this.maxY = maxY;
+        this.minZ = minZ;
+        this.maxZ = maxZ;
+        isFullBlock = fullBlock;
+        return this;
+    }
+
     public SimpleCollisionBox offset(Vec3 vector) {
         return offset(vector.x, vector.y, vector.z);
     }

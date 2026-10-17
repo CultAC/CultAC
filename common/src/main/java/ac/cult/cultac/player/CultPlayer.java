@@ -788,12 +788,14 @@ public class CultPlayer implements GrimUser {
 
     private boolean hasNoEntityCollision(SimpleCollisionBox playerBox) {
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        SimpleCollisionBox entityBox = new SimpleCollisionBox();
+        SimpleCollisionBox scratch = new SimpleCollisionBox();
         for (PacketEntity entity : compensatedEntities.entityMap.values()) {
             if (!canCollideWithForPoseCheck(riding, entity)) {
                 continue;
             }
 
-            if (entity.getPossibleCollisionBoxes().isIntersected(playerBox)) {
+            if (entity.getPossibleCollisionBoxes(entityBox, scratch).isIntersected(playerBox)) {
                 return false;
             }
         }

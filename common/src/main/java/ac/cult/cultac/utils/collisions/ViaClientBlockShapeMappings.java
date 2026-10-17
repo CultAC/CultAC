@@ -111,6 +111,12 @@ public final class ViaClientBlockShapeMappings {
         return replacement == null ? state : replacement.stateId();
     }
 
+    public static boolean replacesBlockStates(CultPlayer player) {
+        if (player == null || player.bedrockState != null) return false;
+        VersionMappings mapping = SNAPSHOT.get().versions().get(player.getClientVersion());
+        return mapping != null && !mapping.replacements().isEmpty();
+    }
+
     public static boolean legacyMaterialIsSolid(CultPlayer player, int state) {
         VersionMappings mapping = SNAPSHOT.get().versions().get(player.getClientVersion());
         boolean solid = DataTables.defaults().registry().facts(state).has(StateFacts.SOLID);

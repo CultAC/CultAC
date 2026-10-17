@@ -10,7 +10,6 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -18,7 +17,8 @@ import java.util.List;
 public final class Friction {
     private Friction() {}
 
-    public static List<Vec3> applyTravelDrag(
+    /** Appends the velocities after travel drag to {@code out}, in order. */
+    public static void applyTravelDrag(
             CultPlayer player,
             boolean onGround,
             Vec3 from,
@@ -27,27 +27,34 @@ public final class Friction {
             boolean falling,
             double gravity,
             boolean inWater,
-            boolean inLava) {
+            boolean inLava,
+            List<Vec3> out) {
         if (context.getVehicle() instanceof PacketEntityHappyGhast) {
             if (inWater) {
-                return Collections.singletonList(playerVelocity.scale(0.8F));
+                out.add(playerVelocity.scale(0.8F));
+                return;
             }
             if (inLava) {
-                return Collections.singletonList(playerVelocity.scale(0.5D));
+                out.add(playerVelocity.scale(0.5D));
+                return;
             }
-            return Collections.singletonList(playerVelocity.scale(0.91F));
+            out.add(playerVelocity.scale(0.91F));
+            return;
         }
 
         // AbstractNautilus#travelInWater moves first and then scales the complete
         // stored velocity by 0.9. It does not apply the generic fluid gravity path.
         if (context.getVehicle() instanceof PacketEntityNautilus && inWater) {
-            return Collections.singletonList(playerVelocity.scale(0.9D));
+            out.add(playerVelocity.scale(0.9D));
+            return;
         }
 
         // Water friction - has highest priority
         if (inWater) {
-            List<Vec3> results = new ArrayList<>();
-            for (double friction : getSwimFriction(context)) {
+            int start = out.size();
+            List<Double> frictions = getSwimFriction(context);
+            for (int i = 0, size = frictions.size(); i < size; i++) {
+                double friction = frictions.get(i);
                 if (!Double.isFinite(friction)) {
                     continue;
                 }
@@ -56,43 +63,39 @@ public final class Friction {
                 // EntityLivingBase#moveEntityWithHeading before Update Aquatic:
                 // water always subtracts 0.02 after drag, including sprinting.
                 if (legacyWater) {
-                    addDistinct(results, withFriction.add(0, -0.02D, 0));
+                    addDistinct(out, start, withFriction.add(0, -0.02D, 0));
                     continue;
                 }
-                List<Vec3> adjusted = new ArrayList<>();
-                addFluidFallingAdjustedMovement(player, context, adjusted, gravity, falling, withFriction);
-                for (Vec3 candidate : adjusted) {
-                    if (isFinite(candidate)) {
-                        addDistinct(results, candidate);
-                    }
-                }
+                addFluidFallingAdjustedMovement(player, context, out, start, true, gravity, falling, withFriction);
             }
-            return results;
+            return;
         }
 
         // Lava friction applies a stronger lateral slowdown before fluid falling is applied.
         if (inLava) {
-            List<Vec3> velocities = new ArrayList<>();
             if (context.getVersion().isOlderThan(ClientVersion.V_1_16)) {
-                return Collections.singletonList(playerVelocity.scale(0.5D).add(0, -0.02D, 0));
+                out.add(playerVelocity.scale(0.5D).add(0, -0.02D, 0));
+                return;
             }
             Vec3 withSomeFriction = playerVelocity.multiply(0.5, 0.8f, 0.5).add(0, -gravity / 4, 0);
-            addFluidFallingAdjustedMovement(player, context, velocities, gravity, falling, withSomeFriction);
-            velocities.add(playerVelocity.scale(0.5).add(0, -gravity / 4, 0));
-            return velocities;
+            addFluidFallingAdjustedMovement(
+                    player, context, out, out.size(), false, gravity, falling, withSomeFriction);
+            out.add(playerVelocity.scale(0.5).add(0, -gravity / 4, 0));
+            return;
         }
 
         // Normal friction is this well known formula, account for slow falling, has lowest priority
         boolean use26Dot2 = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
         float frictionUnderPlayer =
                 getPlayerFriction(player, from, context.getLastTickMainSupportingBlockData(), onGround, false, false);
-        playerVelocity = playerVelocity.multiply(frictionUnderPlayer, 1.0, frictionUnderPlayer);
+        // Vec3 arithmetic as scalars: multiplying by 1 and adding -0 keep a component's bits.
+        double x = playerVelocity.x * frictionUnderPlayer;
+        double y = playerVelocity.y;
+        double z = playerVelocity.z * frictionUnderPlayer;
 
         if (player.compensatedEntities.getLevitationAmplifier() != null) {
             // This supports both positive and negative levitation
-            double y = playerVelocity.y;
             y += (0.05 * (player.compensatedEntities.getLevitationAmplifier() + 1) - y) * 0.2;
-            playerVelocity = new Vec3(playerVelocity.x, y, playerVelocity.z);
         } else if (!player.isBedrockMovement()
                 && context.getVersion().isOlderThan(ClientVersion.V_1_9)
                 && !player.compensatedWorld.isChunkLoaded(
@@ -101,9 +104,9 @@ public final class Friction {
             // After moving, it replaces motionY before drag until the column
             // loads. The chunk lookup casts toward zero, and the Y cutoff is
             // the legacy world's zero, independent of the modern server's minY.
-            playerVelocity = new Vec3(playerVelocity.x, context.getEnd().y > 0 ? -0.1D : 0.0D, playerVelocity.z);
+            y = context.getEnd().y > 0 ? -0.1D : 0.0D;
         } else if (player.compensatedEntities.getEntityInControl().hasGravity) {
-            playerVelocity = playerVelocity.subtract(0, gravity, 0);
+            y += -gravity;
         }
 
         // MCP-Reborn 26.2 LivingEntity#travelInAir applies the vertical air drag
@@ -112,8 +115,7 @@ public final class Friction {
                 ? computeModifiedFriction(
                         0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier)
                 : 0.98F;
-        playerVelocity = playerVelocity.multiply(1, verticalDrag, 1);
-        return Collections.singletonList(playerVelocity);
+        out.add(new Vec3(x, y * verticalDrag, z));
     }
 
     // MCP-Reborn 26.2 LivingEntity#computeModifiedFriction
@@ -121,15 +123,21 @@ public final class Friction {
         return CultMath.clampFloat(1.0F - (1.0F - friction) * modifier, 0.0F, 1.0F);
     }
 
+    /**
+     * Appends the fluid-falling candidates of {@code movement} to {@code results}, skipping any equal to one already at
+     * or after {@code from}, and with {@code finiteOnly} any that is not finite.
+     */
     private static void addFluidFallingAdjustedMovement(
             CultPlayer player,
             SimulationContext context,
             List<Vec3> results,
+            int from,
+            boolean finiteOnly,
             double gravity,
             boolean falling,
             Vec3 movement) {
         if (!player.compensatedEntities.getEntityInControl().hasGravity || gravity == 0.0D) {
-            addDistinct(results, movement);
+            if (!finiteOnly || isFinite(movement)) addDistinct(results, from, movement);
             return;
         }
 
@@ -137,11 +145,12 @@ public final class Friction {
         // gravity / 16 only when the entity is not sprinting. Use the frozen
         // SimulationContext sprint candidates for this simulated client tick;
         // mutable CultPlayer sprint state may already reflect a later packet.
-        for (boolean sprinting : context.getIsSprinting().getStates()) {
-            Vec3 candidate = sprinting && context.getVehicle() == null
+        List<Boolean> sprintingStates = context.getIsSprinting().getStates();
+        for (int i = 0, size = sprintingStates.size(); i < size; i++) {
+            Vec3 candidate = sprintingStates.get(i) && context.getVehicle() == null
                     ? movement
                     : applyFluidGravity(gravity, falling, movement);
-            addDistinct(results, candidate);
+            if (!finiteOnly || isFinite(candidate)) addDistinct(results, from, candidate);
         }
     }
 
@@ -213,9 +222,9 @@ public final class Friction {
         return Double.isFinite(vector.x) && Double.isFinite(vector.y) && Double.isFinite(vector.z);
     }
 
-    private static void addDistinct(List<Vec3> results, Vec3 candidate) {
-        for (Vec3 existing : results) {
-            if (existing.equals(candidate)) {
+    private static void addDistinct(List<Vec3> results, int from, Vec3 candidate) {
+        for (int i = from, size = results.size(); i < size; i++) {
+            if (results.get(i).equals(candidate)) {
                 return;
             }
         }

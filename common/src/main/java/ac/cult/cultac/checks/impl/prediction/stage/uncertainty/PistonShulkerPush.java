@@ -37,6 +37,7 @@ public class PistonShulkerPush implements UncertaintyHandler {
             PredictionResult lastResult,
             MovementTrace trace,
             Vec3 end) {
+        if (!ExternalMovementUncertainty.mayShove(context, lastResult)) return trace;
         PredVector start = trace.position();
         ExternalMovementUncertainty.Snapshot snapshot = ExternalMovementUncertainty.capture(context, lastResult);
         SimpleCollisionBox expanded = snapshot.combinedTargetEnvelopeCopy();

@@ -103,15 +103,9 @@ final class ModelWorldValues {
             if (type.equals("minecraft:potent_sulfur")) tickers.add(pos);
             entities.add(new WorldPackets.BlockEntityUpdate(pos, type, NbtValueCodec.readBlockEntity(input, type)));
         }
+        LightValueCodec.skip(input, version);
         return new WorldPackets.Chunk(
-                x,
-                z,
-                model == null ? null : ByteBuffer.wrap(model),
-                tickers,
-                LightValueCodec.read(input, version),
-                entities,
-                motionBlocking,
-                decoded);
+                x, z, model == null ? null : ByteBuffer.wrap(model), tickers, entities, motionBlocking, decoded);
     }
 
     static WorldPackets.ChunkBiomes biomes(ByteBuf input) {
@@ -139,15 +133,6 @@ final class ModelWorldValues {
             chunks.add(new WorldPackets.BiomeChunk((int) pos, (int) (pos >>> 32), null, model));
         }
         return new WorldPackets.ChunkBiomes(chunks);
-    }
-
-    static WorldPackets.LightUpdate light(ByteBuf input) {
-        return light(input, ProtocolVersion.V26_3);
-    }
-
-    static WorldPackets.LightUpdate light(ByteBuf input, ProtocolVersion version) {
-        int x = Wire.readVarInt(input), z = Wire.readVarInt(input);
-        return new WorldPackets.LightUpdate(x, z, LightValueCodec.read(input, version));
     }
 
     private static IntFunction<String> blockEntityTypes(RegistryNames names) {

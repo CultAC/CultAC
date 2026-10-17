@@ -14,6 +14,8 @@ import java.nio.file.Files;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 import org.jetbrains.annotations.Nullable;
 
@@ -22,6 +24,27 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
     private final DynamicConfig config;
     private boolean initialized = false;
     private final File snapshotDirectory;
+
+    // reload() replaces this; a lookup stores into the cache it read first, so one racing a reload is discarded.
+    private volatile Lookups lookups = new Lookups();
+
+    private static final class Lookups {
+        final Map<String, StringLookup> strings = new ConcurrentHashMap<>();
+        final Map<String, IntLookup> ints = new ConcurrentHashMap<>();
+        final Map<String, LongLookup> longs = new ConcurrentHashMap<>();
+        final Map<String, DoubleLookup> doubles = new ConcurrentHashMap<>();
+        final Map<String, BooleanLookup> booleans = new ConcurrentHashMap<>();
+    }
+
+    private record StringLookup(String otherwise, String value) {}
+
+    private record IntLookup(int otherwise, int value) {}
+
+    private record LongLookup(long otherwise, long value) {}
+
+    private record DoubleLookup(long otherwiseBits, double value) {}
+
+    private record BooleanLookup(boolean otherwise, boolean value) {}
 
     public ConfigManagerFileImpl() {
         this(
@@ -154,6 +177,8 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
             config.loadAll();
         } catch (Exception e) {
             throw new RuntimeException("Failed to load config", e);
+        } finally {
+            lookups = new Lookups();
         }
     }
 
@@ -407,7 +432,12 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
 
     @Override
     public String getStringElse(String key, String otherwise) {
-        return config.getStringElse(key, otherwise);
+        Map<String, StringLookup> cache = lookups.strings;
+        StringLookup lookup = cache.get(key);
+        if (lookup != null && Objects.equals(lookup.otherwise(), otherwise)) return lookup.value();
+        String value = config.getStringElse(key, otherwise);
+        cache.put(key, new StringLookup(otherwise, value));
+        return value;
     }
 
     @Override
@@ -427,22 +457,43 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
 
     @Override
     public int getIntElse(String key, int other) {
-        return config.getIntElse(key, other);
+        Map<String, IntLookup> cache = lookups.ints;
+        IntLookup lookup = cache.get(key);
+        if (lookup != null && lookup.otherwise() == other) return lookup.value();
+        int value = config.getIntElse(key, other);
+        cache.put(key, new IntLookup(other, value));
+        return value;
     }
 
     @Override
     public long getLongElse(String key, long otherwise) {
-        return config.getLongElse(key, otherwise);
+        Map<String, LongLookup> cache = lookups.longs;
+        LongLookup lookup = cache.get(key);
+        if (lookup != null && lookup.otherwise() == otherwise) return lookup.value();
+        long value = config.getLongElse(key, otherwise);
+        cache.put(key, new LongLookup(otherwise, value));
+        return value;
     }
 
     @Override
     public double getDoubleElse(String key, double otherwise) {
-        return config.getDoubleElse(key, otherwise);
+        long otherwiseBits = Double.doubleToRawLongBits(otherwise);
+        Map<String, DoubleLookup> cache = lookups.doubles;
+        DoubleLookup lookup = cache.get(key);
+        if (lookup != null && lookup.otherwiseBits() == otherwiseBits) return lookup.value();
+        double value = config.getDoubleElse(key, otherwise);
+        cache.put(key, new DoubleLookup(otherwiseBits, value));
+        return value;
     }
 
     @Override
     public boolean getBooleanElse(String key, boolean otherwise) {
-        return config.getBooleanElse(key, otherwise);
+        Map<String, BooleanLookup> cache = lookups.booleans;
+        BooleanLookup lookup = cache.get(key);
+        if (lookup != null && lookup.otherwise() == otherwise) return lookup.value();
+        boolean value = config.getBooleanElse(key, otherwise);
+        cache.put(key, new BooleanLookup(otherwise, value));
+        return value;
     }
 
     @Override

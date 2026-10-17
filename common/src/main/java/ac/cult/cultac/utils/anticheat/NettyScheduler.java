@@ -45,6 +45,10 @@ public class NettyScheduler {
         return player.user.getPacketExecutor().schedule(() -> player.runSafely(runnable), ms, TimeUnit.MILLISECONDS);
     }
 
+    public ScheduledFuture<?> runTaskInMs(PlayerTask task, int ms) {
+        return player.user.getPacketExecutor().schedule(task, ms, TimeUnit.MILLISECONDS);
+    }
+
     private void watchdogKnockbackLatency() {
         // Nothing to watchdog until a knockback has actually been sent to the player.
         if (player.checkManager.getKnockbackHandler().lastSent == null) return;
@@ -69,5 +73,21 @@ public class NettyScheduler {
 
     public void removeScheduler() {
         watchdogTask.cancel(false);
+    }
+
+    /** Runs a task through {@link CultPlayer#runSafely}; built once to be scheduled repeatedly. */
+    public static final class PlayerTask implements Runnable {
+        private final CultPlayer player;
+        private final Runnable task;
+
+        public PlayerTask(CultPlayer player, Runnable task) {
+            this.player = player;
+            this.task = task;
+        }
+
+        @Override
+        public void run() {
+            player.runSafely(task);
+        }
     }
 }

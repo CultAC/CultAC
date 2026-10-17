@@ -78,15 +78,17 @@ public class LatencyUtils {
 
     public void handleNettySyncTransaction(int transaction) {
         LatencyTaskQueue.TaskNode drained = transactionMap.drainReady(transaction);
+        LatencyTaskQueue.TaskNode released = null;
         while (drained != null) {
             // Capture the link before clearing/running: the queued task may
             // enqueue further work and mutate node links.
             LatencyTaskQueue.TaskNode following = drained.next();
             Runnable queuedTask = drained.runnable();
-            drained.clear();
+            released = drained.clearAndLink(released);
             runQueuedTask(queuedTask);
             drained = following;
         }
+        transactionMap.recycle(released);
     }
 
     public void runQueuedTask(Runnable queuedTask) {

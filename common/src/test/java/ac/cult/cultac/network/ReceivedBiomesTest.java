@@ -76,37 +76,6 @@ class ReceivedBiomesTest {
             assertFalse(world.clientIsRainingAt(rainPos));
             world.applyBlockChangeRawDANGER(8, 65, 8, 0);
             assertTrue(world.clientIsRainingAt(rainPos));
-            var skyMask = new java.util.BitSet();
-            skyMask.set((64 - world.getMinHeight()) / 16 + 1);
-            byte[] sky = new byte[2048], block = new byte[2048];
-            Arrays.fill(sky, (byte) 0xEE);
-            Arrays.fill(block, (byte) 0xFF);
-            world.applyLight(
-                    "minecraft:overworld",
-                    0,
-                    0,
-                    new ac.cult.cultac.network.packet.LightValues(
-                            skyMask,
-                            skyMask,
-                            new java.util.BitSet(),
-                            new java.util.BitSet(),
-                            List.of(sky),
-                            List.of(block)));
-            assertFalse(world.clientIsRainingAt(rainPos)); // Block light cannot make rain pass a roof.
-            Arrays.fill(sky, (byte) 0xFF);
-            Arrays.fill(block, (byte) 0);
-            world.applyLight(
-                    "minecraft:overworld",
-                    0,
-                    0,
-                    new ac.cult.cultac.network.packet.LightValues(
-                            skyMask,
-                            skyMask,
-                            new java.util.BitSet(),
-                            new java.util.BitSet(),
-                            List.of(sky),
-                            List.of(block)));
-            assertTrue(world.clientIsRainingAt(rainPos));
             world.setDimension("minecraft:overworld", dimension);
             assertTrue(world.clientIsRainingAt(rainPos));
             world.onClientLogin();

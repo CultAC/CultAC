@@ -215,8 +215,18 @@ public class PacketEntitySelf extends PacketEntity {
     }
 
     @Override
+    public SimpleCollisionBox getPossibleCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        return out.set(player.boundingBox);
+    }
+
+    @Override
     public SimpleCollisionBox getPossibleMovementCollisionBoxes() {
         return player.boundingBox.copy();
+    }
+
+    @Override
+    public SimpleCollisionBox getPossibleMovementCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        return out.set(player.boundingBox);
     }
 
     @Override

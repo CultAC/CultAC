@@ -254,6 +254,13 @@ public final class PalettedSection {
         return result;
     }
 
+    /** False for a global palette, whose entries are only known after reading every index. */
+    public boolean localPaletteWithin(int limit) {
+        if (isGlobal()) return false;
+        for (int i = 0; i < paletteSize; i++) if (palette[i] < 0 || palette[i] >= limit) return false;
+        return true;
+    }
+
     public boolean maybeHas(IntPredicate predicate) {
         if (isGlobal()) return true;
         for (int i = 0; i < paletteSize; i++) if (predicate.test(palette[i])) return true;

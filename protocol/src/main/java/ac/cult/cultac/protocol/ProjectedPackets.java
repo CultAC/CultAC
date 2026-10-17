@@ -39,6 +39,17 @@ public final class ProjectedPackets implements AutoCloseable {
             ByteBuf physical,
             CodecState state,
             Predicate<PacketType<?>> consumed) {
+        Value value = read(phase, direction, physical, state, consumed, false);
+        return value == null ? List.of() : List.of(value);
+    }
+
+    /** As {@link #read}, for the frame's one value; null where it has none. */
+    public Value readOne(
+            ConnectionPhase phase,
+            PacketDirection direction,
+            ByteBuf physical,
+            CodecState state,
+            Predicate<PacketType<?>> consumed) {
         return read(phase, direction, physical, state, consumed, false);
     }
 
@@ -49,10 +60,11 @@ public final class ProjectedPackets implements AutoCloseable {
             ByteBuf physical,
             CodecState state,
             Predicate<PacketType<?>> consumed) {
-        return read(phase, direction, physical, state, consumed, true);
+        Value value = read(phase, direction, physical, state, consumed, true);
+        return value == null ? List.of() : List.of(value);
     }
 
-    private List<Value> read(
+    private Value read(
             ConnectionPhase phase,
             PacketDirection direction,
             ByteBuf physical,
@@ -69,7 +81,7 @@ public final class ProjectedPackets implements AutoCloseable {
                     ? model.typeForKey(direction.name().toLowerCase(java.util.Locale.ROOT) + "."
                             + observed.data().packets(phase, direction).name(id).replace("minecraft:", ""))
                     : bound.type();
-            if (type == null || !consumed.test(type)) return List.of();
+            if (type == null || !consumed.test(type)) return null;
             Object packet;
             if (translated() && type.codec().requiresModelValues()) {
                 var context = new ProtocolContext(
@@ -87,7 +99,7 @@ public final class ProjectedPackets implements AutoCloseable {
                 if (type.codec().readsEntirePayload() && input.isReadable())
                     throw new MalformedPacketException("Trailing bytes on " + type);
             } else packet = observed.decode(phase, direction, id, input, state);
-            return List.of(new Value(type, packet));
+            return new Value(type, packet);
         } finally {
             // Codec reads are synchronous and do not mutate bytes or index marks.
             // Restore even when the codec, adapter, or consumed predicate throws.

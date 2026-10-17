@@ -72,7 +72,6 @@ public final class SimLevel {
     public boolean isWithinBorder(BlockPos pos) { return world.isWithinBorder(pos); }
     public boolean creakingActiveAt(BlockPos pos) { return world.creakingActiveAt(pos); }
     public boolean waterEvaporatesAt(BlockPos pos) { return world.waterEvaporatesAt(pos); }
-    public int rawBrightnessAt(BlockPos pos) { return world.rawBrightnessAt(pos); }
     public Vec3 borderHit(Vec3 from, Vec3 to) { return world.borderHit(from, to); }
     public boolean hasPickableEntityHit(Vec3 from, Vec3 to, SimPlayer player) { return world.hasPickableEntityHit(from, to, player); }
     public int itemFrameOutputAt(BlockPos pos, Direction direction) { return world.itemFrameOutputAt(pos, direction); }

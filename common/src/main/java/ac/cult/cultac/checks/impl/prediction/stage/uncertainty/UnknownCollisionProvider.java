@@ -9,21 +9,34 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
-import java.util.ArrayList;
 import java.util.List;
 
 public final class UnknownCollisionProvider {
     private UnknownCollisionProvider() {}
 
-    public static List<SimpleCollisionBox> movementUnknownCollisions(
-            CultPlayer player, SimulationContext context, Vec3 playerPos, SimpleCollisionBox queryBox) {
-        List<SimpleCollisionBox> boxes = entityUnknownCollisions(player, playerPos);
+    public static void addMovementUnknownCollisions(
+            CultPlayer player,
+            SimulationContext context,
+            Vec3 playerPos,
+            SimpleCollisionBox queryBox,
+            List<SimpleCollisionBox> boxes,
+            SimpleCollisionBox entityBox,
+            SimpleCollisionBox scratch) {
+        addEntityUnknownCollisions(player, playerPos, queryBox, boxes, entityBox, scratch);
         addDynamicBlockUnknownCollisions(player, context, queryBox, boxes);
-        return boxes;
     }
 
-    public static List<SimpleCollisionBox> entityUnknownCollisions(CultPlayer player, Vec3 playerPos) {
-        List<SimpleCollisionBox> boxes = new ArrayList<>();
+    /**
+     * Adds a copy of each entity box that intersects {@code queryBox}. {@code entityBox} and {@code scratch} are
+     * working space owned by the caller.
+     */
+    private static void addEntityUnknownCollisions(
+            CultPlayer player,
+            Vec3 playerPos,
+            SimpleCollisionBox queryBox,
+            List<SimpleCollisionBox> boxes,
+            SimpleCollisionBox entityBox,
+            SimpleCollisionBox scratch) {
         boolean ridingStrider = player.compensatedEntities.getSelf().getRiding() instanceof PacketEntityStrider;
         boolean inBoat = player.compensatedEntities.getSelf().getRiding() != null
                 && EntityTypeUtil.isBoat(player.compensatedEntities.getSelf().getRiding().type);
@@ -32,7 +45,10 @@ public final class UnknownCollisionProvider {
         for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
             if (EntityTypeUtil.isBoat(entity.type)) {
                 // Expand by 2 since boats suck.
-                boxes.add(entity.getPossibleCollisionBoxes().expand(2));
+                addIntersecting(
+                        boxes,
+                        entity.getPossibleCollisionBoxes(entityBox, scratch).expand(2),
+                        queryBox);
             }
 
             if (inBoat && !player.compensatedEntities.getSelf().getRiding().hasPassenger(entity)) {
@@ -49,7 +65,10 @@ public final class UnknownCollisionProvider {
                 }
                 // We ignore some edge cases like horses that are vehicles (why exempt this?) but it's fine.
                 if (canPush) {
-                    boxes.add(entity.getPossibleCollisionBoxes().expand(1));
+                    addIntersecting(
+                            boxes,
+                            entity.getPossibleCollisionBoxes(entityBox, scratch).expand(1),
+                            queryBox);
                 }
             }
 
@@ -57,7 +76,10 @@ public final class UnknownCollisionProvider {
                     && entity.type == EntityTypeIds.SHULKER
                     && !player.compensatedEntities.getSelf().getRiding().hasPassenger(entity)) {
                 // Striders suck less.
-                boxes.add(entity.getPossibleCollisionBoxes().expand(1));
+                addIntersecting(
+                        boxes,
+                        entity.getPossibleCollisionBoxes(entityBox, scratch).expand(1),
+                        queryBox);
             }
 
             if (!inVehicle
@@ -65,17 +87,20 @@ public final class UnknownCollisionProvider {
                     && !happyGhast.isBaby
                     && !happyGhast.isDead
                     && !happyGhast.hasPassenger(player.compensatedEntities.getSelf())) {
-                SimpleCollisionBox box = happyGhast.getPossibleCollisionBoxes();
+                SimpleCollisionBox box = happyGhast.getPossibleCollisionBoxes(entityBox, scratch);
                 // MCP-Reborn HappyGhast#canBeCollidedWith is client-only for a
                 // Player whose position is at or above the ghast's top, and
                 // otherwise follows the synced still-timeout state.
                 if (happyGhast.staysStill || playerPos.y >= box.maxY - SimpleCollisionBox.COLLISION_EPSILON) {
-                    boxes.add(box);
+                    addIntersecting(boxes, box, queryBox);
                 }
             }
         }
+    }
 
-        return boxes;
+    private static void addIntersecting(
+            List<SimpleCollisionBox> boxes, SimpleCollisionBox box, SimpleCollisionBox queryBox) {
+        if (box.isIntersected(queryBox)) boxes.add(box.copy());
     }
 
     public static void addDynamicBlockUnknownCollisions(
@@ -87,6 +112,6 @@ public final class UnknownCollisionProvider {
             return;
         }
 
-        unknown.addAll(player.compensatedWorld.getDynamicBlockCollisionUncertaintyBoxes(queryBox));
+        player.compensatedWorld.addDynamicBlockCollisionUncertaintyBoxes(queryBox, unknown);
     }
 }

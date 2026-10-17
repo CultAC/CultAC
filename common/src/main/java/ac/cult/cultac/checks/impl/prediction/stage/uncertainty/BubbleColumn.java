@@ -76,6 +76,6 @@ public class BubbleColumn implements UncertaintyHandler {
         double totalDown = Math.max(start.y + decreaseDown + decreaseAirDown, decreaseAirDown < 0 ? -0.9 : -0.3);
         bestY = CultMath.clamp(targetY, bestY, totalDown);
 
-        return start.withY(bestY, "bubble column");
+        return start.withXYZOrSelf(start.x, bestY, start.z, "bubble column");
     }
 }

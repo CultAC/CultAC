@@ -30,6 +30,6 @@ public class AquaticUpdateSwim implements UncertaintyHandler {
         double yChange = ((lookYAmount - start.y) * upwardsSwimReducer);
         double bestY = CultMath.clamp(end.y, start.y, start.y + yChange);
 
-        return start.withY(bestY, "AquaticSwim");
+        return start.withXYZOrSelf(start.x, bestY, start.z, "AquaticSwim");
     }
 }

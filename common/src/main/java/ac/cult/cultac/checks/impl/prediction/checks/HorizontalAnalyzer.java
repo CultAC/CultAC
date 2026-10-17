@@ -48,17 +48,19 @@ public class HorizontalAnalyzer implements EngineCheck {
 
         // Let's check the speed of the player first as it's the simplest
         Vec3 closestForSpeed = result.getAcceptedClosestToTarget();
-        Vec3 horizDiffForInputs = target.subtract(closestForSpeed).multiply(1, 0, 1);
+        double horizDiffX = target.x - closestForSpeed.x;
+        double horizDiffZ = target.z - closestForSpeed.z;
 
         Vec3 minimumInputRequired = getBestTheoreticalPlayerInput(
-                horizDiffForInputs, result.getSimulationContext().getXRot()); // player inputs
+                horizDiffX, horizDiffZ, result.getSimulationContext().getXRot()); // player inputs
 
         // Can a player have a speed of 0?
         double inputScaledToSpeed = minimumInputRequired.length() / playerSpeed;
 
         // To account for collisions, we need to figure out which way the player was moving to hit the collision
         // If a player was moving in positive X by 2.0 blocks/tick, and hit a block at 1.0 blocks away, they are fine.
-        Vec3 absInput = new Vec3(Math.abs(minimumInputRequired.x), 0, Math.abs(minimumInputRequired.z));
+        double absInputX = Math.abs(minimumInputRequired.x);
+        double absInputZ = Math.abs(minimumInputRequired.z);
 
         boolean wasOnGround = result.getSimulationContext().getLastOnGround().determineOptimistically();
         Class<? extends Check> pseudoCheck = wasOnGround ? Speed.class : Strafe.class;
@@ -67,7 +69,8 @@ public class HorizontalAnalyzer implements EngineCheck {
         // A player cannot move more than 0.98 "input" in a single direction
         // A player cannot move more than a total of 1 "input" in a single tick
         double speedFlagAmount = getHorizontalInputFlagAmount(
-                absInput,
+                absInputX,
+                absInputZ,
                 playerSpeed,
                 sprintMultiplier,
                 result.getSimulationContext().getWorldData().mustBeInLiquid());
@@ -110,9 +113,10 @@ public class HorizontalAnalyzer implements EngineCheck {
             double maxDirLength = getSneakingMaxInputAxis(
                     playerSpeed, sprintMultiplier, result.getSimulationContext().getSwiftSneakLevel());
             double requiredAxis = Math.min(
-                    Math.max(absInput.x, absInput.z),
+                    Math.max(absInputX, absInputZ),
                     minimumFlushInputAxis(
-                            horizDiffForInputs,
+                            horizDiffX,
+                            horizDiffZ,
                             result.getSimulationContext().getXRot(),
                             result.getCollideAxisData(),
                             target));
@@ -189,11 +193,10 @@ public class HorizontalAnalyzer implements EngineCheck {
         // Probably not, what would it even be checking?
     }
 
+    /** The flag amount for the horizontal input {@code (absX, 0, absZ)}. */
     static double getHorizontalInputFlagAmount(
-            Vec3 input, double playerSpeed, double sprintMultiplier, boolean mustBeInLiquid) {
-        double absX = Math.abs(input.x);
-        double absZ = Math.abs(input.z);
-        double magnitude = input.length();
+            double absX, double absZ, double playerSpeed, double sprintMultiplier, boolean mustBeInLiquid) {
+        double magnitude = Math.sqrt(absX * absX + absZ * absZ);
         if (magnitude > playerSpeed * (sprintMultiplier + HORIZONTAL_INPUT_UNCERTAINTY)) {
             return magnitude;
         }
@@ -276,7 +279,8 @@ public class HorizontalAnalyzer implements EngineCheck {
     // Entity#collide clips any further movement into a wall the movement ends flush against, so the residual on
     // that axis only bounds the input's movement from one side. Rotating the residual alone can then overstate an
     // input axis; return the smallest largest input axis over that one-sided range, or MAX_VALUE without a wall.
-    static double minimumFlushInputAxis(Vec3 residual, float yaw, CollideAxisData collide, Vec3 target) {
+    static double minimumFlushInputAxis(
+            double residualX, double residualZ, float yaw, CollideAxisData collide, Vec3 target) {
         int sideX = flushSide(collide.getX(), target.x);
         int sideZ = flushSide(collide.getZ(), target.z);
         if (sideX == 0 && sideZ == 0) return Double.MAX_VALUE;
@@ -289,8 +293,8 @@ public class HorizontalAnalyzer implements EngineCheck {
         };
         for (float[] table : tables) {
             float sin = table[0], cos = table[1];
-            double x = residual.x * cos + residual.z * sin;
-            double z = residual.z * cos - residual.x * sin;
+            double x = residualX * cos + residualZ * sin;
+            double z = residualZ * cos - residualX * sin;
             // A world X/Z unit rotates to these input-space directions
             if (sideX != 0) best = Math.min(best, minimumMaxAxisAlong(x, z, sideX * cos, -sideX * sin));
             if (sideZ != 0) best = Math.min(best, minimumMaxAxisAlong(x, z, sideZ * sin, sideZ * cos));
@@ -317,28 +321,30 @@ public class HorizontalAnalyzer implements EngineCheck {
     }
 
     public static Vec3 getBestTheoreticalPlayerInput(Vec3 wantedMovement, float f2) {
+        return getBestTheoreticalPlayerInput(wantedMovement.x, wantedMovement.z, f2);
+    }
+
+    public static Vec3 getBestTheoreticalPlayerInput(double wantedX, double wantedZ, float f2) {
         float vanillaSin = VanillaMath.sin(f2 * 0.017453292f);
         float vanillaCos = VanillaMath.cos(f2 * 0.017453292f);
-        Vec3 correctMath = new Vec3(
-                wantedMovement.x * vanillaCos + wantedMovement.z * vanillaSin,
-                0,
-                wantedMovement.z * vanillaCos - wantedMovement.x * vanillaSin);
-        double absX = Math.abs(correctMath.x);
-        double absZ = Math.abs(correctMath.z);
+        double correctX = wantedX * vanillaCos + wantedZ * vanillaSin;
+        double correctZ = wantedZ * vanillaCos - wantedX * vanillaSin;
+        double absX = Math.abs(correctX);
+        double absZ = Math.abs(correctZ);
         double correctMathDiff = Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
 
         float f3 = OptifineFastMath.sin(f2 * 0.017453292f);
         float f4 = OptifineFastMath.cos(f2 * 0.017453292f);
-        Vec3 shitMath = new Vec3(
-                wantedMovement.x * f4 + wantedMovement.z * f3, 0, wantedMovement.z * f4 - wantedMovement.x * f3);
-        absX = Math.abs(shitMath.x);
-        absZ = Math.abs(shitMath.z);
+        double shitX = wantedX * f4 + wantedZ * f3;
+        double shitZ = wantedZ * f4 - wantedX * f3;
+        absX = Math.abs(shitX);
+        absZ = Math.abs(shitZ);
         double shitMathDiff = Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
 
         if (correctMathDiff < shitMathDiff) {
-            return correctMath;
+            return new Vec3(correctX, 0, correctZ);
         } else {
-            return shitMath;
+            return new Vec3(shitX, 0, shitZ);
         }
     }
 }

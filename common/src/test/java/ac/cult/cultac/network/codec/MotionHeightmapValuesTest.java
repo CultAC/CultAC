@@ -48,7 +48,7 @@ class MotionHeightmapValuesTest {
             assertArrayEquals(new long[] {12, 34}, received);
             assertNull(MotionHeightmapValues.read(input, ProtocolVersion.V1_21_4));
             assertEquals(987654, input.readInt());
-            var chunk = new WorldPackets.Chunk(0, 0, ByteBuffer.allocate(0), List.of(), null, List.of(), received);
+            var chunk = new WorldPackets.Chunk(0, 0, ByteBuffer.allocate(0), List.of(), List.of(), received);
             received[0] = 99;
             chunk.motionBlocking()[1] = 99;
             assertArrayEquals(new long[] {12, 34}, chunk.motionBlocking());

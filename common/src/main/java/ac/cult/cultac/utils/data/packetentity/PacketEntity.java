@@ -76,6 +76,8 @@ public class PacketEntity {
     public ReachInterpolationData oldPacketLocation;
     public ReachInterpolationData newPacketLocation;
     private long clientTickOrder = Long.MAX_VALUE;
+    // Reused: valid only until the client tick that computed it applies it.
+    private SimpleCollisionBox exactAfterClientTickBox;
 
     public HashMap<MovementEffect, Integer> potionsMap = null;
     public BoatEntityStatus boatStatus = null;
@@ -458,7 +460,7 @@ public class PacketEntity {
             clientPhysicalPitch = exactPitchAfterClientTick;
         }
         if (exactAfterClientTick != null) {
-            clientPhysicalPosition = positionFromCollisionBox(exactAfterClientTick);
+            clientPhysicalPosition = positionFromCollisionBox(exactAfterClientTick, clientPhysicalPosition);
             clientPhysicalPositionExact = true;
         } else {
             clientPhysicalPositionExact = false;
@@ -563,17 +565,17 @@ public class PacketEntity {
     }
 
     private SimpleCollisionBox exactInterpolatedLocationAfterClientTick(CultPlayer player) {
-        if (newPacketLocation == null || !hasUsableMountedPhysicalPosition(player) || oldPacketLocation != null) {
-            return newPacketLocation == null ? null : newPacketLocation.getExactMovementLocationAfterClientTick();
+        if (newPacketLocation == null) return null;
+        if (oldPacketLocation == null
+                && newPacketLocation.interpolatesFromPhysicalAfterClientTick()
+                && hasUsableMountedPhysicalPosition(player)) {
+            SimpleCollisionBox physicalLocation = GetBoundingBox.getPacketEntityBoundingBox(
+                    player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
+            return newPacketLocation.getExactMovementLocationAfterClientTickFromPhysical(physicalLocation);
         }
-
-        SimpleCollisionBox physicalLocation = GetBoundingBox.getPacketEntityBoundingBox(
-                player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
-        SimpleCollisionBox exactFromPhysical =
-                newPacketLocation.getExactMovementLocationAfterClientTickFromPhysical(physicalLocation);
-        return exactFromPhysical == null
-                ? newPacketLocation.getExactMovementLocationAfterClientTick()
-                : exactFromPhysical;
+        if (!newPacketLocation.hasExactMovementLocationAfterClientTick()) return null;
+        if (exactAfterClientTickBox == null) exactAfterClientTickBox = new SimpleCollisionBox();
+        return newPacketLocation.exactMovementLocationAfterClientTick(exactAfterClientTickBox);
     }
 
     private boolean exactRotationAfterClientTick() {
@@ -674,6 +676,20 @@ public class PacketEntity {
         return new Vec3((box.maxX - box.minX) / 2 + box.minX, box.minY, (box.maxZ - box.minZ) / 2 + box.minZ);
     }
 
+    /** {@link #positionFromCollisionBox(SimpleCollisionBox)}, returning {@code previous} when it holds those bits. */
+    private static Vec3 positionFromCollisionBox(SimpleCollisionBox box, @Nullable Vec3 previous) {
+        double x = (box.maxX - box.minX) / 2 + box.minX;
+        double y = box.minY;
+        double z = (box.maxZ - box.minZ) / 2 + box.minZ;
+        if (previous != null
+                && Double.doubleToRawLongBits(previous.x) == Double.doubleToRawLongBits(x)
+                && Double.doubleToRawLongBits(previous.y) == Double.doubleToRawLongBits(y)
+                && Double.doubleToRawLongBits(previous.z) == Double.doubleToRawLongBits(z)) {
+            return previous;
+        }
+        return new Vec3(x, y, z);
+    }
+
     public void refreshDimensions(CultPlayer player) {
         if (desyncClientPos == null) {
             return;
@@ -683,24 +699,29 @@ public class PacketEntity {
     }
 
     public SimpleCollisionBox getPossibleCollisionBoxes() {
-        if (passengerPhysicalBox != null && riding != null) return passengerPhysicalBox.copy();
-        if (oldPacketLocation == null) {
-            return newPacketLocation.getPossibleLocationCombined();
-        }
+        return getPossibleCollisionBoxes(new SimpleCollisionBox(), new SimpleCollisionBox());
+    }
 
+    /** The bounds of {@link #getPossibleCollisionBoxes()} in {@code out}; {@code scratch} must be distinct. */
+    public SimpleCollisionBox getPossibleCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        if (passengerPhysicalBox != null && riding != null) return out.set(passengerPhysicalBox);
+        newPacketLocation.getPossibleLocationCombined(out);
+        if (oldPacketLocation == null) return out;
         return ReachInterpolationData.combineCollisionBox(
-                oldPacketLocation.getPossibleLocationCombined(), newPacketLocation.getPossibleLocationCombined());
+                oldPacketLocation.getPossibleLocationCombined(scratch), out, out);
     }
 
     public SimpleCollisionBox getPossibleMovementCollisionBoxes() {
-        if (passengerPhysicalBox != null && riding != null) return passengerPhysicalBox.copy();
-        if (oldPacketLocation == null) {
-            return newPacketLocation.getPossibleMovementLocationCombined();
-        }
+        return getPossibleMovementCollisionBoxes(new SimpleCollisionBox(), new SimpleCollisionBox());
+    }
 
+    /** The bounds of {@link #getPossibleMovementCollisionBoxes()} in {@code out}; {@code scratch} must be distinct. */
+    public SimpleCollisionBox getPossibleMovementCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        if (passengerPhysicalBox != null && riding != null) return out.set(passengerPhysicalBox);
+        newPacketLocation.getPossibleMovementLocationCombined(out);
+        if (oldPacketLocation == null) return out;
         return ReachInterpolationData.combineCollisionBox(
-                oldPacketLocation.getPossibleMovementLocationCombined(),
-                newPacketLocation.getPossibleMovementLocationCombined());
+                oldPacketLocation.getPossibleMovementLocationCombined(scratch), out, out);
     }
 
     public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidates() {

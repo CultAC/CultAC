@@ -13,6 +13,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.flow.FlowControlHandler;
+import java.util.function.Predicate;
 
 /** Processes and forwards a frame synchronously on its connection's event loop. */
 public final class CultDecoder extends ChannelInboundHandlerAdapter {
@@ -22,9 +23,11 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
     private final CultConnection connection;
     private long lastFailureLog;
     private int suppressedFailures;
+    private final Predicate<PacketType<?>> routed;
 
     public CultDecoder(CultConnection connection) {
         this.connection = connection;
+        routed = type -> connection.dispatcher().get(type) != null;
     }
 
     public static void install(CultConnection connection) {
@@ -111,14 +114,8 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             connection.observePacket(PacketDirection.SERVERBOUND, phase, frame);
             PacketType<?> forwardedType = null;
             ServerboundPacket forwardedPacket = null;
-            for (var value : connection
-                    .packets()
-                    .read(
-                            phase,
-                            PacketDirection.SERVERBOUND,
-                            frame,
-                            connection,
-                            type -> connection.dispatcher().get(type) != null)) {
+            var value = connection.packets().readOne(phase, PacketDirection.SERVERBOUND, frame, connection, routed);
+            if (value != null) {
                 var route = connection.dispatcher().get(value.type());
                 var type = (PacketType<ServerboundPacket>) route.type();
                 var original = (ServerboundPacket) value.packet();

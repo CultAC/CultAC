@@ -8,6 +8,7 @@ import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
@@ -21,6 +22,10 @@ import java.util.Objects;
 import java.util.Set;
 
 public final class PacketHandlerScanner {
+    /** Listener, event, player, packet. */
+    private static final MethodType DISPATCH_TYPE =
+            MethodType.methodType(void.class, Object.class, Object.class, CultPlayer.class, Object.class);
+
     private final ProtocolRuntime runtime;
     private final ClassValue<Schema> schemas = new ClassValue<>() {
         @Override
@@ -73,9 +78,9 @@ public final class PacketHandlerScanner {
         List<ReceiveRegistration> receives = new ArrayList<>();
         for (Entry entry : schema(listener.getClass()).entries()) {
             if (entry.direction() != PacketDirection.SERVERBOUND || entry.packetType() == null) continue;
-            MethodHandle handle = entry.handle().bindTo(listener);
+            MethodHandle handle = entry.handle();
             PacketReceiveHandler<Object> callback =
-                    (event, player, packet) -> invoke(handle, entry.method(), event, player, packet);
+                    (event, player, packet) -> invoke(handle, entry.method(), listener, event, player, packet);
             receives.add(new ReceiveRegistration(entry.packetType(), callback, entry.method()));
         }
         return List.copyOf(receives);
@@ -87,9 +92,9 @@ public final class PacketHandlerScanner {
         List<SendRegistration> sends = new ArrayList<>();
         for (Entry entry : schema(listener.getClass()).entries()) {
             if (entry.direction() != PacketDirection.CLIENTBOUND || entry.packetType() == null) continue;
-            MethodHandle handle = entry.handle().bindTo(listener);
+            MethodHandle handle = entry.handle();
             PacketSendHandler<Object> callback =
-                    (event, player, packet) -> invoke(handle, entry.method(), event, player, packet);
+                    (event, player, packet) -> invoke(handle, entry.method(), listener, event, player, packet);
             sends.add(new SendRegistration(entry.packetType(), callback, entry.method()));
         }
         return List.copyOf(sends);
@@ -128,6 +133,7 @@ public final class PacketHandlerScanner {
         return new Schema(List.copyOf(entries));
     }
 
+    /** {@code handle} takes the listener as its first argument and is shared by every listener of the class. */
     record Entry(Method method, PacketDirection direction, PacketType<?> packetType, MethodHandle handle) {}
 
     record Schema(List<Entry> entries) {
@@ -202,15 +208,16 @@ public final class PacketHandlerScanner {
     private static MethodHandle unboundHandle(Class<?> listenerClass, Method method) {
         try {
             method.setAccessible(true);
-            return MethodHandles.lookup().unreflect(method);
+            return MethodHandles.lookup().unreflect(method).asType(DISPATCH_TYPE);
         } catch (IllegalAccessException exception) {
             throw invalid(listenerClass, method, "could not create method handle", exception);
         }
     }
 
-    private static void invoke(MethodHandle handle, Method method, Object event, CultPlayer player, Object packet) {
+    private static void invoke(
+            MethodHandle handle, Method method, Object listener, Object event, CultPlayer player, Object packet) {
         try {
-            handle.invoke(event, player, packet);
+            handle.invokeExact(listener, event, player, packet);
         } catch (Throwable failure) {
             throw invocationFailure(method, failure);
         }

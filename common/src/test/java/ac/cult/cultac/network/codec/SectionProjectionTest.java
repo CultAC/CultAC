@@ -8,6 +8,7 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.ModelIdMappings;
 import ac.cult.cultac.protocol.data.ModelRegistryData;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.latency.PalettedSection;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -202,6 +203,33 @@ class SectionProjectionTest {
             } finally {
                 input.release();
             }
+        }
+    }
+
+    @Test
+    void unknownLocalIdsAndGlobalPalettesTakeTheClampingPath() {
+        var version = ProtocolVersion.V26_3;
+        int registry = MODEL_STATES + 10;
+        int[] codes = new int[4096];
+        for (int i = 0; i < codes.length; i++) codes[i] = i % 2;
+        var input = Unpooled.buffer();
+        try {
+            palette(input, version, 4, new int[] {1, 10}, codes);
+            palette(input, version, 4, new int[] {1, MODEL_STATES + 3}, new int[4096]);
+            palette(input, version, bits(registry), null, codes);
+            var known = new CachedSection(PalettedSection.readBlocks(input, version, registry));
+            var unknown = new CachedSection(PalettedSection.readBlocks(input, version, registry));
+            var global = new CachedSection(PalettedSection.readBlocks(input, version, registry));
+            assertTrue(known.hasOnlyKnownStateIds());
+            assertFalse(unknown.hasOnlyKnownStateIds());
+            assertFalse(global.hasOnlyKnownStateIds());
+            assertSame(unknown, unknown.translatedStateIds(IntUnaryOperator.identity()));
+            assertSame(global, global.translatedStateIds(IntUnaryOperator.identity()));
+            var clamped = known.translatedStateIds(id -> id == 10 ? MODEL_STATES + 3 : id);
+            assertEquals(1, clamped.getStateId(0));
+            assertEquals(0, clamped.getStateId(1));
+        } finally {
+            input.release();
         }
     }
 

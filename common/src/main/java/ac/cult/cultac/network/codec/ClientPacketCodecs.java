@@ -179,7 +179,6 @@ public final class ClientPacketCodecs {
                 WorldPackets.RecipeInputs.class,
                 namedReader(names, (input, ids) -> ClientMetadataValues.recipes(input, ids::name), false));
         pinned.add("chunks_biomes", WorldPackets.ChunkBiomes.class, worldReader(ModelWorldValues::biomes));
-        pinned.add("light_update", WorldPackets.LightUpdate.class, worldReader(ModelWorldValues::light));
         return Stream.of(Packets.all(), serverbound.types(), clientbound.types())
                 .flatMap(List::stream)
                 .toList();

@@ -5,7 +5,6 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate;
 import ac.cult.cultac.network.packet.WorldPackets.BlockUpdate;
 import ac.cult.cultac.network.packet.WorldPackets.Chunk;
-import ac.cult.cultac.network.packet.WorldPackets.LightUpdate;
 import ac.cult.cultac.network.packet.WorldPackets.SectionBlocksUpdate;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockChangedAck;
@@ -13,6 +12,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundForgetLevelChunk;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundGameEvent;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
@@ -29,15 +29,6 @@ public class BasePacketWorldReader {
     @CultPacketHandler
     public void onLevelChunkWithLight(PacketSendEvent<Chunk> event, CultPlayer player, Chunk packet) {
         handleMapChunk(player, event, packet);
-    }
-
-    @CultPacketHandler
-    public void onLightUpdate(PacketSendEvent<LightUpdate> event, CultPlayer player, LightUpdate packet) {
-        int transaction = appendTrailingProofTransaction(event, player);
-        String dimension = packetDimension(player);
-        player.latencyUtils.addRealTimeTask(transaction, () -> {
-            player.compensatedWorld.applyLight(dimension, packet.x(), packet.z(), packet.light());
-        });
     }
 
     @CultPacketHandler
@@ -185,10 +176,11 @@ public class BasePacketWorldReader {
             long[] motionBlocking) {
         // The compensated world stores what this connection sees. Translate
         // before pooling so clients with different palettes cannot share wrong states.
+        boolean replacesStates = ViaClientBlockShapeMappings.replacesBlockStates(player);
         for (int i = 0; i < chunks.length; i++) {
-            if (chunks[i] != null)
-                chunks[i] = chunks[i].translatedStateIds(state ->
-                        ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings.clientBlockStateId(player, state));
+            if (chunks[i] != null && (replacesStates || !chunks[i].hasOnlyKnownStateIds()))
+                chunks[i] = chunks[i].translatedStateIds(
+                        state -> ViaClientBlockShapeMappings.clientBlockStateId(player, state));
         }
         double chunkCenterX = (chunkX << 4) + 8;
         double chunkCenterZ = (chunkZ << 4) + 8;

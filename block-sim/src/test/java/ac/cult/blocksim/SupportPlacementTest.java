@@ -88,7 +88,6 @@ class SupportPlacementTest {
             public int stateAt(BlockPos pos) { return states.getOrDefault(pos, state("air")); }
             public boolean isLoaded(BlockPos pos) { return true; }
             public boolean isSectionEmpty(BlockPos pos) { return false; }
-            public int rawBrightnessAt(BlockPos pos) { return 0; }
             public int minY() { return -64; }
             public int height() { return 384; }
             public boolean isWithinBorder(ac.cult.blocksim.engine.BlockPos pos) { return true; }

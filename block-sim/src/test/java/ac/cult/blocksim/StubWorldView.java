@@ -15,7 +15,6 @@ public interface StubWorldView extends SimWorldView {
     @Override default String biomeKeyAt(BlockPos pos) { throw new IllegalStateException("Missing compensated biome lookup"); }
     @Override default String dimensionKey() { throw new IllegalStateException("Ignition requires the compensated dimension key"); }
     @Override default java.util.Set<String> recipeInputs(String key) { throw new IllegalStateException("Missing compensated recipe inputs: " + key); }
-    @Override default int rawBrightnessAt(BlockPos pos) { throw new IllegalStateException("Missing compensated light at " + pos); }
     @Override default Vec3 borderHit(Vec3 from, Vec3 to) { throw new IllegalStateException("Missing compensated border ray query"); }
     @Override default boolean hasPickableEntityHit(Vec3 from, Vec3 to, SimPlayer player) {
         throw new IllegalStateException("Missing compensated pickable-entity query");

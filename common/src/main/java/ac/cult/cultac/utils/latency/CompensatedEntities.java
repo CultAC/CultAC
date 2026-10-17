@@ -32,6 +32,8 @@ public class CompensatedEntities {
     public final ClientPlayerModes clientPlayerModes = new ClientPlayerModes();
     private static final String SPRINTING_MODIFIER_ID = "minecraft:sprinting";
     public static final String SNOW_MODIFIER_ID = "minecraft:powder_snow";
+    private static final Set<String> EXCLUDED_MODIFIER_IDS = Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID);
+    private static final String ATTRIBUTE_NAMESPACE = "minecraft:";
     private static final long LOCAL_PLAYER_CLIENT_TICK_ORDER = 0L;
     public final Int2ObjectOpenHashMap<PacketEntity> entityMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
     public final Int2ObjectOpenHashMap<TrackerData> serverPositionsMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
@@ -169,7 +171,7 @@ public class CompensatedEntities {
                     // The server replaces the client's sprinting modifier without touching its sprint flag
                     if (!player.isBedrockMovement()) player.sprintState.onServerModifier(foundSprintingModifier);
                     player.compensatedEntities.getSelf().playerSpeed =
-                            calculateAttribute(snapshot, 0.0, 1024.0, Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID));
+                            calculateAttribute(snapshot, 0.0, 1024.0, EXCLUDED_MODIFIER_IDS);
                 }
 
                 if (supportsAttributes(ClientVersion.V_1_20_5) && matchesAttribute(snapshot, "scale")) {
@@ -318,11 +320,14 @@ public class CompensatedEntities {
     }
 
     private boolean matchesAttribute(AttributeSnapshot snapshot, String path) {
-        return snapshot.attribute().equals("minecraft:" + path);
+        String attribute = snapshot.attribute();
+        return attribute.length() == ATTRIBUTE_NAMESPACE.length() + path.length()
+                && attribute.startsWith(ATTRIBUTE_NAMESPACE)
+                && attribute.endsWith(path);
     }
 
     private double calculateAttribute(AttributeSnapshot snapshot, double minValue, double maxValue) {
-        return calculateAttribute(snapshot, minValue, maxValue, Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID));
+        return calculateAttribute(snapshot, minValue, maxValue, EXCLUDED_MODIFIER_IDS);
     }
 
     private double calculateAttribute(

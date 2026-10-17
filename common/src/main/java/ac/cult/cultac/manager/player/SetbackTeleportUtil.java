@@ -159,7 +159,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
         // If this is a regular teleport when on a vehicle, we may not set player variables
         // Therefore, read it from the position update given to us.
-        Vec3 to = new Vec3(player.x, player.y, player.z);
+        Vec3 to;
         final PositionUpdate positionUpdate = predictionComplete.getPositionUpdate();
         if (positionUpdate != null) {
             to = positionUpdate.getTo();
@@ -168,6 +168,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 && predictionComplete.getPredictionResult().isTeleport()
                 && predictionComplete.getPredictionResult().getSetBackData() != null) {
             to = predictionComplete.getPredictionResult().getSetBackData().getLocation();
+        } else {
+            to = new Vec3(player.x, player.y, player.z);
         }
 
         Vec3 afterTickFriction = Vec3.ZERO;
@@ -541,10 +543,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
 
         // stop 1.8 players from stepping onto 1.25 high blocks, because why not?
-        final PredVector thresholdOutput = new PredVector(simulated);
-        return VelocityTransformer.applyMovementThreshold(
-                        Collections.singletonList(thresholdOutput), player.getClientVersion())
-                .get(0);
+        return VelocityTransformer.applyMovementThreshold(new PredVector(simulated), player.getClientVersion(), true);
     }
 
     private final Random random = new Random();

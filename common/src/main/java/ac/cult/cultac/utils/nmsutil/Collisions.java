@@ -23,7 +23,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.function.IntPredicate;
 
 public class Collisions {
     private static final double COLLISION_EPSILON = 1.0E-7;
@@ -42,14 +42,7 @@ public class Collisions {
 
     public static Vec3 collide(
             CultPlayer player, SimpleCollisionBox box, double desiredX, double desiredY, double desiredZ) {
-        return collide(
-                player,
-                box,
-                desiredX,
-                desiredY,
-                desiredZ,
-                getAxisStepOrder(player, new Vec3(desiredX, desiredY, desiredZ)),
-                true);
+        return collide(player, box, desiredX, desiredY, desiredZ, getAxisStepOrder(player, desiredX, desiredZ), true);
     }
 
     public static Vec3 collideWithAdditionalCollisionBoxes(
@@ -65,7 +58,7 @@ public class Collisions {
                 desiredX,
                 desiredY,
                 desiredZ,
-                getAxisStepOrder(player, new Vec3(desiredX, desiredY, desiredZ)),
+                getAxisStepOrder(player, desiredX, desiredZ),
                 true,
                 box.minY,
                 additionalCollisionBoxes);
@@ -182,8 +175,16 @@ public class Collisions {
         getCollisionBoxes(player, grabBoxesBB, desiredMovementCollisionBoxes, false, entityBottom);
         addAdditionalCollisionBoxes(grabBoxesBB, desiredMovementCollisionBoxes, additionalCollisionBoxes);
 
+        SimpleCollisionBox moved = new SimpleCollisionBox();
         Vec3 collisionResult = collideBoundingBoxLegacy(
-                new Vec3(desiredX, desiredY, desiredZ), box, desiredMovementCollisionBoxes, order);
+                desiredX,
+                desiredY,
+                desiredZ,
+                box,
+                desiredMovementCollisionBoxes,
+                order,
+                SimpleCollisionBox.AxisEpsilon.JAVA,
+                moved);
 
         // While running up stairs and holding space, the player activates the "lastOnGround" part without otherwise
         // being able to step
@@ -227,7 +228,14 @@ public class Collisions {
             for (double candidateHeight :
                     collectCandidateStepUpHeights(stepStartBox, stepCollisionBoxes, stepUpHeight, collisionResult.y)) {
                 Vec3 stepResult = collideBoundingBoxLegacy(
-                        new Vec3(desiredX, candidateHeight, desiredZ), stepStartBox, stepCollisionBoxes, order);
+                        desiredX,
+                        candidateHeight,
+                        desiredZ,
+                        stepStartBox,
+                        stepCollisionBoxes,
+                        order,
+                        SimpleCollisionBox.AxisEpsilon.JAVA,
+                        moved);
                 if (getHorizontalDistanceSqr(stepResult) > getHorizontalDistanceSqr(collisionResult)) {
                     double alreadyMovedDown = box.minY - stepStartBox.minY;
                     return stepResult.subtract(0.0D, alreadyMovedDown, 0.0D);
@@ -287,13 +295,17 @@ public class Collisions {
         return collisionResult;
     }
 
-    private static List<Axis> getAxisStepOrder(CultPlayer player, Vec3 movement) {
+    private static List<Axis> getAxisStepOrder(CultPlayer player, double x, double z) {
         if (player.getClientVersion().isOlderThan(ClientVersion.V_1_14)) return Y_X_Z;
-        return getAxisStepOrder(movement);
+        return getAxisStepOrder(x, z);
     }
 
     private static List<Axis> getAxisStepOrder(Vec3 movement) {
-        return Math.abs(movement.x) < Math.abs(movement.z) ? Y_Z_X : Y_X_Z;
+        return getAxisStepOrder(movement.x, movement.z);
+    }
+
+    private static List<Axis> getAxisStepOrder(double x, double z) {
+        return Math.abs(x) < Math.abs(z) ? Y_Z_X : Y_X_Z;
     }
 
     private static float[] collectCandidateStepUpHeights(
@@ -593,11 +605,28 @@ public class Collisions {
             List<SimpleCollisionBox> desiredMovementCollisionBoxes,
             List<Axis> order,
             SimpleCollisionBox.AxisEpsilon epsilon) {
-        double x = toCollide.x;
-        double y = toCollide.y;
-        double z = toCollide.z;
+        return collideBoundingBoxLegacy(
+                toCollide.x,
+                toCollide.y,
+                toCollide.z,
+                box,
+                desiredMovementCollisionBoxes,
+                order,
+                epsilon,
+                new SimpleCollisionBox());
+    }
 
-        SimpleCollisionBox setBB = box.copy();
+    /** Collides {@code (x, y, z)} from {@code box}, moving {@code setBB} as its working copy of {@code box}. */
+    private static Vec3 collideBoundingBoxLegacy(
+            double x,
+            double y,
+            double z,
+            SimpleCollisionBox box,
+            List<SimpleCollisionBox> desiredMovementCollisionBoxes,
+            List<Axis> order,
+            SimpleCollisionBox.AxisEpsilon epsilon,
+            SimpleCollisionBox setBB) {
+        setBB.set(box);
 
         for (Axis axis : order) {
             if (axis == Axis.X) {
@@ -759,26 +788,16 @@ public class Collisions {
 
     public static Vec3 checkStuckSpeedAlongMovement(
             CultPlayer player, SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb, boolean powderSnowCanApply) {
-        SimpleCollisionBox sweptCandidates = fromAabb.copy().union(toAabb);
         double expandAmount =
                 player.getClientVersion().isOlderThan(ClientVersion.V_1_19_4) && !player.isBedrockMovement()
                         ? 0.001D
                         : 1e-7;
-        Vec3 blockPos = new Vec3(
-                sweptCandidates.minX + expandAmount,
-                sweptCandidates.minY + expandAmount,
-                sweptCandidates.minZ + expandAmount);
-        Vec3 blockPos2 = new Vec3(
-                sweptCandidates.maxX - expandAmount,
-                sweptCandidates.maxY - expandAmount,
-                sweptCandidates.maxZ - expandAmount);
-
-        int blockPosX = CultMath.floor(blockPos.x);
-        int blockPosY = CultMath.floor(blockPos.y);
-        int blockPosZ = CultMath.floor(blockPos.z);
-        int blockPos2X = CultMath.floor(blockPos2.x);
-        int blockPos2Y = CultMath.floor(blockPos2.y);
-        int blockPos2Z = CultMath.floor(blockPos2.z);
+        int blockPosX = CultMath.floor(Math.min(fromAabb.minX, toAabb.minX) + expandAmount);
+        int blockPosY = CultMath.floor(Math.min(fromAabb.minY, toAabb.minY) + expandAmount);
+        int blockPosZ = CultMath.floor(Math.min(fromAabb.minZ, toAabb.minZ) + expandAmount);
+        int blockPos2X = CultMath.floor(Math.max(fromAabb.maxX, toAabb.maxX) - expandAmount);
+        int blockPos2Y = CultMath.floor(Math.max(fromAabb.maxY, toAabb.maxY) - expandAmount);
+        int blockPos2Z = CultMath.floor(Math.max(fromAabb.maxZ, toAabb.maxZ) - expandAmount);
 
         if (CheckIfChunksLoaded.isChunksUnloadedAt(
                 player, blockPosX, blockPosY, blockPosZ, blockPos2X, blockPos2Y, blockPos2Z)) return null;
@@ -815,8 +834,10 @@ public class Collisions {
             SimpleCollisionBox toAabb,
             Vec3 axisOrderMovement,
             boolean powderSnowCanApply) {
-        Vec3 movement = boxCenter(toAabb).subtract(boxCenter(fromAabb));
-        if (movement.lengthSqr() == 0.0D) {
+        double movementX = centerX(toAabb) - centerX(fromAabb);
+        double movementY = centerY(toAabb) - centerY(fromAabb);
+        double movementZ = centerZ(toAabb) - centerZ(fromAabb);
+        if (movementX * movementX + movementY * movementY + movementZ * movementZ == 0.0D) {
             return checkStuckSpeedAlongMovement(player, fromAabb, toAabb, powderSnowCanApply);
         }
 
@@ -827,7 +848,11 @@ public class Collisions {
         // using Direction.axisStepOrder(originalMovement), so corner-only diagonal
         // sweeps must not trigger cobweb/powder-snow/berry-bush stuck speed.
         for (Axis axis : getAxisStepOrder(axisOrderMovement)) {
-            double movementOnAxis = getAxisValue(movement, axis);
+            double movementOnAxis = switch (axis) {
+                case X -> movementX;
+                case Y -> movementY;
+                case Z -> movementZ;
+            };
             if (movementOnAxis == 0.0D) {
                 continue;
             }
@@ -859,13 +884,12 @@ public class Collisions {
             Vec3 axisOrderMovement,
             boolean powderSnowCanApply) {
         if (!InsideBlockEffectScan.mayHaveEffects(player, fromAabb, toAabb, true)) return null;
-        SimpleCollisionBox sweptCandidates = fromAabb.copy().union(toAabb);
-        int minX = CultMath.floor(sweptCandidates.minX + COLLISION_EPSILON);
-        int minY = CultMath.floor(sweptCandidates.minY + COLLISION_EPSILON);
-        int minZ = CultMath.floor(sweptCandidates.minZ + COLLISION_EPSILON);
-        int maxX = CultMath.floor(sweptCandidates.maxX - COLLISION_EPSILON);
-        int maxY = CultMath.floor(sweptCandidates.maxY - COLLISION_EPSILON);
-        int maxZ = CultMath.floor(sweptCandidates.maxZ - COLLISION_EPSILON);
+        int minX = CultMath.floor(Math.min(fromAabb.minX, toAabb.minX) + COLLISION_EPSILON);
+        int minY = CultMath.floor(Math.min(fromAabb.minY, toAabb.minY) + COLLISION_EPSILON);
+        int minZ = CultMath.floor(Math.min(fromAabb.minZ, toAabb.minZ) + COLLISION_EPSILON);
+        int maxX = CultMath.floor(Math.max(fromAabb.maxX, toAabb.maxX) - COLLISION_EPSILON);
+        int maxY = CultMath.floor(Math.max(fromAabb.maxY, toAabb.maxY) - COLLISION_EPSILON);
+        int maxZ = CultMath.floor(Math.max(fromAabb.maxZ, toAabb.maxZ) - COLLISION_EPSILON);
         if (CheckIfChunksLoaded.isChunksUnloadedAt(player, minX, minY, minZ, maxX, maxY, maxZ)) {
             return null;
         }
@@ -1038,25 +1062,33 @@ public class Collisions {
     private static int addBlocksAlongTravel26Dot2(
             LongSet visited, Vec3 travel, SimpleCollisionBox target, OrderedBlockVisitor visitor) {
         int[] corner = furthestCorner26Dot2(travel);
-        Vec3 center = target.getCenter();
-        Vec3 toCorner = new Vec3(
-                center.x + target.getXsize() * 0.5D * corner[0],
-                center.y + target.getYsize() * 0.5D * corner[1],
-                center.z + target.getZsize() * 0.5D * corner[2]);
-        Vec3 fromCorner = toCorner.subtract(travel);
-        int x = CultMath.floor(fromCorner.x);
-        int y = CultMath.floor(fromCorner.y);
-        int z = CultMath.floor(fromCorner.z);
+        double sizeX = target.getXsize();
+        double sizeY = target.getYsize();
+        double sizeZ = target.getZsize();
+        double toCornerX = CultMath.lerp(0.5, target.minX, target.maxX) + sizeX * 0.5D * corner[0];
+        double toCornerY = CultMath.lerp(0.5, target.minY, target.maxY) + sizeY * 0.5D * corner[1];
+        double toCornerZ = CultMath.lerp(0.5, target.minZ, target.maxZ) + sizeZ * 0.5D * corner[2];
+        double fromCornerX = toCornerX - travel.x;
+        double fromCornerY = toCornerY - travel.y;
+        double fromCornerZ = toCornerZ - travel.z;
+        // AABB#clip steps along to - from, which can round differently from the travel.
+        double clipX = toCornerX - fromCornerX;
+        double clipY = toCornerY - fromCornerY;
+        double clipZ = toCornerZ - fromCornerZ;
+        int x = CultMath.floor(fromCornerX);
+        int y = CultMath.floor(fromCornerY);
+        int z = CultMath.floor(fromCornerZ);
         int signX = (int) Math.signum(travel.x);
         int signY = (int) Math.signum(travel.y);
         int signZ = (int) Math.signum(travel.z);
         double deltaX = signX == 0 ? Double.MAX_VALUE : signX / travel.x;
         double deltaY = signY == 0 ? Double.MAX_VALUE : signY / travel.y;
         double deltaZ = signZ == 0 ? Double.MAX_VALUE : signZ / travel.z;
-        double nextX = deltaX * (signX > 0 ? 1.0D - CultMath.frac(fromCorner.x) : CultMath.frac(fromCorner.x));
-        double nextY = deltaY * (signY > 0 ? 1.0D - CultMath.frac(fromCorner.y) : CultMath.frac(fromCorner.y));
-        double nextZ = deltaZ * (signZ > 0 ? 1.0D - CultMath.frac(fromCorner.z) : CultMath.frac(fromCorner.z));
+        double nextX = deltaX * (signX > 0 ? 1.0D - CultMath.frac(fromCornerX) : CultMath.frac(fromCornerX));
+        double nextY = deltaY * (signY > 0 ? 1.0D - CultMath.frac(fromCornerY) : CultMath.frac(fromCornerY));
+        double nextZ = deltaZ * (signZ > 0 ? 1.0D - CultMath.frac(fromCornerZ) : CultMath.frac(fromCornerZ));
         int iterations = 0;
+        OrderedBlockVisitor unvisited = (pos, step) -> !visited.add(pos.asLong()) || visitor.visit(pos, step);
 
         while (nextX <= 1.0D || nextY <= 1.0D || nextZ <= 1.0D) {
             if (nextX < nextY) {
@@ -1075,29 +1107,73 @@ public class Collisions {
                 nextZ += deltaZ;
             }
 
-            Optional<Vec3> hit = SimpleCollisionBox.clip(x, y, z, x + 1.0D, y + 1.0D, z + 1.0D, fromCorner, toCorner);
-            if (hit.isEmpty()) continue;
+            double scale = clipScale26Dot2(
+                    x, y, z, x + 1.0D, y + 1.0D, z + 1.0D, fromCornerX, fromCornerY, fromCornerZ, clipX, clipY, clipZ);
+            if (scale < 0.0D) continue;
             iterations++;
-            Vec3 point = hit.get();
-            double hitX = clamp(point.x, x + 1.0E-5F, x + 1.0D - 1.0E-5F);
-            double hitY = clamp(point.y, y + 1.0E-5F, y + 1.0D - 1.0E-5F);
-            double hitZ = clamp(point.z, z + 1.0E-5F, z + 1.0D - 1.0E-5F);
-            int oppositeX = CultMath.floor(hitX - target.getXsize() * corner[0]);
-            int oppositeY = CultMath.floor(hitY - target.getYsize() * corner[1]);
-            int oppositeZ = CultMath.floor(hitZ - target.getZsize() * corner[2]);
+            double hitX = clamp(fromCornerX + scale * clipX, x + 1.0E-5F, x + 1.0D - 1.0E-5F);
+            double hitY = clamp(fromCornerY + scale * clipY, y + 1.0E-5F, y + 1.0D - 1.0E-5F);
+            double hitZ = clamp(fromCornerZ + scale * clipZ, z + 1.0E-5F, z + 1.0D - 1.0E-5F);
+            int oppositeX = CultMath.floor(hitX - sizeX * corner[0]);
+            int oppositeY = CultMath.floor(hitY - sizeY * corner[1]);
+            int oppositeZ = CultMath.floor(hitZ - sizeZ * corner[2]);
 
-            if (!forEachBlockInDirection26Dot2(
-                    x,
-                    y,
-                    z,
-                    oppositeX,
-                    oppositeY,
-                    oppositeZ,
-                    travel,
-                    iterations,
-                    (pos, step) -> !visited.add(pos.asLong()) || visitor.visit(pos, step))) return -1;
+            if (!forEachBlockInDirection26Dot2(x, y, z, oppositeX, oppositeY, oppositeZ, travel, iterations, unvisited))
+                return -1;
         }
         return iterations;
+    }
+
+    /**
+     * {@link SimpleCollisionBox#clip(double, double, double, double, double, double, Vec3, Vec3)} from {@code from}
+     * along {@code delta}: the scale of the hit, which is {@code from + scale * delta}, or -1 when it misses.
+     */
+    static double clipScale26Dot2(
+            double minX,
+            double minY,
+            double minZ,
+            double maxX,
+            double maxY,
+            double maxZ,
+            double fromX,
+            double fromY,
+            double fromZ,
+            double deltaX,
+            double deltaY,
+            double deltaZ) {
+        double nearest = 1.0D;
+        nearest = clipAxis26Dot2(
+                nearest, deltaX, minX, maxX, fromX, fromY, deltaY, minY, maxY, fromZ, deltaZ, minZ, maxZ);
+        nearest = clipAxis26Dot2(
+                nearest, deltaY, minY, maxY, fromY, fromZ, deltaZ, minZ, maxZ, fromX, deltaX, minX, maxX);
+        nearest = clipAxis26Dot2(
+                nearest, deltaZ, minZ, maxZ, fromZ, fromX, deltaX, minX, maxX, fromY, deltaY, minY, maxY);
+        return nearest == 1.0D ? -1.0D : nearest;
+    }
+
+    /** One entry face of AABB#clip: {@code nearest}, or the smaller scale at which the segment enters that face. */
+    private static double clipAxis26Dot2(
+            double nearest,
+            double movement,
+            double lower,
+            double upper,
+            double origin,
+            double originB,
+            double deltaB,
+            double lowerB,
+            double upperB,
+            double originC,
+            double deltaC,
+            double lowerC,
+            double upperC) {
+        if (Math.abs(movement) <= 1.0E-7D) return nearest;
+        double t = ((movement > 0 ? lower : upper) - origin) / movement;
+        if (!(0.0D < t && t < nearest)) return nearest;
+        double pb = originB + t * deltaB;
+        double pc = originC + t * deltaC;
+        return lowerB - 1.0E-7D < pb && pb < upperB + 1.0E-7D && lowerC - 1.0E-7D < pc && pc < upperC + 1.0E-7D
+                ? t
+                : nearest;
     }
 
     private static int[] furthestCorner26Dot2(Vec3 movement) {
@@ -1107,9 +1183,24 @@ public class Collisions {
         int xSign = movement.x >= 0.0D ? 1 : -1;
         int ySign = movement.y >= 0.0D ? 1 : -1;
         int zSign = movement.z >= 0.0D ? 1 : -1;
-        if (x <= y && x <= z) return new int[] {-xSign, -zSign, ySign};
-        if (y <= z) return new int[] {zSign, -ySign, -xSign};
-        return new int[] {-ySign, xSign, -zSign};
+        int signs = (xSign < 0 ? 1 : 0) | (ySign < 0 ? 2 : 0) | (zSign < 0 ? 4 : 0);
+        if (x <= y && x <= z) return FURTHEST_CORNERS[signs];
+        if (y <= z) return FURTHEST_CORNERS[8 + signs];
+        return FURTHEST_CORNERS[16 + signs];
+    }
+
+    // Read-only: the three corner orders for each combination of movement signs.
+    private static final int[][] FURTHEST_CORNERS = new int[24][];
+
+    static {
+        for (int signs = 0; signs < 8; signs++) {
+            int xSign = (signs & 1) != 0 ? -1 : 1;
+            int ySign = (signs & 2) != 0 ? -1 : 1;
+            int zSign = (signs & 4) != 0 ? -1 : 1;
+            FURTHEST_CORNERS[signs] = new int[] {-xSign, -zSign, ySign};
+            FURTHEST_CORNERS[8 + signs] = new int[] {zSign, -ySign, -xSign};
+            FURTHEST_CORNERS[16 + signs] = new int[] {-ySign, xSign, -zSign};
+        }
     }
 
     private static double clamp(double value, double min, double max) {
@@ -1170,11 +1261,11 @@ public class Collisions {
         double maxY = y + 1.0D + halfY;
         double maxZ = z + 1.0D + halfZ;
 
-        Vec3 fromCenter = boxCenter(fromAabb);
-        Vec3 toCenter = boxCenter(toAabb);
-        return containsHalfOpen(minX, minY, minZ, maxX, maxY, maxZ, fromCenter)
-                || containsHalfOpen(minX, minY, minZ, maxX, maxY, maxZ, toCenter)
-                || segmentClipsBox(minX, minY, minZ, maxX, maxY, maxZ, fromCenter, toCenter);
+        double fromX = centerX(fromAabb), fromY = centerY(fromAabb), fromZ = centerZ(fromAabb);
+        double toX = centerX(toAabb), toY = centerY(toAabb), toZ = centerZ(toAabb);
+        return containsHalfOpen(minX, minY, minZ, maxX, maxY, maxZ, fromX, fromY, fromZ)
+                || containsHalfOpen(minX, minY, minZ, maxX, maxY, maxZ, toX, toY, toZ)
+                || segmentClipsBox(minX, minY, minZ, maxX, maxY, maxZ, fromX, fromY, fromZ, toX, toY, toZ);
     }
 
     public static String describeStuckSpeedSources(
@@ -1233,6 +1324,18 @@ public class Collisions {
             case Y -> box.offset(0.0D, movement, 0.0D);
             case Z -> box.offset(0.0D, 0.0D, movement);
         }
+    }
+
+    private static double centerX(SimpleCollisionBox box) {
+        return (box.minX + box.maxX) * 0.5D;
+    }
+
+    private static double centerY(SimpleCollisionBox box) {
+        return (box.minY + box.maxY) * 0.5D;
+    }
+
+    private static double centerZ(SimpleCollisionBox box) {
+        return (box.minZ + box.maxZ) * 0.5D;
     }
 
     private static Vec3 boxCenter(SimpleCollisionBox box) {
@@ -1332,31 +1435,45 @@ public class Collisions {
     }
 
     private static boolean containsHalfOpen(
-            double minX, double minY, double minZ, double maxX, double maxY, double maxZ, Vec3 point) {
-        return point.x >= minX
-                && point.x < maxX
-                && point.y >= minY
-                && point.y < maxY
-                && point.z >= minZ
-                && point.z < maxZ;
+            double minX,
+            double minY,
+            double minZ,
+            double maxX,
+            double maxY,
+            double maxZ,
+            double pointX,
+            double pointY,
+            double pointZ) {
+        return pointX >= minX && pointX < maxX && pointY >= minY && pointY < maxY && pointZ >= minZ && pointZ < maxZ;
     }
 
     private static boolean segmentClipsBox(
-            double minX, double minY, double minZ, double maxX, double maxY, double maxZ, Vec3 from, Vec3 to) {
-        double dx = to.x - from.x;
-        double dy = to.y - from.y;
-        double dz = to.z - from.z;
-        if (dx > COLLISION_EPSILON && clipsFace(dx, dy, dz, minX, minY, maxY, minZ, maxZ, from.x, from.y, from.z))
+            double minX,
+            double minY,
+            double minZ,
+            double maxX,
+            double maxY,
+            double maxZ,
+            double fromX,
+            double fromY,
+            double fromZ,
+            double toX,
+            double toY,
+            double toZ) {
+        double dx = toX - fromX;
+        double dy = toY - fromY;
+        double dz = toZ - fromZ;
+        if (dx > COLLISION_EPSILON && clipsFace(dx, dy, dz, minX, minY, maxY, minZ, maxZ, fromX, fromY, fromZ))
             return true;
-        if (dx < -COLLISION_EPSILON && clipsFace(dx, dy, dz, maxX, minY, maxY, minZ, maxZ, from.x, from.y, from.z))
+        if (dx < -COLLISION_EPSILON && clipsFace(dx, dy, dz, maxX, minY, maxY, minZ, maxZ, fromX, fromY, fromZ))
             return true;
-        if (dy > COLLISION_EPSILON && clipsFace(dy, dz, dx, minY, minZ, maxZ, minX, maxX, from.y, from.z, from.x))
+        if (dy > COLLISION_EPSILON && clipsFace(dy, dz, dx, minY, minZ, maxZ, minX, maxX, fromY, fromZ, fromX))
             return true;
-        if (dy < -COLLISION_EPSILON && clipsFace(dy, dz, dx, maxY, minZ, maxZ, minX, maxX, from.y, from.z, from.x))
+        if (dy < -COLLISION_EPSILON && clipsFace(dy, dz, dx, maxY, minZ, maxZ, minX, maxX, fromY, fromZ, fromX))
             return true;
-        if (dz > COLLISION_EPSILON && clipsFace(dz, dx, dy, minZ, minX, maxX, minY, maxY, from.z, from.x, from.y))
+        if (dz > COLLISION_EPSILON && clipsFace(dz, dx, dy, minZ, minX, maxX, minY, maxY, fromZ, fromX, fromY))
             return true;
-        return dz < -COLLISION_EPSILON && clipsFace(dz, dx, dy, maxZ, minX, maxX, minY, maxY, from.z, from.x, from.y);
+        return dz < -COLLISION_EPSILON && clipsFace(dz, dx, dy, maxZ, minX, maxX, minY, maxY, fromZ, fromX, fromY);
     }
 
     private static boolean clipsFace(
@@ -1457,6 +1574,12 @@ public class Collisions {
     }
 
     public static boolean hasState(CultPlayer player, SimpleCollisionBox checkBox, StatePredicate searchingFor) {
+        return hasState(player, checkBox, state -> true, searchingFor);
+    }
+
+    /** {@code searchingFor} sees only states passing {@code stateFilter} and must be false for every other state. */
+    public static boolean hasState(
+            CultPlayer player, SimpleCollisionBox checkBox, IntPredicate stateFilter, StatePredicate searchingFor) {
         int minBlockX = (int) Math.floor(checkBox.minX);
         int maxBlockX = (int) Math.floor(checkBox.maxX);
         int minBlockY = (int) Math.floor(checkBox.minY);
@@ -1507,6 +1630,7 @@ public class Collisions {
                             int z = currZ | chunkZGlobalPos;
 
                             int data = section.getStateId(CachedChunk.index(x & 0xF, y & 0xF, z & 0xF));
+                            if (!stateFilter.test(data)) continue;
                             if (searchingFor.test(data, new BlockPos(x, y, z))) return true;
                         }
                     }

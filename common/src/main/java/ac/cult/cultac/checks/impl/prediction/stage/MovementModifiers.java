@@ -12,7 +12,6 @@ import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 
 public class MovementModifiers {
@@ -86,7 +85,7 @@ public class MovementModifiers {
             boolean canTickSkip,
             FluidHopMode fluidHopMode,
             boolean includeSlimePistonLaunches) {
-        List<PredVector> start = new ArrayList<>();
+        List<PredVector> start = new ArrayList<>(initial.size() + 10);
 
         // This happens on first join, good to keep in case other things do this too.
         if (initial.isEmpty()) {
@@ -125,28 +124,34 @@ public class MovementModifiers {
         }
 
         // There may only be one first bread at a time.
-        List<TransactionOrder> packetEventsInOrder = new ArrayList<>();
-        packetEventsInOrder.add(player.checkManager.getKnockbackHandler().firstBread);
-        packetEventsInOrder.add(player.checkManager.getExplosionHandler().firstBread);
-        packetEventsInOrder.add(player.checkManager.getKnockbackHandler().secondBread);
-        packetEventsInOrder.add(player.checkManager.getExplosionHandler().secondBread);
-        packetEventsInOrder.removeIf(Objects::isNull);
-        if (state.isBedrockTeleportTick()) {
-            // The outbound observer can see B + motion while A's reply is in flight.
-            // Exclude that unconfirmed motion from A; firstBread retains it normally.
-            TransactionVel possibleMotion = player.checkManager.getKnockbackHandler().firstBread;
-            if (possibleMotion != null
-                    && possibleMotion.getBedrockTeleportRevision()
-                            > state.getBedrockTeleport().getBedrockTransportRevision()) {
-                packetEventsInOrder.removeIf(event -> event == possibleMotion);
+        List<TransactionOrder> packetEventsInOrder = List.of();
+        TransactionVel knockbackFirst = player.checkManager.getKnockbackHandler().firstBread;
+        TransactionVel explosionFirst = player.checkManager.getExplosionHandler().firstBread;
+        TransactionVel knockbackSecond = player.checkManager.getKnockbackHandler().secondBread;
+        TransactionVel explosionSecond = player.checkManager.getExplosionHandler().secondBread;
+        if (knockbackFirst != null || explosionFirst != null || knockbackSecond != null || explosionSecond != null) {
+            packetEventsInOrder = new ArrayList<>(4);
+            if (knockbackFirst != null) packetEventsInOrder.add(knockbackFirst);
+            if (explosionFirst != null) packetEventsInOrder.add(explosionFirst);
+            if (knockbackSecond != null) packetEventsInOrder.add(knockbackSecond);
+            if (explosionSecond != null) packetEventsInOrder.add(explosionSecond);
+            if (state.isBedrockTeleportTick()) {
+                // The outbound observer can see B + motion while A's reply is in flight.
+                // Exclude that unconfirmed motion from A; firstBread retains it normally.
+                TransactionVel possibleMotion = player.checkManager.getKnockbackHandler().firstBread;
+                if (possibleMotion != null
+                        && possibleMotion.getBedrockTeleportRevision()
+                                > state.getBedrockTeleport().getBedrockTransportRevision()) {
+                    packetEventsInOrder.removeIf(event -> event == possibleMotion);
+                }
             }
+            packetEventsInOrder.sort(Comparator.comparingInt(TransactionOrder::getTransaction)
+                    // Within one Java transaction, confirmed Bedrock motion precedes its pending successor.
+                    .thenComparingInt(event ->
+                            player.isBedrockMovement() && event == player.checkManager.getKnockbackHandler().firstBread
+                                    ? 1
+                                    : 0));
         }
-        packetEventsInOrder.sort(Comparator.comparingInt(TransactionOrder::getTransaction)
-                // Within one Java transaction, confirmed Bedrock motion precedes its pending successor.
-                .thenComparingInt(event ->
-                        player.isBedrockMovement() && event == player.checkManager.getKnockbackHandler().firstBread
-                                ? 1
-                                : 0));
 
         for (Vec3 vector : initial) {
             start.add(PredVector.fromStartingVector(vector));
@@ -183,7 +188,8 @@ public class MovementModifiers {
 
         // TODO: This is too brute forcey, we don't need duplicates in certain situations.
         // TODO: This should just be refactored for 1.20.4+ clients with tick end and bundle packet!
-        for (TransactionOrder event : packetEventsInOrder) {
+        for (int eventIndex = 0, eventCount = packetEventsInOrder.size(); eventIndex < eventCount; eventIndex++) {
+            TransactionOrder event = packetEventsInOrder.get(eventIndex);
             for (PredVector vector : new ArrayList<>(start)) {
                 TransactionVel vel = (TransactionVel) event;
                 Vec3 eventVel = vel.getVel();

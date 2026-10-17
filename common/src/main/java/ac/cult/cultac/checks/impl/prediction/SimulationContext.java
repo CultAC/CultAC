@@ -22,6 +22,7 @@ import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.Friction;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.List;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
@@ -29,6 +30,8 @@ import lombok.ToString;
 @Getter
 @ToString
 public class SimulationContext {
+    private static final Vec3 NO_STUCK_SPEED = new Vec3(1, 1, 1);
+
     @Setter
     ac.cult.cultac.utils.data.ClientItemUseState.Snapshot itemUse =
             ac.cult.cultac.utils.data.ClientItemUseState.Snapshot.NONE;
@@ -44,6 +47,14 @@ public class SimulationContext {
 
     @Setter
     Vec3 target;
+
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private Vec3 packetMovement;
+
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private Vec3 packetMovementEnd;
 
     @ToString.Exclude
     ClientVersion version;
@@ -79,7 +90,7 @@ public class SimulationContext {
     int riptideLevel;
     LastInstance lastTickSkip;
     boolean isTestingPointThree;
-    Vec3 lastStuckSpeed = new Vec3(1, 1, 1);
+    Vec3 lastStuckSpeed = NO_STUCK_SPEED;
     Vec3 horseInputs;
     MainSupportingBlockData lastTickMainSupportingBlockData;
     Pose pose;
@@ -183,6 +194,13 @@ public class SimulationContext {
         if (stuckSpeedRequired != null) {
             lastStuckSpeed = stuckSpeedRequired;
         }
+        // Dividing by an exact 1 keeps every component's bits.
+        if (lastStuckSpeed.x == 1.0D
+                && lastStuckSpeed.y == 1.0D
+                && lastStuckSpeed.z == 1.0D
+                && target.getClass() == Vec3.class) {
+            return;
+        }
         setTarget(target.multiply(1 / lastStuckSpeed.x, 1 / lastStuckSpeed.y, 1 / lastStuckSpeed.z));
     }
 
@@ -223,9 +241,11 @@ public class SimulationContext {
         this.hardCollidingEntityCollisionsForMovementTick = hardCollidingEntityCollisionsForMovementTick;
         this.hardCollidingEntityCollisionBoxesForMovementTick = hardCollidingEntityCollisionsForMovementTick == null
                 ? null
-                : hardCollidingEntityCollisionsForMovementTick.stream()
-                        .map(HardCollidingEntityCollision::box)
-                        .toList();
+                : hardCollidingEntityCollisionsForMovementTick.isEmpty()
+                        ? List.of()
+                        : hardCollidingEntityCollisionsForMovementTick.stream()
+                                .map(HardCollidingEntityCollision::box)
+                                .toList();
     }
 
     public double getTargetScalarHoriz() {
@@ -286,6 +306,15 @@ public class SimulationContext {
         }
         return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, 0.6f, 0.6f)
                 .expand(-getMovementThreshold(version));
+    }
+
+    /** {@code end.subtract(start)}, shared until {@code end} changes. */
+    public Vec3 getPacketMovement() {
+        if (packetMovementEnd != end) {
+            packetMovement = end.subtract(start);
+            packetMovementEnd = end;
+        }
+        return packetMovement;
     }
 
     public SimpleCollisionBox getFromMaximumExtent() {

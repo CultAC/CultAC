@@ -118,7 +118,7 @@ final class BonemealTargets {
             pos = pos.relative(Direction.DOWN); state = level.stateAt(pos);
             if (!level.registry().block(state).key().equals("minecraft:pitcher_crop") || !level.registry().value(state, "half").equals("lower")) return false;
         }
-        if (!belowMaximumAge(level, state, pos) || level.rawBrightnessAt(pos) < 8 || !inBounds(level, pos.relative(Direction.UP))) return false;
+        if (!belowMaximumAge(level, state, pos) || !inBounds(level, pos.relative(Direction.UP))) return false;
         return BlockBehavior.number(level, state, "age") + 1 < 3 || air(level, pos.relative(Direction.UP))
                 || level.registry().block(level.stateAt(pos.relative(Direction.UP))).key().equals("minecraft:pitcher_crop");
     }

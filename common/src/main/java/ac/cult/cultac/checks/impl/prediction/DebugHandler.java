@@ -99,6 +99,7 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
         if (predictionComplete.isTeleport()) return;
+        if (listeners.isEmpty() && !outputToConsole) return;
 
         PredictionResult result = predictionComplete.getPredictionResult();
         PredictionResult lastResult =
@@ -108,8 +109,6 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         double offset = debugView.offset();
         Vec3 predictedWithInputs = debugView.predictedWithInputs();
         Vec3 target = debugView.target();
-
-        if (listeners.isEmpty() && !outputToConsole) return;
 
         boolean inVehicle = isVehiclePrediction(result);
         boolean positionsTooUncertain = positionsTooUncertainToCheck(inVehicle);

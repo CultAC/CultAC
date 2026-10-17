@@ -4,7 +4,6 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.type.RotationListener;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.RotationUpdate;
-import ac.cult.cultac.utils.data.Pair;
 import ac.cult.cultac.utils.lists.RunningMode;
 import ac.cult.cultac.utils.math.CultMath;
 
@@ -55,16 +54,16 @@ public class AimProcessor extends Check implements RotationListener {
         }
 
         if (this.xRotMode.size() > SIGNIFICANT_SAMPLES_THRESHOLD) {
-            Pair<Double, Integer> modeX = this.xRotMode.getMode();
-            if (modeX.second() > SIGNIFICANT_SAMPLES_THRESHOLD) {
-                this.modeX = modeX.first();
+            this.xRotMode.updateMode();
+            if (this.xRotMode.modeCount() > SIGNIFICANT_SAMPLES_THRESHOLD) {
+                this.modeX = this.xRotMode.modeValue();
                 this.sensitivityX = convertToSensitivity(this.modeX);
             }
         }
         if (this.yRotMode.size() > SIGNIFICANT_SAMPLES_THRESHOLD) {
-            Pair<Double, Integer> modeY = this.yRotMode.getMode();
-            if (modeY.second() > SIGNIFICANT_SAMPLES_THRESHOLD) {
-                this.modeY = modeY.first();
+            this.yRotMode.updateMode();
+            if (this.yRotMode.modeCount() > SIGNIFICANT_SAMPLES_THRESHOLD) {
+                this.modeY = this.yRotMode.modeValue();
                 this.sensitivityY = convertToSensitivity(this.modeY);
             }
         }

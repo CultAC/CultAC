@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.FluidTags;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
@@ -110,7 +111,6 @@ public class CompensatedWorld {
     public static final class CachedChunk {
         private final CachedSection[] sections;
         private final int transaction;
-        private CompensatedLight light;
         private MotionHeightmap motionHeightmap;
         private final List<ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate> blockEntities;
         private int[][] biomes;
@@ -244,6 +244,10 @@ public class CompensatedWorld {
         public CachedSection translatedStateIds(java.util.function.IntUnaryOperator mapper) {
             var translated = states.translated(id -> stateIdOrAir(mapper.applyAsInt(id)));
             return translated == states ? this : new CachedSection(translated);
+        }
+
+        public boolean hasOnlyKnownStateIds() {
+            return states.localPaletteWithin(DataTables.defaults().registry().stateCount());
         }
 
         public boolean isShared() {
@@ -629,28 +633,6 @@ public class CompensatedWorld {
         return pending == null ? getBlockStateIdAt(pos) : pending.getOriginalBlockId();
     }
 
-    public void applyLight(String dimension, int x, int z, ac.cult.cultac.network.packet.LightValues data) {
-        if (!dimension.equals(dimensionForChunk(x, z))) return;
-        CachedChunk chunk = getChunk(x, z);
-        if (chunk == null) return;
-        if (chunk.light == null) chunk.light = new CompensatedLight(chunk.sectionCount());
-        chunk.light.apply(data);
-    }
-
-    public int getRawBrightness(int x, int y, int z) {
-        CachedChunk chunk = getChunk(x >> 4, z >> 4);
-        return chunk != null && chunk.light != null
-                ? chunk.light.brightness(x, y, z, minHeight, hasSkyLight)
-                : hasSkyLight ? 15 : 0;
-    }
-
-    public int getSkyBrightness(int x, int y, int z) {
-        CachedChunk chunk = getChunk(x >> 4, z >> 4);
-        return chunk != null && chunk.light != null
-                ? chunk.light.skyBrightness(x, y, z, minHeight, hasSkyLight)
-                : hasSkyLight ? 15 : 0;
-    }
-
     /** ClientPacketListener.handleGameEvent and Level.setRainLevel (26.3). */
     public void applyClientWeather(ac.cult.cultac.protocol.value.GameEventType event, float level) {
         switch (event) {
@@ -682,9 +664,7 @@ public class CompensatedWorld {
 
     /** Level.precipitationAt (26.3), retaining only the inputs needed by trident use. */
     public boolean clientIsRainingAt(BlockPos pos) {
-        if (!clientIsRaining()
-                || getSkyBrightness(pos.getX(), pos.getY(), pos.getZ()) < 15
-                || clientMotionBlockingHeightAt(pos.getX(), pos.getZ()) > pos.getY()) return false;
+        if (!clientIsRaining() || clientMotionBlockingHeightAt(pos.getX(), pos.getZ()) > pos.getY()) return false;
         return player.getWorldRegistries()
                 .canRain(
                         clientBiomeKeyAt(pos),
@@ -813,8 +793,9 @@ public class CompensatedWorld {
         return false;
     }
 
-    public List<SimpleCollisionBox> getDynamicBlockCollisionUncertaintyBoxes(SimpleCollisionBox queryBox) {
-        List<SimpleCollisionBox> boxes = new ArrayList<>(pistons.getDynamicBlockCollisionUncertaintyBoxes(queryBox));
+    public void addDynamicBlockCollisionUncertaintyBoxes(SimpleCollisionBox queryBox, List<SimpleCollisionBox> boxes) {
+        pistons.addDynamicBlockCollisionUncertaintyBoxes(queryBox, boxes);
+        if (openShulkerBoxes.isEmpty()) return;
 
         for (ShulkerData data : openShulkerBoxes) {
             if (!data.isAnimationActive()) {
@@ -826,8 +807,6 @@ public class CompensatedWorld {
                 boxes.add(box);
             }
         }
-
-        return boxes;
     }
 
     public boolean hasOpenShulkerCollision(SimpleCollisionBox queryBox) {
@@ -1215,6 +1194,14 @@ public class CompensatedWorld {
     public PistonPushes tickPlayerInPistonPushingArea(SimulationContext context) {
         // Occurs on player login
         if (player.boundingBox == null) return new PistonPushes(new SimpleCollisionBox(), Collections.emptySet());
+
+        if (openShulkerBoxes.isEmpty() && pistons.hasNoPushSources()) {
+            // Push consumers only read these boxes, so the three empty pushes share one.
+            SimpleCollisionBox empty = new SimpleCollisionBox();
+            PistonPushes result = new PistonPushes(empty, empty, empty, Collections.emptySet());
+            result.setPistonMovementPhased(pistons.usesLegacyCollision());
+            return result;
+        }
 
         SimpleCollisionBox queryBox = pistons.createPistonQueryBox(context);
         PistonPushes pistonResult = pistons.tickPlayerInPistonPushingArea(queryBox);

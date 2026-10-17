@@ -1,15 +1,51 @@
 package ac.cult.cultac.utils.latency;
 
 final class LatencyTaskQueue {
+    private static final int MAX_RECYCLED_TASKS = 256;
     private TaskNode firstTask;
     private TaskNode lastTask;
+    private TaskNode recycledTasks;
+    private int recycledTaskCount;
 
     synchronized void add(int transaction, Runnable runnable) {
-        add(new TaskNode(transaction, runnable, null));
+        add(acquire(transaction, runnable, null));
     }
 
     synchronized void addWithNextTransaction(int transaction, Runnable runnable, Runnable nextTransactionRunnable) {
-        add(new TaskNode(transaction, runnable, nextTransactionRunnable));
+        add(acquire(transaction, runnable, nextTransactionRunnable));
+    }
+
+    private TaskNode acquire(int transaction, Runnable runnable, Runnable nextTransactionRunnable) {
+        TaskNode task = recycledTasks;
+        if (task == null) return new TaskNode(transaction, runnable, nextTransactionRunnable);
+        recycledTasks = task.next;
+        recycledTaskCount--;
+        task.transaction = transaction;
+        task.runnable = runnable;
+        task.nextTransactionRunnable = nextTransactionRunnable;
+        task.next = null;
+        return task;
+    }
+
+    // The caller must finish walking the drained batch before returning any of its nodes.
+    synchronized void recycle(TaskNode task) {
+        if (task == null || recycledTaskCount == MAX_RECYCLED_TASKS) return;
+        TaskNode tail = task;
+        int count = 1;
+        while (recycledTaskCount + count < MAX_RECYCLED_TASKS && tail.next != null) {
+            tail = tail.next;
+            count++;
+        }
+        tail.next = recycledTasks;
+        recycledTasks = task;
+        recycledTaskCount += count;
+    }
+
+    private TaskNode nextTransactionTask(TaskNode task) {
+        if (task.nextTransactionRunnable == null) return null;
+        TaskNode continuation = acquire(task.transaction + 1, task.nextTransactionRunnable, null);
+        task.nextTransactionRunnable = null;
+        return continuation;
     }
 
     private void add(TaskNode task) {
@@ -37,7 +73,7 @@ final class LatencyTaskQueue {
                 continue;
             }
 
-            TaskNode continuation = current.nextTransactionTask();
+            TaskNode continuation = nextTransactionTask(current);
             if (continuation != null) {
                 if (continuation.transaction <= transaction) {
                     if (previous == null) {
@@ -108,7 +144,7 @@ final class LatencyTaskQueue {
     }
 
     static final class TaskNode {
-        private final int transaction;
+        private int transaction;
         private Runnable runnable;
         private Runnable nextTransactionRunnable;
         private TaskNode next;
@@ -127,20 +163,16 @@ final class LatencyTaskQueue {
             return next;
         }
 
-        private TaskNode nextTransactionTask() {
-            if (nextTransactionRunnable == null) {
-                return null;
-            }
-
-            TaskNode task = new TaskNode(transaction + 1, nextTransactionRunnable, null);
-            nextTransactionRunnable = null;
-            return task;
-        }
-
         void clear() {
             runnable = null;
             nextTransactionRunnable = null;
             next = null;
+        }
+
+        TaskNode clearAndLink(TaskNode released) {
+            clear();
+            next = released;
+            return this;
         }
     }
 }

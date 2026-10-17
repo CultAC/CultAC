@@ -105,8 +105,10 @@ public class EntityPush implements UncertaintyHandler {
             List<SimpleCollisionBox> boatBoxes,
             SimpleCollisionBox playerBox,
             Vec3 pushedPosition) {
-        for (SimpleCollisionBox boatBox : boatBoxes) {
-            SimpleCollisionBox pushBox = boatBox.copy().expand(0.2D, -0.01D, 0.2D);
+        SimpleCollisionBox pushBox = new SimpleCollisionBox();
+        for (int i = 0; i < boatBoxes.size(); i++) {
+            SimpleCollisionBox boatBox = boatBoxes.get(i);
+            pushBox.set(boatBox).expand(0.2D, -0.01D, 0.2D);
             if (!vanillaIntersects(pushBox, playerBox) || playerBox.minY > boatBox.minY) {
                 continue;
             }

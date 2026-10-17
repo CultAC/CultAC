@@ -11,12 +11,13 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.OptionalDouble;
 import java.util.Set;
 
 public final class VelocityCandidates {
+    private static final Vec3 NO_STUCK_SPEED = new Vec3(1.0D, 1.0D, 1.0D);
+
     private VelocityCandidates() {}
 
     public static List<PredictionResult> nextTickVelocityRealities(CultPlayer player, PredictionResult result) {
@@ -31,13 +32,15 @@ public final class VelocityCandidates {
         return List.of(result);
     }
 
-    public static Candidates derive(PredictionResult result, PredictionResult lastPrediction, Vec3 diff) {
-        Set<Vec3> validPlayerStartingVels = new HashSet<>();
-
+    /** Adds the candidates to the empty {@code validPlayerStartingVels} and returns it. */
+    static Set<Vec3> derive(
+            PredictionResult result, PredictionResult lastPrediction, Vec3 diff, Set<Vec3> validPlayerStartingVels) {
         // Preserve the existing prediction candidate space for legacy soul-sand uncertainty.
         int soulSandCount = result.getSimulationContext().getWorldData().getSoulSandCount();
-        double multiplier = Math.pow(0.4, soulSandCount);
-        diff = diff.multiply(multiplier, 1, multiplier);
+        if (soulSandCount != 0) {
+            double multiplier = Math.pow(0.4, soulSandCount);
+            diff = diff.multiply(multiplier, 1, multiplier);
+        }
         Vec3 positionOnlyDelta = result.getValidMovements().getPositionOnlyDelta();
         if (positionOnlyDelta.lengthSqr() > 1.0E-14) {
             // MCP-Reborn has a few packet-visible Entity#move paths that do not
@@ -114,7 +117,7 @@ public final class VelocityCandidates {
             validPlayerStartingVels.add(Vec3.ZERO);
         }
 
-        return new Candidates(validPlayerStartingVels);
+        return validPlayerStartingVels;
     }
 
     private static Vec3 applyPostMoveLivingFluidCurrent(
@@ -273,7 +276,7 @@ public final class VelocityCandidates {
         }
 
         Vec3 lastStuckSpeed = context.getLastStuckSpeed();
-        return lastStuckSpeed != null && lastStuckSpeed.distanceToSqr(new Vec3(1.0D, 1.0D, 1.0D)) > 1.0E-14;
+        return lastStuckSpeed != null && lastStuckSpeed.distanceToSqr(NO_STUCK_SPEED) > 1.0E-14;
     }
 
     private static void addVelocityCandidates(
@@ -282,9 +285,20 @@ public final class VelocityCandidates {
             if (((mask & 1) != 0 && !canZeroX) || ((mask & 2) != 0 && !canZeroY) || ((mask & 4) != 0 && !canZeroZ)) {
                 continue;
             }
+            // Zeroing an axis that is already +0.0 repeats the vector of the smaller mask added before it.
+            if (((mask & 1) != 0 && Double.compare(diff.x, 0.0D) == 0)
+                    || ((mask & 2) != 0 && Double.compare(diff.y, 0.0D) == 0)
+                    || ((mask & 4) != 0 && Double.compare(diff.z, 0.0D) == 0)) {
+                continue;
+            }
 
             candidates.add(
-                    new Vec3((mask & 1) != 0 ? 0 : diff.x, (mask & 2) != 0 ? 0 : diff.y, (mask & 4) != 0 ? 0 : diff.z));
+                    mask == 0
+                            ? diff
+                            : new Vec3(
+                                    (mask & 1) != 0 ? 0 : diff.x,
+                                    (mask & 2) != 0 ? 0 : diff.y,
+                                    (mask & 4) != 0 ? 0 : diff.z));
         }
     }
 
@@ -397,6 +411,4 @@ public final class VelocityCandidates {
 
         return 0.0D;
     }
-
-    public record Candidates(Set<Vec3> velocities) {}
 }

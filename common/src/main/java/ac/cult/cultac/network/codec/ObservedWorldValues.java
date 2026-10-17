@@ -37,7 +37,6 @@ final class ObservedWorldValues {
                 yield ModelWorldValues.biomesDecoded(
                         input, sections -> SectionProjection.decodedBiomes(sections, version, count, registries));
             }
-            case "minecraft:light_update" -> ModelWorldValues.light(input, version);
             default -> throw new IllegalArgumentException(name);
         };
     }

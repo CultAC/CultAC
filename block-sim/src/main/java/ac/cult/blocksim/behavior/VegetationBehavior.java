@@ -29,9 +29,9 @@ public class VegetationBehavior extends BlockBehavior {
             case LILY_PAD, FROGSPAWN -> surfaceSupport(level, pos, block, kind == Kind.LILY_PAD ? "supports_lily_pad" : "supports_frogspawn");
             case LEAF_LITTER -> level.isFaceSturdy(state, pos, Direction.UP);
             case SEA_PICKLE -> !level.behavior(state).collisionShape(level, state, pos).face(Direction.UP).isEmpty() || level.isFaceSturdy(state, pos, Direction.UP);
-            // MushroomBlock.canSurvive checks light at the plant, above its support.
+            // Client light is unknown, so MushroomBlock.canSurvive's light limit is treated as met.
             case MUSHROOM -> tagged("block", "overrides_mushroom_light_requirement", block)
-                || level.rawBrightnessAt(pos.relative(Direction.UP)) < 13 && level.registry().facts(state).has(StateFacts.SOLID_RENDER);
+                || level.registry().facts(state).has(StateFacts.SOLID_RENDER);
             case SMALL_DRIPLEAF -> tagged("block", "supports_small_dripleaf", block)
                 || level.fluidAt(pos.relative(Direction.UP)).isSourceOfType("minecraft:water") && supportTag.contains(block);
         };

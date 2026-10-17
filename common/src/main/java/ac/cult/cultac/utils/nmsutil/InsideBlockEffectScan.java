@@ -3,6 +3,7 @@ package ac.cult.cultac.utils.nmsutil;
 import ac.cult.blocksim.data.BlockFamilies;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.CultMath;
 
 /** A bounded absence proof before constructing the ordered movement-effect traversal. */
@@ -25,11 +26,21 @@ public final class InsideBlockEffectScan {
 
     public static boolean mayHaveEffects(
             CultPlayer player, SimpleCollisionBox from, SimpleCollisionBox to, boolean stuckOnly) {
-        return mayHaveEffects(from, to, stuckOnly, player.compensatedWorld::getBlockStateIdAt);
+        return mayHaveEffects(from, to, stuckOnly, player.compensatedWorld, null);
     }
 
     static boolean mayHaveEffects(
             SimpleCollisionBox from, SimpleCollisionBox to, boolean stuckOnly, StateLookup lookup) {
+        return mayHaveEffects(from, to, stuckOnly, null, lookup);
+    }
+
+    /** Reads states from {@code lookup}, or from {@code world} when it is null. */
+    private static boolean mayHaveEffects(
+            SimpleCollisionBox from,
+            SimpleCollisionBox to,
+            boolean stuckOnly,
+            CompensatedWorld world,
+            StateLookup lookup) {
         if (from.minX > from.maxX
                 || from.minY > from.maxY
                 || from.minZ > from.maxZ
@@ -77,7 +88,10 @@ public final class InsideBlockEffectScan {
         int wanted = stuckOnly ? STUCK : ALL;
         for (int x = x0; x <= x1; x++)
             for (int y = y0; y <= y1; y++)
-                for (int z = z0; z <= z1; z++) if ((effects(lookup.get(x, y, z)) & wanted) != 0) return true;
+                for (int z = z0; z <= z1; z++) {
+                    int state = lookup == null ? world.getBlockStateIdAt(x, y, z) : lookup.get(x, y, z);
+                    if ((effects(state) & wanted) != 0) return true;
+                }
         return false;
     }
 

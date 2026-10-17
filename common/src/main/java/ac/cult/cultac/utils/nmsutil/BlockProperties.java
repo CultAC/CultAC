@@ -37,8 +37,8 @@ public class BlockProperties {
             }
             return BLOCKS.block(block).defaultState();
         }
-        BlockPos pos = getOnPos(player, playerPos, mainSupportingBlockData, 0.2F);
-        return BLOCKS.block(player.compensatedWorld.getBlockStateIdAt(pos)).defaultState();
+        return BLOCKS.block(getOnPosState(player, playerPos, mainSupportingBlockData, 0.2F))
+                .defaultState();
     }
 
     public static float getFriction(
@@ -96,11 +96,11 @@ public class BlockProperties {
      */
     private static int getBlockPosBelowThatAffectsMyMovement(
             CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
-        BlockPos pos = getOnPos(player, playerPos, mainSupportingBlockData, 0.500001F);
-        return player.compensatedWorld.getBlockStateIdAt(pos);
+        return getOnPosState(player, playerPos, mainSupportingBlockData, 0.500001F);
     }
 
-    private static BlockPos getOnPos(
+    /** The block state at Entity#getOnPos for {@code searchBelowPlayer}. */
+    private static int getOnPosState(
             CultPlayer player,
             Vec3 playerPos,
             MainSupportingBlockData mainSupportingBlockData,
@@ -115,11 +115,14 @@ public class BlockProperties {
                     && !ClientBlockProperties.isFenceGate(blockstate);
 
             return shouldReturn
-                    ? mainBlockPos.atY(CultMath.floor(playerPos.y - (double) searchBelowPlayer))
-                    : mainBlockPos;
+                    ? player.compensatedWorld.getBlockStateIdAt(
+                            mainBlockPos.getX(),
+                            CultMath.floor(playerPos.y - (double) searchBelowPlayer),
+                            mainBlockPos.getZ())
+                    : blockstate;
         }
 
-        return new BlockPos(
+        return player.compensatedWorld.getBlockStateIdAt(
                 CultMath.floor(playerPos.x),
                 CultMath.floor(playerPos.y - searchBelowPlayer),
                 CultMath.floor(playerPos.z));

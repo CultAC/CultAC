@@ -22,12 +22,33 @@ public final class ExternalMovementUncertainty {
                 movement.combinedClientPositionOnlyEnvelope());
     }
 
-    public static Snapshot capture(SimulationContext context, PredictionResult lastResult) {
-        PistonPushes lastPush = lastResult == null
+    /** False exactly when every push box {@link #capture(SimulationContext, PredictionResult)} reads is empty. */
+    public static boolean mayShove(SimulationContext context, PredictionResult lastResult) {
+        PistonPushes lastPush = lastPushes(lastResult);
+        PistonPushes currentPush = context.getWorldData().getPistonPushes();
+        boolean lastPistonRead = currentPush == null || !currentPush.isPistonMovementPhased();
+        return (lastPistonRead && present(lastPush, true))
+                || present(lastPush, false)
+                || present(currentPush, true)
+                || present(currentPush, false);
+    }
+
+    private static boolean present(PistonPushes pushes, boolean piston) {
+        if (pushes == null) return false;
+        SimpleCollisionBox box = piston ? pushes.getPistonPush() : pushes.getShulkerPush();
+        return box != null && !box.isEmpty();
+    }
+
+    private static PistonPushes lastPushes(PredictionResult lastResult) {
+        return lastResult == null
                         || lastResult.getSimulationContext() == null
                         || lastResult.getSimulationContext().getWorldData() == null
                 ? null
                 : lastResult.getSimulationContext().getWorldData().getPistonPushes();
+    }
+
+    public static Snapshot capture(SimulationContext context, PredictionResult lastResult) {
+        PistonPushes lastPush = lastPushes(lastResult);
         PistonPushes currentPush = context.getWorldData().getPistonPushes();
 
         // Legacy block-entity effects are captured after the preceding movement

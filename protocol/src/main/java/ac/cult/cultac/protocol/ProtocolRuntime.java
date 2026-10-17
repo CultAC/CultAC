@@ -159,7 +159,7 @@ public final class ProtocolRuntime {
         var bound = binding(phase, direction, id);
         if (bound == null) throw new ProtocolResolutionException("No consumed codec for " + direction + "/" + id);
         try {
-            Object record = bound.type().codec().read(input, bound.context().withState(state));
+            Object record = bound.type().codec().read(input, state.bind(bound.context()));
             if (!bound.type().recordClass().isInstance(record)) {
                 throw new ProtocolResolutionException("Wrong decoded record for " + bound.type());
             }
@@ -207,7 +207,7 @@ public final class ProtocolRuntime {
         int start = output.writerIndex();
         try {
             Wire.writeVarInt(output, id);
-            type.codec().write(output, bound.context().withState(state), packet);
+            type.codec().write(output, state.bind(bound.context()), packet);
         } catch (RuntimeException | Error failure) {
             output.writerIndex(start);
             throw failure;

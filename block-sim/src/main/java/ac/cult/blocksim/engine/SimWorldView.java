@@ -24,7 +24,6 @@ public interface SimWorldView {
     boolean creakingActiveAt(BlockPos pos);
     /** WATER_EVAPORATES at this position, resolved from received dimension, biome and timeline data. */
     boolean waterEvaporatesAt(BlockPos pos);
-    int rawBrightnessAt(BlockPos pos);
     /** Null means the client has no block entity at this position. */
     BlockEntityData blockEntityAt(BlockPos pos);
     /** CollisionGetter.clipIncludingBorder: null if this segment does not hit the received border. */

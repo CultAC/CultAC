@@ -12,6 +12,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.utils.anticheat.NettyScheduler.PlayerTask;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
@@ -44,6 +45,8 @@ public class FairReach extends Check implements CheckListener {
 
     ScheduledFuture<?> tickStartTask = null;
     ScheduledFuture<?> tickEndTask = null;
+    private final PlayerTask tickStart = new PlayerTask(player, this::tickStart);
+    private final PlayerTask tickEnd = new PlayerTask(player, this::tickEnd);
 
     private final ClientVisibilityProcessor visibility;
 
@@ -151,27 +154,26 @@ public class FairReach extends Check implements CheckListener {
         if (this.tickStartTask != null) this.tickStartTask.cancel(false);
         if (this.tickEndTask != null) this.tickEndTask.cancel(false);
 
-        this.tickStartTask = player.nettyScheduler.runTaskInMs(
-                () -> {
-                    // If the player ticked too soon... tick, and restart this process
-                    // Otherwise, prepare for a valid tick
-                    if (TickingStatus.TICKED_BEFORE_MINIMUM == playerTickingStatus) {
-                        playerTickingStatus = TickingStatus.ALLOWED_TO_TICK;
-                        tick();
-                    } else {
-                        playerTickingStatus = TickingStatus.ALLOWED_TO_TICK;
-                    }
-                },
-                50 - max_position_packet_jitter);
+        this.tickStartTask = player.nettyScheduler.runTaskInMs(tickStart, 50 - max_position_packet_jitter);
+        this.tickEndTask = player.nettyScheduler.runTaskInMs(tickEnd, 50 + max_position_packet_jitter);
+    }
 
-        this.tickEndTask = player.nettyScheduler.runTaskInMs(
-                () -> {
-                    // The player missed their chance at a valid tick, tick anyway for them
-                    if (TickingStatus.ALLOWED_TO_TICK == playerTickingStatus) {
-                        tick();
-                    }
-                },
-                50 + max_position_packet_jitter);
+    private void tickStart() {
+        // If the player ticked too soon... tick, and restart this process
+        // Otherwise, prepare for a valid tick
+        if (TickingStatus.TICKED_BEFORE_MINIMUM == playerTickingStatus) {
+            playerTickingStatus = TickingStatus.ALLOWED_TO_TICK;
+            tick();
+        } else {
+            playerTickingStatus = TickingStatus.ALLOWED_TO_TICK;
+        }
+    }
+
+    private void tickEnd() {
+        // The player missed their chance at a valid tick, tick anyway for them
+        if (TickingStatus.ALLOWED_TO_TICK == playerTickingStatus) {
+            tick();
+        }
     }
 
     private void applyChanges(int entityId, double x, double y, double z, AtomicBoolean hasAppliedChanges) {

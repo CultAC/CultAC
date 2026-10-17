@@ -301,9 +301,8 @@ public final class CompensatedWorldPistons {
         return false;
     }
 
-    public List<SimpleCollisionBox> getDynamicBlockCollisionUncertaintyBoxes(SimpleCollisionBox queryBox) {
-        List<SimpleCollisionBox> boxes = new ArrayList<>();
-
+    public void addDynamicBlockCollisionUncertaintyBoxes(SimpleCollisionBox queryBox, List<SimpleCollisionBox> boxes) {
+        if (movingPistonStates.isEmpty()) return;
         for (long key : movingPistonStates.keySet()) {
             BlockPos pos = BlockPos.of(key);
             MovingPistonState movingPiston = movingPistonStates.get(key);
@@ -313,8 +312,6 @@ public final class CompensatedWorldPistons {
                 }
             }
         }
-
-        return boxes;
     }
 
     void handleBlockStateApplied(BlockPos pos, int state) {
@@ -368,6 +365,11 @@ public final class CompensatedWorldPistons {
         lastLegacyPistonMovements.clear();
     }
 
+    /** Whether no piston can push the player, so every push this pass is the empty box. */
+    boolean hasNoPushSources() {
+        return usesLegacyCollision() ? lastLegacyPistonMovements.isEmpty() : activePistons.isEmpty();
+    }
+
     SimpleCollisionBox createPistonQueryBox(SimulationContext context) {
         SimpleCollisionBox playerBox = context.getFromMaximumExtent();
         if (reportsAfterBlockEntities()) {
@@ -385,6 +387,7 @@ public final class CompensatedWorldPistons {
         // These boxes describe the block-entity phase captured at tick-end.
         // Query before a later position correction replaces the player's box;
         // that correction preserves Entity#onGround even when it removes the shove.
+        if (activePistons.isEmpty()) return false;
         return usesClientTickEndPistonPhase()
                 && !tickPlayerInPistonPushingArea(playerBox.copy())
                         .getPistonPush()
@@ -393,7 +396,7 @@ public final class CompensatedWorldPistons {
 
     public PistonPushes tickPlayerInPistonPushingArea(SimpleCollisionBox playerBox) {
         if (usesLegacyCollision()) return legacyPistonPushes(playerBox);
-        Set<Direction> launches = new HashSet<>();
+        Set<Direction> launches = null;
         SimpleCollisionBox pistonPushes = new SimpleCollisionBox();
         boolean currentPass = reportsAfterBlockEntities();
 
@@ -442,6 +445,7 @@ public final class CompensatedWorldPistons {
             }
 
             if (movementIntersects && data.hasSlimeBlock) {
+                if (launches == null) launches = new HashSet<>();
                 launches.add(direction);
             }
 
@@ -455,7 +459,11 @@ public final class CompensatedWorldPistons {
             }
         }
 
-        return new PistonPushes(pistonPushes, pistonPushes, new SimpleCollisionBox(), launches);
+        return new PistonPushes(
+                pistonPushes,
+                pistonPushes,
+                new SimpleCollisionBox(),
+                launches == null ? Collections.emptySet() : launches);
     }
 
     private boolean hasCurrentRetractingSource(PistonData data) {
@@ -493,7 +501,7 @@ public final class CompensatedWorldPistons {
     }
 
     private PistonPushes legacyPistonPushes(SimpleCollisionBox playerBox) {
-        Set<Direction> launches = new HashSet<>();
+        Set<Direction> launches = null;
         SimpleCollisionBox pushes = new SimpleCollisionBox();
         for (LegacyPistonMovement movement : lastLegacyPistonMovements) {
             if (!playerBox.isIntersected(movement.box)) continue;
@@ -501,6 +509,7 @@ public final class CompensatedWorldPistons {
             if (movement.launch) {
                 // 1.8 assigns motion on the facing axis; this branch does not
                 // call moveEntity and contributes no position-only shove.
+                if (launches == null) launches = new HashSet<>();
                 launches.add(direction);
             } else {
                 // 1.7/1.8 moveEntity receives .5 + .0625 during extension,
@@ -518,7 +527,8 @@ public final class CompensatedWorldPistons {
                 playerBox.expandToCoordinate(x, y, z);
             }
         }
-        PistonPushes result = new PistonPushes(pushes, pushes, new SimpleCollisionBox(), launches);
+        PistonPushes result = new PistonPushes(
+                pushes, pushes, new SimpleCollisionBox(), launches == null ? Collections.emptySet() : launches);
         result.setPistonMovementPhased(true);
         return result;
     }

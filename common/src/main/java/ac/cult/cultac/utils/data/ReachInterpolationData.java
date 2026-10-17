@@ -298,11 +298,39 @@ public class ReachInterpolationData {
     }
 
     private SimpleCollisionBox steppedBox(Vec3 position) {
-        return targetLocation.copy().offset(position.subtract(feet(targetLocation)));
+        return steppedBox(position, new SimpleCollisionBox());
     }
 
+    private SimpleCollisionBox steppedBox(Vec3 position, SimpleCollisionBox out) {
+        double feetX = (targetLocation.minX + targetLocation.maxX) / 2.0D;
+        double feetY = targetLocation.minY;
+        double feetZ = (targetLocation.minZ + targetLocation.maxZ) / 2.0D;
+        return out.set(targetLocation).offset(position.x - feetX, position.y - feetY, position.z - feetZ);
+    }
+
+    /** The transform the next stepped tick moves to, without advancing this interpolation. */
     public Transform nextSteppedTransform() {
-        return copy().tickSteppedMovement(Math.max(interpolationPlayer.packetStateData.serverTickRate / 20.0F, 1.0F));
+        if (interpolationQueue.isEmpty()) return steppedCurrent;
+        Transform sampled = peekSteppedSample();
+        return new Transform(sampled.position(), sampled.yaw() % 360.0F, sampled.pitch() % 360.0F);
+    }
+
+    /** {@link #sampleSteppedMovement()} without consuming completed steps. */
+    private Transform peekSteppedSample() {
+        float stepTicks = currentStepTicks;
+        Transform from = lastStep;
+        for (Step step : interpolationQueue) {
+            if (stepTicks < step.ticks()) {
+                float a = stepTicks / step.ticks();
+                return new Transform(
+                        from.position().lerp(step.transform().position(), a),
+                        CultMath.rotLerp(a, from.yaw(), step.transform().yaw()),
+                        CultMath.lerp(a, from.pitch(), step.transform().pitch()));
+            }
+            stepTicks -= step.ticks();
+            from = step.transform();
+        }
+        return steppedTarget;
     }
 
     private static int vanillaInterpolationStepsFor(PacketEntity entity) {
@@ -336,6 +364,12 @@ public class ReachInterpolationData {
     }
 
     public static SimpleCollisionBox combineCollisionBox(SimpleCollisionBox one, SimpleCollisionBox two) {
+        return combineCollisionBox(one, two, new SimpleCollisionBox());
+    }
+
+    /** Writes the union into {@code out}, which may be either input. */
+    public static SimpleCollisionBox combineCollisionBox(
+            SimpleCollisionBox one, SimpleCollisionBox two, SimpleCollisionBox out) {
         double minX = Math.min(one.minX, two.minX);
         double maxX = Math.max(one.maxX, two.maxX);
         double minY = Math.min(one.minY, two.minY);
@@ -343,11 +377,11 @@ public class ReachInterpolationData {
         double minZ = Math.min(one.minZ, two.minZ);
         double maxZ = Math.max(one.maxZ, two.maxZ);
 
-        return new SimpleCollisionBox(minX, minY, minZ, maxX, maxY, maxZ);
+        return out.set(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
-    public SimpleCollisionBox getPossibleLocationCombined() {
-        SimpleCollisionBox box = getPossibleMovementLocationCombined();
+    public SimpleCollisionBox getPossibleLocationCombined(SimpleCollisionBox out) {
+        SimpleCollisionBox box = getPossibleMovementLocationCombined(out);
         if (reachesUsePacketPositionUncertainty) {
             // Packet-position uncertainty applies to reach queries only: vanilla
             // EntityGetter#getEntityCollisions uses the concrete bounding box, so
@@ -362,25 +396,35 @@ public class ReachInterpolationData {
     //
     // Designed around being unsure of minimum interp, maximum interp, and target location on 1.9 clients
     public SimpleCollisionBox getPossibleMovementLocationCombined() {
-        if (interpolationQueue != null) return steppedBox(steppedCurrent.position());
+        return getPossibleMovementLocationCombined(new SimpleCollisionBox());
+    }
+
+    public SimpleCollisionBox getPossibleMovementLocationCombined(SimpleCollisionBox out) {
+        if (interpolationQueue != null) return steppedBox(steppedCurrent.position(), out);
         return combinedInterpolatedBounds(
                 startingLocation,
                 targetLocation,
                 getInterpolationSteps(),
                 interpolationStepsLowBound,
-                interpolationStepsHighBound);
+                interpolationStepsHighBound,
+                out);
+    }
+
+    static SimpleCollisionBox combinedInterpolatedBounds(
+            SimpleCollisionBox start, SimpleCollisionBox target, int steps, int low, int high) {
+        return combinedInterpolatedBounds(start, target, steps, low, high, new SimpleCollisionBox());
     }
 
     /** Grim 2.0's endpoint union: every corner is monotone over the interpolation range. */
-    static SimpleCollisionBox combinedInterpolatedBounds(
-            SimpleCollisionBox start, SimpleCollisionBox target, int steps, int low, int high) {
+    private static SimpleCollisionBox combinedInterpolatedBounds(
+            SimpleCollisionBox start, SimpleCollisionBox target, int steps, int low, int high, SimpleCollisionBox out) {
         double minStepX = (target.minX - start.minX) / steps;
         double minStepY = (target.minY - start.minY) / steps;
         double minStepZ = (target.minZ - start.minZ) / steps;
         double maxStepX = (target.maxX - start.maxX) / steps;
         double maxStepY = (target.maxY - start.maxY) / steps;
         double maxStepZ = (target.maxZ - start.maxZ) / steps;
-        return new SimpleCollisionBox(
+        return out.set(
                 Math.min(start.minX + low * minStepX, start.minX + high * minStepX),
                 Math.min(start.minY + low * minStepY, start.minY + high * minStepY),
                 Math.min(start.minZ + low * minStepZ, start.minZ + high * minStepZ),
@@ -389,43 +433,63 @@ public class ReachInterpolationData {
                 Math.max(start.maxZ + low * maxStepZ, start.maxZ + high * maxStepZ));
     }
 
-    public List<SimpleCollisionBox> getPossibleMovementLocations() {
-        if (interpolationQueue != null) return List.of(steppedBox(steppedCurrent.position()));
+    private SimpleCollisionBox movementLocationAtStep(int step, SimpleCollisionBox out) {
         int interpSteps = getInterpolationSteps();
-
         double stepMinX = (targetLocation.minX - startingLocation.minX) / interpSteps;
         double stepMaxX = (targetLocation.maxX - startingLocation.maxX) / interpSteps;
         double stepMinY = (targetLocation.minY - startingLocation.minY) / interpSteps;
         double stepMaxY = (targetLocation.maxY - startingLocation.maxY) / interpSteps;
         double stepMinZ = (targetLocation.minZ - startingLocation.minZ) / interpSteps;
         double stepMaxZ = (targetLocation.maxZ - startingLocation.maxZ) / interpSteps;
+        return out.set(
+                startingLocation.minX + (step * stepMinX),
+                startingLocation.minY + (step * stepMinY),
+                startingLocation.minZ + (step * stepMinZ),
+                startingLocation.maxX + (step * stepMaxX),
+                startingLocation.maxY + (step * stepMaxY),
+                startingLocation.maxZ + (step * stepMaxZ));
+    }
 
+    public List<SimpleCollisionBox> getPossibleMovementLocations() {
+        if (interpolationQueue != null) return List.of(steppedBox(steppedCurrent.position()));
         List<SimpleCollisionBox> locations =
                 new ArrayList<>(interpolationStepsHighBound - interpolationStepsLowBound + 1);
         for (int step = interpolationStepsLowBound; step <= interpolationStepsHighBound; step++) {
-            locations.add(new SimpleCollisionBox(
-                    startingLocation.minX + (step * stepMinX),
-                    startingLocation.minY + (step * stepMinY),
-                    startingLocation.minZ + (step * stepMinZ),
-                    startingLocation.maxX + (step * stepMaxX),
-                    startingLocation.maxY + (step * stepMaxY),
-                    startingLocation.maxZ + (step * stepMaxZ)));
+            locations.add(movementLocationAtStep(step, new SimpleCollisionBox()));
         }
 
         return locations;
     }
 
-    public SimpleCollisionBox getExactMovementLocationAfterClientTick() {
-        if (interpolationStepsLowBound != interpolationStepsHighBound) {
-            return null;
-        }
+    public boolean hasExactMovementLocationAfterClientTick() {
+        return interpolationStepsLowBound == interpolationStepsHighBound;
+    }
 
-        ReachInterpolationData copy = copyAdvancedForClientTick(true, true);
-        if (copy.interpolationStepsLowBound != copy.interpolationStepsHighBound) {
-            return null;
+    /**
+     * Writes into {@code out} the location {@link #copyAdvancedForClientTick copyAdvancedForClientTick(true, true)}
+     * would report. Call only when {@link #hasExactMovementLocationAfterClientTick()}.
+     */
+    public SimpleCollisionBox exactMovementLocationAfterClientTick(SimpleCollisionBox out) {
+        if (interpolationQueue != null) {
+            Vec3 next = interpolationQueue.isEmpty()
+                    ? steppedCurrent.position()
+                    : peekSteppedSample().position();
+            return steppedBox(next, out);
         }
+        int step = Math.min(interpolationStepsLowBound + 1, getInterpolationSteps());
+        return movementLocationAtStep(step, out);
+    }
 
-        return copy.getPossibleMovementLocations().get(0);
+    /**
+     * Whether {@link #getExactMovementLocationAfterClientTickFromPhysical} advances a legacy interpolation from the
+     * physical location. Stepped interpolations keep both step bounds at zero, so their physical answer equals
+     * {@link #exactMovementLocationAfterClientTick}.
+     */
+    public boolean interpolatesFromPhysicalAfterClientTick() {
+        return interpolationQueue == null
+                && interpolationStepsLowBound == interpolationStepsHighBound
+                && hasActiveInterpolationTarget()
+                && getInterpolationSteps() - interpolationStepsLowBound > 0;
     }
 
     public SimpleCollisionBox getExactMovementLocationAfterClientTickFromPhysical(SimpleCollisionBox physicalLocation) {
@@ -448,7 +512,7 @@ public class ReachInterpolationData {
             return null;
         }
 
-        return getPossibleMovementLocations().get(0);
+        return getPossibleMovementLocationCombined();
     }
 
     public int getExactInterpolationStep() {
@@ -461,6 +525,18 @@ public class ReachInterpolationData {
 
     public SimpleCollisionBox getTargetLocation() {
         return targetLocation.copy();
+    }
+
+    public double targetCenterX() {
+        return (targetLocation.maxX - targetLocation.minX) / 2.0D + targetLocation.minX;
+    }
+
+    public double targetMinY() {
+        return targetLocation.minY;
+    }
+
+    public double targetCenterZ() {
+        return (targetLocation.maxZ - targetLocation.minZ) / 2.0D + targetLocation.minZ;
     }
 
     public float getCurrentYaw() {
@@ -481,7 +557,9 @@ public class ReachInterpolationData {
 
     public void setExactMovementLocation(SimpleCollisionBox exactLocation) {
         if (interpolationQueue != null) {
-            steppedCurrent = new Transform(feet(exactLocation), currentYaw, currentPitch);
+            if (!steppedCurrentIs(exactLocation, currentYaw, currentPitch)) {
+                steppedCurrent = new Transform(feet(exactLocation), currentYaw, currentPitch);
+            }
             return;
         }
         if (interpolationStepsLowBound != interpolationStepsHighBound) {
@@ -491,23 +569,34 @@ public class ReachInterpolationData {
         int interpSteps = getInterpolationSteps();
         int step = interpolationStepsLowBound;
         if (step <= 0) {
-            this.startingLocation = exactLocation.copy();
+            startingLocation.set(exactLocation);
             return;
         }
         if (step >= interpSteps) {
-            this.startingLocation = targetLocation.copy();
+            startingLocation.set(targetLocation);
             return;
         }
 
         double targetFraction = (double) step / interpSteps;
         double startFraction = 1.0D - targetFraction;
-        this.startingLocation = new SimpleCollisionBox(
+        startingLocation.set(
                 solveStartCoordinate(exactLocation.minX, targetLocation.minX, targetFraction, startFraction),
                 solveStartCoordinate(exactLocation.minY, targetLocation.minY, targetFraction, startFraction),
                 solveStartCoordinate(exactLocation.minZ, targetLocation.minZ, targetFraction, startFraction),
                 solveStartCoordinate(exactLocation.maxX, targetLocation.maxX, targetFraction, startFraction),
                 solveStartCoordinate(exactLocation.maxY, targetLocation.maxY, targetFraction, startFraction),
                 solveStartCoordinate(exactLocation.maxZ, targetLocation.maxZ, targetFraction, startFraction));
+    }
+
+    private boolean steppedCurrentIs(SimpleCollisionBox location, float yaw, float pitch) {
+        Vec3 position = steppedCurrent.position();
+        return Double.doubleToRawLongBits(position.x)
+                        == Double.doubleToRawLongBits((location.minX + location.maxX) / 2.0D)
+                && Double.doubleToRawLongBits(position.y) == Double.doubleToRawLongBits(location.minY)
+                && Double.doubleToRawLongBits(position.z)
+                        == Double.doubleToRawLongBits((location.minZ + location.maxZ) / 2.0D)
+                && Float.floatToRawIntBits(steppedCurrent.yaw()) == Float.floatToRawIntBits(yaw)
+                && Float.floatToRawIntBits(steppedCurrent.pitch()) == Float.floatToRawIntBits(pitch);
     }
 
     private static double solveStartCoordinate(

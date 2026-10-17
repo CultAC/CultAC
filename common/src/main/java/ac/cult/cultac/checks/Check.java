@@ -134,7 +134,12 @@ public class Check extends CultProcessor implements AbstractCheck {
     }
 
     public boolean flag(String verbose) {
-        Supplier<String> alertText = constant(verbose);
+        return flag(constant(verbose));
+    }
+
+    /** Flags with verbose text that is rendered only if a flag consumer or alert reads it. */
+    public boolean flag(@NotNull Supplier<String> verbose) {
+        Supplier<String> alertText = memoize(Objects.requireNonNull(verbose, "verbose"));
         if (recordFlag(alertText)) {
             alert(alertText);
             return true;

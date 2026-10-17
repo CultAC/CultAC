@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
+import java.util.function.Supplier;
 
 public class NoFallPseudo extends Check implements PostPredictionListener {
     public NoFallPseudo(CultPlayer cultPlayer) {
@@ -19,7 +20,7 @@ public class NoFallPseudo extends Check implements PostPredictionListener {
     }
 
     @Override
-    public boolean flag(String verbose) {
+    public boolean flag(Supplier<String> verbose) {
         if (player.inVehicle()) return false;
         return super.flag(verbose);
     }

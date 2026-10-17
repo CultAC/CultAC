@@ -32,8 +32,8 @@ public class PacketSelfMetadataListener {
 
     private void handleSetEntityData(
             PacketSendEvent<EntityMetadata> event, CultPlayer player, EntityMetadata entityMetadataPacket) {
-        List<EntityMetadata.Entry> packedItems = new ArrayList<>(entityMetadataPacket.packedItems());
-        List<EntityMetadata.Entry> entityMetadata = packedItems;
+        // The packet's list is immutable; it is copied only to be changed.
+        List<EntityMetadata.Entry> packedItems = entityMetadataPacket.packedItems();
         final boolean spoofHealth = player.spoofHealth;
         final int observedEntityId = entityMetadataPacket.id();
 
@@ -64,7 +64,12 @@ public class PacketSelfMetadataListener {
             // to the player on old servers... because the player just overrides this pose the very next tick
             //
             // It makes no sense to me why mojang is doing this, it has to be a bug.
-            changed |= packedItems.removeIf(element -> element.id() == WatchableIndexUtil.ENTITY_POSE);
+            if (WatchableIndexUtil.getIndex(packedItems, WatchableIndexUtil.ENTITY_POSE) != null) {
+                packedItems = new ArrayList<>(packedItems);
+                packedItems.removeIf(element -> element.id() == WatchableIndexUtil.ENTITY_POSE);
+                changed = true;
+            }
+            List<EntityMetadata.Entry> entityMetadata = packedItems;
 
             EntityMetadata.Entry watchable =
                     WatchableIndexUtil.getIndex(entityMetadata, WatchableIndexUtil.ENTITY_SHARED_FLAGS);
@@ -201,6 +206,7 @@ public class PacketSelfMetadataListener {
                     // don't spoof health of entities we're riding
                     if (player.getRidingVehicleId() == observedEntityId) break;
 
+                    if (!changed) packedItems = new ArrayList<>(packedItems);
                     packedItems.set(i, EntityMetadata.Entry.health(packedItem.id(), event.getDecodedProtocol(), 1.0f));
                     changed = true;
                 }

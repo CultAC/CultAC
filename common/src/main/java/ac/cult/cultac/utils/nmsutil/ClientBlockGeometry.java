@@ -251,11 +251,6 @@ public final class ClientBlockGeometry {
         }
 
         @Override
-        public int rawBrightnessAt(BlockPos pos) {
-            throw new UnsupportedOperationException("Level action on geometry view");
-        }
-
-        @Override
         public boolean canSpawn(ac.cult.blocksim.entity.EntityTypes.Type type) {
             throw new UnsupportedOperationException("Level action on geometry view");
         }

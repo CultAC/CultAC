@@ -18,15 +18,23 @@ public class UncertaintyHelper {
             yDiff = radius * Math.signum(yDiff);
         }
 
-        return start.add(0, yDiff, 0, "Vertical");
+        return offset(start, 0, yDiff, 0, "Vertical");
     }
 
     public static PredVector handleCircular(PredVector start, Vec3 end, double radius) {
         // Move the start by circle amount towards the end vector, but only in the xz plane
-        Vec3 diff = new Vec3(end.x, 0, end.z).subtract(new Vec3(start.x, 0, start.z));
-        double distance = diff.length();
+        // Bit-identical to Vec3#subtract, length, normalize and scale, including normalize's 1.0E-5F cutoff
+        double dx = end.x - start.x;
+        double dz = end.z - start.z;
+        double distance = Math.sqrt(dx * dx + dz * dz);
         if (distance == 0) return start;
-        return start.add(diff.normalize().scale(Math.min(radius, distance)), "circular");
+        double scale = Math.min(radius, distance);
+        if (distance < 1.0E-5F) return offset(start, 0.0D * scale, 0.0D * scale, 0.0D * scale, "circular");
+        return offset(start, dx / distance * scale, 0.0D * scale, dz / distance * scale, "circular");
+    }
+
+    private static PredVector offset(PredVector start, double x, double y, double z, String reason) {
+        return start.withXYZOrSelf(start.x + x, start.y + y, start.z + z, reason);
     }
 
     public static PredVector handleSpherical(PredVector start, Vec3 end, double radius) {

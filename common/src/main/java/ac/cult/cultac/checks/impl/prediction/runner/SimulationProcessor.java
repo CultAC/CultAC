@@ -76,6 +76,8 @@ import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
+import ac.cult.cultac.utils.nmsutil.ReusableVelocitySet;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -114,9 +116,16 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private TeleportData bedrockTeleport;
     private PredictionSetbackState activeBedrockSetbackState;
     private final WorldStageBuilder worldStageBuilder = new WorldStageBuilder();
+    private final CollisionModifier collisionProbe = new CollisionModifier();
+    private final Map<CollisionProbeKey, CollideAxisData> collisionProbeCache = new HashMap<>();
+    private final NextTickVelocityDeriver.Scratch velocityScratch = new NextTickVelocityDeriver.Scratch();
 
     public SimulationProcessor(CultPlayer playerData) {
         super(playerData);
+    }
+
+    public NextTickVelocityDeriver.Scratch velocityScratch() {
+        return this.velocityScratch;
     }
 
     public Set<Vec3> getValidPlayerStartingVels() {
@@ -1061,7 +1070,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.validPlayerStartingVels.clear();
             this.profileCarry = null;
         } else {
-            this.validPlayerStartingVels = new HashSet<>(commit.startingVelocities());
+            Set<Vec3> velocities = commit.startingVelocities();
+            if (!(this.validPlayerStartingVels instanceof ReusableVelocitySet reusable
+                    && reusable.refill(velocities))) {
+                this.validPlayerStartingVels = new ReusableVelocitySet(velocities);
+            }
             this.profileCarry = commit.carry();
         }
     }
@@ -1333,7 +1346,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         List<PredictionResult> invalidOrValidRealities = new ArrayList<>();
         List<ValidMovements> valid = new ArrayList<>();
         MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
-        Map<CollisionProbeKey, CollideAxisData> collisionProbeCache = new HashMap<>();
+        collisionProbeCache.clear();
 
         for (SimulationContext curSimulationContext : this.createSimulationContexts(
                 player,
@@ -1359,11 +1372,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             SimulationContext sortContext = curSimulationContext;
             // Empty or single-candidate lists need no ordering and may be immutable.
             if (validInitialVelocities.size() > 1)
-                validInitialVelocities.sort(Comparator.comparing(PredVector::tickSkippingComparator)
-                        .thenComparing(Comparator.comparing(PredVector::packetModifiersLength)
-                                .thenComparing(predVector -> predVector.distanceToSqr(sortContext.getTarget()))));
+                validInitialVelocities.sort(Comparator.comparingInt(PredVector::tickSkippingComparator)
+                        .thenComparingInt(PredVector::packetModifiersLength)
+                        .thenComparingDouble(predVector -> predVector.distanceToSqr(sortContext.getTarget())));
 
-            for (PredVector initialStartingVel : validInitialVelocities) {
+            for (int i = 0, size = validInitialVelocities.size(); i < size; i++) {
+                PredVector initialStartingVel = validInitialVelocities.get(i);
                 PredictionResult thisResult = new PredictionResult(
                         player,
                         initialStartingVel,
@@ -1381,7 +1395,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
         PredictionResult bestResult = null;
 
-        for (ValidMovements validMovements : valid) {
+        for (int i = 0, size = valid.size(); i < size; i++) {
+            ValidMovements validMovements = valid.get(i);
             boolean allowStep = false;
 
             do {
@@ -1394,13 +1409,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         ? validMovements.computeCollisionIgnoredMovement(lastPrediction)
                         : thisResult.getSimulationContext().getTarget();
                 CollideAxisData collisionData = probeCollisionsCached(
-                        player,
-                        engine,
-                        thisResult,
-                        attemptedExtents,
-                        collisionTarget,
-                        validMovements.isCanStep(),
-                        collisionProbeCache);
+                        player, engine, thisResult, attemptedExtents, collisionTarget, validMovements.isCanStep());
 
                 thisResult.setCollideAxisData(collisionData);
                 if (useSelectedMovement) {
@@ -1443,8 +1452,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                 thisResult,
                                 attemptedExtents,
                                 thisResult.getSimulationContext().getTarget(),
-                                true,
-                                collisionProbeCache);
+                                true);
                     }
                     allowStep = stepEligibility.couldCollideHorizontally();
                 }
@@ -1480,8 +1488,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             PredictionResult result,
             SimpleCollisionBox attemptedExtents,
             Vec3 collisionTarget,
-            boolean canStep,
-            Map<CollisionProbeKey, CollideAxisData> cache) {
+            boolean canStep) {
         SimulationContext context = result.getSimulationContext();
         CollisionProbeKey key = new CollisionProbeKey(
                 context,
@@ -1491,10 +1498,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 result.getInitialStartingVel(),
                 attemptedExtents,
                 canStep);
-        CollideAxisData collisions = cache.get(key);
+        CollideAxisData collisions = collisionProbeCache.get(key);
         if (collisions == null) {
             collisions = engine.probeCollisions(
-                    new CollisionModifier(),
+                    collisionProbe,
                     player,
                     context,
                     attemptedExtents.minY,
@@ -1503,7 +1510,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     result.getInitialStartingVel(),
                     attemptedExtents,
                     canStep);
-            cache.put(key, collisions);
+            collisionProbeCache.put(key, collisions);
         }
         return collisions;
     }
@@ -1645,7 +1652,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             MovementProfile movementProfile,
             boolean applyLastRequiredStuckSpeed,
             @Nullable PacketEntity riding) {
-        Vec3 vehicleInputs = new Vec3(player.boatData.vehicleHoriz, 0.0, player.boatData.vehicleForward);
+        Vec3 vehicleInputs = Float.floatToRawIntBits(player.boatData.vehicleHoriz) == 0
+                        && Float.floatToRawIntBits(player.boatData.vehicleForward) == 0
+                ? Vec3.ZERO
+                : new Vec3(player.boatData.vehicleHoriz, 0.0, player.boatData.vehicleForward);
         SimulationContext context = new SimulationContext(
                 start,
                 end,

@@ -93,8 +93,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
                     "minecraft:block_entity_data",
                     "minecraft:chunks_biomes",
                     "minecraft:section_blocks_update",
-                    "minecraft:level_chunk_with_light",
-                    "minecraft:light_update" -> world.read(input, context.wireName());
+                    "minecraft:level_chunk_with_light" -> world.read(input, context.wireName());
             default -> inventory.read(input, context.wireName());
         };
     }

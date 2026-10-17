@@ -151,7 +151,6 @@ public final class WorldPackets {
             int z,
             ByteBuffer sections,
             List<BlockPos> tickerCandidates,
-            LightValues light,
             List<BlockEntityUpdate> blockEntities,
             long[] motionBlocking,
             List<SectionSnapshot> decodedSections)
@@ -161,28 +160,13 @@ public final class WorldPackets {
                 int z,
                 ByteBuffer sections,
                 List<BlockPos> tickerCandidates,
-                LightValues light,
                 List<BlockEntityUpdate> blockEntities,
                 long[] motionBlocking) {
-            this(x, z, sections, tickerCandidates, light, blockEntities, motionBlocking, null);
+            this(x, z, sections, tickerCandidates, blockEntities, motionBlocking, null);
         }
 
         public Chunk(int x, int z, ByteBuffer sections, List<BlockPos> tickerCandidates) {
-            this(x, z, sections, tickerCandidates, null);
-        }
-
-        public Chunk(int x, int z, ByteBuffer sections, List<BlockPos> tickerCandidates, LightValues light) {
-            this(x, z, sections, tickerCandidates, light, List.of());
-        }
-
-        public Chunk(
-                int x,
-                int z,
-                ByteBuffer sections,
-                List<BlockPos> tickerCandidates,
-                LightValues light,
-                List<BlockEntityUpdate> blockEntities) {
-            this(x, z, sections, tickerCandidates, light, blockEntities, null);
+            this(x, z, sections, tickerCandidates, List.of(), null);
         }
 
         public Chunk {
@@ -205,6 +189,4 @@ public final class WorldPackets {
             return motionBlocking == null ? null : motionBlocking.clone();
         }
     }
-
-    public record LightUpdate(int x, int z, LightValues light) implements ClientboundPacket {}
 }

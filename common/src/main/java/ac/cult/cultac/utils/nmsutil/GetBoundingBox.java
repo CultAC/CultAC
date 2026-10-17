@@ -42,8 +42,13 @@ public class GetBoundingBox {
 
     public static SimpleCollisionBox getBoundingBoxFromPosAndSize(
             double centerX, double minY, double centerZ, float width, float height) {
+        return getBoundingBoxFromPosAndSize(new SimpleCollisionBox(), centerX, minY, centerZ, width, height);
+    }
+
+    public static SimpleCollisionBox getBoundingBoxFromPosAndSize(
+            SimpleCollisionBox out, double centerX, double minY, double centerZ, float width, float height) {
         final float halfWidth = width / 2.0F;
-        return new SimpleCollisionBox(
+        return out.set(
                         centerX - halfWidth,
                         minY,
                         centerZ - halfWidth,

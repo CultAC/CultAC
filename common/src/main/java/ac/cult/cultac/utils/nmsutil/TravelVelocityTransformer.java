@@ -29,16 +29,25 @@ public final class TravelVelocityTransformer {
         }
 
         // There isn't friction or gravity when gliding
-        List<Vec3> frictions = new ArrayList<>();
+        List<Vec3> frictions = new ArrayList<>(4);
+        List<Boolean> inWaterStates =
+                result.getSimulationContext().getWorldData().getInWater().getStates();
+        List<Boolean> inLavaStates =
+                result.getSimulationContext().getWorldData().getInLava().getStates();
+        List<Vec3> rootVelocities = preTravelRootVelocities(player, result, playerVelocity);
 
-        for (boolean inWater :
-                result.getSimulationContext().getWorldData().getInWater().getStates()) {
-            for (boolean inLava :
-                    result.getSimulationContext().getWorldData().getInLava().getStates()) {
-                for (Vec3 movedVelocity : preTravelRootVelocities(player, result, playerVelocity)) {
+        for (int waterIndex = 0, waterSize = inWaterStates.size(); waterIndex < waterSize; waterIndex++) {
+            boolean inWater = inWaterStates.get(waterIndex);
+            for (int lavaIndex = 0, lavaSize = inLavaStates.size(); lavaIndex < lavaSize; lavaIndex++) {
+                boolean inLava = inLavaStates.get(lavaIndex);
+                for (int rootIndex = 0, rootSize = rootVelocities.size(); rootIndex < rootSize; rootIndex++) {
+                    Vec3 movedVelocity = rootVelocities.get(rootIndex);
                     // Entity#move applies horizontal collision zeroing and then
                     // getBlockSpeedFactor before LivingEntity#travel applies air/water friction.
-                    movedVelocity = movedVelocity.multiply(additionalBlockFriction, 1, additionalBlockFriction);
+                    // Multiplying by an exact 1 keeps every component's bits.
+                    if (additionalBlockFriction != 1.0F || movedVelocity.getClass() != Vec3.class) {
+                        movedVelocity = movedVelocity.multiply(additionalBlockFriction, 1, additionalBlockFriction);
+                    }
 
                     // Water/lava overrides gliding status
                     if (result.getSimulationContext().usesFallFlyingMovement() && !inWater && !inLava) {
@@ -55,7 +64,7 @@ public final class TravelVelocityTransformer {
                         grav = Math.min(grav, 0.01D);
                     }
                     if (!player.compensatedEntities.getEntityInControl().hasGravity) grav = 0;
-                    frictions.addAll(Friction.applyTravelDrag(
+                    Friction.applyTravelDrag(
                             player,
                             onGround,
                             from,
@@ -64,7 +73,8 @@ public final class TravelVelocityTransformer {
                             falling,
                             grav,
                             inWater,
-                            inLava));
+                            inLava,
+                            frictions);
                 }
             }
         }

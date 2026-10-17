@@ -60,10 +60,9 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
@@ -72,8 +71,15 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
     private static final Vec3 SELF_DISMOUNT_VELOCITY = Vec3.ZERO;
     private static final double VEHICLE_MOVE_RESYNC_SNAP_EPSILON = 2.0E-5D;
-    private final Map<Integer, PacketHandlerDeltaMovement> packetHandlerDeltaMovements = new HashMap<>();
-    private final Map<Integer, PacketHandlerEntityTransform> packetHandlerEntityTransforms = new HashMap<>();
+    /** Entries past this many are cleared at a client tick end. */
+    private static final int MAX_REUSED_TRANSFORMS = 1024;
+
+    private final Int2ObjectOpenHashMap<PacketHandlerDeltaMovement> packetHandlerDeltaMovements =
+            new Int2ObjectOpenHashMap<>();
+    private final Int2ObjectOpenHashMap<PacketHandlerEntityTransform> packetHandlerEntityTransforms =
+            new Int2ObjectOpenHashMap<>();
+    private final PacketHandlerEntityTransform transformScratch = new PacketHandlerEntityTransform();
+    private long transformTick;
     private int packetHandlerDeltaMovementSequence = 0;
     private boolean useReachBundleDelimiter = true;
     private boolean hasSentPreWavePacket = true;
@@ -293,7 +299,24 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private record PacketHandlerDeltaMovement(double x, double y, double z, int sequence) {}
 
-    private record PacketHandlerEntityTransform(double x, double y, double z, float yRot, float xRot) {
+    /** An entity's packet-handler transform; a map entry is live only in the client tick it was written in. */
+    private static final class PacketHandlerEntityTransform {
+        private double x;
+        private double y;
+        private double z;
+        private float yRot;
+        private float xRot;
+        private long tick;
+
+        private PacketHandlerEntityTransform set(double x, double y, double z, float yRot, float xRot) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.yRot = yRot;
+            this.xRot = xRot;
+            return this;
+        }
+
         private Vec3 position() {
             return new Vec3(x, y, z);
         }
@@ -336,7 +359,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         tickEntityInterpolationAtClientTickEnd();
         player.compensatedEntities.vehicles.onClientTickEnd();
         player.compensatedEntities.vehicles.updateServerControlledSafeSetbackPositionOnTickEnd();
-        packetHandlerEntityTransforms.clear();
+        transformTick++;
+        if (packetHandlerEntityTransforms.size() > MAX_REUSED_TRANSFORMS) packetHandlerEntityTransforms.clear();
     }
 
     private void tickEntityInterpolationAtClientTickEnd() {
@@ -698,17 +722,23 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private float teleportSourceYaw(PacketEntity entity, TrackerData data) {
-        return packetHandlerTransformSource(entity, data).yRot();
+        return packetHandlerTransformSource(entity, data).yRot;
     }
 
     private float teleportSourcePitch(PacketEntity entity, TrackerData data) {
-        return packetHandlerTransformSource(entity, data).xRot();
+        return packetHandlerTransformSource(entity, data).xRot;
     }
 
     private PacketHandlerEntityTransform packetHandlerTransformSource(PacketEntity entity, TrackerData data) {
+        return packetHandlerTransformSource(entity, data, new PacketHandlerEntityTransform());
+    }
+
+    /** The transform the packet handler starts from: the entity's live entry, else one written into {@code out}. */
+    private PacketHandlerEntityTransform packetHandlerTransformSource(
+            PacketEntity entity, TrackerData data, PacketHandlerEntityTransform out) {
         if (entity != null) {
             PacketHandlerEntityTransform deferredTransform = packetHandlerEntityTransforms.get(entity.getEntityId());
-            if (deferredTransform != null) {
+            if (deferredTransform != null && deferredTransform.tick == transformTick) {
                 return deferredTransform;
             }
         }
@@ -719,11 +749,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             // InterpolationHandler target in the packet handler. The next
             // InterpolationHandler#interpolate carry happens later, during the
             // entity tick, so do not pre-carry the target here.
-            Vec3 position = positionFromPacketEntityBox(interpolationTarget.getTargetLocation());
-            return new PacketHandlerEntityTransform(
-                    position.x,
-                    position.y,
-                    position.z,
+            return out.set(
+                    interpolationTarget.targetCenterX(),
+                    interpolationTarget.targetMinY(),
+                    interpolationTarget.targetCenterZ(),
                     interpolationTarget.getTargetYaw(),
                     interpolationTarget.getTargetPitch());
         }
@@ -733,7 +762,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             // current position/yaw/pitch when no interpolation target is active.
             // TrackerData is the latest server-authored position Cult sent to the
             // client; it can be ahead of the transaction-proven client shadow.
-            return new PacketHandlerEntityTransform(
+            return out.set(
                     entity.clientPhysicalPosition.x,
                     entity.clientPhysicalPosition.y,
                     entity.clientPhysicalPosition.z,
@@ -742,11 +771,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
 
         if (data != null) {
-            return new PacketHandlerEntityTransform(
-                    data.getX(), data.getY(), data.getZ(), data.getXRot(), data.getYRot());
+            return out.set(data.getX(), data.getY(), data.getZ(), data.getXRot(), data.getYRot());
         }
 
-        return new PacketHandlerEntityTransform(0.0D, 0.0D, 0.0D, 0.0F, 0.0F);
+        return out.set(0.0D, 0.0D, 0.0D, 0.0F, 0.0F);
     }
 
     private Vec3 teleportSourceDeltaMovement(PacketEntity entity) {
@@ -1735,14 +1763,18 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             int entityId, boolean hasPos, double x, double y, double z, @Nullable Float yaw, @Nullable Float pitch) {
         PacketEntity entity = player.compensatedEntities.getEntity(entityId);
         TrackerData data = player.compensatedEntities.getTrackedEntity(entityId);
-        PacketHandlerEntityTransform source = packetHandlerTransformSource(entity, data);
-        double nextX = hasPos ? x : source.x();
-        double nextY = hasPos ? y : source.y();
-        double nextZ = hasPos ? z : source.z();
-        packetHandlerEntityTransforms.put(
-                entityId,
-                new PacketHandlerEntityTransform(
-                        nextX, nextY, nextZ, yaw == null ? source.yRot() : yaw, pitch == null ? source.xRot() : pitch));
+        PacketHandlerEntityTransform source = packetHandlerTransformSource(entity, data, transformScratch);
+        double nextX = hasPos ? x : source.x;
+        double nextY = hasPos ? y : source.y;
+        double nextZ = hasPos ? z : source.z;
+        float nextYRot = yaw == null ? source.yRot : yaw;
+        float nextXRot = pitch == null ? source.xRot : pitch;
+        PacketHandlerEntityTransform entry = packetHandlerEntityTransforms.get(entityId);
+        if (entry == null) {
+            entry = new PacketHandlerEntityTransform();
+            packetHandlerEntityTransforms.put(entityId, entry);
+        }
+        entry.set(nextX, nextY, nextZ, nextYRot, nextXRot).tick = transformTick;
     }
 
     private boolean isEntityMovementIgnoredForLocalAuthoritativeVehicle(int entityId) {

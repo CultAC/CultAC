@@ -55,12 +55,6 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 packet.blockEntities(),
                 biomes,
                 packet.motionBlocking());
-        if (packet.light() != null) {
-            player.latencyUtils.addRealTimeTask(
-                    player.lastTransactionSent.get(),
-                    () -> player.compensatedWorld.applyLight(
-                            dimension.dimension(), packet.x(), packet.z(), packet.light()));
-        }
     }
 
     private static int biomeRegistrySize(CultPlayer player) {

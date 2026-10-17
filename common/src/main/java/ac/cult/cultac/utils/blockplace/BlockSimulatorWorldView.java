@@ -314,11 +314,6 @@ public final class BlockSimulatorWorldView implements SimWorldView {
     }
 
     @Override
-    public int rawBrightnessAt(BlockPos pos) {
-        return world.getRawBrightness(pos.x(), pos.y(), pos.z());
-    }
-
-    @Override
     public BlockEntityData blockEntityAt(BlockPos pos) {
         return isLoaded(pos) ? metadata.blockEntityAt(pos) : null;
     }

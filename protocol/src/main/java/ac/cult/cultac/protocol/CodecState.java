@@ -10,4 +10,9 @@ public interface CodecState {
     };
 
     <T> T require(Class<T> type);
+
+    /** {@code base} carrying this state; a state may return the context it derived from the same base before. */
+    default ProtocolContext bind(ProtocolContext base) {
+        return base.withState(this);
+    }
 }

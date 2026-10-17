@@ -477,37 +477,43 @@ public class VelocityTransformer {
 
     public static List<PredVector> applyMovementThreshold(
             List<PredVector> velocities, ClientVersion version, boolean playerEntity) {
+        List<PredVector> outputs = new ArrayList<>(velocities.size());
+
+        for (PredVector vector : velocities) {
+            outputs.add(applyMovementThreshold(vector, version, playerEntity));
+        }
+
+        return outputs;
+    }
+
+    public static PredVector applyMovementThreshold(PredVector vector, ClientVersion version, boolean playerEntity) {
         double minimumMovement = 0.003D;
         if (version.isOlderThanOrEquals(ClientVersion.V_1_8)) {
             minimumMovement = 0.005D;
         }
 
-        List<PredVector> outputs = new ArrayList<>();
-
-        for (PredVector vector : velocities) {
-            // LivingEntity#aiStep switched players from per-axis cutoffs to a
-            // horizontal-length cutoff in 1.21.5. Ridden entities retain per-axis cutoffs.
-            if (playerEntity && version.isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
-                if (vector.x * vector.x + vector.z * vector.z < minimumMovement * minimumMovement) {
-                    vector = vector.withX(0, "Inertia threshold").withZ(0, "Inertia threshold");
-                }
-            } else {
-                if (Math.abs(vector.x) < minimumMovement) {
-                    vector = vector.withX(0, "Inertia threshold");
-                }
-
-                if (Math.abs(vector.z) < minimumMovement) {
-                    vector = vector.withZ(0, "Inertia threshold");
-                }
+        // LivingEntity#aiStep switched players from per-axis cutoffs to a
+        // horizontal-length cutoff in 1.21.5. Ridden entities retain per-axis cutoffs.
+        if (playerEntity && version.isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
+            if (vector.x * vector.x + vector.z * vector.z < minimumMovement * minimumMovement) {
+                vector = vector.withXYZOrSelf(0, vector.y, vector.z, "Inertia threshold")
+                        .withXYZOrSelf(0, vector.y, 0, "Inertia threshold");
+            }
+        } else {
+            if (Math.abs(vector.x) < minimumMovement) {
+                vector = vector.withXYZOrSelf(0, vector.y, vector.z, "Inertia threshold");
             }
 
-            if (Math.abs(vector.y) < minimumMovement) {
-                vector = vector.withY(0, "Inertia threshold");
+            if (Math.abs(vector.z) < minimumMovement) {
+                vector = vector.withXYZOrSelf(vector.x, vector.y, 0, "Inertia threshold");
             }
-            outputs.add(vector);
         }
 
-        return outputs;
+        if (Math.abs(vector.y) < minimumMovement) {
+            vector = vector.withXYZOrSelf(vector.x, 0, vector.z, "Inertia threshold");
+        }
+
+        return vector;
     }
 
     private List<PredVector> applyJumps(CultPlayer player, List<PredVector> velocities) {
