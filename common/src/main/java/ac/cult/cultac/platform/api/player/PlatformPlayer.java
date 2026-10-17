@@ -1,8 +1,10 @@
 package ac.cult.cultac.platform.api.player;
 
+import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.math.Vec3;
 import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.Nullable;
@@ -15,6 +17,11 @@ public interface PlatformPlayer extends CultEntity, OfflinePlatformPlayer {
      */
     default boolean hasServerAuthority() {
         return true;
+    }
+
+    /** Whether this adapter can serve {@code capability} for the player's current server. */
+    default boolean hasCapability(ServerCapability capability) {
+        return hasServerAuthority();
     }
 
     void kickPlayer(String textReason);
@@ -39,7 +46,12 @@ public interface PlatformPlayer extends CultEntity, OfflinePlatformPlayer {
     /** Authoritative item use; unavailable adapters return NONE, not a client-derived guess. */
     ac.cult.cultac.protocol.value.ItemUseState getItemUseState();
 
-    void clearActiveItem();
+    /**
+     * Ends the server's active use of an item of type {@code itemKey} in {@code hand}, ordered after the packets that
+     * started it and before any later use. A platform that cannot order it with the player's packets does nothing, and
+     * so does the server when the player is not using such an item in that hand.
+     */
+    void clearActiveItem(Hand hand, String itemKey);
 
     Vec3 getPosition();
 

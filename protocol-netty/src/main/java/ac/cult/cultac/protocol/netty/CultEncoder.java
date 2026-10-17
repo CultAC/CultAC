@@ -57,6 +57,13 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         if (pipeline.get(NAME) != null) pipeline.remove(NAME);
     }
 
+    /** The index after the packet ID VarInt, which {@link Wire#peekVarInt} has read in full. */
+    private static int afterPacketId(ByteBuf frame) {
+        int index = frame.readerIndex();
+        while ((frame.getByte(index++) & 0x80) != 0) {}
+        return index;
+    }
+
     private static boolean packetMessage(Object message) {
         return message instanceof ByteBuf
                 || message instanceof CultWrite
@@ -89,7 +96,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         if (!connection.packets().translated() && message instanceof ByteBuf frame) {
             try {
                 var phase = connection.phase(PacketDirection.CLIENTBOUND);
-                if (connection.dispatcher().get(PacketDirection.CLIENTBOUND, phase, Wire.peekVarInt(frame)) == null) {
+                var route = connection.dispatcher().get(PacketDirection.CLIENTBOUND, phase, Wire.peekVarInt(frame));
+                if (route == null || route.type().codec().forwardsUndecoded(frame, afterPacketId(frame))) {
                     if (connection.packetLoggingActive()) {
                         connection.runInModel(
                                 () -> connection.observePacket(PacketDirection.CLIENTBOUND, phase, frame));
@@ -179,15 +187,18 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 prepareGroup(ctx, group, pending.promise, activeFamilies, batch);
             } else {
                 boolean requested = expandPacket(ctx, pending, activeFamilies, batch);
-                if (!insideBundle && (requested || batch.output.size() > 1)) wrap(ctx, batch.output);
+                if (!insideBundle && (requested || batch.output.size() > 1) && connection.clientHasLevel())
+                    wrap(ctx, batch.output);
             }
             output.append(batch.output);
         } catch (Throwable failure) {
             batch.output.discard(failure, fallback == null ? null : pending.promise);
             CultNetworkManager.reportFailure("outbound packet expansion", failure);
             if (fallback != null) {
-                output.addLast(new Frame(fallback, pending.promise, fallbackType(fallback)));
+                PacketType<?> type = fallbackType(fallback);
+                output.addLast(new Frame(fallback, pending.promise, type));
                 fallback = null;
+                connection.placedClientbound(type);
             } else pending.promise.tryFailure(failure);
         } finally {
             if (fallback != null) fallback.release();
@@ -215,7 +226,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             ChannelPromise promise,
             Families activeFamilies,
             Batch batch) {
-        boolean wrapGroup = group.bundle() && !batch.inside;
+        boolean wrapGroup = group.bundle() && !batch.inside && connection.clientHasLevel();
         var parts = new LinkedHashSet<ChannelPromise>();
         if (wrapGroup) batch.add(delimiter(ctx));
         for (CultWrite write : group.writes()) {
@@ -229,7 +240,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 var entry = new Batch(batch.inside);
                 try {
                     boolean requested = expandPacket(ctx, pending, activeFamilies, entry);
-                    if (!batch.inside && (requested || entry.output.size() > 1)) wrap(ctx, entry.output);
+                    if (!batch.inside && (requested || entry.output.size() > 1) && connection.clientHasLevel())
+                        wrap(ctx, entry.output);
                     batch.inside = entry.inside;
                     batch.output.append(entry.output);
                 } catch (Throwable failure) {
@@ -254,6 +266,12 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             var type = connection.packets().writableType(write.packet());
             if (type.direction() != PacketDirection.CLIENTBOUND) {
                 throw new UnsupportedOnVersionException("Not clientbound: " + type);
+            }
+            // CultAC's own play packets need the client's level; without one they are dropped, never sent.
+            if (!type.phases().contains(ConnectionPhase.CONFIGURATION) && !connection.clientHasLevel()) {
+                connection.droppedWithoutLevel(type);
+                pending.promise.tryFailure(new UnsupportedOnVersionException(type + " needs the client's level"));
+                return false;
             }
             encoded = connection.packets().encode(phase, type, write.packet(), ctx.alloc(), connection);
         } catch (Throwable failure) {
@@ -341,6 +359,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                             batch.add(new Frame(bytes, promise, type));
                             bytes = null;
                         }
+                        connection.placedClientbound(type);
                     }
                     for (CultWrite write : event.writesAfter()) {
                         expandPacket(ctx, new Pending(write, ctx.newPromise()), activeFamilies, batch);
@@ -353,8 +372,10 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             }
             // Unknown/cancelled model packets still retain their physical representation.
             if (bytes != null) {
+                PacketType<?> placed = forwardedType != null ? forwardedType : fallbackType(bytes);
                 batch.add(new Frame(bytes, promise, forwardedType));
                 bytes = null;
+                connection.placedClientbound(placed);
             }
             return requested;
         } finally {

@@ -70,5 +70,7 @@ project(":velocity-validation").projectDir = file("validation/velocity/harness")
 include("bukkit", "bukkit-runtime")
 include("protocol", "protocol-netty")
 include("protocol-codec")
+include("bridge-protocol")
+include("paper-companion")
 
 if (file("workspace.gradle.kts").exists()) apply(from = "workspace.gradle.kts")

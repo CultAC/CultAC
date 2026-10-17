@@ -26,6 +26,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundKeepAlive;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -34,6 +35,10 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mockito;
@@ -158,6 +163,48 @@ class RecordCheckManagerDispatchTest {
             f.manager.dispatchReceiveHandlers(event);
             assertEquals(List.of("decoded", "typed", "non-async", "world", "first-tick", "second-tick"), trace);
             assertTrue(event.isCancelled());
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(ProtocolVersion.class)
+    void throwingTickEndHandlerIsLoggedOnceAndLaterHandlersStillRun(ProtocolVersion version) throws Exception {
+        Logger logger = LogUtil.getLogger();
+        List<String> severe = new ArrayList<>();
+        Handler capture = new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                if (record.getLevel() == Level.SEVERE && record.getMessage().startsWith("Tick-end handler"))
+                    severe.add(record.getMessage());
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
+        logger.addHandler(capture);
+        try (Fixture f = new Fixture(version)) {
+            List<String> trace = new ArrayList<>();
+            f.register("registerTickEnd", new Tick(e -> {
+                trace.add("throwing-tick");
+                throw new IllegalStateException("tick-end failure");
+            }));
+            f.register("registerTickEnd", new Tick(e -> trace.add("next-tick")));
+            f.build();
+            for (int i = 0; i < 2; i++) {
+                var sample = f.exchange(
+                        ServerboundPackets.CLIENT_TICK_END,
+                        "client_tick_end",
+                        ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END.opaqueValue());
+                f.manager.dispatchReceiveHandlers(
+                        new PacketReceiveEvent<>(f.player.user, ConnectionPhase.PLAY, sample.type(), sample.packet()));
+            }
+            assertEquals(List.of("throwing-tick", "next-tick", "throwing-tick", "next-tick"), trace);
+            assertEquals(1, severe.size(), severe::toString);
+        } finally {
+            logger.removeHandler(capture);
         }
     }
 

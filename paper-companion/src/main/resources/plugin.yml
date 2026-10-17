@@ -1,0 +1,57 @@
+name: CultAC-Companion
+version: ${version}
+main: ac.cult.cultac.companion.CompanionPlugin
+api-version: '1.13'
+load: STARTUP
+author: CultAC
+website: https://github.com/CultAC/CultAC
+description: Backend companion for the CultAC Velocity proxy.
+provides: [GrimAC]
+commands:
+  cult:
+    description: CultAC commands, run on the proxy.
+    aliases: [cultac, grim, grimac]
+# Mirrors the cult.* nodes in bukkit/build.gradle.kts except the loader's cult.update and cult.runtimes; change both together.
+permissions:
+  cult.alerts:
+    description: Receive alerts for violations
+    default: op
+  cult.alerts.enable-on-join:
+    description: Enable alerts on join
+    default: op
+  cult.performance:
+    description: Check performance metrics
+    default: op
+  cult.profile:
+    description: Check user profile
+    default: op
+  cult.brand:
+    description: Show client brands on join
+    default: op
+  cult.brand.enable-on-join:
+    description: Enable showing client brands on join
+    default: op
+  cult.sendalert:
+    description: Send cheater alert
+    default: op
+  cult.nosetback:
+    description: Disable setback
+    default: false
+  cult.nomodifypacket:
+    description: Disable modifying packets
+    default: false
+  cult.disabled:
+    description: Disable Cult checks while keeping player state tracked
+    default: false
+  cult.exempt:
+    description: Exempt from all checks
+    default: false
+  cult.verbose:
+    description: Receive verbose alerts for violations
+    default: op
+  cult.verbose.enable-on-join:
+    description: Enable verbose alerts on join
+    default: false
+  cult.list:
+    description: Shows lists of specific data
+    default: false

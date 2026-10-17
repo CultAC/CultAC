@@ -46,6 +46,7 @@ public final class CultVelocityPlugin {
     private GenerationManager engine;
     private volatile boolean stopping;
     private java.lang.reflect.Method connectionMethod, channelMethod;
+    private BridgeChannelGuard bridgeGuard;
 
     @Inject
     public CultVelocityPlugin(ProxyServer proxy, Logger logger, @DataDirectory Path directory) {
@@ -64,10 +65,12 @@ public final class CultVelocityPlugin {
                             "com.velocitypowered.proxy.connection.client.ConnectedPlayer", false, hostLoader)
                     .getMethod("getConnection");
             channelMethod = connectionMethod.getReturnType().getMethod("getChannel");
+            bridgeGuard = BridgeChannelGuard.forProxy(hostLoader);
         } catch (ReflectiveOperationException failure) {
             logger.error(
                     "CultAC is disabled and players join uninspected: this Velocity build has no"
-                            + " ConnectedPlayer.getConnection().getChannel(). Update CultAC for this Velocity build.",
+                            + " ConnectedPlayer.getConnection().getChannel() or PluginMessagePacket."
+                            + " Update CultAC for this Velocity build.",
                     failure);
             return;
         }
@@ -156,6 +159,13 @@ public final class CultVelocityPlugin {
         try {
             var channel = (Channel) channelMethod.invoke(connectionMethod.invoke(player));
             channel.closeFuture().addListener(ignored -> engine.disconnect(channel));
+            try {
+                bridgeGuard.install(channel);
+            } catch (RuntimeException failure) {
+                logger.error("Cannot guard the bridge channel of " + player.getUsername() + "; disconnecting", failure);
+                player.disconnect(REFUSED);
+                return null;
+            }
             return EventTask.resumeWhenComplete(CompletableFuture.runAsync(
                             () -> {
                                 if (!channel.isActive()) return;

@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.ItemUseState;
 import ac.cult.cultac.utils.math.Vec3;
 import com.velocitypowered.api.proxy.Player;
@@ -105,18 +106,28 @@ class VelocityStandaloneTest {
         assertFalse(player.teleportAsync(player.getLocation()).join());
         clearInvocations(nativePlayer, connection);
         player.setGameMode(GameMode.SPECTATOR);
-        player.clearActiveItem();
+        player.clearActiveItem(Hand.OFF_HAND, "minecraft:shield");
         verifyNoInteractions(nativePlayer, connection);
     }
 
     @Test
     void validationMutationReportsUnsupportedWithoutCallingSuccessCallback() {
         var callback = mock(Runnable.class);
-        var platform = new VelocityServer(mock(ProxyServer.class), mock(VelocitySenders.class));
+        var platform = new VelocityServer(mock(ProxyServer.class), mock(VelocitySenders.class), id -> Double.NaN);
         assertThrows(
                 UnsupportedOperationException.class,
                 () -> platform.applyValidationBlock(player, 0, 64, 0, "minecraft:stone", callback));
         verifyNoInteractions(callback);
         assertTrue(Double.isNaN(platform.getTPS()));
+    }
+
+    @Test
+    void tickRatePrefersTheCompanion() {
+        UUID bridged = UUID.randomUUID();
+        var platform = new VelocityServer(
+                mock(ProxyServer.class), mock(VelocitySenders.class), id -> id.equals(bridged) ? 19.5 : Double.NaN);
+        assertEquals(19.5, platform.getTPS(bridged));
+        assertEquals(platform.getTPS(), platform.getTPS(UUID.randomUUID()));
+        assertEquals(platform.getTPS(), platform.getTPS(null));
     }
 }

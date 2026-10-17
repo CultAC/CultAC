@@ -82,6 +82,9 @@ public class CompensatedWorld {
     private List<BlockPos> currentlyChangedBlocks = new LinkedList<>();
     private final Map<Integer, List<BlockPos>> serverIsCurrentlyProcessingThesePredictions = new HashMap<>();
     private int clientPredictionSequence;
+    private int level;
+    private boolean clientboundUnresolved;
+    private boolean levelUnresolved;
     private boolean isCurrentlyPredicting = false;
     private final Long2IntOpenHashMap selectionOriginalStates = new Long2IntOpenHashMap();
     private boolean selectionSnapshotActive;
@@ -477,8 +480,9 @@ public class CompensatedWorld {
         long position = BlockPos.asLong(x, y, z);
         long id = serverBlockView.sent(
                 position, ViaClientBlockShapeMappings.clientBlockStateId(player, stateIdOrAir(state)));
+        int queuedLevel = level;
         player.latencyUtils.addRealTimeTask(transaction, () -> {
-            handleServerBlockUpdate(x, y, z, state, transaction);
+            if (queuedLevel == level) handleServerBlockUpdate(x, y, z, state, transaction);
             serverBlockView.applied(position, id);
         });
     }
@@ -1298,8 +1302,17 @@ public class CompensatedWorld {
         clientClocks.reset();
     }
 
+    /**
+     * Counts client levels. A level-specific task captures this when queued and does nothing once a login has
+     * replaced its level.
+     */
+    public int level() {
+        return level;
+    }
+
     /** Login creates fresh level data even when the dimension key is unchanged. */
     public void onClientLogin() {
+        level++;
         clientGameTime = 0;
         clientPeaceful = false;
         clientRainLevel = 0.0F;
@@ -1414,8 +1427,10 @@ public class CompensatedWorld {
             long[] motionBlocking) {
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
         serverBlockView.columnSent(chunkX, chunkZ);
+        int queuedLevel = level;
         player.latencyUtils.addRealTimeTask(transaction, () -> {
             serverBlockView.columnApplied(chunkX, chunkZ);
+            if (queuedLevel != level) return;
             CachedChunk previous = chunks.get(chunkPosition);
             String previousDimension = chunkDimensions.get(chunkPosition);
             if (previous != null && dimension.equals(previousDimension) && previous.getTransaction() > transaction) {
@@ -1623,8 +1638,10 @@ public class CompensatedWorld {
     public void removeChunkLater(String dimension, int chunkX, int chunkZ, int transaction) {
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
         serverBlockView.columnSent(chunkX, chunkZ);
+        int queuedLevel = level;
         player.latencyUtils.addRealTimeTask(transaction, () -> {
             serverBlockView.columnApplied(chunkX, chunkZ);
+            if (queuedLevel != level) return;
             String currentDimension = chunkDimensions.get(chunkPosition);
             if (currentDimension != null && !dimension.equals(currentDimension)) {
                 sectionPoolLeases.release(dimension, chunkX, chunkZ);
@@ -1672,6 +1689,34 @@ public class CompensatedWorld {
     public void setLastClientboundDimension(String dimension, ac.cult.blocksim.environment.DimensionData type) {
         int minY = type.minY();
         lastClientboundDimension = new ClientboundDimensionData(dimension, minY, minY + type.height());
+        clientboundUnresolved = false;
+    }
+
+    /**
+     * Records a sent level whose dimension type the published generation cannot name. Its chunks have no known
+     * geometry, so they stay out of the model until a later login or respawn resolves its type.
+     */
+    public void setLastClientboundUnresolved(String dimension) {
+        lastClientboundDimension = new ClientboundDimensionData(
+                dimension, lastClientboundDimension.minHeight(), lastClientboundDimension.maxHeight());
+        clientboundUnresolved = true;
+    }
+
+    /** True while the last sent level's dimension type is unknown; its chunk geometry must not be used. */
+    public boolean isClientboundUnresolved() {
+        return clientboundUnresolved;
+    }
+
+    /** The client's current level, whose dimension type is unknown, holds nothing in the model. */
+    public void setUnresolvedDimension(String dimension) {
+        if (!visibleDimension.equals(dimension)) clientBlockEntities.clear();
+        visibleDimension = dimension;
+        levelUnresolved = true;
+    }
+
+    /** True while the client's current level has an unknown dimension type. */
+    public boolean isLevelUnresolved() {
+        return levelUnresolved;
     }
 
     public void setDimension(String dimension, ac.cult.blocksim.environment.DimensionData.Binding binding) {
@@ -1683,6 +1728,7 @@ public class CompensatedWorld {
         }
         visibleDimension = dimension;
         visibleDimensionType = type;
+        levelUnresolved = false;
         minHeight = type.minY();
         maxHeight = minHeight + type.height();
         fastLava = type.hasFastLava();

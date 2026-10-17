@@ -62,6 +62,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundTeleportToEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Serverbound families Cult routes, grouped by connection phase. Which names exist on a version comes from
@@ -89,8 +90,10 @@ public final class ServerboundPackets {
     // Configuration and play.
     public static final PacketType<ServerboundClientInformation> CLIENT_INFORMATION =
             COMMON.add("client_information", ServerboundClientInformation.class, new ClientInformationCodec());
-    public static final PacketType<ServerboundCustomPayload> CUSTOM_PAYLOAD =
-            COMMON.add("custom_payload", ServerboundCustomPayload.class, new CustomPayloadCodec());
+    public static final PacketType<ServerboundCustomPayload> CUSTOM_PAYLOAD = COMMON.add(
+            "custom_payload",
+            ServerboundCustomPayload.class,
+            new CustomPayloadCodec(Set.of(ClientboundPackets.BRIDGE_CHANNEL)));
     public static final PacketType<ServerboundKeepAlive> KEEP_ALIVE =
             COMMON.add("keep_alive", ServerboundKeepAlive.class, new ServerboundKeepAliveCodec());
     public static final PacketType<ServerboundPong> PONG = COMMON.add("pong", ServerboundPong.class, new PongCodec());

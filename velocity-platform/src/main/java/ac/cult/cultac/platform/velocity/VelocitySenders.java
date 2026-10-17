@@ -2,6 +2,7 @@ package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.platform.api.sender.SenderFactory;
+import ac.cult.cultac.platform.velocity.bridge.command.RelayCommandSource;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.proxy.Player;
@@ -60,7 +61,7 @@ final class VelocitySenders extends SenderFactory<CommandSource> {
 
     @Override
     protected boolean isConsole(CommandSource source) {
-        return source == proxy.getConsoleCommandSource();
+        return source == proxy.getConsoleCommandSource() || source instanceof RelayCommandSource;
     }
 
     @Override

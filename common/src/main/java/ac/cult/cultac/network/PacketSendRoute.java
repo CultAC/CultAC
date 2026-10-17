@@ -5,19 +5,30 @@ import ac.cult.cultac.player.CultPlayer;
 
 public final class PacketSendRoute<R> {
     @SuppressWarnings({"rawtypes", "unchecked"})
-    public static final PacketSendRoute EMPTY = new PacketSendRoute(new PacketSendHandler[0]);
+    public static final PacketSendRoute EMPTY = new PacketSendRoute(new PacketSendHandler[0], new PacketSendHandler[0]);
 
     private final PacketSendHandler<? super R>[] handlers;
+    /** The subset of {@link #handlers} that also runs for connections without a player. */
+    private final PacketSendHandler<? super R>[] connectionHandlers;
 
-    private PacketSendRoute(PacketSendHandler<? super R>[] handlers) {
+    private PacketSendRoute(
+            PacketSendHandler<? super R>[] handlers, PacketSendHandler<? super R>[] connectionHandlers) {
         this.handlers = handlers;
+        this.connectionHandlers = connectionHandlers;
     }
 
+    @SuppressWarnings("unchecked")
     public static <R> PacketSendRoute<R> of(PacketSendHandler<? super R>[] handlers) {
+        return of(handlers, new PacketSendHandler[0]);
+    }
+
+    /** {@code connectionHandlers} must be a subset of {@code handlers}. */
+    public static <R> PacketSendRoute<R> of(
+            PacketSendHandler<? super R>[] handlers, PacketSendHandler<? super R>[] connectionHandlers) {
         if (handlers.length == 0) {
             return empty();
         }
-        return new PacketSendRoute<>(handlers.clone());
+        return new PacketSendRoute<>(handlers.clone(), connectionHandlers.clone());
     }
 
     @SuppressWarnings("unchecked")
@@ -33,6 +44,14 @@ public final class PacketSendRoute<R> {
     public void dispatch(PacketSendEvent<?> event, CultPlayer player, R packet) {
         for (PacketSendHandler<? super R> handler : handlers) {
             handler.handle((PacketSendEvent) event, player, packet);
+        }
+    }
+
+    /** Runs the connection handlers for a connection that has no player; they receive a null player. */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public void dispatchConnection(PacketSendEvent<?> event, R packet) {
+        for (PacketSendHandler<? super R> handler : connectionHandlers) {
+            handler.handle((PacketSendEvent) event, null, packet);
         }
     }
 }

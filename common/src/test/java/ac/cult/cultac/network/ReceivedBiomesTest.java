@@ -100,7 +100,9 @@ class ReceivedBiomesTest {
             state.beginConfiguration();
             state.appendConfigurationRegistryData(new RegistryData(
                     "minecraft:worldgen/biome", List.of(new WireValueDecoder.RegistryEntry("minecraft:plains", null))));
-            state.finishConfiguration(ProtocolVersion.V26_3, ProtocolVersion.V26_3, ProtocolVersion.V26_3);
+            state.publish(
+                    state.stageConfiguration(ProtocolVersion.V26_3, ProtocolVersion.V26_3, ProtocolVersion.V26_3, null),
+                    ProtocolVersion.V26_3);
             var replacement =
                     state.blockSimulatorTags(ProtocolVersion.V26_3, ProtocolVersion.V26_3, DataTables.defaults());
             assertFalse(replacement.tags().containsKey("worldgen/biome:test:received"));

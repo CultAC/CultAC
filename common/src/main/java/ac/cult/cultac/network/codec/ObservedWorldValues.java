@@ -25,24 +25,26 @@ final class ObservedWorldValues {
             case "minecraft:section_blocks_update" ->
                 ModelWorldValues.sectionUpdates(input, values.mappings()::blockState);
             case "minecraft:block_entity_data" -> ModelWorldValues.blockEntity(input, types);
-            case "minecraft:level_chunk_with_light" ->
-                ModelWorldValues.chunkDecoded(
+            case "minecraft:level_chunk_with_light" -> {
+                var dimension = this.dimension.get();
+                if (dimension == null) yield null;
+                int count = dimension[1] / 16;
+                yield ModelWorldValues.chunkDecoded(
                         input,
                         version,
                         types,
-                        sections -> SectionProjection.decodedSections(sections, version, sectionCount(), registries()));
+                        sections -> SectionProjection.decodedSections(sections, version, count, registries()));
+            }
             case "minecraft:chunks_biomes" -> {
-                int count = sectionCount();
+                var dimension = this.dimension.get();
+                if (dimension == null) yield null;
+                int count = dimension[1] / 16;
                 var registries = registries();
                 yield ModelWorldValues.biomesDecoded(
                         input, sections -> SectionProjection.decodedBiomes(sections, version, count, registries));
             }
             default -> throw new IllegalArgumentException(name);
         };
-    }
-
-    private int sectionCount() {
-        return dimension.get()[1] / 16;
     }
 
     private SectionProjection.Registries registries() {

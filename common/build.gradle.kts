@@ -114,6 +114,7 @@ dependencies {
     testImplementation(project(":reload-host"))
     api(project(":block-sim"))
     api(project(":protocol"))
+    api(project(":bridge-protocol"))
 
     api(libs.cloud.core)
     api(libs.cloud.processors.requirements)

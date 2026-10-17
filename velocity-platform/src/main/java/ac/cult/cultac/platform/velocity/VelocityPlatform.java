@@ -2,6 +2,8 @@ package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
+import ac.cult.cultac.bridge.protocol.BridgeMessage;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.World;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
@@ -16,6 +18,13 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.player.PlatformPlayerFactory;
 import ac.cult.cultac.platform.api.scheduler.PlatformScheduler;
 import ac.cult.cultac.platform.api.sender.SenderFactory;
+import ac.cult.cultac.platform.velocity.bridge.BridgeMessageListener;
+import ac.cult.cultac.platform.velocity.bridge.BridgeService;
+import ac.cult.cultac.platform.velocity.bridge.BridgeSession;
+import ac.cult.cultac.platform.velocity.bridge.BridgeSessions;
+import ac.cult.cultac.platform.velocity.bridge.VelocityBridge;
+import ac.cult.cultac.platform.velocity.bridge.api.BridgeApiService;
+import ac.cult.cultac.platform.velocity.bridge.command.BridgeCommandService;
 import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -29,6 +38,8 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import io.netty.channel.Channel;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.UUID;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 /** Proxy platform backed by bundled model tables and each connection's received packets. */
@@ -45,6 +56,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     private final CommandService commands;
     private final VelocityTransport transport;
     private final VelocityServer server;
+    private final BridgeService bridge;
     private volatile boolean bedrockBridge;
     private boolean loaded;
     private boolean closed;
@@ -81,7 +93,8 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                             codecs,
                             bedrock),
                     this::bedrockOwner);
-            this.server = new VelocityServer(proxy, senders);
+            this.bridge = new BridgeService(proxy, nativePlugin, transport::channel, plugin.getLogger());
+            this.server = new VelocityServer(proxy, senders, bridge::tps);
             manager.setPacketOwnerResolver(channel -> {
                 var connection = manager.connection(channel);
                 if (connection == null) return null;
@@ -114,16 +127,47 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         if (loaded) return;
         CultAPI.INSTANCE.load(this, (StartableInitable) this::startBedrockBridge);
         loaded = true;
+        VelocityBridge.install(bridge);
     }
 
     public void start() {
         load();
         CultAPI.INSTANCE.start();
+        boolean bridged = bridge.start(
+                CultAPI.INSTANCE.getNetworkManager().dispatcher(),
+                CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse("bridge.secret", ""));
         plugin.getLogger().info("CultAC is inspecting Velocity client connections using the bundled 26.3 model");
         plugin.getLogger()
                 .info("Proxy mode: resyncs use the server state each backend sent; server tick ends are estimated "
-                        + "from the backend stream. Administrative teleports, spectating and real validation blocks "
-                        + "require Paper.");
+                        + "from the backend stream.");
+        if (bridged) {
+            plugin.getLogger()
+                    .info("Backends running the CultAC companion get active-item clears, administrative teleports, "
+                            + "spectating and real validation blocks; other backends run proxy-only.");
+            bridge.addListener(new BridgeMessageListener() {
+                @Override
+                public void onReady(BridgeSession session) {
+                    mirrorWorld(session.playerId(), session.worldUid());
+                }
+
+                @Override
+                public void onMessage(BridgeSession session, BridgeMessage message) {
+                    if (message instanceof World world) mirrorWorld(session.playerId(), world.uid());
+                }
+            });
+            BridgeApiService.start();
+            BridgeCommandService.start(proxy, nativePlugin, plugin.getLogger());
+        } else {
+            plugin.getLogger()
+                    .info("Proxy-only mode: administrative teleports, spectating and real validation blocks require "
+                            + "Paper or a backend running the CultAC companion.");
+        }
+    }
+
+    private void mirrorWorld(UUID playerId, @Nullable UUID worldUid) {
+        if (worldUid != null && players.getFromUUID(playerId) instanceof VelocityPlayer player) {
+            player.getWorld().mirror(worldUid);
+        }
     }
 
     // Geyser loads first (a declared dependency); the bridge taps the Bedrock sessions it hosts here.
@@ -202,7 +246,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         return new ItemResetHandler() {
             @Override
             public void resetItemUsage(PlatformPlayer player) {
-                // A proxy cannot stop item use on the server.
+                // A proxy clear must name the use it ends; this request names none.
             }
 
             @Override
@@ -245,6 +289,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         }
         transport.attach(
                 player, channel, bedrockOwner(channel), ac.cult.cultac.network.ConnectionContinuation.from(state));
+        bridge.adopted(player);
     }
 
     java.util.concurrent.CompletionStage<Void> disconnect(Channel channel) {
@@ -257,11 +302,15 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
 
     @Override
     public synchronized void close() {
+        BridgeCommandService.stop();
+        BridgeApiService.stop();
         if (closed) {
             return;
         }
         closed = true;
         try {
+            bridge.close();
+            VelocityBridge.install(BridgeSessions.NONE);
             scheduler.cancel(plugin);
             if (loaded) {
                 CultAPI.INSTANCE.stop();

@@ -15,6 +15,7 @@ import ac.cult.cultac.checks.impl.ping.TransactionOrder;
 import ac.cult.cultac.checks.impl.prediction.checks.ItemUseDesync;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
+import ac.cult.cultac.checks.verdict.FlagArbiter;
 import ac.cult.cultac.events.packets.PacketEntityReplication;
 import ac.cult.cultac.manager.LastInstanceManager;
 import ac.cult.cultac.manager.PunishmentManager;
@@ -73,6 +74,8 @@ import ac.grim.grimac.api.handler.ResyncHandler;
 import com.viaversion.viaversion.api.Via;
 import com.viaversion.viaversion.api.connection.UserConnection;
 import com.viaversion.viaversion.api.protocol.packet.PacketTracker;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -83,7 +86,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.UUID;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -147,6 +149,9 @@ public class CultPlayer implements GrimUser {
     private Queue<SentTransaction> transactionsSent = new ArrayDeque<>();
     private final @NotNull Map<@NotNull Integer, @NotNull TrackedTransaction> transactionsPendingSend =
             new HashMap<>(4);
+    /** Ping ids a client cannot predict from the ones it has answered. */
+    private final SecureRandom wireIds = wireIdSource();
+
     public final @NotNull AtomicInteger lastTransactionSent = new AtomicInteger(0);
     public final @NotNull AtomicInteger lastTransactionReceived = new AtomicInteger(0);
     // End transaction handling stuff
@@ -162,6 +167,10 @@ public class CultPlayer implements GrimUser {
     @Getter
     @Setter
     private @NotNull ResyncHandler resyncHandler = NoOpResyncHandler.INSTANCE;
+    // Read on the packet thread, installed from the proxy bridge's event loop.
+    @Getter
+    @Setter
+    private volatile @Nullable FlagArbiter flagArbiter;
     // End manager like classes
     public int riptideSpinAttackTicks;
     private @MonotonicNonNull PacketTracker packetTracker;
@@ -298,9 +307,13 @@ public class CultPlayer implements GrimUser {
     }
 
     // Support for test servers that want to be able to disable cult
-    @Getter
     @Setter
     private boolean disabled = false;
+
+    public boolean isDisabled() {
+        // An unresolved level comes only from server-supplied registry data; its empty model would false flag.
+        return disabled || (compensatedWorld != null && compensatedWorld.isLevelUnresolved());
+    }
 
     @Getter
     @Setter
@@ -639,14 +652,34 @@ public class CultPlayer implements GrimUser {
             // ViaBackwards only forwards pre-1.17 pings as inventory acknowledgements
             // when the id fits a signed short. Otherwise it replies itself, before the
             // client processes the preceding packets, invalidating our transaction proof.
-            id = legacyAcknowledgement
-                    ? ThreadLocalRandom.current().nextInt(Short.MIN_VALUE, Short.MAX_VALUE + 1)
-                    : ThreadLocalRandom.current().nextInt();
+            id = nextWireId(wireIds, legacyAcknowledgement);
             used = false;
             for (SentTransaction sent : transactionsSent) used |= sent.id() == id;
             used |= transactionsPendingSend.containsKey(id);
         } while (used);
         return id;
+    }
+
+    /**
+     * A ping id; {@code legacy} keeps it within a signed short. Otherwise it lies outside that range, which is left to
+     * pings from the backend.
+     */
+    static int nextWireId(SecureRandom random, boolean legacy) {
+        if (legacy) return Short.MIN_VALUE + random.nextInt(1 << 16);
+        int id;
+        do {
+            id = random.nextInt();
+        } while (id >= Short.MIN_VALUE && id <= Short.MAX_VALUE);
+        return id;
+    }
+
+    /** A generator of its own per player, so players never wait on each other's ping ids. */
+    private static SecureRandom wireIdSource() {
+        try {
+            return SecureRandom.getInstance("DRBG");
+        } catch (NoSuchAlgorithmException unavailable) {
+            return new SecureRandom();
+        }
     }
 
     private java.util.LinkedList<SentTransaction> bedrockTransactions() {

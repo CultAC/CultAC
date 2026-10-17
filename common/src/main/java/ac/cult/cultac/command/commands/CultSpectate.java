@@ -4,13 +4,16 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.command.requirements.PlayerSenderRequirement;
+import ac.cult.cultac.manager.SpectateManager;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
-import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import java.util.Objects;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
 import org.jetbrains.annotations.NotNull;
@@ -42,23 +45,43 @@ public class CultSpectate implements BuildableCommand {
         }
 
         @NotNull PlatformPlayer platformPlayer = Objects.requireNonNull(sender.getPlatformPlayer(), "platformPlayer");
-        if (!platformPlayer.hasServerAuthority()) {
-            sender.sendMessage(net.kyori.adventure.text.Component.text(
-                    "Spectating is only available on Paper: it requires server-side game-mode changes and teleports."));
-            return;
-        }
-
-        // hide player from tab list
-        if (CultAPI.INSTANCE.getSpectateManager().enable(platformPlayer)) {
-            sender.sendMessage(
-                    MessageUtil.getParsedComponent(
-                            sender,
-                            "spectate-return",
-                            "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &fClick here to return to previous location\n</hover></click>"));
-        }
-
-        platformPlayer.setGameMode(GameMode.SPECTATOR);
-        platformPlayer.teleportAsync(Objects.requireNonNull(targetPlatformPlayer, "targetPlatformPlayer")
-                .getLocation());
+        PlatformPlayer target = Objects.requireNonNull(targetPlatformPlayer, "targetPlatformPlayer");
+        Runnable sendReturnLink = () -> sender.sendMessage(
+                MessageUtil.getParsedComponent(
+                        sender,
+                        "spectate-return",
+                        "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &fClick here to return to previous location\n</hover></click>"));
+        CultAPI.INSTANCE
+                .getSpectateManager()
+                .spectate(platformPlayer, target, sendReturnLink)
+                .whenComplete((result, failure) -> {
+                    if (failure != null) {
+                        LogUtil.error("Spectating " + target.getName() + " failed", failure);
+                        sender.sendMessage(Component.text("Teleport failed, please try again.", NamedTextColor.RED));
+                        return;
+                    }
+                    switch (result.outcome()) {
+                        case UNSUPPORTED ->
+                            sender.sendMessage(
+                                    Component.text(
+                                            "Spectating requires server-side game-mode changes and teleports, which this platform cannot perform."));
+                        case CONNECT_FAILED ->
+                            sender.sendMessage(Component.text(
+                                    "Could not connect you to " + target.getName() + "'s server, please try again.",
+                                    NamedTextColor.RED));
+                        case TELEPORT_FAILED ->
+                            sender.sendMessage(
+                                    Component.text("Teleport failed, please try again.", NamedTextColor.RED));
+                        case ALREADY_CONNECTING ->
+                            sender.sendMessage(
+                                    Component.text(SpectateManager.ALREADY_CONNECTING_MESSAGE, NamedTextColor.RED));
+                        case STATE_UNAVAILABLE ->
+                            sender.sendMessage(Component.text(
+                                    "Could not read your game mode and position from the server, so spectating did not"
+                                            + " start. Please try again.",
+                                    NamedTextColor.RED));
+                        case SPECTATING -> {}
+                    }
+                });
     }
 }

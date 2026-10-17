@@ -5,6 +5,7 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.protocol.ConnectionLifecycle;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.Opaque;
 import java.util.Objects;
 
@@ -16,6 +17,7 @@ public abstract class PacketEvent<R> {
     private final long timestamp = System.currentTimeMillis();
     private R packet;
     private boolean cancelled;
+    private boolean cancelledFinally;
 
     protected PacketEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet) {
         this.user = user;
@@ -61,8 +63,14 @@ public abstract class PacketEvent<R> {
     }
 
     public void setCancelled(boolean cancelled) {
-        if (cancelled) requireEditable();
-        this.cancelled = cancelled;
+        if (cancelled) requireCancellable();
+        this.cancelled = cancelled || cancelledFinally;
+    }
+
+    /** Cancels for good: no later handler and no failed dispatch can forward the packet. */
+    public void cancelFinally() {
+        requireCancellable();
+        cancelled = cancelledFinally = true;
     }
 
     public void replace(R replacement) {
@@ -74,6 +82,13 @@ public abstract class PacketEvent<R> {
         packet = checked;
     }
 
+    /** The play login gives the client its level; without it the client could never be sent CultAC's packets again. */
+    private void requireCancellable() {
+        requireEditable();
+        if (type == ClientboundPackets.LOGIN)
+            throw new IllegalStateException("The play login cannot be cancelled: " + type);
+    }
+
     private void requireEditable() {
         if (ConnectionLifecycle.handles(type))
             throw new IllegalStateException("Protocol-switch packet cannot be cancelled or replaced: " + type);
@@ -81,6 +96,6 @@ public abstract class PacketEvent<R> {
     /** Packet callback failures retain the original bytes, as before. */
     public void discardChanges() {
         packet = original;
-        cancelled = false;
+        cancelled = cancelledFinally;
     }
 }

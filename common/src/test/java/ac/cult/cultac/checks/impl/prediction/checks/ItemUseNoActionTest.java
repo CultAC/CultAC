@@ -95,7 +95,7 @@ class ItemUseNoActionTest {
             scenario.accept(rig);
             assertEquals(rig.noSlowBefore, rig.noSlow.violations);
             verifyNoInteractions(rig.setbacks);
-            verify(rig.platform, never()).clearActiveItem();
+            verify(rig.platform, never()).clearActiveItem(any(), any());
             verify(rig.platform, never()).getItemUseState();
         } finally {
             original.onRemove();

@@ -110,6 +110,13 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
                 location -> player.compensatedWorld.getChunk(location.getX() >> 4, location.getZ() >> 4) == null);
     }
 
+    /** Forgets every placement; call when the client replaces its level. */
+    public void clearLevel() {
+        unknownStuff.clear();
+        bucketUseLocations.clear();
+        pseudoPlaces.clear();
+    }
+
     public boolean isDesyncPos(BlockPos pos) {
         for (GhostData ghostData : unknownStuff.values()) {
             if (ghostData.isReverted() && ghostData.getPlacedPos().equals(pos)) {

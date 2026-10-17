@@ -15,4 +15,9 @@ public interface CodecState {
     default ProtocolContext bind(ProtocolContext base) {
         return base.withState(this);
     }
+
+    /** False lets a codec decline a value this state cannot supply; the frame then passes unobserved. */
+    default boolean requiresValues() {
+        return true;
+    }
 }

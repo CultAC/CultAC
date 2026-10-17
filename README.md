@@ -17,7 +17,7 @@ Discord: https://discord.gg/nyeVp7UFau
   * Pre-1.21.2 players will be disconnected if ViaVersion is on the backend and Cult is on the proxy
   * Pre-1.21.2 player support is deprecated
 * Paper 1.21.2, 1.21.11, 26.2, or 26.3.
-* Velocity
+* Velocity; see the [CultAC Companion](paper-companion/README.md) for backend servers behind the Velocity plugin
 
 Bedrock notes
 * GeyserFloatingPoints must be installed as a Geyser addon if players are > 3000 blocks from 0,0

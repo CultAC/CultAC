@@ -48,6 +48,29 @@ class ProjectedPacketsTest {
     }
 
     @Test
+    void everyVersionLeavesUnretainedPluginMessagesUndecoded() {
+        for (var version : ProtocolVersion.values()) {
+            var wire = ProtocolRuntime.create(ProtocolData.load(version));
+            try (var packets = new ProjectedPackets(wire, MODEL, () -> {
+                throw new AssertionError();
+            })) {
+                for (String channel : List.of("minecraft:brand", "cultac:bridge")) {
+                    ByteBuf input = frame(wire, PLAY, CLIENTBOUND, "custom_payload");
+                    Wire.writeString(input, channel, 32767);
+                    input.writeByte(1);
+                    try {
+                        var values = packets.read(PLAY, CLIENTBOUND, input, CodecState.EMPTY, ignored -> true);
+                        assertEquals(channel.equals("cultac:bridge") ? 1 : 0, values.size(), version + " " + channel);
+                        assertEquals(0, input.readerIndex());
+                    } finally {
+                        input.release();
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     void everyVersionReadsPurePacketsWithoutInvokingValueDecoder() {
         for (var version : ProtocolVersion.values()) {
             var wire = ProtocolRuntime.create(ProtocolData.load(version));
@@ -152,6 +175,78 @@ class ProjectedPacketsTest {
                     input.release();
                 }
             }
+        }
+    }
+
+    @Test
+    void declinedValuesPassOnlyWhenNotRequired() {
+        var wire = ProtocolRuntime.create(ProtocolData.load(ProtocolVersion.V1_21_11));
+        var adapter = new PacketValueAdapter() {
+            public Object read(ByteBuf input, ProtocolContext context) {
+                return null;
+            }
+
+            public void write(ByteBuf output, ProtocolContext context, Object value) {
+                throw new AssertionError();
+            }
+        };
+        CodecState optional = new CodecState() {
+            public <T> T require(Class<T> type) {
+                return CodecState.EMPTY.require(type);
+            }
+
+            public boolean requiresValues() {
+                return false;
+            }
+        };
+        try (var packets = new ProjectedPackets(wire, MODEL, () -> adapter)) {
+            var input = frame(wire, CONFIGURATION, CLIENTBOUND, "registry_data");
+            try {
+                assertEquals(List.of(), packets.read(CONFIGURATION, CLIENTBOUND, input, optional, ignored -> true));
+                assertThrows(
+                        ProtocolResolutionException.class,
+                        () -> packets.read(CONFIGURATION, CLIENTBOUND, input, CodecState.EMPTY, ignored -> true));
+            } finally {
+                input.release();
+            }
+        }
+    }
+
+    @Test
+    void runtimeDecodeDeclinesOnlyForStatesThatDoNotRequireValues() {
+        var declined = new PacketType<>(
+                "clientbound.registry_data",
+                ModelValue.class,
+                CLIENTBOUND,
+                Set.of(CONFIGURATION),
+                List.of("minecraft:registry_data"),
+                ProtocolVersion.V26_3,
+                new PacketCodec<ModelValue>() {
+                    public ModelValue read(ByteBuf input, ProtocolContext context) {
+                        return null;
+                    }
+                });
+        var catalog = new ArrayList<>(Packets.all());
+        catalog.add(declined);
+        var runtime = ProtocolRuntime.create(ProtocolData.load(ProtocolVersion.V26_3), catalog);
+        CodecState optional = new CodecState() {
+            public <T> T require(Class<T> type) {
+                return CodecState.EMPTY.require(type);
+            }
+
+            public boolean requiresValues() {
+                return false;
+            }
+        };
+        int id = runtime.data().packets(CONFIGURATION, CLIENTBOUND).id("minecraft:registry_data");
+        var input = Unpooled.buffer();
+        try {
+            assertNull(runtime.decode(CONFIGURATION, CLIENTBOUND, id, input, optional));
+            assertThrows(
+                    ProtocolResolutionException.class,
+                    () -> runtime.decode(CONFIGURATION, CLIENTBOUND, id, input, CodecState.EMPTY));
+        } finally {
+            input.release();
         }
     }
 

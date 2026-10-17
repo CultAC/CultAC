@@ -1,7 +1,10 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.cultac.network.packet.RegistryTags;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.WireValueDecoder.RegistryEntry;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -149,18 +152,62 @@ public final class ClientComponentRegistries {
                 .anyMatch(boundary -> !observed.atLeast(boundary) && client.atLeast(boundary));
     }
 
-    public void finishConfiguration(ProtocolVersion source, ProtocolVersion observed, ProtocolVersion client) {
+    /**
+     * A finish_configuration generation: received contents, the tags they reset, the client-effective tag
+     * reloads and the world registries built from them.
+     */
+    public record StagedConfiguration(
+            Map<String, List<RegistryEntry>> received,
+            Map<String, RegistryTags.Payload> reset,
+            Map<String, RegistryTags.Payload> effective,
+            ClientWorldRegistries.Generation world) {}
+
+    /**
+     * Builds this configuration's generation without publishing any of it. {@code bound} carries configuration
+     * tags an older wire binds only at finish; null when it has none.
+     */
+    public StagedConfiguration stageConfiguration(
+            ProtocolVersion source, ProtocolVersion observed, ProtocolVersion client, RegistryTags bound) {
+        var pendingTags = configurationTags;
+        if (bound != null) {
+            pendingTags = new LinkedHashMap<>(pendingTags == null ? Map.of() : pendingTags);
+            pendingTags.putAll(bound.tags());
+        }
         boolean worldContentsReceived = configurationRegistries != null;
         boolean originalClientHasRegistryData =
                 configurationRegistries != null || viaAppendsRegistryData(observed, client);
+        var received = receivedRegistries;
+        var reset = new LinkedHashMap<String, RegistryTags.Payload>();
         if (configurationRegistries != null) {
             // ContentsCollector creates a new remote biome registry; omitted or whole-empty
             // tag packets do not carry its previous registry's memberships into that level.
             if (configurationRegistries.containsKey("minecraft:worldgen/biome"))
-                tags.put("minecraft:worldgen/biome", ac.cult.cultac.network.packet.RegistryTags.Payload.EMPTY);
+                reset.put("minecraft:worldgen/biome", RegistryTags.Payload.EMPTY);
             if (configurationRegistries.containsKey(ClientWorldRegistries.PAINTINGS))
-                tags.put(ClientWorldRegistries.PAINTINGS, ac.cult.cultac.network.packet.RegistryTags.Payload.EMPTY);
-            receivedRegistries = Map.copyOf(configurationRegistries);
+                reset.put(ClientWorldRegistries.PAINTINGS, RegistryTags.Payload.EMPTY);
+            received = Map.copyOf(configurationRegistries);
+        }
+        if (pendingTags == null)
+            return new StagedConfiguration(worldContentsReceived ? received : null, reset, null, null);
+        var effective = new LinkedHashMap<String, RegistryTags.Payload>();
+        pendingTags.forEach((registry, payload) -> {
+            // RegistryDataCollector's contents branch skips whole-empty static
+            // tag reloads. Its tags-only branch applies them, including clears.
+            // A named tag with [] is nonempty and always replaces its binding.
+            if (!originalClientHasRegistryData || !clientPayloadIsEmpty(registry, payload, source, client))
+                effective.put(registry, payload);
+        });
+        var world = worldRegistries == null
+                ? null
+                : worldRegistries.stage(received, observed, effective, worldContentsReceived);
+        return new StagedConfiguration(worldContentsReceived ? received : null, reset, effective, world);
+    }
+
+    /** Applies a staged generation; nothing here can fail. */
+    public void publish(StagedConfiguration staged, ProtocolVersion observed) {
+        if (staged.received() != null) {
+            tags.putAll(staged.reset());
+            receivedRegistries = staged.received();
             receivedRegistryVersion = observed;
             configurationRegistries = null;
             simulationDefaults = null;
@@ -168,19 +215,38 @@ public final class ClientComponentRegistries {
             simulationActions = null;
             simulatorTags.clear(); // Dynamic biome tag IDs may name different entries in the new contents.
         }
-        if (configurationTags == null) return;
-        var effective = new java.util.LinkedHashMap<String, ac.cult.cultac.network.packet.RegistryTags.Payload>();
-        configurationTags.forEach((registry, payload) -> {
-            // RegistryDataCollector's contents branch skips whole-empty static
-            // tag reloads. Its tags-only branch applies them, including clears.
-            // A named tag with [] is nonempty and always replaces its binding.
-            if (!originalClientHasRegistryData || !clientPayloadIsEmpty(registry, payload, source, client))
-                effective.put(registry, payload);
-        });
-        if (worldRegistries != null)
-            worldRegistries.finish(receivedRegistries, observed, effective, worldContentsReceived);
-        appendTags(new ac.cult.cultac.network.packet.RegistryTags(effective), false);
+        if (staged.effective() == null) return;
+        if (staged.world() != null) worldRegistries.publish(staged.world());
+        appendTags(new RegistryTags(staged.effective()), false);
         configurationTags = null;
+    }
+
+    /** Model defaults after a generation failed to stage: no received contents and no received tags. */
+    public void fallback() {
+        var received =
+                configurationRegistries != null && configurationRegistries.containsKey(ClientWorldRegistries.DIMENSIONS)
+                        ? configurationRegistries.get(ClientWorldRegistries.DIMENSIONS)
+                        : receivedRegistries.get(ClientWorldRegistries.DIMENSIONS);
+        // A repeated failure keeps the client's dimension order from the published generation.
+        List<String> dimensions = received != null
+                ? received.stream().map(RegistryEntry::name).toList()
+                : worldRegistries == null
+                        ? null
+                        : worldRegistries.snapshot().registries().get(ClientWorldRegistries.DIMENSIONS).stream()
+                                .map(ClientWorldRegistries.Definition::key)
+                                .toList();
+        tags.clear();
+        geometryTags = null;
+        actionTags.clear();
+        simulatorTags.clear();
+        configurationTags = null;
+        configurationRegistries = null;
+        receivedRegistries = Map.of();
+        receivedRegistryVersion = null;
+        simulationDefaults = null;
+        simulationRegistries = null;
+        simulationActions = null;
+        if (worldRegistries != null) worldRegistries.fallback(dimensions);
     }
 
     private static boolean clientPayloadIsEmpty(

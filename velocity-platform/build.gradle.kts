@@ -27,6 +27,7 @@ dependencies {
     compileOnly("com.velocitypowered:velocity-api:3.4.0")
     compileOnly("io.netty:netty-handler:4.2.18.Final")
     testImplementation("com.velocitypowered:velocity-api:3.4.0")
+    testImplementation(project(":reload-api"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testImplementation("org.mockito:mockito-core:5.22.0")
     testImplementation("io.netty:netty-handler:4.2.18.Final")

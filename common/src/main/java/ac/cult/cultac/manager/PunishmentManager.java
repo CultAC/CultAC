@@ -162,6 +162,8 @@ public class PunishmentManager implements ConfigReloadable {
                         if (shouldRun) {
                             String renderedVerbose = safeGet(verbose);
                             String cmd = replaceAlertPlaceholders(command.command, vl, check, renderedVerbose);
+                            // Only console commands can reach a backend's CommandExecuteEvent listeners;
+                            // the built-in actions below are decided by this event alone.
                             boolean canceled = COMMAND_CHANNEL.fire(
                                     ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
                                     ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(check),
@@ -203,7 +205,8 @@ public class PunishmentManager implements ConfigReloadable {
                                         CultAPI.INSTANCE.getAlertManager().sendAlert(message, verboseListeners);
                                     }
                                 }
-                                default ->
+                                default -> {
+                                    double violations = check.getViolations();
                                     CultAPI.INSTANCE
                                             .getScheduler()
                                             .getGlobalRegionScheduler()
@@ -215,7 +218,12 @@ public class PunishmentManager implements ConfigReloadable {
                                                                     CultAPI.INSTANCE
                                                                             .getPlatformServer()
                                                                             .getConsoleSender(),
-                                                                    cmd));
+                                                                    cmd,
+                                                                    player.platformPlayer,
+                                                                    check,
+                                                                    violations,
+                                                                    renderedVerbose));
+                                }
                             }
                         }
 

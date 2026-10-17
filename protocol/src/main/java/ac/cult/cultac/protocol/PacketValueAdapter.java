@@ -4,6 +4,7 @@ import io.netty.buffer.ByteBuf;
 
 /** Platform-side model values decoded directly from an older observation, without projected frames. */
 public interface PacketValueAdapter {
+    /** Null when the value needs connection state this connection lacks; see {@link CodecState#requiresValues}. */
     Object read(ByteBuf input, ProtocolContext context);
 
     /** Diagnostic decoding must not update connection registry or simulation state. */

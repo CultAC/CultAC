@@ -2,6 +2,7 @@ package ac.cult.cultac.events.packets.listeners;
 
 import ac.cult.blocksim.data.HolderSets;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.environment.DimensionData;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsE;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsF;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsG;
@@ -9,9 +10,11 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.checks.impl.elytra.ElytraC;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
+import ac.cult.cultac.events.packets.RegistryGenerationAlerts;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
@@ -56,6 +59,12 @@ public class PacketPlayerRespawn {
         });
     }
 
+    @CultPacketHandler("clientbound.start_configuration")
+    public void onStartConfiguration(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        player.getSetbackTeleportUtil().levelLeft();
+        player.getGhostBlockMitigator().clearLevel();
+    }
+
     @CultPacketHandler
     public void onLogin(PacketSendEvent<ClientboundLogin> event, CultPlayer player, ClientboundLogin packet) {
         // for the purposes of detecting mineflayer stuff, send a transaction
@@ -73,7 +82,6 @@ public class PacketPlayerRespawn {
         });
 
         var spawnInfo = packet.spawnInfo();
-        var dimensionType = player.getWorldRegistries().dimension(spawnInfo.dimensionTypeId());
         player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
                 spawnInfo.gameMode().name());
         player.canInstabuild = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE;
@@ -111,7 +119,8 @@ public class PacketPlayerRespawn {
                 new TrackerData(0, 0, 0, 0, 0, EntityTypeIds.PLAYER, player.lastTransactionSent.get());
         player.dimension = HolderSets.identifier(spawnInfo.dimension());
         player.world = spawnInfo.dimension();
-        player.compensatedWorld.setLastClientboundDimension(player.world, dimensionType.dimension());
+        // A Java ClientLevel is replaced at LOGIN receipt, below.
+        if (player.isBedrockMovement()) player.compensatedWorld.clearChunks();
         player.compensatedWorld.serverWorldChangeSent();
         // handleLogin creates a fresh ClientLevel, including same-dimension switches.
         // Its replacement player has no prior travel carry, ground state or active use.
@@ -121,6 +130,7 @@ public class PacketPlayerRespawn {
                 player.compensatedWorld.clearChunks();
                 player.compensatedWorld.clearPistonLikeState();
                 player.compensatedEntities.clearClientLevel();
+                player.compensatedWorld.isRaining = false;
                 if (newJavaLocalPlayer) {
                     player.actionManager.onJavaPlayerReplacement();
                     player.onGround = player.lastOnGround = false;
@@ -135,13 +145,34 @@ public class PacketPlayerRespawn {
         }
         player.serverSentSelfSharedFlags = null;
         player.compensatedWorld.onClientLogin();
-        player.compensatedWorld.setDimension(player.world, dimensionType);
+        var dimensionType = dimensionType(player, spawnInfo.dimensionTypeId());
+        if (dimensionType != null) {
+            player.compensatedWorld.setLastClientboundDimension(player.world, dimensionType.dimension());
+            player.compensatedWorld.setDimension(player.world, dimensionType);
+        } else {
+            player.compensatedWorld.setLastClientboundUnresolved(player.world);
+            player.compensatedWorld.setUnresolvedDimension(player.world);
+        }
         player.compensatedWorld.clientSeaLevel(spawnInfo.seaLevel());
         player.compensatedWorld.clientBiomeZoomSeed(spawnInfo.biomeZoomSeed());
         player.compensatedWorld.resetClientPredictions();
         player.checkManager.getListener(BadPacketsH.class).resetLevel();
+        player.getGhostBlockMitigator().clearLevel();
         final long joinedAt = System.currentTimeMillis();
         player.lastJoinedWorld = joinedAt;
+    }
+
+    /**
+     * Null, reported, when the published generation cannot name this dimension type. The level reset still
+     * applies and the level stays unresolved: its chunks are left out of the model and checks are paused.
+     */
+    private static DimensionData.Binding dimensionType(CultPlayer player, int id) {
+        try {
+            return player.getWorldRegistries().readableDimension(id);
+        } catch (RuntimeException failure) {
+            RegistryGenerationAlerts.unresolvedDimension(player, id, failure);
+            return null;
+        }
     }
 
     @CultPacketHandler
@@ -149,7 +180,6 @@ public class PacketPlayerRespawn {
         var spawnInfo = packet.spawnInfo();
         String dimension = HolderSets.identifier(spawnInfo.dimension());
         String worldName = spawnInfo.dimension();
-        var dimensionType = player.getWorldRegistries().dimension(spawnInfo.dimensionTypeId());
         final List<Runnable> afterSend = event.getTasksAfterSend();
         afterSend.add(player::sendTransaction);
         final GameMode respawnMode = GameMode.valueOf(spawnInfo.gameMode().name());
@@ -162,7 +192,10 @@ public class PacketPlayerRespawn {
         boolean worldChange = player.compensatedWorld.isLastClientboundDimensionChange(worldName);
         String previousClientboundDimension =
                 player.compensatedWorld.getLastClientboundDimension().dimension();
-        player.compensatedWorld.setLastClientboundDimension(worldName, dimensionType.dimension());
+        var dimensionType = dimensionType(player, spawnInfo.dimensionTypeId());
+        if (dimensionType != null)
+            player.compensatedWorld.setLastClientboundDimension(worldName, dimensionType.dimension());
+        else player.compensatedWorld.setLastClientboundUnresolved(worldName);
         // The server's new player entity starts from default shared flags.
         player.serverSentSelfSharedFlags = null;
 
@@ -183,7 +216,10 @@ public class PacketPlayerRespawn {
         final boolean keepEntityData = packet.shouldKeep(ClientboundRespawn.KEEP_ENTITY_DATA);
         final boolean keepAttributeModifiers = packet.shouldKeep(ClientboundRespawn.KEEP_ATTRIBUTE_MODIFIERS);
         // TODO: What does keep all metadata do?
+        // A later login replaces this level; its respawn must not touch the new one.
+        int level = player.compensatedWorld.level();
         final Runnable applyRespawnState = () -> {
+            if (level != player.compensatedWorld.level()) return;
             player.isSneaking = false;
             final BadPacketsF badPacketsF = player.checkManager.getListener(BadPacketsF.class);
             badPacketsF.exemptNext = true;
@@ -225,6 +261,7 @@ public class PacketPlayerRespawn {
                 player.compensatedWorld.clearPistonLikeState();
                 player.compensatedWorld.clearChunksForDimension(previousClientboundDimension);
                 player.compensatedWorld.resetClientPredictions();
+                player.getGhostBlockMitigator().clearLevel();
                 player.compensatedWorld.isRaining = false;
                 sequences.levelProven(sequenceLevel);
                 final long worldJoinTime = System.currentTimeMillis();
@@ -276,7 +313,8 @@ public class PacketPlayerRespawn {
                     || player.gamemode == ac.cult.cultac.protocol.value.GameMode.SPECTATOR;
             respawnedSelf.onRespawn(
                     keepAttributeModifiers, player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE);
-            player.compensatedWorld.setDimension(worldName, dimensionType);
+            if (dimensionType != null) player.compensatedWorld.setDimension(worldName, dimensionType);
+            else player.compensatedWorld.setUnresolvedDimension(worldName);
             // ClientPacketListener creates a new ClientLevel only when the dimension key changes.
             if (worldChange) {
                 player.compensatedWorld.clientSeaLevel(spawnInfo.seaLevel());

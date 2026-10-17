@@ -160,6 +160,11 @@ public final class ProtocolRuntime {
         if (bound == null) throw new ProtocolResolutionException("No consumed codec for " + direction + "/" + id);
         try {
             Object record = bound.type().codec().read(input, state.bind(bound.context()));
+            if (record == null) {
+                if (state.requiresValues())
+                    throw new ProtocolResolutionException("Unavailable value for " + bound.type());
+                return null;
+            }
             if (!bound.type().recordClass().isInstance(record)) {
                 throw new ProtocolResolutionException("Wrong decoded record for " + bound.type());
             }

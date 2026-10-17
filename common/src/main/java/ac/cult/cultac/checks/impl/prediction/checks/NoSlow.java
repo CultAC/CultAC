@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.grim.grimac.api.config.ConfigManager;
 
 /** Only source-proven incorrect movement produces a flag. Desync policy owns no violations. */
@@ -59,7 +60,14 @@ public final class NoSlow extends Check implements PostPredictionListener {
         result.setItemUseResult(best);
         if (best.deterministic(threshold)) {
             if (flag("offset=" + best.legalOffset() + ",tick=" + best.state().tick() + ",proof="
-                    + best.state().proof())) setbackIfAboveSetbackVL();
+                            + best.state().proof())
+                    && setbackIfAboveSetbackVL()) clearFlaggedUse();
         } else if (best.state().required() && best.slowedOffset() <= threshold) reward();
+    }
+
+    private void clearFlaggedUse() {
+        ClientItemUseState.ActiveUse use = player.clientItemUse.activeUse();
+        if (use != null && player.platformPlayer != null)
+            player.platformPlayer.clearActiveItem(use.hand(), use.itemKey());
     }
 }

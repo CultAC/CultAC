@@ -13,6 +13,8 @@ final class PacketRoutes {
         entries = routes.clone();
         for (var type : ConnectionLifecycle.types()) structural(type);
         structural(ClientboundPackets.BUNDLE_DELIMITER);
+        // The play login gives the client its level back; it is placed whether or not a listener wants it.
+        structural(ClientboundPackets.LOGIN);
     }
 
     private void structural(PacketType<?> type) {

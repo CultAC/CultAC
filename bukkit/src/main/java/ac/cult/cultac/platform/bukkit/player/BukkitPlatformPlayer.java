@@ -11,6 +11,7 @@ import ac.cult.cultac.platform.bukkit.sender.BukkitComponentSender;
 import ac.cult.cultac.platform.bukkit.utils.convert.BukkitConversionUtils;
 import ac.cult.cultac.platform.bukkit.utils.reflection.PaperUtils;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.common.arguments.CommonCultArguments;
 import ac.cult.cultac.utils.math.Location;
 import ac.cult.cultac.utils.math.Vec3;
@@ -112,8 +113,8 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
     }
 
     @Override
-    public void clearActiveItem() {
-        bukkitPlayer.clearActiveItem();
+    public void clearActiveItem(Hand hand, String itemKey) {
+        // A main-thread clear is not ordered with the client's packets and could end a later legitimate use.
     }
 
     @Override

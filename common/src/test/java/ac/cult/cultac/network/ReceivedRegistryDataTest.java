@@ -23,7 +23,9 @@ import org.junit.jupiter.api.Test;
 
 class ReceivedRegistryDataTest {
     private static void finish(ClientComponentRegistries state) {
-        state.finishConfiguration(ProtocolVersion.V26_3, ProtocolVersion.V26_3, ProtocolVersion.V26_3);
+        state.publish(
+                state.stageConfiguration(ProtocolVersion.V26_3, ProtocolVersion.V26_3, ProtocolVersion.V26_3, null),
+                ProtocolVersion.V26_3);
     }
 
     @Test

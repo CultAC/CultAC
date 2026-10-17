@@ -274,7 +274,7 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         variableReplacements.putIfAbsent(
                 "%tps%",
                 user -> String.format(
-                        "%.2f", CultAPI.INSTANCE.getPlatformServer().getTPS()));
+                        "%.2f", CultAPI.INSTANCE.getPlatformServer().getTPS(user.getUniqueId())));
         variableReplacements.putIfAbsent("%version%", GrimUser::getVersionName);
         // static variables
         staticReplacements.put(

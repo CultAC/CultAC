@@ -1323,10 +1323,13 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             player.compensatedEntities.serverPositionsMap.remove(entityID);
         }
 
+        // A Java login clears entities; an older level's removal must not remove a reused ID in the new one.
+        int level = player.compensatedWorld.level();
         Runnable removeTask = () -> {
             boolean wasPassenger = player.compensatedEntities.getSelf().inVehicle();
             for (int integer : destroyEntityIds) {
-                if (!player.isBedrockMovement()) player.compensatedEntities.removeEntity(integer);
+                if (!player.isBedrockMovement() && level == player.compensatedWorld.level())
+                    player.compensatedEntities.removeEntity(integer);
                 player.compensatedFireworks.removeFirework(integer);
             }
             if (wasPassenger
@@ -1848,7 +1851,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         int spawnTransaction = transaction >= 0 ? transaction : player.lastTransactionSent.get();
         player.compensatedEntities.serverPositionsMap.put(
                 entityID, new TrackerData(position.x, position.y, position.z, xRot, yRot, type, spawnTransaction));
+        // A Java login clears entities; Bedrock actors leave at Geyser's own removals.
+        int level = player.compensatedWorld.level();
         Runnable addTask = () -> {
+            if (!player.isBedrockMovement() && level != player.compensatedWorld.level()) return;
             player.compensatedEntities.addEntity(entityID, type, position, xRot, yRot, extraData);
             if (uuid != null
                     && player.compensatedEntities.getEntity(entityID)

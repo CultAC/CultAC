@@ -80,6 +80,7 @@ import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
@@ -885,7 +886,7 @@ public class CheckManager {
             // post-entity interpolation state, not the stale pre-tick-end cache.
             player.compensatedWorld.onClientTickEnd();
             for (TickEndHandlerRegistration handler : tickEndHandlers) {
-                handler.handle(packet);
+                handler.handle(packet, player);
             }
             player.visibilityDebug.update();
         }
@@ -1159,9 +1160,26 @@ public class CheckManager {
         final Set<CheckListener> sendListeners = Collections.newSetFromMap(new IdentityHashMap<>());
     }
 
-    private record TickEndHandlerRegistration(ClientTickEndListener listener) {
-        void handle(PacketReceiveEvent event) {
-            listener.onPlayerTickEnd(event);
+    /** A tick-end handler. One that throws is logged, once per player, and the handlers after it still run. */
+    private static final class TickEndHandlerRegistration {
+        private final ClientTickEndListener listener;
+        private boolean failed;
+
+        TickEndHandlerRegistration(ClientTickEndListener listener) {
+            this.listener = listener;
+        }
+
+        void handle(PacketReceiveEvent event, CultPlayer player) {
+            try {
+                listener.onPlayerTickEnd(event);
+            } catch (RuntimeException | LinkageError failure) {
+                if (failed) return;
+                failed = true;
+                LogUtil.error(
+                        "Tick-end handler " + listener.getClass().getSimpleName() + " failed for " + player.getName()
+                                + "; later failures of it are not logged",
+                        failure);
+            }
         }
     }
 }

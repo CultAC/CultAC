@@ -2,9 +2,15 @@ package ac.cult.cultac.bedrock.replay.offline;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.*;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.bedrock.MovementPlatform;
+import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsG;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
@@ -18,10 +24,15 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
+import ac.cult.cultac.utils.anticheat.update.BlockPlace;
+import ac.cult.cultac.utils.data.TrackerData;
+import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.Test;
 
@@ -260,6 +271,103 @@ public final class PacketPlayerRespawnLifecycleTest {
         }
     }
 
+    @Test
+    public void javaLoginStartsAnEmptyLevelWithoutPreviousEntities() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = offlineJavaPlayer();
+        try {
+            var entities = player.compensatedEntities;
+            entities.addEntity(7, EntityTypeIds.SHULKER, new Vec3(1, 64, 1), 0, 0, 0);
+            entities.serverPositionsMap.put(
+                    7, new TrackerData(1, 64, 1, 0, 0, EntityTypeIds.SHULKER, player.lastTransactionSent.get()));
+            player.compensatedWorld.isRaining = true;
+            ClientboundLogin login = loginPacket(true);
+            var loginEvent = sendEvent(player, ClientboundPackets.LOGIN, login);
+            // The ping sent after LOGIN proves its receipt.
+            int receipt = player.lastTransactionSent.get() + 1;
+            new PacketPlayerRespawn().onLogin(loginEvent, player, login);
+            assertNotNull("The old level remains until LOGIN receipt", entities.getEntity(7));
+            loginEvent.tasksAfter().forEach(Runnable::run);
+            player.lastTransactionReceived.set(receipt);
+            player.latencyUtils.handleNettySyncTransaction(receipt);
+            assertNull(entities.getEntity(7));
+            assertTrue(entities.entityMap.isEmpty());
+            assertTrue(entities.serverPositionsMap.isEmpty());
+            assertFalse(player.compensatedWorld.isRaining);
+            assertSame(entities.getSelf(), entities.playerEntity);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void bedrockLoginKeepsActorsUntilTheirNativeRemoval() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = offlinePlayer(true);
+        try {
+            var entities = player.compensatedEntities;
+            entities.addEntity(7, EntityTypeIds.SHULKER, new Vec3(1, 64, 1), 0, 0, 0);
+            ClientboundLogin login = loginPacket(true);
+            new PacketPlayerRespawn().onLogin(sendEvent(player, ClientboundPackets.LOGIN, login), player, login);
+            assertNotNull(entities.getEntity(7));
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void unacknowledgedPlacementsDoNotSurviveALevelReplacement() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        for (String replacement : new String[] {"login", "configuration", "world change", "same world"}) {
+            CultPlayer player = offlineJavaPlayer();
+            try {
+                var listener = new PacketPlayerRespawn();
+                var mitigator = player.getGhostBlockMitigator();
+                BlockPos pos = new BlockPos(3, 64, 3);
+                BlockPlace place = mock(BlockPlace.class);
+                when(place.isUseItem()).thenReturn(true);
+                when(place.getPlacedBlockPos()).thenReturn(pos);
+                when(place.getPlacedAgainstBlockLocation()).thenReturn(pos);
+                mitigator.handleBlockPlace(pos, 0, 1, place);
+                mitigator.unknownStuff.get(pos).setReverted(true);
+                assertTrue(mitigator.isDesyncPos(pos));
+
+                switch (replacement) {
+                    case "login" -> {
+                        ClientboundLogin login = loginPacket(true);
+                        listener.onLogin(sendEvent(player, ClientboundPackets.LOGIN, login), player, login);
+                    }
+                    case "configuration" -> listener.onStartConfiguration(null, player, null);
+                    default -> {
+                        boolean worldChange = replacement.equals("world change");
+                        var respawn = new ClientboundRespawn(
+                                new PlayerSpawnInfo(
+                                        ModelRegistryNamesState.defaults()
+                                                .id(
+                                                        "minecraft:dimension_type",
+                                                        worldChange ? "minecraft:the_nether" : "minecraft:overworld"),
+                                        worldChange ? "minecraft:the_nether" : "minecraft:overworld",
+                                        GameMode.SURVIVAL),
+                                (byte) 0);
+                        listener.onRespawn(sendEvent(player, ClientboundPackets.RESPAWN, respawn), player, respawn);
+                        player.lastTransactionReceived.set(1);
+                        player.latencyUtils.handleNettySyncTransaction(1);
+                    }
+                }
+
+                boolean kept = replacement.equals("same world");
+                assertEquals(replacement, kept, mitigator.isDesyncPos(pos));
+                assertEquals(replacement, !kept, mitigator.unknownStuff.isEmpty());
+                assertEquals(
+                        replacement,
+                        !kept,
+                        setField(mitigator, "bucketUseLocations").isEmpty());
+            } finally {
+                OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+            }
+        }
+    }
+
     private static ClientboundRespawn respawnPacket() {
         int id = ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:overworld");
         return new ClientboundRespawn(new PlayerSpawnInfo(id, "minecraft:overworld", GameMode.SURVIVAL), (byte) 0);
@@ -280,7 +388,17 @@ public final class PacketPlayerRespawnLifecycleTest {
         return field.getBoolean(target);
     }
 
+    private static Set<?> setField(Object target, String name) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return (Set<?>) field.get(target);
+    }
+
     private static CultPlayer offlineJavaPlayer() {
+        return offlinePlayer(false);
+    }
+
+    private static CultPlayer offlinePlayer(boolean bedrock) {
         UUID playerId = UUID.fromString("9c5e440b-265d-435f-98f1-1f539659c002");
         var platform = mock(ac.cult.cultac.network.PlatformConnection.class);
         when(platform.initialWorldData())
@@ -293,6 +411,8 @@ public final class PacketPlayerRespawnLifecycleTest {
         for (var direction : ac.cult.cultac.protocol.PacketDirection.values())
             connection.phase(direction, ConnectionPhase.PLAY);
         User user = new User(new User.Profile(playerId, ".Respawn_Test"), connection);
-        return new CultPlayer(user);
+        return bedrock
+                ? new CultPlayer(user, MovementPlatform.BEDROCK, new BedrockPlayerState(playerId))
+                : new CultPlayer(user);
     }
 }

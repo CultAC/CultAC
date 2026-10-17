@@ -16,7 +16,7 @@ import java.util.LinkedHashMap;
 
 /** Registry identifiers and varint tag members; no native objects or shared tag rebinding. */
 public final class RegistryTagValues {
-    private static final java.util.Set<String> STATIC =
+    static final java.util.Set<String> STATIC =
             java.util.Set.of("minecraft:block", "minecraft:item", "minecraft:entity_type", "minecraft:fluid");
 
     private RegistryTagValues() {}
@@ -48,11 +48,15 @@ public final class RegistryTagValues {
 
     /** Project received member IDs through their source names using the same raw tag reader. */
     static RegistryTags readProjected(ByteBuf input, ProtocolVersion version, WireRegistryState names) {
-        int count = Wire.readLength(input, input.readableBytes());
+        return project(read(input), version, names);
+    }
+
+    /** Binds source wire member IDs through the current received names to model IDs. */
+    static RegistryTags project(RegistryTags received, ProtocolVersion version, WireRegistryState names) {
         var registries = new LinkedHashMap<String, RegistryTags.Payload>();
-        for (int index = 0; index < count; index++) {
-            String registry = Wire.readIdentifier(input);
-            var payload = readPayload(input);
+        for (var wire : received.tags().entrySet()) {
+            String registry = wire.getKey();
+            var payload = wire.getValue();
             if (!names.hasModelRegistry(registry)) {
                 names.unavailable(registry, "<registry>");
                 continue;

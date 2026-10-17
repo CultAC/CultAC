@@ -28,11 +28,13 @@ public class BasePacketWorldReader {
 
     @CultPacketHandler
     public void onLevelChunkWithLight(PacketSendEvent<Chunk> event, CultPlayer player, Chunk packet) {
+        if (player.compensatedWorld.isClientboundUnresolved()) return;
         handleMapChunk(player, event, packet);
     }
 
     @CultPacketHandler
     public void onBlockUpdate(PacketSendEvent<BlockUpdate> event, CultPlayer player, BlockUpdate packet) {
+        if (player.compensatedWorld.isClientboundUnresolved()) return;
         handleBlockChange(player, event, packet);
     }
 
@@ -77,6 +79,7 @@ public class BasePacketWorldReader {
             PacketSendEvent<ac.cult.cultac.network.packet.WorldPackets.ChunkBiomes> event,
             CultPlayer player,
             ac.cult.cultac.network.packet.WorldPackets.ChunkBiomes packet) {
+        if (player.compensatedWorld.isClientboundUnresolved()) return;
         handleBiomes(player, event, packet);
     }
 
@@ -89,6 +92,7 @@ public class BasePacketWorldReader {
     @CultPacketHandler
     public void onSectionBlocksUpdate(
             PacketSendEvent<SectionBlocksUpdate> event, CultPlayer player, SectionBlocksUpdate packet) {
+        if (player.compensatedWorld.isClientboundUnresolved()) return;
         handleMultiBlockChange(player, event, packet);
     }
 
@@ -212,7 +216,9 @@ public class BasePacketWorldReader {
             if (player.chunkDebug) {
                 player.sendMessage("Chunk " + chunkX + " " + chunkZ + " was merged.");
             }
+            int level = player.compensatedWorld.level();
             player.latencyUtils.addRealTimeTask(applyTransaction, () -> {
+                if (level != player.compensatedWorld.level()) return;
                 CachedChunk existingColumn = player.compensatedWorld.getChunk(chunkX, chunkZ);
                 if (existingColumn == null) {
                     // Corrupting the player's empty chunk is actually quite meaningless

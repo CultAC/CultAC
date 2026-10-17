@@ -82,6 +82,7 @@ public final class ProjectedPackets implements AutoCloseable {
                             + observed.data().packets(phase, direction).name(id).replace("minecraft:", ""))
                     : bound.type();
             if (type == null || !consumed.test(type)) return null;
+            if (type.codec().forwardsUndecoded(input, input.readerIndex())) return null;
             Object packet;
             if (translated() && type.codec().requiresModelValues()) {
                 var context = new ProtocolContext(
@@ -94,17 +95,24 @@ public final class ProjectedPackets implements AutoCloseable {
                         state);
                 var values = Objects.requireNonNull(adapter.get(), "Missing observed value decoder");
                 packet = observation ? values.readForObservation(input, context) : values.read(input, context);
+                if (packet == null) return unavailable(type, state);
                 if (!type.recordClass().isInstance(packet))
                     throw new ProtocolResolutionException("Wrong observed value record for " + type);
                 if (type.codec().readsEntirePayload() && input.isReadable())
                     throw new MalformedPacketException("Trailing bytes on " + type);
             } else packet = observed.decode(phase, direction, id, input, state);
+            if (packet == null) return unavailable(type, state);
             return new Value(type, packet);
         } finally {
             // Codec reads are synchronous and do not mutate bytes or index marks.
             // Restore even when the codec, adapter, or consumed predicate throws.
             physical.readerIndex(readerIndex);
         }
+    }
+
+    private static Value unavailable(PacketType<?> type, CodecState state) {
+        if (state.requiresValues()) throw new ProtocolResolutionException("Unavailable value for " + type);
+        return null;
     }
 
     public <R> Encoded encode(

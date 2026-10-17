@@ -3,6 +3,7 @@ package ac.cult.cultac.protocol.netty;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.protocol.DroppedPacketException;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -183,6 +184,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             reportDecodeFailure("inbound packet decoding", failure);
             if (frame != originalFrame) frame.release();
             frame = null;
+            if (failure instanceof DroppedPacketException) return null;
             releaseOriginal = false;
             return new Forward(originalFrame, originalType, originalPacket);
         } finally {

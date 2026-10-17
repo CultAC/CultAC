@@ -136,7 +136,7 @@ class ItemUseProofTest {
             player.getItemUseDesync().onPlayerTickEnd(null);
             assertEquals(0, player.getItemUseDesync().history().size());
             verify(platform, never()).getItemUseState();
-            verify(platform, never()).clearActiveItem();
+            verify(platform, never()).clearActiveItem(any(), any());
         }
     }
 

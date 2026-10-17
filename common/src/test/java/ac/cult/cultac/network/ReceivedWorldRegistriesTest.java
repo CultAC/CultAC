@@ -2,13 +2,16 @@ package ac.cult.cultac.network;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ac.cult.blocksim.data.nbt.BinaryNbt;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.engine.ClientClocks;
+import ac.cult.blocksim.entity.PaintingSize;
 import ac.cult.blocksim.environment.ClientWorldDefaults;
 import ac.cult.cultac.network.packet.RegistryTags;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder.RegistryEntry;
 import ac.cult.cultac.utils.latency.ClientWorldRegistries;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -159,6 +162,42 @@ class ReceivedWorldRegistriesTest {
         worlds.finish(entries, ProtocolVersion.V26_3, Map.of(), false);
         assertSame(published, worlds.snapshot().registries());
         assertThrows(UnsupportedOperationException.class, () -> published.clear());
+    }
+
+    @Test
+    void olderBackendPaintingsKeepTheirReceivedSize() {
+        var initial = defaults();
+        var worlds = new ClientWorldRegistries(initial);
+        var entries = knownPacks(initial);
+        var mural = new NbtValue.Compound(Map.of(
+                "width", new NbtValue.Numeric(NbtValue.Kind.INT, 3),
+                "height", new NbtValue.Numeric(NbtValue.Kind.INT, 2),
+                "asset_id", new NbtValue.Text("example:mural")));
+        var paintings = new ArrayList<>(entries.get(ClientWorldRegistries.PAINTINGS));
+        paintings.addFirst(new RegistryEntry("example:mural", BinaryNbt.write(mural)));
+        entries.put(ClientWorldRegistries.PAINTINGS, paintings);
+        worlds.finish(entries, ProtocolVersion.V1_21_11, Map.of(), true);
+        assertEquals(new PaintingSize(3, 2), worlds.painting("example:mural"));
+        assertEquals(new PaintingSize(3, 2), worlds.initialPainting());
+        var vanilla = initial.registries()
+                .get(ClientWorldRegistries.PAINTINGS)
+                .getLast()
+                .key();
+        assertEquals(new ClientWorldRegistries(initial).painting(vanilla), worlds.painting(vanilla));
+    }
+
+    @Test
+    void unresolvablePaintingKeepsTheInitialPainting() {
+        var initial = defaults();
+        var worlds = new ClientWorldRegistries(initial);
+        var first = worlds.initialPainting();
+        var entries = knownPacks(initial);
+        var paintings = new ArrayList<>(entries.get(ClientWorldRegistries.PAINTINGS));
+        paintings.addFirst(new RegistryEntry("test:undefined", null));
+        entries.put(ClientWorldRegistries.PAINTINGS, paintings);
+        worlds.finish(entries, ProtocolVersion.V1_21_11, Map.of(), true);
+        assertEquals(first, worlds.initialPainting());
+        assertThrows(NullPointerException.class, () -> worlds.painting("test:undefined"));
     }
 
     @Test

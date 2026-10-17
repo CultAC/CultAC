@@ -241,5 +241,11 @@ max-ping-firework-boost: 1000
 # Ustaw -1, aby wyłączyć odpytywanie. Ustaw wartość dodatnią, aby odświeżać co X ticków.
 update-permission-ticks: -1
 
+# Velocity only: shared secret for the bridge to the CultAC companion on backend servers.
+# Leave empty to use Velocity's modern-forwarding secret; the companion must use the same value.
+# Use a long random value (at least 32 characters): a short one can be guessed offline.
+bridge:
+  secret: ""
+
 config-flavor: V2
 config-version: 12

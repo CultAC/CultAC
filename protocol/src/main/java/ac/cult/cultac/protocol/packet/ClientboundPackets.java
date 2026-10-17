@@ -3,6 +3,7 @@ package ac.cult.cultac.protocol.packet;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketCatalog;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.codec.connection.ClientboundCustomPayloadCodec;
 import ac.cult.cultac.protocol.codec.connection.ClientboundKeepAliveCodec;
 import ac.cult.cultac.protocol.codec.connection.DisconnectCodec;
 import ac.cult.cultac.protocol.codec.connection.MountScreenOpenCodec;
@@ -51,6 +52,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAnimate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockChangedAck;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundCooldown;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundCustomPayload;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundDamageEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundDisconnect;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
@@ -90,12 +92,16 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundTickingStep;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateMobEffect;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Clientbound families Cult routes, grouped by connection phase. Which names exist on a version comes from
  * that version's protocol data; {@code since} marks codecs verified only from a version onward.
  */
 public final class ClientboundPackets {
+    /** The CultAC proxy-to-backend bridge channel, the only clientbound payload channel handlers read. */
+    public static final String BRIDGE_CHANNEL = "cultac:bridge";
+
     private static final PacketCatalog C = PacketCatalog.clientbound();
     private static final PacketCatalog.Scope PLAY = C.in(ConnectionPhase.PLAY);
     private static final PacketCatalog.Scope COMMON = C.in(ConnectionPhase.CONFIGURATION, ConnectionPhase.PLAY);
@@ -113,6 +119,10 @@ public final class ClientboundPackets {
     public static final PacketType<ClientboundKeepAlive> KEEP_ALIVE =
             COMMON.add("keep_alive", ClientboundKeepAlive.class, new ClientboundKeepAliveCodec());
     public static final PacketType<ClientboundPing> PING = COMMON.add("ping", ClientboundPing.class, new PingCodec());
+    public static final PacketType<ClientboundCustomPayload> CUSTOM_PAYLOAD = COMMON.add(
+            "custom_payload",
+            ClientboundCustomPayload.class,
+            new ClientboundCustomPayloadCodec(Set.of(BRIDGE_CHANNEL)));
 
     // Player state.
     public static final PacketType<Opaque> BUNDLE_DELIMITER = PLAY.writableEmpty("bundle_delimiter");

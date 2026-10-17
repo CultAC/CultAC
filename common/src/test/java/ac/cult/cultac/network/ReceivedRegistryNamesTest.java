@@ -17,16 +17,16 @@ class ReceivedRegistryNamesTest {
         model.append("minecraft:enchantment", List.of("test:first"));
         model.append("minecraft:enchantment", List.of("test:second"));
         assertSame(original, model.snapshot());
-        model.finish();
+        model.publish(model.staged(false));
         var published = model.snapshot();
         assertEquals(0, published.id("minecraft:enchantment", "test:first"));
         assertEquals(1, published.id("minecraft:enchantment", "test:second"));
         assertEquals(-1, original.id("minecraft:enchantment", "test:first"));
         assertFalse(published.contains("minecraft:worldgen/configured_feature"));
-        model.finish();
+        model.publish(model.staged(false));
         assertSame(published, model.snapshot(), "A tags-only finish keeps the model ID generation");
         model.append("minecraft:enchantment", List.of());
-        model.finish();
+        model.publish(model.staged(false));
         assertEquals(0, model.snapshot().size("minecraft:enchantment"));
         assertEquals(2, published.size("minecraft:enchantment"));
         assertThrows(
@@ -49,7 +49,7 @@ class ReceivedRegistryNamesTest {
         wire.beginConfiguration();
         assertEquals("minecraft:efficiency", wire.name("minecraft:enchantment", 0));
         model.append("minecraft:enchantment", List.of("minecraft:unbreaking", "minecraft:efficiency"));
-        model.finish();
+        model.publish(model.staged(false));
         assertEquals(1, wire.modelId("minecraft:enchantment", "efficiency"));
         assertEquals("minecraft:efficiency", wire.name("minecraft:enchantment", 0));
     }

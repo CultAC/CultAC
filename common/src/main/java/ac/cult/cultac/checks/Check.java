@@ -1,6 +1,8 @@
 package ac.cult.cultac.checks;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.verdict.FlagArbiter;
+import ac.cult.cultac.checks.verdict.FlagOutcome;
 import ac.cult.cultac.player.CultPlayer;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.config.ConfigManager;
@@ -11,6 +13,7 @@ import ac.grim.grimac.api.storage.verbose.VerboseRenderContext;
 import ac.grim.grimac.internal.storage.verbose.VerboseRegistry;
 import java.util.Objects;
 import java.util.function.Supplier;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
@@ -28,6 +31,10 @@ public class Check extends CultProcessor implements AbstractCheck {
     private long lastViolationTime;
     private boolean lastFlagStoredBinaryVerbose;
     private final VerboseBuf verbose = new VerboseBuf();
+
+    // Touched only on the player's packet thread, and only while a FlagArbiter defers flags.
+    @Getter(AccessLevel.NONE)
+    private int deferredFlags;
 
     // check data
     private final @Nullable String checkName;
@@ -133,6 +140,13 @@ public class Check extends CultProcessor implements AbstractCheck {
         return flag("");
     }
 
+    /**
+     * Records a violation and alerts, unless the check is exempt or a FlagEvent handler cancels the flag.
+     *
+     * <p>When the player's {@link FlagArbiter} defers the flag, this returns true at once and the violation,
+     * punishments, storage and alert apply only when the verdict commits it. Setbacks and anything else a caller does
+     * on the return value act at once, counting the flag toward the setback VL; a cancelling verdict cannot undo them.
+     */
     public boolean flag(String verbose) {
         return flag(constant(verbose));
     }
@@ -140,32 +154,20 @@ public class Check extends CultProcessor implements AbstractCheck {
     /** Flags with verbose text that is rendered only if a flag consumer or alert reads it. */
     public boolean flag(@NotNull Supplier<String> verbose) {
         Supplier<String> alertText = memoize(Objects.requireNonNull(verbose, "verbose"));
-        if (recordFlag(alertText)) {
-            alert(alertText);
-            return true;
-        }
-        return false;
+        return recordFlag(alertText, alertText);
     }
 
     public final boolean flag(@NotNull Verbose.Writer verbose) {
         BinaryVerbose binary = lazyVerbose(verbose);
-        if (recordFlag(binary)) {
-            alert(binary.rendered());
-            return true;
-        }
-        return false;
+        return recordFlag(binary, binary.rendered());
     }
 
     public final boolean flag(@NotNull Verbose.Writer verbose, @NotNull Supplier<String> alertText) {
         BinaryVerbose binary = lazyVerbose(verbose);
-        if (recordFlag(binary)) {
-            alert(memoize(Objects.requireNonNull(alertText, "alertText")));
-            return true;
-        }
-        return false;
+        return recordFlag(binary, alertText);
     }
 
-    private boolean recordFlag(@NotNull Supplier<String> verbose) {
+    private boolean recordFlag(@NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
         if (player.isDisabled() || (experimental && !player.isExperimentalChecks()) || exemptPermission)
             return false; // Avoid calling event if disabled
 
@@ -174,14 +176,12 @@ public class Check extends CultProcessor implements AbstractCheck {
                 ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(this),
                 verbose)) return false;
 
-        lastFlagStoredBinaryVerbose = false;
-        player.punishmentManager.handleViolation(this);
-        lastViolationTime = System.currentTimeMillis();
-        violations++;
+        FlagArbiter arbiter = player.getFlagArbiter();
+        if (arbiter == null || !defer(arbiter, verbose, null, alertText)) commitFlag(null, alertText);
         return true;
     }
 
-    private boolean recordFlag(@NotNull BinaryVerbose verbose) {
+    private boolean recordFlag(@NotNull BinaryVerbose verbose, @NotNull Supplier<String> alertText) {
         Supplier<String> rendered = verbose.rendered();
         byte[] verboseData = verbose.data();
 
@@ -193,14 +193,34 @@ public class Check extends CultProcessor implements AbstractCheck {
                 ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(this),
                 ac.cult.cultac.runtime.RuntimeEnvironment.outwardVerbose(rendered))) return false;
 
-        lastFlagStoredBinaryVerbose = true;
+        FlagArbiter arbiter = player.getFlagArbiter();
+        if (arbiter == null || !defer(arbiter, rendered, verboseData, alertText)) commitFlag(verboseData, alertText);
+        return true;
+    }
+
+    /** {@code verboseData} is null for a text verbose, which stores no binary flag row. */
+    private void commitFlag(byte @Nullable [] verboseData, @NotNull Supplier<String> alertText) {
+        lastFlagStoredBinaryVerbose = verboseData != null;
         player.punishmentManager.handleViolation(this);
         lastViolationTime = System.currentTimeMillis();
         violations++;
-        CultAPI.INSTANCE
-                .getDataStoreLifecycle()
-                .liveWriteHooks()
-                .recordFlagDataFromCheck(player, this, violations, verboseData);
+        if (verboseData != null) {
+            CultAPI.INSTANCE
+                    .getDataStoreLifecycle()
+                    .liveWriteHooks()
+                    .recordFlagDataFromCheck(player, this, violations, verboseData);
+        }
+        alert(alertText);
+    }
+
+    private boolean defer(
+            @NotNull FlagArbiter arbiter,
+            @NotNull Supplier<String> verbose,
+            byte @Nullable [] verboseData,
+            @NotNull Supplier<String> alertText) {
+        double prospective = violations + deferredFlags + 1;
+        if (!arbiter.defer(this, verbose, prospective, new DeferredFlag(verboseData, alertText))) return false;
+        deferredFlags++;
         return true;
     }
 
@@ -300,7 +320,7 @@ public class Check extends CultProcessor implements AbstractCheck {
     }
 
     public boolean shouldSetback() {
-        return !noSetbackPermission && violations > setbackVL;
+        return !noSetbackPermission && violations + deferredFlags > setbackVL;
     }
 
     public boolean executeViolationSetback() {
@@ -335,6 +355,27 @@ public class Check extends CultProcessor implements AbstractCheck {
                 return value;
             }
         };
+    }
+
+    private final class DeferredFlag implements FlagOutcome {
+        private final byte @Nullable [] verboseData;
+        private final @NotNull Supplier<String> alertText;
+
+        private DeferredFlag(byte @Nullable [] verboseData, @NotNull Supplier<String> alertText) {
+            this.verboseData = verboseData;
+            this.alertText = alertText;
+        }
+
+        @Override
+        public void commit() {
+            deferredFlags--;
+            commitFlag(verboseData, alertText);
+        }
+
+        @Override
+        public void discard() {
+            deferredFlags--;
+        }
     }
 
     private record BinaryVerbose(

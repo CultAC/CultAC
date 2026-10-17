@@ -4,11 +4,14 @@ import ac.cult.cultac.network.logging.PacketLogObserver;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import io.netty.channel.*;
 import io.netty.util.concurrent.EventExecutor;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -27,7 +30,17 @@ public final class CultConnection implements CodecState {
     private volatile EventExecutor owner;
     // Kept untyped so Java connections do not require the optional Geyser classes.
     private volatile Object bedrockBridge;
+    /** How long a client may be in play without a level before a dropped packet is worth a warning. */
+    private static final long LEVEL_GRACE_NANOS = TimeUnit.SECONDS.toNanos(10);
+
     private volatile ConnectionPhase serverbound = ConnectionPhase.HANDSHAKE, clientbound = ConnectionPhase.HANDSHAKE;
+    /** The client has no level (login or configuration) and has not been sent the play login that gives it one. */
+    private volatile boolean levelPending;
+    /** When {@link #levelPending} last became true. */
+    private volatile long levelLostNanos = System.nanoTime();
+
+    private volatile boolean levelWarned;
+
     private volatile User user;
     private volatile CultPlayer player;
     private boolean ownerResolved, prepared;
@@ -112,8 +125,10 @@ public final class CultConnection implements CodecState {
 
     @Override
     public <T> T require(Class<T> type) {
-        if (type == ac.cult.cultac.utils.latency.ClientWorldRegistries.class && player != null)
-            return type.cast(player.getWorldRegistries());
+        if (type == ac.cult.cultac.utils.latency.ClientWorldRegistries.class) {
+            var attached = player;
+            return attached == null ? null : type.cast(attached.getWorldRegistries());
+        }
         if (type == ac.cult.cultac.protocol.data.RegistryNames.class && platform != null)
             return type.cast(platform.registryNames());
         return CodecState.EMPTY.require(type);
@@ -125,6 +140,16 @@ public final class CultConnection implements CodecState {
         ProtocolContext bound = contexts[slot];
         if (bound == null || !bound.binds(base, this)) contexts[slot] = bound = base.withState(this);
         return bound;
+    }
+
+    /**
+     * Only an attached player consumes model values; without one, values that need it are skipped, as are
+     * chunks of a level whose dimension type is unknown.
+     */
+    @Override
+    public boolean requiresValues() {
+        var attached = player;
+        return attached != null && !attached.compensatedWorld.isClientboundUnresolved();
     }
 
     public boolean disconnected() {
@@ -186,7 +211,19 @@ public final class CultConnection implements CodecState {
 
     public void phase(PacketDirection direction, ConnectionPhase phase) {
         if (direction == PacketDirection.SERVERBOUND) serverbound = Objects.requireNonNull(phase);
-        else clientbound = Objects.requireNonNull(phase);
+        else {
+            clientbound = Objects.requireNonNull(phase);
+            if (phase == ConnectionPhase.PLAY) levelPending = false;
+            else levelLost();
+        }
+    }
+
+    /**
+     * Whether the client is in play with a level: play-only packets are valid to it. Between a configuration and the
+     * play login that follows it, the client is in play but has no player or level to apply them to.
+     */
+    public boolean clientHasLevel() {
+        return clientbound == ConnectionPhase.PLAY && !levelPending;
     }
     /** Geyser's downstream channel becomes identifiable before its first handshake is read. */
     public void resolveOwner() {
@@ -310,6 +347,37 @@ public final class CultConnection implements CodecState {
     public void forwarded(PacketType<?> type, Object packet) {
         serverbound = ConnectionLifecycle.nextPhase(PacketDirection.SERVERBOUND, serverbound, type, packet);
         clientbound = ConnectionLifecycle.nextPhase(PacketDirection.CLIENTBOUND, clientbound, type, packet);
+        if (clientbound != ConnectionPhase.PLAY) levelLost();
+    }
+
+    private void levelLost() {
+        if (levelPending) return;
+        levelLostNanos = System.nanoTime();
+        levelPending = true;
+    }
+
+    /**
+     * A play-only packet of CultAC's was dropped for want of a level. Warns once per connection when the client has
+     * been in play for a while with no play login seen, as CultAC then sends it nothing until the next one.
+     */
+    public void droppedWithoutLevel(PacketType<?> type) {
+        if (levelWarned || clientbound != ConnectionPhase.PLAY) return;
+        if (System.nanoTime() - levelLostNanos < LEVEL_GRACE_NANOS) return;
+        levelWarned = true;
+        var attached = player;
+        LogUtil.warn("CultAC saw no play login for "
+                + (attached == null ? "a connection" : attached.getName())
+                + " since it left its last level; its corrections, starting with " + type + ", are not sent");
+    }
+
+    /**
+     * {@code type} took its place in the client's stream: packets placed after a play login reach a level, packets
+     * placed after the client leaves play do not. On the writing event loop, before the packet is emitted.
+     */
+    public void placedClientbound(PacketType<?> type) {
+        if (type == ClientboundPackets.LOGIN) levelPending = false;
+        else if (type == ClientboundPackets.LOGIN_FINISHED || type == ClientboundPackets.START_CONFIGURATION)
+            levelLost();
     }
 
     /** Run before forwarding the ack to the host, which may immediately connect the next backend. */

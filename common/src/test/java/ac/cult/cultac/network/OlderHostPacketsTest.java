@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
+import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.packet.RegistryTags;
@@ -15,9 +16,12 @@ import ac.cult.cultac.protocol.data.ModelRegistryData;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.latency.PalettedSection;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /** A host older than the model, as on Paper 1.21.x and older Velocity clients, decodes into model records. */
@@ -47,8 +51,12 @@ class OlderHostPacketsTest {
             Wire.writeVarInt(tags, 1);
             Wire.writeVarInt(tags, source.size());
 
-            var decoded = (RegistryTags) read(fixture, ConnectionPhase.CONFIGURATION, tags);
-            var entries = decoded.tags().get(registry).entries();
+            // Configuration tags bind at finish_configuration, against the completed contents.
+            assertEquals(new RegistryTags(Map.of()), read(fixture, ConnectionPhase.CONFIGURATION, tags));
+            var values = fixture.connection.platform().modelValues();
+            var staged = values.stage(HOST);
+            values.publish(staged);
+            var entries = staged.tags().tags().get(registry).entries();
             assertEquals(
                     List.of(model.id(registry, source.name(0)), model.id(registry, source.name(source.size() - 1))),
                     entries.get("test:mixed"));
@@ -144,6 +152,139 @@ class OlderHostPacketsTest {
             assertEquals(42, entity.id());
             assertEquals(2, ((Number) entity.packedItems().get(0).value()).intValue());
         }
+    }
+
+    @Test
+    void unattachedConnectionForwardsChunksItCannotProject() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = RecordReceiveFixture.olderHost(ProtocolVersion.V1_21_11, false)) {
+            assertNull(fixture.connection.player());
+            var chunkType = fixture.registrar.runtime().typeForKey("clientbound.level_chunk_with_light");
+            var observed = new ArrayList<Object>();
+            fixture.registrar.register(
+                    routes -> routes.sendRoute(chunkType, PacketListenerPriority.NORMAL, (event, player, packet) -> {
+                        observed.add(packet);
+                    }));
+            var chunk = frame(fixture, ConnectionPhase.PLAY, "level_chunk_with_light");
+            chunk.writeInt(0).writeInt(0);
+            Wire.writeVarInt(chunk, 0); // 1.21.5+ heightmaps are a typed list.
+            var payload = Unpooled.buffer();
+            payload.writeShort(4096);
+            payload.writeByte(0);
+            Wire.writeVarInt(payload, 1);
+            payload.writeByte(0);
+            Wire.writeVarInt(payload, 0);
+            Wire.writeVarInt(chunk, payload.readableBytes());
+            chunk.writeBytes(payload);
+            payload.release();
+            Wire.writeVarInt(chunk, 0);
+            for (int i = 0; i < 6; i++) Wire.writeVarInt(chunk, 0);
+            assertForwarded(fixture, chunk);
+            assertEquals(List.of(), observed);
+        }
+    }
+
+    @Test
+    void unattachedConnectionForwardsBiomesAndPaintings() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = RecordReceiveFixture.olderHost(ProtocolVersion.V1_21_11, false)) {
+            receivePaintingNames(fixture, "minecraft:alban");
+            var observed = consume(fixture, "clientbound.chunks_biomes", "clientbound.set_entity_data");
+            var biomes = frame(fixture, ConnectionPhase.PLAY, "chunks_biomes");
+            Wire.writeVarInt(biomes, 1);
+            biomes.writeLong(0);
+            Wire.writeVarInt(biomes, 0);
+            assertForwarded(fixture, biomes);
+            assertForwarded(fixture, paintingReference(fixture, ProtocolVersion.V1_21_11));
+            assertEquals(List.of(), observed);
+        }
+    }
+
+    @Test
+    void unattachedModelConnectionForwardsPaintingMetadata() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3, false)) {
+            var observed = consume(fixture, "clientbound.set_entity_data");
+            assertForwarded(fixture, paintingReference(fixture, ProtocolVersion.V26_3));
+            assertEquals(List.of(), observed);
+        }
+    }
+
+    @Test
+    void unresolvablePaintingIsReportedAndForwarded() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = RecordReceiveFixture.olderHost(ProtocolVersion.V1_21_11)) {
+            receivePaintingNames(fixture, "test:undefined");
+            var observed = consume(fixture, "clientbound.set_entity_data");
+            var metadata = paintingReference(fixture, ProtocolVersion.V1_21_11);
+            var expected = ByteBufUtil.getBytes(metadata);
+            try (var failures = new ReportedFailures()) {
+                assertTrue(fixture.channel.writeOutbound(metadata));
+                assertEquals(1, failures.messages().size(), failures.messages().toString());
+            }
+            ByteBuf forwarded = fixture.channel.readOutbound();
+            try {
+                assertArrayEquals(expected, ByteBufUtil.getBytes(forwarded));
+            } finally {
+                forwarded.release();
+            }
+            assertTrue(fixture.channel.isActive());
+            assertEquals(List.of(), observed);
+        }
+    }
+
+    /** Data-less painting_variant contents, as a known pack sends them. */
+    private static void receivePaintingNames(RecordReceiveFixture fixture, String... names) {
+        fixture.phase(ConnectionPhase.CONFIGURATION);
+        var registry = frame(fixture, ConnectionPhase.CONFIGURATION, "registry_data");
+        identifier(registry, "minecraft:painting_variant");
+        Wire.writeVarInt(registry, names.length);
+        for (String name : names) {
+            identifier(registry, name);
+            registry.writeBoolean(false);
+        }
+        read(fixture, ConnectionPhase.CONFIGURATION, registry);
+        fixture.phase(ConnectionPhase.PLAY);
+    }
+
+    /** The packets these routes observe; listener failures are reported, not thrown. */
+    private static List<Object> consume(RecordReceiveFixture fixture, String... keys) {
+        var observed = new ArrayList<Object>();
+        fixture.registrar.register(routes -> {
+            for (String key : keys)
+                routes.sendRoute(
+                        fixture.registrar.runtime().typeForKey(key),
+                        PacketListenerPriority.NORMAL,
+                        (event, player, packet) -> observed.add(packet));
+        });
+        return observed;
+    }
+
+    /** Forwarded unchanged because the value was declined, not because its decoding failed. */
+    private static void assertForwarded(RecordReceiveFixture fixture, ByteBuf frame) {
+        var expected = ByteBufUtil.getBytes(frame);
+        try (var failures = new ReportedFailures()) {
+            assertTrue(fixture.channel.writeOutbound(frame));
+            failures.assertNone();
+        }
+        ByteBuf forwarded = fixture.channel.readOutbound();
+        try {
+            assertArrayEquals(expected, ByteBufUtil.getBytes(forwarded));
+        } finally {
+            forwarded.release();
+        }
+        assertTrue(fixture.channel.isActive());
+    }
+
+    /** Painting variant metadata naming wire registry entry 0. */
+    private static ByteBuf paintingReference(RecordReceiveFixture fixture, ProtocolVersion version) {
+        var metadata = frame(fixture, ConnectionPhase.PLAY, "set_entity_data");
+        Wire.writeVarInt(metadata, 44);
+        metadata.writeByte(8);
+        Wire.writeVarInt(metadata, OlderBackendRegistriesTest.paintingSerializer(version));
+        Wire.writeVarInt(metadata, 1);
+        metadata.writeByte(255);
+        return metadata;
     }
 
     private static ByteBuf frame(RecordReceiveFixture fixture, ConnectionPhase phase, String name) {

@@ -8,6 +8,7 @@ import ac.cult.cultac.protocol.codec.world.BlockEventCodec;
 import ac.cult.cultac.protocol.data.*;
 import ac.cult.cultac.protocol.packet.clientbound.*;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import io.netty.buffer.*;
 import java.util.*;
 import java.util.function.Function;
@@ -22,6 +23,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
     private final ModelInventoryValues inventory;
     private final ObservedWorldValues world;
     private final ModelEntityMetadataValues metadata;
+    private final Map<String, RegistryTags.Payload> configurationTags = new LinkedHashMap<>();
 
     public ObservedPacketValues(
             WireValueDecoder decoder,
@@ -41,6 +43,37 @@ public final class ObservedPacketValues implements PacketValueAdapter {
 
     public void beginConfiguration() {
         names.beginConfiguration();
+        configurationTags.clear();
+    }
+
+    /**
+     * RegistryDataCollector binds configuration tags only at finish, against the completed contents; the packet
+     * value carries no memberships and {@link #bindConfigurationTags} returns them.
+     */
+    private RegistryTags collectTags(ByteBuf input) {
+        RegistryTagValues.read(input).tags().forEach((registry, payload) -> {
+            configurationTags.remove(registry);
+            configurationTags.put(registry, payload);
+        });
+        return new RegistryTags(Map.of());
+    }
+
+    /**
+     * This configuration's tags in model IDs, bound against the generation being staged; null when none arrived.
+     * RegistryDataCollector's contents branch ignores a dynamic registry's whole-empty payload before any lookup.
+     */
+    public RegistryTags bindConfigurationTags(boolean contentsReceived) {
+        if (configurationTags.isEmpty()) return null;
+        var supplied = new LinkedHashMap<String, RegistryTags.Payload>();
+        configurationTags.forEach((registry, payload) -> {
+            if (!contentsReceived || !payload.isEmpty() || RegistryTagValues.STATIC.contains(registry))
+                supplied.put(registry, payload);
+        });
+        return RegistryTagValues.project(new RegistryTags(supplied), version, names);
+    }
+
+    public void clearConfigurationTags() {
+        configurationTags.clear();
     }
 
     WireValueDecoder decoder() {
@@ -68,7 +101,10 @@ public final class ObservedPacketValues implements PacketValueAdapter {
     public Object read(ByteBuf input, ProtocolContext context) {
         return switch (context.wireName()) {
             case "minecraft:registry_data" -> registry(input);
-            case "minecraft:update_tags" -> RegistryTagValues.readProjected(input, version, names);
+            case "minecraft:update_tags" ->
+                context.phase() == ConnectionPhase.CONFIGURATION
+                        ? collectTags(input)
+                        : RegistryTagValues.readProjected(input, version, names);
             case "minecraft:set_time" -> ClientMetadataValues.time(input, version, names::name);
             case "minecraft:update_recipes" -> ClientMetadataValues.recipes(input, names::name);
             case "minecraft:set_entity_data" -> metadata.read(input);
@@ -104,6 +140,10 @@ public final class ObservedPacketValues implements PacketValueAdapter {
             var packet = decoder.registry(input);
             return new RegistryData(packet.registry(), packet.entries());
         }
+        if (context.wireName().equals("minecraft:update_tags") && context.phase() == ConnectionPhase.CONFIGURATION) {
+            RegistryTagValues.read(input);
+            return new RegistryTags(Map.of());
+        }
         return read(input, context);
     }
 
@@ -128,6 +168,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
         names.append(packet);
         for (var entry : packet.entries()) {
             if (!packet.registry().equals("minecraft:dimension_type")
+                    && !(entry.data() != null && ClientWorldRegistries.OLDER_RETAINED.contains(packet.registry()))
                     && names.modelId(packet.registry(), entry.name()) < 0)
                 names.unavailable(packet.registry(), entry.name());
         }

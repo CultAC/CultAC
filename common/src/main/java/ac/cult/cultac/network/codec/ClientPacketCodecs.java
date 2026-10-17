@@ -311,11 +311,10 @@ public final class ClientPacketCodecs {
                         return snapshot.id(registry, name);
                     }
                 };
-                var values = new ModelEntityMetadataValues(
-                        ProtocolCodecs.decoder(),
-                        MODEL_VERSION,
-                        names,
-                        name -> worldRegistries.apply(context).painting(name));
+                var values = new ModelEntityMetadataValues(ProtocolCodecs.decoder(), MODEL_VERSION, names, name -> {
+                    var registries = worldRegistries.apply(context);
+                    return registries == null ? null : registries.painting(name);
+                });
                 return values.read(input);
             }
 

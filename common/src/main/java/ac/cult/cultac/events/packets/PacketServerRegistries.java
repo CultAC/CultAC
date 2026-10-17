@@ -1,9 +1,13 @@
 package ac.cult.cultac.events.packets;
 
 import ac.cult.cultac.network.CultPacketHandler;
+import ac.cult.cultac.network.codec.ConnectionModelValues;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.RegistryTags;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
+import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 
 /** Tracks the tags a client received; PLAY updates apply at their transaction boundary. */
 public class PacketServerRegistries {
@@ -24,13 +28,19 @@ public class PacketServerRegistries {
             player.registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
         var state = player.registryState;
         if (event.getPhase() == ac.cult.cultac.protocol.ConnectionPhase.CONFIGURATION) {
-            if (player.isBedrockMovement()) state.appendTags(packet);
-            else state.appendConfigurationTags(packet);
+            configurationTags(player, packet);
         } else {
             player.sendTransaction();
             player.latencyUtils.addRealTimeTaskNext(() -> state.appendTags(packet));
             event.getTasksAfterSend().add(player::sendTransaction);
         }
+    }
+
+    /** Configuration tags collect until finish_configuration publishes them with the received contents. */
+    static void configurationTags(CultPlayer player, RegistryTags packet) {
+        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
+        if (player.isBedrockMovement()) player.registryState.appendTags(packet);
+        else player.registryState.appendConfigurationTags(packet);
     }
 
     @CultPacketHandler("clientbound.start_configuration")
@@ -46,6 +56,10 @@ public class PacketServerRegistries {
         player.itemUseBurst.reset();
     }
 
+    /**
+     * Stages the whole generation (model names, configuration tags, world definitions) before publishing any of
+     * it, and publishes model defaults when the generation fails to stage.
+     */
     @CultPacketHandler("clientbound.finish_configuration")
     public void onFinishConfiguration(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
         if (!player.isBedrockMovement()
@@ -55,18 +69,36 @@ public class PacketServerRegistries {
             // acknowledgement cannot authorize a new player or discard its state.
             event.getTasksAfterSend().add(() -> player.packetStateData.javaLocalPlayerPresent = false);
         }
-        if (!player.isBedrockMovement()) {
+        boolean java = !player.isBedrockMovement();
+        if (java) {
             player.compensatedWorld.resetClientClocks();
             player.compensatedEntities.clientPlayerModes.clear();
         }
-        if (!player.isBedrockMovement() && player.registryState != null) {
-            var state = player.registryState;
-            var connection = player.user.getCultConnection();
-            var model = connection.dispatcher().runtime().data().version();
-            var client = ac.cult.cultac.protocol.ProtocolVersion.of(
-                    player.getClientVersion().getProtocolVersion());
-            state.finishConfiguration(model, connection.getObservedProtocol(), client);
+        var connection = event.getUser().getCultConnection();
+        var platform = connection.platform();
+        var values = platform == null ? null : platform.modelValues();
+        var observed = connection.getObservedProtocol();
+        ConnectionModelValues.Staged names = null;
+        ClientComponentRegistries.StagedConfiguration world = null;
+        try {
+            if (values != null) names = values.stage(event.getDecodedProtocol());
+            var bound = names == null ? null : names.tags();
+            if (java && player.registryState == null && bound != null)
+                player.registryState = new ClientComponentRegistries();
+            if (java && player.registryState != null) {
+                var model = connection.dispatcher().runtime().data().version();
+                var client = ProtocolVersion.of(player.getClientVersion().getProtocolVersion());
+                world = player.registryState.stageConfiguration(model, observed, client, bound);
+            }
+        } catch (RuntimeException failure) {
+            if (values != null) values.fallback();
+            if (java && player.registryState != null) player.registryState.fallback();
+            RegistryGenerationAlerts.report(player, failure);
+            return;
         }
+        if (values != null) values.publish(names);
+        if (world != null) player.registryState.publish(world, observed);
+        else if (!java && names != null && names.tags() != null) configurationTags(player, names.tags());
     }
 
     @CultPacketHandler

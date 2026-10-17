@@ -41,6 +41,7 @@ final class ModelEntityMetadataValues {
         this.paintings = paintings;
     }
 
+    /** Null when a painting variant needs world registries this connection lacks. */
     @SuppressWarnings("unchecked") // The metadata call uses the same NBT factory as item conversion.
     EntityMetadata read(ByteBuf input) {
         int id = Wire.readVarInt(input);
@@ -61,6 +62,7 @@ final class ModelEntityMetadataValues {
                     value.value() == null ? OptionalInt.empty() : OptionalInt.of((int) value.value());
                 default -> value.value();
             };
+            if (converted == null && value.kind().equals("painting_variant")) return null;
             entries.add(new EntityMetadata.Entry(value.index(), converted, ByteBuffer.wrap(value.bytes())));
         }
         return new EntityMetadata(id, entries);

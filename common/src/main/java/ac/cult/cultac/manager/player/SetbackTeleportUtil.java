@@ -300,6 +300,16 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         return true;
     }
 
+    /**
+     * While the client is in configuration it has no level: no setback is computed, and the next play login places
+     * the player afresh. Minecraft#clearClientLevel discards the player a required setback was meant to move.
+     */
+    public void levelLeft() {
+        lastKnownGoodPosition = null;
+        hasFullyLoaded = false;
+        requiredSetBack = null;
+    }
+
     public boolean executeTooHighLatencySetback(String cause) {
         if (isExempt()) return false;
         if (player.getSetbackTeleportUtil().debug) {
@@ -563,6 +573,11 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     private void sendSetback(SetBackData data, boolean simulateVehicle, boolean dismounted) {
         // Nothing is tracked for a correction that cannot reach the client; login sends a new position.
         if (!player.canSendPlayPackets()) return;
+        if (!player.user.getCultConnection().clientHasLevel()) {
+            // A client without a level cannot take a teleport; the play login that gives it one places it anew.
+            if (requiredSetBack == data) requiredSetBack = null;
+            return;
+        }
         if (!player.isBedrockMovement() && !player.user.isPreparingWrites()) {
             // Block movement as soon as the correction is requested. Allocate its
             // proofs and dispatch its packets together at their outbound position,

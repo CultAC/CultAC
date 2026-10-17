@@ -10,6 +10,7 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * LocalPlayer.startedUsingItem and the outstanding use obligation are different state.
@@ -28,6 +29,8 @@ public final class ClientItemUseState {
             boolean definitelyUsing) {
         public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, true, false, false);
     }
+
+    public record ActiveUse(Hand hand, String itemKey) {}
 
     private record Use(Hand hand, SimItemStack stack, int remaining, SimItemStack boundStack) {}
 
@@ -229,6 +232,17 @@ public final class ClientItemUseState {
 
     public Hand hand() {
         return candidates.isEmpty() ? Hand.MAIN_HAND : candidates.getFirst().hand();
+    }
+
+    /** The hand and item type every use candidate agrees on; null when there is no candidate or they differ. */
+    public @Nullable ActiveUse activeUse() {
+        if (candidates.isEmpty()) return null;
+        Use first = candidates.getFirst();
+        String itemKey = first.stack().itemKey();
+        for (Use use : candidates) {
+            if (use.hand() != first.hand() || !use.stack().itemKey().equals(itemKey)) return null;
+        }
+        return new ActiveUse(first.hand(), itemKey);
     }
 
     public boolean hasObligation() {

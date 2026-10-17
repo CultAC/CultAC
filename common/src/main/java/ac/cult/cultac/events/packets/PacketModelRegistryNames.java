@@ -8,8 +8,8 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 
 /**
- * Publishes received registry IDs before PLAY decoding on connections that own model values.
- * Common listeners own compensated tags.
+ * Collects received registry IDs on connections that own model values; {@link PacketServerRegistries} publishes
+ * them with the rest of the generation at finish_configuration.
  */
 public final class PacketModelRegistryNames {
     private static ConnectionModelValues values(PacketSendEvent<?> event) {
@@ -20,16 +20,7 @@ public final class PacketModelRegistryNames {
     @CultPacketHandler
     public void registry(PacketSendEvent<RegistryData> event, CultPlayer player, RegistryData packet) {
         var values = values(event);
-        if (values != null)
-            values.append(
-                    packet.registry(),
-                    packet.entries().stream().map(entry -> entry.name()).toList());
-    }
-
-    @CultPacketHandler("clientbound.finish_configuration")
-    public void finish(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        var values = values(event);
-        if (values != null) values.finish(event.getDecodedProtocol());
+        if (values != null) values.append(packet.registry(), packet.entries());
     }
 
     @CultPacketHandler("clientbound.start_configuration")

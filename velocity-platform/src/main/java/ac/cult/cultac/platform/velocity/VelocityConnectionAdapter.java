@@ -146,6 +146,15 @@ final class VelocityConnectionAdapter implements PlatformConnection {
         return protocols == null ? null : protocols.client();
     }
 
+    /** Velocity sets the current server before it forwards that server's login. */
+    @Override
+    public String backendName() {
+        return nativePlayer
+                .getCurrentServer()
+                .map(server -> server.getServerInfo().getName())
+                .orElse(null);
+    }
+
     @Override
     public ConnectionModelValues modelValues() {
         return model;

@@ -119,6 +119,7 @@ public class PacketDispatcher {
         try {
             var player = user.getCultPlayer();
             if (player != null) route.dispatch(event, player, event.getOriginalPacket());
+            else route.dispatchConnection(event, event.getOriginalPacket());
         } catch (Throwable failure) {
             discardFailedDispatch(event, failure);
         }

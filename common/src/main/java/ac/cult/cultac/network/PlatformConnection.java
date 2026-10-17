@@ -41,6 +41,12 @@ public interface PlatformConnection {
         return null;
     }
 
+    /** The backend server this connection is in, where the platform has several; null otherwise. */
+    @Nullable
+    default String backendName() {
+        return null;
+    }
+
     /** Present when the observed wire can differ from the 26.3 model; shared by every platform. */
     @Nullable
     default ac.cult.cultac.network.codec.ConnectionModelValues modelValues() {

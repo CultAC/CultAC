@@ -1,9 +1,17 @@
 package ac.cult.cultac.platform.velocity;
 
+import ac.cult.cultac.bridge.protocol.BridgeMessage.ClearActiveItem;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.CloseInventory;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.SetGameMode;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.Teleport;
+import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
+import ac.cult.cultac.platform.velocity.bridge.BackendWorld;
+import ac.cult.cultac.platform.velocity.bridge.BridgeSession;
+import ac.cult.cultac.platform.velocity.bridge.VelocityBridge;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
@@ -11,6 +19,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.ItemUseState;
 import ac.cult.cultac.utils.math.Location;
 import ac.cult.cultac.utils.math.Vec3;
@@ -21,15 +30,20 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import org.jetbrains.annotations.Nullable;
 
 final class VelocityPlayer implements PlatformPlayer {
+    private static final long TELEPORT_TIMEOUT_MILLIS = 5000;
+
     private final Player player;
+    private final UUID id;
     private final VelocitySenders senders;
     private volatile CultConnection connection;
     private volatile VelocityWorld world;
 
     VelocityPlayer(Player player, VelocitySenders senders) {
         this.player = player;
+        this.id = player.getUniqueId();
         this.senders = senders;
     }
 
@@ -48,6 +62,18 @@ final class VelocityPlayer implements PlatformPlayer {
     @Override
     public boolean hasServerAuthority() {
         return false;
+    }
+
+    @Override
+    public boolean hasCapability(ServerCapability capability) {
+        return bridge(capability) != null;
+    }
+
+    /** The player's READY bridge session when it serves {@code capability}. */
+    @Nullable
+    BridgeSession bridge(ServerCapability capability) {
+        var session = VelocityBridge.sessions().current(id);
+        return session != null && session.isReady() && session.has(capability) ? session : null;
     }
 
     @Override
@@ -174,6 +200,11 @@ final class VelocityPlayer implements PlatformPlayer {
 
     @Override
     public void closeInventory() {
+        var session = bridge(ServerCapability.CLOSE_INVENTORY);
+        if (session != null) {
+            session.send(new CloseInventory());
+            return;
+        }
         CultConnection current = connection;
         if (current == null) return;
         current.execute(() -> {
@@ -189,13 +220,24 @@ final class VelocityPlayer implements PlatformPlayer {
     }
 
     @Override
-    public void clearActiveItem() {
-        // No server-side item-use mutation API.
+    public void clearActiveItem(Hand hand, String itemKey) {
+        var session = bridge(ServerCapability.CLEAR_ACTIVE_ITEM);
+        if (session == null) return;
+        int wire = hand == Hand.OFF_HAND ? ClearActiveItem.OFF_HAND : ClearActiveItem.MAIN_HAND;
+        session.send(new ClearActiveItem(wire, itemKey));
     }
 
     @Override
     public void setGameMode(GameMode mode) {
-        // A client-only game-mode change would desynchronize server permissions and abilities.
+        var session = bridge(ServerCapability.GAMEMODE);
+        if (session == null) return;
+        int wire = switch (mode) {
+            case SURVIVAL -> SetGameMode.SURVIVAL;
+            case CREATIVE -> SetGameMode.CREATIVE;
+            case ADVENTURE -> SetGameMode.ADVENTURE;
+            case SPECTATOR -> SetGameMode.SPECTATOR;
+        };
+        session.send(new SetGameMode(wire));
     }
 
     @Override
@@ -205,8 +247,23 @@ final class VelocityPlayer implements PlatformPlayer {
 
     @Override
     public CompletableFuture<Boolean> teleportAsync(Location location) {
-        // Packet setbacks have their own acknowledgement path; administrative teleports do not.
-        return CompletableFuture.completedFuture(false);
+        var session = bridge(ServerCapability.TELEPORT);
+        if (session == null) return CompletableFuture.completedFuture(false);
+        var current = player.getCurrentServer().orElse(null);
+        UUID world = location.getWorld() instanceof VelocityWorld target
+                ? target.uidOn(current)
+                : location.getWorld() instanceof BackendWorld backend ? backend.uidOn(current) : null;
+        if (world == null) return CompletableFuture.completedFuture(false);
+        return session.request(
+                requestId -> new Teleport(
+                        requestId,
+                        world,
+                        location.getX(),
+                        location.getY(),
+                        location.getZ(),
+                        location.getYaw(),
+                        location.getPitch()),
+                TELEPORT_TIMEOUT_MILLIS);
     }
 
     @Override

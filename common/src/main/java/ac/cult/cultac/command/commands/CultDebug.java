@@ -1,6 +1,7 @@
 package ac.cult.cultac.command.commands;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.manager.player.SmoketestControlBridge;
 import ac.cult.cultac.network.protocol.player.User;
@@ -306,10 +307,9 @@ public class CultDebug implements BuildableCommand {
         }
         PlatformPlayer platformPlayer = target.platformPlayer;
 
-        if (!ghostOnly && !platformPlayer.hasServerAuthority()) {
+        if (!ghostOnly && !platformPlayer.hasCapability(ServerCapability.VALIDATION_BLOCK)) {
             sender.sendMessage(Component.text(
-                    "Real validation blocks are only available on Paper; use validationpacketblock",
-                    NamedTextColor.RED));
+                    "This platform cannot mutate server blocks; use validationpacketblock", NamedTextColor.RED));
             return;
         }
 
@@ -354,8 +354,8 @@ public class CultDebug implements BuildableCommand {
                                 pos.getY(),
                                 pos.getZ(),
                                 expectedId,
-                                () -> logValidationBlock(
-                                        target, pos.getX(), pos.getY(), pos.getZ(), expectedId, "world"));
+                                () -> target.runSafely(() -> logValidationBlock(
+                                        target, pos.getX(), pos.getY(), pos.getZ(), expectedId, "world")));
             }
         });
     }
