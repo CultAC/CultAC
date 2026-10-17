@@ -15,8 +15,10 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.Auth;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Challenge;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.ClearActiveItem;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Close;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.CloudFacts;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Hello;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Listeners;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerFacts;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Ready;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Reject;
 import ac.cult.cultac.bridge.protocol.BridgeProtocol;
@@ -26,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -374,6 +377,37 @@ class BridgeServiceTest {
         assertEquals(new Listeners(0b10), endpoint.sent.get(2));
     }
 
+    @Test
+    void factsFollowReadyOncePerSessionAndPlayerFactsOnlyOnChange() {
+        InlinePlatform platform = new InlinePlatform();
+        platform.cloudFacts = new CloudFacts(50_000, Map.of("keepalive-interval-ms", "1000"));
+        platform.maxNoDamageTicks = 20;
+        service = new BridgeService(SECRET, platform, Logger.getLogger("bridge-test"), false);
+        service.receive(endpoint, hello(nonce(1)));
+        service.receive(endpoint, new Auth(hmac(nonce(1), (Challenge) endpoint.sent.get(0))));
+
+        assertInstanceOf(Ready.class, endpoint.sent.get(1));
+        assertEquals(platform.cloudFacts, endpoint.sent.get(2));
+        PlayerFacts first = assertInstanceOf(PlayerFacts.class, endpoint.sent.get(3));
+        assertEquals("20", first.settings().get("max-no-damage-ticks"));
+        assertEquals(4, endpoint.sent.size());
+        assertTrue(ServerCapability.has(((Ready) endpoint.sent.get(1)).capabilities(), ServerCapability.CLOUD_FACTS));
+
+        BridgeSession session = (BridgeSession) service.session(PLAYER);
+        service.sendPlayerFacts(session);
+        assertEquals(4, endpoint.sent.size());
+
+        platform.attackSpeedBase = 1024.0;
+        service.sendPlayerFacts(session);
+        service.sendPlayerFacts(session);
+        assertEquals(5, endpoint.sent.size());
+        assertEquals(
+                "1024.0",
+                assertInstanceOf(PlayerFacts.class, endpoint.sent.get(4))
+                        .settings()
+                        .get("attack-speed-base"));
+    }
+
     private static Hello hello(byte[] proxyNonce) {
         return new Hello(BridgeProtocol.VERSION, PLAYER, proxyNonce);
     }
@@ -417,6 +451,10 @@ class BridgeServiceTest {
     }
 
     private static final class InlinePlatform implements BridgePlatform {
+        private @Nullable CloudFacts cloudFacts;
+        private int maxNoDamageTicks = -1;
+        private double attackSpeedBase = 4.0;
+
         @Override
         public void runMain(Runnable task) {
             task.run();
@@ -430,6 +468,21 @@ class BridgeServiceTest {
         @Override
         public Ready ready(UUID player, byte[] hmac, long capabilities, int listeners) {
             return new Ready(hmac, capabilities, "test", WORLD, "world", listeners);
+        }
+
+        @Override
+        public @Nullable CloudFacts cloudFacts() {
+            return cloudFacts;
+        }
+
+        @Override
+        public @Nullable PlayerFacts playerFactsChanged(BridgeSession session) {
+            if (maxNoDamageTicks < 0 || !session.playerFactsChanged(maxNoDamageTicks, attackSpeedBase)) return null;
+            return new PlayerFacts(Map.of(
+                    "max-no-damage-ticks",
+                    String.valueOf(maxNoDamageTicks),
+                    "attack-speed-base",
+                    String.valueOf(attackSpeedBase)));
         }
     }
 

@@ -71,6 +71,10 @@ help:
     - "/cult history <player> page <N> &f- &7Jump to page N of the session list"
     - "/cult history <player> session <N|latest> [-d] [-v] &f- &7Session detail (most recent violations first)"
     - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7Session detail, violation page N"
+    - "/cult cloud &f- &7Cloud upload status: sockets, held frames and counters"
+    - "/cult findings <player> [count] &f- &7A player's latest cloud findings"
+    - "/cult top [check] [minutes] &f- &7Players with the most confident cloud findings"
+    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Label a player in the cloud's label ledger (also list, revoke)"
     - "&7======================"
 
 # === /cult history ===

@@ -1,0 +1,730 @@
+// Intake protocol 3: what a server running the anticheat sends the intake service, and what the service answers.
+//
+// The intake service owns this schema; this file is a copy of it under this project's package.
+//
+// Rules for changing it:
+// - Only add. Never change a field's number or type, never renumber an enum value, never reuse a number.
+// - Retire a field or enum value by deleting it and listing its number and name under `reserved`.
+// - Every Record body but protocol 4's ping marker is length-delimited (bytes or a message), so a reader keeps a record
+//   of a kind it does not know.
+// - Readers keep fields they do not know. Enums are open: a value a reader does not know leaves that field unknown.
+//
+// Transport: POST /api/v1/connect takes ConnectRequest and answers ConnectResponse, both as JSON (proto3's JSON
+// mapping, so field names are lowerCamelCase). The server then opens the WebSocket the answer names. Each binary
+// message from the server is a flags byte (0x01: what follows is compressed; no other bit is set), then an Intake.
+// Each binary message from the service is a Replies, with no flags byte. Both are their entries back to back, so a
+// sender writes each entry on its own and concatenates them. Protocol 3 compresses each message on its own as raw
+// DEFLATE. Protocol 4 compresses a socket's messages as one Zstandard frame (RFC 8878) that starts with the socket,
+// with a window of at most 2 MiB (window log 21) and no content checksum; each message ends at a flush, so it
+// decompresses on arrival. Protocol 5 is protocol 4's transport, probe markers and clocks without its chunk cache: no
+// Chunk, no chunk or chunk_lost record, and terrain as section, block and section_gone records; no chunk
+// packets.
+//
+// A player is 16 bytes: the UUID's most significant long, then its least, both big-endian.
+
+syntax = "proto3";
+
+package ac.cult.cultac.cloud.intake.v3;
+
+option java_multiple_files = true;
+option java_package = "ac.cult.cultac.cloud.intake.v3";
+option java_outer_classname = "IntakeProto";
+
+// The handshake's request: the protocols the server speaks, and the anticheat connecting.
+message ConnectRequest {
+  // 1 to 128 of [A-Za-z0-9._-].
+  string server_id = 1;
+  repeated uint32 protocols = 2;
+  Agent agent = 3;
+  // The diagnostics version the server offers (1); absent when it takes no diagnostics.
+  optional uint32 diag = 4;
+}
+
+message Agent {
+  // The anticheat's name, e.g. "cultac".
+  string name = 1;
+  optional string version = 2;
+  optional string commit = 3;
+  // SHA-256 over the anticheat's config files.
+  optional string config_hash = 4;
+  // "observe-only", "enforcing" or "passive".
+  optional string mode = 5;
+}
+
+// The handshake's answer: the socket to open, the protocol agreed (the highest both speak), and the most bytes a
+// message may hold decompressed, counted with protocol 4's chunk references and probe markers resolved.
+message ConnectResponse {
+  string url = 1;
+  uint32 protocol = 2;
+  uint32 max_message_bytes = 3;
+  // Present when the service takes the diagnostics the request offered: its current limits.
+  DiagLimits diag = 4;
+}
+
+// A message from the server.
+message Intake {
+  repeated IntakeMessage messages = 1;
+}
+
+message IntakeMessage {
+  oneof kind {
+    Join join = 1;
+    Leave leave = 2;
+    Frame frame = 3;
+    // Protocol 4: a chunk later records name by digest (Chunk).
+    Chunk chunk = 4;
+    // Diagnostics: one part of a bundle the service cut (DiagCut).
+    DiagPart diag = 5;
+  }
+}
+
+// A player's capture starts. Fields 1 to 15 are session facts; the client follows from 16.
+message Join {
+  // The player's own entity id.
+  optional sint32 entity_id = 1;
+  optional GameMode game_mode = 2;
+  // The dimension's registry key, such as minecraft:overworld.
+  optional string dimension_key = 3;
+  // The server's wall clock at the capture clock's zero.
+  optional uint64 epoch_millis_at_zero = 4;
+  // The server's target tick length.
+  optional uint32 tick_micros = 5;
+  // The player was online before this capture began, so earlier state was never captured.
+  bool resumed = 6;
+  // The server software's name and version.
+  optional string server = 7;
+  // Settings that change combat: the server's, the player's own (which META updates) and send-check-flags.
+  map<string, string> settings = 8;
+  // Registry entries in network-id order, by registry key: minecraft:damage_type and minecraft:enchantment.
+  map<string, Registry> registries = 9;
+  // The player's name.
+  optional string name = 10;
+  // Set for a player the server does not stream: no FRAME follows, only its LEAVE.
+  Unstreamed unstreamed = 11;
+  // Protocol 5: the server's own protocol version, whose block-state registry section and block records use.
+  optional uint32 server_protocol = 12;
+
+  bytes player = 16;
+  Edition edition = 17;
+  // The client's protocol version.
+  uint32 client_protocol = 18;
+  string brand = 19;
+  // A Bedrock client's input mode; absent for Java, and for a Bedrock player the server does not stream.
+  optional InputMode input_mode = 20;
+  // The player's dimension: whole sections within -2032 and 2032.
+  sint32 min_y = 21;
+  uint32 height = 22;
+}
+
+message Registry {
+  repeated string entries = 1;
+}
+
+enum Edition {
+  EDITION_JAVA = 0;
+  EDITION_BEDROCK = 1;
+}
+
+enum GameMode {
+  GAME_MODE_SURVIVAL = 0;
+  GAME_MODE_CREATIVE = 1;
+  GAME_MODE_ADVENTURE = 2;
+  GAME_MODE_SPECTATOR = 3;
+}
+
+enum InputMode {
+  INPUT_MODE_MOUSE = 0;
+  INPUT_MODE_TOUCH = 1;
+  INPUT_MODE_GAMEPAD = 2;
+  INPUT_MODE_MOTION_CONTROLLER = 3;
+}
+
+enum Unstreamed {
+  UNSTREAMED_NONE = 0;
+  // The client's protocol is older than the stream supports.
+  UNSTREAMED_PROTOCOL = 1;
+  UNSTREAMED_BEDROCK = 2;
+}
+
+// The player left; the service checks what is pending.
+message Leave {
+  bytes player = 1;
+}
+
+// One client tick: the packets the client sent up to and including its client_tick_end, what it received that the
+// capture asks for, and a VERDICT.
+message Frame {
+  bytes player = 1;
+  // The frames the server cut for the player since its JOIN, from 0, lost ones included.
+  uint64 seq = 2;
+  repeated Record records = 3;
+  // The server tick of the frame's first clientbound record; absent when its clientbound records have none.
+  optional uint64 server_tick = 4;
+}
+
+// Protocol 4. A clientbound level_chunk_with_light as a Record's clientbound body would carry it (packet id varint
+// first, in the client's protocol), with its light and its block entities' data cut: the four light masks and both
+// light arrays empty, each block entity's data absent. Sent on a socket before the first record naming it; the
+// receiver keeps it in that socket's chunk cache.
+message Chunk {
+  // The first 16 bytes of the body's SHA-256.
+  bytes digest = 1;
+  bytes body = 2;
+}
+
+// Protocol 4. A chunk column's position, in chunks.
+message ChunkPos {
+  sint32 x = 1;
+  sint32 z = 2;
+}
+
+message Record {
+  oneof body {
+    // A packet as it crossed the connection in the client's protocol: id varint first, uncompressed, before
+    // ViaVersion inbound.
+    bytes serverbound = 1;
+    // As serverbound, after ViaVersion outbound.
+    bytes clientbound = 2;
+    // The client entered a dimension.
+    World world = 3;
+    // The server dropped something here.
+    Gap gap = 4;
+    // The anticheat's verdict on the frame's tick.
+    Verdict verdict = 5;
+    // Session facts that changed.
+    Meta meta = 6;
+    // Protocol 4: the chunk the socket's chunk cache holds under this digest, read as a clientbound record with that
+    // Chunk's body.
+    bytes chunk = 7;
+    // Protocol 4: a clientbound ping whose body is its 4-byte id alone, sent without the id; the value is its kind.
+    PingKind ping = 8;
+    // Protocol 4: a serverbound pong answering the oldest pending ping, sent without its id.
+    Pong pong = 9;
+    // Protocol 4: the client holds terrain at this position that the service never got, or got an older copy of. The
+    // receiver unloads whatever column it has there, as a forget would, and marks the segment's terrain incomplete.
+    ChunkPos chunk_lost = 10;
+    // Protocol 5: a section of the player's world entering its range, or changed in a way no block record carries.
+    SectionRecord section = 11;
+    // Protocol 5: one block of a held section changed.
+    BlockRecord block = 12;
+    // Protocol 5: a held section left the player's range; the receiver drops it.
+    SectionGone section_gone = 14;
+  }
+  // Bodies use fields 1 to 12 and 14; 20 and above are free for record kinds to come. Every length-delimited field of a
+  // Record is its body, so a field that is not a body is never length-delimited; ping is the one body that is not.
+  //
+  // Protocol 4's pending pings: sender and receiver each keep the pings of a player's stream sent as ping markers and
+  // not yet answered, oldest first, at most 256 (one more drops the oldest), from the JOIN. A pong whose id is the
+  // oldest's goes as a pong marker and takes it off. A pong whose id is a later pending ping's goes whole, with
+  // skipped_pings the number of pings pending before that one; it and those come off. Any other pong goes whole and
+  // takes nothing off.
+
+  // Protocol 4: server_tick_delta.
+  sint32 tick_delta = 13;
+  // The capture clock's advance since the player's previous record, from the JOIN. Protocol 3: in nanoseconds. Protocol
+  // 4: in microseconds, the difference of the two records' clocks, each rounded to the nearest microsecond.
+  uint64 advance_nanos = 15;
+  // Protocol 3: a clientbound record's server tick minus the previous clientbound record's in the frame (the first
+  // one's: minus the frame's server_tick). A packet's server tick is that of the end-of-tick ping after it on the wire;
+  // one sent after the last end-of-tick ping a frame holds takes the tick after that ping's.
+  sint32 server_tick_delta = 16;
+  // A clientbound ping's kind; only on pings, and in protocol 4 only on a ping sent whole.
+  PingKind ping_kind = 17;
+  // Protocol 4: on a pong sent whole, the pending pings before the one it answers.
+  uint32 skipped_pings = 18;
+  // The record's body names an entity whose packets the capture leaves out under the JOIN's entity policy (its
+  // capture.entity-policy setting): an attack on or interaction with it, or a passenger, link, pickup or damage record
+  // kept because it names another entity too.
+  bool omitted_entity = 19;
+}
+
+// Protocol 4's pong marker.
+message Pong {
+}
+
+// Protocol 5. A 16x16x16 section as the anticheat's simulation world holds it for the player: the client's view in the
+// server's block-state registry (JOIN's server_protocol), a block the client's version lacks being the server state its
+// stand-in maps back to. A sender sends a section when it enters the player's range (connect's chunkRadius columns and
+// sectionRadius sections around the player's) and again when its column reloads; the receiver keeps only these.
+message SectionRecord {
+  // The section's column, in chunks, and its index (block y >> 4).
+  sint32 x = 1;
+  sint32 y = 2;
+  sint32 z = 3;
+  // The block-state paletted container as the server's protocol writes it in a chunk packet's section (bits per entry,
+  // the palette, the data array), without the non-air block count before it or the biome container after it.
+  bytes blocks = 4;
+}
+
+// Protocol 5. One block of a held section, at its new state in the server's registry; never before its section.
+message BlockRecord {
+  sint32 x = 1;
+  sint32 y = 2;
+  sint32 z = 3;
+  uint32 state = 4;
+}
+
+// Protocol 5. A held section that left the player's range or whose column unloaded.
+message SectionGone {
+  sint32 x = 1;
+  sint32 y = 2;
+  sint32 z = 3;
+}
+
+// Who wrote a clientbound ping, and where it stands to what it proves.
+enum PingKind {
+  PING_KIND_UNSPECIFIED = 0;
+  // The anticheat's ping at the end of each server tick, after everything the tick sent; its server tick is that
+  // tick (the server's current tick, as outcomes' tick).
+  PING_KIND_END_OF_TICK = 1;
+  // The anticheat's proof written after the packets it proves: in their bundle, their flush, or right after them.
+  PING_KIND_TRAILING = 2;
+  // Any other ping the anticheat writes on its own, most of them ahead of the packets they bracket.
+  PING_KIND_LEADING = 3;
+  // A ping the anticheat did not write: another plugin's or another anticheat's.
+  PING_KIND_FOREIGN = 4;
+}
+
+message World {
+  sint32 min_y = 1;
+  uint32 height = 2;
+}
+
+message Gap {
+  // Whole frames lost right before this one.
+  uint64 lost_frames = 1;
+  // Serverbound records this stands in for, so later ones keep their index (the service's capture files write 1).
+  uint32 records = 2;
+}
+
+// The session facts that changed, numbered as JOIN's.
+message Meta {
+  optional sint32 entity_id = 1;
+  optional GameMode game_mode = 2;
+  optional string dimension_key = 3;
+  // The player's own settings, merged over the JOIN's.
+  map<string, string> settings = 8;
+}
+
+// The anticheat's verdict on one tick. Fields 10, 11 and 13 to 16 are sent when their value changes, and all of them on
+// the first frame after a JOIN, after a frame the service did not get or a missing verdict, and every 600 frames.
+message Verdict {
+  // Bit i set: condition i, in Condition's order.
+  uint64 conditions = 1;
+  // The crosshair on the last attacked target; every tick for a while after an attack.
+  Target target = 2;
+  // A Bedrock client's input; the anticheat does not stream Bedrock players.
+  Bedrock bedrock = 3;
+  // Each attack of the tick, at most 5.
+  repeated Geometry geometry = 4;
+  // The anticheat's count of the player's tick ends since its JOIN, numbered as FRAME seqs are.
+  optional uint64 tick_end_seq = 5;
+  // The frame went out without the anticheat's verdict.
+  bool missing = 6;
+  // The checks that flagged during the tick, in flag order, at most 32.
+  repeated Flag flags = 7;
+  // What the server did with the player's actions; missing verdicts carry them too.
+  Outcomes outcomes = 8;
+  // Bit i set: EngineTick i; only when not 0.
+  uint64 engine_tick = 9;
+  // Prediction's ground state at the tick's start.
+  optional Ground ground = 10;
+  // Vanilla's LivingEntity#noJumpDelay as this tick's jump test read it.
+  optional uint32 no_jump_delay = 11;
+  // Prediction applied a server velocity this tick; only on that tick.
+  Velocity velocity = 12;
+  Fall fall = 13;
+  Context context = 14;
+  // The anticheat holds the client to be using an item.
+  optional bool using_item = 15;
+  // The movement input prediction's accepted move needs.
+  Input input = 16;
+}
+
+// Verdict.conditions' bits.
+enum Condition {
+  CONDITION_TELEPORTED = 0;
+  CONDITION_IN_VEHICLE = 1;
+  CONDITION_FLYING = 2;
+  CONDITION_SPECTATOR = 3;
+  CONDITION_GLIDING = 4;
+  CONDITION_RIPTIDE = 5;
+  // The chosen prediction applied a server velocity (not an explosion).
+  CONDITION_KNOCKBACK = 6;
+  // The anticheat's model of the client replaced its player since the last tick end: a respawn or login.
+  CONDITION_RESPAWNED = 7;
+  CONDITION_JUMPED = 8;
+  CONDITION_SPRINT_JUMPED = 9;
+  // Prediction exempted the tick.
+  CONDITION_ENGINE_EXEMPT = 10;
+}
+
+// Verdict.engine_tick's bits.
+enum EngineTick {
+  // No prediction was committed this tick; the other engine fields keep their last values.
+  ENGINE_TICK_UNPREDICTED = 0;
+  // Prediction accepted both a jump and a no-jump candidate.
+  ENGINE_TICK_JUMP_AMBIGUOUS = 1;
+  // The accepted movement rose.
+  ENGINE_TICK_MOVED_UP = 2;
+  // The sneak state or pose changed, so the eye height the client picked with is one of two.
+  ENGINE_TICK_EYE_UNCERTAIN = 3;
+}
+
+message Target {
+  uint32 entity_id = 1;
+  // The crosshair's reach to the target; absent when the crosshair is off it.
+  optional double reach = 2;
+}
+
+message Bedrock {
+  InputMode input_mode = 1;
+  double interact_pitch = 2;
+  double interact_yaw = 3;
+}
+
+// One attack's lag-compensated geometry.
+message Geometry {
+  // The attack's index among the tick's attacks, in packet order.
+  uint32 attack = 1;
+  // The target's entity type key.
+  string type = 2;
+  // The reach box: min x, y, z, then max x, y, z.
+  repeated double box = 3;
+  // 1 to 8 eye positions, x, y, z each.
+  repeated double eyes = 4;
+  optional double reach = 5;
+}
+
+message Flag {
+  string check = 1;
+  // The violation level after the flag, times 100.
+  uint32 violations_hundredths = 2;
+}
+
+message Outcomes {
+  // The seq of the frame carrying them; an outcome goes out in a frame after the one holding its action.
+  uint64 frame_seq = 1;
+  repeated Outcome outcomes = 2;
+}
+
+enum Ground {
+  GROUND_OFF = 0;
+  GROUND_ON = 1;
+  GROUND_EITHER = 2;
+}
+
+message Velocity {
+  // The ordinal, from 0 at JOIN, among the clientbound pings this capture carried, of the one that proves the
+  // velocity; absent when that ping is not in the capture.
+  optional uint64 ping = 1;
+}
+
+// Fall distances in 1/64 block, at most 65535.
+message Fall {
+  // The client's, after the tick.
+  uint32 distance = 1;
+  // The least and greatest across the candidates prediction carries into the next tick.
+  uint32 least = 2;
+  uint32 greatest = 3;
+}
+
+message Context {
+  // Bit i set: Surrounding i, each what prediction allowed at the tick's start.
+  uint64 allowed = 1;
+  // The friction of the block underfoot, times 1000.
+  uint32 friction_thousandths = 2;
+}
+
+// Context.allowed's bits.
+enum Surrounding {
+  SURROUNDING_WATER = 0;
+  SURROUNDING_LAVA = 1;
+  SURROUNDING_CLIMBING = 2;
+  SURROUNDING_STUCK = 3;
+  SURROUNDING_HONEY_SLIDE = 4;
+  SURROUNDING_BUBBLE_COLUMN = 5;
+}
+
+message Input {
+  // Hundredths of a full key press; left is positive strafe.
+  sint32 forward = 1;
+  sint32 strafe = 2;
+  bool sneaking = 3;
+}
+
+// What the server did with one of the player's actions, or an effect of one. A terminal outcome (hit, placed, click,
+// held, swap) is the one record of its action, named by action_frame and action_index; the others are effects,
+// children of their cause or naming an explosion.
+message Outcome {
+  optional Status status = 1;
+  // The seq of the frame holding the action.
+  optional uint64 action_frame = 2;
+  // The action's index among that frame's serverbound records; absent when the packet never reached the wire.
+  optional uint32 action_index = 3;
+  // How the anticheat tied the outcome to its action.
+  optional Join join = 4;
+  // The server tick.
+  optional uint64 tick = 5;
+  // The capture clock at the hook.
+  optional sint64 nanos = 6;
+  optional uint64 parent_explosion = 7;
+  optional Reason reason = 8;
+  // Entity ids.
+  optional sint32 actor = 9;
+  optional sint32 target = 10;
+  repeated Outcome child = 11;
+  Type type = 12;
+  optional float damage = 20;
+  optional float absorbed = 21;
+  optional bool crit = 22;
+  optional bool smash = 23;
+  optional float fall_distance = 25;
+  optional bool in_cooldown = 26;
+  optional uint32 no_damage_ticks = 27;
+  optional float last_damage = 28;
+  optional float strength = 29;
+  optional bool charge_reset = 30;
+  Vector knockback = 31;
+  // An item's key.
+  optional string item = 32;
+  optional bool on_ground = 33;
+  optional bool gliding = 34;
+  optional uint32 max_no_damage_ticks = 36;
+  optional float blocked = 40;
+  optional bool disabled = 41;
+  optional uint32 cooldown = 42;
+  optional uint64 explosion_id = 50;
+  optional Source source = 51;
+  optional sint32 source_entity = 52;
+  Vector centre = 53;
+  optional float radius = 54;
+  // The end crystal's placer, and the placing action when that is the player's.
+  optional sint32 placer = 55;
+  optional uint64 placer_frame = 56;
+  optional uint32 placer_index = 57;
+  optional Hand hand = 60;
+  optional bool took_nothing = 61;
+  optional What what = 70;
+  BlockPos position = 71;
+  BlockPos placed_at = 72;
+  // A block state.
+  optional string state = 73;
+  optional sint32 raw_slot = 81;
+  optional sint32 button = 82;
+  optional string click_type = 83;
+  Slot slot_after = 84;
+  Slot cursor_after = 85;
+  optional uint32 slot_before = 90;
+  optional uint32 slot = 91;
+  Slot main_hand_after = 92;
+  Slot off_hand_after = 93;
+  // TYPE_DEATH: the 16-byte UUID of the player credited with the kill; absent for none.
+  optional bytes killer = 100;
+  // TYPE_DEATH: the damage type's key, such as minecraft:player_attack.
+  optional string cause = 101;
+
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_HIT = 1;
+    TYPE_FALL = 2;
+    TYPE_EXPLOSION = 3;
+    TYPE_PLACED = 4;
+    TYPE_SHIELD = 5;
+    TYPE_CLICK = 6;
+    TYPE_POP = 7;
+    TYPE_HELD = 8;
+    TYPE_SWAP = 9;
+    // A player within an explosion's reach, damaged or not.
+    TYPE_VICTIM = 10;
+    // An entity a sweep hit.
+    TYPE_SWEEP = 11;
+    // The player died: status APPLIED when the death stood, CANCELLED when a plugin cancelled it (a death the server
+    // staged: reason REASON_EVENT_CANCELLED for a cancelled PlayerDeathEvent, REASON_DAMAGE_CANCELLED for cancelled
+    // lethal damage after which the player was moved, healed or put in another game mode). A totem's save is no death.
+    TYPE_DEATH = 12;
+  }
+
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    // The server processed the action and produced its result.
+    STATUS_APPLIED = 1;
+    STATUS_REJECTED = 2;
+    // A Bukkit event for it was cancelled.
+    STATUS_CANCELLED = 3;
+    // The server has no path for it, such as an attack on an id it does not know.
+    STATUS_UNSUPPORTED = 4;
+    // A hook fired, but none proved the result.
+    STATUS_UNKNOWN = 5;
+    // The packet reached no Bukkit event.
+    STATUS_DROPPED = 6;
+  }
+
+  enum Join {
+    // It names no action.
+    JOIN_NONE = 0;
+    // The hook's key (target, slot, block position) matched the earliest pending packet of its kind.
+    JOIN_KEY = 1;
+    // The actor's use on the same block position in the same server tick.
+    JOIN_TICK_POSITION = 2;
+    // No hook fired for the packet before a server tick had fully passed after it was tapped.
+    JOIN_TIMEOUT = 3;
+    // The anticheat dropped the packet itself.
+    JOIN_CULTAC = 4;
+    // A later packet of its kind reached its hook first.
+    JOIN_SUPERSEDED = 5;
+  }
+
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    REASON_EVENT_CANCELLED = 1;
+    REASON_CULTAC = 2;
+    REASON_NO_EVENT = 3;
+    REASON_ATTACK_EVENT_CANCELLED = 4;
+    REASON_DAMAGE_CANCELLED = 5;
+  }
+
+  enum Source {
+    SOURCE_UNSPECIFIED = 0;
+    SOURCE_END_CRYSTAL = 1;
+    SOURCE_RESPAWN_ANCHOR = 2;
+    SOURCE_WIND_CHARGE = 3;
+    SOURCE_OTHER = 4;
+  }
+
+  enum Hand {
+    HAND_MAIN = 0;
+    HAND_OFF = 1;
+  }
+
+  enum What {
+    WHAT_NONE = 0;
+    WHAT_CRYSTAL = 1;
+    WHAT_BLOCK = 2;
+    WHAT_CHARGE = 3;
+  }
+}
+
+message Vector {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message BlockPos {
+  sint32 x = 1;
+  sint32 y = 2;
+  sint32 z = 3;
+}
+
+// A slot as it is after: its index, the item's key (empty for none) and count.
+message Slot {
+  sint32 slot = 1;
+  string item = 2;
+  uint32 amount = 3;
+}
+
+// A message from the service.
+message Replies {
+  repeated Reply replies = 1;
+}
+
+message Reply {
+  oneof kind {
+    Capture capture = 1;
+    Refused refused = 2;
+    Event event = 3;
+    // Diagnostics, only to a socket whose connect offered diag.
+    DiagLimits diag_limits = 4;
+    DiagWatch diag_watch = 5;
+    DiagCut diag_cut = 6;
+  }
+}
+
+// The answer to a JOIN: the packet ids to capture, in the client's protocol.
+message Capture {
+  bytes player = 1;
+  repeated uint32 serverbound = 2;
+  repeated uint32 clientbound = 3;
+  // Clientbound packets that put the client in a dimension, sent on as WORLD.
+  repeated uint32 dimension = 4;
+}
+
+// The answer to a JOIN the service will not take, or to a player whose stream it ended.
+message Refused {
+  bytes player = 1;
+  string reason = 2;
+}
+
+// A finding.
+message Event {
+  bytes player = 1;
+  // The tick of the finding's evidence.
+  uint64 tick = 2;
+  string check_id = 3;
+  string category = 4;
+  double confidence = 5;
+  string detail = 6;
+}
+
+// Diagnostics: the server-wide limits, at connect and whenever they change; each replaces the last. enabled false ends
+// every watch and frees every ring. The receiver clamps each value to its own compiled maximum.
+message DiagLimits {
+  bool enabled = 1;
+  uint32 ring_ticks = 2;              // ticks a watched player's ring keeps
+  uint32 player_ring_bytes = 3;
+  uint32 server_ring_bytes = 4;
+  uint32 max_players = 5;             // watched players at once on this server
+  uint32 part_bytes = 6;              // largest DiagPart, encoded
+  uint32 upload_bytes_per_second = 7;
+  uint32 bundle_bytes = 8;            // largest bundle, all parts
+  uint32 bundles_per_hour = 9;
+}
+
+// Diagnostics: keep a SuperDebug ring for the player until lease_seconds from now; 0 stops and frees it. A watch on a
+// watched player sets a new lease.
+message DiagWatch {
+  bytes player = 1;
+  uint32 lease_seconds = 2;
+}
+
+// Diagnostics: send the player's SuperDebug for frames from_seq..to_seq (Frame.seq of the player's current stream):
+// what the ring holds now and gets until to_seq. Full renders for full_from_seq..full_to_seq and for flagged ticks;
+// traces for all.
+message DiagCut {
+  bytes player = 1;
+  bytes bundle = 2;                   // 16-byte id, echoed in every part
+  uint64 from_seq = 3;
+  uint64 to_seq = 4;
+  uint64 full_from_seq = 5;
+  uint64 full_to_seq = 6;
+}
+
+// Diagnostics: one part of a bundle's SuperDebug, ticks in seq order; the part with last set ends the bundle.
+message DiagPart {
+  bytes player = 1;
+  bytes bundle = 2;
+  uint32 part = 3;
+  bool last = 4;
+  repeated DiagTick ticks = 5;
+  string header = 6;                  // part 0: agent version, client version, brand, ping
+  string history = 7;                 // part 0: the movement history before the watch began, when it began after from_seq
+  DiagCoverage coverage = 8;          // last part
+  string reason = 9;                  // last part, when not full: late-start, evicted, busy, bedrock, rate, left,
+                                      // lease-ended, dropped, failed
+}
+
+message DiagTick {
+  uint64 seq = 1;
+  optional double offset = 2;         // prediction offset
+  repeated string flags = 3;          // checks that flagged this tick
+  string trace = 4;                   // one line: predicted, actual, position, rotation, ground, exempt/teleport
+  bytes full = 5;                     // full SuperDebug text as one Zstandard frame; empty when not sent
+}
+
+enum DiagCoverage {
+  DIAG_COVERAGE_UNSPECIFIED = 0;
+  DIAG_COVERAGE_FULL = 1;
+  DIAG_COVERAGE_PARTIAL = 2;
+  DIAG_COVERAGE_NONE = 3;
+}

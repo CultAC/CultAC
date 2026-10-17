@@ -35,6 +35,14 @@ public interface PlatformServer {
     boolean isProxyForwardingEnabled();
 
     /**
+     * Whether players are authenticated with Mojang, by this server or by an online-mode proxy in front of it; false
+     * when it cannot tell.
+     */
+    default boolean isOnlineMode() {
+        return false;
+    }
+
+    /**
      * Places a real server block as an explicit validation stimulus, then reports through the
      * callback. Only platforms with server authority support this.
      */
@@ -51,5 +59,10 @@ public interface PlatformServer {
     /** The tick rate of the server {@code player} is on, falling back to {@link #getTPS()}. */
     default double getTPS(@Nullable UUID player) {
         return getTPS();
+    }
+
+    /** What this server contributes to every capture's JOIN; any thread. */
+    default ServerFacts cloudFacts() {
+        return ServerFacts.NONE;
     }
 }

@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundGameEvent;
 import ac.cult.cultac.protocol.value.GameEventType;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -28,6 +29,8 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
             case 3 -> GameMode.SPECTATOR;
             default -> GameMode.SURVIVAL;
         };
+        PlayerObserver observer = player.observer;
+        if (observer != null) observer.gameModeSent(next);
         // MultiPlayerGameMode#setLocalMode -> GameType#updatePlayerAbilities. An explicit
         // abilities packet can subsequently overwrite instabuild independently of game mode.
         boolean instabuild = next == GameMode.CREATIVE;

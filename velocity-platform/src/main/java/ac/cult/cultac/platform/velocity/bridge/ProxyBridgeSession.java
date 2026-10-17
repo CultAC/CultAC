@@ -9,6 +9,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.ClearActiveItem;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Close;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Hello;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Listeners;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.Marker;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerStateResult;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Ready;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Reject;
@@ -99,7 +100,8 @@ final class ProxyBridgeSession implements BridgeSession {
         return connection;
     }
 
-    String serverVersion() {
+    @Override
+    public String serverVersion() {
         return serverVersion;
     }
 
@@ -160,13 +162,14 @@ final class ProxyBridgeSession implements BridgeSession {
     @Override
     public void send(BridgeMessage message) {
         Objects.requireNonNull(message);
-        if (message instanceof ClearActiveItem && !backend.eventLoop().inEventLoop()) return;
+        boolean ordered = message instanceof ClearActiveItem || message instanceof Marker;
+        if (ordered && !backend.eventLoop().inEventLoop()) return;
         onLoop(() -> {
             if (state == State.CLOSED) return;
             if (state == State.READY && backend.inPlay()) {
                 flush();
                 write(message);
-            } else if (!(message instanceof ClearActiveItem)) {
+            } else if (!ordered) {
                 enqueue(message);
             }
         });

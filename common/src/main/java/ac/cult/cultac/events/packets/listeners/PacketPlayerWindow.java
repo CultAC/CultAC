@@ -57,7 +57,8 @@ public class PacketPlayerWindow {
     @CultPacketHandler
     public void onRespawn(PacketSendEvent<ClientboundRespawn> event, CultPlayer player, ClientboundRespawn packet) {
         if (!player.isBedrockMovement()) {
-            CultPlayer.TrackedTransaction before = player.createTrackedTransactionPacketForDeferredSend();
+            CultPlayer.TrackedTransaction before =
+                    player.createTrackedTransactionPacketForDeferredSend(CultPlayer.PING_LEADING);
             if (before != null) {
                 event.getWritesBeforeSend().add(before.packet());
                 event.getTasksAfterSend().add(() -> player.markTrackedTransactionPacketSent(before));

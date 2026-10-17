@@ -1,6 +1,9 @@
 package ac.cult.cultac.bridge.protocol;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** One frame on {@link BridgeProtocol#CHANNEL}; {@link #type()} is its wire id. */
@@ -125,6 +128,50 @@ public sealed interface BridgeMessage {
             int requestId, int gameMode, UUID world, double x, double y, double z, float yaw, float pitch)
             implements BridgeMessage {
         public static final int TYPE = 0x0B;
+
+        @Override
+        public int type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * The backend's facts for the cloud upload, sent once per session after READY: its target tick length in
+     * microseconds (0 when unknown) and server settings that change combat, by key.
+     */
+    record CloudFacts(int tickMicros, Map<String, String> settings) implements BridgeMessage {
+        public static final int TYPE = 0x23;
+
+        public CloudFacts {
+            settings = Collections.unmodifiableMap(new LinkedHashMap<>(settings));
+        }
+
+        @Override
+        public int type() {
+            return TYPE;
+        }
+    }
+
+    /** The player's settings that change combat, by key; sent after READY and whenever they change. */
+    record PlayerFacts(Map<String, String> settings) implements BridgeMessage {
+        public static final int TYPE = 0x24;
+
+        public PlayerFacts {
+            settings = Collections.unmodifiableMap(new LinkedHashMap<>(settings));
+        }
+
+        @Override
+        public int type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Sent by the proxy after game packets of the player's, and sent back with the same {@code marker} once the server
+     * has handled them and the tick that handled them has ended, after every update that tick sent the player.
+     */
+    record Marker(int marker) implements BridgeMessage {
+        public static final int TYPE = 0x25;
 
         @Override
         public int type() {

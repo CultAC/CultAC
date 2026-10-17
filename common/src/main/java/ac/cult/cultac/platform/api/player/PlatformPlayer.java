@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.api.player;
 
 import ac.cult.cultac.bridge.protocol.ServerCapability;
+import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -65,6 +66,11 @@ public interface PlatformPlayer extends CultEntity, OfflinePlatformPlayer {
     void sendPluginMessage(String channelName, byte[] byteArray);
 
     Sender getSender();
+
+    /** This player's settings for its capture's JOIN, such as its attack speed; read on the event loop. */
+    default ServerFacts cloudFacts() {
+        return ServerFacts.NONE;
+    }
 
     /*
      * Replaces native player reference in PlatformPlayer implementation with a new object

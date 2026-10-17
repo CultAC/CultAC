@@ -55,3 +55,12 @@ permissions:
   cult.list:
     description: Shows lists of specific data
     default: false
+  cult.cloud:
+    description: View the cloud upload's status
+    default: op
+  cult.cloud.view:
+    description: View cloud findings
+    default: op
+  cult.cloud.label:
+    description: Label players in the cloud
+    default: op

@@ -3,7 +3,7 @@ package ac.cult.cultac.companion.bridge;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.ServerStats;
 import org.bukkit.Bukkit;
 
-/** Main-thread task, run once a second: publishes server stats. */
+/** Main-thread task, run once a second: publishes server stats and any changed player facts. */
 final class BridgeTicker implements Runnable {
     private final BridgeService service;
 
@@ -13,6 +13,7 @@ final class BridgeTicker implements Runnable {
 
     @Override
     public void run() {
+        service.sendPlayerFacts();
         BridgeSession session = service.anySession();
         if (session != null) session.send(new ServerStats((float) Bukkit.getTPS()[0]));
     }

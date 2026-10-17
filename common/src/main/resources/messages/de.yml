@@ -70,6 +70,10 @@ help:
     - "/cult history <player> page <N> &f- &7Springt zu Seite N der Sitzungsliste"
     - "/cult history <player> session <N|latest> [-d] [-v] &f- &7Sitzungsdetails (neueste Verstöße zuerst)"
     - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7Sitzungsdetails, Verstoß-Seite N"
+    - "/cult cloud &f- &7Status des Cloud-Uploads: Sockets, zurückgehaltene Frames und Zähler"
+    - "/cult findings <player> [count] &f- &7Neueste Cloud-Befunde eines Spielers"
+    - "/cult top [check] [minutes] &f- &7Spieler mit den sichersten Cloud-Befunden"
+    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Spieler im Label-Verzeichnis der Cloud markieren (auch list, revoke)"
     - "&7======================"
 
 # === /cult history ===

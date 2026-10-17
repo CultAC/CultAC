@@ -71,6 +71,10 @@ help:
     - "/cult history <player> page <N> &f- &7Oturum listesinin N. sayfasına atla"
     - "/cult history <player> session <N|latest> [-d] [-v] &f- &7Oturum detayı (en yeni ihlaller başta)"
     - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7Oturum detayı, ihlal sayfası N"
+    - "/cult cloud &f- &7Bulut yükleme durumu: soketler, bekletilen kareler ve sayaçlar"
+    - "/cult findings <player> [count] &f- &7Bir oyuncunun en son bulut bulguları"
+    - "/cult top [check] [minutes] &f- &7En güvenilir bulut bulgularına sahip oyuncular"
+    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Bir oyuncuyu bulutun etiket kaydında etiketle (ayrıca list, revoke)"
     - "&7======================"
 
 # === /cult history ===

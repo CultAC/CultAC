@@ -3,6 +3,7 @@ package ac.cult.cultac.utils.anticheat;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.network.netty.channel.ChannelHelper;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -116,6 +117,7 @@ public class PlayerDataManager {
                     user.getPlayer() == null ? null : user.getPlayer().getNative(),
                     created);
         Channels.JOIN.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(created));
+        CloudModule.playerRegistered(created);
         UUID uuid = user.getUUID();
         if (uuid != null && CultAPI.INSTANCE.getDataStoreLifecycle() != null) {
             CultAPI.INSTANCE.getDataStoreLifecycle().playerToggleStore().prefetch(uuid);
@@ -137,6 +139,7 @@ public class PlayerDataManager {
             return false;
         }
         tracked.onRemove();
+        CloudModule.playerRemoved(tracked.getUniqueId());
         var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
         if (host != null) host.unbindUser(user.getChannel());
         return true;

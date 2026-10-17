@@ -66,6 +66,6 @@ public class KeepAliveProcessor extends CultProcessor implements CheckListener {
             final long receivedAt = System.currentTimeMillis();
             keepAliveData.setTransReceived(receivedAt);
         });
-        event.getTasksAfterSend().add(player::sendTransaction);
+        event.getTasksAfterSend().add(player::sendTrailingTransaction);
     }
 }

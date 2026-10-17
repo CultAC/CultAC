@@ -118,8 +118,10 @@ tasks.shadowJar {
         exclude(project(":reload-services"))
         exclude(project(":reload-integrations"))
     }
+    relocate("com.google.protobuf", "ac.cult.cultac.libs.protobuf")
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     exclude("META-INF/services/javax.annotation.processing.Processor")
+    excludeCloudExtras()
     mergeServiceFiles()
     manifest.attributes(mapOf(
         "paperweight-mappings-namespace" to "mojang",
@@ -136,6 +138,7 @@ tasks.shadowJar {
         check(ProcessBuilder("python3", rootProject.file("scripts/verify-vialib-packaging.py").path,
             "--library", rootProject.project(":protocol-codec").layout.buildDirectory.file("libs/vialib.jar").get().asFile.path,
             archiveFile.get().asFile.path).inheritIO().start().waitFor() == 0)
+        verifyCloudRuntimeJar(archiveFile.get().asFile)
     }
 }
 tasks.assemble { dependsOn(tasks.shadowJar) }

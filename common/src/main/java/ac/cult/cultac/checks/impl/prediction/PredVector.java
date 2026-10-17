@@ -7,6 +7,7 @@ import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
@@ -197,6 +198,10 @@ public class PredVector extends Vec3 {
 
     public int packetModifiersLength() {
         return packetModifiers == null ? 0 : packetModifiers.size();
+    }
+
+    public List<TransactionVel> getPacketModifiers() {
+        return packetModifiers == null ? List.of() : Collections.unmodifiableList(packetModifiers);
     }
 
     public int tickSkippingComparator() {

@@ -68,6 +68,10 @@ help:
     - "/cult history <player> page <N> &f- &7セッション一覧の N ページ目へ移動"
     - "/cult history <player> session <N|latest> [-d] [-v] &f- &7セッション詳細（新しい違反順）"
     - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7セッション詳細の違反 N ページ目"
+    - "/cult cloud &f- &7クラウドアップロードの状態（ソケット、保留中のフレーム、カウンター）"
+    - "/cult findings <player> [count] &f- &7プレイヤーの最新のクラウド検出結果"
+    - "/cult top [check] [minutes] &f- &7確度の高いクラウド検出結果が多いプレイヤー"
+    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7クラウドのラベル台帳にプレイヤーを登録します（list、revoke も可）"
     - "&7======================"
 
 # === /cult history ===

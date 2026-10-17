@@ -3,6 +3,7 @@ package ac.cult.cultac.network;
 import ac.cult.cultac.network.event.*;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
@@ -105,8 +106,15 @@ public class PacketDispatcher {
                     && event.getPhase() == ConnectionPhase.PLAY
                     && !BEDROCK_BRIDGE_PLAY.contains(event.getPacketType())) return;
             var player = user.getCultPlayer();
+            if (player != null
+                    && event.getPacketType() == ServerboundPackets.CLIENT_TICK_END
+                    && player.observer != null) player.clientTickEnds.incrementAndGet();
             if (player == null) routes.connection().dispatch(event, null, event.getOriginalPacket());
-            else routes.dispatch(event, player);
+            else {
+                routes.dispatch(event, player);
+                PlayerObserver observer = player.observer;
+                if (observer != null) observer.received(event.getOriginalPacket(), event.isCancelled());
+            }
         } catch (Throwable failure) {
             discardFailedDispatch(event, failure);
         }
@@ -118,8 +126,11 @@ public class PacketDispatcher {
         if (!user.getPacketExecutor().inEventLoop()) throw new IllegalStateException("Send outside packet owner");
         try {
             var player = user.getCultPlayer();
-            if (player != null) route.dispatch(event, player, event.getOriginalPacket());
-            else route.dispatchConnection(event, event.getOriginalPacket());
+            if (player != null) {
+                route.dispatch(event, player, event.getOriginalPacket());
+                PlayerObserver observer = player.observer;
+                if (observer != null && !event.isCancelled() && !event.isAuthored()) observer.sent(event.getPacket());
+            } else route.dispatchConnection(event, event.getOriginalPacket());
         } catch (Throwable failure) {
             discardFailedDispatch(event, failure);
         }

@@ -8,6 +8,7 @@ import ac.cult.cultac.utils.lists.HookedListWrapper;
 import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
+import org.bukkit.Bukkit;
 import sun.misc.Unsafe;
 
 // Copied from:
@@ -17,11 +18,12 @@ public class TickEndEvent implements StartableInitable {
     boolean hasTicked = true;
 
     private static void fireEndOfTick() {
+        int serverTick = Bukkit.getCurrentTick();
         for (CultPlayer player : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
             if (player.isDisabled()) {
                 continue;
             } // If we aren't active don't spam extra transactions
-            player.runSafely(player::onEndOfTickEvent);
+            player.runSafely(() -> player.onEndOfTickEvent(serverTick));
         }
     }
 

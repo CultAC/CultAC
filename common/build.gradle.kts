@@ -4,6 +4,7 @@ import java.io.File
 plugins {
     `maven-publish`
     cult.`base-conventions`
+    alias(libs.plugins.protobuf)
 }
 
 repositories {
@@ -126,6 +127,10 @@ dependencies {
     }
     // Bump snakeyaml (transitive dep of configuralize) 1.29 -> 2.2+ for geyser-fabric
     api(libs.snakeyaml)
+    // The intake messages (src/main/proto); the plugin jars relocate the runtime.
+    implementation(libs.protobuf.javalite)
+    // Intake compression; the plugin jars keep its package, which its JNI symbols name.
+    implementation(libs.zstd.jni)
     api(libs.fastutil)
     api("com.google.code.gson:gson:2.13.2")
     api("com.google.guava:guava:33.5.0-jre")
@@ -173,6 +178,26 @@ dependencies {
     testRuntimeOnly(libs.viaversion)
 }
 
+// intake.proto imports nothing, so protoc's import paths take no dependencies.
+configurations.matching { it.name.endsWith("ProtoPath") }.configureEach {
+    setExtendsFrom(emptyList())
+}
+
+protobuf {
+    protoc {
+        artifact = libs.protobuf.protoc.get().toString()
+    }
+    generateProtoTasks {
+        all().configureEach {
+            builtins {
+                named("java") {
+                    option("lite")
+                }
+            }
+        }
+    }
+}
+
 tasks.withType<Test>().configureEach {
     // Pure fixtures retain their original platform semantics without loading Paper.
     systemProperty("CultPlatformOverride", "BUKKIT")
@@ -192,6 +217,9 @@ tasks.test {
     jvmArgs("--add-opens", "java.base/java.lang=ALL-UNNAMED")
     System.getProperty("exportBedrockFixtures")?.let {
         systemProperty("exportBedrockFixtures", it)
+    }
+    System.getProperty("cultac.updatePlayerTextGoldens")?.let {
+        systemProperty("cultac.updatePlayerTextGoldens", it)
     }
     include("**/*Test.class")
     exclude("**/*$*")

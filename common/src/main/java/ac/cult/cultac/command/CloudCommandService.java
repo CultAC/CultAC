@@ -72,6 +72,10 @@ public class CloudCommandService implements CommandService {
         new CultBrands().register(commandManager, commandArguments);
         new CultList().register(commandManager, commandArguments);
         new CultTestWebhook().register(commandManager, commandArguments);
+        new CultCloud().register(commandManager, commandArguments);
+        new CultFindings().register(commandManager, commandArguments);
+        new CultTop().register(commandManager, commandArguments);
+        new CultLabel().register(commandManager, commandArguments);
 
         final RequirementPostprocessor<Sender, SenderRequirement> senderRequirementPostprocessor =
                 RequirementPostprocessor.of(REQUIREMENT_KEY, new CultCommandFailureHandler());

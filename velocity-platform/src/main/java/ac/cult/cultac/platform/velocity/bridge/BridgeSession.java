@@ -31,10 +31,15 @@ public interface BridgeSession {
     /** Velocity {@code RegisteredServer} name. */
     String serverName();
 
+    /** The backend's software and version from its READY; empty before it. */
+    default String serverVersion() {
+        return "";
+    }
+
     /**
      * Call on the player's channel event loop; queues until the backend is in PLAY and is a no-op when CLOSED. A
-     * CLEAR_ACTIVE_ITEM is never queued or hopped: off the loop or outside PLAY it is dropped, because a late clear
-     * could end a later use.
+     * CLEAR_ACTIVE_ITEM or MARKER is never queued or hopped: off the loop or outside PLAY it is dropped, because a late
+     * clear could end a later use and a marker belongs among the game packets it was sent between.
      */
     void send(BridgeMessage message);
 

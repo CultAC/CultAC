@@ -72,8 +72,10 @@ tasks.shadowJar {
         exclude(project(":reload-services"))
         exclude(project(":reload-integrations"))
     }
+    relocate("com.google.protobuf", "ac.cult.cultac.libs.protobuf")
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     exclude("META-INF/services/javax.annotation.processing.Processor")
+    excludeCloudExtras()
     mergeServiceFiles()
     manifest.attributes(mapOf(
         "Cult-Runtime-SPI" to "1",
@@ -82,5 +84,8 @@ tasks.shadowJar {
         "Cult-Runtime-Build" to rootProject.version.toString(),
         "Cult-Runtime-Entrypoint" to "ac.cult.cultac.platform.velocity.VelocityRuntimeEntrypoint"
     ))
+    doLast {
+        verifyCloudRuntimeJar(archiveFile.get().asFile)
+    }
 }
 tasks.assemble { dependsOn(tasks.shadowJar) }

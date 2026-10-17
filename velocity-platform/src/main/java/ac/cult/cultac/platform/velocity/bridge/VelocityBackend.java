@@ -11,7 +11,7 @@ import java.lang.invoke.MethodType;
 import java.util.function.Predicate;
 
 /** A Velocity backend connection; writes bypass the channel registrar so they stay in order. */
-final class VelocityBackend implements BridgeBackend {
+public final class VelocityBackend implements BridgeBackend {
     static final MinecraftChannelIdentifier CHANNEL = MinecraftChannelIdentifier.from(BridgeProtocol.CHANNEL);
 
     private final ServerConnection server;
@@ -45,7 +45,8 @@ final class VelocityBackend implements BridgeBackend {
     }
 
     /** Reads {@code VelocityServerConnection.getConnection().getState()}; Velocity has no public phase API. */
-    static Predicate<ServerConnection> playStateProbe(ClassLoader proxyLoader) throws ReflectiveOperationException {
+    public static Predicate<ServerConnection> playStateProbe(ClassLoader proxyLoader)
+            throws ReflectiveOperationException {
         Class<?> serverConnection = Class.forName(
                 "com.velocitypowered.proxy.connection.backend.VelocityServerConnection", false, proxyLoader);
         Class<?> minecraftConnection =

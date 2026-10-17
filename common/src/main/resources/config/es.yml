@@ -248,5 +248,18 @@ update-permission-ticks: -1
 bridge:
   secret: ""
 
+# Upload of captured play to an intake service, which analyses it. Off while url or api-key is empty;
+# your intake service provides both. docs/cloud-upload.md in CultAC's source says what is uploaded.
+cloud:
+  url: ""
+  api-key: ""
+  # Each upload socket's server id. {server} is the backend's name on a proxy and this server's own name on a
+  # server; {proxy} is proxy-id. Empty picks {proxy}.{server} on a proxy and {server} on a server. Writers that
+  # share one api-key need distinct ids.
+  server-id: ""
+  # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
+  # is the server's own name, and required.
+  proxy-id: ""
+
 config-flavor: V2
-config-version: 12
+config-version: 13

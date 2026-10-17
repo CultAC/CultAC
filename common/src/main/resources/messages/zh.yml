@@ -71,6 +71,10 @@ help:
     - "/cult history <player> page <N> &f- &7跳转到会话列表的第 N 页"
     - "/cult history <player> session <N|latest> [-d] [-v] &f- &7查看某次会话详情（最新违规优先）"
     - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7查看会话详情的第 N 页违规"
+    - "/cult cloud &f- &7云上传状态：套接字、暂存的帧和计数器"
+    - "/cult findings <player> [count] &f- &7玩家最新的云端检测结果"
+    - "/cult top [check] [minutes] &f- &7云端检测结果置信度最高的玩家"
+    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7在云端标签账本中标记玩家（也可 list、revoke）"
     - "&7======================"
 
 # === /cult history ===

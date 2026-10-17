@@ -1,6 +1,7 @@
 package ac.cult.cultac.runtime;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.reload.api.RuntimeInstance;
@@ -9,6 +10,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
 public abstract class EngineRuntime implements RuntimeInstance {
+    /** How long a replaced generation waits for its captures to leave before its sockets retire. */
+    private static final long SUPERSEDED_DETACH_MILLIS = 2000;
+
     protected abstract Sender sender(Object nativeSender);
 
     protected abstract CompletionStage<Void> disconnectChannel(Channel channel);
@@ -18,6 +22,11 @@ public abstract class EngineRuntime implements RuntimeInstance {
         return connection instanceof Channel channel
                 ? disconnectChannel(channel)
                 : ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime.disconnectSession(connection);
+    }
+
+    @Override
+    public void superseded() {
+        CloudModule.superseded(SUPERSEDED_DETACH_MILLIS);
     }
 
     @Override

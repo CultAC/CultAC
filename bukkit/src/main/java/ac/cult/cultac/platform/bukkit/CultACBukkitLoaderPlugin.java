@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.manager.init.Initable;
 import ac.cult.cultac.manager.init.start.StartableInitable;
@@ -18,6 +19,7 @@ import ac.cult.cultac.platform.api.player.PlatformPlayerFactory;
 import ac.cult.cultac.platform.api.scheduler.PlatformScheduler;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.platform.api.sender.SenderFactory;
+import ac.cult.cultac.platform.bukkit.cloud.BukkitCloudFacts;
 import ac.cult.cultac.platform.bukkit.initables.BukkitEventManager;
 import ac.cult.cultac.platform.bukkit.initables.BukkitLuckPermsInitable;
 import ac.cult.cultac.platform.bukkit.manager.BukkitCloudPlatformCommandArguments;
@@ -118,6 +120,7 @@ public final class CultACBukkitLoaderPlugin implements PlatformLoader {
     }
 
     public void onEnable() {
+        CloudModule.platformHooks(() -> BukkitCloudFacts.turnedOn(LOADER), BukkitCloudFacts::turnedOff);
         CultAPI.INSTANCE.start();
     }
 

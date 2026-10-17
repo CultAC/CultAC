@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.utils.math.Vec3;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
 @Data
@@ -16,6 +17,9 @@ public class TransactionVel implements TransactionOrder {
     final int sourceEntityId;
     private double offset = Double.MAX_VALUE;
     private boolean consumed;
+    /** The transaction whose answer proves the client handled this velocity. */
+    @EqualsAndHashCode.Exclude
+    private int proofTransaction;
 
     public TransactionVel(Vec3 vel, int transaction, boolean isVelocity, boolean isSetbackVel) {
         this(vel, transaction, isVelocity, isSetbackVel, UNKNOWN_SOURCE_ENTITY_ID);
@@ -27,6 +31,7 @@ public class TransactionVel implements TransactionOrder {
         this.isVelocity = isVelocity;
         this.isSetbackVel = isSetbackVel;
         this.sourceEntityId = sourceEntityId;
+        this.proofTransaction = transaction;
     }
 
     public long getBedrockTeleportRevision() {

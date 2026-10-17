@@ -41,6 +41,7 @@ public final class BridgeModule {
     private static @Nullable BridgeService service;
     private static @Nullable BridgeInjector injector;
     private static @Nullable BridgeListener listener;
+    private static @Nullable TickMarkers markers;
     private static @Nullable BukkitTask ticker;
 
     /** A shorter configured secret can be guessed offline from a handshake the proxy answers. */
@@ -79,14 +80,18 @@ public final class BridgeModule {
         BridgeService bridge = new BridgeService(
                 key, new PaperPlatform(plugin), plugin.getLogger(), config.getBoolean("debug", false));
         bridge.addHandler(new ServerActions(plugin, bridge));
+        TickMarkers tickMarkers = new TickMarkers();
+        bridge.addHandler(tickMarkers);
         BridgeInjector netty = new BridgeInjector(bridge);
         netty.install();
         BridgeListener events = new BridgeListener(bridge);
         Bukkit.getPluginManager().registerEvents(events, plugin);
+        Bukkit.getPluginManager().registerEvents(tickMarkers, plugin);
         ticker = Bukkit.getScheduler().runTaskTimer(plugin, new BridgeTicker(bridge), 20L, 20L);
         service = bridge;
         injector = netty;
         listener = events;
+        markers = tickMarkers;
         plugin.getLogger()
                 .info("Bridge enabled (secret from " + (ownSecret ? "companion config" : "Paper velocity config")
                         + "); waiting for the CultAC proxy");
@@ -97,9 +102,11 @@ public final class BridgeModule {
         if (service != null) service.closeAll("companion disabled");
         if (ticker != null) ticker.cancel();
         if (listener != null) HandlerList.unregisterAll(listener);
+        if (markers != null) HandlerList.unregisterAll(markers);
         if (injector != null) injector.uninstall();
         ticker = null;
         listener = null;
+        markers = null;
         injector = null;
         service = null;
     }

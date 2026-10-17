@@ -17,6 +17,8 @@ final class BridgeSession implements CompanionSession {
     private final UUID playerId;
     volatile int state = AWAITING_AUTH;
     volatile Player player;
+    private int lastMaxNoDamageTicks = Integer.MIN_VALUE;
+    private double lastAttackSpeedBase = Double.NaN;
 
     BridgeSession(BridgeEndpoint endpoint, UUID playerId, byte[] proxyNonce, byte[] backendNonce) {
         this.endpoint = endpoint;
@@ -53,5 +55,15 @@ final class BridgeSession implements CompanionSession {
     @Override
     public boolean runInPacketOrder(Runnable task) {
         return endpoint.runInPacketOrder(task);
+    }
+
+    /** Records the player's facts and reports whether they differ from the last ones sent; the first always does. */
+    boolean playerFactsChanged(int maxNoDamageTicks, double attackSpeedBase) {
+        if (maxNoDamageTicks == lastMaxNoDamageTicks && Double.compare(attackSpeedBase, lastAttackSpeedBase) == 0) {
+            return false;
+        }
+        lastMaxNoDamageTicks = maxNoDamageTicks;
+        lastAttackSpeedBase = attackSpeedBase;
+        return true;
     }
 }

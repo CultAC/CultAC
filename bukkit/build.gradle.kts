@@ -169,6 +169,21 @@ bukkit {
             default = Permission.Default.FALSE
         }
 
+        register("cult.cloud") {
+            description = "View the cloud upload's status"
+            default = Permission.Default.OP
+        }
+
+        register("cult.cloud.view") {
+            description = "View cloud findings"
+            default = Permission.Default.OP
+        }
+
+        register("cult.cloud.label") {
+            description = "Label players in the cloud"
+            default = Permission.Default.OP
+        }
+
     }
 }
 

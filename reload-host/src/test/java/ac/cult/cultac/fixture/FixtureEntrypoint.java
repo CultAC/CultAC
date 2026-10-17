@@ -46,6 +46,11 @@ public final class FixtureEntrypoint implements RuntimeEntrypoint, RuntimeInstan
         events.add(variant + ":start");
     }
 
+    public void superseded() {
+        events.add(variant + ":superseded");
+        if (controls.containsKey("superseded-fail:" + variant)) throw new IllegalStateException("Step aside failed");
+    }
+
     public CompletionStage<Void> close() {
         events.add(variant + ":close");
         if (controls.containsKey("close-fail:" + variant))

@@ -43,6 +43,7 @@ import java.util.*;
 // PlayerReach and EntityReach each run this check for their own attack targets.
 public abstract class ReachCheck extends Check implements CheckListener, ClientTickEndListener {
     private record QueuedAttack(
+            int index,
             int entityId,
             List<Vec3> fromCandidates,
             SimpleCollisionBox targetBox,
@@ -50,6 +51,14 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             boolean livingEntity,
             boolean exempt,
             AttackReach reach) {}
+
+    /**
+     * An attack measured at the client's last tick end: its index among the tick's attack packets, the target's id,
+     * type and lag-compensated reach box, the eye origins it may have come from, and the least-flagging reach to the
+     * box, infinite when the look misses it.
+     */
+    public record MeasuredAttack(
+            int index, int entityId, int type, SimpleCollisionBox box, List<Vec3> origins, double reach) {}
 
     // A measured distance against the bound vanilla allows it.
     private record Measure(double distance, double limit) {
@@ -70,11 +79,15 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     private final ClientVisibilityProcessor visibility;
     private final List<QueuedAttack> playerAttackQueue = new ArrayList<>();
+    private final List<QueuedAttack> measuredAttacks = new ArrayList<>();
     private static final List<Integer> blacklisted = Arrays.asList(EntityTypeIds.SHULKER);
 
     private boolean cancelImpossibleHits;
     private double threshold;
     private double cancelBuffer; // For the next 4 hits after using reach, we aggressively cancel reach
+
+    /** Attack packets this tick, every check's targets counted, so each attack's index is its place in the tick. */
+    private int attacks;
 
     protected ReachCheck(CultPlayer player, ClientVisibilityProcessor visibility, CheckInfo info) {
         super(player, info);
@@ -95,6 +108,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     private void handleInteract(final PacketReceiveEvent event, ServerboundInteract action) {
         if (!player.isDisabled() && action != null && action.action() == InteractAction.ATTACK) {
+            int index = attacks++;
             PacketEntity entity = player.compensatedEntities.entityMap.get(action.entityId());
             if (!targets(targetType(action.entityId(), entity))) return;
 
@@ -137,6 +151,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 // the hit result before sending the attack packet; movement and tick-end
                 // packets from the same client tick must not change the target box used here.
                 playerAttackQueue.add(new QueuedAttack(
+                        index,
                         action.entityId(),
                         getAttackOrigins(),
                         getReachBox(entity),
@@ -167,6 +182,25 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     @Override
     public void onPlayerTickEnd(final PacketReceiveEvent event) {
         tickBetterReachCheckWithAngle();
+        attacks = 0;
+    }
+
+    /** The attacks this check measured at the client's last tick end, in packet order; kept while observed. */
+    public List<MeasuredAttack> measuredAttacks() {
+        if (measuredAttacks.isEmpty()) return List.of();
+        List<MeasuredAttack> measured = new ArrayList<>(measuredAttacks.size());
+        for (QueuedAttack attack : measuredAttacks) {
+            double reach = bestMeasure(attack.targetBox(), attack.fromCandidates(), attack.reach(), false)
+                    .distance();
+            measured.add(new MeasuredAttack(
+                    attack.index(),
+                    attack.entityId(),
+                    attack.type(),
+                    attack.targetBox(),
+                    attack.fromCandidates(),
+                    reach));
+        }
+        return measured;
     }
 
     // This method finds the most optimal point at which the user should be aiming at
@@ -213,10 +247,13 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             }
         }
 
+        measuredAttacks.clear();
+        if (player.observer != null) measuredAttacks.addAll(playerAttackQueue);
         playerAttackQueue.clear();
     }
 
-    private List<Vec3> getAttackOrigins() {
+    /** The positions the client may have attacked from: where it stands, or each seat its vehicle may hold it in. */
+    public List<Vec3> getAttackOrigins() {
         PacketEntity self = player.compensatedEntities.getSelf();
         PacketEntity riding = self.getRiding();
         if (riding == null) {
@@ -255,7 +292,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 isPrediction);
     }
 
-    private SimpleCollisionBox getReachBox(PacketEntity reachEntity) {
+    /** {@code reachEntity}'s lag-compensated box as the client's pick sees it. */
+    public SimpleCollisionBox getReachBox(PacketEntity reachEntity) {
         if (reachEntity.type == EntityTypeIds.END_CRYSTAL) { // Hardcode end crystal box
             return new SimpleCollisionBox(
                     reachEntity.desyncClientPos.subtract(1, 0, 1), reachEntity.desyncClientPos.add(1, 2, 1));
@@ -286,6 +324,27 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         targetBox.expand(threshold);
         targetBox.expand(player.getMovementThreshold());
 
+        Measure best = bestMeasure(targetBox, fromCandidates, reach, isPrediction);
+
+        // if the entity is not exempt and the entity is alive
+        if ((!exempt && livingEntity) || type == EntityTypeIds.END_CRYSTAL) {
+            if (best.distance() == Double.POSITIVE_INFINITY) {
+                cancelBuffer = 1;
+                return "Missed hitbox";
+            } else if (best.excess() > 0) {
+                cancelBuffer = 1;
+                return String.format("%.5f blocks, max=%.5f", best.distance(), best.limit());
+            } else {
+                cancelBuffer = Math.max(0, cancelBuffer - 0.25);
+            }
+        }
+
+        return null;
+    }
+
+    /** The least-flagging measure of the look against {@code targetBox} from the eyes at {@code fromCandidates}. */
+    private Measure bestMeasure(
+            SimpleCollisionBox targetBox, Collection<Vec3> fromCandidates, AttackReach reach, boolean isPrediction) {
         Measure best = Measure.NONE;
 
         List<Vector3dm> possibleLookDirs = new ArrayList<>();
@@ -311,20 +370,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             if (best.distance() == 0) break;
         }
 
-        // if the entity is not exempt and the entity is alive
-        if ((!exempt && livingEntity) || type == EntityTypeIds.END_CRYSTAL) {
-            if (best.distance() == Double.POSITIVE_INFINITY) {
-                cancelBuffer = 1;
-                return "Missed hitbox";
-            } else if (best.excess() > 0) {
-                cancelBuffer = 1;
-                return String.format("%.5f blocks, max=%.5f", best.distance(), best.limit());
-            } else {
-                cancelBuffer = Math.max(0, cancelBuffer - 0.25);
-            }
-        }
-
-        return null;
+        return best;
     }
 
     // The least-flagging vanilla selection from one eye and look: Minecraft#pick, then Minecraft#startAttack.

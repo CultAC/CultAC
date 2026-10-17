@@ -1140,6 +1140,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         clearTransientPacketState(player);
+        // After the clear, which latches this tick end's own teleport flag into this tick.
+        player.packetStateData.teleportedThisClientTick = false;
     }
 
     private static void clearPendingVehicleMoveForInterveningPacket(CultPlayer player) {
@@ -1161,6 +1163,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
 
     private static void clearTransientPacketState(CultPlayer player) {
         // Finally, remove the packet state variables on this packet
+        if (player.packetStateData.lastPacketWasTeleport) player.packetStateData.teleportedThisClientTick = true;
         player.packetStateData.lastPacketWasTeleport = false;
         player.packetStateData.lastPacketWasOnePointSeventeenDuplicate = false;
         player.packetStateData.lastPacketMatchedTeleportPosition = false;
@@ -1198,6 +1201,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             CultPlayer player, float yaw, float pitch, TeleportAcceptData accepted) {
         boolean previous = player.packetStateData.lastPacketWasTeleport;
         player.packetStateData.lastPacketWasTeleport = true;
+        player.packetStateData.teleportedThisClientTick = true;
         try {
             if (player.xRot != yaw || player.yRot != pitch) {
                 player.lastTickXRot = player.xRot;

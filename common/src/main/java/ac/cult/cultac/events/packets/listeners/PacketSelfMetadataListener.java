@@ -257,7 +257,7 @@ public class PacketSelfMetadataListener {
         // to a proof that precedes the packet whose state it applies.
         event.getTasksAfterSend().add(() -> {
             player.latencyUtils.addRealTimeTaskNext(task);
-            player.sendTransaction();
+            player.sendTrailingTransaction();
         });
     }
 }

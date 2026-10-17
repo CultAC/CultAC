@@ -71,6 +71,10 @@ help:
     - "/cult history <player> page <N> &f- &7Перейти к странице N списка сессий"
     - "/cult history <player> session <N|latest> [-d] [-v] &f- &7Детали сессии (свежие нарушения сверху)"
     - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7Детали сессии, страница N нарушений"
+    - "/cult cloud &f- &7Статус выгрузки в облако: сокеты, удерживаемые кадры и счётчики"
+    - "/cult findings <player> [count] &f- &7Последние облачные находки по игроку"
+    - "/cult top [check] [minutes] &f- &7Игроки с самыми уверенными облачными находками"
+    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Пометить игрока в реестре меток облака (также list, revoke)"
     - "&7======================"
 
 # === /cult history ===

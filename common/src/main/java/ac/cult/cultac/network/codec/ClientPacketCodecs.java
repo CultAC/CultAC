@@ -42,7 +42,7 @@ import java.util.stream.Stream;
  * independently verified against native codecs by the per-version conformance tests.
  */
 public final class ClientPacketCodecs {
-    private static final ProtocolVersion MODEL_VERSION = ProtocolVersion.V26_3;
+    public static final ProtocolVersion MODEL_VERSION = ProtocolVersion.V26_3;
 
     private ClientPacketCodecs() {}
 

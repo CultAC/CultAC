@@ -142,6 +142,11 @@ public final class ClientComponentRegistries {
         return receivedRegistries;
     }
 
+    /** The protocol {@link #receivedRegistries} were observed on; null before any were published. */
+    public ProtocolVersion receivedRegistryVersion() {
+        return receivedRegistryVersion;
+    }
+
     /**
      * Via appends registry_data to every finish_configuration when upgrading across these versions:
      * EntityPacketRewriter1_21_5, EntityPacketRewriter1_21_6, Protocol1_21_11To26_1 and Protocol26_2To26_3.

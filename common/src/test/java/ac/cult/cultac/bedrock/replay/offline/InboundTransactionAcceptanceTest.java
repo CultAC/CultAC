@@ -636,9 +636,9 @@ public final class InboundTransactionAcceptanceTest {
     }
 
     private static CultPlayer.TrackedTransaction createTrackedTransaction(CultPlayer player) throws Exception {
-        Method method = CultPlayer.class.getDeclaredMethod("createTrackedTransaction");
+        Method method = CultPlayer.class.getDeclaredMethod("createTrackedTransaction", int.class, int.class);
         method.setAccessible(true);
-        return (CultPlayer.TrackedTransaction) method.invoke(player);
+        return (CultPlayer.TrackedTransaction) method.invoke(player, CultPlayer.PING_LEADING, 0);
     }
 
     private static PacketReceiveEvent receiveEvent(CultPlayer player, ServerboundPong packet) {

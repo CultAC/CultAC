@@ -79,9 +79,12 @@ public final class CultConfigSpecs {
      *
      * <p>v11 → v12: adds {@code max-clicks-per-tick}; default rewriting adds
      * the key while auto-lift retains any existing operator value.
+     *
+     * <p>v12 → v13: adds the {@code cloud} block to the bundled config, the same
+     * way and with no migration.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 12, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 13, ConfigUpdater.ConfigFlavor.V2)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);

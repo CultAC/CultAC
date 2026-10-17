@@ -215,6 +215,9 @@ public interface WireValueDecoder extends AutoCloseable {
 
     RegistryValues registry(ByteBuf input);
 
+    /** What players write in {@code version}'s values, for taking it out of a packet before it leaves the server. */
+    PlayerTextCodec playerText(ProtocolVersion version);
+
     int floatSerializer(ProtocolVersion version);
 
     @Override

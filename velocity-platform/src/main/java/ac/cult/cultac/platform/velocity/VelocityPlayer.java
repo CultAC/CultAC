@@ -6,12 +6,14 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.SetGameMode;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Teleport;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.platform.velocity.bridge.BackendWorld;
 import ac.cult.cultac.platform.velocity.bridge.BridgeSession;
 import ac.cult.cultac.platform.velocity.bridge.VelocityBridge;
+import ac.cult.cultac.platform.velocity.cloud.CloudBackends;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
@@ -269,5 +271,14 @@ final class VelocityPlayer implements PlatformPlayer {
     @Override
     public void sendPluginMessage(String channel, byte[] payload) {
         player.sendPluginMessage(MinecraftChannelIdentifier.from(channel), payload.clone());
+    }
+
+    /** The facts the companion on the player's backend reported; none without one. */
+    @Override
+    public ServerFacts cloudFacts() {
+        var server = player.getCurrentServer().orElse(null);
+        return server == null
+                ? ServerFacts.NONE
+                : CloudBackends.facts(id, server.getServerInfo().getName());
     }
 }

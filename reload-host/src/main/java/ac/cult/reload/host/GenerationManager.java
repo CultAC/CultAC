@@ -258,7 +258,10 @@ public final class GenerationManager implements AutoCloseable {
                             throw failure;
                         }
                         report.accept("Activated CultAC runtime " + next.artifact.display() + " (" + next.id + ")");
-                        if (previous != null) retire(previous);
+                        if (previous != null) {
+                            superseded(previous);
+                            retire(previous);
+                        }
                         return "Activated " + next.artifact.display();
                     } catch (Throwable failure) {
                         throw new CompletionException(RuntimeFailures.detached(failure));
@@ -453,6 +456,18 @@ public final class GenerationManager implements AutoCloseable {
             owner.state = State.CLEANUP_FAILED;
         }
         owner.closed.completeExceptionally(RuntimeFailures.detached(failure));
+    }
+
+    /** Tells a generation that has just been replaced; what it throws is reported, and it drains regardless. */
+    private void superseded(Generation generation) {
+        try {
+            invoke(generation, () -> {
+                generation.runtime.superseded();
+                return null;
+            });
+        } catch (Throwable failure) {
+            report.accept("CultAC runtime " + generation.id + " failed to step aside: " + failure);
+        }
     }
 
     private void retire(Generation generation) {

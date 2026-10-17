@@ -32,7 +32,7 @@ public class PacketServerRegistries {
         } else {
             player.sendTransaction();
             player.latencyUtils.addRealTimeTaskNext(() -> state.appendTags(packet));
-            event.getTasksAfterSend().add(player::sendTransaction);
+            event.getTasksAfterSend().add(player::sendTrailingTransaction);
         }
     }
 

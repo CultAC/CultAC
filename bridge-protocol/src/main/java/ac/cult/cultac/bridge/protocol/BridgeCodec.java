@@ -9,6 +9,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.CheckInfo;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.ClearActiveItem;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Close;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CloseInventory;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.CloudFacts;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Command;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CommandDone;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CommandExecute;
@@ -17,7 +18,9 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.ConsoleExec;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Flag;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Hello;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Listeners;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.Marker;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Metrics;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerFacts;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerState;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerStateResult;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Ready;
@@ -40,7 +43,9 @@ import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -49,6 +54,8 @@ import java.util.UUID;
  */
 public final class BridgeCodec {
     public static final int MAX_LIST_SIZE = 4096;
+    /** Entries in a facts message's settings. */
+    public static final int MAX_SETTINGS = 64;
 
     private BridgeCodec() {}
 
@@ -125,6 +132,12 @@ public final class BridgeCodec {
                 out.writeFloat(m.yaw());
                 out.writeFloat(m.pitch());
             }
+            case CloudFacts m -> {
+                writeNonNegative(out, m.tickMicros());
+                writeSettings(out, m.settings());
+            }
+            case PlayerFacts m -> writeSettings(out, m.settings());
+            case Marker m -> out.writeInt(m.marker());
             case ClearActiveItem m -> {
                 writeU8(out, m.hand());
                 writeString(out, m.itemKey());
@@ -284,6 +297,9 @@ public final class BridgeCodec {
                         in.readDouble(),
                         in.readFloat(),
                         in.readFloat());
+            case CloudFacts.TYPE -> new CloudFacts(readNonNegative(in), readSettings(in));
+            case PlayerFacts.TYPE -> new PlayerFacts(readSettings(in));
+            case Marker.TYPE -> new Marker(in.readInt());
             case ClearActiveItem.TYPE -> new ClearActiveItem(in.readUnsignedByte(), readString(in));
             case SetGameMode.TYPE -> new SetGameMode(in.readUnsignedByte());
             case Teleport.TYPE ->
@@ -440,6 +456,39 @@ public final class BridgeCodec {
         if (count < 0) throw malformed("Negative list size " + count);
         if (count > MAX_LIST_SIZE) throw malformed("List of " + count + " exceeds the cap");
         return count;
+    }
+
+    private static void writeNonNegative(ByteBuf out, int value) {
+        if (value < 0) throw new IllegalArgumentException("Negative value " + value);
+        writeVarInt(out, value);
+    }
+
+    private static int readNonNegative(ByteBuf in) {
+        int value = readVarInt(in);
+        if (value < 0) throw malformed("Negative value " + value);
+        return value;
+    }
+
+    private static void writeSettings(ByteBuf out, Map<String, String> settings) {
+        if (settings.size() > MAX_SETTINGS) {
+            throw new IllegalArgumentException(settings.size() + " settings exceed the cap");
+        }
+        writeVarInt(out, settings.size());
+        for (Map.Entry<String, String> setting : settings.entrySet()) {
+            writeString(out, setting.getKey());
+            writeString(out, setting.getValue());
+        }
+    }
+
+    private static Map<String, String> readSettings(ByteBuf in) {
+        int count = readVarInt(in);
+        if (count < 0 || count > MAX_SETTINGS) throw malformed(count + " settings");
+        Map<String, String> settings = new LinkedHashMap<>(count * 2);
+        for (int i = 0; i < count; i++) {
+            String key = readString(in);
+            if (settings.put(key, readString(in)) != null) throw malformed("Repeated setting " + key);
+        }
+        return settings;
     }
 
     private static boolean readBoolean(ByteBuf in) {

@@ -25,6 +25,7 @@ public final class PrivateCodecService implements WireValueDecoder {
     private record Versions(ProtocolVersion source, ProtocolVersion target) {}
 
     private final Map<Versions, ModelIdMappings> mappings = new ConcurrentHashMap<>();
+    private final Map<ProtocolVersion, PlayerTextCodec> playerText = new ConcurrentHashMap<>();
     private volatile boolean closed;
 
     public PrivateCodecService() {
@@ -327,10 +328,9 @@ public final class PrivateCodecService implements WireValueDecoder {
                 factory);
     }
 
-    private record MetadataTypes(
-            int floatingPoint, int pose, int optionalInt, int painting, int particle, int particles) {}
+    record MetadataTypes(int floatingPoint, int pose, int optionalInt, int painting, int particle, int particles) {}
 
-    private static MetadataTypes metadataTypes(VersionedTypesHolder types) {
+    static MetadataTypes metadataTypes(VersionedTypesHolder types) {
         return switch (types.entityDataTypes()) {
             case ac.cult.shaded.vialib.api.minecraft.entitydata.types.EntityDataTypes1_21_2 values ->
                 new MetadataTypes(
@@ -459,7 +459,7 @@ public final class PrivateCodecService implements WireValueDecoder {
 
     private static final Map<ProtocolVersion, Integer> ITEM_PARTICLES = new ConcurrentHashMap<>();
 
-    private static int itemParticle(ProtocolVersion version) {
+    static int itemParticle(ProtocolVersion version) {
         return ITEM_PARTICLES.computeIfAbsent(
                 version,
                 value -> ModelRegistryData.load(value)
@@ -514,6 +514,12 @@ public final class PrivateCodecService implements WireValueDecoder {
         else if (type == Types.TRUSTED_OPTIONAL_TAG) {
             if (input.readBoolean()) ac.cult.cultac.protocol.wire.NbtSkipper.skip(input, 512);
         } else type.read(input); // Via supplies boundaries for particle arguments and other complex values.
+    }
+
+    @Override
+    public PlayerTextCodec playerText(ProtocolVersion version) {
+        checkOpen();
+        return playerText.computeIfAbsent(version, PlayerTextValues::new);
     }
 
     @Override

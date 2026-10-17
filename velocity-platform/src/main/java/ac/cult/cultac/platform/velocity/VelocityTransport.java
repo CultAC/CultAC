@@ -1,5 +1,6 @@
 package ac.cult.cultac.platform.velocity;
 
+import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.PacketOwner;
@@ -200,6 +201,7 @@ final class VelocityTransport {
             state.put("bedrock-session", connection.bedrockBridge());
             state.put("bedrock", bedrock);
         }
+        CloudModule.released(connection.player());
         connection
                 .removeHandlers(() -> {
                     ((VelocityConnectionAdapter) connection.platform()).closeBackendTicks();

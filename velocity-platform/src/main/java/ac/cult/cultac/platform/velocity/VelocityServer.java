@@ -151,6 +151,11 @@ final class VelocityServer implements PlatformServer {
         return true;
     }
 
+    @Override
+    public boolean isOnlineMode() {
+        return proxy.getConfiguration().isOnlineMode();
+    }
+
     /** The mean tick rate measured on connected backends' streams; NaN before any measurement. */
     @Override
     public double getTPS() {

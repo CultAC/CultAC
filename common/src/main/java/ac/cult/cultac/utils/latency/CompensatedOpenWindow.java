@@ -42,7 +42,8 @@ public final class CompensatedOpenWindow
     }
 
     public void onServerWindow(PacketSendEvent<?> event, int id, @Nullable MenuType type) {
-        CultPlayer.TrackedTransaction before = player.createTrackedTransactionPacketForDeferredSend();
+        CultPlayer.TrackedTransaction before =
+                player.createTrackedTransactionPacketForDeferredSend(CultPlayer.PING_LEADING);
         CultPlayer.TrackedTransaction after = player.createTrackedTransactionPacketForDeferredSend();
         if (before == null || after == null) return;
         Window window = type == null ? null : new Window(id, before.transaction(), type);

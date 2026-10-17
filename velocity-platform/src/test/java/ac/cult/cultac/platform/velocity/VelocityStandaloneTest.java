@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
@@ -14,7 +15,9 @@ import ac.cult.cultac.utils.math.Vec3;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
+import com.velocitypowered.api.proxy.server.ServerInfo;
 import io.netty.util.concurrent.ImmediateEventExecutor;
+import java.net.InetSocketAddress;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +37,16 @@ class VelocityStandaloneTest {
         when(connection.phase(PacketDirection.CLIENTBOUND)).thenReturn(ConnectionPhase.PLAY);
         player.attach(connection);
         observed.world = "minecraft:overworld";
+    }
+
+    @Test
+    void withoutACompanionCapturesCarryNoFacts() {
+        when(server.getServerInfo())
+                .thenReturn(new ServerInfo("lobby", InetSocketAddress.createUnresolved("127.0.0.1", 25566)));
+        assertEquals(ServerFacts.NONE, player.cloudFacts());
+
+        when(nativePlayer.getCurrentServer()).thenReturn(Optional.empty());
+        assertEquals(ServerFacts.NONE, player.cloudFacts());
     }
 
     @Test

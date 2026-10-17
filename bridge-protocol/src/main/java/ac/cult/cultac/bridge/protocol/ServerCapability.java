@@ -15,7 +15,10 @@ public enum ServerCapability {
     COMMANDS(8),
     FLAG_VERDICT(9),
     /** Ends the player's active item use, in order with the player's game packets. */
-    CLEAR_ACTIVE_ITEM(10);
+    CLEAR_ACTIVE_ITEM(10),
+    CLOUD_FACTS(11),
+    /** Answers MARKER frames, in order with the player's game packets. */
+    MARKER(12);
 
     private final int bit;
 

@@ -483,6 +483,54 @@ class GenerationManagerTest {
     }
 
     @Test
+    void aReplacedGenerationIsToldOnceBeforeItDrains() throws Exception {
+        var manager = start();
+        try {
+            manager.attach("pinned", null);
+            artifact("next.jar", "2", "next", "paper");
+            await(manager.update("next.jar"));
+            assertEquals(1, events.stream().filter("initial:superseded"::equals).count());
+            assertFalse(events.contains("initial:close"), "a pinned connection keeps the generation open");
+            assertTrue(events.indexOf("next:start") < events.indexOf("initial:superseded"));
+            await(manager.disconnect("pinned"));
+            eventually(() -> events.contains("initial:close"));
+            assertTrue(events.indexOf("initial:superseded") < events.indexOf("initial:close"));
+            assertFalse(events.contains("next:superseded"));
+        } finally {
+            await(manager.stop());
+        }
+        assertFalse(events.contains("next:superseded"), "stopping the host closes without superseding");
+    }
+
+    @Test
+    void aGenerationThatFailsToStepAsideStillDrains() throws Exception {
+        var manager = start();
+        try {
+            controls.put("superseded-fail:initial", true);
+            artifact("next.jar", "2", "next", "paper");
+            assertTrue(await(manager.update("next.jar")).startsWith("Activated"));
+            eventually(() -> events.contains("initial:close"));
+            assertTrue(reports.stream().anyMatch(line -> line.contains("failed to step aside")));
+        } finally {
+            await(manager.stop());
+        }
+    }
+
+    @Test
+    void aDuplicateUpdateSupersedesNothing() throws Exception {
+        var manager = start();
+        try {
+            Path first = artifact("same.jar", "2", "same", "paper");
+            await(manager.update("same.jar"));
+            Files.copy(first, first.resolveSibling("again.jar"));
+            assertTrue(await(manager.update("again.jar")).startsWith("Already running"));
+            assertFalse(events.contains("same:superseded"));
+        } finally {
+            await(manager.stop());
+        }
+    }
+
+    @Test
     void downstreamUsesPinnedUpstreamAfterUpdate() throws Exception {
         var manager = start();
         try {

@@ -24,11 +24,14 @@ mongoDriverSync = "5.3.1"
 netty = "4.1.85.Final"
 snakeyaml = "2.2"
 configuralize = "1.4.1" # :slim classifier is applied in build.gradle.kts
+protobuf = "4.36.2"
+zstd-jni = "1.5.7-15"
 
 # --- Build & Tooling ---
 lombok = "9.0.0"
 shadow = "9.3.0"
 spotless = "6.25.0"
+protobuf-plugin = "0.10.0"
 
 [libraries]
 # --- Core Frameworks: Adventure (Text) & Cloud (Commands) ---
@@ -63,6 +66,9 @@ jetbrains-annotations = { group = "org.jetbrains", name = "annotations", version
 mongoDriverSync = { group = "org.mongodb", name = "mongodb-driver-sync", version.ref = "mongoDriverSync" }
 netty = { group = "io.netty", name = "netty-all", version.ref = "netty" }
 snakeyaml = { group = "org.yaml", name = "snakeyaml", version.ref = "snakeyaml" }
+protobuf-javalite = { group = "com.google.protobuf", name = "protobuf-javalite", version.ref = "protobuf" }
+protobuf-protoc = { group = "com.google.protobuf", name = "protoc", version.ref = "protobuf" }
+zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstd-jni" }
 
 # --- Gradle Plugin Definitions ---
 # These are referenced by the [plugins] section or applied directly in build scripts
@@ -82,3 +88,4 @@ cloud-api = ["cloud-core", "cloud-processors-requirements"]
 lombok = { id = "io.freefair.lombok", version.ref = "lombok" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+protobuf = { id = "com.google.protobuf", version.ref = "protobuf-plugin" }

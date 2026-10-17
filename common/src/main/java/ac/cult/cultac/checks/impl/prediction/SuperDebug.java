@@ -16,9 +16,10 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.PistonData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.lists.EvictingQueue;
-import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.List;
 
 public class SuperDebug extends CultProcessor implements PostPredictionListener {
@@ -28,7 +29,20 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     private static final String[] flags = new String[FLAG_SIZE + 2]; //  17/2 MB of logs in memory
 
+    private static final VarHandle DIAG;
+
+    static {
+        try {
+            DIAG = MethodHandles.lookup().findVarHandle(SuperDebug.class, "diag", PredictionObserver.class);
+        } catch (ReflectiveOperationException impossible) {
+            throw new ExceptionInInitializerError(impossible);
+        }
+    }
+
     private final List<MovementFrame> movementHistory = new EvictingQueue<>(40);
+
+    /** Set while something watches this player's predictions: each one also goes to it. */
+    private volatile PredictionObserver diag;
 
     public SuperDebug(CultPlayer player) {
         super(player);
@@ -86,6 +100,8 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
         if (predictionComplete.isTeleport()) {
             movementHistory.add(new MovementFrame(TELEPORT_MARKER, TELEPORT_MARKER, location));
+            PredictionObserver watch = diag;
+            if (watch != null) captureTeleport(watch);
             return;
         }
 
@@ -95,6 +111,9 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         Vec3 closest = getDebugPredictionVector(result);
 
         movementHistory.add(new MovementFrame(closest, target, location));
+
+        PredictionObserver watch = diag;
+        if (watch != null) capture(watch, result, lastResult, closest, target, predictionComplete.isExempt());
 
         if (result.getIdentifier() == 0) return; // 1 - 256 are valid possible values
 
@@ -115,6 +134,109 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         sb.append("\nPing: ");
         sb.append(player.getTransactionPing());
         sb.append(" ms\n\n");
+        appendState(sb, result, lastResult);
+        appendMovementHistory(sb);
+        appendTail(sb, result, lastResult);
+        BlockGrid.around(player).appendTo(sb);
+
+        storeDebugLog(sb, result);
+    }
+
+    /**
+     * The tick's prediction state, read here on the packet thread, and its block grid, which the diagnostics thread
+     * prints. Nothing of the prediction or of this listener changes.
+     */
+    private void capture(
+            PredictionObserver watch,
+            PredictionResult result,
+            PredictionResult lastResult,
+            Vec3 closest,
+            Vec3 target,
+            boolean exempt) {
+        long start = System.nanoTime();
+        try {
+            long seq = watch.pendingSeq();
+            String state = null;
+            BlockGrid grid = null;
+            if (result.getSimulationContext() != null) {
+                StringBuilder sb = new StringBuilder(8192);
+                appendState(sb, result, lastResult);
+                appendTail(sb, result, lastResult);
+                state = sb.toString();
+                grid = BlockGrid.around(player);
+            }
+            double offset = result.getValidMovements() != null ? result.getOffset() : Double.NaN;
+            watch.capture(seq, offset, trace(closest, target, exempt, false), state, grid, start);
+        } catch (RuntimeException failure) {
+            watch.failed(failure);
+        }
+    }
+
+    private void captureTeleport(PredictionObserver watch) {
+        long start = System.nanoTime();
+        try {
+            long seq = watch.pendingSeq();
+            watch.capture(seq, Double.NaN, trace(null, null, false, true), null, null, start);
+        } catch (RuntimeException failure) {
+            watch.failed(failure);
+        }
+    }
+
+    /** The movement history as a watch starts: what came before its first tick. On the packet thread. */
+    public String history() {
+        StringBuilder sb = new StringBuilder(4096);
+        appendMovementHistory(sb);
+        return sb.toString();
+    }
+
+    /** The observer of this player's predictions; null when none. */
+    public PredictionObserver watch() {
+        return diag;
+    }
+
+    /** Sends each prediction to {@code watch} too; from any thread. */
+    public void watch(PredictionObserver watch) {
+        diag = watch;
+    }
+
+    /** Clears {@link #diag} if it still holds {@code watch}; from any thread. */
+    public void unwatch(PredictionObserver watch) {
+        DIAG.compareAndSet(this, watch, null);
+    }
+
+    /** One line: predicted and actual movement, position, rotation, ground, exempt or teleport. */
+    private String trace(Vec3 predicted, Vec3 actual, boolean exempt, boolean teleport) {
+        StringBuilder sb = new StringBuilder(192);
+        if (predicted != null) {
+            sb.append("pred ")
+                    .append(predicted.x)
+                    .append(' ')
+                    .append(predicted.y)
+                    .append(' ')
+                    .append(predicted.z);
+            sb.append(" act ")
+                    .append(actual.x)
+                    .append(' ')
+                    .append(actual.y)
+                    .append(' ')
+                    .append(actual.z)
+                    .append(' ');
+        }
+        sb.append("pos ")
+                .append(player.x)
+                .append(' ')
+                .append(player.y)
+                .append(' ')
+                .append(player.z);
+        sb.append(" rot ").append(player.xRot).append(' ').append(player.yRot);
+        sb.append(" ground ").append(player.onGround);
+        if (exempt) sb.append(" exempt");
+        if (teleport) sb.append(" teleport");
+        return sb.toString();
+    }
+
+    /** Knockback and explosion state, starting velocities, packet, vehicle and boat state, and the candidates. */
+    private void appendState(StringBuilder sb, PredictionResult result, PredictionResult lastResult) {
         sb.append("\nKnockback first bread: ");
         sb.append(player.checkManager.getKnockbackHandler().firstBread);
         sb.append("\nKnockback second bread: ");
@@ -217,8 +339,10 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             sb.append("\n\n");
         }
         sb.append("\n\n");
+    }
 
-        appendMovementHistory(sb);
+    /** The flags, both contexts and ticks' collisions, pistons, the bounding box and nearby entity boxes. */
+    private void appendTail(StringBuilder sb, PredictionResult result, PredictionResult lastResult) {
         appendFlagDetails(sb, result);
 
         sb.append("================== context ==================\n\n");
@@ -262,59 +386,6 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         sb.append('}');
         sb.append("\n");
         appendNearbyEntityBoxes(sb, result);
-
-        int minX = CultMath.floor(player.boundingBox.minX) - 2;
-        int maxX = CultMath.ceil(player.boundingBox.maxX) + 2;
-        int minY = CultMath.floor(player.boundingBox.minY) - 2;
-        int maxY = CultMath.ceil(player.boundingBox.maxY) + 2;
-        int minZ = CultMath.floor(player.boundingBox.minZ) - 2;
-        int maxZ = CultMath.ceil(player.boundingBox.maxZ) + 2;
-        int maxPosLength = Math.max(coordinateWidth(minX), coordinateWidth(maxX));
-        maxPosLength = Math.max(maxPosLength, Math.max(coordinateWidth(minZ), coordinateWidth(maxZ)));
-
-        int xSize = maxX - minX + 1;
-        int zSize = maxZ - minZ + 1;
-        String[] nearbyBlocks = new String[(maxY - minY + 1) * zSize * xSize];
-        int maxLength = 0;
-        for (int y = minY; y <= maxY; y++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                for (int x = minX; x <= maxX; x++) {
-                    String text = ac.cult.blocksim.data.DataTables.defaults()
-                            .registry()
-                            .debugString(player.compensatedWorld.getBlockStateIdAt(x, y, z))
-                            .replace("minecraft:", "");
-                    nearbyBlocks[blockIndex(x, y, z, minX, minY, minZ, xSize, zSize)] = text;
-                    maxLength = Math.max(text.length(), maxLength);
-                }
-            }
-        }
-
-        maxPosLength += 4; // To handle "x: [num] "
-        maxLength++; // Add a space between blocks
-
-        for (int y = maxY; y >= minY; y--) {
-            sb.append("y: ");
-            sb.append(y);
-            sb.append("\n");
-
-            appendPadded(sb, "x: ", maxPosLength);
-            for (int x = minX; x <= maxX; x++) {
-                appendPadded(sb, Integer.toString(x), maxLength);
-            }
-            sb.append("\n");
-
-            for (int z = minZ; z <= maxZ; z++) {
-                appendPadded(sb, "z: " + z + " ", maxPosLength);
-                for (int x = minX; x <= maxX; x++) {
-                    appendPadded(sb, nearbyBlocks[blockIndex(x, y, z, minX, minY, minZ, xSize, zSize)], maxLength);
-                }
-                sb.append("\n");
-            }
-
-            sb.append("\n\n\n");
-        }
-
-        storeDebugLog(sb, result);
     }
 
     private record MovementFrame(Vec3 predicted, Vec3 actual, Location location) {}
@@ -354,21 +425,6 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         String debugLog = sb.toString();
         flags[result.getIdentifier()] = debugLog;
         BedrockPredictionDebug.sendMovementVerbose(player, result, debugLog);
-    }
-
-    private static int coordinateWidth(int coordinate) {
-        return (int) Math.ceil(Math.log10(Math.abs(coordinate)));
-    }
-
-    private static void appendPadded(StringBuilder sb, String value, int width) {
-        sb.append(value);
-        for (int i = value.length(); i < width; i++) {
-            sb.append(' ');
-        }
-    }
-
-    private static int blockIndex(int x, int y, int z, int minX, int minY, int minZ, int xSize, int zSize) {
-        return ((y - minY) * zSize + z - minZ) * xSize + x - minX;
     }
 
     private void appendRideableControlDetails(StringBuilder sb, PredictionResult result) {

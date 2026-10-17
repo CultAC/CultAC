@@ -10,6 +10,8 @@ public class PacketStateData {
     public boolean javaLocalPlayerPresent;
     public boolean packetPlayerOnGround = false;
     public boolean lastPacketWasTeleport = false;
+    // lastPacketWasTeleport lasts one packet; this keeps whether any packet of the client tick accepted a teleport.
+    public boolean teleportedThisClientTick = false;
     // Vanilla 1.17 through 1.20.6 can emit a redundant PosRot packet at the
     // movement threshold. It carries look state, but is not another movement.
     public boolean lastPacketWasOnePointSeventeenDuplicate = false;

@@ -13,6 +13,13 @@ public interface RuntimeInstance {
 
     CompletionStage<Void> close();
 
+    /**
+     * A newer generation has become current. This one keeps serving its pinned connections until it is closed, but
+     * must hand over or stop any process-wide external resource the new generation also claims. Called once, before
+     * the generation drains. It runs on the host's management thread and must return within a bounded few seconds.
+     */
+    default void superseded() {}
+
     void attach(Object connection, Object nativePlayer) throws Exception;
 
     CompletionStage<Void> disconnect(Object connection);

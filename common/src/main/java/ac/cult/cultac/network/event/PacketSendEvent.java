@@ -14,6 +14,7 @@ public final class PacketSendEvent<R> extends PacketEvent<R> {
     private List<CultWrite> before, after;
     private List<Runnable> tasks;
     private boolean bundle;
+    private boolean authored;
     private final ProtocolVersion decodedProtocol;
 
     public PacketSendEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet, boolean insideBundle) {
@@ -53,6 +54,15 @@ public final class PacketSendEvent<R> extends PacketEvent<R> {
 
     public boolean isBundleRequested() {
         return bundle;
+    }
+
+    /** CultAC wrote this packet itself; the server never sent it. */
+    public void authored() {
+        authored = true;
+    }
+
+    public boolean isAuthored() {
+        return authored;
     }
 
     public List<CultWrite> writesBefore() {

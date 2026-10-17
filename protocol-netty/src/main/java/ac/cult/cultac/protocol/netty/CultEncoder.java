@@ -258,7 +258,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     /** Expands only packets. The caller decides whether this expansion needs a bundle. */
     private boolean expandPacket(ChannelHandlerContext ctx, Pending pending, Families activeFamilies, Batch batch) {
         if (!(pending.message instanceof CultWrite write)) {
-            return expandFrame(ctx, (ByteBuf) pending.message, pending.promise, false, activeFamilies, batch);
+            return expandFrame(ctx, (ByteBuf) pending.message, pending.promise, false, false, activeFamilies, batch);
         }
         var phase = connection.phase(PacketDirection.CLIENTBOUND);
         ac.cult.cultac.protocol.ProjectedPackets.Encoded encoded;
@@ -293,7 +293,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 var part = encoded.frames().size() == 1 ? pending.promise : ctx.newPromise();
                 if (parts != null) parts.add(part);
                 transferred++;
-                requested |= expandFrame(ctx, frame, part, write.silent(), activeFamilies, batch);
+                requested |= expandFrame(ctx, frame, part, write.silent(), true, activeFamilies, batch);
             }
             if (encoded.frames().size() > 1)
                 batch.output.addGroup(new GroupCompletion(List.copyOf(parts), pending.promise));
@@ -313,6 +313,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             ByteBuf bytes,
             ChannelPromise promise,
             boolean silent,
+            boolean authored,
             Families activeFamilies,
             Batch batch) {
         var phase = connection.phase(PacketDirection.CLIENTBOUND);
@@ -338,6 +339,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     var type = (PacketType<ClientboundPacket>) route.type();
                     var event = new PacketSendEvent<>(
                             connection.user(), phase, type, (ClientboundPacket) value.packet(), batch.inside);
+                    if (authored) event.authored();
                     connection.dispatcher().send(event, route.send());
                     if (event.isCancelled()) {
                         promise.trySuccess();

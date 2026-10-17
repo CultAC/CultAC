@@ -47,6 +47,9 @@ retain your configured database names and table mappings to keep existing data.
 New defaults use CultAC branding. GrimAPI's logical storage IDs and legacy
 migration schema names remain unchanged for compatibility.
 
+CultAC can upload captured play to an intake service for analysis. The upload is off until configured;
+[Cloud upload](docs/cloud-upload.md) says what it sends, how to configure it and what it costs.
+
 ## Updating without a restart
 
 Install `bukkit/build/libs/CultAC-paper.jar` on Paper or

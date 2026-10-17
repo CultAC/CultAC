@@ -89,6 +89,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.Getter;
 import lombok.Setter;
 import net.kyori.adventure.text.Component;
@@ -154,6 +155,16 @@ public class CultPlayer implements GrimUser {
 
     public final @NotNull AtomicInteger lastTransactionSent = new AtomicInteger(0);
     public final @NotNull AtomicInteger lastTransactionReceived = new AtomicInteger(0);
+    /** Whether transactions record their provenance; the rings below are null until it first turns on. */
+    private boolean recordProvenance;
+    /** The wire ids of the last {@link #RECENT_WIRE_IDS} transactions, by transaction. */
+    private int[] recentWireIds;
+    /** The transaction each slot holds, so a stale slot is never read as a newer one. */
+    private int[] recentTransactions;
+    /** The kind of each of those pings, a {@code PING_} value; 0 for an empty slot. */
+    private byte[] recentKinds;
+    /** The server tick of each end-of-tick ping; 0 for the others. */
+    private int[] recentTicks;
     // End transaction handling stuff
     // Manager like classes
     public @NotNull CheckManager checkManager;
@@ -274,6 +285,13 @@ public class CultPlayer implements GrimUser {
     public long lastBlockPlaceUseItem = 0;
     public int totalFlyingPacketsSent;
     public final @NotNull AtomicInteger cancelledPackets = new AtomicInteger(0);
+    /**
+     * Client tick ends received while an {@link #observer} is set, counted before any handler runs, so a skipped handler
+     * cannot shift the count.
+     */
+    public final @NotNull AtomicLong clientTickEnds = new AtomicLong();
+    /** Follows this player's engine events; null while nothing does. */
+    public volatile @Nullable PlayerObserver observer;
 
     public boolean isDead() {
         return compensatedEntities.getSelf().isDead;
@@ -332,6 +350,12 @@ public class CultPlayer implements GrimUser {
     private boolean forceSlowMovement = true;
 
     private static final String DISABLED_PERMISSION = "cult.disabled";
+    private static final int RECENT_WIRE_IDS = 128;
+    /** The kinds of ping CultAC writes: at the end of a server tick, after and before a packet it proves. */
+    public static final int PING_END_OF_TICK = 1;
+
+    public static final int PING_TRAILING = 2;
+    public static final int PING_LEADING = 3;
 
     public void updateDisabled() {
         if (platformPlayer == null) return;
@@ -518,20 +542,35 @@ public class CultPlayer implements GrimUser {
     }
 
     public void sendTransaction(boolean async) {
+        sendTransaction(async, PING_LEADING, 0);
+    }
+
+    /** A ping written after the packets it proves, outside their group; its transaction, or -1 when none is sent. */
+    public int sendTrailingTransaction() {
+        return sendTransaction(false, PING_TRAILING, 0);
+    }
+
+    /** The ping that ends server tick {@code serverTick}, written after the tick's packets. */
+    public void sendEndOfTickTransaction(int serverTick) {
+        sendTransaction(false, PING_END_OF_TICK, serverTick);
+    }
+
+    private int sendTransaction(boolean async, int kind, int serverTick) {
         if (async) {
             // The model owner can run ahead of I/O's queued packets. Allocate
             // the proof at its outbound position so acknowledgements stay ordered.
-            user.executeAfterWrites(() -> sendTransaction(false));
-            return;
+            user.executeAfterWrites(() -> sendTransaction(false, kind, serverTick));
+            return -1;
         }
 
         if (!canSendTransactionNow()) {
-            return;
+            return -1;
         }
 
         lastTransSent = System.currentTimeMillis();
-        TrackedTransaction transaction = createTrackedTransaction();
+        TrackedTransaction transaction = createTrackedTransaction(kind, serverTick);
         user.write(transaction.packet());
+        return transaction.transaction();
     }
 
     /**
@@ -555,7 +594,7 @@ public class CultPlayer implements GrimUser {
         }
 
         lastTransSent = System.currentTimeMillis();
-        TrackedTransaction transaction = createTrackedTransaction();
+        TrackedTransaction transaction = createTrackedTransaction(PING_LEADING, 0);
         user.write(transaction.packet());
         return transaction.transaction();
     }
@@ -591,6 +630,12 @@ public class CultPlayer implements GrimUser {
 
     @Nullable
     public TrackedTransaction createTrackedTransactionPacketForDeferredSend() {
+        return createTrackedTransactionPacketForDeferredSend(PING_TRAILING);
+    }
+
+    /** As {@link #createTrackedTransactionPacketForDeferredSend()}, for a ping of {@code kind}, a {@code PING_} value. */
+    @Nullable
+    public TrackedTransaction createTrackedTransactionPacketForDeferredSend(int kind) {
         // Use this when the caller will write the ping later in the same outbound packet group.
         // The caller must mark the packet sent after the group is flushed, because the generated
         // ping may not pass through Cult's normal outbound ping listener.
@@ -599,15 +644,60 @@ public class CultPlayer implements GrimUser {
         }
 
         lastTransSent = System.currentTimeMillis();
-        return createTrackedTransaction();
+        return createTrackedTransaction(kind, 0);
     }
 
-    private synchronized TrackedTransaction createTrackedTransaction() {
+    private synchronized TrackedTransaction createTrackedTransaction(int kind, int serverTick) {
         int transactionID = nextTransactionId();
         CultWrite packet = new CultWrite(new ClientboundPing(transactionID), false);
         TrackedTransaction transaction = new TrackedTransaction(lastTransactionSent.incrementAndGet(), packet);
         transactionsPendingSend.put(transactionID, transaction);
+        if (recordProvenance) {
+            int slot = Math.floorMod(transaction.transaction(), RECENT_WIRE_IDS);
+            recentTransactions[slot] = transaction.transaction();
+            recentWireIds[slot] = transactionID;
+            recentKinds[slot] = (byte) kind;
+            recentTicks[slot] = serverTick;
+        }
         return transaction;
+    }
+
+    /** Starts or stops recording each transaction's provenance for {@link #pingProvenance} and {@link #wireIdOf}. */
+    public synchronized void recordProvenance(boolean record) {
+        if (record && recentWireIds == null) {
+            recentWireIds = new int[RECENT_WIRE_IDS];
+            recentTransactions = new int[RECENT_WIRE_IDS];
+            recentKinds = new byte[RECENT_WIRE_IDS];
+            recentTicks = new int[RECENT_WIRE_IDS];
+        }
+        recordProvenance = record;
+    }
+
+    /**
+     * The ping of wire id {@code wireId} as CultAC wrote it: its {@code PING_} kind in the low byte and, for an
+     * end-of-tick ping, its server tick above; 0 when it is not one of the last {@link #RECENT_WIRE_IDS} CultAC wrote,
+     * or provenance is not recorded.
+     */
+    public synchronized long pingProvenance(int wireId) {
+        if (!recordProvenance) return 0;
+        int newest = lastTransactionSent.get();
+        for (int back = 0; back < RECENT_WIRE_IDS; back++) {
+            int slot = Math.floorMod(newest - back, RECENT_WIRE_IDS);
+            if (recentKinds[slot] != 0 && recentWireIds[slot] == wireId) {
+                return (long) recentTicks[slot] << 8 | recentKinds[slot];
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * The ping id {@code transaction} went out with; null when it is not one of the last {@link #RECENT_WIRE_IDS}, or
+     * provenance is not recorded.
+     */
+    public synchronized @Nullable Integer wireIdOf(int transaction) {
+        if (!recordProvenance) return null;
+        int slot = Math.floorMod(transaction, RECENT_WIRE_IDS);
+        return transaction > 0 && recentTransactions[slot] == transaction ? recentWireIds[slot] : null;
     }
 
     public void markTrackedTransactionPacketSent(@Nullable TrackedTransaction transaction) {
@@ -1327,10 +1417,20 @@ public class CultPlayer implements GrimUser {
     }
 
     public void onEndOfTickEvent() {
+        runEndOfTickTasks();
+        packetEntityReplication.onEndOfTickEvent();
+    }
+
+    /** Paper's end of server tick {@code serverTick}. Owner thread only. */
+    public void onEndOfTickEvent(int serverTick) {
+        runEndOfTickTasks();
+        packetEntityReplication.onEndOfTickEvent(serverTick);
+    }
+
+    private void runEndOfTickTasks() {
         tick++;
         for (Runnable task : endOfTickTasks) task.run();
         endOfTickTasks.clear();
-        packetEntityReplication.onEndOfTickEvent();
     }
 
     private final List<Runnable> endOfTickTasks = new ArrayList<>(4);

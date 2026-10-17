@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.verdict.FlagArbiter;
 import ac.cult.cultac.checks.verdict.FlagOutcome;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.player.PlayerObserver;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.event.events.FlagEvent;
@@ -204,6 +205,8 @@ public class Check extends CultProcessor implements AbstractCheck {
         player.punishmentManager.handleViolation(this);
         lastViolationTime = System.currentTimeMillis();
         violations++;
+        PlayerObserver observer = player.observer;
+        if (observer != null) observer.flagged(this, violations);
         if (verboseData != null) {
             CultAPI.INSTANCE
                     .getDataStoreLifecycle()

@@ -278,14 +278,15 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         // Wrap velocity between two transactions, matching Cult3.0-clean's
         // uncertainty model for clients where the packet is not bundle-proven.
         int transaction = registerTransactionSandwich(playerVelocity, isVel, sourceEntityId);
-        event.getTasksAfterSend().add(player::sendTransaction);
+        TransactionVel velocity = lastSent;
+        event.getTasksAfterSend().add(() -> velocity.setProofTransaction(player.sendTrailingTransaction()));
         return transaction;
     }
 
     public int handleDebugPseudoEvent(Vec3 playerVelocity, boolean isVel, int sourceEntityId) {
         player.sendTransaction();
         int transaction = registerTransactionSandwich(playerVelocity, isVel, sourceEntityId);
-        player.sendTransaction();
+        lastSent.setProofTransaction(player.sendTransactionAndGetId());
         return transaction;
     }
 

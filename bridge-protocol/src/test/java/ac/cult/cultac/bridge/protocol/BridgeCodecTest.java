@@ -14,7 +14,9 @@ import java.lang.reflect.RecordComponent;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -54,6 +56,11 @@ class BridgeCodecTest {
                 new ServerStats(19.87f),
                 new Result(Integer.MAX_VALUE, true),
                 new PlayerStateResult(17, 1, new UUID(5L, -6L), -29_999_999.5, -64.0, 1.0e-3, 179.5f, -90f),
+                new CloudFacts(
+                        50_000,
+                        orderedSettings("update-equipment-on-player-actions", "true", "keepalive-interval-ms", "1000")),
+                new PlayerFacts(orderedSettings("max-no-damage-ticks", "20", "combat-mode", "1.9", "é", "")),
+                new Marker(Integer.MIN_VALUE),
                 new ClearActiveItem(ClearActiveItem.OFF_HAND, "minecraft:shield"),
                 new SetGameMode(SetGameMode.SPECTATOR),
                 new Teleport(7, new UUID(3L, -4L), -1.5e7, 320.25, Double.MIN_VALUE, -180f, 90f),
@@ -182,6 +189,44 @@ class BridgeCodecTest {
     }
 
     @Test
+    void factsKeepTheirOrderAndCapTheirSettings() {
+        var facts = (PlayerFacts)
+                BridgeCodec.decode(encode(new PlayerFacts(orderedSettings("z", "1", "a", "2", "m", "3"))));
+        assertEquals(List.of("z", "a", "m"), List.copyOf(facts.settings().keySet()));
+
+        Map<String, String> full = new LinkedHashMap<>();
+        for (int i = 0; i < BridgeCodec.MAX_SETTINGS; i++) full.put("k" + i, "v");
+        BridgeCodec.decode(encode(new CloudFacts(0, full)));
+        full.put("over", "v");
+        assertThrows(IllegalArgumentException.class, () -> encode(new CloudFacts(0, full)));
+        assertThrows(IllegalArgumentException.class, () -> encode(new PlayerFacts(full)));
+        assertThrows(IllegalArgumentException.class, () -> encode(new CloudFacts(-1, Map.of())));
+
+        malformed(out -> {
+            out.writeByte(CloudFacts.TYPE);
+            BridgeCodec.writeVarInt(out, 0);
+            BridgeCodec.writeVarInt(out, BridgeCodec.MAX_SETTINGS + 1);
+        });
+        malformed(out -> {
+            out.writeByte(CloudFacts.TYPE);
+            BridgeCodec.writeVarInt(out, -1);
+            BridgeCodec.writeVarInt(out, 0);
+        });
+        malformed(out -> {
+            out.writeByte(PlayerFacts.TYPE);
+            BridgeCodec.writeVarInt(out, -1);
+        });
+        malformed(out -> {
+            out.writeByte(PlayerFacts.TYPE);
+            BridgeCodec.writeVarInt(out, 2);
+            for (int i = 0; i < 2; i++) {
+                BridgeCodec.writeString(out, "key");
+                BridgeCodec.writeString(out, "value");
+            }
+        });
+    }
+
+    @Test
     void truncatedTrailingAndOversizedFramesAreRejected() {
         byte[] hello = bytes(new Hello(1, PLAYER, NONCE));
         malformed(Arrays.copyOf(hello, hello.length - 1));
@@ -228,6 +273,8 @@ class BridgeCodecTest {
     void capabilityAndListenerBitsMatchTheWireTable() {
         assertEquals(1L << 9, ServerCapability.FLAG_VERDICT.flag());
         assertEquals(1L << 10, ServerCapability.CLEAR_ACTIVE_ITEM.flag());
+        assertEquals(1L << 11, ServerCapability.CLOUD_FACTS.flag());
+        assertEquals(1L << 12, ServerCapability.MARKER.flag());
         long mask = ServerCapability.mask(EnumSet.of(ServerCapability.TELEPORT, ServerCapability.CLEAR_ACTIVE_ITEM));
         assertTrue(ServerCapability.has(mask, ServerCapability.TELEPORT));
         assertTrue(ServerCapability.has(mask, ServerCapability.CLEAR_ACTIVE_ITEM));
@@ -238,6 +285,12 @@ class BridgeCodecTest {
         assertEquals(0b101, listeners);
         assertTrue(ListenerKind.has(listeners, ListenerKind.SETBACK));
         assertFalse(ListenerKind.has(listeners, ListenerKind.RELOAD));
+    }
+
+    private static Map<String, String> orderedSettings(String... pairs) {
+        Map<String, String> settings = new LinkedHashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) settings.put(pairs[i], pairs[i + 1]);
+        return settings;
     }
 
     private static ByteBuf encode(BridgeMessage message) {

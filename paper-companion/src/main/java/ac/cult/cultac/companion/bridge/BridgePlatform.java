@@ -1,5 +1,7 @@
 package ac.cult.cultac.companion.bridge;
 
+import ac.cult.cultac.bridge.protocol.BridgeMessage.CloudFacts;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerFacts;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Ready;
 import java.util.UUID;
 import org.bukkit.entity.Player;
@@ -17,4 +19,15 @@ interface BridgePlatform {
     /** The READY body for an online player, or null when the player is gone. Main thread only. */
     @Nullable
     Ready ready(UUID player, byte[] hmac, long capabilities, int listeners);
+
+    /** The server's facts for the cloud upload, read once at enable; null when it has none. */
+    @Nullable
+    CloudFacts cloudFacts();
+
+    /**
+     * The facts of {@code session}'s player when they differ from those it last sent, recorded on the session; null
+     * when unchanged or unreadable. Main thread only.
+     */
+    @Nullable
+    PlayerFacts playerFactsChanged(BridgeSession session);
 }

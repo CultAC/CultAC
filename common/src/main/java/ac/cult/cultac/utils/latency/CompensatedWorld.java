@@ -21,6 +21,7 @@ import ac.cult.cultac.utils.nmsutil.ClientShapeBoxes;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
+import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -94,6 +95,19 @@ public class CompensatedWorld {
     private boolean debugBlockChanges;
     public boolean isRaining = false;
     private float clientRainLevel;
+    /** Hears the columns and blocks this world applies; null when nothing listens. */
+    private TerrainListener terrainListener;
+
+    /** What this world applies to its columns and blocks, heard on this player's packet executor. */
+    public interface TerrainListener {
+        /** A column was loaded, loaded again or merged into. */
+        void columnLoaded(int chunkX, int chunkZ);
+
+        void columnUnloaded(int chunkX, int chunkZ);
+
+        /** A block changed to the model block-state id {@code state}. */
+        void blockChanged(int x, int y, int z, int state);
+    }
 
     public CompensatedWorld(CultPlayer player) {
         this.player = player;
@@ -101,6 +115,10 @@ public class CompensatedWorld {
         this.clientBlockEntities = new CompensatedBlockEntities(player);
         this.pistons = new CompensatedWorldPistons(player, this);
         chunks = new Long2ObjectOpenHashMap<>(81, 0.5f);
+    }
+
+    public void terrainListener(TerrainListener listener) {
+        terrainListener = listener;
     }
 
     public CompensatedGeysers getGeysers() {
@@ -325,6 +343,11 @@ public class CompensatedWorld {
 
         PalettedSection states() {
             return states;
+        }
+
+        /** Writes the block states as the pinned 26.3 chunk packet section does, in model ids. */
+        public void writeStates(ByteBuf output) {
+            states.write(output);
         }
 
         boolean hasCachedContentHash() {
@@ -1017,6 +1040,7 @@ public class CompensatedWorld {
                                 motionBlockingPredicate());
             queuePendingReintern(chunkX, sectionIndex, chunkZ, section);
             pistons.handleBlockStateApplied(position, combinedState);
+            if (terrainListener != null) terrainListener.blockChanged(x, y, z, combinedState);
         }
     }
 
@@ -1121,7 +1145,7 @@ public class CompensatedWorld {
         return section.mutableCopy();
     }
 
-    private String dimensionForChunk(int chunkX, int chunkZ) {
+    public String dimensionForChunk(int chunkX, int chunkZ) {
         return chunkDimensions.getOrDefault(chunkPositionToLong(chunkX, chunkZ), visibleDimension);
     }
 
@@ -1464,6 +1488,7 @@ public class CompensatedWorld {
                 clientBlockEntities.forgetChunk(chunkX, chunkZ);
                 for (var entity : chunk.blockEntities) applyClientBlockEntityData(dimension, entity);
             }
+            if (terrainListener != null) terrainListener.columnLoaded(chunkX, chunkZ);
         });
     }
 
@@ -1490,6 +1515,7 @@ public class CompensatedWorld {
         releaseMergedChunkSections(existingColumn, toMerge, dimension, chunkX, chunkZ);
         existingColumn.mergeSections(toMerge);
         preservePendingPredictions(existingColumn, chunkX, chunkZ);
+        if (terrainListener != null) terrainListener.columnLoaded(chunkX, chunkZ);
     }
 
     private void removePendingReinternSections(CachedSection[] sections, int chunkX, int chunkZ) {
@@ -1667,6 +1693,7 @@ public class CompensatedWorld {
                 pistons.forgetChunk(chunkX, chunkZ);
                 clientBlockEntities.forgetChunk(chunkX, chunkZ);
             }
+            if (removed != null && terrainListener != null) terrainListener.columnUnloaded(chunkX, chunkZ);
         });
     }
 
@@ -1788,12 +1815,17 @@ public class CompensatedWorld {
                 clientBlockEntities.forgetChunk(chunkX, chunkZ);
             }
             iterator.remove();
+            if (terrainListener != null) terrainListener.columnUnloaded(chunkX, chunkZ);
         }
     }
 
     public void clearChunks() {
+        TerrainListener listener = terrainListener;
+        long[] cleared = listener == null ? null : new long[chunks.size()];
+        int count = 0;
         for (Map.Entry<Long, CachedChunk> entry : chunks.entrySet()) {
             long chunkPosition = entry.getKey();
+            if (cleared != null) cleared[count++] = chunkPosition;
             String dimension = chunkDimensions.getOrDefault(chunkPosition, visibleDimension);
             releaseChunkSections(
                     entry.getValue(), dimension, chunkXFromPosition(chunkPosition), chunkZFromPosition(chunkPosition));
@@ -1805,6 +1837,10 @@ public class CompensatedWorld {
         pendingReinternSections.clear();
         geysers.clear();
         clientBlockEntities.clear();
+        if (cleared != null) {
+            for (long position : cleared)
+                listener.columnUnloaded(chunkXFromPosition(position), chunkZFromPosition(position));
+        }
     }
 
     public boolean hasRetainedSectionPoolChunk(int chunkX, int chunkZ) {

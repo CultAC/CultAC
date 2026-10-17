@@ -142,13 +142,13 @@ class VelocityClientboundHandlingTest {
                 assertTrue(fixture.player.isInBed, "Receipt must be confirmed before releasing sleeping movement");
                 if (action == wakeUp) {
                     assertNotNull(acknowledgement.get());
-                    verify(fixture.player).sendTransaction();
+                    verify(fixture.player).sendTrailingTransaction();
                     acknowledgement.get().run();
                     assertFalse(fixture.player.isInBed);
                     verify(fixture.player).refreshPlayerPose();
                 } else {
                     assertNull(acknowledgement.get(), "Swing and particle actions must not wake the player");
-                    verify(fixture.player, never()).sendTransaction();
+                    verify(fixture.player, never()).sendTrailingTransaction();
                 }
             }
         }

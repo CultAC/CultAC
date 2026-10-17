@@ -18,6 +18,7 @@ import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundDamageEvent;
@@ -903,7 +904,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
 
         if (isDirectlyAffectingPlayer(player, packet.entityId())) {
-            event.getTasksAfterSend().add(player::sendTransaction);
+            event.getTasksAfterSend().add(player::sendTrailingTransaction);
         }
 
         final Runnable applyMobEffect = () -> {
@@ -923,7 +924,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
 
         if (isDirectlyAffectingPlayer(player, packet.entityId())) {
-            event.getTasksAfterSend().add(player::sendTransaction);
+            event.getTasksAfterSend().add(player::sendTrailingTransaction);
         }
 
         final Runnable removeMobEffect = () -> {
@@ -1051,6 +1052,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
         if (status == 35 && entityId == player.entityID) {
             player.sendTransaction();
+            PlayerObserver observer = player.observer;
+            if (observer != null) observer.totemPopped();
         }
     }
 
@@ -1880,6 +1883,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     public void onEndOfTickEvent() {
         player.sendTransaction(false);
+    }
+
+    public void onEndOfTickEvent(int serverTick) {
+        player.sendEndOfTickTransaction(serverTick);
     }
 
     public void tickStartTick() {

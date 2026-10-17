@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.bridge.protocol.BridgeMessage;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.World;
+import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
@@ -22,9 +23,11 @@ import ac.cult.cultac.platform.velocity.bridge.BridgeMessageListener;
 import ac.cult.cultac.platform.velocity.bridge.BridgeService;
 import ac.cult.cultac.platform.velocity.bridge.BridgeSession;
 import ac.cult.cultac.platform.velocity.bridge.BridgeSessions;
+import ac.cult.cultac.platform.velocity.bridge.VelocityBackend;
 import ac.cult.cultac.platform.velocity.bridge.VelocityBridge;
 import ac.cult.cultac.platform.velocity.bridge.api.BridgeApiService;
 import ac.cult.cultac.platform.velocity.bridge.command.BridgeCommandService;
+import ac.cult.cultac.platform.velocity.cloud.CloudBackends;
 import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -35,10 +38,12 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.GrimAPIProvider;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.ServerConnection;
 import io.netty.channel.Channel;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.UUID;
+import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
@@ -57,6 +62,13 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     private final VelocityTransport transport;
     private final VelocityServer server;
     private final BridgeService bridge;
+    /** Set while the cloud upload is on and the bridge has started. */
+    private volatile @Nullable CloudBackends cloudBackends;
+    /** The bridge sessions the cloud's backends listen to; null until the bridge has started. */
+    private @Nullable BridgeSessions cloudBridge;
+    /** Whether the cloud upload is on, as its hooks last said. */
+    private boolean cloudOn;
+
     private volatile boolean bedrockBridge;
     private boolean loaded;
     private boolean closed;
@@ -132,10 +144,15 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
 
     public void start() {
         load();
+        CloudModule.platformHooks(this::cloudTurnedOn, this::cloudTurnedOff);
         CultAPI.INSTANCE.start();
         boolean bridged = bridge.start(
                 CultAPI.INSTANCE.getNetworkManager().dispatcher(),
                 CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse("bridge.secret", ""));
+        synchronized (this) {
+            cloudBridge = bridged ? bridge : BridgeSessions.NONE;
+            startCloudBackends();
+        }
         plugin.getLogger().info("CultAC is inspecting Velocity client connections using the bundled 26.3 model");
         plugin.getLogger()
                 .info("Proxy mode: resyncs use the server state each backend sent; server tick ends are estimated "
@@ -167,6 +184,35 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     private void mirrorWorld(UUID playerId, @Nullable UUID worldUid) {
         if (worldUid != null && players.getFromUUID(playerId) instanceof VelocityPlayer player) {
             player.getWorld().mirror(worldUid);
+        }
+    }
+
+    private synchronized void cloudTurnedOn() {
+        cloudOn = true;
+        startCloudBackends();
+    }
+
+    private synchronized void cloudTurnedOff() {
+        cloudOn = false;
+        if (cloudBackends != null) cloudBackends.close();
+        cloudBackends = null;
+    }
+
+    /** Binds capture segments to backends and collects the companions' facts while the upload is on. */
+    private void startCloudBackends() {
+        if (!cloudOn || cloudBackends != null || cloudBridge == null || closed) return;
+        cloudBackends = new CloudBackends(proxy, nativePlugin, transport::channel, backendPlayProbe());
+        cloudBackends.start(cloudBridge);
+    }
+
+    private Predicate<ServerConnection> backendPlayProbe() {
+        try {
+            return VelocityBackend.playStateProbe(proxy.getClass().getClassLoader());
+        } catch (ReflectiveOperationException | LinkageError failure) {
+            plugin.getLogger()
+                    .warning("Unsupported Velocity backend connection internals: captures that span a backend's own "
+                            + "reconfiguration are not uploaded");
+            return server -> false;
         }
     }
 
@@ -290,6 +336,8 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         transport.attach(
                 player, channel, bedrockOwner(channel), ac.cult.cultac.network.ConnectionContinuation.from(state));
         bridge.adopted(player);
+        CloudBackends backends = cloudBackends;
+        if (backends != null) backends.adopted(player);
     }
 
     java.util.concurrent.CompletionStage<Void> disconnect(Channel channel) {
@@ -309,6 +357,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         }
         closed = true;
         try {
+            if (cloudBackends != null) cloudBackends.close();
             bridge.close();
             VelocityBridge.install(BridgeSessions.NONE);
             scheduler.cancel(plugin);

@@ -107,13 +107,14 @@ public class PacketServerTeleport {
 
         // Keep the pre-teleport ping adjacent even inside a replacement packet group.
         // Both the old PosRot and the 26.3 acknowledgement follow its pong.
-        CultPlayer.TrackedTransaction proof = player.createTrackedTransactionPacketForDeferredSend();
+        CultPlayer.TrackedTransaction proof =
+                player.createTrackedTransactionPacketForDeferredSend(CultPlayer.PING_LEADING);
         if (proof != null) {
             event.getWritesBeforeSend().add(proof.packet());
             event.getTasksAfterSend().add(() -> player.markTrackedTransactionPacketSent(proof));
         }
         int lastTransactionSent = proof == null ? player.lastTransactionSent.get() : proof.transaction();
-        event.getTasksAfterSend().add(player::sendTransaction);
+        event.getTasksAfterSend().add(player::sendTrailingTransaction);
 
         player.getSetbackTeleportUtil()
                 .addSentTeleport(

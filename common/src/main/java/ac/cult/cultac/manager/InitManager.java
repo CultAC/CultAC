@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.manager.init.Initable;
 import ac.cult.cultac.manager.init.load.LoadableInitable;
 import ac.cult.cultac.manager.init.load.NetworkManagerInit;
@@ -46,6 +47,7 @@ public class InitManager {
 
         initializersOnStart = ImmutableList.<StartableInitable>builder()
                 .add(CultAPI.INSTANCE.getExternalAPI())
+                .add(CloudModule::configReloaded)
                 .add(new PacketManager())
                 .add(new ViaBackwardsManager())
                 .add(new TickRunner())
@@ -72,6 +74,7 @@ public class InitManager {
                 .add(() -> CultAPI.INSTANCE.getEventBus().unregisterAllListeners(CultAPI.INSTANCE.getGrimPlugin()))
                 .add(ac.cult.cultac.protocol.ProtocolCodecs::close)
                 .add(CultAPI.INSTANCE.getDataStoreLifecycle())
+                .add(CloudModule::shutdown)
                 .addAll(extraStoppableInitables)
                 .build();
     }
