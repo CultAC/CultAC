@@ -1115,6 +1115,32 @@ public class CultPlayer implements GrimUser {
         return getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19_4);
     }
 
+    /** Until the client provably handles new abilities, only the values that refuse item-use starts are certain. */
+    public void abilitiesSent(boolean instabuild, boolean invulnerable) {
+        canInstabuild &= instabuild;
+        isInvulnerable &= invulnerable;
+    }
+
+    public void abilitiesHandled(boolean instabuild, boolean invulnerable) {
+        canInstabuild = instabuild;
+        isInvulnerable = invulnerable;
+    }
+
+    /**
+     * Runs {@code task} at a trailing proof bundled with the event's packet, or at the ping sent after it when no
+     * proof can be written.
+     */
+    public void runAtTrailingProof(PacketSendEvent<?> event, Runnable task) {
+        TrackedTransaction proof = appendTrailingProofTransaction(event);
+        if (proof == null) {
+            latencyUtils.addRealTimeTaskNext(task);
+            event.getTasksAfterSend().add(this::sendTransaction);
+            return;
+        }
+        if (supportsBundles() && !event.isInsideBundle()) event.bundle();
+        latencyUtils.addRealTimeTask(proof.transaction(), task);
+    }
+
     @Override
     public void runSafely(Runnable runnable) {
         Objects.requireNonNull(runnable, "runnable");

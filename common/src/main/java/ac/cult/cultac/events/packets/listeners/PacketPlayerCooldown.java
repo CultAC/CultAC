@@ -15,6 +15,8 @@ public class PacketPlayerCooldown {
         TrackedTransaction trackedTransaction = player.appendTrailingProofTransaction(event);
         int lastTransactionSent =
                 trackedTransaction == null ? player.lastTransactionSent.get() : trackedTransaction.transaction();
+        // A use start reads the cooldown the client handled; handleBundlePacket applies it and the proof together.
+        if (trackedTransaction != null && player.supportsBundles() && !event.isInsideBundle()) event.bundle();
         int duration = packet.duration();
         player.latencyUtils.addRealTimeTask(
                 lastTransactionSent,

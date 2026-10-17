@@ -15,10 +15,11 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
-import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.PlayerAction;
+import ac.cult.cultac.utils.data.ClientItemUseState;
+import ac.cult.cultac.utils.data.ItemUseInventory;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import lombok.Getter;
 
@@ -73,7 +74,11 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
             // ClientBlockActions owns modern action prediction, including bow ammo,
             // cooldowns and component-driven uses. Trident retains its existing path.
             if (heldStack.is("minecraft:trident") && canStartUsingItem(heldStack))
-                player.clientItemUse.start(hand, heldStack);
+                player.clientItemUse.start(
+                        hand,
+                        heldStack,
+                        ClientItemUseState.duration(heldStack),
+                        !ItemUseInventory.possiblyRefused(player, hand));
             return;
         }
         if (canStartUsingItem(heldStack)) {
@@ -139,10 +144,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
             if (consumable != null) {
                 var food = ac.cult.blocksim.data.ItemComponents.food(nms.components());
                 return consumable.consumeSeconds() > 0.0F
-                        && (food == null
-                                || food.canAlwaysEat()
-                                || player.food < 20
-                                || player.gamemode == GameMode.CREATIVE);
+                        && (food == null || food.canAlwaysEat() || player.food < 20 || player.isInvulnerable);
             }
 
             var equippable = ac.cult.blocksim.data.ItemComponents.equippable(nms.components());
@@ -174,7 +176,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         var food = ac.cult.blocksim.data.ItemComponents.food(nms.components());
         return consumable != null
                 && consumable.consumeSeconds() > 0.0F
-                && (food == null || food.canAlwaysEat() || player.food < 20 || player.gamemode == GameMode.CREATIVE);
+                && (food == null || food.canAlwaysEat() || player.food < 20 || player.isInvulnerable);
     }
 
     @CultPacketHandler
@@ -257,14 +259,18 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
         if (!player.usesModernJavaItemUse()) player.packetStateData.setSlowedByUsingItem(false);
     }
 
+    private void resetItemUse() {
+        player.clientItemUse.reset();
+        player.getItemUseDesync().reset();
+        player.itemUseBurst.reset();
+    }
+
     public boolean attackedWithin(long windowMs) {
         return System.currentTimeMillis() - this.lastAttack < windowMs;
     }
 
     public void onRespawn() {
-        player.clientItemUse.reset();
-        player.getItemUseDesync().reset();
-        player.itemUseBurst.reset();
+        resetItemUse();
         this.target = null;
         this.lastTargetId = 0;
         this.targetId = 0;
@@ -275,6 +281,10 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     /** The Java client constructed another player; accumulated anti-abuse accounting survives. */
     public void onJavaPlayerReplacement() {
         player.clientItemUse.reset();
+        player.clientItemUse.onNewLocalPlayer();
+        player.checkManager.getCompensatedCooldown().clearPossibleCooldowns();
+        // A LocalPlayer's FoodData starts full.
+        player.food = 20;
         this.target = null;
         this.lastTargetId = 0;
         this.targetId = 0;

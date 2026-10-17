@@ -589,12 +589,14 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
         // The client already ran the same menu click code and sent the changed slot set.
         // The server treats this as remote prediction state, so Cult mirrors it only after a conservation check.
+        SimItemStack clickedObject = SimItemStack.EMPTY;
         SimItemStack clickedBefore = SimItemStack.EMPTY;
         SimItemStack offhandBefore = ItemUtil.copy(getOffHand());
         if (click.slot() >= 0) {
             Slot clickedSlot = menu.getSlot(click.slot());
             if (clickedSlot != null) {
-                clickedBefore = ItemUtil.copy(clickedSlot.getItem());
+                clickedObject = clickedSlot.getItem();
+                clickedBefore = ItemUtil.copy(clickedObject);
             }
         }
 
@@ -602,7 +604,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             SimItemStack resolved = afterSlots.get(slot);
             menu.getSlot(slot).set(resolved);
         });
-        mirrorImplicitOffhandSwap(click, clickedBefore, offhandBefore);
+        mirrorImplicitOffhandSwap(click, clickedObject, clickedBefore, offhandBefore);
         setClientCarried(afterCarried);
         if (serverContainerType == MenuType.MERCHANT && click.slot() != 2) {
             PredictedMerchantInventory.mirrorTrade(menu, merchantOffers, selectedMerchantOffer);
@@ -898,13 +900,21 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     public void dropHeldItem(boolean wholeStack) {
-        SimItemStack held = ItemUtil.copy(getHeldItem());
+        SimItemStack previous = getHeldItem();
+        SimItemStack held = ItemUtil.copy(previous);
         if (wholeStack || held.isEmpty() || held.getCount() <= 1) {
             inventory.setHeldItem(null);
         } else {
             held.setCount(held.getCount() - 1);
             inventory.setHeldItem(held);
+            carryPossibleChange(previous, held);
         }
+    }
+
+    /** A modelled copy of a possibly consumed stack is still unproven against the client's contents. */
+    private void carryPossibleChange(SimItemStack previous, SimItemStack replacement) {
+        if (!replacement.isEmpty() && player.clientItemUse.possiblyChanged(previous))
+            player.clientItemUse.markPossiblyChanged(replacement);
     }
 
     @CultPacketHandler
@@ -960,7 +970,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     private void mirrorImplicitOffhandSwap(
-            InventoryClick click, SimItemStack clickedBefore, SimItemStack offhandBefore) {
+            InventoryClick click, SimItemStack clickedObject, SimItemStack clickedBefore, SimItemStack offhandBefore) {
         if (click.clickType() != WindowClickType.SWAP
                 || click.button() != NMS_OFFHAND_SWAP_BUTTON
                 || click.slot() < 0) {
@@ -977,7 +987,11 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
         SimItemStack clickedAfter = ItemUtil.copy(clickedSlot.getItem());
         SimItemStack offhandAfter = inferOffhandAfterSwap(clickedBefore, offhandBefore, clickedAfter);
+        SimItemStack offhandObject = getOffHand();
         inventory.getInventoryStorage().setItem(Inventory.SLOT_OFFHAND, offhandAfter);
+        // The click proves the clicked slot's contents, not the offhand inferred from them.
+        carryPossibleChange(clickedObject, offhandAfter);
+        carryPossibleChange(offhandObject, offhandAfter);
     }
 
     public void selectBundleItem(int slotId, int selectedItemIndex) {

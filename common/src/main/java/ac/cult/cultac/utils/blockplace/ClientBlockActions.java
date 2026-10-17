@@ -5,6 +5,7 @@ import ac.cult.blocksim.SimInput;
 import ac.cult.blocksim.SimResult;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.EntityCollisionContext;
+import ac.cult.blocksim.engine.SimInventory;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.engine.SimPlayer;
 import ac.cult.blocksim.engine.Vec3;
@@ -16,12 +17,17 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
+import ac.cult.cultac.utils.data.ClientItemUseState;
+import ac.cult.cultac.utils.data.ItemUseInventory;
 import ac.cult.cultac.utils.latency.BlockSimulatorInventory;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.nmsutil.ClientMiningState;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 /** Compensated action boundary. The bundled simulator owns all client action behavior. */
 public final class ClientBlockActions {
@@ -81,12 +87,82 @@ public final class ClientBlockActions {
         debugPlacement(player, prediction, item, null);
     }
 
-    /** Mirror the client completion callback on its proven packet boundary, before metadata clears use. */
+    /**
+     * Mirror the client completion callback on its proven packet boundary, before metadata clears use.
+     * Effects every client reality shares are applied; the rest stay possible until the server's state.
+     */
     public static void completeUse(CultPlayer player) {
-        // Main-hand selection can still be unreported; its existing completion uncertainty
-        // remains owned by ClientAttackStrength. Offhand has no selected-slot ambiguity.
-        if (!player.clientItemUse.canCompleteOffhand(player.getInventory().getHandItem(Hand.OFF_HAND))) return;
-        apply(player, predict(player, new SimAction.CompleteUse(), player.xRot, player.yRot), null);
+        var hotbar = ItemUseInventory.hotbar(player);
+        var off = player.getInventory().getHandItem(Hand.OFF_HAND);
+        var realities = player.clientItemUse.completions(
+                hotbar,
+                off,
+                player.getInventory().inventory.selected,
+                player.attackStrength.hasUnconfirmedHotbarChange());
+        var outcomes = new ArrayList<Prediction>();
+        for (var completion : realities.completions()) {
+            var outcome = predict(player, new SimAction.CompleteUse(), player.xRot, player.yRot, completion);
+            if (outcome.result().decline() == null) outcomes.add(outcome);
+        }
+        if (outcomes.isEmpty()) return;
+        boolean unchanged =
+                realities.skipped() || outcomes.size() < realities.completions().size();
+        var state = player.clientItemUse;
+        state.retainPossiblyChanged(hotbar, off);
+
+        var slots = new TreeMap<Integer, List<SimItemStack>>();
+        for (var outcome : outcomes)
+            outcome.inventory()
+                    .forEach((slot, stack) -> slots.computeIfAbsent(slot, ignored -> new ArrayList<>())
+                            .add(stack));
+        var storage = player.getInventory().inventory.getInventoryStorage();
+        slots.forEach((slot, stacks) -> {
+            int storageSlot = BlockSimulatorInventory.storageSlot(slot);
+            var first = stacks.getFirst();
+            if (!unchanged
+                    && stacks.size() == outcomes.size()
+                    && stacks.stream().allMatch(stack -> sameStack(stack, first))) {
+                storage.setItem(storageSlot, first);
+                return;
+            }
+            var current = storage.getItem(storageSlot);
+            if (current != null && !current.isEmpty()) state.markPossiblyChanged(current);
+        });
+
+        var groups = new HashMap<String, List<Integer>>();
+        for (var outcome : outcomes)
+            cooldownChanges(outcome)
+                    .forEach((group, ticks) -> groups.computeIfAbsent(group, ignored -> new ArrayList<>())
+                            .add(ticks));
+        var cooldowns = player.checkManager.getCompensatedCooldown();
+        groups.forEach((group, ticks) -> {
+            if (!unchanged && ticks.size() == outcomes.size() && ticks.stream().allMatch(ticks.getFirst()::equals))
+                cooldowns.addCooldown(group, ticks.getFirst(), player.lastTransactionReceived.get());
+            else
+                cooldowns.addPossibleCooldown(
+                        group, ticks.stream().max(Integer::compare).orElseThrow());
+        });
+
+        var food = new ArrayList<Integer>();
+        for (var outcome : outcomes) food.add(outcome.result().player().foodLevel());
+        if (unchanged) food.add(player.food);
+        // Every reader treats higher food as the permissive reality: fewer eats start, more sprinting is legal.
+        player.food = food.stream().max(Integer::compare).orElseThrow();
+        if (player.food == 20 && !food.stream().allMatch(food.getFirst()::equals)) state.markPossiblyFull();
+    }
+
+    private static boolean sameStack(SimItemStack first, SimItemStack second) {
+        return first.count() == second.count() && first.sameItemSameComponents(second);
+    }
+
+    private static Map<String, Integer> cooldownChanges(Prediction prediction) {
+        var before = prediction.input().cooldowns().snapshot();
+        var after = prediction.result().cooldowns();
+        var changes = new HashMap<String, Integer>();
+        after.snapshot().forEach((group, value) -> {
+            if (!value.equals(before.get(group))) changes.put(group, value.endTime() - after.tickCount());
+        });
+        return changes;
     }
 
     private static void debugPlacement(CultPlayer player, Prediction prediction, SimItemStack item, BlockPlace place) {
@@ -129,12 +205,21 @@ public final class ClientBlockActions {
 
     /** Read-only action preparation, also usable by the off-git shadow comparison. */
     public static Prediction predict(CultPlayer player, SimAction action, float yaw, float pitch) {
+        return predict(player, action, yaw, pitch, null);
+    }
+
+    /** {@code completion} selects the completing hand and slot for one client reality. */
+    private static Prediction predict(
+            CultPlayer player, SimAction action, float yaw, float pitch, ClientItemUseState.Completion completion) {
         var binding = binding(player);
         var items = binding.registries().items();
         boolean destroying = action instanceof SimAction.DestroyBlock;
-        var inventory = destroying
+        var captured = destroying
                 ? BlockSimulatorInventory.captureHands(player.getInventory(), player.canInstabuild, items)
                 : BlockSimulatorInventory.capture(player.getInventory(), player.canInstabuild, items);
+        var inventory = completion == null || completion.hand() == Hand.OFF_HAND
+                ? captured
+                : new SimInventory(captured.slots(), completion.slot(), captured.infiniteMaterials(), items.empty());
         var mode = SimPlayer.GameMode.valueOf(player.gamemode.name());
         var state = new SimPlayer.State(
                 new Vec3(player.x, player.y, player.z),
@@ -149,7 +234,9 @@ public final class ClientBlockActions {
                 player.food,
                 5.0F);
         SimPlayer.ActiveUse active = null;
-        if (player.isClientUsingItem()) {
+        if (completion != null) {
+            active = new SimPlayer.ActiveUse(hand(completion.hand()), inventory.get(completion.slot()), 0);
+        } else if (player.isClientUsingItem()) {
             var hand = hand(player.getClientItemUseHand());
             // These action entry points only read use presence and its hand; no use timer is inferred.
             active = new SimPlayer.ActiveUse(
@@ -225,7 +312,10 @@ public final class ClientBlockActions {
             if (active != null) {
                 Hand usedHand = Hand.valueOf(active.hand().name());
                 player.clientItemUse.start(
-                        usedHand, player.getInventory().getHandItem(usedHand), active.remainingTicks());
+                        usedHand,
+                        player.getInventory().getHandItem(usedHand),
+                        active.remainingTicks(),
+                        !ItemUseInventory.possiblyRefused(player, usedHand));
             }
         } else {
             if (active != null)

@@ -15,6 +15,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
@@ -34,13 +35,8 @@ public class PacketPlayerRespawn {
         player.packetStateData.lastSaturation = packet.saturation();
 
         player.sendTransaction();
-
-        if (packet.food() == 20) { // Split so transaction before packet
-            player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.food = 20);
-        } else { // Split so transaction after packet
-            player.latencyUtils.addRealTimeTask(
-                    player.lastTransactionSent.get() + 1, () -> player.food = packet.food());
-        }
+        // A higher food level refuses more starts and permits more sprinting.
+        player.latencyUtils.addRealTimeTaskNow(() -> player.food = Math.max(player.food, packet.food()));
 
         final PacketEntitySelf healthSelf = player.compensatedEntities.getSelf();
         if (packet.health() <= 0) {
@@ -48,14 +44,16 @@ public class PacketPlayerRespawn {
                 healthSelf.isDead = true;
                 player.checkManager.getListener(BadPacketsM.class).onDeath();
             });
-        } else {
-            player.latencyUtils.addRealTimeTaskNext(() -> healthSelf.isDead = false);
         }
 
-        player.latencyUtils.addRealTimeTaskNext(
-                () -> player.compensatedEntities.getSelf().setHealth(packet.health()));
-
-        event.getTasksAfterSend().add(player::sendTransaction);
+        // Player#canEat and sprint permission read the food level the client handled; handleBundlePacket
+        // applies it and the proof in one client task.
+        player.runAtTrailingProof(event, () -> {
+            player.food = packet.food();
+            player.clientItemUse.foodReceived();
+            if (packet.health() > 0) healthSelf.isDead = false;
+            player.compensatedEntities.getSelf().setHealth(packet.health());
+        });
     }
 
     @CultPacketHandler
@@ -141,6 +139,7 @@ public class PacketPlayerRespawn {
         player.compensatedWorld.clientSeaLevel(spawnInfo.seaLevel());
         player.compensatedWorld.clientBiomeZoomSeed(spawnInfo.biomeZoomSeed());
         player.compensatedWorld.resetClientPredictions();
+        player.checkManager.getListener(BadPacketsH.class).resetLevel();
         final long joinedAt = System.currentTimeMillis();
         player.lastJoinedWorld = joinedAt;
     }
@@ -153,6 +152,13 @@ public class PacketPlayerRespawn {
         var dimensionType = player.getWorldRegistries().dimension(spawnInfo.dimensionTypeId());
         final List<Runnable> afterSend = event.getTasksAfterSend();
         afterSend.add(player::sendTransaction);
+        final GameMode respawnMode = GameMode.valueOf(spawnInfo.gameMode().name());
+        final boolean instabuild = respawnMode == GameMode.CREATIVE;
+        final boolean invulnerable = respawnMode == GameMode.CREATIVE || respawnMode == GameMode.SPECTATOR;
+        player.latencyUtils.addRealTimeTaskNow(() -> {
+            player.abilitiesSent(instabuild, invulnerable);
+            player.food = 20;
+        });
         boolean worldChange = player.compensatedWorld.isLastClientboundDimensionChange(worldName);
         String previousClientboundDimension =
                 player.compensatedWorld.getLastClientboundDimension().dimension();
@@ -171,6 +177,8 @@ public class PacketPlayerRespawn {
             player.compensatedEntities.serverPositionsMap.clear();
             player.compensatedWorld.serverWorldChangeSent();
         }
+        final BadPacketsH sequences = player.checkManager.getListener(BadPacketsH.class);
+        final int sequenceLevel = worldChange ? sequences.beginLevel() : -1;
 
         final boolean keepEntityData = packet.shouldKeep(ClientboundRespawn.KEEP_ENTITY_DATA);
         final boolean keepAttributeModifiers = packet.shouldKeep(ClientboundRespawn.KEEP_ATTRIBUTE_MODIFIERS);
@@ -218,7 +226,7 @@ public class PacketPlayerRespawn {
                 player.compensatedWorld.clearChunksForDimension(previousClientboundDimension);
                 player.compensatedWorld.resetClientPredictions();
                 player.compensatedWorld.isRaining = false;
-                player.checkManager.getListener(BadPacketsH.class).onWorldChange();
+                sequences.levelProven(sequenceLevel);
                 final long worldJoinTime = System.currentTimeMillis();
                 player.lastJoinedWorld = worldJoinTime;
             }

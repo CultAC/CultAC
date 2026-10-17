@@ -14,6 +14,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /** ItemCooldowns uses the stack's cooldown group, including custom component overrides. */
 public class CompensatedCooldown extends CultProcessor implements PositionListener, ClientTickEndListener {
     private final ConcurrentHashMap<String, CooldownData> cooldowns = new ConcurrentHashMap<>();
+    // Groups that only some client realities started; a use in one may or may not start.
+    private final ConcurrentHashMap<String, CooldownData> possible = new ConcurrentHashMap<>();
 
     public CompensatedCooldown(CultPlayer player) {
         super(player);
@@ -34,7 +36,13 @@ public class CompensatedCooldown extends CultProcessor implements PositionListen
     }
 
     private void tick() {
-        cooldowns.entrySet().removeIf(entry -> {
+        tick(cooldowns);
+        tick(possible);
+    }
+
+    private void tick(ConcurrentHashMap<String, CooldownData> groups) {
+        if (groups.isEmpty()) return;
+        groups.entrySet().removeIf(entry -> {
             CooldownData cooldown = entry.getValue();
             if (cooldown.getTransaction() <= player.lastTransactionReceived.get()) cooldown.tick();
             return cooldown.getTicksRemaining() <= 0;
@@ -45,6 +53,10 @@ public class CompensatedCooldown extends CultProcessor implements PositionListen
         return !cooldowns.isEmpty() && item != null && !item.isEmpty() && cooldowns.containsKey(group(item));
     }
 
+    public boolean possiblyHasItem(SimItemStack item) {
+        return !possible.isEmpty() && item != null && !item.isEmpty() && possible.containsKey(group(item));
+    }
+
     public static String group(SimItemStack item) {
         var cooldown = ac.cult.blocksim.data.ItemComponents.useCooldown(item.components());
         return cooldown == null || cooldown.group() == null ? item.itemKey() : cooldown.group();
@@ -53,10 +65,27 @@ public class CompensatedCooldown extends CultProcessor implements PositionListen
     public void addPredictedCooldown(SimItemStack beforeUse, int ticks) {
         // Minecraft.handleKeybinds uses the item before Player.tick advances cooldowns.
         // The same tick's tick-end therefore counts, including ticks without movement.
-        addCooldown(group(beforeUse), ticks, player.lastTransactionReceived.get());
+        put(group(beforeUse), ticks, player.lastTransactionReceived.get());
     }
 
+    /** ClientboundCooldown and every-reality completions set ItemCooldowns for the group outright. */
     public void addCooldown(String group, int ticks, int transaction) {
+        possible.remove(group);
+        put(group, ticks, transaction);
+    }
+
+    /** A completion that only some client realities performed. */
+    public void addPossibleCooldown(String group, int ticks) {
+        var existing = possible.get(group);
+        if (existing == null || existing.getTicksRemaining() < ticks)
+            possible.put(group, new CooldownData(ticks, player.lastTransactionReceived.get()));
+    }
+
+    public void clearPossibleCooldowns() {
+        possible.clear();
+    }
+
+    private void put(String group, int ticks, int transaction) {
         if (ticks == 0) cooldowns.remove(group);
         else cooldowns.put(group, new CooldownData(ticks, transaction));
     }
@@ -75,10 +104,12 @@ public class CompensatedCooldown extends CultProcessor implements PositionListen
         var changed = after.snapshot();
         previous.keySet().stream()
                 .filter(group -> !changed.containsKey(group))
-                .forEach(group -> addCooldown(group, 0, player.lastTransactionReceived.get()));
+                .forEach(group -> put(group, 0, player.lastTransactionReceived.get()));
+        // A predicted action computed from the definite state does not end a possible
+        // cooldown: in that reality the same action may have been refused.
         changed.forEach((group, value) -> {
             if (!value.equals(previous.get(group)))
-                addCooldown(group, value.endTime() - after.tickCount(), player.lastTransactionReceived.get());
+                put(group, value.endTime() - after.tickCount(), player.lastTransactionReceived.get());
         });
     }
 }

@@ -35,7 +35,10 @@ public final class PacketPlayerRespawnLifecycleTest {
             player.onGround = player.lastOnGround = player.packetStateData.packetPlayerOnGround = true;
             player.isSneaking = player.isGliding = player.isInBed = true;
             player.clientItemUse.start(
-                    ac.cult.cultac.protocol.value.Hand.MAIN_HAND, OfflineCultTestBootstrap.item("minecraft:shield"));
+                    ac.cult.cultac.protocol.value.Hand.MAIN_HAND,
+                    OfflineCultTestBootstrap.item("minecraft:shield"),
+                    72000,
+                    true);
             player.packetStateData.setSlowedByUsingItem(true);
             var history = player.getItemUseDesync().history();
             history.add(true);

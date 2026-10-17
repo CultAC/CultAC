@@ -22,25 +22,29 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
             return;
         }
 
+        GameMode next = switch ((int) packet.param()) {
+            case 1 -> GameMode.CREATIVE;
+            case 2 -> GameMode.ADVENTURE;
+            case 3 -> GameMode.SPECTATOR;
+            default -> GameMode.SURVIVAL;
+        };
+        // MultiPlayerGameMode#setLocalMode -> GameType#updatePlayerAbilities. An explicit
+        // abilities packet can subsequently overwrite instabuild independently of game mode.
+        boolean instabuild = next == GameMode.CREATIVE;
+        boolean invulnerable = next == GameMode.CREATIVE || next == GameMode.SPECTATOR;
+
         player.sendTransaction();
         player.latencyUtils.addRealTimeTaskNow(() -> {
             GameMode previous = player.gamemode;
-            int gamemode = (int) packet.param();
-            player.gamemode = switch (gamemode) {
-                case 1 -> GameMode.CREATIVE;
-                case 2 -> GameMode.ADVENTURE;
-                case 3 -> GameMode.SPECTATOR;
-                default -> GameMode.SURVIVAL;
-            };
-            // MultiPlayerGameMode#setLocalMode -> GameType#updatePlayerAbilities. An explicit
-            // abilities packet can subsequently overwrite instabuild independently of game mode.
-            player.canInstabuild = player.gamemode == GameMode.CREATIVE;
-            player.isInvulnerable = player.gamemode == GameMode.CREATIVE || player.gamemode == GameMode.SPECTATOR;
+            player.gamemode = next;
+            player.abilitiesSent(instabuild, invulnerable);
             player.compensatedEntities.getSelf().onGameModeChange(player.gamemode == GameMode.CREATIVE);
 
             if (previous == GameMode.SPECTATOR && player.gamemode != GameMode.SPECTATOR) {
                 CultAPI.INSTANCE.getSpectateManager().handlePlayerStopSpectating(player.playerUUID);
             }
         });
+
+        player.runAtTrailingProof(event, () -> player.abilitiesHandled(instabuild, invulnerable));
     }
 }

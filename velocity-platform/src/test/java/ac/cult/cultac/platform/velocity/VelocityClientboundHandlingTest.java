@@ -21,6 +21,7 @@ import ac.cult.cultac.protocol.netty.CultEncoder;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
@@ -33,6 +34,7 @@ import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -155,59 +157,86 @@ class VelocityClientboundHandlingTest {
     @ParameterizedTest
     @EnumSource(ProtocolVersion.class)
     void foodUpdatesWaitForTheHealthPacketsOwnTransaction(ProtocolVersion version) throws Exception {
-        for (int food : new int[] {6, 20}) {
-            try (var fixture = new Fixture(version)) {
-                var sent = new AtomicInteger(2);
-                var received = new AtomicInteger();
-                for (var entry : java.util.Map.of("lastTransactionSent", sent, "lastTransactionReceived", received)
-                        .entrySet()) {
-                    var field = CultPlayer.class.getField(entry.getKey());
-                    field.setAccessible(true);
-                    field.set(fixture.player, entry.getValue());
-                }
-                fixture.player.food = food == 20 ? 6 : 20;
-                int previousFood = fixture.player.food;
-                fixture.player.packetStateData = new PacketStateData();
-                fixture.player.compensatedEntities = mock(CompensatedEntities.class);
-                when(fixture.player.compensatedEntities.getSelf()).thenReturn(mock(PacketEntitySelf.class));
-                fixture.player.latencyUtils = new LatencyUtils(fixture.player);
+        for (boolean proofSendable : new boolean[] {true, false}) {
+            for (int food : new int[] {6, 20}) {
+                checkFoodUpdate(version, proofSendable, food);
+            }
+        }
+    }
+
+    private void checkFoodUpdate(ProtocolVersion version, boolean proofSendable, int food) throws Exception {
+        try (var fixture = new Fixture(version)) {
+            var sent = new AtomicInteger(2);
+            var received = new AtomicInteger();
+            var itemUse = mock(ClientItemUseState.class);
+            for (var entry : Map.of(
+                            "lastTransactionSent", sent,
+                            "lastTransactionReceived", received,
+                            "clientItemUse", itemUse)
+                    .entrySet()) {
+                var field = CultPlayer.class.getField(entry.getKey());
+                field.setAccessible(true);
+                field.set(fixture.player, entry.getValue());
+            }
+            fixture.player.food = food == 20 ? 6 : 20;
+            int previousFood = fixture.player.food;
+            fixture.player.packetStateData = new PacketStateData();
+            fixture.player.compensatedEntities = mock(CompensatedEntities.class);
+            when(fixture.player.compensatedEntities.getSelf()).thenReturn(mock(PacketEntitySelf.class));
+            fixture.player.latencyUtils = new LatencyUtils(fixture.player);
+            doAnswer(call -> {
+                        int id = sent.incrementAndGet();
+                        fixture.connection.write(new CultWrite(new ClientboundPing(id), false));
+                        return null;
+                    })
+                    .when(fixture.player)
+                    .sendTransaction();
+            when(fixture.player.supportsBundles()).thenReturn(true);
+            doCallRealMethod().when(fixture.player).runAtTrailingProof(any(), any());
+            if (proofSendable) {
                 doAnswer(call -> {
-                            int id = sent.incrementAndGet();
-                            fixture.connection.write(new CultWrite(new ClientboundPing(id), false));
-                            return null;
+                            PacketSendEvent<?> event = call.getArgument(0);
+                            var proof = new CultPlayer.TrackedTransaction(
+                                    sent.incrementAndGet(), new CultWrite(new ClientboundPing(sent.get()), false));
+                            event.getWritesAfterSend().add(proof.packet());
+                            return proof;
                         })
                         .when(fixture.player)
-                        .sendTransaction();
-                fixture.dispatcher.register(routes -> routes.send(
-                        ClientboundPackets.SET_HEALTH,
-                        PacketListenerPriority.NORMAL,
-                        new PacketPlayerRespawn()::onSetHealth));
-                ByteBuf frame = Unpooled.buffer();
-                Wire.writeVarInt(
-                        frame,
-                        fixture.runtime
-                                .data()
-                                .packets(ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND)
-                                .id("minecraft:set_health"));
-                frame.writeFloat(20);
-                Wire.writeVarInt(frame, food);
-                frame.writeFloat(5);
-                fixture.channel.writeAndFlush(frame);
-                assertEquals(List.of("ping", "set_health", "ping"), fixture.wireNames());
-                assertEquals(4, sent.get());
+                        .appendTrailingProofTransaction(any());
+            }
+            fixture.dispatcher.register(routes -> routes.send(
+                    ClientboundPackets.SET_HEALTH,
+                    PacketListenerPriority.NORMAL,
+                    new PacketPlayerRespawn()::onSetHealth));
+            ByteBuf frame = Unpooled.buffer();
+            Wire.writeVarInt(
+                    frame,
+                    fixture.runtime
+                            .data()
+                            .packets(ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND)
+                            .id("minecraft:set_health"));
+            frame.writeFloat(20);
+            Wire.writeVarInt(frame, food);
+            frame.writeFloat(5);
+            fixture.channel.writeAndFlush(frame);
+            assertEquals(
+                    proofSendable
+                            ? List.of("ping", "bundle_delimiter", "set_health", "ping", "bundle_delimiter")
+                            : List.of("ping", "set_health", "ping"),
+                    fixture.wireNames());
+            assertEquals(4, sent.get());
+            assertEquals(
+                    previousFood, fixture.player.food, "Outstanding earlier pings do not confirm this health update");
+            for (int id = 1; id <= 4; id++) {
+                received.set(id);
+                fixture.player.latencyUtils.handleNettySyncTransaction(id);
+                // A rise lands at the preceding ping; the exact value lands at the following one.
+                int expected = id < 3 ? previousFood : id < 4 ? Math.max(previousFood, food) : food;
                 assertEquals(
-                        previousFood,
+                        expected,
                         fixture.player.food,
-                        "Outstanding earlier pings do not confirm this health update");
-                for (int id = 1; id <= 4; id++) {
-                    received.set(id);
-                    fixture.player.latencyUtils.handleNettySyncTransaction(id);
-                    int barrier = food == 20 ? 3 : 4;
-                    assertEquals(
-                            id < barrier ? previousFood : food,
-                            fixture.player.food,
-                            "Food changes at this packet's pre/post proof, not an unrelated outstanding pong");
-                }
+                        "Food changes at this packet's own pings, not an unrelated outstanding pong");
+                verify(itemUse, times(id >= 4 ? 1 : 0)).foodReceived();
             }
         }
     }

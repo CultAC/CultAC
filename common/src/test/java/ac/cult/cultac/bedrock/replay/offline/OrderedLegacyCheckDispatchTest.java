@@ -49,6 +49,7 @@ import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
+import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import com.google.common.collect.ClassToInstanceMap;
@@ -251,7 +252,8 @@ public final class OrderedLegacyCheckDispatchTest {
                     7,
                     ac.cult.blocksim.data.BlockIds.STONE.defaultState());
             check.onBlockBreak(blockBreak);
-            assertTrue(intField(check, "lastSequence") == 7);
+            List<?> histories = (List<?>) objectField(check, "histories");
+            assertEquals(7, invokeInt(histories.getFirst(), "last"));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -447,7 +449,7 @@ public final class OrderedLegacyCheckDispatchTest {
         try {
             MultiActionsE check = player.checkManager.getListener(MultiActionsE.class);
             var food = OfflineCultTestBootstrap.item("minecraft:golden_apple");
-            player.clientItemUse.start(Hand.MAIN_HAND, food);
+            player.clientItemUse.start(Hand.MAIN_HAND, food, ClientItemUseState.duration(food), true);
             assertTrue(invokeBoolean(check, "isActivelyUsingItem"));
 
             // Same-item slot changes stop the SERVER main-hand obligation, but
@@ -461,7 +463,7 @@ public final class OrderedLegacyCheckDispatchTest {
             // A received different offhand stack interrupts local use at travel;
             // no RELEASE packet was emitted, so the obligation remains outstanding.
             player.clientItemUse.release();
-            player.clientItemUse.start(Hand.OFF_HAND, food);
+            player.clientItemUse.start(Hand.OFF_HAND, food, ClientItemUseState.duration(food), true);
             player.clientItemUse.claimedSlotChanged();
             assertTrue(invokeBoolean(check, "isActivelyUsingItem"));
             assertTrue(player.clientItemUse.hasObligation());
@@ -550,10 +552,10 @@ public final class OrderedLegacyCheckDispatchTest {
         return (boolean) method.invoke(target);
     }
 
-    private static int intField(Object target, String name) throws ReflectiveOperationException {
-        Field field = target.getClass().getDeclaredField(name);
-        field.setAccessible(true);
-        return field.getInt(target);
+    private static int invokeInt(Object target, String name) throws ReflectiveOperationException {
+        Method method = target.getClass().getDeclaredMethod(name);
+        method.setAccessible(true);
+        return (int) method.invoke(target);
     }
 
     private static Object objectField(Object target, String name) throws ReflectiveOperationException {

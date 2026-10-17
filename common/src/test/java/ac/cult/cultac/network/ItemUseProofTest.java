@@ -96,7 +96,7 @@ class ItemUseProofTest {
             player.gamemode = GameMode.SURVIVAL;
             player.entityID = 7;
             player.getInventory().inventory.getInventoryStorage().setItem(Inventory.SLOT_OFFHAND, food);
-            player.clientItemUse.start(Hand.OFF_HAND, food);
+            player.clientItemUse.start(Hand.OFF_HAND, food, ClientItemUseState.duration(food), true);
             var old = ItemUseInventory.prepare(player);
             var packet = new ClientboundEntityEvent(7, (byte) 9);
             var event = new PacketSendEvent<>(

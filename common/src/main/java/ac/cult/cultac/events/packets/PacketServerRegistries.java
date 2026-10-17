@@ -42,6 +42,8 @@ public class PacketServerRegistries {
         if (player.registryState == null)
             player.registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
         player.registryState.beginConfiguration();
+        // Start of configuration removes the server player, ending the use the burst balance tracks.
+        player.itemUseBurst.reset();
     }
 
     @CultPacketHandler("clientbound.finish_configuration")
