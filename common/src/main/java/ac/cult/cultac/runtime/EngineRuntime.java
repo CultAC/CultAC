@@ -40,6 +40,11 @@ public abstract class EngineRuntime implements RuntimeInstance {
     }
 
     @Override
+    public boolean isObserveOnly() {
+        return CultAPI.INSTANCE.getConfigManager().isObserveOnly();
+    }
+
+    @Override
     public java.util.Map<String, byte[]> configurationFiles() throws Exception {
         var config = CultAPI.INSTANCE.getExternalAPI().getConfigManager();
         return config instanceof ac.cult.cultac.manager.config.ConfigManagerFileImpl files

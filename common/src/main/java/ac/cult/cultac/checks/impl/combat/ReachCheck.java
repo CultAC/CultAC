@@ -16,6 +16,7 @@
 package ac.cult.cultac.checks.impl.combat;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -163,7 +164,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
             final boolean knownInvalid = isKnownInvalid(entity, reach);
 
-            if ((shouldModifyPackets() && cancelImpossibleHits && knownInvalid) || tooManyAttacks) {
+            if ((shouldModifyPackets() && cancelImpossibleHits && knownInvalid)
+                    || (tooManyAttacks && !CultAPI.INSTANCE.getConfigManager().isObserveOnly())) {
                 debug(() -> {
                     return "cancelled, many=" + tooManyAttacks + ", invalid=" + knownInvalid;
                 });

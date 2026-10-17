@@ -2,7 +2,6 @@ package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
-import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.velocitypowered.api.proxy.Player;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
@@ -27,13 +26,19 @@ final class VelocityProtocols {
                 ? originalVersion(viaDecoder, viaEncoder, channel)
                 : player.getProtocolVersion().getProtocol();
         if (protocol > NEWEST.protocol()) {
-            LogUtil.warn("Disconnected " + player.getUsername() + "; client protocol " + protocol
-                    + " is newer than CultAC supports (" + NEWEST.protocol() + ")");
-            player.disconnect(VelocityTransport.REFUSED);
+            VelocityTransport.refuse(
+                    player,
+                    VelocityTransport.REFUSED,
+                    "client protocol " + protocol + " is newer than CultAC supports (" + NEWEST.protocol() + ")",
+                    null);
             return true;
         }
         if (protocol >= ClientVersion.V_1_21_2.getProtocolVersion()) return false;
-        player.disconnect(Component.text("Outdated client! Please use Minecraft 1.21.2 or newer."));
+        VelocityTransport.refuse(
+                player,
+                Component.text("Outdated client! Please use Minecraft 1.21.2 or newer."),
+                "client protocol " + protocol + " is older than 1.21.2",
+                null);
         return true;
     }
 

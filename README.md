@@ -50,6 +50,23 @@ migration schema names remain unchanged for compatibility.
 CultAC can upload captured play to an intake service for analysis. The upload is off until configured;
 [Cloud upload](docs/cloud-upload.md) says what it sends, how to configure it and what it costs.
 
+Set `observe-only: true` in `config.yml` to flag and alert without changing gameplay: no punishment commands,
+kicks or setbacks, no cancelled or rewritten packets, no block or inventory resyncs and no health spoofing.
+Teleports the server sends are left to the server, even when the client ends up elsewhere. A player who
+answers no ping within `max-transaction-time` is let go instead of disconnected, and on Velocity a client on
+an unsupported version, a Bedrock client without Geyser, or a player whose connection cannot be attached joins
+uninspected. The server receives every packet exactly as the client sent it: what a check, crash protection,
+movement integrity, `max-clicks-per-tick` or the plugin message limit would cancel, rewrite or drop is still
+inspected and flagged, then forwarded unchanged, and a client past `packet-spam-threshold` is logged once
+instead of disconnected. Observe-only still does the following:
+
+* CultAC sends its own pings, bundled with the packets they follow, and withholds the pong that answers one;
+* a non-finite rotation from the server is sent as 0, and the player's own pose metadata is stripped;
+* the Bedrock movement bridge, including disconnecting a session whose bridge hooks fail;
+* while staff `/cult spectate`, their spectator game mode is hidden from the tab list, and staff
+  `/cult spectate` and `/cult debug` actions run;
+* on Velocity, client plugin messages on `cultac:bridge` are dropped.
+
 ## Updating without a restart
 
 Install `bukkit/build/libs/CultAC-paper.jar` on Paper or

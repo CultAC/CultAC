@@ -12,6 +12,7 @@ import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
+import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
@@ -24,15 +25,52 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class JavaSetbackPacketOrderingTest {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aMismatchedAcceptTeleportationReachesTheServerOnlyInObserveOnly(boolean observeOnly) throws Exception {
+        try (var setup = new Setup(ProtocolVersion.V26_3);
+                var ignored = RecordReceiveFixture.observeOnly(observeOnly)) {
+            setup.fixture.registrar.register(routes -> routes.receive(
+                    ServerboundPackets.ACCEPT_TELEPORTATION,
+                    PacketListenerPriority.NORMAL,
+                    new PacketServerTeleport()::onAcceptTeleportation));
+            var teleports = setup.player.getSetbackTeleportUtil();
+            teleports.addSentTeleport(new Vec3(10.5, 64, 10.5), 20, new RelativeFlag(0), true, 7);
+            setup.player.lastTransactionReceived.set(20);
+
+            var ack = setup.fixture.id(ServerboundPackets.ACCEPT_TELEPORTATION, "accept_teleportation");
+            Wire.writeVarInt(ack, 7);
+            ack.writeDouble(.5).writeDouble(64).writeDouble(.5).writeFloat(0).writeFloat(0);
+            String bytes = ByteBufUtil.hexDump(ack);
+            setup.fixture.channel.writeInbound(ack);
+            ByteBuf forwarded = setup.fixture.channel.readInbound();
+            if (observeOnly) {
+                assertEquals(bytes, ByteBufUtil.hexDump(forwarded));
+                forwarded.release();
+                // The teleport stays pending until its proof transaction, then the next position releases it.
+                assertFalse(teleports.pendingTeleports.isEmpty());
+                setup.player.lastTransactionReceived.set(21);
+                teleports.checkTeleportQueue(.5, 64, .5);
+                assertTrue(teleports.pendingTeleports.isEmpty());
+                assertFalse(teleports.isPendingSetback());
+            } else {
+                assertNull(forwarded);
+            }
+        }
+    }
+
     @ParameterizedTest
     @EnumSource(
             value = ProtocolVersion.class,

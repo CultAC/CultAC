@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.manager.init.stop.StoppableInitable;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import ac.grim.grimac.api.storage.DataStore;
 import ac.grim.grimac.api.storage.backend.Backend;
@@ -51,18 +52,24 @@ public final class DataStoreLifecycle implements StartableInitable, StoppableIni
                 CultAPI.INSTANCE.getConfigManager().getConfig(),
                 CultAPI.INSTANCE.getExternalAPI().getGrimVersion(),
                 CultAPI.INSTANCE.getPlatformServer().getPlatformImplementationString(),
-                () -> CultAPI.INSTANCE
-                        .getScheduler()
-                        .getGlobalRegionScheduler()
-                        .run(
-                                CultAPI.INSTANCE.getGrimPlugin(),
-                                () -> CultAPI.INSTANCE
-                                        .getPlatformServer()
-                                        .dispatchCommand(
-                                                CultAPI.INSTANCE
-                                                        .getPlatformServer()
-                                                        .getConsoleSender(),
-                                                "stop")),
+                () -> {
+                    if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                        LogUtil.warn("Observe-only keeps the server running without storage");
+                        return;
+                    }
+                    CultAPI.INSTANCE
+                            .getScheduler()
+                            .getGlobalRegionScheduler()
+                            .run(
+                                    CultAPI.INSTANCE.getGrimPlugin(),
+                                    () -> CultAPI.INSTANCE
+                                            .getPlatformServer()
+                                            .dispatchCommand(
+                                                    CultAPI.INSTANCE
+                                                            .getPlatformServer()
+                                                            .getConsoleSender(),
+                                                    "stop"));
+                },
                 ClientVersionResolver::legacyStringToPvn,
                 reload);
     }

@@ -256,6 +256,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     }
 
     public void executeForceResync(String cause) {
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
         if (!player.shouldEnforceMovementSetbacks()) return;
         if (player.isDisabled() || player.gamemode == GameMode.SPECTATOR)
             return; // We don't care about spectators, they don't flag
@@ -271,6 +272,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     }
 
     public void executeNonSimulatingSetback() {
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
         if (!player.shouldEnforceMovementSetbacks()) return;
         if (player.isDisabled() || player.gamemode == GameMode.SPECTATOR)
             return; // We don't care about spectators, they don't flag
@@ -323,6 +325,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     }
 
     private boolean isExempt() {
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return true;
         // Not exempting spectators here because timer check for spectators is actually valid.
         // Player hasn't spawned yet
         if (lastKnownGoodPosition == null) return true;
@@ -1092,7 +1095,11 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 }
                 pendingTeleports.poll();
                 if (currentRequiredSetback) {
-                    requiredSetBack.setPlugin(false);
+                    if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                        releaseRequiredSetback(physicalFeetPosition);
+                    } else {
+                        requiredSetBack.setPlugin(false);
+                    }
                 }
                 if (!vehicleTransitionCanIgnoreTeleport && pendingTeleports.isEmpty() && requiredSetBack != null) {
                     resendIgnoredRequiredSetback("player-position-ignored");
@@ -1300,12 +1307,24 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         if (requiredSetBack == null || requiredSetBack.isPlugin()) {
             return;
         }
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            releaseRequiredSetback(new Vec3(player.x, player.y, player.z));
+            return;
+        }
 
         requiredSetBack.setPlugin(false);
         if (debug) {
             LogUtil.info("Reissuing ignored Cult setback for " + player.getName() + ": " + reason);
         }
         sendSetback(requiredSetBack);
+    }
+
+    private void releaseRequiredSetback(Vec3 position) {
+        requiredSetBack.setComplete(true);
+        blockOffsets = false;
+        if (!player.inVehicle()) {
+            lastKnownGoodPosition = new SetbackPosWithVector(position, Vec3.ZERO, player.totalFlyingPacketsSent);
+        }
     }
 
     public void addVehicleTeleport(int vehicleId, int transaction, Vec3 position) {

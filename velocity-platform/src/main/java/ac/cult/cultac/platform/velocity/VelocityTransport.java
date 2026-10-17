@@ -1,5 +1,6 @@
 package ac.cult.cultac.platform.velocity;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
@@ -103,13 +104,11 @@ final class VelocityTransport {
             boolean translated = bedrock != null || clients.isBedrock(player.getUniqueId());
             // A Bedrock session needs the Geyser bridge's tap; never inspect it as a Java client.
             if (translated && bedrock == null) {
-                player.disconnect(REFUSED);
-                LogUtil.warn("Disconnected " + player.getUsername() + "; Bedrock session without a Geyser bridge");
+                refuse(player, REFUSED, "Bedrock session without a Geyser bridge", null);
                 return null;
             }
         } catch (Throwable failure) {
-            player.disconnect(REFUSED);
-            LogUtil.error("Disconnected " + player.getUsername() + "; Velocity login channel lookup failed", failure);
+            refuse(player, REFUSED, "Velocity login channel lookup failed", failure);
             return null;
         }
         CompletableFuture<Void> attached;
@@ -127,12 +126,26 @@ final class VelocityTransport {
         // Velocity logs an exceptional PostLogin task and admits the player, so a failed attach disconnects them.
         return EventTask.resumeWhenComplete(attached.handle((ignored, failure) -> {
             if (failure != null && channel.isActive()) {
-                player.disconnect(REFUSED);
-                LogUtil.error(
-                        "Disconnected " + player.getUsername() + "; Velocity connection attachment failed", failure);
+                refuse(player, REFUSED, "Velocity connection attachment failed", failure);
             }
             return null;
         }));
+    }
+
+    /** Disconnects a client CultAC cannot inspect; observe-only lets it join uninspected. */
+    static void refuse(Player player, Component message, String why, Throwable failure) {
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            String line = "Not inspecting " + player.getUsername() + "; " + why;
+            if (failure == null) LogUtil.warn(line);
+            else LogUtil.warn(line, failure);
+            return;
+        }
+        player.disconnect(message);
+        // A client shown its own reason, such as an outdated version, is routine and not logged.
+        if (message != REFUSED) return;
+        String line = "Disconnected " + player.getUsername() + "; " + why;
+        if (failure == null) LogUtil.warn(line);
+        else LogUtil.error(line, failure);
     }
 
     Channel channel(Player player) {

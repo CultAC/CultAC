@@ -860,7 +860,7 @@ public final class CloudConnection {
         agent.addProperty("version", buildProperty(build, "build.version"));
         agent.addProperty("commit", buildProperty(build, "git.commit"));
         agent.addProperty("configHash", configHash());
-        agent.addProperty("mode", "enforcing");
+        agent.addProperty("mode", CultAPI.INSTANCE.getConfigManager().isObserveOnly() ? "observe-only" : "enforcing");
         return agent;
     }
 

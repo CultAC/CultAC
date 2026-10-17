@@ -70,6 +70,9 @@ ignore-duplicate-packet-rotation: false
 # Set to -1 to disable.
 max-clicks-per-tick: 3
 
+# Flag and alert without acting: no punishment commands, setbacks, packet cancels or kicks. Client packets reach the server as sent.
+observe-only: false
+
 Simulation:
     # プレイヤーが違反をしていない場合、違反の度合いをどれだけ減らすかの倍率。
     # デフォルト設定のグラフ（x軸 = 秒, y軸 = 1/1000ブロック）: https://www.desmos.com/calculator/d4ufgxrxer
@@ -268,4 +271,4 @@ cloud:
   proxy-id: ""
 
 config-flavor: V2
-config-version: 13
+config-version: 14

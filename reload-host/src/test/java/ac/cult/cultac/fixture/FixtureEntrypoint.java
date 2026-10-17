@@ -133,6 +133,10 @@ public final class FixtureEntrypoint implements RuntimeEntrypoint, RuntimeInstan
         return pending == null ? CompletableFuture.completedFuture(null) : pending;
     }
 
+    public boolean isObserveOnly() {
+        return controls.containsKey("observe-only:" + variant);
+    }
+
     public Map<String, byte[]> configurationFiles() {
         return Map.of("config.yml", ("build: " + variant + "\n").getBytes(StandardCharsets.UTF_8));
     }

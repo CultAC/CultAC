@@ -21,6 +21,7 @@ import org.jetbrains.annotations.Nullable;
 public class PunishmentManager implements ConfigReloadable {
     private static final CommandExecuteEvent.Channel COMMAND_CHANNEL =
             CultAPI.INSTANCE.getEventBus().get(CommandExecuteEvent.class);
+    private static final Set<String> BUILTIN_ACTIONS = Set.of("[webhook]", "[log]", "[proxy]", "[alert]");
     private final CultPlayer player;
     private final List<PunishGroup> groups = new ArrayList<>();
     private String experimentalSymbol = "*";
@@ -164,11 +165,15 @@ public class PunishmentManager implements ConfigReloadable {
                             String cmd = replaceAlertPlaceholders(command.command, vl, check, renderedVerbose);
                             // Only console commands can reach a backend's CommandExecuteEvent listeners;
                             // the built-in actions below are decided by this event alone.
-                            boolean canceled = COMMAND_CHANNEL.fire(
-                                    ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
-                                    ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(check),
-                                    renderedVerbose,
-                                    cmd);
+                            boolean withheld =
+                                    CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+                                            && !BUILTIN_ACTIONS.contains(command.command);
+                            boolean canceled = withheld
+                                    || COMMAND_CHANNEL.fire(
+                                            ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
+                                            ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(check),
+                                            renderedVerbose,
+                                            cmd);
                             if (command.interval == 0) {
                                 command.executeCount++;
                             } else {

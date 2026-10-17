@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
@@ -18,6 +19,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.lang.reflect.Field;
 import java.util.UUID;
 
 final class RecordReceiveFixture implements AutoCloseable {
@@ -115,6 +117,16 @@ final class RecordReceiveFixture implements AutoCloseable {
         assertTrue(channel.writeInbound(frame));
         assertSame(frame, channel.readInbound());
         frame.release();
+    }
+
+    /** Sets observe-only on the shared test config until closed. */
+    static AutoCloseable observeOnly(boolean observeOnly) throws ReflectiveOperationException {
+        Field field = BaseConfigManager.class.getDeclaredField("observeOnly");
+        field.setAccessible(true);
+        Object config = CultAPI.INSTANCE.getConfigManager();
+        boolean original = field.getBoolean(config);
+        field.setBoolean(config, observeOnly);
+        return () -> field.setBoolean(config, original);
     }
 
     @Override

@@ -68,6 +68,9 @@ ignore-duplicate-packet-rotation: false
 # Set to -1 to disable.
 max-clicks-per-tick: 3
 
+# Flag and alert without acting: no punishment commands, setbacks, packet cancels or kicks. Client packets reach the server as sent.
+observe-only: false
+
 Simulation:
     # O ile powinniśmy pomnożyć całkowitą przewagę, gdy gracz gra zgodnie z zasadami?
     # Tak wygląda domyślna konfiguracja (oś x = sekundy, oś y = 1/1000 bloku): https://www.desmos.com/calculator/d4ufgxrxer
@@ -261,4 +264,4 @@ cloud:
   proxy-id: ""
 
 config-flavor: V2
-config-version: 13
+config-version: 14

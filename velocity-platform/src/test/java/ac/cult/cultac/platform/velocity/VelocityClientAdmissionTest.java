@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import com.velocitypowered.api.network.ProtocolVersion;
 import com.velocitypowered.api.proxy.Player;
@@ -12,11 +13,25 @@ import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import net.kyori.adventure.text.Component;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class VelocityClientAdmissionTest {
+    private Object originalLoader;
+
+    @BeforeEach
+    void installLoader() throws ReflectiveOperationException {
+        originalLoader = swap("loader", mock(PlatformLoader.class, RETURNS_DEEP_STUBS));
+    }
+
+    @AfterEach
+    void restoreLoader() throws ReflectiveOperationException {
+        swap("loader", originalLoader);
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {47, 340, 763, 764, 766, 767})
     void outdatedClientsWithoutViaAreDisconnectedBeforeProtocolResolution(int protocol) {
@@ -70,20 +85,52 @@ class VelocityClientAdmissionTest {
     }
 
     @Test
-    void newerClientsBehindViaAreRefused() throws Exception {
+    void newerClientsBehindViaAreRefused() {
         Player player = player(774);
         var channel = viaChannel(VelocityProtocols.NEWEST.protocol() + 1);
-        Field loader = CultAPI.class.getDeclaredField("loader");
-        loader.setAccessible(true);
-        Object originalLoader = loader.get(CultAPI.INSTANCE);
-        loader.set(CultAPI.INSTANCE, mock(PlatformLoader.class, RETURNS_DEEP_STUBS));
         try {
             assertTrue(VelocityProtocols.disconnectUnsupportedClient(player, channel));
             verify(player).disconnect(VelocityTransport.REFUSED);
         } finally {
-            loader.set(CultAPI.INSTANCE, originalLoader);
             channel.finishAndReleaseAll();
         }
+    }
+
+    @Test
+    void observeOnlyLetsUnsupportedClientsJoinUninspected() throws ReflectiveOperationException {
+        Object config = swap("configManager", observeOnly(true));
+        try {
+            assertJoinsUninspected(player(767), new EmbeddedChannel());
+            assertJoinsUninspected(player(774), viaChannel(VelocityProtocols.NEWEST.protocol() + 1));
+        } finally {
+            swap("configManager", config);
+        }
+    }
+
+    private static void assertJoinsUninspected(Player player, EmbeddedChannel channel) {
+        try {
+            assertTrue(VelocityProtocols.disconnectUnsupportedClient(player, channel));
+            verify(player, never()).disconnect(any(Component.class));
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    static BaseConfigManager observeOnly(boolean observeOnly) {
+        return new BaseConfigManager() {
+            @Override
+            public boolean isObserveOnly() {
+                return observeOnly;
+            }
+        };
+    }
+
+    static Object swap(String name, Object value) throws ReflectiveOperationException {
+        Field field = CultAPI.class.getDeclaredField(name);
+        field.setAccessible(true);
+        Object original = field.get(CultAPI.INSTANCE);
+        field.set(CultAPI.INSTANCE, value);
+        return original;
     }
 
     private static EmbeddedChannel viaChannel(int original) {

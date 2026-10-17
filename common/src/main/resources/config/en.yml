@@ -68,6 +68,9 @@ ignore-duplicate-packet-rotation: false
 # Set to -1 to disable.
 max-clicks-per-tick: 3
 
+# Flag and alert without acting: no punishment commands, setbacks, packet cancels or kicks. Client packets reach the server as sent.
+observe-only: false
+
 Simulation:
     # How much should we multiply total advantage by when the player is legit
     # This is what the default config looks like (x axis = seconds, y axis = 1/1000 block): https://www.desmos.com/calculator/d4ufgxrxer
@@ -258,4 +261,4 @@ cloud:
 #   config-version: bumped on every breaking shape change. Old configs
 #                   auto-migrate up via the bundled updater on next start.
 config-flavor: V2
-config-version: 13
+config-version: 14

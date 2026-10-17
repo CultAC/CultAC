@@ -5,6 +5,7 @@ import static ac.cult.cultac.protocol.PacketDirection.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
@@ -25,11 +26,18 @@ import io.netty.util.concurrent.DefaultEventExecutor;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 /** Replacement contract, written before the transport implementation (D1–D7, C1/C2). */
 class CultTransportTest {
     private static final ProtocolRuntime RUNTIME = ProtocolRuntime.create(ProtocolData.load(ProtocolVersion.V26_3));
+
+    // The decoder reads CultAPI's config; it must initialize before a test binds a mock host.
+    @BeforeAll
+    static void initializeApi() {
+        assertNotNull(CultAPI.INSTANCE.getConfigManager());
+    }
 
     @Test
     void engineRequestsHandoffAfterAckListenersAndBeforeNativeDecoder() throws Exception {
@@ -60,6 +68,37 @@ class CultTransportTest {
             ((ByteBuf) f.channel.readInbound()).release();
             assertEquals(List.of("listeners", "handoff", "native"), order);
             assertEquals(CONFIGURATION, f.connection.phase(SERVERBOUND));
+        } finally {
+            context.set(null, previous);
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void aFailedHandoffClosesTheConnectionOnlyOutsideObserveOnly(boolean observeOnly) throws Exception {
+        var context = ac.cult.cultac.runtime.RuntimeEnvironment.class.getDeclaredField("context");
+        context.setAccessible(true);
+        Object previous = context.get(null);
+        try (var f = new Fixture(false);
+                var services = new RecordConsumerServices();
+                var ignored = RecordReceiveFixture.observeOnly(observeOnly)) {
+            var host = mock(ac.cult.reload.api.HostContext.class);
+            when(host.platform()).thenReturn("velocity");
+            when(host.handoff(f.channel, null)).thenThrow(new IllegalStateException("adopt failed"));
+            f.connection.phase(CLIENTBOUND, CONFIGURATION);
+            context.set(null, host);
+            var ack = f.frame(SERVERBOUND, PLAY, "configuration_acknowledged");
+            String bytes = ByteBufUtil.hexDump(ack);
+            f.channel.writeInbound(ack);
+            ByteBuf forwarded = f.channel.readInbound();
+            if (observeOnly) {
+                assertEquals(bytes, ByteBufUtil.hexDump(forwarded));
+                forwarded.release();
+                assertTrue(f.channel.isOpen());
+            } else {
+                assertNull(forwarded);
+                assertFalse(f.channel.isOpen());
+            }
         } finally {
             context.set(null, previous);
         }

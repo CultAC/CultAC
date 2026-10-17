@@ -23,6 +23,9 @@ public class BaseConfigManager {
     private boolean printAlertsToConsole = false;
 
     @Getter
+    private boolean observeOnly = false;
+
+    @Getter
     private String prefix = "&bCult &8»";
 
     @Getter
@@ -121,6 +124,11 @@ public class BaseConfigManager {
                     throw new RuntimeException("Failed to compile client pattern", e);
                 }
             }
+        }
+
+        observeOnly = config.getBooleanElse("observe-only", false);
+        if (observeOnly) {
+            LogUtil.info("Observe-only mode: checks flag and alert; nothing acts on the player or their packets");
         }
 
         printAlertsToConsole = config.getBooleanElse("alerts.print-to-console", true);

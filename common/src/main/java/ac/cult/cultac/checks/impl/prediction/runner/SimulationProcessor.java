@@ -966,7 +966,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(result);
             if (!result.isExempt() && result.getFlagSeverity() > 0.0) {
                 this.dumpRecentFlagsWhenDebugging(result);
-                this.player.getSetbackTeleportUtil().resyncWorld();
+                if (!CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                    this.player.getSetbackTeleportUtil().resyncWorld();
+                }
                 boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);
                 if (this.player.shouldEnforceMovementSetbacks() || createProfileVerboseLog || bedrockMovementFlag) {
                     result.setIdentifier(nextDebugIdentifier());

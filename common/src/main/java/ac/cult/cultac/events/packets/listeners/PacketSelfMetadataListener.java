@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -205,6 +206,7 @@ public class PacketSelfMetadataListener {
                     }
                     // don't spoof health of entities we're riding
                     if (player.getRidingVehicleId() == observedEntityId) break;
+                    if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) break;
 
                     if (!changed) packedItems = new ArrayList<>(packedItems);
                     packedItems.set(i, EntityMetadata.Entry.health(packedItem.id(), event.getDecodedProtocol(), 1.0f));

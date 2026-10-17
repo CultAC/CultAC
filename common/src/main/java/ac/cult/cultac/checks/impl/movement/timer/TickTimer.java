@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.movement.timer;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
@@ -35,7 +36,9 @@ public final class TickTimer extends Check implements CheckListener {
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         if (!isApplicable() || player.packetStateData.lastPacketWasTeleport) return;
 
-        if (!receivedTickEnd && flagWithSetback(V.write(verbose()).bool(false).uint(flyingPackets))) {
+        if (!receivedTickEnd
+                && flagWithSetback(V.write(verbose()).bool(false).uint(flyingPackets))
+                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
             player.onPacketCancel();
             if (player.shouldEnforceMovementSetbacks()
                     && player.getSetbackTeleportUtil().shouldBlockMovement()) {
@@ -51,7 +54,9 @@ public final class TickTimer extends Check implements CheckListener {
         if (!isApplicable()) return;
 
         receivedTickEnd = true;
-        if (flyingPackets > 1 && flagWithSetback(V.write(verbose()).bool(true).uint(flyingPackets))) {
+        if (flyingPackets > 1
+                && flagWithSetback(V.write(verbose()).bool(true).uint(flyingPackets))
+                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
             player.onPacketCancel();
         }
         flyingPackets = 0;

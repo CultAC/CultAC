@@ -27,7 +27,9 @@ public class PacketPluginMessage {
                             + "Please remove ViaVersion from your proxy server and install it on your backend servers instead.");
         }
         // kick if they do not have a proxy configured OR they have ViaVersion installed on the backend
-        if (CommonCultArguments.KICK_ON_VIA_PROXY.value() && (!usingProxy || ViaVersionUtil.isAvailable())) {
+        if (CommonCultArguments.KICK_ON_VIA_PROXY.value()
+                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+                && (!usingProxy || ViaVersionUtil.isAvailable())) {
 
             LogUtil.warn(user.getName() + " is being disconnected for sending ViaVersion proxy data.");
 

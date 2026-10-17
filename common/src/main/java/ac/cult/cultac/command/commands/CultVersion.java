@@ -40,6 +40,10 @@ public class CultVersion implements BuildableCommand {
                 .append(Component.text("Cult Version: ").color(NamedTextColor.GRAY))
                 .append(Component.text(current).color(NamedTextColor.AQUA))
                 .asComponent());
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            sender.sendMessage(Component.text("Observe-only: checks flag and alert but never act")
+                    .color(NamedTextColor.YELLOW));
+        }
         // use cached message if last check was less than 1 minute ago
         final long now = System.currentTimeMillis();
         if (now - lastCheck < 60000) {

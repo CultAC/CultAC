@@ -657,6 +657,15 @@ public final class GenerationManager implements AutoCloseable {
         }
     }
 
+    /** The current generation's observe-only setting; false when there is none. */
+    public boolean isObserveOnly() {
+        try {
+            return call(currentId(), RuntimeInstance::isObserveOnly);
+        } catch (Exception failure) {
+            return false;
+        }
+    }
+
     public String placeholder(UUID player, String parameter) {
         UserBinding user = user(player);
         try {

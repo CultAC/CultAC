@@ -76,4 +76,9 @@ public interface RuntimeInstance {
     default int playerCount() {
         return 0;
     }
+
+    /** Whether this runtime acts on nothing it finds, so a connection it cannot attach still joins. */
+    default boolean isObserveOnly() {
+        return false;
+    }
 }

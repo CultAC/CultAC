@@ -16,6 +16,7 @@ import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
+import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import io.netty.channel.Channel;
 import java.nio.file.Path;
@@ -162,8 +163,7 @@ public final class CultVelocityPlugin {
             try {
                 bridgeGuard.install(channel);
             } catch (RuntimeException failure) {
-                logger.error("Cannot guard the bridge channel of " + player.getUsername() + "; disconnecting", failure);
-                player.disconnect(REFUSED);
+                refuse(player, "Cannot guard the bridge channel of " + player.getUsername(), failure);
                 return null;
             }
             return EventTask.resumeWhenComplete(CompletableFuture.runAsync(
@@ -177,20 +177,24 @@ public final class CultVelocityPlugin {
                             },
                             channel.eventLoop())
                     .exceptionally(failure -> {
-                        if (channel.isActive()) {
-                            if (!stopping)
-                                logger.error("Cannot inspect " + player.getUsername() + "; disconnecting", failure);
-                            player.disconnect(REFUSED);
-                        }
+                        if (!channel.isActive()) return null;
+                        if (stopping) player.disconnect(REFUSED);
+                        else refuse(player, "Cannot inspect " + player.getUsername(), failure);
                         return null;
                     }));
         } catch (ReflectiveOperationException | RuntimeException failure) {
-            logger.error(
-                    "Cannot access the Velocity client channel of " + player.getUsername() + "; disconnecting",
-                    failure);
-            player.disconnect(REFUSED);
+            refuse(player, "Cannot access the Velocity client channel of " + player.getUsername(), failure);
             return null;
         }
+    }
+
+    private void refuse(Player player, String problem, Throwable failure) {
+        if (engine.isObserveOnly()) {
+            logger.warn(problem + "; observe-only lets them join uninspected", failure);
+            return;
+        }
+        logger.error(problem + "; disconnecting", failure);
+        player.disconnect(REFUSED);
     }
 
     /** {@code /cult runtimes [id [command]]}; commands run as the sender, once per player of that runtime. */

@@ -3,6 +3,7 @@ package ac.cult.cultac.platform.velocity;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -15,11 +16,13 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import java.util.Optional;
 import java.util.UUID;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class VelocityBedrockAdmissionTest {
-    @Test
-    void bedrockPlayerWithoutBridgeIsDisconnected() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void bedrockPlayerWithoutBridgeIsDisconnectedUnlessObserveOnly(boolean observeOnly) throws Exception {
         var proxy = mock(ProxyServer.class);
         var plugins = mock(PluginManager.class);
         when(proxy.getPluginManager()).thenReturn(plugins);
@@ -36,10 +39,13 @@ class VelocityBedrockAdmissionTest {
         loader.setAccessible(true);
         Object originalLoader = loader.get(CultAPI.INSTANCE);
         loader.set(CultAPI.INSTANCE, mock(PlatformLoader.class, RETURNS_DEEP_STUBS));
+        Object config =
+                VelocityClientAdmissionTest.swap("configManager", VelocityClientAdmissionTest.observeOnly(observeOnly));
         try {
             platform.attach(player, channel);
-            verify(player).disconnect(VelocityTransport.REFUSED);
+            verify(player, times(observeOnly ? 0 : 1)).disconnect(VelocityTransport.REFUSED);
         } finally {
+            VelocityClientAdmissionTest.swap("configManager", config);
             loader.set(CultAPI.INSTANCE, originalLoader);
             channel.finishAndReleaseAll();
         }

@@ -1,5 +1,6 @@
 package ac.cult.cultac.network;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.logging.PacketLogObserver;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
@@ -392,6 +393,14 @@ public final class CultConnection implements CodecState {
                     player == null || player.platformPlayer == null ? null : player.platformPlayer.getNative());
             return true;
         } catch (Throwable failure) {
+            // The releasing generation's config decides: the adopting one failed and may not have loaded.
+            if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+                LogUtil.warn(
+                        "Not inspecting " + (user == null ? channel.remoteAddress() : user.getName())
+                                + " any more; the runtime hand-off failed",
+                        failure);
+                return true;
+            }
             CultNetworkManager.reportFailure("runtime hand-off", failure);
             channel.close();
             return false;

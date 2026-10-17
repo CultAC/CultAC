@@ -32,6 +32,22 @@ class VelocityTransportLoginTest {
     }
 
     @Test
+    void failedAttachInObserveOnlyLetsThePlayerJoin() throws Exception {
+        var channel = new EmbeddedChannel();
+        var player = mock(Player.class);
+        var transport = transport(player, channel);
+        doThrow(new IllegalStateException("attach failed")).when(transport).attach(any(), any(), any(), any());
+        Object config =
+                VelocityClientAdmissionTest.swap("configManager", VelocityClientAdmissionTest.observeOnly(true));
+        try {
+            login(transport, player, channel);
+        } finally {
+            VelocityClientAdmissionTest.swap("configManager", config);
+        }
+        verify(player, never()).disconnect(any());
+    }
+
+    @Test
     void playerWhoLeftDuringAttachIsNotDisconnected() throws Exception {
         var channel = new EmbeddedChannel();
         var player = mock(Player.class);

@@ -82,9 +82,11 @@ public final class CultConfigSpecs {
      *
      * <p>v12 → v13: adds the {@code cloud} block to the bundled config, the same
      * way and with no migration.
+     *
+     * <p>v13 → v14: adds {@code observe-only}; default rewriting adds the key.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 13, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 14, ConfigUpdater.ConfigFlavor.V2)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);

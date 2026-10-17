@@ -77,7 +77,9 @@ public class ClientBrand extends Check implements CheckListener {
         final boolean hasReachHacks = brand.contains("forge")
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_18_2)
                 && player.getClientVersion().isOlderThan(ClientVersion.V_1_19_4);
-        if (hasReachHacks && CultAPI.INSTANCE.getConfigManager().isBlockBlacklistedForgeClients()) {
+        if (hasReachHacks
+                && CultAPI.INSTANCE.getConfigManager().isBlockBlacklistedForgeClients()
+                && !CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
             player.disconnect(MessageUtil.miniMessage(MessageUtil.replacePlaceholders(
                     player, CultAPI.INSTANCE.getConfigManager().getDisconnectBlacklistedForge())));
         }

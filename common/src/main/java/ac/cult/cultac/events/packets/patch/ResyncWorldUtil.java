@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets.patch;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -33,6 +34,7 @@ public class ResyncWorldUtil {
 
     public static void resyncPositions(
             CultPlayer player, int minBlockX, int mY, int minBlockZ, int maxBlockX, int mxY, int maxBlockZ) {
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
         // The server-sent view and the outbound proof belong to the connection owner.
         player.runSafely(() -> resyncOnOwner(player, minBlockX, mY, minBlockZ, maxBlockX, mxY, maxBlockZ));
     }

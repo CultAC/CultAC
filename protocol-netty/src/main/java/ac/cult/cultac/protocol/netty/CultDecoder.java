@@ -1,12 +1,15 @@
 package ac.cult.cultac.protocol.netty;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.protocol.DroppedPacketException;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import io.netty.buffer.ByteBuf;
@@ -110,6 +113,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
         boolean releaseOriginal = true;
         PacketType<?> originalType = null;
         ServerboundPacket originalPacket = null;
+        boolean observeOnly = CultAPI.INSTANCE.getConfigManager().isObserveOnly();
         try {
             var phase = connection.phase(PacketDirection.SERVERBOUND);
             connection.observePacket(PacketDirection.SERVERBOUND, phase, frame);
@@ -144,6 +148,15 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                         packet = move.withPosition(pending.x(), pending.y(), pending.z(), pending.onGround());
                         cancelled = false;
                     }
+                }
+                // Observe-only forwards what the client sent; a pong answering CultAC's own ping and a client
+                // payload on the companion's bridge channel keep their cancel.
+                if (observeOnly
+                        && !(value.type() == ServerboundPackets.PONG && event.isAcceptedTransactionResponse())
+                        && !(original instanceof ServerboundCustomPayload payload
+                                && ClientboundPackets.BRIDGE_CHANNEL.equals(payload.channel()))) {
+                    packet = original;
+                    cancelled = false;
                 }
                 if (cancelled) return null;
                 if (packet != original) {

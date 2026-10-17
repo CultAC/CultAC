@@ -117,6 +117,20 @@ class GenerationManagerTest {
     }
 
     @Test
+    void observeOnlyFollowsTheCurrentGeneration() throws Exception {
+        var manager = start();
+        try {
+            assertFalse(manager.isObserveOnly());
+            controls.put("observe-only:v2", true);
+            artifact("v2.jar", "2", "v2", "paper");
+            await(manager.update("v2.jar"));
+            assertTrue(manager.isObserveOnly());
+        } finally {
+            await(manager.stop());
+        }
+    }
+
+    @Test
     void handoffMovesDrainingConnectionToCurrentGeneration() throws Exception {
         var manager = start();
         try {
