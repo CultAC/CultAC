@@ -149,7 +149,7 @@ dependencies {
     }
     compileOnly(libs.geyser.core)
 
-    compileOnly(libs.floodgate.api)
+    compileOnly(libs.floodgate.api) { isTransitive = false }
     compileOnly(libs.viaversion)
     compileOnly(libs.viabackwards)
     compileOnly(libs.netty)
