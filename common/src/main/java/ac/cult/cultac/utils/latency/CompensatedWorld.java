@@ -839,7 +839,7 @@ public class CompensatedWorld {
         if (openShulkerBoxes.isEmpty()) return;
 
         for (ShulkerData data : openShulkerBoxes) {
-            if (!data.isAnimationActive()) {
+            if (!data.isAnimationActive() || ridesUntracked(data)) {
                 continue;
             }
 
@@ -852,12 +852,19 @@ public class CompensatedWorld {
 
     public boolean hasOpenShulkerCollision(SimpleCollisionBox queryBox) {
         for (ShulkerData data : openShulkerBoxes) {
-            if (data.isAnimationActive() && openShulkerCollisionBox(data).isCollided(queryBox)) {
+            if (data.isAnimationActive()
+                    && !ridesUntracked(data)
+                    && openShulkerCollisionBox(data).isCollided(queryBox)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    // A shulker entity riding outside the own riding tree has no simulated position.
+    private boolean ridesUntracked(ShulkerData data) {
+        return data.entity != null && player.compensatedEntities.isUntrackedRider(data.entity);
     }
 
     private SimpleCollisionBox openShulkerCollisionBox(ShulkerData data) {
@@ -1265,7 +1272,7 @@ public class CompensatedWorld {
     private SimpleCollisionBox accumulateShulkerPushes(SimpleCollisionBox queryBox) {
         SimpleCollisionBox shulkerPushes = new SimpleCollisionBox();
         for (ShulkerData data : openShulkerBoxes) {
-            if (!data.canPushEntities()) {
+            if (!data.canPushEntities() || ridesUntracked(data)) {
                 continue;
             }
 

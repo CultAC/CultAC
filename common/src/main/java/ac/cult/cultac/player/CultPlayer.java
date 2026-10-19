@@ -1033,6 +1033,10 @@ public class CultPlayer implements GrimUser {
             return false;
         }
 
+        if (compensatedEntities.isUntrackedRider(entity)) {
+            return false;
+        }
+
         return riding == null || !(riding == entity || riding.hasPassenger(entity) || entity.hasPassenger(riding));
     }
 

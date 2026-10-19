@@ -282,6 +282,8 @@ For entities, track:
 - passenger and vehicle relationships
 - despawn boundaries
 
+Like Grim, only the local player's own riding tree is positioned and ticked; a rider on any other entity is untracked, and every reader of another entity's position skips `CompensatedEntities#isUntrackedRider` (see `AGENTS.md`, "Entity tracking").
+
 Player entities are living entities and can be pushable. If movement false positives appear when players overlap, first verify:
 
 - the remote player exists in Cult's entity map

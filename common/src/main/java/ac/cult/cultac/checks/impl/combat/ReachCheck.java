@@ -146,6 +146,9 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
             if (entity.type == EntityTypeIds.ARMOR_STAND) return;
 
+            // Riders outside the local player's own riding tree have no simulated position.
+            if (player.compensatedEntities.isUntrackedRider(entity)) return;
+
             if (player.gamemode == GameMode.SPECTATOR) return;
 
             AttackReach reach = AttackReach.capture(player, visibility);

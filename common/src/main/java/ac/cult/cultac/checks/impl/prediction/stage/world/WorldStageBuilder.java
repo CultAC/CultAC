@@ -585,7 +585,7 @@ public class WorldStageBuilder {
             SimpleCollisionBox entityBounds,
             SimpleCollisionBox entityScratch) {
         if (!mayPushOrCollide(entity)) return null;
-        if (entities.sharesRootVehicleWithSelf(entity)) return null;
+        if (entities.sharesRootVehicleWithSelf(entity) || entities.isUntrackedRider(entity)) return null;
 
         // MCP-Reborn push/collision checks use the entity's concrete
         // bounding box, not the reach-expanded uncertainty box.

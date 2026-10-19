@@ -71,11 +71,13 @@ public final class ClientVisibilityProcessor extends CultProcessor implements Ch
     }
 
     public boolean blockFaceHidden(BlockPos position, Direction face) {
+        if (untrackedCamera()) return false;
         return player.compensatedWorld.withSelectionSnapshot(
                 () -> visibility.blockFaceHidden(position, face, positionError()));
     }
 
     public boolean entityHidden(PacketEntity entity) {
+        if (untrackedView(entity)) return false;
         return player.compensatedWorld.withSelectionSnapshot(() -> visibility.entityHidden(entity, positionError()));
     }
 
@@ -84,8 +86,22 @@ public final class ClientVisibilityProcessor extends CultProcessor implements Ch
     }
 
     public boolean entityInteractionHidden(PacketEntity entity) {
+        if (untrackedView(entity)) return false;
         return player.compensatedWorld.withSelectionSnapshot(
                 () -> visibility.entityInteractionHidden(entity, positionError()));
+    }
+
+    // A target or camera riding outside the local player's own riding tree has no simulated position.
+    private boolean untrackedView(PacketEntity target) {
+        return player.compensatedEntities.isUntrackedRider(target) || untrackedCamera();
+    }
+
+    private boolean untrackedCamera() {
+        if (player.cameraEntity.isSelf()) return false;
+        for (PacketEntity camera : player.cameraEntity.getPossibilities()) {
+            if (player.compensatedEntities.isUntrackedRider(camera)) return true;
+        }
+        return false;
     }
 
     private double positionError() {

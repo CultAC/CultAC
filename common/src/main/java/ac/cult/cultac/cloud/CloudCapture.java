@@ -1145,7 +1145,7 @@ public final class CloudCapture implements PlayerObserver {
             sightCheck = null;
             return null;
         }
-        if (sightOrigin == null) return null;
+        if (sightOrigin == null || player.compensatedEntities.isUntrackedRider(entity)) return null;
         List<Vec3> origins = player.compensatedEntities.getSelf().getRiding() == null
                 ? List.of(sightOrigin)
                 : sightCheck.getAttackOrigins();

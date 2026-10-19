@@ -27,8 +27,9 @@ import java.util.Random;
 import org.junit.jupiter.api.Test;
 
 /**
- * CompensatedEntities#updatePassengerPositions positions every passenger exactly as the full scan over every tracked
- * entity did, across mount, eject, removal, untracked riders, riding chains and level clears.
+ * CompensatedEntities#updatePassengerPositions positions the local player's own riding trees exactly as an
+ * unconditional scan of them does, and no other rider, across mount, eject, removal, untracked riders, riding chains
+ * and level clears.
  */
 class PassengerPositionParityTest {
     private static final int[] TYPES = {
@@ -73,7 +74,13 @@ class PassengerPositionParityTest {
             assertEquals(1, trackedPassengers(entities));
             entities.updatePassengerPositions();
             var box = zombie.getPossibleCollisionBoxes();
+            assertEquals(5.0, (box.minX + box.maxX) / 2, 1e-9, "a rider outside the own riding tree was positioned");
+            entities.getSelf().mount(boat);
+            assertEquals(2, trackedPassengers(entities));
+            entities.updatePassengerPositions();
+            box = zombie.getPossibleCollisionBoxes();
             assertEquals(2.0, (box.minX + box.maxX) / 2, 1e-9);
+            entities.getSelf().eject();
             zombie.eject();
             zombie.eject();
             assertEquals(0, trackedPassengers(entities));
@@ -205,7 +212,7 @@ class PassengerPositionParityTest {
                 long op = random.nextLong();
                 old.apply(op);
                 current.apply(op);
-                fullScan(reference.player.compensatedEntities);
+                ownTreeScan(reference.player.compensatedEntities);
                 candidate.player.compensatedEntities.updatePassengerPositions();
                 String expected = old.digest();
                 assertEquals(expected, current.digest(), "seed=" + seed + " step=" + step);
@@ -218,11 +225,30 @@ class PassengerPositionParityTest {
         }
     }
 
-    /** The unconditional full scan. */
-    private static void fullScan(CompensatedEntities entities) {
-        for (PacketEntity vehicle : entities.entityMap.values()) {
-            for (PacketEntity passenger : vehicle.passengers) tick(entities, vehicle, passenger);
+    /**
+     * The unconditional scan of the local player's own riding trees: the tree under the root of its riding chain and
+     * the tree under the root of the vehicle the server last put it on, each while that root is tracked.
+     */
+    private static void ownTreeScan(CompensatedEntities entities) {
+        PacketEntity selfRoot = trackedRoot(entities, entities.getSelf().getRiding());
+        Integer serverVehicle = entities.vehicles.serverPlayerVehicle;
+        PacketEntity serverRoot =
+                serverVehicle == null ? null : trackedRoot(entities, entities.getEntity(serverVehicle));
+        for (PacketEntity root : new PacketEntity[] {selfRoot, serverRoot == selfRoot ? null : serverRoot}) {
+            if (root == null) continue;
+            for (PacketEntity passenger : root.passengers) tick(entities, root, passenger);
         }
+    }
+
+    private static PacketEntity trackedRoot(CompensatedEntities entities, PacketEntity vehicle) {
+        if (vehicle == null) return null;
+        PacketEntity root = vehicle;
+        // CompensatedEntities bounds a riding chain by the entity map's size, as a riding cycle has no root.
+        for (int hops = 0; root.getRiding() != null; hops++) {
+            if (hops > entities.entityMap.size()) return null;
+            root = root.getRiding();
+        }
+        return entities.entityMap.get(root.getEntityId()) == root ? root : null;
     }
 
     private static void tick(CompensatedEntities entities, PacketEntity riding, PacketEntity passenger) {

@@ -42,6 +42,7 @@ public final class UnknownCollisionProvider {
         boolean inVehicle = player.compensatedEntities.getSelf().inVehicle();
 
         for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
+            if (player.compensatedEntities.isUntrackedRider(entity)) continue;
             if (entity.isBoat()) {
                 // Expand by 2 since boats suck.
                 addIntersecting(

@@ -355,15 +355,15 @@ class JavaEntityPushTest {
     }
 
     @Test
-    void aPassengerTicksInItsRootVehiclesPlace() throws Exception {
+    void aRiderOutsideTheOwnRidingTreeDoesNotPush() throws Exception {
         try (var f = falling()) {
             PacketEntity vehicle = entity(f, 100, new Vec3(4.5, FLOOR_Y, 4.5));
             vehicle.setClientTickOrder(-1L);
             entity(f, 101, TOUCHING).mount(vehicle);
 
-            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, PUSH), false);
+            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
 
-            assertEquals(1, contact.getSimulationContext().getWorldData().getNumPushing());
+            assertEquals(0, contact.getSimulationContext().getWorldData().getNumPushing());
             assertExact(contact);
         }
     }

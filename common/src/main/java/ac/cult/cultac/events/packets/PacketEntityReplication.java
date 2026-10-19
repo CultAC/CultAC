@@ -394,7 +394,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
             player.compensatedEntities.tickClientEntities(tick);
         } else {
-            player.compensatedEntities.entityMap.values().forEach(tick);
+            player.compensatedEntities.forEachTrackedEntity(tick);
         }
     }
 
@@ -1098,7 +1098,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     PacketEntity owner = player.compensatedEntities.getEntity(hookEntity.owner);
                     if (owner == null) return;
 
-                    player.compensatedEntities.fishingRodPulls.add(owner.getPossibleMovementCollisionBoxes());
+                    player.compensatedEntities.fishingRodPulls.add(
+                            player.compensatedEntities.currentMovementBox(owner));
                 }
             };
             player.latencyUtils.addRealTimeTaskNow(applyHookPull);

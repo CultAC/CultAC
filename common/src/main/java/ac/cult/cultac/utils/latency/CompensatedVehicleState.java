@@ -514,6 +514,14 @@ public final class CompensatedVehicleState implements Debuggable {
         return false;
     }
 
+    private static boolean containsId(@Nullable int[] passengers, int entityId) {
+        if (passengers == null) return false;
+        for (int passenger : passengers) {
+            if (passenger == entityId) return true;
+        }
+        return false;
+    }
+
     public void applyClientVisibleDismount() {
         PacketEntity previousRoot = entities.playerEntity.getRiding();
         entities.playerEntity.eject();
@@ -537,6 +545,9 @@ public final class CompensatedVehicleState implements Debuggable {
         PacketEntity previousRoot = entities.playerEntity.getRiding();
         PacketEntity vehicle = entities.getEntity(vehicleId);
         if (vehicle == null) return false;
+        for (PacketEntity passenger : vehicle.passengers) {
+            if (!containsId(passengerIds, passenger.getEntityId())) entities.settleIfUntrackedRider(passenger);
+        }
         for (PacketEntity passenger : List.copyOf(vehicle.passengers)) passenger.eject();
         for (int passengerId : passengerIds) {
             PacketEntity passenger = entities.getEntity(passengerId);

@@ -765,6 +765,22 @@ public class PacketEntity {
         clientPhysicalPositionExact = true;
     }
 
+    /**
+     * Snaps a rider whose seat was not simulated onto {@code seat}, its seat right now, dropping every location its
+     * frozen interpolation still holds; the next server position interpolates from there. Keeps the 26.3 codec base,
+     * which riding does not move.
+     */
+    public void settleAtSeat(CultPlayer player, SimpleCollisionBox seat) {
+        Vec3 codecBase = desyncClientPos;
+        passengerPhysicalBox = null;
+        oldPacketLocation = null;
+        bedrockInterpolation = null;
+        setPositionRaw(seat, clientPhysicalYaw, clientPhysicalPitch);
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
+            desyncClientPos = codecBase;
+        }
+    }
+
     public void setPositionRaw(SimpleCollisionBox box, float yaw, float pitch) {
         setPositionRaw(box);
         setClientPhysicalRotation(yaw, pitch);

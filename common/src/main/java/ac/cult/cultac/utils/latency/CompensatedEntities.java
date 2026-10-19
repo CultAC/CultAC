@@ -28,6 +28,7 @@ import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.*;
 import java.util.function.Consumer;
+import org.jetbrains.annotations.Nullable;
 
 public class CompensatedEntities {
     public final ClientPlayerModes clientPlayerModes = new ClientPlayerModes();
@@ -117,18 +118,108 @@ public class CompensatedEntities {
         trackedPassengers--;
     }
 
+    /**
+     * Positions the riders of the local player's own riding trees, the only riders whose positions are simulated:
+     * every other rider is untracked (see {@link #isUntrackedRider(PacketEntity)}).
+     */
     public void updatePassengerPositions() {
         if (trackedPassengers == 0) return;
-        for (PacketEntity vehicle : entityMap.values()) {
-            if (vehicle.passengers.isEmpty()) continue;
-            for (PacketEntity passenger : vehicle.passengers) {
-                tickPassenger(vehicle, passenger);
-            }
+        PacketEntity selfRoot = selfRidingRoot();
+        PacketEntity serverRoot = serverVehicleRoot();
+        if (selfRoot != null) positionTree(selfRoot);
+        if (serverRoot != null && serverRoot != selfRoot) positionTree(serverRoot);
+    }
+
+    private void positionTree(PacketEntity root) {
+        for (PacketEntity passenger : root.passengers) {
+            tickPassenger(root, passenger);
         }
+    }
+
+    /**
+     * The root of the local player's riding chain while it rides an entity this player tracks, else null. The
+     * riders below it form the own riding tree.
+     */
+    @Nullable
+    public PacketEntity selfRidingRoot() {
+        PacketEntity vehicle = playerEntity.getRiding();
+        return vehicle == null ? null : trackedRoot(vehicle);
+    }
+
+    /**
+     * The root above the vehicle the server last put the local player on, which the client may not show it riding
+     * yet; its riders are simulated too, so a vehicle switch reads a positioned vehicle.
+     */
+    @Nullable
+    private PacketEntity serverVehicleRoot() {
+        Integer vehicleId = vehicles.serverPlayerVehicle;
+        if (vehicleId == null) return null;
+        PacketEntity vehicle = entityMap.get(vehicleId.intValue());
+        return vehicle == null ? null : trackedRoot(vehicle);
+    }
+
+    @Nullable
+    private PacketEntity trackedRoot(PacketEntity vehicle) {
+        PacketEntity root = rootOf(vehicle);
+        return root != null && entityMap.get(root.getEntityId()) == root ? root : null;
+    }
+
+    /**
+     * Whether {@code entity} rides outside the local player's own riding trees. Its position is not simulated, so
+     * nothing may read its boxes or position: checks and collision skip it until it dismounts.
+     */
+    public boolean isUntrackedRider(PacketEntity entity) {
+        if (entity.getRiding() == null) return false;
+        PacketEntity root = rootOf(entity);
+        return root == null || root != selfRidingRoot() && root != serverVehicleRoot();
+    }
+
+    /**
+     * Before an untracked rider leaves its vehicle: anchors it at the seat its vehicle chain gives it now, the
+     * position the client leaves the vehicle from, so its normal tracking resumes from there and not from wherever
+     * it was when it stopped being simulated. Call it before any rider of the same change leaves: the seat depends
+     * on the vehicle's passenger list.
+     */
+    public void settleIfUntrackedRider(PacketEntity rider) {
+        if (!isUntrackedRider(rider)) return;
+        SimpleCollisionBox seat = untrackedRiderSeat(rider, 0);
+        if (seat != null) rider.settleAtSeat(player, seat);
+    }
+
+    /**
+     * The movement box of {@code entity} as the client has it now; for an untracked rider, computed from its vehicle
+     * chain on this call. For event-driven readers only: it allocates for every untracked rider in the chain.
+     */
+    public SimpleCollisionBox currentMovementBox(PacketEntity entity) {
+        if (isUntrackedRider(entity)) {
+            SimpleCollisionBox seat = untrackedRiderSeat(entity, 0);
+            if (seat != null) return seat;
+        }
+        return entity.getPossibleMovementCollisionBoxes();
+    }
+
+    // The seat box positionPassenger would give rider, with every untracked vehicle above it seated the same way.
+    @Nullable
+    private SimpleCollisionBox untrackedRiderSeat(PacketEntity rider, int hops) {
+        PacketEntity vehicle = rider.getRiding();
+        if (vehicle == null || hops > entityMap.size()) return null;
+        SimpleCollisionBox vehicleBox;
+        if (isUntrackedRider(vehicle)) {
+            vehicleBox = untrackedRiderSeat(vehicle, hops + 1);
+            if (vehicleBox == null) return null;
+        } else {
+            vehicleBox = vehicle.getPossibleMovementCollisionBoxes();
+        }
+        Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(vehicle, rider, player, vehicleBox);
+        return GetBoundingBox.getPacketEntityBoundingBox(player, seat.x, seat.y, seat.z, rider);
     }
 
     public void removeEntity(int entityID) {
         PacketEntity previousRoot = playerEntity.getRiding();
+        PacketEntity removing = entityMap.get(entityID);
+        if (removing != null) {
+            for (PacketEntity passenger : removing.passengers) settleIfUntrackedRider(passenger);
+        }
         PacketEntity entity = entityMap.remove(entityID);
         pendingAttributes.remove(entityID);
         pendingEquipment.remove(entityID);
@@ -200,6 +291,7 @@ public class CompensatedEntities {
     }
 
     // Null inside a riding cycle (a server mounting a vehicle on its own passenger), which has no root.
+    @Nullable
     private PacketEntity rootOf(PacketEntity entity) {
         PacketEntity root = entity;
         for (int hops = 0; root.getRiding() != null; hops++) {
@@ -943,8 +1035,23 @@ public class CompensatedEntities {
         }
         boolean frozen =
                 player.packetStateData.serverTicksFrozen && player.packetStateData.serverFrozenTickStepsRemaining == 0;
+        PacketEntity selfRoot = selfRidingRoot();
+        PacketEntity serverRoot = serverVehicleRoot();
         for (PacketEntity root : roots) {
-            if (!frozen || containsPlayer(root)) tickEntityTree(root, tick);
+            if (frozen && !containsPlayer(root)) continue;
+            if (root == selfRoot || root == serverRoot) {
+                tickEntityTree(root, tick);
+            } else if (root != getSelf()) {
+                // Untracked riders are neither ticked nor positioned; they settle when they dismount.
+                tick.accept(root);
+            }
+        }
+    }
+
+    /** Runs {@code tick} for every entity this player tracks except untracked riders, in entity map order. */
+    public void forEachTrackedEntity(Consumer<PacketEntity> tick) {
+        for (PacketEntity entity : entityMap.values()) {
+            if (!isUntrackedRider(entity)) tick.accept(entity);
         }
     }
 
@@ -958,7 +1065,8 @@ public class CompensatedEntities {
         PacketEntity self = getSelf();
         long selfOrder = self.getClientTickOrder();
         boolean selfPending = self.getRiding() == null && isTicking(self);
-        List<PacketEntity> roots = new ArrayList<>(size + 1);
+        // Tracked passengers ride, so they are never roots.
+        List<PacketEntity> roots = new ArrayList<>(Math.max(1, size + 1 - trackedPassengers));
         long previous = 0L;
         for (int i = 0; i < size; i++) {
             PacketEntity entity = addOrder.get(i);
