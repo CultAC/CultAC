@@ -36,6 +36,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.slf4j.Logger;
 
 @Plugin(
@@ -255,8 +256,9 @@ public final class CultVelocityPlugin {
     }
 
     /**
-     * {@code /cult update <build> | latest [channel] | builds [channel] | <filename.jar>}. A build install ends in one
-     * console line, also posted to the update webhook; the network work runs off the proxy's threads.
+     * {@code /cult update <build> | latest [channel] | builds [channel] | <filename.jar>}. A build install answers the
+     * sender at once and again with its outcome, which is also logged and posted to the update webhook; the network
+     * work runs off the proxy's threads.
      */
     private void update(CommandSource source, String[] args) {
         String target = args.length > 1 ? args[1] : "";
@@ -269,8 +271,10 @@ public final class CultVelocityPlugin {
                         logger.warn("The next boot may start the last installed build instead: " + cleanup);
                     }
                 }
-                source.sendMessage(
-                        Component.text(failure == null ? message : "Update failed: " + failure.getMessage()));
+                tell(
+                        source,
+                        failure == null ? message : "Update failed: " + failure.getMessage(),
+                        failure == null ? NamedTextColor.GREEN : NamedTextColor.RED);
             });
             return;
         }
@@ -278,35 +282,52 @@ public final class CultVelocityPlugin {
         try {
             settings = updateSettings();
         } catch (RuntimeException unusable) {
-            logger.warn("update refused: " + unusable);
-            if (!(source instanceof ConsoleCommandSource))
-                source.sendMessage(Component.text("update refused: " + unusable));
+            if (!(source instanceof ConsoleCommandSource)) logger.warn("update refused: " + unusable);
+            tell(source, "update refused: " + unusable, NamedTextColor.RED);
             return;
         }
         var updates = new BuildUpdates(settings, bundledVersion);
         Executor worker =
                 task -> Thread.ofPlatform().daemon().name("cult-update").start(task);
         if (args.length == 2 && target.matches("[0-9]{1,18}")) {
+            tell(source, "Updating this proxy to b" + target + ": downloading and verifying...", NamedTextColor.GRAY);
             report(source, settings, updates.install(engine, Long.parseLong(target), worker));
         } else if ((args.length == 2 || args.length == 3) && target.equalsIgnoreCase("latest")) {
+            tell(source, "Updating this proxy to the latest build: downloading and verifying...", NamedTextColor.GRAY);
             report(
                     source,
                     settings,
                     updates.latest(engine, args.length == 3 ? args[2] : CultBuildVersion.BRANCH, worker));
         } else if ((args.length == 2 || args.length == 3) && target.equalsIgnoreCase("builds")) {
             updates.builds(args.length == 3 ? args[2] : null, engine.currentBuild(), worker)
-                    .thenAccept(lines -> lines.forEach(line -> source.sendMessage(Component.text(line))));
+                    .thenAccept(lines -> lines.forEach(line -> tell(source, line, NamedTextColor.WHITE)));
         } else {
-            source.sendMessage(Component.text("Usage: /" + primaryRoot() + UPDATE_USAGE));
+            tell(source, "Usage: /" + primaryRoot() + UPDATE_USAGE, NamedTextColor.RED);
         }
     }
 
     private void report(CommandSource source, UpdateSettings settings, CompletionStage<String> result) {
-        result.thenAccept(line -> {
-            logger.info(line);
-            if (!(source instanceof ConsoleCommandSource)) source.sendMessage(Component.text(line));
+        result.exceptionally(failure -> "update refused: " + failure).thenAccept(line -> {
+            if (!(source instanceof ConsoleCommandSource)) logger.info(line);
+            boolean installed = line.contains(" → b");
+            tell(
+                    source,
+                    line,
+                    installed
+                            ? NamedTextColor.GREEN
+                            : line.startsWith("already on") ? NamedTextColor.YELLOW : NamedTextColor.RED);
+            if (installed)
+                tell(
+                        source,
+                        "Players move to the new build as they switch servers; /" + primaryRoot()
+                                + " runtimes shows how many are left.",
+                        NamedTextColor.GRAY);
             webhook.post(settings.webhook(), line, logger::warn);
         });
+    }
+
+    private static void tell(CommandSource source, String line, NamedTextColor color) {
+        source.sendMessage(Component.text("[CultAC] ", NamedTextColor.DARK_AQUA).append(Component.text(line, color)));
     }
 
     /** {@code /cult runtimes [id [command]]}; commands run as the sender, once per player of that runtime. */
