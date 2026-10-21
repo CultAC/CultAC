@@ -21,6 +21,7 @@ import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveMinecartCodec;
 import ac.cult.cultac.protocol.codec.entity.PlayerCombatKillCodec;
 import ac.cult.cultac.protocol.codec.entity.PlayerInfoUpdateCodec;
+import ac.cult.cultac.protocol.codec.entity.ProjectilePowerCodec;
 import ac.cult.cultac.protocol.codec.entity.RemoveEntitiesCodec;
 import ac.cult.cultac.protocol.codec.entity.RemoveMobEffectCodec;
 import ac.cult.cultac.protocol.codec.entity.SetCameraCodec;
@@ -75,6 +76,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerCombatKill;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundProjectilePower;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveMobEffect;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
@@ -171,6 +173,8 @@ public final class ClientboundPackets {
             "move_minecart", "move_minecart_along_track", ClientboundMoveMinecart.class, new MoveMinecartCodec());
     public static final PacketType<ClientboundEntityMotion> ENTITY_MOTION =
             PLAY.add("entity_motion", "set_entity_motion", ClientboundEntityMotion.class, new EntityMotionCodec());
+    public static final PacketType<ClientboundProjectilePower> PROJECTILE_POWER =
+            PLAY.add("projectile_power", ClientboundProjectilePower.class, new ProjectilePowerCodec());
     public static final PacketType<ClientboundSetPassengers> SET_PASSENGERS =
             PLAY.add("set_passengers", ClientboundSetPassengers.class, new SetPassengersCodec());
     public static final PacketType<ClientboundSetCamera> SET_CAMERA =

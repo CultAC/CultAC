@@ -13,10 +13,12 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.utils.blockplace.ClientEntityQueries;
 import ac.cult.cultac.utils.data.ClientAttackStrength;
 import ac.cult.cultac.utils.data.ClientCombatAttributes;
 import ac.cult.cultac.utils.data.ClientSprintState.AttackReset;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHurtingProjectile;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 
 public class PacketPlayerAttack {
@@ -110,6 +112,8 @@ public class PacketPlayerAttack {
         if (reset != AttackReset.NONE) player.maxPlayerAttackSlow += 1;
         if (reset == AttackReset.CERTAIN) player.minPlayerAttackSlow += 1;
         player.attackStrength.onReset();
+        if (target instanceof PacketEntityHurtingProjectile projectile)
+            projectile.onLocalAttack(new ClientEntityQueries(player));
     }
 
     /**

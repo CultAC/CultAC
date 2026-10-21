@@ -142,6 +142,12 @@ public final class ClientEntityQueries {
         return false;
     }
 
+    /** Whether {@code entity} is in {@code #redirectable_projectile}, which {@code Player#attack} aims. */
+    public boolean redirectable(PacketEntity entity) {
+        return members("entity_type:minecraft:redirectable_projectile")
+                .contains(modelType(entity).key());
+    }
+
     private void requireDragonParts() {
         for (var entity : player.compensatedEntities.entityMap.values())
             if (modelType(entity).key().equals("minecraft:ender_dragon"))

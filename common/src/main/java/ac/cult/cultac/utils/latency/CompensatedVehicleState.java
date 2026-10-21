@@ -573,6 +573,8 @@ public final class CompensatedVehicleState implements Debuggable {
         for (int passengerId : passengerIds) {
             PacketEntity passenger = entities.getEntity(passengerId);
             if (passenger == null || passenger == vehicle) continue;
+            // Entity#startRiding refuses a vehicle the passenger already rides or one that rides the passenger.
+            if (passenger.getRiding() == vehicle || entities.ridesIndirectly(vehicle, passenger)) continue;
             passenger.mount(vehicle);
             // The seat is placed before the client's next ride tick confirms it.
             passenger.markPositionInexact();
