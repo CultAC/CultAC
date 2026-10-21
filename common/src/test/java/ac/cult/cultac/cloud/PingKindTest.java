@@ -29,8 +29,8 @@ class PingKindTest {
             var effect = new ClientboundUpdateMobEffect(player.entityID, "minecraft:speed", 1);
             PacketSendEvent<ClientboundUpdateMobEffect> event =
                     sendEvent(player, ClientboundPackets.UPDATE_MOB_EFFECT, effect);
-            player.packetEntityReplication.onUpdateMobEffect(event, player, effect);
             int before = player.lastTransactionSent.get();
+            player.packetEntityReplication.onUpdateMobEffect(event, player, effect);
             event.getTasksAfterSend().forEach(Runnable::run);
 
             assertEquals(before + 1, player.lastTransactionSent.get());

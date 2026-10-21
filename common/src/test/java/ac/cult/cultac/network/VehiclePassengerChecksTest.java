@@ -2,15 +2,24 @@ package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsR;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsO;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.network.codec.ModelRegistryNamesState;
+import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
+import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
 import ac.cult.cultac.utils.math.Vec3;
@@ -94,6 +103,33 @@ class VehiclePassengerChecksTest {
 
             assertEquals(1, check.violations);
         }
+    }
+
+    @Test
+    void aRespawnedPlayerThatHasNotLoadedTheLevelIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            respawn(f);
+            pongAfterTwoSeconds(f, check);
+
+            assertEquals(0, check.violations);
+        }
+    }
+
+    /** The server's respawn, whose new LocalPlayer ticks only once ClientPacketListener#hasClientLoaded. */
+    private static void respawn(JavaTickFixture f) {
+        var spawnInfo = new PlayerSpawnInfo(
+                ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:the_end"),
+                f.player.compensatedWorld.getLastClientboundDimension().dimension(),
+                GameMode.SURVIVAL);
+        var packet = new ClientboundRespawn(spawnInfo, (byte) 0);
+        var event =
+                new PacketSendEvent<>(f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.RESPAWN, packet, false);
+        new PacketPlayerRespawn().onRespawn(event, f.player, packet);
+        event.getTasksAfterSend().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+        assertFalse(f.player.packetStateData.playerLoadedIntoLevel, "the respawn did not reach the client");
     }
 
     private static JavaTickFixture ride(int type) throws Exception {

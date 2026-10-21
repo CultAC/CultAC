@@ -984,17 +984,13 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return;
         }
 
-        if (isDirectlyAffectingPlayer(player, packet.entityId())) {
-            event.getTasksAfterSend().add(player::sendTrailingTransaction);
-        }
-
         final Runnable applyMobEffect = () -> {
             PacketEntity entity = player.compensatedEntities.getEntity(packet.entityId());
             if (entity == null) return;
 
             entity.addPotionEffect(type, packet.amplifier());
         };
-        player.latencyUtils.addRealTimeTaskNow(applyMobEffect);
+        applyMobEffectChange(event, packet.entityId(), applyMobEffect);
     }
 
     private void handleRemoveMobEffect(
@@ -1004,17 +1000,29 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return;
         }
 
-        if (isDirectlyAffectingPlayer(player, packet.entityId())) {
-            event.getTasksAfterSend().add(player::sendTrailingTransaction);
-        }
-
         final Runnable removeMobEffect = () -> {
             PacketEntity entity = player.compensatedEntities.getEntity(packet.entityId());
             if (entity == null) return;
 
             entity.removePotionEffect(type);
         };
-        player.latencyUtils.addRealTimeTaskNow(removeMobEffect);
+        applyMobEffectChange(event, packet.entityId(), removeMobEffect);
+    }
+
+    private void applyMobEffectChange(PacketSendEvent<?> event, int entityId, Runnable change) {
+        if (!isDirectlyAffectingPlayer(player, entityId)) {
+            player.latencyUtils.addRealTimeTaskNow(change);
+            return;
+        }
+        // ClientPacketListener#handleUpdateMobEffect and #handleRemoveMobEffect change the effect only
+        // when the client handles the packet; the trailing pong proves that, the leading one does not.
+        CultPlayer.TrackedTransaction proof = player.appendTrailingProofTransaction(event);
+        if (proof == null) {
+            player.latencyUtils.addRealTimeTaskNow(change);
+            return;
+        }
+        if (!event.isInsideBundle()) event.bundle();
+        player.latencyUtils.addRealTimeTask(proof.transaction(), change);
     }
 
     private void handleUpdateAttributes(

@@ -922,7 +922,7 @@ public class CompensatedEntities {
             return new PacketEntityHook(player, entityID, entityType, position.x, position.y, position.z, data);
         }
         if (PacketEntityHurtingProjectile.isHurtingProjectile(entityType)) {
-            return new PacketEntityHurtingProjectile(player, entityID, entityType, position);
+            return new PacketEntityHurtingProjectile(player, entityID, entityType, position, data);
         }
         return new PacketEntity(player, entityID, entityType, position.x, position.y, position.z);
     }

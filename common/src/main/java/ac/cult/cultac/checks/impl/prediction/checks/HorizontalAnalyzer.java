@@ -309,6 +309,52 @@ public class HorizontalAnalyzer implements EngineCheck {
             CollideAxisData collide,
             Vec3 target,
             Vec3 preCollisionMovement) {
+        return minimumClippedInput(residualX, residualZ, yaw, collide, target, preCollisionMovement, MAX_INPUT_AXIS);
+    }
+
+    /** {@link #minimumClippedInputAxis} for any input cost, from the result's accepted movement and collisions. */
+    static double minimumClippedInput(PredictionResult result, InputCost cost) {
+        if (result.getCollideAxisData() == null) return Double.MAX_VALUE;
+        Vec3 target = result.getTarget();
+        Vec3 closest = result.getAcceptedClosestToTarget();
+        return minimumClippedInput(
+                target.x - closest.x,
+                target.z - closest.z,
+                result.getSimulationContext().getXRot(),
+                result.getCollideAxisData(),
+                target,
+                preCollisionMovement(result),
+                cost);
+    }
+
+    /** A convex cost of an input-space vector. */
+    interface InputCost {
+        double at(double x, double z);
+
+        /** The smallest cost of {@code (x + t * dx, z + t * dz)} over {@code t >= 0}. */
+        double minimumAlong(double x, double z, double dx, double dz);
+    }
+
+    private static final InputCost MAX_INPUT_AXIS = new InputCost() {
+        @Override
+        public double at(double x, double z) {
+            return Math.max(Math.abs(x), Math.abs(z));
+        }
+
+        @Override
+        public double minimumAlong(double x, double z, double dx, double dz) {
+            return minimumMaxAxisAlong(x, z, dx, dz);
+        }
+    };
+
+    private static double minimumClippedInput(
+            double residualX,
+            double residualZ,
+            float yaw,
+            CollideAxisData collide,
+            Vec3 target,
+            Vec3 preCollisionMovement,
+            InputCost cost) {
         int sideX = flushSide(collide.getX(), target.x);
         int sideZ = flushSide(collide.getZ(), target.z);
         boolean pastX = preCollisionMovement != null && reachesPast(collide.getX(), preCollisionMovement.x);
@@ -327,10 +373,10 @@ public class HorizontalAnalyzer implements EngineCheck {
             float sin = table[0], cos = table[1];
             double x = residualX * cos + residualZ * sin;
             double z = residualZ * cos - residualX * sin;
-            best = Math.min(best, Math.max(Math.abs(x), Math.abs(z)));
+            best = Math.min(best, cost.at(x, z));
             // A world X/Z unit rotates to these input-space directions
-            if (sideX != 0) best = Math.min(best, minimumMaxAxisAlong(x, z, sideX * cos, -sideX * sin));
-            if (sideZ != 0) best = Math.min(best, minimumMaxAxisAlong(x, z, sideZ * sin, sideZ * cos));
+            if (sideX != 0) best = Math.min(best, cost.minimumAlong(x, z, sideX * cos, -sideX * sin));
+            if (sideZ != 0) best = Math.min(best, cost.minimumAlong(x, z, sideZ * sin, sideZ * cos));
         }
         return best;
     }

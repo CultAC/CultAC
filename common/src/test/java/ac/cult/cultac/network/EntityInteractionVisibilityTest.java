@@ -24,11 +24,13 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -37,6 +39,7 @@ import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import ac.cult.cultac.utils.visibility.ClientVisibility;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
@@ -200,6 +203,36 @@ class EntityInteractionVisibilityTest {
             for (int tick = 0; tick < 4; tick++) setup.clientTick();
             assertTrue(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
             assertFalse(setup.route(43, InteractAction.INTERACT_AT).isCancelled());
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("clients")
+    void aWindChargeThatLeftItsOwnerStopsWhereItsMoveEntersTheOwner(ProtocolVersion version) throws Exception {
+        try (var setup = new Setup(version)) {
+            // A falling player's own throw, 4023 and 6028 nearer the origin. The sync after the second tick snaps the
+            // charge back onto the owner's path once it has left the owner; the next three moves end in the owner's
+            // box grown by computeMargin, 1.15 along the 3-block delta.
+            setup.place(.769029067589, 73.47945019551581, .639208005881);
+            setup.spawn(
+                    42,
+                    "minecraft:wind_charge",
+                    new Vec3d(.536538433285, 74.30861356578568, .226783865373),
+                    new Vec3d(.8442898126106329, -1.6825978148080327, .8412378685222488),
+                    setup.player.entityID);
+            setup.place(1.0264314333185, 73.00022534780268, 1.029074800606);
+            setup.clientTick();
+            setup.place(1.306210589451, 72.47256061408373, 1.398628477895);
+            setup.clientTick();
+            setup.sync(42, new Vec3d(1.380783054266, 72.62601698825542, 1.068009889761));
+            setup.place(1.6063442042137, 71.89872304976458, 1.75066325222);
+            setup.clientTick();
+            setup.place(1.925253273235, 71.28062517432653, 2.08747581659);
+            setup.clientTick();
+            setup.place(2.265739552059, 70.62237925303279, 2.403236524121);
+            setup.clientTick();
+            assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            assertEquals(70.85543526, setup.player.compensatedEntities.getEntity(42).clientPhysicalPosition.y, 1.0E-6);
         }
     }
 
@@ -547,8 +580,12 @@ class EntityInteractionVisibilityTest {
         }
 
         void spawn(int id, String type, Vec3d position, Vec3d velocity) {
+            spawn(id, type, position, velocity, 0);
+        }
+
+        void spawn(int id, String type, Vec3d position, Vec3d velocity, int data) {
             if (fixture.user.getPlayer() == null) fixture.user.bind(Mockito.mock(PlatformPlayer.class));
-            var packet = new ClientboundAddEntity(id, type, position, 0, 0, 0, new UUID(0, id), velocity);
+            var packet = new ClientboundAddEntity(id, type, position, 0, 0, data, new UUID(0, id), velocity);
             var event = new PacketSendEvent<>(
                     fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, packet, false);
             player.packetEntityReplication.onAddEntity(event, player, packet);
@@ -561,6 +598,21 @@ class EntityInteractionVisibilityTest {
                     fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_MOTION, packet, false);
             player.packetEntityReplication.onSetEntityMotion(event, player, packet);
             acknowledge(event);
+        }
+
+        void sync(int id, Vec3d position) {
+            var packet = new ClientboundEntityPositionSync(id, new PositionPath.Linear(position), 0, 0, false);
+            var event = new PacketSendEvent<>(
+                    fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_POSITION_SYNC, packet, false);
+            player.packetEntityReplication.onEntityPositionSync(event, player, packet);
+            acknowledge(event);
+        }
+
+        void place(double x, double y, double z) {
+            player.x = x;
+            player.y = y;
+            player.z = z;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, x, y, z);
         }
 
         void size(int id, int index, int size) {

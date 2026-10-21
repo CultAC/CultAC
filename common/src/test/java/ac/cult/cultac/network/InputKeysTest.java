@@ -4,16 +4,23 @@ import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
+import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
+import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
@@ -24,6 +31,8 @@ import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
+import java.nio.ByteBuffer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -162,6 +171,31 @@ class InputKeysTest {
             f.input(BACK);
             for (int tick = 0; tick < 5; tick++) f.tickEnd();
             assertExact(f.tick(new Vec3(0.5, FLOOR_Y, 0.3), true));
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void walkingAlongAWallsEndWhilePushedIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, -1), BlockIds.STONE.defaultState());
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            // The box's side touches the wall, whose end lies 0.01 into the box's z range.
+            Vec3 start = new Vec3(1.0 - 0.3F, FLOOR_Y, 0.29);
+            f.place(start, GROUNDED);
+            // A zombie ticking before the player pushes it by 0.05 / sqrt(0.5) * 0.5 along -z this tick.
+            f.player.compensatedEntities.addEntity(100, EntityTypeIds.ZOMBIE, start.add(0, 0, 0.5), 0, 0, 0);
+            f.player.compensatedEntities.entityMap.get(100).setClientTickOrder(-1L);
+            float yaw = 310.0F;
+            f.player.xRot = yaw;
+            var keys = new ServerboundPlayerInput(true, false, false, false, false, false, false);
+            f.input(keys);
+            Vec3 input = ClientMoveInput.of(f, keys, 1.0F, 0.1F, yaw);
+            // Direction#axisStepOrder moves the longer x first, into the wall; the shorter z then clears its end.
+            double z = input.z - 0.05 * 0.5 / Math.sqrt(0.5);
+            assertTrue(Math.abs(input.x) > Math.abs(z) && z > 0.01);
+            assertExact(f.tick(start.add(0, 0, z), true));
 
             assertNoFlags(f);
         }
@@ -331,6 +365,46 @@ class InputKeysTest {
             assertExact(result);
             assertNoFlags(f);
         }
+    }
+
+    @Test
+    void handFlagsProvenBeforeTheTickAfterAGlideKeepTheFallFlyingPose() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(0.5, FLOOR_Y, 4.5), GROUNDED);
+            f.input(BACK);
+
+            // The glide's last tick ended in the FALL_FLYING pose; the server's shared flags then stop the glide and
+            // its living-entity flags arrive, both read before the next tick. LivingEntity#onSyncedDataUpdated only
+            // swaps the used item for DATA_LIVING_ENTITY_FLAGS, so the pose stays until Player#updatePlayerPose.
+            f.player.isGliding = true;
+            f.player.refreshPlayerPose();
+            selfMetadata(f, WatchableIndexUtil.ENTITY_SHARED_FLAGS, (byte) 0);
+            selfMetadata(f, WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 2);
+            double slowed = (double) (0.98F * 0.3F) * (double) 0.1F;
+            PredictionResult result = f.tick(new Vec3(0.5, FLOOR_Y, 4.5 - slowed), true);
+
+            assertFalse(result.hasEffectiveFlags(), result.getFlags().toString());
+            assertExact(result);
+            assertNoFlags(f);
+            assertEquals(Pose.STANDING, f.player.pose);
+        }
+    }
+
+    private static void selfMetadata(JavaTickFixture f, int index, byte value) {
+        var packet = new EntityMetadata(
+                f.player.entityID, List.of(new EntityMetadata.Entry(index, value, ByteBuffer.allocate(0))));
+        var event = new PacketSendEvent<>(f.player.user, ConnectionPhase.PLAY, metadataType(), packet, false);
+        new PacketSelfMetadataListener().onSetEntityData(event, f.player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static PacketType<EntityMetadata> metadataType() {
+        return (PacketType<EntityMetadata>) TestProtocolRuntime.catalog().stream()
+                .filter(type -> type.recordClass() == EntityMetadata.class)
+                .findFirst()
+                .orElseThrow();
     }
 
     private static double keyFlags(JavaTickFixture f) {

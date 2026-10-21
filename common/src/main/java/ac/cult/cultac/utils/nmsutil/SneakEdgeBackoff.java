@@ -17,8 +17,8 @@ import java.util.List;
 /**
  * Entity#deltaMovement across a sneaking edge. Entity#move moves by the delta Player#maybeBackOffFromEdge shortens,
  * while deltaMovement keeps the delta LivingEntity#travel built, so the next tick starts from velocity the position
- * never showed. On a shortened axis that delta holds the input of the keys in the client's latest PLAYER_INPUT, which
- * LocalPlayer#sendChanges sends before the tick's position.
+ * never showed. On a shortened axis that delta holds the water current Entity#baseTick added and the input of the keys
+ * in the client's latest PLAYER_INPUT, which LocalPlayer#sendChanges sends before the tick's position.
  */
 final class SneakEdgeBackoff {
     private static final double STEP = 0.05D;
@@ -116,9 +116,14 @@ final class SneakEdgeBackoff {
         Vec3 input = ClientKeyInput.travelInput(
                 player, context, player.packetStateData.knownInput, 1.0F, movingSlowlyFactor, speed);
         if (input == null) return null;
+        // Entity#baseTick's updateInWaterStateAndDoFluidPushing adds the water current before LocalPlayer#aiStep.
+        Vec3 current = water ? WaterCurrent.calculateWaterCurrent(player, context, context.getStart(), start) : null;
+        double startX = current == null ? start.x : start.x + current.x;
+        double startY = current == null ? start.y : start.y + current.y;
+        double startZ = current == null ? start.z : start.z + current.z;
         // LocalPlayer#aiStep's goDownInWater adds -0.04F while shift is held in water, before travel.
-        double deltaY = water ? start.y + (double) -0.04F : start.y;
-        Vec3 delta = new Vec3(start.x + input.x, deltaY, start.z + input.z);
+        double deltaY = water ? startY + (double) -0.04F : startY;
+        Vec3 delta = new Vec3(startX + input.x, deltaY, startZ + input.z);
         if (!(Math.abs(delta.x) <= MAX_PROBED_AXIS) || !(Math.abs(delta.z) <= MAX_PROBED_AXIS)) return null;
 
         SimpleCollisionBox box = context.getFromActualPose();
@@ -167,8 +172,9 @@ final class SneakEdgeBackoff {
                 && context.getMaxAttackSlow() == 0
                 // LivingEntity#checkAutoSpinAttack can reset sprinting after travel.
                 && player.riptideSpinAttackTicks == 0
+                // LivingEntity#travelInWater moves by moveRelative(0.02F) when no water_movement_efficiency raises it.
                 && (world.getInWater() == DesyncStatus.FALSE
-                        || world.getInWater() == DesyncStatus.TRUE && stillWaterInput(context))
+                        || world.getInWater() == DesyncStatus.TRUE && context.getWaterMovementEfficiency() == 0.0F)
                 && !IsUsingItem.isUsingItem(player)
                 && result.getValidMovements() != null
                 && result.getValidMovements().getPositionOnlyDelta().lengthSqr() <= 1.0E-14;
@@ -192,15 +198,6 @@ final class SneakEdgeBackoff {
                         0.0,
                         0.0,
                         maxDownStep - fallDistance);
-    }
-
-    /**
-     * LivingEntity#travelInWater moves by moveRelative(0.02F) when no water_movement_efficiency raises it, sprinting or
-     * not; Entity#updateInWaterStateAndDoFluidPushing adds a current to the delta before travel only in flowing water.
-     */
-    private static boolean stillWaterInput(SimulationContext context) {
-        return context.getWorldData().getInFlowingLiquid() == DesyncStatus.FALSE
-                && context.getWaterMovementEfficiency() == 0.0F;
     }
 
     /** Player#maybeBackOffFromEdge once its flying, mover, shift and Player#isAboveGround conditions hold. */

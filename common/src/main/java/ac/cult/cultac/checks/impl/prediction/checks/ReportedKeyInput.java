@@ -108,6 +108,22 @@ final class ReportedKeyInput {
         offset = Math.min(offset, Math.hypot(movement.x - target.x, movement.z - target.z));
         if (offset <= HorizontalAnalyzer.HORIZONTAL_INPUT_UNCERTAINTY) return offset;
 
+        // Direction#axisStepOrder moves the longer horizontal axis first, so the nearest delta can slip past an
+        // obstacle's end that a longer delta along a clipped axis meets first: such an axis also reaches its farthest.
+        double farX = deltaX > target.x ? extents.maxX + input.x : deltaX < target.x ? extents.minX + input.x : deltaX;
+        double farZ = deltaZ > target.z ? extents.maxZ + input.z : deltaZ < target.z ? extents.minZ + input.z : deltaZ;
+        for (int far = 1; far <= 3; far++) {
+            double x = (far & 1) != 0 ? farX : deltaX;
+            double z = (far & 2) != 0 ? farZ : deltaZ;
+            if (x == deltaX && z == deltaZ) continue;
+            Vec3 clipped = Collisions.collide(player, box, x, start.y, z, true);
+            double clippedOffset = Math.hypot(clipped.x - target.x, clipped.z - target.z);
+            if (clippedOffset >= offset) continue;
+            offset = clippedOffset;
+            movement = clipped;
+            if (offset <= HorizontalAnalyzer.HORIZONTAL_INPUT_UNCERTAINTY) return offset;
+        }
+
         // Entities and changing blocks the engine cannot place exactly may also clip it, but only where the client
         // stopped: an unknown box must lie in the rest of the keys' move, from the reported end onwards.
         SimpleCollisionBox rest = box.copy()

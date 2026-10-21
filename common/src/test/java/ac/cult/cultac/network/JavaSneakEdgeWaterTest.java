@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -20,19 +21,24 @@ import org.junit.jupiter.api.Test;
 /**
  * A 26.3 client sprint-swimming on the floor of a still pool, holding shift against the floor's edge, where
  * Player#maybeBackOffFromEdge cuts the move toward the drop while deltaMovement keeps it, then releasing shift. The
- * moves are a real client's, translated onto the fixture floor; the drop starts at z = 1.
+ * moves are a real client's, translated onto the fixture floor; the drop starts at z = 1. A crouched player in water
+ * flowing over an edge keeps the current the same way.
  */
 class JavaSneakEdgeWaterTest {
     private static final ServerboundPlayerInput HOLD_EDGE =
             new ServerboundPlayerInput(true, false, true, false, false, true, true);
     private static final ServerboundPlayerInput RELEASE_AND_JUMP =
             new ServerboundPlayerInput(true, false, true, false, true, false, true);
+    private static final ServerboundPlayerInput SHIFT =
+            new ServerboundPlayerInput(false, false, false, false, false, true, false);
     private static final ServerboundPlayerInput SNEAK_IN_WATER =
             new ServerboundPlayerInput(true, false, true, false, false, true, false);
     private static final ServerboundPlayerInput WADE =
             new ServerboundPlayerInput(true, false, true, false, false, false, false);
     private static final ServerboundPlayerInput FORWARD_JUMP =
             new ServerboundPlayerInput(true, false, false, false, true, false, true);
+    // JavaTickFixture's floor ends at x = 9; the player's box overhangs it by 0.299.
+    private static final double EDGE_X = 9.299;
 
     @Test
     void theVelocityTheEdgeHidesIsReleasedWithShift() throws Exception {
@@ -95,6 +101,46 @@ class JavaSneakEdgeWaterTest {
         }
     }
 
+    /**
+     * Flowing water over the floor's edge at x = 9 pushes the crouched player toward the drop. Entity#baseTick's
+     * current and the keys build deltaMovement along x while Player#maybeBackOffFromEdge holds the position, and
+     * releasing shift moves on all of it.
+     */
+    @Test
+    void theCurrentTheEdgeHidesIsReleasedWithShift() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            flowingTowardTheEdge(f);
+            float yaw = 0.0F;
+            rotate(f, yaw, 20.0F);
+            double z = 0.5;
+            f.place(new Vec3(EDGE_X, FLOOR_Y, z), Vec3.ZERO);
+            // The source at x = 8 and the level-1 water at x = 9 both flow +x: the player current is 0.014 along x.
+            f.input(SHIFT);
+            assertTrue(exact(f.tick(new Vec3(EDGE_X, FLOOR_Y, z), true)));
+            double velocityX = 0.014D * 0.8F;
+
+            f.input(SNEAK_IN_WATER);
+            Vec3 input = ClientMoveInput.of(f, SNEAK_IN_WATER, 0.3F, 0.02F, yaw);
+            double velocityZ = 0.0;
+            for (int tick = 0; tick < 6; tick++) {
+                velocityX += 0.014D + input.x;
+                velocityZ += input.z;
+                z += velocityZ;
+                PredictionResult result = f.tick(new Vec3(EDGE_X, FLOOR_Y, z), true);
+                assertTrue(exact(result), "tick " + tick + " " + describe(result));
+                velocityX *= 0.8F;
+                velocityZ *= 0.8F;
+            }
+
+            // Still crouched from the held shift.
+            Vec3 release = ClientMoveInput.of(f, WADE, 0.3F, 0.02F, yaw);
+            f.input(WADE);
+            PredictionResult result = f.tick(
+                    new Vec3(EDGE_X + velocityX + 0.014D + release.x, FLOOR_Y, z + velocityZ + release.z), true);
+            assertTrue(exact(result), describe(result));
+        }
+    }
+
     /** Still water three blocks deep over the stone floor, which ends at z = 1 above a water-filled drop. */
     private static void pool(JavaTickFixture f) {
         for (int x = -8; x <= 8; x++) {
@@ -105,6 +151,16 @@ class JavaSneakEdgeWaterTest {
                     water(f, x, FLOOR_Y - 2, z);
                 }
             }
+        }
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+    }
+
+    /** Water sources over the floor, which ends at x = 9, and level-1 water over the drop beyond it. */
+    private static void flowingTowardTheEdge(JavaTickFixture f) {
+        int flowing = DataTables.defaults().registry().with(BlockIds.WATER.defaultState(), "level", "1");
+        for (int z = -8; z <= 8; z++) {
+            for (int x = -8; x <= 8; x++) water(f, x, FLOOR_Y, z);
+            f.player.compensatedWorld.updateBlock(new BlockPos(9, FLOOR_Y, z), flowing);
         }
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }

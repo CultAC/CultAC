@@ -15,10 +15,10 @@ public final class ItemUseAnalyzer implements EngineCheck {
         ItemUseBurstResult residual = null;
         if (state.required() || state.legalMultiplier() < 1) {
             residual = ItemUseInput.residual(result);
-            double legal = ItemUseInput.offset(residual, state.legalMultiplier());
+            double legal = ItemUseInput.offset(result, residual, state.legalMultiplier());
             double slowed = state.legalMultiplier() == state.requiredMultiplier()
                     ? legal
-                    : ItemUseInput.offset(residual, state.requiredMultiplier());
+                    : ItemUseInput.offset(result, residual, state.requiredMultiplier());
             result.setItemUseResult(new ItemUseTickResult(state, legal, slowed));
         }
         // Reuse this collision candidate for the server-view use balance. It is evidence only;

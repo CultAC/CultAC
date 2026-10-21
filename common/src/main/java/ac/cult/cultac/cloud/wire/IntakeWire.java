@@ -883,7 +883,7 @@ public final class IntakeWire {
      * {@link #zstdUnavailable} to be null.
      */
     public static final class StreamWriter implements AutoCloseable {
-        public static final int LEVEL = 3;
+        public static final int LEVEL = 1;
         /** The receiver's window limit (2 MiB); the frame header declares it. */
         public static final int WINDOW_LOG = 21;
 

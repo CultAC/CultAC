@@ -157,8 +157,8 @@ public class PacketSelfMetadataListener {
                     if (proof != null) {
                         if (!event.isInsideBundle()) event.bundle();
                         player.latencyUtils.addRealTimeTask(proof.transaction(), () -> {
+                            // LivingEntity#onSyncedDataUpdated leaves the pose to Player#updatePlayerPose after aiStep.
                             player.isRiptidePose = isRiptiding;
-                            player.refreshPlayerPose();
                             ac.cult.cultac.utils.data.ItemUseInventory.metadata(player, (byte) handValue);
                         });
                     }

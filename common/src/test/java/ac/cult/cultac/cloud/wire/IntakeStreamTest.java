@@ -89,28 +89,36 @@ class IntakeStreamTest {
 
     @Test
     void theFrameHeaderDeclaresTheWindowAndNothingElse() {
-        List<byte[]> first = messages().get(2);
-        byte[] written;
-        try (IntakeWire.StreamWriter writer = new IntakeWire.StreamWriter()) {
-            written = array(writer.write(first, bytes(first)));
+        for (List<byte[]> first : messages()) {
+            byte[] written;
+            try (IntakeWire.StreamWriter writer = new IntakeWire.StreamWriter()) {
+                written = array(writer.write(first, bytes(first)));
+            }
+            for (int level : new int[] {1, 3}) {
+                byte[] reference = frameHeader(first, level);
+                for (int i = 0; i < MAGIC.length; i++) assertEquals(MAGIC[i], written[1 + i], "magic byte " + i);
+                assertEquals(reference[4], written[5], "frame header descriptor at level " + level);
+                assertEquals(reference[5], written[6], "window descriptor at level " + level);
+            }
+            assertEquals(0x00, written[5], "no content size, single segment, checksum or dictionary");
+            assertEquals((byte) 0x58, written[6], "a 2 MiB window");
         }
+    }
+
+    private static byte[] frameHeader(List<byte[]> first, int level) {
         byte[] input = concat(first);
         ByteBuffer in = ByteBuffer.allocateDirect(input.length).put(input).flip();
         ByteBuffer out = ByteBuffer.allocateDirect((int) Zstd.compressBound(input.length));
-        try (ZstdCompressCtx level3 = new ZstdCompressCtx()
-                .setLevel(3)
+        try (ZstdCompressCtx streaming = new ZstdCompressCtx()
+                .setLevel(level)
                 .setWindowLog(IntakeWire.StreamWriter.WINDOW_LOG)
                 .setChecksum(false)
                 .setContentSize(false)) {
-            level3.compressDirectByteBufferStream(out, in, EndDirective.FLUSH);
+            streaming.compressDirectByteBufferStream(out, in, EndDirective.FLUSH);
         }
         out.flip();
-        byte[] reference = new byte[6];
-        out.get(reference);
-        for (int i = 0; i < MAGIC.length; i++) assertEquals(MAGIC[i], written[1 + i], "magic byte " + i);
-        assertEquals(reference[4], written[5], "frame header descriptor");
-        assertEquals(reference[5], written[6], "window descriptor");
-        assertEquals(0x00, written[5], "no content size, single segment, checksum or dictionary");
-        assertEquals((byte) 0x58, written[6], "a 2 MiB window");
+        byte[] header = new byte[6];
+        out.get(header);
+        return header;
     }
 }
