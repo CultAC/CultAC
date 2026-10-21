@@ -41,8 +41,8 @@ class CultPunishmentUpgradeTest {
         var data = read(file);
         assertTrue(result.migrated);
         assertEquals(1, result.oldVersion);
-        assertEquals(3, result.newVersion);
-        assertEquals(3, data.get("cult-config-version"));
+        assertEquals(4, result.newVersion);
+        assertEquals(4, data.get("cult-config-version"));
         assertEquals(List.of("Knockback", "Explosion", "KeepSprint"), checks(data, "Knockback"));
         assertEquals(
                 List.of("Interact", "Aim", "AttackPlayerVisibility", "AttackMobVisibility"), checks(data, "Combat"));
@@ -152,7 +152,7 @@ class CultPunishmentUpgradeTest {
         var result = upgrade(file);
         assertTrue(result.migrated);
         assertEquals(2, result.oldVersion);
-        assertEquals(3, result.newVersion);
+        assertEquals(4, result.newVersion);
         assertEquals(List.of("Vehicle", "NoSlow", "NoSneakSlow", "Sprint"), checks(read(file), "Misc"));
     }
 
@@ -173,12 +173,35 @@ class CultPunishmentUpgradeTest {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/punishments/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
-            assertEquals(3, data.get("cult-config-version"));
+            assertEquals(4, data.get("cult-config-version"));
             assertTrue(checks(data, "Knockback").contains("KeepSprint"));
             assertTrue(checks(data, "Combat").containsAll(List.of("AttackPlayerVisibility", "AttackMobVisibility")));
             List<?> misc = checks(data, "Misc");
             assertEquals("NoSneakSlow", misc.get(misc.indexOf("NoSlow") + 1));
+            assertEquals(List.of("PrinterUse"), checks(data, "Printer"));
         }
+    }
+
+    @Test
+    void addsAPrinterGroupWithAlertAndLogCommands() throws Exception {
+        Path file = write(ORIGINAL.replace("cult-config-version: 1", "cult-config-version: 3"));
+        var result = upgrade(file);
+        var data = read(file);
+        assertTrue(result.migrated);
+        assertEquals(3, result.oldVersion);
+        assertEquals(4, result.newVersion);
+        assertEquals(List.of("PrinterUse"), checks(data, "Printer"));
+        assertEquals(List.of("1:1 [alert]", "1:1 [log]"), group(data, "Printer").get("commands"));
+    }
+
+    @Test
+    void doesNotDuplicateAnExistingPrinterUseEntry() throws Exception {
+        Path file = write(ORIGINAL.replace("cult-config-version: 1", "cult-config-version: 3")
+                + "  Mine:\n    checks: [PrinterUse]\n    commands: ['2:2 mine']\n");
+        upgrade(file);
+        var data = read(file);
+        assertNull(group(data, "Printer"));
+        assertEquals(List.of("PrinterUse"), checks(data, "Mine"));
     }
 
     private Path write(String content) throws Exception {

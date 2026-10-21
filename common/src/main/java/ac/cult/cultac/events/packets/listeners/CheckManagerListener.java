@@ -602,6 +602,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.sprintState.onClientMove();
             // LocalPlayer#sendPosition sends this tick's START/STOP_SPRINTING before its movement.
             onLocalPlayerSprintTick(player);
+            player.checkManager.printerUse().onMovePlayer(packet);
         }
 
         dispatchPrePredictionReceive(event, player);
@@ -1069,6 +1070,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         if (event.getPhase() != ConnectionPhase.PLAY) return;
         player.compensatedWorld.advanceClientPredictionSequence();
         clearPendingVehicleMoveForInterveningPacket(player);
+        player.checkManager.printerUse().onUseItemOn(packet);
         dispatchPrePredictionReceive(event, player);
 
         BlockPos clickedBlock = packet.blockPosition();
@@ -1143,6 +1145,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         if (event.getPhase() != ConnectionPhase.PLAY) return;
         player.compensatedWorld.advanceClientPredictionSequence();
         clearPendingVehicleMoveForInterveningPacket(player);
+        player.checkManager.printerUse().onUseItem(packet);
         dispatchPrePredictionReceive(event, player);
 
         PlaceHandler.handleQueuedUseItem(player, packet);
@@ -1161,6 +1164,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
             onLocalPlayerSprintTick(player);
             onLocalPlayerAttackTick(player);
+            player.checkManager.printerUse().onClientTickEnd();
             dispatchPrePredictionReceive(event, player);
             dispatchReceiveHandlers(event, player);
             // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.

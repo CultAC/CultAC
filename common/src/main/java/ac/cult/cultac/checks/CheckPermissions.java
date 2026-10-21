@@ -149,6 +149,7 @@ public final class CheckPermissions {
             "positionbreaka",
             "positionbreakb",
             "post",
+            "printeruse",
             "riptideoffset",
             "rotationbreak",
             "rotationplace",

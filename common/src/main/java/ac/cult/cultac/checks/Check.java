@@ -1,6 +1,7 @@
 package ac.cult.cultac.checks;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.impl.printer.PrinterUse;
 import ac.cult.cultac.checks.verdict.FlagArbiter;
 import ac.cult.cultac.checks.verdict.FlagOutcome;
 import ac.cult.cultac.player.CultPlayer;
@@ -178,6 +179,8 @@ public class Check extends CultProcessor implements AbstractCheck {
         if (player.isDisabled() || (experimental && !player.isExperimentalChecks()) || exemptPermission)
             return false; // Avoid calling event if disabled
 
+        if (absorbedByPrinter()) return false;
+
         if (FLAG_CHANNEL.fire(RuntimeEnvironment.outwardUser(player), RuntimeEnvironment.outwardCheck(this), verbose))
             return false;
 
@@ -193,6 +196,8 @@ public class Check extends CultProcessor implements AbstractCheck {
         if (player.isDisabled() || (experimental && !player.isExperimentalChecks()) || exemptPermission)
             return false; // Avoid calling event if disabled
 
+        if (absorbedByPrinter()) return false;
+
         if (FLAG_CHANNEL.fire(
                 RuntimeEnvironment.outwardUser(player),
                 RuntimeEnvironment.outwardCheck(this),
@@ -201,6 +206,14 @@ public class Check extends CultProcessor implements AbstractCheck {
         FlagArbiter arbiter = player.getFlagArbiter();
         if (arbiter == null || !defer(arbiter, rendered, verboseData, alertText)) commitFlag(verboseData, alertText);
         return true;
+    }
+
+    /** A flag that is the litematica printer's own noise is dropped; {@link PrinterUse} alerts for it instead. */
+    private boolean absorbedByPrinter() {
+        var manager = player.checkManager;
+        if (manager == null) return false;
+        PrinterUse printer = manager.printerUse();
+        return printer != null && printer.absorbs(this);
     }
 
     /** {@code verboseData} is null for a text verbose, which stores no binary flag row. */

@@ -106,5 +106,15 @@ Punishments:
     commands:
       - "20:40 [alert]"
       - "1:1 [log]"
+  # Litematica printer detection (PrinterUse). While one is in use, Cult reports it here once and drops the
+  # alerts that its spoofed looks and extra packets would raise in AimDuplicateLook, BadPacketsJ, RotationPlace,
+  # PlaceVisibility, Timer and TickTimer, within the limits set under PrinterUse: in config.yml.
+  Printer:
+    remove-violations-after: 300
+    checks:
+      - "PrinterUse"
+    commands:
+      - "1:1 [alert]"
+      - "1:1 [log]"
 
-cult-config-version: 3
+cult-config-version: 4

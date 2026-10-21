@@ -135,15 +135,21 @@ public final class CultConfigSpecs {
     public static @NotNull ConfigUpdater.Spec cultConfig(String resourceDirectory) {
         ConfigUpdater.Spec.Builder builder = ConfigUpdater.Spec.builder(
                         resourceDirectory,
-                        resourceDirectory.equals("/punishments/") ? 3 : 0,
+                        resourceDirectory.equals("/punishments/") ? 4 : 0,
                         ConfigUpdater.ConfigFlavor.V2)
                 .cultVersioning();
         if (resourceDirectory.equals("/punishments/")) {
             builder.migration(1, CultConfigSpecs::addBedrockPunishment)
                     .migration(2, CultConfigSpecs::addMissingCheckPunishments)
-                    .migration(3, CultConfigSpecs::addNoSneakSlowPunishment);
+                    .migration(3, CultConfigSpecs::addNoSneakSlowPunishment)
+                    .migration(4, CultConfigSpecs::addPrinterPunishment);
         }
         return builder.build();
+    }
+
+    private static void addPrinterPunishment(MigrationContext ctx) {
+        addPunishmentChecks(
+                ctx, "Printer", List.of("PrinterUse"), List.of("PrinterUse"), List.of("1:1 [alert]", "1:1 [log]"));
     }
 
     private static void addNoSneakSlowPunishment(MigrationContext ctx) {

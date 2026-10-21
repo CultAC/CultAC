@@ -53,6 +53,7 @@ import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
+import ac.cult.cultac.checks.impl.printer.PrinterUse;
 import ac.cult.cultac.checks.impl.scaffolding.*;
 import ac.cult.cultac.checks.impl.sprint.*;
 import ac.cult.cultac.checks.impl.vehicle.*;
@@ -147,6 +148,7 @@ public class CheckManager {
     private final Map<Class<?>, CheckListener> listenersByClass;
     private final PacketWorldBorder worldBorder;
     private final SetbackBlocker setbackBlocker;
+    private final PrinterUse printerUse;
 
     List<BlockPlace> placesToCheck = new EvictingQueue<>(20);
 
@@ -209,6 +211,7 @@ public class CheckManager {
         listenersByClass = new IdentityHashMap<>(allCheckListeners);
         worldBorder = getListener(PacketWorldBorder.class);
         setbackBlocker = getListener(SetbackBlocker.class);
+        printerUse = getListener(PrinterUse.class);
 
         List<CheckListener> positionUpdates = new ArrayList<>();
         for (var checks : List.of(prePredictionChecks, positionCheck, packetChecks)) {
@@ -491,6 +494,7 @@ public class CheckManager {
     private static ClassToInstanceMap<PostPredictionListener> buildPseudoChecks(CultPlayer player) {
         return listenerMap(List.<PostPredictionListener>of(
                 new InvalidStep(player),
+                new PrinterUse(player),
                 new NoSneakSlow(player),
                 new InputKeys(player),
                 new OmniSprint(player),
@@ -884,6 +888,11 @@ public class CheckManager {
                 processor.reload();
             }
         }
+    }
+
+    /** {@code getListener(PrinterUse.class)}, read on every Java movement and use packet. */
+    public PrinterUse printerUse() {
+        return printerUse;
     }
 
     @SuppressWarnings("unchecked")
