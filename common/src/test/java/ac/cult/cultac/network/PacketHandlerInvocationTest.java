@@ -82,6 +82,14 @@ class PacketHandlerInvocationTest {
         assertEquals(2, listener.calls);
     }
 
+    @Test
+    void privateDefaultAndRawHandlersBindToDirectCalls() {
+        for (Object listener : new Object[] {new PrivateDuplex(), new DefaultAndRaw()}) {
+            assertTrue(scanner.receiveHandlers(listener).getFirst().handler().getClass().getName().endsWith("$DirectReceive"));
+            assertTrue(scanner.sendHandlers(listener).getFirst().handler().getClass().getName().endsWith("$DirectSend"));
+        }
+    }
+
     static class PrivateDuplex {
         Object event, packet;
         int calls;

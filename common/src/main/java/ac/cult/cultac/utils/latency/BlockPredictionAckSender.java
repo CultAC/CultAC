@@ -46,11 +46,11 @@ public final class BlockPredictionAckSender {
         CultPlayer.TrackedTransaction transaction = player.createTrackedTransactionPacketForBundle();
         if (transaction == null) {
             for (TrackedBlockUpdate update : updates) {
-                player.user.write(new BlockUpdate(update.pos(), update.state()));
+                player.user.send(new BlockUpdate(update.pos(), update.state()));
             }
-            for (var slot : slots) player.user.write(slot);
-            if (cursor != null) player.user.write(new InventoryPackets.Cursor(cursor));
-            if (acknowledge) player.user.write(new CultWrite(new ClientboundBlockChangedAck(sequence), true));
+            for (var slot : slots) player.user.send(slot);
+            if (cursor != null) player.user.send(new InventoryPackets.Cursor(cursor));
+            if (acknowledge) player.user.send(new CultWrite(new ClientboundBlockChangedAck(sequence), true));
             return;
         }
 

@@ -13,6 +13,12 @@ import java.util.Set;
  * has used; the checked-in {@link ProtocolData} of each version decides which of them exist there.
  */
 public final class PacketType<R> {
+    private static final java.util.concurrent.atomic.AtomicInteger INDICES =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /** Unique per instance; lets a runtime reach its slot table without hashing. */
+    final int index = INDICES.getAndIncrement();
+
     private final String key;
     private final Class<R> recordClass;
     private final PacketDirection direction;

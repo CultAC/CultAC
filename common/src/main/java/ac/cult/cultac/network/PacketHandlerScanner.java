@@ -6,6 +6,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolRuntime;
+import java.lang.invoke.LambdaMetafactory;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -78,10 +79,7 @@ public final class PacketHandlerScanner {
         List<ReceiveRegistration> receives = new ArrayList<>();
         for (Entry entry : schema(listener.getClass()).entries()) {
             if (entry.direction() != PacketDirection.SERVERBOUND || entry.packetType() == null) continue;
-            MethodHandle handle = entry.handle();
-            PacketReceiveHandler<Object> callback =
-                    (event, player, packet) -> invoke(handle, entry.method(), listener, event, player, packet);
-            receives.add(new ReceiveRegistration(entry.packetType(), callback, entry.method()));
+            receives.add(new ReceiveRegistration(entry.packetType(), receiveCallback(entry, listener), entry.method()));
         }
         return List.copyOf(receives);
     }
@@ -92,10 +90,7 @@ public final class PacketHandlerScanner {
         List<SendRegistration> sends = new ArrayList<>();
         for (Entry entry : schema(listener.getClass()).entries()) {
             if (entry.direction() != PacketDirection.CLIENTBOUND || entry.packetType() == null) continue;
-            MethodHandle handle = entry.handle();
-            PacketSendHandler<Object> callback =
-                    (event, player, packet) -> invoke(handle, entry.method(), listener, event, player, packet);
-            sends.add(new SendRegistration(entry.packetType(), callback, entry.method()));
+            sends.add(new SendRegistration(entry.packetType(), sendCallback(entry, listener), entry.method()));
         }
         return List.copyOf(sends);
     }
@@ -128,13 +123,115 @@ public final class PacketHandlerScanner {
                 throw invalid(listenerClass, method, "duplicates " + direction + " handler for " + packetType);
             }
             // Keep unsupported declarations: direction checks still need them.
-            entries.add(new Entry(method, direction, packetType, unboundHandle(listenerClass, method)));
+            MethodHandle direct = packetType == null ? null : directFactory(method, direction, packetType);
+            entries.add(new Entry(method, direction, packetType, unboundHandle(listenerClass, method), direct));
         }
         return new Schema(List.copyOf(entries));
     }
 
-    /** {@code handle} takes the listener as its first argument and is shared by every listener of the class. */
-    record Entry(Method method, PacketDirection direction, PacketType<?> packetType, MethodHandle handle) {}
+    /**
+     * {@code handle} takes the listener as its first argument and is shared by every listener of the class.
+     * {@code direct}, when present, binds a listener to a spun handler class that calls the method directly.
+     */
+    record Entry(
+            Method method,
+            PacketDirection direction,
+            PacketType<?> packetType,
+            MethodHandle handle,
+            MethodHandle direct) {}
+
+    @SuppressWarnings("unchecked")
+    private static PacketReceiveHandler<Object> receiveCallback(Entry entry, Object listener) {
+        if (entry.direct() != null) {
+            try {
+                return new DirectReceive(
+                        (PacketReceiveHandler<Object>) entry.direct().invoke(listener), entry.method());
+            } catch (Throwable ignored) {
+                // Fall back to the shared method handle below.
+            }
+        }
+        MethodHandle handle = entry.handle();
+        return (event, player, packet) -> invoke(handle, entry.method(), listener, event, player, packet);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static PacketSendHandler<Object> sendCallback(Entry entry, Object listener) {
+        if (entry.direct() != null) {
+            try {
+                return new DirectSend((PacketSendHandler<Object>) entry.direct().invoke(listener), entry.method());
+            } catch (Throwable ignored) {
+                // Fall back to the shared method handle below.
+            }
+        }
+        MethodHandle handle = entry.handle();
+        return (event, player, packet) -> invoke(handle, entry.method(), listener, event, player, packet);
+    }
+
+    /**
+     * Spins a handler class that calls {@code method} directly, so the JIT can inline the call. Needs full
+     * privilege access to the declaring class and a declaring loader that resolves the handler signature to
+     * this scanner's classes; otherwise null, and callbacks keep the shared method handle.
+     */
+    private static MethodHandle directFactory(Method method, PacketDirection direction, PacketType<?> packetType) {
+        try {
+            Class<?> owner = method.getDeclaringClass();
+            boolean receive = direction == PacketDirection.SERVERBOUND;
+            Class<?> handlerType = receive ? PacketReceiveHandler.class : PacketSendHandler.class;
+            Class<?> eventType = receive ? PacketReceiveEvent.class : PacketSendEvent.class;
+            Class<?> record = method.getParameterTypes()[2];
+            if (record != packetType.recordClass()) return null;
+            for (Class<?> shared : new Class<?>[] {handlerType, eventType, CultPlayer.class, record}) {
+                if (!visibleAs(owner.getClassLoader(), shared)) return null;
+            }
+            MethodHandles.Lookup lookup = MethodHandles.privateLookupIn(owner, MethodHandles.lookup());
+            if (!lookup.hasFullPrivilegeAccess()) return null;
+            MethodHandle target = lookup.unreflect(method);
+            MethodType erased = MethodType.methodType(void.class, eventType, CultPlayer.class, Object.class);
+            MethodType instantiated = MethodType.methodType(void.class, eventType, CultPlayer.class, record);
+            var site = LambdaMetafactory.metafactory(
+                    lookup,
+                    "handle",
+                    MethodType.methodType(handlerType, owner),
+                    erased,
+                    target,
+                    instantiated);
+            return site.getTarget().asType(MethodType.methodType(Object.class, Object.class));
+        } catch (Throwable unavailable) {
+            return null;
+        }
+    }
+
+    private static boolean visibleAs(ClassLoader loader, Class<?> type) {
+        try {
+            return Class.forName(type.getName(), false, loader) == type;
+        } catch (ClassNotFoundException | LinkageError absent) {
+            return false;
+        }
+    }
+
+    /** Reports failures exactly as {@link #invoke} does; the spun target calls the method directly. */
+    private record DirectReceive(PacketReceiveHandler<Object> target, Method method)
+            implements PacketReceiveHandler<Object> {
+        @Override
+        public void handle(PacketReceiveEvent event, CultPlayer player, Object packet) {
+            try {
+                target.handle(event, player, packet);
+            } catch (Throwable failure) {
+                throw invocationFailure(method, failure);
+            }
+        }
+    }
+
+    private record DirectSend(PacketSendHandler<Object> target, Method method) implements PacketSendHandler<Object> {
+        @Override
+        public void handle(PacketSendEvent<Object> event, CultPlayer player, Object packet) {
+            try {
+                target.handle(event, player, packet);
+            } catch (Throwable failure) {
+                throw invocationFailure(method, failure);
+            }
+        }
+    }
 
     record Schema(List<Entry> entries) {
         boolean hasDeclaration(PacketDirection direction) {

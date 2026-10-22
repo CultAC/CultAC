@@ -19,6 +19,8 @@ public final class ProtocolRuntime {
     private final Map<Class<?>, PacketType<?>> byRecord;
     private final Map<String, PacketType<?>> byKey;
     private final Map<PacketType<?>, Integer> slots;
+    /** {@link PacketType#index} to slot, or -1 where the instance is not in this catalog. */
+    private final int[] slotsByIndex;
     private final Set<PacketType<?>> supported;
 
     private ProtocolRuntime(ProtocolData data, List<PacketType<?>> catalog, int commandInputLimit) {
@@ -81,6 +83,11 @@ public final class ProtocolRuntime {
         this.byRecord = Map.copyOf(records);
         this.byKey = Map.copyOf(keys);
         this.slots = Map.copyOf(slots);
+        int indices = 0;
+        for (PacketType<?> type : catalog) indices = Math.max(indices, type.index + 1);
+        slotsByIndex = new int[indices];
+        java.util.Arrays.fill(slotsByIndex, -1);
+        for (int slot = 0; slot < catalog.size(); slot++) slotsByIndex[catalog.get(slot).index] = slot;
         this.supported = Set.copyOf(supported);
     }
 
@@ -120,7 +127,13 @@ public final class ProtocolRuntime {
     }
 
     public boolean contains(PacketType<?> type) {
-        return byKey.get(type.key()) == type;
+        return indexOf(type) >= 0;
+    }
+
+    /** {@link #slot} of a catalog type, or -1 when {@code type} is not this catalog's instance. */
+    public int indexOf(PacketType<?> type) {
+        int index = type.index;
+        return index < slotsByIndex.length ? slotsByIndex[index] : -1;
     }
 
     public PacketType<?> typeForKey(String key) {
@@ -133,8 +146,8 @@ public final class ProtocolRuntime {
 
     /** Dense index of a catalog type in this runtime, for per-type tables that frame lookups reach through {@link ResolvedPacket#slot()}. */
     public int slot(PacketType<?> type) {
-        Integer slot = slots.get(type);
-        if (slot == null) throw new IllegalArgumentException("Foreign packet family: " + type);
+        int slot = indexOf(type);
+        if (slot < 0) throw new IllegalArgumentException("Foreign packet family: " + type);
         return slot;
     }
 

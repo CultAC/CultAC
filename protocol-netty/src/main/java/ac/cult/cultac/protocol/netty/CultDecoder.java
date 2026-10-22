@@ -29,6 +29,18 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
     private int suppressedFailures;
     private final Predicate<PacketType<?>> routed;
 
+    // Event-loop-confined scratch for the outermost read; a read nested inside its model
+    // task (a host resuming reads synchronously) allocates its own as before.
+    /** Nesting depth of {@link #channelRead} model tasks. */
+    private int readDepth;
+    /** Whether the innermost read's model task has started. */
+    private boolean consumed;
+
+    private ChannelHandlerContext taskContext;
+    private ByteBuf taskFrame;
+    private final Runnable readTask = () -> read(taskContext, taskFrame);
+    private final Forward scratchForward = new Forward();
+
     public CultDecoder(CultConnection connection) {
         this.connection = connection;
         routed = type -> connection.dispatcher().get(type) != null;
@@ -81,34 +93,56 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             ctx.fireChannelRead(frame);
             return;
         }
-        boolean[] consumed = {false};
+        int depth = ++readDepth;
+        boolean outerConsumed = consumed;
+        consumed = false;
+        Runnable task;
+        if (depth == 1) {
+            taskContext = ctx;
+            taskFrame = frame;
+            task = readTask;
+        } else task = () -> read(ctx, frame);
         try {
-            connection.runInModel(() -> {
-                consumed[0] = true;
-                var output = process(frame);
-                if (output != null) {
-                    // beginLogin can install its codec and resume LocalChannel reads before
-                    // the handshake listener returns. Its next frame already belongs to LOGIN.
-                    boolean handshake = output.type == ServerboundPackets.INTENTION;
-                    boolean reconfiguration = output.type == ServerboundPackets.CONFIGURATION_ACKNOWLEDGED;
-                    if (handshake) forwarded(output);
-                    if (reconfiguration && !connection.handoffAtReconfiguration()) {
-                        output.frame.release();
-                        return;
-                    }
-                    ctx.fireChannelRead(output.frame);
-                    if (!handshake && output.type != null) forwarded(output);
-                }
-            });
+            connection.runInModel(task);
         } catch (Throwable failure) {
             CultNetworkManager.reportFailure("inbound model context", failure);
-            if (!consumed[0]) ctx.fireChannelRead(frame);
+            if (!consumed) ctx.fireChannelRead(frame);
+        } finally {
+            consumed = outerConsumed;
+            readDepth--;
+            if (depth == 1) {
+                taskContext = null;
+                taskFrame = null;
+            }
+        }
+    }
+
+    private void read(ChannelHandlerContext ctx, ByteBuf frame) {
+        consumed = true;
+        // Only the outermost read uses the scratch; a nested read gets its own before this one finishes.
+        var output = process(frame, readDepth == 1 ? scratchForward : new Forward());
+        if (output != null) {
+            try {
+                // beginLogin can install its codec and resume LocalChannel reads before
+                // the handshake listener returns. Its next frame already belongs to LOGIN.
+                boolean handshake = output.type == ServerboundPackets.INTENTION;
+                boolean reconfiguration = output.type == ServerboundPackets.CONFIGURATION_ACKNOWLEDGED;
+                if (handshake) forwarded(output);
+                if (reconfiguration && !connection.handoffAtReconfiguration()) {
+                    output.frame.release();
+                    return;
+                }
+                ctx.fireChannelRead(output.frame);
+                if (!handshake && output.type != null) forwarded(output);
+            } finally {
+                output.set(null, null, null);
+            }
         }
     }
 
     /** Consumes the input on every path; null means it was cancelled or discarded. */
     @SuppressWarnings("unchecked")
-    private Forward process(ByteBuf frame) {
+    private Forward process(ByteBuf frame, Forward forward) {
         ByteBuf originalFrame = frame;
         boolean releaseOriginal = true;
         PacketType<?> originalType = null;
@@ -189,7 +223,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                 forwardedType = type;
                 forwardedPacket = packet;
             }
-            var output = new Forward(frame, forwardedType, forwardedPacket);
+            var output = forward.set(frame, forwardedType, forwardedPacket);
             releaseOriginal = frame != originalFrame;
             frame = null;
             return output;
@@ -199,7 +233,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             frame = null;
             if (failure instanceof DroppedPacketException) return null;
             releaseOriginal = false;
-            return new Forward(originalFrame, originalType, originalPacket);
+            return forward.set(originalFrame, originalType, originalPacket);
         } finally {
             if (frame != null && frame != originalFrame) frame.release();
             if (releaseOriginal) originalFrame.release();
@@ -227,5 +261,17 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
         }
     }
 
-    private record Forward(ByteBuf frame, PacketType<?> type, Object packet) {}
+    /** The frame to forward and its family; reused by the outermost read. */
+    private static final class Forward {
+        ByteBuf frame;
+        PacketType<?> type;
+        Object packet;
+
+        Forward set(ByteBuf frame, PacketType<?> type, Object packet) {
+            this.frame = frame;
+            this.type = type;
+            this.packet = packet;
+            return this;
+        }
+    }
 }

@@ -650,7 +650,7 @@ public class CultPlayer implements GrimUser {
 
         lastTransSent = System.currentTimeMillis();
         TrackedTransaction transaction = createTrackedTransaction(kind, serverTick);
-        user.write(transaction.packet());
+        user.send(transaction.packet());
         return transaction.transaction();
     }
 
@@ -676,7 +676,7 @@ public class CultPlayer implements GrimUser {
 
         lastTransSent = System.currentTimeMillis();
         TrackedTransaction transaction = createTrackedTransaction(PING_LEADING, 0);
-        user.write(transaction.packet());
+        user.send(transaction.packet());
         return transaction.transaction();
     }
 

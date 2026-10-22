@@ -14,14 +14,24 @@ public final class ProjectedPackets implements AutoCloseable {
     /** Owns its buffer until it is transferred to the transport. */
     public record Encoded(List<ByteBuf> frames) {}
 
+    private static final int DIRECTIONS = PacketDirection.values().length;
+
     private final ProtocolRuntime observed, model;
     private final Supplier<PacketValueAdapter> adapter;
+    /** Per phase and direction, the model family of each observed ID the observed runtime does not bind. */
+    private final UnboundTypes[] unboundTypes =
+            new UnboundTypes[ConnectionPhase.values().length * DIRECTIONS];
+    private final boolean translated;
     private boolean closed;
+
+    /** Immutable once constructed; the final field publishes the filled array to any thread. */
+    private record UnboundTypes(PacketType<?>[] types) {}
 
     public ProjectedPackets(ProtocolRuntime observed, ProtocolRuntime model, Supplier<PacketValueAdapter> adapter) {
         this.observed = Objects.requireNonNull(observed);
         this.model = Objects.requireNonNull(model);
         this.adapter = Objects.requireNonNull(adapter);
+        translated = observed.data().version() != model.data().version();
     }
 
     public ProtocolRuntime observed() {
@@ -29,16 +39,45 @@ public final class ProjectedPackets implements AutoCloseable {
     }
 
     public boolean translated() {
-        return observed.data().version() != model.data().version();
+        return translated;
+    }
+
+    /** Whether {@link #close} has run; reads and writes then fail. */
+    public boolean isClosed() {
+        return closed;
     }
 
     /** The model family of observed wire packet {@code id}; null when the model has none. */
     public PacketType<?> type(ConnectionPhase phase, PacketDirection direction, int id) {
         var bound = observed.binding(phase, direction, id);
-        return bound == null
-                ? model.typeForKey(direction.name().toLowerCase(java.util.Locale.ROOT) + "."
-                        + observed.data().packets(phase, direction).name(id).replace("minecraft:", ""))
-                : bound.type();
+        if (bound != null) return bound.type();
+        var types = unboundTypes(phase, direction);
+        // An ID outside the observed table fails exactly as the name lookup always has.
+        return id >= 0 && id < types.length ? types[id] : unboundType(phase, direction, id);
+    }
+
+    /** Whether {@code id} names a packet in the observed wire table. */
+    public boolean hasId(ConnectionPhase phase, PacketDirection direction, int id) {
+        return id >= 0 && id < observed.data().packets(phase, direction).size();
+    }
+
+    private PacketType<?>[] unboundTypes(ConnectionPhase phase, PacketDirection direction) {
+        int index = phase.ordinal() * DIRECTIONS + direction.ordinal();
+        var table = unboundTypes[index];
+        if (table == null) {
+            var types = new PacketType<?>[observed.data().packets(phase, direction).size()];
+            for (int id = 0; id < types.length; id++) {
+                if (observed.binding(phase, direction, id) == null) types[id] = unboundType(phase, direction, id);
+            }
+            // Deterministic: a racing thread computes and publishes an equal table.
+            unboundTypes[index] = table = new UnboundTypes(types);
+        }
+        return table.types();
+    }
+
+    private PacketType<?> unboundType(ConnectionPhase phase, PacketDirection direction, int id) {
+        return model.typeForKey(direction.name().toLowerCase(java.util.Locale.ROOT) + "."
+                + observed.data().packets(phase, direction).name(id).replace("minecraft:", ""));
     }
 
     /** Borrows the physical frame; no generated frames or mirrored observations exist. */

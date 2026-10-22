@@ -111,6 +111,15 @@ public final class User {
                                 : new ac.cult.cultac.network.CultWrite(packet, false)));
     }
 
+    /** As {@link #write(Object)}, for callers that ignore completion; no completion stage is allocated. */
+    public void send(Object packet) {
+        getCultConnection()
+                .write(
+                        packet instanceof ac.cult.cultac.network.CultWrite write
+                                ? write
+                                : new ac.cult.cultac.network.CultWrite(packet, false));
+    }
+
     public CompletionStage<Void> writeSilently(Object packet) {
         return completion(getCultConnection().write(new ac.cult.cultac.network.CultWrite(packet, true)));
     }
