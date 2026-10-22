@@ -1371,130 +1371,141 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         List<ValidMovements> valid = new ArrayList<>();
         MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
         collisionProbeCache.clear();
-
-        for (SimulationContext curSimulationContext : this.createSimulationContexts(
-                player,
-                lastPrediction,
-                target,
-                start,
-                end,
-                lastTickSkip,
-                testing,
-                xRot,
-                yRot,
-                authoredMovementFrame,
-                movementProfile)) {
-            List<PredVector> contextPacketStart = engine.applyModifiers(
-                    new MovementModifiers(),
-                    player,
-                    startingVel,
-                    curSimulationContext,
-                    lastPrediction,
-                    this.couldPotentiallyTickSkip);
-            List<PredVector> validInitialVelocities = engine.startingVelocities(
-                    new VelocityTransformer(curSimulationContext), player, contextPacketStart, curSimulationContext);
-            SimulationContext sortContext = curSimulationContext;
-            // Empty or single-candidate lists need no ordering and may be immutable.
-            if (validInitialVelocities.size() > 1)
-                validInitialVelocities.sort(Comparator.comparingInt(PredVector::tickSkippingComparator)
-                        .thenComparingInt(PredVector::packetModifiersLength)
-                        .thenComparingDouble(predVector -> predVector.distanceToSqr(sortContext.getTarget())));
-
-            for (int i = 0, size = validInitialVelocities.size(); i < size; i++) {
-                PredVector initialStartingVel = validInitialVelocities.get(i);
-                PredictionResult thisResult = new PredictionResult(
-                        player,
-                        initialStartingVel,
-                        curSimulationContext,
-                        curSimulationContext.getTarget(),
-                        null,
-                        alternativeRealities,
-                        invalidOrValidRealities);
-                ValidMovements validMovement = engine.createValidMovements(
-                                thisResult.getInitialStartingVel(), player, thisResult, false)
-                        .computeExtents(lastPrediction);
-                valid.add(validMovement);
-            }
-        }
-
+        // Like collisionProbeCache: the world, entities and player are fixed until this call returns.
+        collisionProbe.beginPredictionPass(player);
+        List<SimulationContext> passContexts = List.of();
         PredictionResult bestResult = null;
+        try {
+            passContexts = this.createSimulationContexts(
+                    player,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    lastTickSkip,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile);
+            for (int i = 0, size = passContexts.size(); i < size; i++)
+                passContexts.get(i).openPredictionPass();
 
-        for (int i = 0, size = valid.size(); i < size; i++) {
-            ValidMovements validMovements = valid.get(i);
-            boolean allowStep = false;
+            for (SimulationContext curSimulationContext : passContexts) {
+                List<PredVector> contextPacketStart = engine.applyModifiers(
+                        new MovementModifiers(),
+                        player,
+                        startingVel,
+                        curSimulationContext,
+                        lastPrediction,
+                        this.couldPotentiallyTickSkip);
+                List<PredVector> validInitialVelocities = engine.startingVelocities(
+                        new VelocityTransformer(curSimulationContext), player, contextPacketStart, curSimulationContext);
+                SimulationContext sortContext = curSimulationContext;
+                // Empty or single-candidate lists need no ordering and may be immutable.
+                if (validInitialVelocities.size() > 1)
+                    validInitialVelocities.sort(Comparator.comparingInt(PredVector::tickSkippingComparator)
+                            .thenComparingInt(PredVector::packetModifiersLength)
+                            .thenComparingDouble(predVector -> predVector.distanceToSqr(sortContext.getTarget())));
 
-            do {
-                PredictionResult thisResult = validMovements.getResult();
-                SimpleCollisionBox attemptedExtents = validMovements.getCollisionIgnoredMaxStartingVelExtents();
-                boolean useSelectedMovement = engine == JavaMovementEngine.INSTANCE
-                        && !validMovements.isCanStep()
-                        && !thisResult.getSimulationContext().isTestingPointThree();
-                Vec3 collisionTarget = useSelectedMovement
-                        ? validMovements.computeCollisionIgnoredMovement(lastPrediction)
-                        : thisResult.getSimulationContext().getTarget();
-                CollideAxisData collisionData = probeCollisionsCached(
-                        player, engine, thisResult, attemptedExtents, collisionTarget, validMovements.isCanStep());
-
-                thisResult.setCollideAxisData(collisionData);
-                if (useSelectedMovement) {
-                    validMovements.applyCollisionsToSelectedMovement(lastPrediction);
-                } else {
-                    validMovements.computeClosest(lastPrediction);
-                }
-                engine.evaluateCandidate(player, thisResult);
-                this.flagger.handleResult(thisResult, lastPrediction);
-                bestResult = engine.isBetterCandidate(thisResult, bestResult) ? thisResult : bestResult;
-                if (thisResult.getFlagSeverity() == 0.0) {
-                    alternativeRealities.add(thisResult);
-                }
-
-                invalidOrValidRealities.add(thisResult);
-                if (allowStep) {
-                    break;
-                }
-
-                CollideAxisData probedCollisions = thisResult.getCollideAxisData();
-                allowStep = thisResult.getInitialStartingVel().maxUpStep(player) > 0.0
-                        && (thisResult.getSimulationContext().getLastOnGround().determineOptimistically()
-                                || probedCollisions.getYNeg() != null
-                                        && probedCollisions.getYNeg().isLikelyCollide()
-                                        && probedCollisions.getYNeg().getResult() + 0.001
-                                                > thisResult
-                                                        .getValidMovements()
-                                                        .getCollisionIgnoredMaxStartingVelExtents()
-                                                        .minY);
-                if (allowStep) {
-                    // Entity#collide tests horizontal obstruction on the move before
-                    // stepping. A landing-to-step packet can end above that obstacle.
-                    // Preserve the lower probe for step discovery only; its contacts
-                    // must not replace the ordinary move's collision/velocity state.
-                    CollideAxisData stepEligibility = probedCollisions;
-                    if (engine == JavaMovementEngine.INSTANCE && !stepEligibility.couldCollideHorizontally()) {
-                        stepEligibility = probeCollisionsCached(
-                                player,
-                                engine,
-                                thisResult,
-                                attemptedExtents,
-                                thisResult.getSimulationContext().getTarget(),
-                                true);
-                    }
-                    allowStep = stepEligibility.couldCollideHorizontally();
-                }
-                if (allowStep) {
-                    thisResult = new PredictionResult(
+                for (int i = 0, size = validInitialVelocities.size(); i < size; i++) {
+                    PredVector initialStartingVel = validInitialVelocities.get(i);
+                    PredictionResult thisResult = new PredictionResult(
                             player,
-                            thisResult.getInitialStartingVel(),
-                            thisResult.getSimulationContext(),
-                            thisResult.getSimulationContext().getTarget(),
+                            initialStartingVel,
+                            curSimulationContext,
+                            curSimulationContext.getTarget(),
                             null,
                             alternativeRealities,
                             invalidOrValidRealities);
-                    validMovements = engine.createValidMovements(
+                    ValidMovements validMovement = engine.createValidMovements(
                                     thisResult.getInitialStartingVel(), player, thisResult, false)
                             .computeExtents(lastPrediction);
-                    validMovements.setCanStep(true);
+                    valid.add(validMovement);
                 }
-            } while (allowStep);
+            }
+
+            for (int i = 0, size = valid.size(); i < size; i++) {
+                ValidMovements validMovements = valid.get(i);
+                boolean allowStep = false;
+
+                do {
+                    PredictionResult thisResult = validMovements.getResult();
+                    SimpleCollisionBox attemptedExtents = validMovements.getCollisionIgnoredMaxStartingVelExtents();
+                    boolean useSelectedMovement = engine == JavaMovementEngine.INSTANCE
+                            && !validMovements.isCanStep()
+                            && !thisResult.getSimulationContext().isTestingPointThree();
+                    Vec3 collisionTarget = useSelectedMovement
+                            ? validMovements.computeCollisionIgnoredMovement(lastPrediction)
+                            : thisResult.getSimulationContext().getTarget();
+                    CollideAxisData collisionData = probeCollisionsCached(
+                            player, engine, thisResult, attemptedExtents, collisionTarget, validMovements.isCanStep());
+
+                    thisResult.setCollideAxisData(collisionData);
+                    if (useSelectedMovement) {
+                        validMovements.applyCollisionsToSelectedMovement(lastPrediction);
+                    } else {
+                        validMovements.computeClosest(lastPrediction);
+                    }
+                    engine.evaluateCandidate(player, thisResult);
+                    this.flagger.handleResult(thisResult, lastPrediction);
+                    bestResult = engine.isBetterCandidate(thisResult, bestResult) ? thisResult : bestResult;
+                    if (thisResult.getFlagSeverity() == 0.0) {
+                        alternativeRealities.add(thisResult);
+                    }
+
+                    invalidOrValidRealities.add(thisResult);
+                    if (allowStep) {
+                        break;
+                    }
+
+                    CollideAxisData probedCollisions = thisResult.getCollideAxisData();
+                    allowStep = thisResult.getInitialStartingVel().maxUpStep(player) > 0.0
+                            && (thisResult.getSimulationContext().getLastOnGround().determineOptimistically()
+                                    || probedCollisions.getYNeg() != null
+                                            && probedCollisions.getYNeg().isLikelyCollide()
+                                            && probedCollisions.getYNeg().getResult() + 0.001
+                                                    > thisResult
+                                                            .getValidMovements()
+                                                            .getCollisionIgnoredMaxStartingVelExtents()
+                                                            .minY);
+                    if (allowStep) {
+                        // Entity#collide tests horizontal obstruction on the move before
+                        // stepping. A landing-to-step packet can end above that obstacle.
+                        // Preserve the lower probe for step discovery only; its contacts
+                        // must not replace the ordinary move's collision/velocity state.
+                        CollideAxisData stepEligibility = probedCollisions;
+                        if (engine == JavaMovementEngine.INSTANCE && !stepEligibility.couldCollideHorizontally()) {
+                            stepEligibility = probeCollisionsCached(
+                                    player,
+                                    engine,
+                                    thisResult,
+                                    attemptedExtents,
+                                    thisResult.getSimulationContext().getTarget(),
+                                    true);
+                        }
+                        allowStep = stepEligibility.couldCollideHorizontally();
+                    }
+                    if (allowStep) {
+                        thisResult = new PredictionResult(
+                                player,
+                                thisResult.getInitialStartingVel(),
+                                thisResult.getSimulationContext(),
+                                thisResult.getSimulationContext().getTarget(),
+                                null,
+                                alternativeRealities,
+                                invalidOrValidRealities);
+                        validMovements = engine.createValidMovements(
+                                        thisResult.getInitialStartingVel(), player, thisResult, false)
+                                .computeExtents(lastPrediction);
+                        validMovements.setCanStep(true);
+                    }
+                } while (allowStep);
+            }
+        } finally {
+            collisionProbe.endPredictionPass();
+            for (int i = 0, size = passContexts.size(); i < size; i++)
+                passContexts.get(i).closePredictionPass();
         }
 
         if (!alternativeRealities.contains(bestResult)) {

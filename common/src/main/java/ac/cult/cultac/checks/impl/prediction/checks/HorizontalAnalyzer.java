@@ -17,8 +17,6 @@ import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.OptifineFastMath;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.Collisions;
-import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -38,10 +36,11 @@ public class HorizontalAnalyzer implements EngineCheck {
             return;
         }
 
-        float playerSpeed = result.getSimulationContext().getMaxSpeed(player);
+        // The start friction lookup is memoized only while the context's prediction pass is open.
+        float playerSpeed = result.getSimulationContext().getPassMaxSpeed(player);
         // ClientSprintState decides whether the sprint speed is available for this tick's travel branches
         double sprintMultiplier =
-                playerSpeed > 0 ? result.getSimulationContext().getMaxSprintInputSpeed(player) / playerSpeed : 1.3D;
+                playerSpeed > 0 ? result.getSimulationContext().getPassMaxSprintInputSpeed(player) / playerSpeed : 1.3D;
 
         Vec3 target = result.getTarget();
 
@@ -85,12 +84,8 @@ public class HorizontalAnalyzer implements EngineCheck {
         // TODO: If we want to, require sent a sneaking packet in the last tick to allow tick skip exempt
         boolean isSlowed = result.getSimulationContext().isLastSneaking()
                 && !result.getInitialStartingVel().isTickSkip();
-        Vec3 from = result.getSimulationContext().getStart();
-
         // The logic is that if the player has collisions above this, they will simply go into swimming position
-        SimpleCollisionBox oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(from.x, from.y, from.z, 0.6f, 0.6f)
-                .expand(-SimpleCollisionBox.COLLISION_EPSILON);
-        if (!Collisions.isEmpty(player, oldBox)) {
+        if (!result.getSimulationContext().isPassStartFootprintEmpty(player, true)) {
             isSlowed = false;
         }
         if (player.inVehicle()) isSlowed = false;

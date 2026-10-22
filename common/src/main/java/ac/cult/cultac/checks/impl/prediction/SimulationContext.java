@@ -140,6 +140,43 @@ public class SimulationContext {
     @ToString.Exclude
     List<HardCollidingEntityCollision> hardCollidingEntityCollisionsForMovementTick;
 
+    // Prediction-pass memos, read and written only while SimulationProcessor#getPredictionResult has this
+    // context's pass open: the world, entities and player are fixed until that call returns. Outside it (for
+    // example setback or commit code reusing this context), the same accessors compute afresh. Each memo
+    // depends only on start, lastTickMainSupportingBlockData, end and that fixed state, never on worldData,
+    // which uncertainty handlers mutate per candidate.
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private boolean predictionPassOpen;
+
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private float passStartFriction;
+
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private boolean passStartFrictionKnown;
+
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private Boolean passStartFootprintEmpty;
+
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private Boolean passStartFootprintInteriorEmpty;
+
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private Boolean passStartClimbable;
+
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private Vec3 passCollisionBelowEnd;
+
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private boolean passCollisionBelow;
+
     public SimulationContext(
             Vec3 start,
             Vec3 end,
@@ -378,7 +415,88 @@ public class SimulationContext {
      * which reads the sprint flag, in the air.
      */
     public double getMaxSprintInputSpeed(CultPlayer player) {
-        float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
+        return getMaxSprintInputSpeed(
+                player, BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start));
+    }
+
+    /** {@link #getMaxSpeed}, with the friction lookup memoized while the prediction pass is open. */
+    public float getPassMaxSpeed(CultPlayer player) {
+        return getFrictionInfluencedSpeed(passStartFriction(player), player);
+    }
+
+    /** {@link #getMaxSprintInputSpeed}, with the friction lookup memoized while the prediction pass is open. */
+    public double getPassMaxSprintInputSpeed(CultPlayer player) {
+        return getMaxSprintInputSpeed(player, passStartFriction(player));
+    }
+
+    /** Opens this context's prediction pass; see {@link #closePredictionPass}. */
+    public void openPredictionPass() {
+        predictionPassOpen = true;
+    }
+
+    /** Ends the pass: later reads of the pass accessors compute afresh, as the world may then change. */
+    public void closePredictionPass() {
+        predictionPassOpen = false;
+        passStartFrictionKnown = false;
+        passStartFootprintEmpty = null;
+        passStartFootprintInteriorEmpty = null;
+        passStartClimbable = null;
+        passCollisionBelowEnd = null;
+    }
+
+    private float passStartFriction(CultPlayer player) {
+        if (!predictionPassOpen) return BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
+        if (!passStartFrictionKnown) {
+            passStartFriction = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
+            passStartFrictionKnown = true;
+        }
+        return passStartFriction;
+    }
+
+    /**
+     * {@code Collisions.isEmpty(player, box)} of the 0.6 x 0.6 box at {@code start}, shrunk by the collision
+     * epsilon when {@code interior}; memoized while this context's prediction pass is open.
+     */
+    public boolean isPassStartFootprintEmpty(CultPlayer player, boolean interior) {
+        Boolean empty =
+                !predictionPassOpen ? null : interior ? passStartFootprintInteriorEmpty : passStartFootprintEmpty;
+        if (empty != null) return empty;
+        SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(start.x, start.y, start.z, 0.6f, 0.6f);
+        if (interior) box.expand(-SimpleCollisionBox.COLLISION_EPSILON);
+        boolean computed = ac.cult.cultac.utils.nmsutil.Collisions.isEmpty(player, box);
+        if (predictionPassOpen) {
+            if (interior) passStartFootprintInteriorEmpty = computed;
+            else passStartFootprintEmpty = computed;
+        }
+        return computed;
+    }
+
+    /** {@code Collisions.onClimbable(player, start.x, start.y, start.z)}; memoized while the pass is open. */
+    public boolean isPassStartClimbable(CultPlayer player) {
+        if (predictionPassOpen && passStartClimbable != null) return passStartClimbable;
+        boolean climbable = ac.cult.cultac.utils.nmsutil.Collisions.onClimbable(player, start.x, start.y, start.z);
+        if (predictionPassOpen) passStartClimbable = climbable;
+        return climbable;
+    }
+
+    /**
+     * Whether a {@code -COLLISION_EPSILON} Y collide of {@link #getToCubeCollision()} is clipped; memoized for
+     * the current {@code end} while the pass is open.
+     */
+    public boolean hasPassCollisionBelowEnd(CultPlayer player) {
+        if (predictionPassOpen && passCollisionBelowEnd != null && passCollisionBelowEnd == end)
+            return passCollisionBelow;
+        Vec3 downwardCollision = ac.cult.cultac.utils.nmsutil.Collisions.collide(
+                player, getToCubeCollision(), 0.0D, -SimpleCollisionBox.COLLISION_EPSILON, 0.0D);
+        boolean below = downwardCollision.y != -SimpleCollisionBox.COLLISION_EPSILON;
+        if (predictionPassOpen) {
+            passCollisionBelowEnd = end;
+            passCollisionBelow = below;
+        }
+        return below;
+    }
+
+    private double getMaxSprintInputSpeed(CultPlayer player, float blockUnderPlayer) {
         double maxSpeed = 0;
         for (boolean onGround : worldData.getLastOnGround().getStates()) {
             for (boolean water : worldData.getInWater().getStates()) {
