@@ -21,14 +21,23 @@ public final class UnknownCollisionProvider {
             SimpleCollisionBox queryBox,
             List<SimpleCollisionBox> boxes,
             SimpleCollisionBox entityBox,
-            SimpleCollisionBox scratch) {
-        addEntityUnknownCollisions(player, playerPos, queryBox, boxes, entityBox, scratch);
+            SimpleCollisionBox scratch,
+            Iterable<PacketEntity> entities) {
+        addEntityUnknownCollisions(
+                player,
+                playerPos,
+                queryBox,
+                boxes,
+                entityBox,
+                scratch,
+                entities == null ? player.compensatedEntities.entityMap.values() : entities);
         addDynamicBlockUnknownCollisions(player, context, queryBox, boxes);
     }
 
     /**
      * Adds a copy of each entity box that intersects {@code queryBox}. {@code entityBox} and {@code scratch} are
-     * working space owned by the caller.
+     * working space owned by the caller. {@code entities} is the entity map's values in iteration order, or an
+     * order-preserving subset of them holding every entity that can add a box intersecting {@code queryBox}.
      */
     private static void addEntityUnknownCollisions(
             CultPlayer player,
@@ -36,13 +45,14 @@ public final class UnknownCollisionProvider {
             SimpleCollisionBox queryBox,
             List<SimpleCollisionBox> boxes,
             SimpleCollisionBox entityBox,
-            SimpleCollisionBox scratch) {
+            SimpleCollisionBox scratch,
+            Iterable<PacketEntity> entities) {
         boolean ridingStrider = player.compensatedEntities.getSelf().getRiding() instanceof PacketEntityStrider;
         boolean inBoat = player.compensatedEntities.getSelf().getRiding() != null
                 && EntityTypeUtil.isBoat(player.compensatedEntities.getSelf().getRiding().type);
         boolean inVehicle = player.compensatedEntities.getSelf().inVehicle();
 
-        for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
+        for (PacketEntity entity : entities) {
             if (EntityTypeUtil.isBoat(entity.type)) {
                 // Expand by 2 since boats suck.
                 addIntersecting(

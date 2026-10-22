@@ -85,7 +85,10 @@ public class ValidMovements {
     public MovementTrace transformTraceTowards(Vec3 end, PredictionResult lastResult) {
         MovementTrace trace = startTrace;
 
-        for (UncertaintyHandler handler : uncertaintyHandlers) {
+        // Indexed: this runs several times per candidate, and the handler lists are random access.
+        List<UncertaintyHandler> handlers = uncertaintyHandlers;
+        for (int i = 0, size = handlers.size(); i < size; i++) {
+            UncertaintyHandler handler = handlers.get(i);
             trace = handler.handleMovementTrace(
                     player, result.getValidMovements(), result, result.getSimulationContext(), lastResult, trace, end);
         }
@@ -124,9 +127,9 @@ public class ValidMovements {
             movement = movement.withPosition(movement.position()
                     .with(movement.position().subtract(base), "external movement collision base removed"));
         }
-        setClosestTrace(new CollisionModifier()
-                .handleMovementTrace(
-                        player, this, result, result.getSimulationContext(), lastResult, movement, result.getTarget()));
+        // new CollisionModifier().handleMovementTrace without the throwaway instance and its probe scratch.
+        setClosestTrace(CollisionModifier.clipMovementTrace(
+                this, result, result.getSimulationContext(), movement, result.getTarget(), true));
     }
 
     public Vec3 getPositionOnlyDelta() {

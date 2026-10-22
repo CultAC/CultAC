@@ -11,8 +11,6 @@ import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
-import ac.cult.cultac.utils.nmsutil.Collisions;
-import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 
 public class Sneaking implements UncertaintyHandler {
     @Override
@@ -39,12 +37,11 @@ public class Sneaking implements UncertaintyHandler {
             DesyncStatus lastOnGround = result.getSimulationContext().getLastOnGround();
             result.getSimulationContext().getWorldData().setLastOnGround(DesyncStatus.UNKNOWN);
             // Get the speed when the player is on the ground
-            double maxSpeed = context.getMaxSpeed(player) * 1.3;
+            // The start friction lookup is memoized only while the context's prediction pass is open.
+            double maxSpeed = context.getPassMaxSpeed(player) * 1.3;
             result.getSimulationContext().getWorldData().setLastOnGround(lastOnGround);
 
-            Vec3 from = result.getSimulationContext().getStart();
-            SimpleCollisionBox oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(from.x, from.y, from.z, 0.6f, 0.6f);
-            boolean isSlowed = Collisions.isEmpty(player, oldBox);
+            boolean isSlowed = result.getSimulationContext().isPassStartFootprintEmpty(player, false);
 
             // Thanks Physiq for this terminal velocity formula
             double multiplier = lastOnEdge != null && lastOnEdge.isZeroHorizBug()

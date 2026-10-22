@@ -13,7 +13,6 @@ import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
-import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 
 /** Mirrors Java Entity#baseTick/#move and LivingEntity#aiStep, in client tick order. */
@@ -33,12 +32,12 @@ public final class JavaFallDistance {
         boolean water = world.getInWater().determinePessimistically();
         boolean lava = world.getInLava().determinePessimistically();
         // handleOnClimbable runs in air travel, not water/lava travel. Use the START block.
-        Vec3 start = context.getStart();
+        // Collisions.onClimbable at start, memoized across candidates while the context's pass is open.
         boolean climb = actor.isLivingEntity()
                 && !water
                 && !lava
                 && !context.usesFallFlyingMovement()
-                && Collisions.onClimbable(player, start.x, start.y, start.z);
+                && context.isPassStartClimbable(player);
         boolean reset = water
                 || climb
                 || context.getVehicle() == null && player.isFlying

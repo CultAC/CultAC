@@ -54,13 +54,8 @@ final class VanillaStepProof {
     }
 
     private boolean hasCollisionDirectlyBelowDestination(CultPlayer player, PredictionResult result) {
-        Vec3 downwardCollision = Collisions.collide(
-                player,
-                result.getSimulationContext().getToCubeCollision(),
-                0.0D,
-                -SimpleCollisionBox.COLLISION_EPSILON,
-                0.0D);
-        return downwardCollision.y != -SimpleCollisionBox.COLLISION_EPSILON;
+        // Depends only on the context's end and pass-fixed state; memoized across candidates while the pass is open.
+        return result.getSimulationContext().hasPassCollisionBelowEnd(player);
     }
 
     private boolean hasSourceProvenStepCandidate(CultPlayer player, PredictionResult result) {

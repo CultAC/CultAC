@@ -6,13 +6,17 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -35,6 +39,17 @@ public class CollisionModifier implements UncertaintyHandler {
     private final AxisResult negativeResult = new AxisResult(0, false);
     private final boolean javaTravelInput;
 
+    // Prediction-pass reuse, owned by one player's SimulationProcessor. Between beginPredictionPass and
+    // endPredictionPass the world, entities and player state are fixed, so a gather with identical inputs
+    // returns identical boxes in identical order, and an entity whose widest possible unknown box misses
+    // the prefilter bounds contributes nothing to any query inside them.
+    private static final double ENTITY_PREFILTER_MARGIN = 4.0D;
+    private CultPlayer passPlayer;
+    private final Map<GatherKey, List<SimpleCollisionBox>> passGathered = new HashMap<>();
+    private final List<PacketEntity> passNearbyEntities = new ArrayList<>();
+    private final SimpleCollisionBox passNearbyBounds = new SimpleCollisionBox();
+    private boolean passNearbyValid;
+
     public CollisionModifier() {
         this(true);
     }
@@ -42,6 +57,23 @@ public class CollisionModifier implements UncertaintyHandler {
     /** {@code javaTravelInput}: the setPos guard measures Java LivingEntity#travel's horizontal input. */
     public CollisionModifier(boolean javaTravelInput) {
         this.javaTravelInput = javaTravelInput;
+    }
+
+    /**
+     * Starts a prediction pass for {@code player}: probes until {@link #endPredictionPass} may reuse block
+     * collision gathers and the entity prefilter. Only call this while the world, compensated entities and
+     * player state cannot change until the pass ends.
+     */
+    public void beginPredictionPass(CultPlayer player) {
+        endPredictionPass();
+        passPlayer = player;
+    }
+
+    public void endPredictionPass() {
+        passPlayer = null;
+        passGathered.clear();
+        passNearbyEntities.clear();
+        passNearbyValid = false;
     }
 
     @Override
@@ -53,6 +85,20 @@ public class CollisionModifier implements UncertaintyHandler {
             PredictionResult lastContext,
             MovementTrace trace,
             Vec3 end) {
+        return clipMovementTrace(valid, result, context, trace, end, javaTravelInput);
+    }
+
+    /**
+     * {@link #handleMovementTrace} without an instance: it reads no per-instance state other than
+     * {@code javaTravelInput}, so callers can clip a trace without allocating a modifier.
+     */
+    static MovementTrace clipMovementTrace(
+            ValidMovements valid,
+            PredictionResult result,
+            SimulationContext context,
+            MovementTrace trace,
+            Vec3 end,
+            boolean javaTravelInput) {
         if (valid != null && valid.isTestingMaxStartingVelExtents(end)) {
             return trace;
         }
@@ -64,10 +110,11 @@ public class CollisionModifier implements UncertaintyHandler {
                 stuckSpeed == null || stuckSpeed.x == 1.0D && stuckSpeed.y == 1.0D && stuckSpeed.z == 1.0D
                         ? trace.position()
                         : trace.position().multiply(stuckSpeed));
+        PredictionResult inputSource = javaTravelInput ? result : null;
         Vec3 collisionBaseOffset = trace.collisionBaseOffset();
         if (collisionBaseOffset.lengthSqr() <= 1.0E-14) {
-            return trace.withPosition(transformWithCollisions(
-                    context, result.getCollideAxisData(), trace.position(), end, inputSource(result)));
+            return trace.withPosition(
+                    transformWithCollisions(context, result.getCollideAxisData(), trace.position(), end, inputSource));
         }
 
         // Piston/shulker shoves are separate position-only Entity#move calls.
@@ -75,7 +122,7 @@ public class CollisionModifier implements UncertaintyHandler {
         // already-proven external base displacement is re-applied once.
         Vec3 movementOnlyTarget = end.subtract(collisionBaseOffset);
         PredVector clippedMovement = transformWithCollisions(
-                context, result.getCollideAxisData(), trace.position(), movementOnlyTarget, inputSource(result));
+                context, result.getCollideAxisData(), trace.position(), movementOnlyTarget, inputSource);
         return trace.withPosition(clippedMovement.add(collisionBaseOffset, "external movement collision base"));
     }
 
@@ -273,14 +320,22 @@ public class CollisionModifier implements UncertaintyHandler {
         }
         grabBoxesBB.expand(maxEpsilon(dimensions.epsilon()));
 
-        List<SimpleCollisionBox> collisions = probeCollisions;
-        collisions.clear();
-        Collisions.getCollisionBoxes(player, grabBoxesBB, collisions, false, playerPos.y, actor);
+        boolean inPass = passPlayer != null && passPlayer == player;
+        List<SimpleCollisionBox> collisions = inPass
+                ? passGatheredCollisions(player, grabBoxesBB, playerPos.y, actor)
+                : gatherCollisions(player, grabBoxesBB, playerPos.y, actor, probeCollisions);
 
         List<SimpleCollisionBox> found = probeUnknown;
         found.clear();
         UnknownCollisionProvider.addMovementUnknownCollisions(
-                player, context, playerPos, grabBoxesBB, found, probeEntityBox, probeEntityScratch);
+                player,
+                context,
+                playerPos,
+                grabBoxesBB,
+                found,
+                probeEntityBox,
+                probeEntityScratch,
+                inPass ? passEntitiesFor(player, grabBoxesBB) : null);
 
         // slight optimization
         if (!found.isEmpty()) found.removeIf(unknownBox -> !unknownBox.isIntersected(grabBoxesBB));
@@ -293,22 +348,15 @@ public class CollisionModifier implements UncertaintyHandler {
                     new CollideAxisData.CollideResult(true, 0),
                     List.copyOf(found));
         }
-        List<SimpleCollisionBox> unknown = List.of();
-        CollideAxisData result = new CollideAxisData(null, null, null, null, unknown);
+        // Any unknown box returned above, so every axis below probes the block collisions alone.
+        CollideAxisData result = new CollideAxisData(null, null, null, null, List.of());
 
-        // TODO: This is stupid, DO WE CARE ABOUT COLLISIONS WHEN UNKNOWN?
-        List<SimpleCollisionBox> collisionsMinusUnknown;
-        if (unknown.isEmpty()) {
-            collisionsMinusUnknown = collisions;
-        } else {
-            collisionsMinusUnknown = new ArrayList<>(collisions);
-            collisionsMinusUnknown.removeIf(box -> {
-                for (SimpleCollisionBox e : unknown) {
-                    if (e.isIntersected(box)) return true;
-                }
-                return false;
-            });
-        }
+        // Orders 0 and 1 both begin with the same Y step from playerPos over the same inputs; order 1
+        // replays order 0's results rather than recomputing them.
+        boolean firstYPosPresent = false, firstYPosCollide = false;
+        boolean firstYNegPresent = false, firstYNegCollide = false;
+        double firstYPosResult = 0.0D, firstYNegResult = 0.0D;
+        double firstYIterX = 0.0D, firstYIterY = 0.0D, firstYIterZ = 0.0D;
 
         boolean groundedOrder = context.getLastOnGround().determineOptimistically();
 
@@ -317,7 +365,19 @@ public class CollisionModifier implements UncertaintyHandler {
             if (orderIndex >= 2 && !groundedOrder) continue;
             var order = PROBE_ORDERS[orderIndex];
             double iterX = playerPos.x, iterY = playerPos.y, iterZ = playerPos.z;
-            for (Collisions.Axis axis : order) {
+            for (int axisIndex = 0; axisIndex < order.length; axisIndex++) {
+                Collisions.Axis axis = order[axisIndex];
+                if (orderIndex == 1 && axisIndex == 0) {
+                    // PROBE_ORDERS[0][0] == PROBE_ORDERS[1][0] == Y, from the same playerPos.
+                    double yMultiplier = 1 / getAxisOfVector(stuckSpeed, axis);
+                    // Includes the += 0 that the Y step applies to X and Z (it normalizes -0.0).
+                    iterX = firstYIterX;
+                    iterY = firstYIterY;
+                    iterZ = firstYIterZ;
+                    if (firstYPosPresent) result.combineYPos(firstYPosCollide, firstYPosResult * yMultiplier);
+                    if (firstYNegPresent) result.combineYNeg(firstYNegCollide, firstYNegResult * yMultiplier);
+                    continue;
+                }
                 double movement = getAxisOfVector(target, axis);
                 double positiveMovement =
                         getAttemptedAxisMovement(axis, movement, attemptedMovementExtents, stuckSpeed, true);
@@ -328,7 +388,6 @@ public class CollisionModifier implements UncertaintyHandler {
                 AxisResult pos = testInAxisAndDirection(
                         context,
                         collisions,
-                        unknown,
                         iterX,
                         iterY,
                         iterZ,
@@ -347,7 +406,6 @@ public class CollisionModifier implements UncertaintyHandler {
                 AxisResult neg = testInAxisAndDirection(
                         context,
                         collisions,
-                        unknown,
                         iterX,
                         iterY,
                         iterZ,
@@ -371,7 +429,7 @@ public class CollisionModifier implements UncertaintyHandler {
                 // unvalidated packet Y proves the height of an X/Z contact.
                 if (movement != 0) {
                     double moved = moveBoundingBoxForAxis(
-                            context, collisionsMinusUnknown, axis, movement, iterX, iterY, iterZ, dimensions);
+                            context, collisions, axis, movement, iterX, iterY, iterZ, dimensions);
                     iterX += axis == Collisions.Axis.X ? moved : 0;
                     iterY += axis == Collisions.Axis.Y ? moved : 0;
                     iterZ += axis == Collisions.Axis.Z ? moved : 0;
@@ -394,11 +452,113 @@ public class CollisionModifier implements UncertaintyHandler {
                         if (neg != null) result.combineYNeg(neg.isCollide(), neg.getResult() * multiplier);
                         break;
                 }
+
+                if (orderIndex == 0 && axisIndex == 0) {
+                    // pos/neg are reused scratch; keep their values for order 1's identical Y step.
+                    firstYPosPresent = pos != null;
+                    firstYPosCollide = pos != null && pos.isCollide();
+                    firstYPosResult = pos == null ? 0.0D : pos.getResult();
+                    firstYNegPresent = neg != null;
+                    firstYNegCollide = neg != null && neg.isCollide();
+                    firstYNegResult = neg == null ? 0.0D : neg.getResult();
+                    firstYIterX = iterX;
+                    firstYIterY = iterY;
+                    firstYIterZ = iterZ;
+                }
             }
         }
 
         return result;
     }
+
+    private static List<SimpleCollisionBox> gatherCollisions(
+            CultPlayer player,
+            SimpleCollisionBox queryBox,
+            double entityBottom,
+            JavaCollisionState actor,
+            List<SimpleCollisionBox> out) {
+        out.clear();
+        Collisions.getCollisionBoxes(player, queryBox, out, false, entityBottom, actor);
+        return out;
+    }
+
+    /** The pass's read-only gather for these exact getCollisionBoxes inputs. */
+    private List<SimpleCollisionBox> passGatheredCollisions(
+            CultPlayer player, SimpleCollisionBox queryBox, double entityBottom, JavaCollisionState actor) {
+        GatherKey key = new GatherKey(
+                queryBox.minX,
+                queryBox.minY,
+                queryBox.minZ,
+                queryBox.maxX,
+                queryBox.maxY,
+                queryBox.maxZ,
+                entityBottom,
+                actor);
+        List<SimpleCollisionBox> gathered = passGathered.get(key);
+        if (gathered == null) {
+            gathered = gatherCollisions(player, queryBox, entityBottom, actor, new ArrayList<>());
+            passGathered.put(key, gathered);
+        }
+        return gathered;
+    }
+
+    /**
+     * The entities, in entity map order, that can add an unknown box intersecting {@code queryBox}, or null to
+     * scan the whole map. Every box UnknownCollisionProvider can add lies within the entity's possible box
+     * expanded by 2, or is a happy ghast's movement box, and isIntersected is monotone in both boxes, so an
+     * excluded entity adds nothing for any query inside the prefilter bounds.
+     */
+    private List<PacketEntity> passEntitiesFor(CultPlayer player, SimpleCollisionBox queryBox) {
+        if (passNearbyValid && contains(passNearbyBounds, queryBox)) return passNearbyEntities;
+        if (passNearbyValid) {
+            passNearbyBounds.minX = Math.min(passNearbyBounds.minX, queryBox.minX);
+            passNearbyBounds.minY = Math.min(passNearbyBounds.minY, queryBox.minY);
+            passNearbyBounds.minZ = Math.min(passNearbyBounds.minZ, queryBox.minZ);
+            passNearbyBounds.maxX = Math.max(passNearbyBounds.maxX, queryBox.maxX);
+            passNearbyBounds.maxY = Math.max(passNearbyBounds.maxY, queryBox.maxY);
+            passNearbyBounds.maxZ = Math.max(passNearbyBounds.maxZ, queryBox.maxZ);
+        } else {
+            passNearbyBounds.minX = queryBox.minX;
+            passNearbyBounds.minY = queryBox.minY;
+            passNearbyBounds.minZ = queryBox.minZ;
+            passNearbyBounds.maxX = queryBox.maxX;
+            passNearbyBounds.maxY = queryBox.maxY;
+            passNearbyBounds.maxZ = queryBox.maxZ;
+        }
+        passNearbyBounds.expand(ENTITY_PREFILTER_MARGIN);
+        passNearbyEntities.clear();
+        for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
+            if (entity instanceof PacketEntityHappyGhast
+                    || entity.getPossibleCollisionBoxes(probeEntityBox, probeEntityScratch)
+                            .expand(2)
+                            .isIntersected(passNearbyBounds)) {
+                passNearbyEntities.add(entity);
+            }
+        }
+        passNearbyValid = true;
+        // NaN bounds contain nothing: scan the whole map as before.
+        return contains(passNearbyBounds, queryBox) ? passNearbyEntities : null;
+    }
+
+    private static boolean contains(SimpleCollisionBox outer, SimpleCollisionBox inner) {
+        return outer.minX <= inner.minX
+                && outer.minY <= inner.minY
+                && outer.minZ <= inner.minZ
+                && outer.maxX >= inner.maxX
+                && outer.maxY >= inner.maxY
+                && outer.maxZ >= inner.maxZ;
+    }
+
+    /** Every input of the probe's getCollisionBoxes call other than the pass-fixed player and world. */
+    private record GatherKey(
+            double minX,
+            double minY,
+            double minZ,
+            double maxX,
+            double maxY,
+            double maxZ,
+            double entityBottom,
+            JavaCollisionState actor) {}
 
     private static boolean didCollide(AxisResult pos, AxisResult neg) {
         return pos != null && pos.isCollide() || neg != null && neg.isCollide();
@@ -508,7 +668,6 @@ public class CollisionModifier implements UncertaintyHandler {
     private AxisResult testInAxisAndDirection(
             SimulationContext context,
             List<SimpleCollisionBox> collisions,
-            List<SimpleCollisionBox> unknown,
             double posX,
             double posY,
             double posZ,
@@ -523,25 +682,6 @@ public class CollisionModifier implements UncertaintyHandler {
         if (Math.abs(amount) > axisEpsilon && isPositive != (Math.signum(amount) == 1)) return null;
 
         boolean isVehicle = context.getVehicle() != null;
-
-        // WHY CAN MOJANG NOT HANDLE THE SIMPLEST OF THINGS CORRECTLY
-        // START HANDLING OF POTENTIALLY UNKNOWN CLIENT SIDED BLOCKS
-        float maximumWidth = context.getVehicle() == null ? dimensions.width() : context.getMaxWidth();
-        float maximumHeight = context.getVehicle() == null ? dimensions.maxHeight() : context.getMaxHeight();
-        SimpleCollisionBox biggestBoxPossible =
-                GetBoundingBox.getBoundingBoxFromPosAndSize(posX, posY, posZ, maximumWidth, maximumHeight);
-        biggestBoxPossible.expand(0.1); // For good measure.
-        for (SimpleCollisionBox box : unknown) {
-            if (box.isCollided(biggestBoxPossible)) {
-                return new AxisResult(0, true);
-            }
-        }
-        // We only care about finding the first collision
-        if (!unknown.isEmpty()) {
-            collisions = new ArrayList<>(collisions);
-            collisions.addAll(unknown);
-        }
-        // END HANDLING OF POTENTIALLY UNKNOWN CLIENT SIDE BLOCKS
 
         // We should at least probe by collision epsilon...
         // This also means that 0 is transformed into the collision epsilon. This is intentional.
