@@ -269,7 +269,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         // the proof there keeps a ping out of the middle of a vanilla bundle while still placing it
         // after the inventory packet on the ordered clientbound stream.
         event.getTasksAfterSend().add(() -> {
-            player.user.write(transaction.packet());
+            player.user.send(transaction.packet());
             player.markTrackedTransactionPacketSent(transaction);
         });
     }

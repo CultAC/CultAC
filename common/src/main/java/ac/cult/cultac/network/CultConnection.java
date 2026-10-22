@@ -252,6 +252,11 @@ public final class CultConnection implements CodecState {
         }
     }
 
+    /** Whether {@link #prepare} has run the initializer. Read on the packet owner. */
+    public boolean prepared() {
+        return prepared;
+    }
+
     public synchronized void bind(User user) {
         if (user.getCultConnection() != this) throw new IllegalArgumentException("User belongs to another session");
         if (this.user != null && this.user != user) throw new IllegalStateException("Session already has an identity");
@@ -346,9 +351,14 @@ public final class CultConnection implements CodecState {
     }
 
     public void forwarded(PacketType<?> type, Object packet) {
-        serverbound = ConnectionLifecycle.nextPhase(PacketDirection.SERVERBOUND, serverbound, type, packet);
-        clientbound = ConnectionLifecycle.nextPhase(PacketDirection.CLIENTBOUND, clientbound, type, packet);
-        if (clientbound != ConnectionPhase.PLAY) levelLost();
+        // Most packets change neither phase; skip the volatile stores then.
+        var server = serverbound;
+        var nextServer = ConnectionLifecycle.nextPhase(PacketDirection.SERVERBOUND, server, type, packet);
+        if (nextServer != server) serverbound = nextServer;
+        var client = clientbound;
+        var nextClient = ConnectionLifecycle.nextPhase(PacketDirection.CLIENTBOUND, client, type, packet);
+        if (nextClient != client) clientbound = nextClient;
+        if (nextClient != ConnectionPhase.PLAY) levelLost();
     }
 
     private void levelLost() {

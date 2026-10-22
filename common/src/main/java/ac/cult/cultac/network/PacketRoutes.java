@@ -29,6 +29,7 @@ final class PacketRoutes {
     }
 
     PacketDispatcher.Route get(PacketType<?> type) {
-        return runtime.contains(type) ? entries[runtime.slot(type)] : null;
+        int slot = runtime.indexOf(type);
+        return slot < 0 ? null : entries[slot];
     }
 }
