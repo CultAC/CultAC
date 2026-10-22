@@ -19,6 +19,11 @@ public final class ClientComponentRegistries {
     private record ActionPath(ProtocolVersion source, ProtocolVersion client, ProtocolVersion model) {}
 
     private final Map<ActionPath, Tags> actionTags = new HashMap<>();
+    // Per-FluidTags members of clientTags(model, ProtocolVersion.of(clientProtocol)), memoised for
+    // the per-block fluid queries. Cleared with actionTags, whose entries it mirrors.
+    private final List<String>[] clientFluidMembers = newFluidMemberCache();
+    private ProtocolVersion clientFluidModel;
+    private int clientFluidProtocol;
     private final Map<ActionPath, ac.cult.blocksim.data.HolderSets.Overlay> simulatorTags = new HashMap<>();
     private Map<String, ac.cult.cultac.network.packet.RegistryTags.Payload> configurationTags;
     private Map<String, List<ac.cult.cultac.protocol.WireValueDecoder.RegistryEntry>> configurationRegistries;
@@ -243,6 +248,7 @@ public final class ClientComponentRegistries {
         tags.clear();
         geometryTags = null;
         actionTags.clear();
+        java.util.Arrays.fill(clientFluidMembers, null);
         simulatorTags.clear();
         configurationTags = null;
         configurationRegistries = null;
@@ -282,6 +288,7 @@ public final class ClientComponentRegistries {
         tags.putAll(packet.tags());
         geometryTags = null;
         actionTags.clear();
+        java.util.Arrays.fill(clientFluidMembers, null);
         simulatorTags.clear();
     }
 
@@ -349,6 +356,32 @@ public final class ClientComponentRegistries {
     /** Movement membership stays in the original client's domain, without a return trip to the host. */
     public Tags clientTags(ProtocolVersion source, ProtocolVersion client) {
         return actionTags(source, client, client);
+    }
+
+    /**
+     * {@code clientTags(source, ProtocolVersion.of(clientProtocol)).fluids().getOrDefault(tag.key(), List.of())},
+     * memoised until the tags change or the source/client pair differs.
+     */
+    public List<String> clientFluidMembers(
+            ProtocolVersion source, int clientProtocol, ac.cult.blocksim.data.FluidTags tag) {
+        if (source != clientFluidModel || clientProtocol != clientFluidProtocol) {
+            java.util.Arrays.fill(clientFluidMembers, null);
+            clientFluidModel = source;
+            clientFluidProtocol = clientProtocol;
+        }
+        List<String> members = clientFluidMembers[tag.ordinal()];
+        if (members == null) {
+            members = clientTags(source, ProtocolVersion.of(clientProtocol))
+                    .fluids()
+                    .getOrDefault(tag.key(), List.of());
+            clientFluidMembers[tag.ordinal()] = members;
+        }
+        return members;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String>[] newFluidMemberCache() {
+        return (List<String>[]) new List<?>[ac.cult.blocksim.data.FluidTags.values().length];
     }
 
     private static Map<String, List<String>> exportTags(

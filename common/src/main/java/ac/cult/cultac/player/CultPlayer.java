@@ -57,7 +57,7 @@ import ac.cult.cultac.utils.latency.CompensatedInventory;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.KeepAliveProcessor;
 import ac.cult.cultac.utils.latency.LatencyUtils;
-import ac.cult.cultac.utils.lists.EvictingQueue;
+import ac.cult.cultac.utils.lists.LongEvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.TrigHandler;
 import ac.cult.cultac.utils.math.Vec3;
@@ -74,6 +74,7 @@ import ac.grim.grimac.api.handler.ResyncHandler;
 import com.viaversion.viaversion.api.Via;
 import com.viaversion.viaversion.api.connection.UserConnection;
 import com.viaversion.viaversion.api.protocol.packet.PacketTracker;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
@@ -148,8 +149,8 @@ public class CultPlayer implements GrimUser {
     // Determining player ping
     // The difference between keepalive and transactions is that keepalive is async while transactions are sync
     private Queue<SentTransaction> transactionsSent = new ArrayDeque<>();
-    private final @NotNull Map<@NotNull Integer, @NotNull TrackedTransaction> transactionsPendingSend =
-            new HashMap<>(4);
+    private final @NotNull Int2ObjectOpenHashMap<@NotNull TrackedTransaction> transactionsPendingSend =
+            new Int2ObjectOpenHashMap<>(4);
     /** Ping ids a client cannot predict from the ones it has answered. */
     private final SecureRandom wireIds = wireIdSource();
 
@@ -597,7 +598,7 @@ public class CultPlayer implements GrimUser {
     }
 
     @Getter
-    private final @NotNull EvictingQueue<@NotNull Long> transPings = new EvictingQueue<>(60);
+    private final @NotNull LongEvictingQueue transPings = new LongEvictingQueue(60);
 
     public float getMaxUpStep() {
         PacketEntity riding = compensatedEntities.getSelf().getRiding();

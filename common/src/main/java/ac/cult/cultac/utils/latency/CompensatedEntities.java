@@ -835,15 +835,28 @@ public class CompensatedEntities {
                         CultMath.floor(position.x) >> 4, CultMath.floor(position.z) >> 4);
     }
 
+    private static final Comparator<PacketEntity> CLIENT_TICK_ORDER =
+            Comparator.comparingLong(PacketEntity::getClientTickOrder);
+    // Reused between ticks; taken while in use so a reentrant tick snapshots into its own list.
+    private ArrayList<PacketEntity> clientTickRootsScratch = new ArrayList<>();
+
     public void tickClientEntities(Consumer<PacketEntity> tick) {
-        var roots = new ArrayList<>(entityMap.values());
-        roots.add(getSelf());
-        roots.removeIf(entity -> entity.getRiding() != null || !isTicking(entity));
-        roots.sort(Comparator.comparingLong(PacketEntity::getClientTickOrder));
-        boolean frozen =
-                player.packetStateData.serverTicksFrozen && player.packetStateData.serverFrozenTickStepsRemaining == 0;
-        for (PacketEntity root : roots) {
-            if (!frozen || containsPlayer(root)) tickEntityTree(root, tick);
+        ArrayList<PacketEntity> roots = clientTickRootsScratch;
+        clientTickRootsScratch = null;
+        if (roots == null) roots = new ArrayList<>(entityMap.size() + 1);
+        try {
+            roots.addAll(entityMap.values());
+            roots.add(getSelf());
+            roots.removeIf(entity -> entity.getRiding() != null || !isTicking(entity));
+            roots.sort(CLIENT_TICK_ORDER);
+            boolean frozen = player.packetStateData.serverTicksFrozen
+                    && player.packetStateData.serverFrozenTickStepsRemaining == 0;
+            for (PacketEntity root : roots) {
+                if (!frozen || containsPlayer(root)) tickEntityTree(root, tick);
+            }
+        } finally {
+            roots.clear();
+            clientTickRootsScratch = roots;
         }
     }
 

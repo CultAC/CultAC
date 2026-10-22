@@ -6,6 +6,10 @@ final class LatencyTaskQueue {
     private TaskNode lastTask;
     private TaskNode recycledTasks;
     private int recycledTaskCount;
+    // Set once a task is appended behind a later transaction. While clear, the
+    // pending transactions never decrease front to back, so a drain can stop at
+    // the first future task. Recomputed exactly by every full scan.
+    private boolean outOfOrder;
 
     synchronized void add(int transaction, Runnable runnable) {
         add(acquire(transaction, runnable, null));
@@ -52,6 +56,9 @@ final class LatencyTaskQueue {
         if (lastTask == null) {
             firstTask = task;
         } else {
+            if (task.transaction < lastTask.transaction) {
+                outOfOrder = true;
+            }
             lastTask.next = task;
         }
         lastTask = task;
@@ -62,12 +69,24 @@ final class LatencyTaskQueue {
         TaskNode current = firstTask;
         TaskNode readyFirst = null;
         TaskNode readyLast = null;
+        // A monotone queue drains a prefix; every continuation left in place is
+        // transaction + 1, which is <= every task behind the stop point, so the
+        // queue stays monotone. A full scan instead recomputes monotonicity over
+        // exactly the tasks it leaves queued.
+        boolean fullScan = outOfOrder;
+        boolean keptMonotone = true;
+        boolean anyKept = false;
+        int lastKept = 0;
 
         while (current != null) {
             TaskNode next = current.next;
             // Receipt callbacks can append earlier transactions behind later ones.
             // Keep scanning so future tasks cannot hide ready work.
             if (transaction < current.transaction) {
+                if (!fullScan) break;
+                if (anyKept && current.transaction < lastKept) keptMonotone = false;
+                anyKept = true;
+                lastKept = current.transaction;
                 previous = current;
                 current = next;
                 continue;
@@ -106,6 +125,9 @@ final class LatencyTaskQueue {
                     lastTask = continuation;
                 }
 
+                if (anyKept && continuation.transaction < lastKept) keptMonotone = false;
+                anyKept = true;
+                lastKept = continuation.transaction;
                 current.next = null;
                 if (readyFirst == null) {
                     readyFirst = current;
@@ -139,6 +161,9 @@ final class LatencyTaskQueue {
 
         if (firstTask == null) {
             lastTask = null;
+        }
+        if (fullScan) {
+            outOfOrder = !keptMonotone;
         }
         return readyFirst;
     }

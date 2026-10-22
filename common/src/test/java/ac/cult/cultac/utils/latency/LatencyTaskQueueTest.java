@@ -145,6 +145,71 @@ public class LatencyTaskQueueTest {
         for (boolean ran : applied) assertTrue(ran);
     }
 
+    @Test
+    public void earlyStopMatchesFullScanReference() {
+        var random = new java.util.Random(0x5EEDL);
+        for (int round = 0; round < 200; round++) {
+            var queue = new LatencyTaskQueue();
+            var reference = new ArrayList<int[]>(); // {transaction, id, continuationId or -1}
+            var applied = new ArrayList<Integer>();
+            var expected = new ArrayList<Integer>();
+            int received = random.nextInt(100) - 50;
+            int nextId = 0;
+            for (int step = 0; step < 300; step++) {
+                int op = random.nextInt(10);
+                if (op < 6) {
+                    // Mostly ascending, sometimes behind the tail, as receipt callbacks append.
+                    int transaction = received + (random.nextInt(8) == 0 ? -random.nextInt(4) : random.nextInt(12));
+                    int id = nextId++;
+                    if (random.nextBoolean()) {
+                        int continuation = nextId++;
+                        queue.addWithNextTransaction(transaction, () -> applied.add(id), () -> applied.add(continuation));
+                        reference.add(new int[] {transaction, id, continuation});
+                    } else {
+                        queue.add(transaction, () -> applied.add(id));
+                        reference.add(new int[] {transaction, id, -1});
+                    }
+                } else {
+                    if (random.nextInt(4) != 0) received += random.nextInt(3);
+                    drain(queue, received);
+                    referenceDrain(reference, received, expected);
+                    assertEquals(expected, applied);
+                }
+            }
+            received += 20;
+            drain(queue, received);
+            referenceDrain(reference, received, expected);
+            drain(queue, received + 1);
+            referenceDrain(reference, received + 1, expected);
+            assertEquals(expected, applied);
+            assertTrue(reference.isEmpty());
+        }
+    }
+
+    /** The original full-scan drain, over {transaction, id, continuationId} entries. */
+    private static void referenceDrain(List<int[]> queue, int transaction, List<Integer> ran) {
+        for (int index = 0; index < queue.size(); ) {
+            int[] task = queue.get(index);
+            if (transaction < task[0]) {
+                index++;
+                continue;
+            }
+            ran.add(task[1]);
+            if (task[2] >= 0) {
+                int[] continuation = {task[0] + 1, task[2], -1};
+                if (continuation[0] <= transaction) {
+                    ran.add(continuation[1]);
+                    queue.remove(index);
+                } else {
+                    queue.set(index, continuation);
+                    index++;
+                }
+                continue;
+            }
+            queue.remove(index);
+        }
+    }
+
     private static void drain(LatencyTaskQueue queue, int transaction) {
         var node = queue.drainReady(transaction);
         LatencyTaskQueue.TaskNode released = null;

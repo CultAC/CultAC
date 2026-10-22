@@ -24,6 +24,7 @@ import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.*;
 import net.kyori.adventure.text.Component;
@@ -40,7 +41,7 @@ public class CompensatedWorld {
     private static final byte RECENT_FLUID_WATER = 1;
     private static final byte RECENT_FLUID_LAVA = 1 << 1;
     public final CultPlayer player;
-    public final Map<Long, CachedChunk> chunks;
+    public final Long2ObjectOpenHashMap<CachedChunk> chunks;
     private final Long2ObjectOpenHashMap<String> chunkDimensions = new Long2ObjectOpenHashMap<>();
     // Packet locations for blocks
     public Set<ShulkerData> openShulkerBoxes = new HashSet<>();
@@ -941,7 +942,9 @@ public class CompensatedWorld {
             if (prediction == null) {
                 boolean isPlayerTryingToDisableCult =
                         player.getSetbackTeleportUtil().shouldBlockMovement();
-                int serverState = getBlockStateIdAt(asVector);
+                // Nothing since the first read writes chunk data or the selection snapshot
+                // (putIfAbsent stores this same value), so it is still the current state.
+                int serverState = original;
                 originalServerBlocks.put(
                         asVector.asLong(),
                         new BlockPrediction(
@@ -975,7 +978,8 @@ public class CompensatedWorld {
         ghostBlockMitigator.handleNewBlock(asVector);
 
         // This works because of how we optimized wrappedblockstate (avoid messing with inner tick predictions)
-        if (getBlockStateIdAt(asVector) == newState) return original;
+        // No world write has happened since the first read.
+        if (original == newState) return original;
 
         player.checkManager.getSimulationProcessor().handleBlockChange(asVector, original);
         player.checkManager.getSimulationProcessor().handleBlockChange(asVector, newState);
@@ -1060,15 +1064,31 @@ public class CompensatedWorld {
         processPendingReinterns();
     }
 
+    private static final Comparator<PendingReinternCandidate> REINTERN_CANDIDATE_ORDER =
+            Comparator.comparingLong(PendingReinternCandidate::lastMutatedNanos);
+    // Reused between ticks; taken while in use so a reentrant call allocates its own.
+    private ArrayList<PendingReinternCandidate> reinternCandidateScratch = new ArrayList<>();
+
     private void processPendingReinterns() {
         if (pendingReinternSections.isEmpty()) return;
 
+        ArrayList<PendingReinternCandidate> candidates = reinternCandidateScratch;
+        reinternCandidateScratch = null;
+        if (candidates == null) candidates = new ArrayList<>(pendingReinternSections.size());
+        try {
+            processPendingReinterns(candidates);
+        } finally {
+            candidates.clear();
+            reinternCandidateScratch = candidates;
+        }
+    }
+
+    private void processPendingReinterns(ArrayList<PendingReinternCandidate> candidates) {
         long now = System.nanoTime();
         SectionPool.ComparisonBudget comparisonBudget = SectionPool.ComparisonBudget.limited(
                 MAX_REINTERN_CONTENT_COMPARISONS_PER_TICK,
                 MAX_REINTERN_HASH_CALCULATIONS_PER_TICK,
                 MAX_REINTERN_ATTEMPTED_COMPARISONS_PER_TICK);
-        List<PendingReinternCandidate> candidates = new ArrayList<>(pendingReinternSections.size());
         Iterator<Map.Entry<PendingReinternSection, PendingReinternState>> iterator =
                 pendingReinternSections.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -1090,7 +1110,7 @@ public class CompensatedWorld {
             candidates.add(new PendingReinternCandidate(key, state, column, section, section.getLastMutatedNanos()));
         }
 
-        candidates.sort(Comparator.comparingLong(PendingReinternCandidate::lastMutatedNanos));
+        candidates.sort(REINTERN_CANDIDATE_ORDER);
         for (PendingReinternCandidate candidate : candidates) {
             CachedSection section = candidate.section();
             if (!SectionPool.isStableForReintern(section, now)) {
@@ -1780,10 +1800,11 @@ public class CompensatedWorld {
     }
 
     public void clearChunksForDimension(String dimension) {
-        Iterator<Map.Entry<Long, CachedChunk>> iterator = chunks.entrySet().iterator();
+        Iterator<Long2ObjectMap.Entry<CachedChunk>> iterator =
+                chunks.long2ObjectEntrySet().iterator();
         while (iterator.hasNext()) {
-            Map.Entry<Long, CachedChunk> entry = iterator.next();
-            long chunkPosition = entry.getKey();
+            Long2ObjectMap.Entry<CachedChunk> entry = iterator.next();
+            long chunkPosition = entry.getLongKey();
             String chunkDimension = chunkDimensions.get(chunkPosition);
             if (!dimension.equals(chunkDimension)) {
                 continue;
@@ -1811,8 +1832,8 @@ public class CompensatedWorld {
         TerrainListener listener = terrainListener;
         long[] cleared = listener == null ? null : new long[chunks.size()];
         int count = 0;
-        for (Map.Entry<Long, CachedChunk> entry : chunks.entrySet()) {
-            long chunkPosition = entry.getKey();
+        for (Long2ObjectMap.Entry<CachedChunk> entry : chunks.long2ObjectEntrySet()) {
+            long chunkPosition = entry.getLongKey();
             if (cleared != null) cleared[count++] = chunkPosition;
             String dimension = chunkDimensions.getOrDefault(chunkPosition, visibleDimension);
             releaseChunkSections(
