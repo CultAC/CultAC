@@ -229,6 +229,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             return false;
         }
         if (route == null) {
+            // The slow path's dispatch ends by clearing any enclosing write's reentrant writer.
+            connection.reentrantWriter(null);
             passThrough(ctx, frame, promise, phase);
             return true;
         }
@@ -256,6 +258,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 || !ctx.channel().isActive()
                 // An empty payload is the only one the delimiter codec decodes without a failure report.
                 || afterPacketId(frame) != frame.writerIndex()) return false;
+        // The slow path's dispatch ends by clearing any enclosing write's reentrant writer.
+        connection.reentrantWriter(null);
         passThrough(ctx, frame, promise, phase);
         insideBundle = !insideBundle;
         return true;
