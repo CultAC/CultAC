@@ -5,6 +5,7 @@ import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.PacketDispatcher;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.protocol.ConnectionLifecycle;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketBundlePolicy;
@@ -461,11 +462,19 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         var phase = connection.phase(PacketDirection.CLIENTBOUND);
         boolean requested = false;
         PacketType<?> forwardedType = null;
+        var lender = connection.frameLender();
+        FrameLease lease = null;
         try {
             routeProbe.phase = phase;
             routeProbe.found = null;
             routeProbe.skipped = null;
-            var value = connection.packets().readOne(phase, PacketDirection.CLIENTBOUND, bytes, connection, routeProbe);
+            lease = lender.open(bytes);
+            Object value;
+            try {
+                value = connection.packets().readOne(phase, PacketDirection.CLIENTBOUND, bytes, connection, routeProbe);
+            } finally {
+                lender.close(lease);
+            }
             var route = routeProbe.found;
             if (routeProbe.skipped != null) forwardedType = routeProbe.skipped.type();
             if (value != null) {
@@ -502,6 +511,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                             var replacement = connection
                                     .packets()
                                     .encode(phase, type, event.getPacket(), ctx.alloc(), connection);
+                            lender.end(lease);
+                            lease = null;
                             bytes.release();
                             bytes = null;
                             appendReplacement(ctx, replacement, promise, type, batch, leadPing);
@@ -533,6 +544,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             }
             return requested;
         } finally {
+            if (lease != null) lender.end(lease);
             if (bytes != null) bytes.release();
         }
     }

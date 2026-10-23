@@ -2,12 +2,14 @@ package ac.cult.cultac.network;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.logging.PacketLogObserver;
+import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.util.concurrent.EventExecutor;
 import java.util.ArrayList;
@@ -20,7 +22,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 /** Authoritative identity, player attachment and transport state for one channel. */
-public final class CultConnection implements CodecState {
+public final class CultConnection implements CodecState, FrameLease.Source {
     private static final int CONTEXT_SLOTS = 256;
 
     private final Channel channel;
@@ -91,6 +93,8 @@ public final class CultConnection implements CodecState {
     private volatile ConnectionContinuation continuation;
     /** Codec contexts bound to this connection, by base identity; a slot holds one immutable context or none. */
     private final ProtocolContext[] contexts = new ProtocolContext[CONTEXT_SLOTS];
+
+    private final FrameLease.Lender frameLender = new FrameLease.Lender();
 
     public void packetObserver(PacketLogObserver observer) {
         packetObserver = Objects.requireNonNull(observer);
@@ -171,6 +175,16 @@ public final class CultConnection implements CodecState {
         if (type == ac.cult.cultac.protocol.data.RegistryNames.class && platform != null)
             return type.cast(platform.registryNames());
         return CodecState.EMPTY.require(type);
+    }
+
+    /** Lends the clientbound frames the encoder owns to the values decoded from them. Model context only. */
+    public FrameLease.Lender frameLender() {
+        return frameLender;
+    }
+
+    @Override
+    public FrameLease lease(ByteBuf frame) {
+        return frameLender.lease(frame);
     }
 
     @Override
