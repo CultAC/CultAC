@@ -519,6 +519,43 @@ public class ReachInterpolationData {
         this.positionExact = true;
     }
 
+    /**
+     * Puts a state built by {@link #ReachInterpolationData(SimpleCollisionBox)}, or copied from one, back to the state
+     * that constructor builds from {@code finishedLoc}. Returns false, changing nothing, for any other state.
+     */
+    public boolean resetFinished(SimpleCollisionBox finishedLoc) {
+        if (reachesUsePacketPositionUncertainty) return false;
+        targetLocation.set(finishedLoc);
+        interpolationQueue = null;
+        steppedCurrent = null;
+        steppedTarget = null;
+        lastStep = null;
+        sampleFrom = null;
+        sampleTo = null;
+        sampleAmount = 0.0F;
+        currentStepTicks = 0.0F;
+        remainingTicks = 0.0F;
+        interpolationSpeed = 1.0F;
+        interpolationPlayer = null;
+        startingLocation.set(finishedLoc);
+        currentYaw = 0.0F;
+        currentPitch = 0.0F;
+        targetYaw = 0.0F;
+        targetPitch = 0.0F;
+        interpolationStepsLowBound = 0;
+        interpolationStepsHighBound = 0;
+        interpolationSteps = 1;
+        positionExact = true;
+        boundsValid = false;
+        boundsMinX = boundsMinY = boundsMinZ = boundsMaxX = boundsMaxY = boundsMaxZ = 0.0D;
+        boundsFullBlock = false;
+        settled = false;
+        probeCurrent = null;
+        probeYaw = probePitch = probeRemaining = probeSpeed = 0;
+        probeMinX = probeMinY = probeMinZ = probeMaxX = probeMaxY = probeMaxZ = 0L;
+        return true;
+    }
+
     private int getInterpolationSteps() {
         return interpolationSteps;
     }

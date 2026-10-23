@@ -48,12 +48,50 @@ class InterpolationTraceTest {
         assertEquals(7915571620591440211L, trace(ClientVersion.V_26_3, 13L));
     }
 
+    @Test
+    void riddenLegacyTrace() throws Exception {
+        assertEquals(-7264749867852690877L, riddenTrace(ClientVersion.V_1_21_4, 21L));
+    }
+
+    @Test
+    void riddenOldClientTrace() throws Exception {
+        assertEquals(-2560366833329873277L, riddenTrace(ClientVersion.V_1_8, 22L));
+    }
+
+    @Test
+    void riddenSteppedTrace() throws Exception {
+        assertEquals(1453471068447140855L, riddenTrace(ClientVersion.V_26_3, 23L));
+    }
+
     private static long trace(ClientVersion version, long seed) throws Exception {
         try (Workload w = new Workload(version, seed, 24)) {
             long digest = 0xcbf29ce484222325L;
             for (int i = 0; i < 6000; i++) {
                 w.randomStep();
                 digest = w.digest(digest);
+            }
+            return digest;
+        }
+    }
+
+    /**
+     * The local player rides the first entity beside a rider carrying another, and two entities carry riders outside
+     * its tree; every movement repositions the trees, as the movement tasks do, and client ticks take the production
+     * entity pass.
+     */
+    private static long riddenTrace(ClientVersion version, long seed) throws Exception {
+        try (Workload w = new Workload(version, seed, 24)) {
+            var vehicles = w.tracker.vehicles;
+            vehicles.applyVehiclePassengers(100, new int[] {w.player.entityID, 101});
+            vehicles.applyVehiclePassengers(101, new int[] {102});
+            vehicles.applyVehiclePassengers(103, new int[] {104, 105});
+            vehicles.applyVehiclePassengers(104, new int[] {106});
+            long digest = 0xcbf29ce484222325L;
+            for (int i = 0; i < 6000; i++) {
+                w.riddenStep();
+                digest = w.digest(digest);
+                digest = Workload.mix(digest, w.player.packetStateData.clientSidePosition);
+                digest = Workload.mix(digest, w.tracker.getSelf().getPossibleMovementCollisionBoxes());
             }
             return digest;
         }
@@ -66,8 +104,10 @@ class InterpolationTraceTest {
         final CompensatedEntities tracker;
         final List<PacketEntity> entities = new ArrayList<>();
         final Random random;
+        final ClientVersion version;
 
         Workload(ClientVersion version, long seed, int count) throws Exception {
+            this.version = version;
             fixture = new JavaTickFixture();
             player = fixture.player;
             JavaTickFixture.setField(CultPlayer.class, player, "resolvedClientVersion", version);
@@ -84,6 +124,18 @@ class InterpolationTraceTest {
 
         void tick(boolean reliably) {
             tracker.tickClientEntities(entity -> entity.onMovement(player, reliably));
+        }
+
+        void riddenStep() {
+            if (random.nextInt(12) >= 9) {
+                boolean reliably = random.nextInt(3) != 0;
+                if (version.isNewerThanOrEquals(ClientVersion.V_26_3)) tick(reliably);
+                else tracker.forEachTrackedEntity(entity -> entity.onMovement(player, reliably));
+                tracker.updatePassengerPositions();
+                return;
+            }
+            randomStep();
+            tracker.updatePassengerPositions();
         }
 
         void randomStep() {
@@ -159,7 +211,7 @@ class InterpolationTraceTest {
             return mix(digest, data.getTargetLocation());
         }
 
-        private static long mix(long digest, SimpleCollisionBox box) {
+        static long mix(long digest, SimpleCollisionBox box) {
             if (box == null) return mix(digest, 3L);
             digest = mix(digest, Double.doubleToRawLongBits(box.minX));
             digest = mix(digest, Double.doubleToRawLongBits(box.minY));
@@ -170,7 +222,7 @@ class InterpolationTraceTest {
             return mix(digest, box.isFullBlock() ? 1 : 0);
         }
 
-        private static long mix(long digest, Vec3 position) {
+        static long mix(long digest, Vec3 position) {
             if (position == null) return mix(digest, 5L);
             digest = mix(digest, Double.doubleToRawLongBits(position.x));
             digest = mix(digest, Double.doubleToRawLongBits(position.y));

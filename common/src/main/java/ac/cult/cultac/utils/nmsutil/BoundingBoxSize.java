@@ -120,9 +120,12 @@ public class BoundingBoxSize {
 
         // Vanilla Entity#positionRider subtracts the rider's current, scaled attachment
         // after the vehicle supplies its passenger point, including for stationary seats.
-        Vec3 vehicleAttachment = nativeVector(
-                baseDimensions(passenger).vehicleAttachment(passenger.scale, getAttachmentYaw(passenger, player)));
-        return new Vec3(x, y, z).add(passengerAttachment).subtract(vehicleAttachment);
+        var vehicleAttachment =
+                baseDimensions(passenger).vehicleAttachment(passenger.scale, getAttachmentYaw(passenger, player));
+        return new Vec3(
+                x + passengerAttachment.x - vehicleAttachment.x(),
+                y + passengerAttachment.y - vehicleAttachment.y(),
+                z + passengerAttachment.z - vehicleAttachment.z());
     }
 
     /**
