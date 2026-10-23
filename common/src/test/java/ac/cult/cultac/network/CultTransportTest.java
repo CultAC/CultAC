@@ -25,6 +25,7 @@ import io.netty.buffer.*;
 import io.netty.channel.*;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.flow.FlowControlHandler;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.DefaultEventExecutor;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -2436,6 +2437,105 @@ class CultTransportTest {
             assertKeepAlivesOutsideBundles(emitted);
             assertFalse(f.connection.flushBundleOpen());
         }
+    }
+
+    @Test
+    void aFlushBundleReachesTheTransportInOneFlush() {
+        try (var f = new Fixture(false)) {
+            var log = recordHead(f);
+            proveCameras(f);
+            f.channel.pipeline().write(wireCamera(f, 1));
+            f.channel.pipeline().write(f.frame(CLIENTBOUND, PLAY, "sound"));
+            f.channel.pipeline().flush();
+            f.channel.pipeline().write(wireCamera(f, 2));
+            f.channel.pipeline().flush();
+            f.pump();
+            assertEquals(
+                    List.of(
+                            "write D",
+                            "write P41",
+                            "write minecraft:set_camera",
+                            "write minecraft:sound",
+                            "write minecraft:set_camera",
+                            "write D",
+                            "flush"),
+                    log);
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    @Test
+    void aFlushHeldForAClosedFlushBundleStillReachesTheTransport() {
+        try (var f = new Fixture(false)) {
+            var log = recordHead(f);
+            proveCameras(f);
+            f.channel.pipeline().write(wireCamera(f, 1));
+            f.channel.pipeline().flush();
+            var transfer = f.frame(CLIENTBOUND, PLAY, "transfer");
+            Wire.writeString(transfer, "localhost", 32767);
+            Wire.writeVarInt(transfer, 25565);
+            f.channel.pipeline().write(transfer);
+            f.pump();
+            assertEquals(
+                    List.of(
+                            "write D",
+                            "write P41",
+                            "write minecraft:set_camera",
+                            "write D",
+                            "write minecraft:transfer",
+                            "flush"),
+                    log);
+        }
+    }
+
+    @Test
+    void aFlushHeldWhenTheEncoderIsRemovedStillReachesTheTransport() {
+        try (var f = new Fixture(false)) {
+            var log = recordHead(f);
+            proveCameras(f);
+            f.channel.pipeline().write(wireCamera(f, 1));
+            f.channel.pipeline().flush();
+            var transfer = f.frame(CLIENTBOUND, PLAY, "transfer");
+            Wire.writeString(transfer, "localhost", 32767);
+            Wire.writeVarInt(transfer, 25565);
+            f.channel.pipeline().write(transfer);
+            CultEncoder.uninstall(f.channel);
+            f.pump();
+            assertEquals(
+                    List.of(
+                            "write D",
+                            "write P41",
+                            "write minecraft:set_camera",
+                            "write D",
+                            "write minecraft:transfer",
+                            "flush"),
+                    log);
+        }
+    }
+
+    /**
+     * Stands in for the transport and logs every write and flush reaching it. EmbeddedChannel runs queued tasks
+     * inside each write that reaches it; a socket's event loop runs them only after the current one.
+     */
+    private static List<String> recordHead(Fixture f) {
+        var log = new ArrayList<String>();
+        f.channel.pipeline().addFirst("recorder", new ChannelOutboundHandlerAdapter() {
+            @Override
+            public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
+                try {
+                    log.add("write " + (message instanceof ByteBuf frame ? f.name(frame) : "?"));
+                } finally {
+                    ReferenceCountUtil.release(message);
+                }
+                promise.setSuccess();
+            }
+
+            @Override
+            public void flush(ChannelHandlerContext ctx) {
+                log.add("flush");
+            }
+        });
+        return log;
     }
 
     @Test
