@@ -9,9 +9,12 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.ClientItemUseState;
+import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
+import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.packetentity.*;
 import ac.cult.cultac.utils.enums.Pose;
@@ -31,11 +34,23 @@ import lombok.ToString;
 @Getter
 @ToString
 public class SimulationContext {
+    /**
+     * Whether this tick starts from LivingEntity#checkAutoSpinAttack's -0.2 rebound: a hit scales deltaMovement and
+     * sets autoSpinAttackTicks to 0, while a spin that hit nothing leaves deltaMovement as it was.
+     */
+    public enum SpinRebound {
+        /** The last tick may have hit. */
+        OPTIONAL,
+        /** The last tick hit nothing. */
+        NONE,
+        /** The last tick hit. */
+        ONLY
+    }
+
     private static final Vec3 NO_STUCK_SPEED = new Vec3(1, 1, 1);
 
     @Setter
-    ac.cult.cultac.utils.data.ClientItemUseState.Snapshot itemUse =
-            ac.cult.cultac.utils.data.ClientItemUseState.Snapshot.NONE;
+    ClientItemUseState.Snapshot itemUse = ClientItemUseState.Snapshot.NONE;
 
     // Residual input is recorded for the server-view item-use balance; evidence only.
     @Setter
@@ -76,11 +91,13 @@ public class SimulationContext {
     Integer jumpAmplifier;
     float depthStriderLevel;
     int swiftSneakLevel;
-    // This is NOT the same thing as
+
+    @Setter
     DesyncStatus isSprinting;
     // Whether movement_speed may carry minecraft:sprinting during travel
     @Setter
     boolean sprintModifier = true;
+    private float[][] groundMoveRelativeSpeeds;
     // The movement_efficiency attribute during travel; LivingEntity#getBlockSpeedFactor lerps the block's factor to 1
     @Setter
     float movementEfficiency;
@@ -94,7 +111,28 @@ public class SimulationContext {
     @Setter
     WorldData worldData;
 
+    @Setter
     int riptideLevel;
+
+    /** TridentItem#releaseUsing spins this tick: it pushes, and lifts a player on ground. */
+    @Setter
+    boolean riptideReleaseCertain;
+
+    /** The rise of TridentItem#releaseUsing's Entity#move for a release on ground this tick. */
+    @Setter
+    double riptideGroundLift;
+
+    /**
+     * The Entity#stuckSpeedMultiplier a release on ground consumes this tick, or null: TridentItem#releaseUsing's
+     * Entity#move scales the lift by it, clears it and zeroes deltaMovement, so the tick's travel is not scaled.
+     */
+    @Setter
+    Vec3 riptideLiftStuck;
+
+    /** The starts the last tick's LivingEntity#checkAutoSpinAttack leaves this tick. */
+    @Setter
+    SpinRebound spinRebound = SpinRebound.OPTIONAL;
+
     LastInstance lastTickSkip;
     boolean isTestingPointThree;
     Vec3 lastStuckSpeed = NO_STUCK_SPEED;
@@ -133,9 +171,6 @@ public class SimulationContext {
 
     @ToString.Exclude
     List<SimpleCollisionBox> entityCollisionBoxesForMovementTick;
-
-    @ToString.Exclude
-    List<SimpleCollisionBox> hardCollidingEntityCollisionBoxesForMovementTick;
 
     @ToString.Exclude
     List<HardCollidingEntityCollision> hardCollidingEntityCollisionsForMovementTick;
@@ -206,10 +241,7 @@ public class SimulationContext {
             lastStuckSpeed = stuckSpeedRequired;
         }
         // Dividing by an exact 1 keeps every component's bits.
-        if (lastStuckSpeed.x == 1.0D
-                && lastStuckSpeed.y == 1.0D
-                && lastStuckSpeed.z == 1.0D
-                && target.getClass() == Vec3.class) {
+        if (lastStuckSpeed.x == 1.0D && lastStuckSpeed.y == 1.0D && lastStuckSpeed.z == 1.0D) {
             return;
         }
         setTarget(target.multiply(1 / lastStuckSpeed.x, 1 / lastStuckSpeed.y, 1 / lastStuckSpeed.z));
@@ -237,26 +269,14 @@ public class SimulationContext {
         this.entityCollisionBoxesForMovementTick = entityCollisionBoxesForMovementTick;
     }
 
-    public void cacheHardCollidingEntityCollisionBoxesForMovementTick(
-            List<SimpleCollisionBox> hardCollidingEntityCollisionBoxesForMovementTick) {
-        this.hardCollidingEntityCollisionBoxesForMovementTick = hardCollidingEntityCollisionBoxesForMovementTick;
-        this.hardCollidingEntityCollisionsForMovementTick = hardCollidingEntityCollisionBoxesForMovementTick == null
-                ? null
-                : hardCollidingEntityCollisionBoxesForMovementTick.stream()
-                        .map(box -> new HardCollidingEntityCollision(box, false, false))
-                        .toList();
-    }
-
     public void cacheHardCollidingEntityCollisionsForMovementTick(
             List<HardCollidingEntityCollision> hardCollidingEntityCollisionsForMovementTick) {
         this.hardCollidingEntityCollisionsForMovementTick = hardCollidingEntityCollisionsForMovementTick;
-        this.hardCollidingEntityCollisionBoxesForMovementTick = hardCollidingEntityCollisionsForMovementTick == null
-                ? null
-                : hardCollidingEntityCollisionsForMovementTick.isEmpty()
-                        ? List.of()
-                        : hardCollidingEntityCollisionsForMovementTick.stream()
-                                .map(HardCollidingEntityCollision::box)
-                                .toList();
+    }
+
+    /** Whether the tick's first Entity#move consumes an Entity#stuckSpeedMultiplier. */
+    public boolean consumesStuckSpeed() {
+        return !NO_STUCK_SPEED.equals(lastStuckSpeed);
     }
 
     public double getTargetScalarHoriz() {
@@ -297,9 +317,6 @@ public class SimulationContext {
     }
 
     public SimpleCollisionBox getToMaxPose() {
-        if (getVehicle() != null) {
-            return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
-        }
         return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
     }
 
@@ -329,10 +346,6 @@ public class SimulationContext {
     }
 
     public SimpleCollisionBox getFromMaximumExtent() {
-        if (getVehicle() != null) {
-            return GetBoundingBox.getBoundingBoxFromPosAndSize(
-                    start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
-        }
         return GetBoundingBox.getBoundingBoxFromPosAndSize(start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
     }
 
@@ -372,51 +385,126 @@ public class SimulationContext {
         return getFrictionInfluencedSpeed(blockUnderPlayer, player);
     }
 
+    /** Radius of the circular horizontal input allowance around the input-free movement of {@code candidate}. */
+    public double getHorizontalInputRadius(CultPlayer player, PredVector candidate) {
+        return getVehicle() == null
+                ? getHorizontalInputAllowance(player, getSprintOutcome(player, candidate))
+                : getMaxSpeed(player);
+    }
+
+    /**
+     * The 1.3x allowance on each state's input speed, widened on the ground to every getSpeed() the client's sprint
+     * modifier allows there in {@code outcome}.
+     */
+    public double getHorizontalInputAllowance(CultPlayer player, ClientSprintState.Outcome outcome) {
+        float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
+        double allowance = 0;
+        for (boolean onGround : worldData.getLastOnGround().getStates()) {
+            for (boolean water : worldData.getInWater().getStates()) {
+                for (boolean lava : worldData.getInLava().getStates()) {
+                    allowance = Math.max(
+                            allowance,
+                            getFrictionInfluencedSpeed(blockUnderPlayer, player, onGround, water, lava, outcome)
+                                    * 1.3D);
+                    if (groundSprintSpeed(player, onGround, water || lava)) {
+                        for (float speed : getGroundMoveRelativeSpeeds(player, outcome)) {
+                            allowance = Math.max(allowance, speed);
+                        }
+                    }
+                }
+            }
+        }
+        return allowance;
+    }
+
+    /** The sprint modifier outcome {@code candidate} moves with. */
+    public ClientSprintState.Outcome getSprintOutcome(CultPlayer player, PredVector candidate) {
+        return candidate == null || vehicle != null ? ClientSprintState.Outcome.ANY : candidate.getSprintOutcome();
+    }
+
     /**
      * The largest moveRelative speed the client's sprint state permits. LivingEntity#getFrictionInfluencedSpeed
      * reads getSpeed(), which carries the minecraft:sprinting modifier, on the ground, and Player#getFlyingSpeed,
      * which reads the sprint flag, in the air.
      */
-    public double getMaxSprintInputSpeed(CultPlayer player) {
+    public double getMaxSprintInputSpeed(CultPlayer player, PredVector candidate) {
+        ClientSprintState.Outcome outcome = getSprintOutcome(player, candidate);
         float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
         double maxSpeed = 0;
         for (boolean onGround : worldData.getLastOnGround().getStates()) {
             for (boolean water : worldData.getInWater().getStates()) {
                 for (boolean lava : worldData.getInLava().getStates()) {
-                    float speed = getFrictionInfluencedSpeed(blockUnderPlayer, player, onGround, water, lava);
-                    maxSpeed = Math.max(maxSpeed, speed * sprintSpeedMultiplier(player, onGround, water || lava));
+                    if (groundSprintSpeed(player, onGround, water || lava)) {
+                        for (float speed : getGroundMoveRelativeSpeeds(player, outcome)) {
+                            maxSpeed = Math.max(maxSpeed, speed);
+                        }
+                    } else {
+                        maxSpeed = Math.max(
+                                maxSpeed,
+                                getFrictionInfluencedSpeed(blockUnderPlayer, player, onGround, water, lava, outcome)
+                                        * (float) sprintSpeedMultiplier(player, onGround, water || lava));
+                    }
                 }
             }
         }
         return maxSpeed;
     }
 
+    /** LivingEntity#getSpeed on the ground carries the minecraft:sprinting modifier the client holds. */
+    private boolean groundSprintSpeed(CultPlayer player, boolean onGround, boolean fluid) {
+        return onGround && !fluid && vehicle == null && !player.isFlying && sprintModifier;
+    }
+
+    /**
+     * LivingEntity#getFrictionInfluencedSpeed on the ground for each getSpeed() the client's sprint modifier allows in
+     * {@code outcome}, with vanilla's modifier also allowed for a riptide spin's sprint.
+     */
+    public float[] getGroundMoveRelativeSpeeds(CultPlayer player, ClientSprintState.Outcome outcome) {
+        if (groundMoveRelativeSpeeds == null) {
+            groundMoveRelativeSpeeds = new float[ClientSprintState.Outcome.values().length][];
+        }
+        float[] cached = groundMoveRelativeSpeeds[outcome.ordinal()];
+        if (cached == null) {
+            float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
+            double[] speeds = vehicle == null
+                    ? entities.getPossiblePlayerMovementSpeeds(
+                            sprintModifier && !player.sprintState.modifier(), outcome)
+                    : new double[] {getPlayerMovementSpeed(player)};
+            cached = new float[speeds.length];
+            for (int i = 0; i < speeds.length; i++) {
+                cached[i] = getFrictionInfluencedSpeed(
+                        blockUnderPlayer, player, speeds[i], true, false, false, ClientSprintState.Outcome.ANY);
+            }
+            groundMoveRelativeSpeeds[outcome.ordinal()] = cached;
+        }
+        return cached;
+    }
+
     private double sprintSpeedMultiplier(CultPlayer player, boolean onGround, boolean fluid) {
         // Creative flight and vehicle travel keep their existing allowance.
         if (vehicle != null || player.isFlying) return 1.3D;
         // LivingEntity#travelInFluid moves by a fluid speed that already includes any sprint modifier
-        if (fluid) return 1.0D;
-        if (onGround) return sprintModifier ? 1.3D : 1.0D;
+        if (fluid || onGround) return 1.0D;
         return isSprinting.determineOptimistically() ? 1.3D : 1.0D;
-    }
-
-    public float getGroundAirSpeed(CultPlayer player) {
-        float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
-        float maxSpeed = 0;
-        for (boolean onGround : worldData.getLastOnGround().getStates()) {
-            maxSpeed = Math.max(maxSpeed, getFrictionInfluencedSpeed(blockUnderPlayer, player, onGround, false, false));
-        }
-        return maxSpeed;
-    }
-
-    public float getFluidSpeed(CultPlayer player, boolean water, boolean lava) {
-        float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
-        return getFrictionInfluencedSpeed(blockUnderPlayer, player, false, water, lava);
     }
 
     public float getMoveRelativeSpeed(CultPlayer player, boolean onGround, boolean water, boolean lava) {
         float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
         return getFrictionInfluencedSpeed(blockUnderPlayer, player, onGround, water, lava);
+    }
+
+    /** The moveRelative speed of a ridden camel whose controller's sprint flag is {@code riderSprinting}. */
+    public float getMoveRelativeSpeed(
+            CultPlayer player, boolean onGround, boolean water, boolean lava, boolean riderSprinting) {
+        float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
+        return getFrictionInfluencedSpeed(
+                blockUnderPlayer,
+                player,
+                getPlayerMovementSpeed(player, riderSprinting),
+                onGround,
+                water,
+                lava,
+                ClientSprintState.Outcome.ANY);
     }
 
     public float getMaxWidth() {
@@ -427,6 +515,9 @@ public class SimulationContext {
     }
 
     public float getMaxHeight() {
+        if (getVehicle() instanceof PacketEntityCamel camel && getBedrockInput() == null) {
+            return BoundingBoxSize.getCamelPoseHeight(camel, version);
+        }
         if (getVehicle() != null) {
             return BoundingBoxSize.getHeight(getVehicle(), version, getBedrockInput() != null);
         }
@@ -452,7 +543,28 @@ public class SimulationContext {
 
     private float getFrictionInfluencedSpeed(
             float friction, CultPlayer player, boolean isOnGround, boolean water, boolean lava) {
-        final double normalSpeed = getPlayerMovementSpeed(player);
+        return getFrictionInfluencedSpeed(friction, player, isOnGround, water, lava, ClientSprintState.Outcome.ANY);
+    }
+
+    private float getFrictionInfluencedSpeed(
+            float friction,
+            CultPlayer player,
+            boolean isOnGround,
+            boolean water,
+            boolean lava,
+            ClientSprintState.Outcome outcome) {
+        return getFrictionInfluencedSpeed(
+                friction, player, getPlayerMovementSpeed(player), isOnGround, water, lava, outcome);
+    }
+
+    private float getFrictionInfluencedSpeed(
+            float friction,
+            CultPlayer player,
+            double normalSpeed,
+            boolean isOnGround,
+            boolean water,
+            boolean lava,
+            ClientSprintState.Outcome outcome) {
 
         if (vehicle instanceof PacketEntityNautilus && water) {
             // AbstractNautilus#travelInWater bypasses LivingEntity's generic
@@ -462,22 +574,26 @@ public class SimulationContext {
             return (float) normalSpeed;
         }
 
-        if (water) {
+        // Player#isAffectedByFluids is false in flight, so LivingEntity#travel takes travelInAir in water and lava.
+        boolean fluidTravel = vehicle != null || !player.isFlying;
+        if (water && fluidTravel) {
             float speed = 0.02f;
 
             if (waterMovementEfficiency > 0) {
                 // A player's getSpeed carries minecraft:sprinting only while applied; a vehicle's is getRiddenSpeed
-                float livingSpeed = (float) (vehicle == null && sprintModifier ? normalSpeed * 1.3 : normalSpeed);
+                float livingSpeed = (float)
+                        (vehicle == null && sprintModifier
+                                ? entities.getMaxPlayerMovementSpeed(!player.sprintState.modifier(), outcome)
+                                : normalSpeed);
                 speed += (livingSpeed - speed) * waterMovementEfficiency;
             }
             return speed;
         }
 
-        if (lava) {
+        if (lava && fluidTravel) {
             return 0.02f;
         }
 
-        float onGroundSpeed = (float) (normalSpeed * (0.21600002f / (friction * friction * friction)));
         if (isOnGround) {
             // MCP-Reborn 26.2 LivingEntity#getFrictionInfluencedSpeed receives the
             // friction_modifier-adjusted block friction and only boosts movement
@@ -491,7 +607,7 @@ public class SimulationContext {
                 }
                 return (float) normalSpeed;
             }
-            return onGroundSpeed;
+            return (float) (normalSpeed * (0.21600002f / (friction * friction * friction)));
         }
 
         // The game uses values known as flyingSpeed for some vehicles in the air
@@ -515,17 +631,32 @@ public class SimulationContext {
         return 0.02F;
     }
 
+    /**
+     * The controller's sprint flag when Camel#getRiddenSpeed reads it. Minecraft#tick handles the attack key before
+     * the level tick, so Player#causeExtraKnockback's setSprinting(false) holds through the camel's travel; the
+     * passenger's LocalPlayer#aiStep then re-sprints before sendIsSprintingIfNeeded, so no STOP_SPRINTING is sent.
+     */
+    public DesyncStatus getCamelRiderSprinting(CultPlayer player) {
+        if (player.vehicleData.camelSprintingState == SprintingState.STOPPED
+                || minAttackSlow > 0) {
+            return DesyncStatus.FALSE;
+        }
+        return maxAttackSlow > 0 ? DesyncStatus.UNKNOWN : DesyncStatus.TRUE;
+    }
+
     private double getPlayerMovementSpeed(CultPlayer player) {
+        return getPlayerMovementSpeed(
+                player,
+                vehicle instanceof PacketEntityCamel
+                        && getCamelRiderSprinting(player).determineOptimistically());
+    }
+
+    private double getPlayerMovementSpeed(CultPlayer player, boolean riderSprinting) {
         if (vehicle == null) {
             return entities.getPlayerMovementSpeed();
         }
         if (vehicle instanceof PacketEntityCamel camel) {
-            final double sprintBonus =
-                    player.vehicleData.camelSprintingState != ac.cult.cultac.utils.data.SprintingState.STOPPED
-                                    && camel.dashCooldown == 0
-                                    && !camel.dashing
-                            ? 0.1
-                            : 0;
+            final double sprintBonus = riderSprinting && camel.dashCooldown == 0 ? 0.1 : 0;
             return camel.movementSpeedAttribute + sprintBonus;
         }
 
@@ -551,10 +682,6 @@ public class SimulationContext {
     }
 
     private boolean isMountedStriderSuffocating(CultPlayer player) {
-        if (!(vehicle instanceof PacketEntityStrider)) {
-            return false;
-        }
-
         // MCP-Reborn Strider#tick recomputes this local state from the root
         // strider's exact start-of-tick position via blockPosition(),
         // getBlockStateOnLegacy(), and getFluidHeight(FluidTags.LAVA) before

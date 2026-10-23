@@ -196,11 +196,10 @@ final class OfflineBedrockReplayEvents {
     private static void applyBlockNow(CompensatedWorld world, BlockPos pos, int state) {
         int chunkX = pos.getX() >> 4;
         int chunkZ = pos.getZ() >> 4;
-        long chunkKey = CompensatedWorld.chunkPositionToLong(chunkX, chunkZ);
-        CompensatedWorld.CachedChunk chunk = world.chunks.get(chunkKey);
+        CompensatedWorld.CachedChunk chunk = world.getChunk(chunkX, chunkZ);
         if (chunk == null) {
             chunk = new CompensatedWorld.CachedChunk(new CompensatedWorld.CachedSection[16], 0);
-            world.chunks.put(chunkKey, chunk);
+            world.putChunk(chunkX, chunkZ, chunk);
         }
         int sectionIndex = pos.getY() >> 4;
         if (sectionIndex < 0 || sectionIndex >= chunk.sectionCount()) {

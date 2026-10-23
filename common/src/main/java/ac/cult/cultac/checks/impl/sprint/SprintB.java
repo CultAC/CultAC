@@ -3,10 +3,15 @@ package ac.cult.cultac.checks.impl.sprint;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.FlightToggle;
 
 @CheckData(
         name = "SprintB",
@@ -31,16 +36,30 @@ public final class SprintB extends Check implements PostPredictionListener {
         if (!isApplicable() || complete.isTeleport() || complete.isExempt()) return;
 
         PredictionResult result = complete.getPredictionResult();
-        if (result == null
-                || !result.getSimulationContext().isSneaking()
-                || !result.getSimulationContext().getWorldData().getInWater().determinePessimistically()) {
-            return;
-        }
+        if (result == null || !crouchingWithItsEyeAboveWater(result.getSimulationContext())) return;
 
         if (player.isSprinting) {
             flagWithSetback();
         } else {
             reward();
         }
+    }
+
+    /**
+     * LocalPlayer#aiStep crouches a player whose previous keys held shift unless it is flying, swimming or riding, and
+     * crouching stops sprinting; only a player whose eye was under water (LocalPlayer#isUnderWater) starts it again.
+     */
+    private boolean crouchingWithItsEyeAboveWater(SimulationContext context) {
+        WorldData world = context.getWorldData();
+        if (!context.isLastSneaking()
+                || world.isSwimming()
+                || world.isUnderwater()
+                || FlightToggle.flyingBeforeAiStep(player)
+                || context.getVehicle() != null
+                || !world.getInWater().determinePessimistically()) {
+            return false;
+        }
+        Vec3 from = context.getStart();
+        return player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z);
     }
 }

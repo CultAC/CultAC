@@ -1,12 +1,14 @@
 package ac.cult.cultac.platform.api.player;
 
+import ac.cult.cultac.bridge.protocol.BridgeMessage.ClientMods;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.platform.api.entity.CultEntity;
-import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.ItemUseState;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,7 +47,7 @@ public interface PlatformPlayer extends CultEntity, OfflinePlatformPlayer {
     void closeInventory();
 
     /** Authoritative item use; unavailable adapters return NONE, not a client-derived guess. */
-    ac.cult.cultac.protocol.value.ItemUseState getItemUseState();
+    ItemUseState getItemUseState();
 
     /**
      * Ends the server's active use of an item of type {@code itemKey} in {@code hand}, ordered after the packets that
@@ -65,16 +67,16 @@ public interface PlatformPlayer extends CultEntity, OfflinePlatformPlayer {
 
     void sendPluginMessage(String channelName, byte[] byteArray);
 
-    Sender getSender();
-
     /** This player's settings for its capture's JOIN, such as its attack speed; read on the event loop. */
     default ServerFacts cloudFacts() {
         return ServerFacts.NONE;
     }
 
-    /*
-     * Replaces native player reference in PlatformPlayer implementation with a new object
-     * Vanilla MC replaces ServerPlayerEntity references on respawn and dimension change
+    /**
+     * Asks the player's current server for the Lunar Client mods its Apollo reports. Completes null when no server
+     * serves {@link ServerCapability#APOLLO_MODS} or it does not answer.
      */
-    default void replaceNativePlayer(Object nativePlayerObject) {}
+    default CompletableFuture<@Nullable ClientMods> requestClientMods() {
+        return CompletableFuture.completedFuture(null);
+    }
 }

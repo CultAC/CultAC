@@ -16,6 +16,6 @@ final class BukkitConnectionListener implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         var connection = BukkitConnectionAdapter.connection(event.getPlayer());
-        if (connection != null) network.playerJoined(connection.channel);
+        if (connection != null) network.playerJoined(BukkitConnectionAdapter.channel(connection));
     }
 }

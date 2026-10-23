@@ -435,4 +435,36 @@ public sealed interface BridgeMessage {
             return TYPE;
         }
     }
+
+    /** Asks the backend for the player's Lunar Client mods; it answers with CLIENT_MODS carrying {@code requestId}. */
+    record ModsRequest(int requestId) implements BridgeMessage {
+        public static final int TYPE = 0x26;
+
+        @Override
+        public int type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * The player's installed Lunar Client mods as Apollo reported them. {@code requestId} answers a MODS_REQUEST, or is
+     * {@link #PUSHED} when the backend sends it unasked; {@code lunar} is false, with no mods, when the player has no
+     * Apollo connection on the backend.
+     */
+    record ClientMods(int requestId, boolean lunar, List<ClientMod> mods) implements BridgeMessage {
+        public static final int TYPE = 0x27;
+        public static final int PUSHED = 0;
+
+        public ClientMods {
+            mods = List.copyOf(mods);
+        }
+
+        @Override
+        public int type() {
+            return TYPE;
+        }
+    }
+
+    /** One Lunar Client mod; {@code type} is Apollo's mod type name, such as FABRIC_EXTERNAL. */
+    record ClientMod(String id, String name, String version, String type) {}
 }

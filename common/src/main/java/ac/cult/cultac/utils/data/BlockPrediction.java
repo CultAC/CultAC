@@ -17,13 +17,4 @@ public class BlockPrediction {
     int predictedBlockId;
     Vec3 playerPosition;
     int sequence;
-
-    public BlockPrediction(
-            List<BlockPos> forBlockUpdate,
-            BlockPos blockPosition,
-            int originalBlockId,
-            int predictedBlockId,
-            Vec3 playerPosition) {
-        this(forBlockUpdate, blockPosition, originalBlockId, predictedBlockId, playerPosition, 0);
-    }
 }

@@ -1,7 +1,10 @@
 package ac.cult.cultac.command.commands;
 
+import static ac.cult.cultac.command.commands.HistoryCommandLog.logBoth;
+
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.BuildableCommand;
+import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.command.render.HistoryComponentRenderer;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
@@ -25,6 +28,7 @@ import ac.grim.grimac.api.storage.query.Cursor;
 import ac.grim.grimac.api.storage.query.Page;
 import ac.grim.grimac.api.storage.query.Queries;
 import ac.grim.grimac.internal.storage.checks.CheckRegistry;
+import ac.grim.grimac.internal.storage.history.HistoryServiceImpl;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -37,10 +41,10 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
@@ -81,8 +85,7 @@ public class CultHistory implements BuildableCommand {
         SuggestionProvider<Sender> violationPageSuggestions = violationPageSuggestions();
         SuggestionProvider<Sender> targetSuggestions = targetSuggestions(arguments);
 
-        commandManager.command(commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        commandManager.command(BuildableCommand.root(commandManager)
                 .literal("history", "hist")
                 .literal("repair")
                 .literal("check-ids")
@@ -117,9 +120,8 @@ public class CultHistory implements BuildableCommand {
             SuggestionProvider<Sender> sessionOrdinalSuggestions,
             SuggestionProvider<Sender> violationPageSuggestions) {
         // Fresh builder per branch — reusing one cross-pollinates siblings.
-        java.util.function.Supplier<Command.Builder<Sender>> base = () -> {
-            Command.Builder<Sender> b = commandManager
-                    .commandBuilder("cult", "cultac", "grim", "grimac")
+        Supplier<Command.Builder<Sender>> base = () -> {
+            Command.Builder<Sender> b = BuildableCommand.root(commandManager)
                     .literal("history", "hist")
                     .permission("cult.history");
             if (withPlayerLiteral) b = b.literal("player");
@@ -225,7 +227,7 @@ public class CultHistory implements BuildableCommand {
                 sender,
                 target,
                 (uuid, displayName, lifecycle, history) ->
-                        renderList(sender, lifecycle, history, uuid, displayName, Math.max(1, page), filter));
+                        renderList(sender, lifecycle, history, uuid, displayName, page, filter));
     }
 
     private void handleDetailDefaultPage(CommandContext<Sender> context) {
@@ -276,16 +278,7 @@ public class CultHistory implements BuildableCommand {
                         Map.of("player", displayName, "ordinal", sessionRaw)));
             }
             return renderDetail(
-                    sender,
-                    lifecycle,
-                    history,
-                    uuid,
-                    displayName,
-                    ordinal,
-                    detailed,
-                    verbose,
-                    Math.max(1, page),
-                    filter);
+                    sender, lifecycle, history, uuid, displayName, ordinal, detailed, verbose, page, filter);
         });
     }
 
@@ -297,7 +290,7 @@ public class CultHistory implements BuildableCommand {
         // dispatch on the same branch — a target that needed the 'player'
         // escape hatch (e.g. someone named 'repair') would route through
         // the wrong literal if the help printed the bare form.
-        String addressPrefix = "/cult history " + (viaPlayer ? "player " : "");
+        String addressPrefix = CloudCommandService.command("history ") + (viaPlayer ? "player " : "");
         sender.sendMessage(Component.text()
                 .append(Component.text(addressPrefix, NamedTextColor.GRAY))
                 .append(Component.text(target, NamedTextColor.WHITE))
@@ -399,7 +392,6 @@ public class CultHistory implements BuildableCommand {
     /** Resolves a positive integer, {@code latest}/{@code last}/{@code l}, or null. */
     private static @Nullable Integer resolveSessionOrdinal(String raw, UUID uuid, HistoryService history)
             throws Exception {
-        if (raw == null) return null;
         String trimmed = raw.trim().toLowerCase(Locale.ROOT);
         if (trimmed.equals(LATEST_ALIAS) || trimmed.equals("last") || trimmed.equals("l")) {
             long total = history.countSessions(uuid).toCompletableFuture().get(5, TimeUnit.SECONDS);
@@ -545,7 +537,7 @@ public class CultHistory implements BuildableCommand {
             @Nullable Predicate<ViolationEntry> filter)
             throws Exception {
         SessionDetail detail = null;
-        if (history instanceof ac.grim.grimac.internal.storage.history.HistoryServiceImpl impl) {
+        if (history instanceof HistoryServiceImpl impl) {
             detail = impl.getSessionDetailByOrdinal(uuid, sessionOrdinal)
                     .toCompletableFuture()
                     .get(10, TimeUnit.SECONDS);
@@ -725,22 +717,6 @@ public class CultHistory implements BuildableCommand {
         CultAPI.INSTANCE.getScheduler().getGlobalRegionScheduler().run(CultAPI.INSTANCE.getGrimPlugin(), task);
     }
 
-    private static void logBoth(Sender sender, Component msg) {
-        sender.sendMessage(msg);
-        LogUtil.info(plain(msg));
-    }
-
-    private static String plain(Component c) {
-        StringBuilder sb = new StringBuilder();
-        flatten(c, sb);
-        return sb.toString();
-    }
-
-    private static void flatten(Component c, StringBuilder sb) {
-        if (c instanceof TextComponent tc) sb.append(tc.content());
-        for (Component child : c.children()) flatten(child, sb);
-    }
-
     private Cursor advanceToPage(HistoryService history, UUID uuid, int pageSize, int page) throws Exception {
         if (page <= 1) return null;
         Cursor cursor = null;
@@ -880,8 +856,7 @@ public class CultHistory implements BuildableCommand {
                 Integer ordinal = resolveSessionOrdinal(sessionRaw, uuid, dsl.historyService());
                 if (ordinal == null) return List.of();
                 SessionDetail detail;
-                if (!(dsl.historyService()
-                        instanceof ac.grim.grimac.internal.storage.history.HistoryServiceImpl impl)) {
+                if (!(dsl.historyService() instanceof HistoryServiceImpl impl)) {
                     return List.of();
                 }
                 detail = impl.getSessionDetailByOrdinal(uuid, ordinal)
@@ -912,10 +887,6 @@ public class CultHistory implements BuildableCommand {
      * can synchronously hit profile storage and miss names known only through a
      * shared history backend.
      */
-    private static @Nullable UUID resolveUuid(String name, @Nullable DataStoreLifecycle lifecycle) {
-        return resolveUuid(name, lifecycle, onlineUuid(name));
-    }
-
     private static @Nullable UUID resolveUuid(
             String name, @Nullable DataStoreLifecycle lifecycle, @Nullable UUID onlineUuid) {
         if (onlineUuid != null) return onlineUuid;
@@ -944,7 +915,6 @@ public class CultHistory implements BuildableCommand {
     }
 
     private static List<Suggestion> rangeSuggestions(int fromInclusive, int toInclusive) {
-        if (toInclusive < fromInclusive) return List.of();
         List<Suggestion> out = new ArrayList<>(toInclusive - fromInclusive + 1);
         for (int i = fromInclusive; i <= toInclusive; i++) out.add(Suggestion.suggestion(Integer.toString(i)));
         return out;

@@ -1,7 +1,11 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.FluidTags;
+import ac.cult.blocksim.engine.FluidQueries;
 import ac.cult.blocksim.engine.SimFluidState;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -13,8 +17,10 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.HashMap;
+import java.util.List;
 
-/** Vanilla liquid-presence, body-depth, and eye queries deliberately have different bounds. */
+/** Vanilla liquid-presence, body-depth, and eye queries have different bounds. */
 public final class ClientFluidQueries {
     private static final String CAN_FLOAT_WHILE_RIDDEN = "minecraft:can_float_while_ridden";
 
@@ -25,9 +31,9 @@ public final class ClientFluidQueries {
         private static final SimFluidState[] STATES = snapshots();
 
         private static SimFluidState[] snapshots() {
-            var registry = ac.cult.blocksim.data.DataTables.defaults().registry();
+            var registry = DataTables.defaults().registry();
             var states = new SimFluidState[registry.stateCount()];
-            var shared = new java.util.HashMap<SimFluidState, SimFluidState>();
+            var shared = new HashMap<SimFluidState, SimFluidState>();
             for (int id = 0; id < states.length; id++) {
                 var fluid = SimFluidState.of(registry.facts(id));
                 states[id] = shared.computeIfAbsent(fluid, value -> value);
@@ -45,9 +51,8 @@ public final class ClientFluidQueries {
     }
 
     /** Uses the same owned shape cache as action raycasts. Ordinary fluid height queries stay uncached. */
-    public static ac.cult.blocksim.engine.shapes.VoxelShape raycastShape(
-            CompensatedWorld world, BlockPos pos, int state) {
-        return ac.cult.blocksim.engine.FluidQueries.shape(
+    public static VoxelShape raycastShape(CompensatedWorld world, BlockPos pos, int state) {
+        return FluidQueries.shape(
                 modelFluid(state), () -> modelFluid(world.getBlockStateIdAt(pos.getX(), pos.getY() + 1, pos.getZ())));
     }
 
@@ -65,14 +70,14 @@ public final class ClientFluidQueries {
         if (usesTagBasedFluidRules(player)) {
             return clientTags(player)
                     .fluids()
-                    .getOrDefault(tag.key(), java.util.List.of())
+                    .getOrDefault(tag.key(), List.of())
                     .contains(state.type());
         }
         // Older clients retain the model's default fluid-tag membership.
         return tag.test(state);
     }
 
-    private static ClientComponentRegistries.Tags clientTags(CultPlayer player) {
+    public static ClientComponentRegistries.Tags clientTags(CultPlayer player) {
         if (player.registryState == null) player.registryState = new ClientComponentRegistries();
         // RegistryTags is decoded into dispatcher MODEL values on both platforms.
         // The observed wire can be older than that native representation.
@@ -92,13 +97,13 @@ public final class ClientFluidQueries {
                     is(player, fluid, FluidTags.LAVA),
                     height(player.compensatedWorld, pos, fluid));
         }
-        // Older clients and Bedrock retain the existing material and height rules,
+        // Older clients and Bedrock use the material and height rules,
         // including waterlogged blocks and the amount/9 height calculation.
         SimFluidState fluid = modelFluid(block);
         if (fluid.is("minecraft:water") || fluid.is("minecraft:flowing_water")) {
             return new Sample(true, false, player.compensatedWorld.getWaterFluidLevelAt(pos));
         }
-        if (ac.cult.blocksim.data.BlockIds.is(block, ac.cult.blocksim.data.BlockIds.LAVA)) {
+        if (BlockIds.is(block, BlockIds.LAVA)) {
             return new Sample(false, true, player.compensatedWorld.getLavaFluidLevelAt(pos));
         }
         return Sample.EMPTY;
@@ -109,9 +114,18 @@ public final class ClientFluidQueries {
     }
 
     public static boolean eyesInWater(CultPlayer player, SimpleCollisionBox body, Vec3 feet, double eyeY) {
-        if (usesTagBasedFluidRules(player)) {
-            return eyesInside(player, body, feet, eyeY, FluidTags.WATER);
+        if (!player.isBedrockMovement()) {
+            // EntityFluidInteraction#update samples the eye from 26.1.
+            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1)) {
+                return eyesInside(player, body, feet, eyeY, FluidTags.WATER);
+            }
+            // Entity#updateFluidOnEyes: the float top of the fluid in the eye's block is over the eye.
+            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5)) {
+                float level = (float) player.compensatedWorld.getWaterFluidLevelAt(feet.x, eyeY, feet.z);
+                return (float) Math.floor(eyeY) + level > eyeY;
+            }
         }
+        // Before 1.20.5 Entity#updateFluidOnEyes samples 0.11111111F under the eye; Bedrock movement keeps that rule.
         double legacyEyeY = eyeY - 0.1111111119389534D;
         return legacyEyeY
                 < (float) Math.floor(legacyEyeY)
@@ -131,30 +145,12 @@ public final class ClientFluidQueries {
         if (usesTagBasedFluidRules(player)) {
             return DesyncStatus.fromBoolean(clientTags(player)
                             .entities()
-                            .getOrDefault(CAN_FLOAT_WHILE_RIDDEN, java.util.List.of())
+                            .getOrDefault(CAN_FLOAT_WHILE_RIDDEN, List.of())
                             .contains(EntityTypeUtil.modelType(vehicle.type).key())
                     && depth(player, context.getFromMinimumExtent(), FluidTags.ENTITY_FLOATABLE) > 0.4D);
         }
         if (!EntityTypeUtil.canFloatWhileRidden(vehicle.type) || !(waterDepth > 0.4D)) return DesyncStatus.FALSE;
         return waterTimingUncertain ? DesyncStatus.UNKNOWN : DesyncStatus.fromBoolean(inWater);
-    }
-
-    public static int liquidMaximum(ClientVersion version, double maximum) {
-        return version.isNewerThanOrEquals(ClientVersion.V_26_3)
-                ? (int) Math.floor(maximum)
-                : (int) Math.ceil(maximum) - 1;
-    }
-
-    public static boolean containsAnyLiquid(CompensatedWorld world, SimpleCollisionBox box, ClientVersion version) {
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        for (int x = (int) Math.floor(box.minX); x <= liquidMaximum(version, box.maxX); x++) {
-            for (int y = (int) Math.floor(box.minY); y <= liquidMaximum(version, box.maxY); y++) {
-                for (int z = (int) Math.floor(box.minZ); z <= liquidMaximum(version, box.maxZ); z++) {
-                    if (!fluidAt(world, pos.set(x, y, z)).isEmpty()) return true;
-                }
-            }
-        }
-        return false;
     }
 
     public static double depth(CultPlayer player, SimpleCollisionBox entityBox, FluidTags tag) {
@@ -189,7 +185,9 @@ public final class ClientFluidQueries {
             float ordinaryHeight = height(player.compensatedWorld, pos, fluid);
             if ((double) y + ordinaryHeight < box.minY || eyeY < y) continue;
             BlockPos above = pos.above();
-            float eyeHeight = fluid.isSource()
+            // 26.3 measures the eye against FluidState#getHeightForCamera, 26.1 and 26.2 against FluidState#getHeight.
+            float eyeHeight = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
+                            && fluid.isSource()
                             && player.compensatedWorld
                                     .geometry()
                                     .isFaceSturdy(

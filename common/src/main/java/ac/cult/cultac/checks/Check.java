@@ -5,13 +5,14 @@ import ac.cult.cultac.checks.verdict.FlagArbiter;
 import ac.cult.cultac.checks.verdict.FlagOutcome;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.event.events.FlagEvent;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.api.storage.verbose.VerboseBuf;
 import ac.grim.grimac.api.storage.verbose.VerboseRenderContext;
-import ac.grim.grimac.internal.storage.verbose.VerboseRegistry;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.AccessLevel;
@@ -100,7 +101,7 @@ public class Check extends CultProcessor implements AbstractCheck {
         this.defaultDecay = checkInfo.getDecay();
         this.defaultSetbackVL = checkInfo.getSetback();
         this.alternativeName = checkInfo.getAltName();
-        this.experimental = checkInfo.isExperimental();
+        this.experimental = false;
         this.defaultDescription = checkInfo.getDescription();
         this.stableKey = Objects.requireNonNull(checkInfo.getStableKey(), "checkInfo.stableKey");
         this.displayName = this.checkName;
@@ -123,7 +124,6 @@ public class Check extends CultProcessor implements AbstractCheck {
     }
 
     /**
-     * Evaluated once when CheckManager builds the dispatch arrays.
      * Implementations must only depend on immutable connection properties.
      */
     public boolean isApplicable() {
@@ -132,10 +132,15 @@ public class Check extends CultProcessor implements AbstractCheck {
 
     public final void updatePermissions() {
         if (configName == null) return;
-        final String id = configName.toLowerCase();
+        final String id = permissionId(configName);
         exemptPermission = player.hasPermission("cult.exempt." + id);
         noSetbackPermission = player.hasPermission("cult.nosetback." + id);
         noModifyPacketPermission = player.hasPermission("cult.nomodifypacket." + id);
+    }
+
+    /** The lower-case check id in this check's permission nodes, whatever the default locale. */
+    public static String permissionId(String configName) {
+        return configName.toLowerCase(Locale.ROOT);
     }
 
     public final boolean flag() {
@@ -173,10 +178,8 @@ public class Check extends CultProcessor implements AbstractCheck {
         if (player.isDisabled() || (experimental && !player.isExperimentalChecks()) || exemptPermission)
             return false; // Avoid calling event if disabled
 
-        if (FLAG_CHANNEL.fire(
-                ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
-                ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(this),
-                verbose)) return false;
+        if (FLAG_CHANNEL.fire(RuntimeEnvironment.outwardUser(player), RuntimeEnvironment.outwardCheck(this), verbose))
+            return false;
 
         FlagArbiter arbiter = player.getFlagArbiter();
         if (arbiter == null || !defer(arbiter, verbose, null, alertText)) commitFlag(null, alertText);
@@ -191,9 +194,9 @@ public class Check extends CultProcessor implements AbstractCheck {
             return false; // Avoid calling event if disabled
 
         if (FLAG_CHANNEL.fire(
-                ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
-                ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(this),
-                ac.cult.cultac.runtime.RuntimeEnvironment.outwardVerbose(rendered))) return false;
+                RuntimeEnvironment.outwardUser(player),
+                RuntimeEnvironment.outwardCheck(this),
+                RuntimeEnvironment.outwardVerbose(rendered))) return false;
 
         FlagArbiter arbiter = player.getFlagArbiter();
         if (arbiter == null || !defer(arbiter, rendered, verboseData, alertText)) commitFlag(verboseData, alertText);
@@ -238,14 +241,6 @@ public class Check extends CultProcessor implements AbstractCheck {
                         player.getClientVersion().getProtocolVersion(),
                         CultAPI.INSTANCE.getPlatformServer().getPlatformImplementationString())));
         return new BinaryVerbose(verboseData, rendered);
-    }
-
-    public final void registerVerboseTemplates(@Nullable VerboseRegistry registry) {
-        if (registry == null || stableKey.isEmpty()) return;
-        String pluginVersion = CultAPI.INSTANCE.getExternalAPI().getGrimVersion();
-        for (Verbose template : Verbose.declaredBy(getClass(), Check.class)) {
-            registry.registerTemplate(stableKey, checkName, description, pluginVersion, template);
-        }
     }
 
     protected final @NotNull VerboseBuf verbose() {
@@ -299,10 +294,6 @@ public class Check extends CultProcessor implements AbstractCheck {
 
     @Override
     public void onReload(@NotNull ConfigManager config) {}
-
-    public boolean alert(String verbose) {
-        return alert(constant(verbose));
-    }
 
     public boolean alert(@NotNull Supplier<String> verbose) {
         return player.punishmentManager.handleAlert(player, memoize(Objects.requireNonNull(verbose, "verbose")), this);

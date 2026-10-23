@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.visibility;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.value.EntityPose;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySizeable;
@@ -23,8 +24,7 @@ final class CameraEyeHeight {
                 default -> 1.62F;
             };
         } else if (entity instanceof PacketEntityArmorStand stand) {
-            var shape = stand.actionBounds(
-                    new ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox(0, 0, 0, 0, 0, 0));
+            var shape = stand.actionBounds(new SimpleCollisionBox(0, 0, 0, 0, 0, 0));
             if (stand.actionMarker()) height = 0;
             else if (shape.maxY() < EntityTypeUtil.modelType(entity.type).height() * entity.scale) height = .9875F;
         } else if (entity instanceof PacketEntitySizeable sizeable) {

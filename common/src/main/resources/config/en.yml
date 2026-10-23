@@ -40,9 +40,9 @@ spectators:
 # How long should players have until we kick them for timing out? Default = 60 seconds
 max-transaction-time: 60
 
-# When CultAC itself fails (it cannot attach to a player, the client version is unsupported, or no ping is
-# answered within max-transaction-time), let the player play uninspected instead of disconnecting them.
-# Kicks for packet floods and crash exploits still apply.
+# When CultAC itself fails (it cannot attach to a player or the client version is unsupported), let the player
+# play uninspected instead of disconnecting them. Kicks for packet floods, crash exploits and pings left
+# unanswered past max-transaction-time still apply.
 launch-safety:
   fail-open: true
 
@@ -260,6 +260,14 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
+  # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
+  # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
+  perf: false
+  # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
+  # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
+  # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
+  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  team-sync: false
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.

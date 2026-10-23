@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager.init.start;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.events.packets.PacketModelRegistryNames;
 import ac.cult.cultac.events.packets.PacketPluginMessage;
 import ac.cult.cultac.events.packets.PacketServerPlayerRotation;
 import ac.cult.cultac.events.packets.PacketServerRegistries;
@@ -22,6 +23,7 @@ import ac.cult.cultac.events.packets.listeners.PlayerInfoListener;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.event.PacketListenerPriority;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 
 public class PacketManager implements StartableInitable {
@@ -81,19 +83,18 @@ public class PacketManager implements StartableInitable {
             registrar.registerSendListener(PacketListenerPriority.HIGH, worldReader);
 
             PlayerInfoListener playerInfoListener = new PlayerInfoListener();
-            // PacketHidePlayerInfo was pre-Via HIGHEST. Keep its replacement last so
-            // compensation observes the real packet before spectate visibility rewrites it.
+            // HIGHEST keeps this listener last, so compensation observes the real packet before spectate
+            // visibility rewrites it.
             registrar.registerSendListener(PacketListenerPriority.HIGHEST, playerInfoListener);
 
             // Proxy details may arrive before a CultPlayer exists.
             registrar.receiveConnection(
-                    ac.cult.cultac.protocol.packet.ServerboundPackets.CUSTOM_PAYLOAD,
+                    ServerboundPackets.CUSTOM_PAYLOAD,
                     PacketListenerPriority.NORMAL,
                     new PacketPluginMessage()::handle);
             registrar.registerSendListener(PacketListenerPriority.LOW, new PacketServerPlayerRotation());
             registrar.registerSendListener(PacketListenerPriority.NORMAL, new PacketServerRegistries());
-            registrar.registerSendListener(
-                    PacketListenerPriority.LOWEST, new ac.cult.cultac.events.packets.PacketModelRegistryNames());
+            registrar.registerSendListener(PacketListenerPriority.LOWEST, new PacketModelRegistryNames());
         });
     }
 }

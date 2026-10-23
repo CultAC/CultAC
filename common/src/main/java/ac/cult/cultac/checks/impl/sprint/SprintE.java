@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.sprint;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -61,9 +62,8 @@ public final class SprintE extends Check implements PostPredictionListener {
             }
         }
 
-        wasHardHorizontalCollision = checked
-                && result.getCollideAxisData() != null
-                && result.getCollideAxisData().couldCollideHorizontally();
+        wasHardHorizontalCollision =
+                checked && ClientHorizontalCollision.hard(result).determinePessimistically();
         previousPredictionChecked = checked;
         startedSprintingThisTick = false;
     }

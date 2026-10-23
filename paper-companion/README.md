@@ -11,7 +11,7 @@ it is installed on.
 
 - The proxy jar (`CultAC-velocity.jar`) is built against the Velocity 3.4.0 API for Java 21, and loads on Velocity
   3.5.1 and 4.2.0.
-- The companion is built against Paper 26.3 and runs on Paper 1.21.11 and 26.3, on Java 21 or newer. The Paper
+- The companion is built against Paper 26.3 and runs on Paper 1.21.2 through 26.3, on Java 21 or newer. The Paper
   versions in the [root README](../README.md) apply to the standalone CultAC plugin, not to the companion.
   `./gradlew :paper-companion:checkPaperLinkage -PpaperLinkageServer=<dir>` checks that the jar links against an
   older server; `<dir>` holds the `versions/` and `libraries/` of a Paper paperclip run with
@@ -44,8 +44,9 @@ it is installed on.
 - With the forwarding secret, every backend that shares it can bridge. Any plugin on a bridged backend can then run
   CultAC commands as the proxy console (including `/cult reload` and `/cult sendalert`) or as any player connected to
   that backend with that player's proxy permissions, cancel flags and punishments for players on that backend, and
-  see the checks and flags of those players. The loader's `/cult update`, `/cult devswap` and `/cult runtimes` are
-  refused from a backend for every sender. Set a separate `bridge.secret` (step 2) to limit bridging to the
+  see the checks and flags of those players. The loader's `/cult update`, `/cult devswap` and `/cult runtimes`, and
+  the cloud upload's `/cult cloud`, `/cult findings`, `/cult top` and `/cult label`, are refused from a backend for
+  every sender. Set a separate `bridge.secret` (step 2) to limit bridging to the
   backends you configure with it. Every backend the proxy connects to receives a handshake it can check guesses
   against offline, so that secret must be long and random; both sides warn when it is shorter than 16 bytes.
 - The proxy limits the rate of command, suggestion and alert-toggle messages from each bridged connection, with

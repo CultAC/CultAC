@@ -18,8 +18,7 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
         description = "Sent packets after movement before the expected client tick end",
         experimental = true)
 public class PacketOrderO extends Check implements CheckListener {
-    // Raw NMS exposes a namespaced packet type rather than PacketEvents' per-version
-    // integer. Preserve the same semantic value with the transport-native string tag.
+    // Raw NMS exposes a namespaced packet type; the verbose records that string tag.
     private static final Verbose V = Verbose.of("type={str}");
 
     private boolean flying;

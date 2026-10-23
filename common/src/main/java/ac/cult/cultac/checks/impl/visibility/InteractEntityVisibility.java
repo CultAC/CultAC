@@ -25,6 +25,6 @@ public final class InteractEntityVisibility extends VisibilityCheck {
         var entity = player.compensatedEntities.getEntity(packet.entityId());
         if (entity == null) return;
         if (visibility.entityInteractionHidden(entity))
-            reject(event, "action=" + packet.action() + " entity=" + packet.entityId());
+            reject(event, "action=" + packet.action() + ", " + type(entity));
     }
 }

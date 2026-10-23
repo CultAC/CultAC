@@ -1,16 +1,27 @@
 package ac.cult.cultac.manager.player;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.blocksim.environment.ClientWorldDefaults;
+import ac.cult.cultac.network.codec.ModelItemValues;
+import ac.cult.cultac.network.codec.ModelRegistryNamesState;
+import ac.cult.cultac.network.codec.ObservedPacketValues;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolCodecs;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.WireValueDecoder;
+import ac.cult.cultac.protocol.data.RegistryNames;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.inventory.InventoryStorage;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
 
 final class SmoketestSnapshotBridge {
     private static final String CHANNEL = "cult:smoketest_snapshot";
@@ -47,7 +58,7 @@ final class SmoketestSnapshotBridge {
         // RC1 transformer components can make an unchanged snapshot exceed the
         // vanilla custom-payload limit. Compression preserves every comparison.
         if (data.length >= 2 && data[0] == (byte) 0x1f && data[1] == (byte) 0x8b) {
-            try (var compressed = new java.util.zip.GZIPInputStream(new ByteArrayInputStream(data))) {
+            try (var compressed = new GZIPInputStream(new ByteArrayInputStream(data))) {
                 data = compressed.readNBytes(1024 * 1024 + 1);
                 if (data.length > 1024 * 1024) throw new IOException("snapshot exceeds 1 MiB");
             }
@@ -63,7 +74,7 @@ final class SmoketestSnapshotBridge {
             throw new IOException("unsupported version " + version);
         }
 
-        int sourceProtocol = version == 6 ? input.readInt() : ac.cult.cultac.protocol.ProtocolVersion.V26_3.protocol();
+        int sourceProtocol = version == 6 ? input.readInt() : ProtocolVersion.V26_3.protocol();
 
         int tick = input.readInt();
         String scenario = input.readUTF();
@@ -129,36 +140,33 @@ final class SmoketestSnapshotBridge {
         }
 
         InventoryStorage storage = player.getInventory().inventory.getInventoryStorage();
-        var names = player.user.getCultConnection().require(ac.cult.cultac.protocol.data.RegistryNames.class);
-        var modelNames = ac.cult.cultac.network.codec.ModelRegistryNamesState.defaults();
-        var builtin =
-                ac.cult.blocksim.environment.ClientWorldDefaults.defaults().builtinRegistries();
-        var sourceVersion = ac.cult.cultac.protocol.ProtocolVersion.of(snapshot.sourceProtocol());
+        var names = player.user.getCultConnection().require(RegistryNames.class);
+        var modelNames = ModelRegistryNamesState.defaults();
+        var builtin = ClientWorldDefaults.defaults().builtinRegistries();
+        var sourceVersion = ProtocolVersion.of(snapshot.sourceProtocol());
         var sourceValues = player.user.getCultConnection().platform().packetValues(player.user.getCultConnection());
-        var nativeNames = sourceValues instanceof ac.cult.cultac.network.codec.ObservedPacketValues observed
-                ? observed.sourceRegistries()
-                : null;
-        var values = new ac.cult.cultac.network.codec.ModelItemValues(
-                ac.cult.cultac.protocol.ProtocolCodecs.decoder(),
+        var nativeNames = sourceValues instanceof ObservedPacketValues observed ? observed.sourceRegistries() : null;
+        var values = new ModelItemValues(
+                ProtocolCodecs.decoder(),
                 sourceVersion,
-                new ac.cult.cultac.protocol.WireValueDecoder.Registries() {
+                new WireValueDecoder.Registries() {
                     // Version 6 carries the real client's wire schema; version 5
                     // carries the model schema. Dynamic IDs are received registries.
                     @Override
                     public String name(String registry, int id) {
-                        if (sourceVersion != ac.cult.cultac.protocol.ProtocolVersion.V26_3 && nativeNames != null)
+                        if (sourceVersion != ProtocolVersion.V26_3 && nativeNames != null)
                             return nativeNames.name(registry, id);
                         return (builtin.contains(registry) ? modelNames : names).name(registry, id);
                     }
 
                     @Override
                     public int id(String registry, String name) {
-                        if (sourceVersion != ac.cult.cultac.protocol.ProtocolVersion.V26_3 && nativeNames != null)
+                        if (sourceVersion != ProtocolVersion.V26_3 && nativeNames != null)
                             return nativeNames.id(registry, name);
                         return (builtin.contains(registry) ? modelNames : names).id(registry, name);
                     }
                 },
-                ac.cult.cultac.utils.inventory.ItemUtil.modelItems());
+                ItemUtil.modelItems());
         for (ItemSnapshot item : snapshot.inventory()) {
             compareItem(values, mismatches, "inventory", item, storage.getItem(item.slot()));
         }
@@ -209,13 +217,9 @@ final class SmoketestSnapshotBridge {
     }
 
     private static void compareItem(
-            ac.cult.cultac.network.codec.ModelItemValues values,
-            List<String> mismatches,
-            String owner,
-            ItemSnapshot expected,
-            ac.cult.blocksim.engine.SimItemStack item) {
-        var cult = item == null ? ac.cult.blocksim.engine.SimItemStack.EMPTY : item;
-        var client = ac.cult.blocksim.engine.SimItemStack.EMPTY;
+            ModelItemValues values, List<String> mismatches, String owner, ItemSnapshot expected, SimItemStack item) {
+        var cult = item == null ? SimItemStack.EMPTY : item;
+        var client = SimItemStack.EMPTY;
         if (expected.components().length > 0) {
             var input = io.netty.buffer.Unpooled.wrappedBuffer(expected.components());
             try {

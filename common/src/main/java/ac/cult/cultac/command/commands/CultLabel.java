@@ -3,9 +3,10 @@ package ac.cult.cultac.command.commands;
 import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.cloud.labels.LabelRequest;
 import ac.cult.cultac.command.BuildableCommand;
+import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
-import com.google.gson.JsonElement;
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.google.gson.JsonObject;
 import java.util.List;
 import java.util.UUID;
@@ -26,15 +27,19 @@ import org.jetbrains.annotations.Nullable;
  * Staff labels in the cloud's label ledger, each argument tab-completed:
  * <ul>
  *   <li>{@code /cult label <player> <cheat> <high|extreme> <24h|3d|7d|30d> [note…]}: the cheat, positive
- *   <li>{@code /cult label <player> clean <high|extreme> <24h|3d|7d|30d> [note…]}: every check, negative
+ *   <li>{@code /cult label <player> clean <high|extreme> [note…]}: every check, negative, with no span: the player's
+ *   stored play and all play from now on, until revoked
  *   <li>{@code /cult label list <player>} and {@code /cult label revoke <id> [reason…]}
+ *   <li>{@code /cult label <player>}: the label menu, where the platform draws one ({@link LabelMenu})
  * </ul>
- * The span ends when the label is sent. Calls go out with the server's key, off the calling thread, once each, naming
+ * A cheat label's span ends when it is sent. Calls go out with the server's key, off the calling thread, once each, naming
  * the sending player's UUID: the service takes them only from a moderator (or above) of the key's organization with
  * that Minecraft account on their profile, so the console only lists. Every invocation answers the sender, whatever
  * fails.
  */
 public class CultLabel implements BuildableCommand {
+    private static volatile @Nullable LabelMenu menu;
+
     static final String DEFAULT_REVOKE_REASON = "revoked in game";
     static final String PLAYERS_ONLY =
             "Labels are made in game by a player whose Minecraft account is on their cloud profile.";
@@ -50,14 +55,13 @@ public class CultLabel implements BuildableCommand {
                 .required("id", StringParser.stringParser())
                 .optional("reason", StringParser.greedyStringParser())
                 .handler(this::handleRevoke));
-        commandManager.command(chosen(label(commandManager)
+        commandManager.command(note(confidence(label(commandManager)
                         .required("player", StringParser.stringParser(), CloudArguments.players())
-                        .literal("clean"))
+                        .literal("clean")))
                 .handler(context -> handleLabel(
                         context,
                         () -> LabelRequest.clean(
                                 context.get("confidence"),
-                                context.get("span"),
                                 context.<String>optional("note").orElse(null)))));
         commandManager.command(chosen(label(commandManager)
                         .required("player", StringParser.stringParser(), CloudArguments.players())
@@ -69,21 +73,54 @@ public class CultLabel implements BuildableCommand {
                                 context.get("confidence"),
                                 context.get("span"),
                                 context.<String>optional("note").orElse(null)))));
+        LabelMenu installed = menu;
+        if (installed != null) {
+            commandManager.command(label(commandManager)
+                    .required("player", StringParser.stringParser(), CloudArguments.players())
+                    .handler(context -> handleMenu(context, installed)));
+        }
+    }
+
+    /** Installs the label menu the platform draws; commands registered after this offer it. */
+    static void menu(@Nullable LabelMenu installed) {
+        menu = installed;
     }
 
     private static Command.Builder<Sender> label(CommandManager<Sender> commandManager) {
-        return commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
-                .literal("label")
-                .permission(CloudArguments.LABEL);
+        return BuildableCommand.root(commandManager).literal("label").permission(CloudArguments.LABEL);
     }
 
-    /** The confidence, span and note every label takes. */
+    /** The confidence, span and note a cheat label takes. */
     private static Command.Builder<Sender> chosen(Command.Builder<Sender> builder) {
+        return note(confidence(builder)
+                .required("span", StringParser.stringParser(), CloudArguments.of(() -> LabelRequest.Span.wires())));
+    }
+
+    private static Command.Builder<Sender> confidence(Command.Builder<Sender> builder) {
         return builder.required(
-                        "confidence", StringParser.stringParser(), CloudArguments.of(() -> LabelRequest.CONFIDENCES))
-                .required("span", StringParser.stringParser(), CloudArguments.of(() -> LabelRequest.Span.wires()))
-                .optional("note", StringParser.greedyStringParser());
+                "confidence", StringParser.stringParser(), CloudArguments.of(() -> LabelRequest.CONFIDENCES));
+    }
+
+    private static Command.Builder<Sender> note(Command.Builder<Sender> builder) {
+        return builder.optional("note", StringParser.greedyStringParser());
+    }
+
+    /** Opens {@code menu} on the named player for a staff member it can be shown to; anyone else is told why not. */
+    private void handleMenu(CommandContext<Sender> context, LabelMenu menu) {
+        Sender sender = context.sender();
+        answering(sender, () -> {
+            UUID labellerId = labellerId(sender);
+            if (labellerId == null) return;
+            if (!menu.showable(sender)) {
+                sender.sendMessage(Component.text(LabelLines.javaOnly(), NamedTextColor.RED));
+                return;
+            }
+            if (!CloudArguments.labelingAllowed(sender)) return;
+            LabelClient client = client(sender);
+            if (client == null) return;
+            CloudArguments.resolve(
+                    sender, context.get("player"), target -> menu.open(sender, labellerId, client, target));
+        });
     }
 
     /** {@code parsed} throws {@link IllegalArgumentException} naming what is wrong with the arguments. */
@@ -102,24 +139,22 @@ public class CultLabel implements BuildableCommand {
             if (!CloudArguments.labelingAllowed(sender)) return;
             LabelClient client = client(sender);
             if (client == null) return;
-            String input = context.get("player");
-            sender.sendMessage(Component.text("Labelling " + input + "…", NamedTextColor.GRAY));
-            CloudArguments.resolve(sender, input, target -> {
+            CloudArguments.resolve(sender, context.get("player"), target -> {
                 JsonObject label = request.body(target.id(), System.currentTimeMillis(), sender.getName(), labellerId);
-                call(sender, client.post(label), body -> {
-                    List<String> ids = LabelClient.ids(body);
-                    sender.sendMessage(
-                            Component.text(labelledMessage(target.name(), request, ids.size()), NamedTextColor.GRAY));
-                    for (String id : ids) sender.sendMessage(id(id));
-                });
+                call(
+                        sender,
+                        client.post(label),
+                        reply -> sender.sendMessage(
+                                Component.text(labelledMessage(target.name(), request), NamedTextColor.GREEN)));
             });
         });
     }
 
-    static String labelledMessage(String player, LabelRequest request, int labels) {
+    static String labelledMessage(String player, LabelRequest request) {
         String what = request.clean() ? "clean across all checks" : request.cheat();
-        return "Labelled " + player + " " + what + ", " + request.confidence() + " ("
-                + request.span().display() + "): " + (labels == 0 ? "no label ids returned" : labels + " label(s)");
+        LabelRequest.Span span = request.span();
+        return "Labelled " + player + " " + what + ", " + request.confidence()
+                + (span == null ? "" : " (" + span.display() + ")");
     }
 
     private void handleList(CommandContext<Sender> context) {
@@ -132,16 +167,19 @@ public class CultLabel implements BuildableCommand {
             CloudArguments.resolve(
                     sender,
                     input,
-                    target -> call(sender, client.list(target.id()), body -> {
-                        List<JsonObject> labels = LabelClient.labels(body);
+                    target -> call(sender, client.list(target.id()), reply -> {
+                        List<JsonObject> labels = LabelClient.labels(reply.body());
                         if (labels.isEmpty()) {
                             sender.sendMessage(
                                     Component.text("No labels for " + target.name() + ".", NamedTextColor.GRAY));
                             return;
                         }
+                        String count = labels.size() < LabelClient.MAX_RESULTS
+                                ? String.valueOf(labels.size())
+                                : "the first " + labels.size();
                         sender.sendMessage(Component.text(
-                                "Labels for " + target.name() + " (" + labels.size() + ")", NamedTextColor.GRAY));
-                        for (JsonObject label : labels) sender.sendMessage(listed(label));
+                                "Labels for " + target.name() + " (" + count + ")", NamedTextColor.GRAY));
+                        for (JsonObject label : labels) sender.sendMessage(listed(label, reply));
                     }));
         });
     }
@@ -166,7 +204,7 @@ public class CultLabel implements BuildableCommand {
             call(
                     sender,
                     client.revoke(id, sender.getName(), labellerId, reason),
-                    body -> sender.sendMessage(Component.text("Revoked label " + id + ".", NamedTextColor.GRAY)));
+                    reply -> sender.sendMessage(Component.text("Revoked label " + id + ".", NamedTextColor.GRAY)));
         });
     }
 
@@ -177,7 +215,7 @@ public class CultLabel implements BuildableCommand {
         return null;
     }
 
-    private static @Nullable LabelClient client(Sender sender) {
+    static @Nullable LabelClient client(Sender sender) {
         LabelClient client = LabelClient.configured();
         if (client == null) sender.sendMessage(Component.text(CloudArguments.NOT_CONFIGURED, NamedTextColor.RED));
         return client;
@@ -188,12 +226,26 @@ public class CultLabel implements BuildableCommand {
         try {
             action.run();
         } catch (RuntimeException failed) {
-            sender.sendMessage(Component.text(
-                    "The label command failed: " + failed.getClass().getSimpleName() + ".", NamedTextColor.RED));
+            tell(
+                    sender,
+                    Component.text(
+                            "The label command failed: " + failed.getClass().getSimpleName() + ".",
+                            NamedTextColor.RED));
         }
     }
 
-    private static void call(Sender sender, CompletableFuture<LabelClient.Reply> call, Consumer<String> success) {
+    /** Sends {@code message} unless {@code sender} can no longer be told, such as a player who left. */
+    static void tell(Sender sender, Component message) {
+        try {
+            sender.sendMessage(message);
+        } catch (RuntimeException gone) {
+            LogUtil.debug("Label answer for " + sender.getName() + " dropped: "
+                    + gone.getClass().getSimpleName());
+        }
+    }
+
+    private static void call(
+            Sender sender, CompletableFuture<LabelClient.Reply> call, Consumer<LabelClient.Reply> success) {
         call.whenComplete((reply, error) -> answering(sender, () -> {
             if (error != null) {
                 sender.sendMessage(Component.text(
@@ -202,34 +254,32 @@ public class CultLabel implements BuildableCommand {
                 sender.sendMessage(
                         Component.text("Label request failed: " + LabelClient.failure(reply), NamedTextColor.RED));
             } else {
-                success.accept(reply.body());
+                success.accept(reply);
             }
         }));
     }
 
+    /** A label id, offered for revoking only when it is a UUID. */
     private static Component id(String id) {
+        if (!LabelClient.isId(id)) return Component.text("  " + id, NamedTextColor.WHITE);
         return Component.text("  " + id, NamedTextColor.WHITE)
-                .clickEvent(ClickEvent.suggestCommand("/cult label revoke " + id + " "))
+                .clickEvent(ClickEvent.suggestCommand(CloudCommandService.command("label revoke " + id + " ")))
                 .hoverEvent(HoverEvent.showText(Component.text("Click to revoke", NamedTextColor.GRAY)));
     }
 
-    /** A label as {@code list} shows it: cheat, value, source, labeller, and whether it is revoked. */
-    private static Component listed(JsonObject label) {
-        String line = text(label, "cheat") + " " + text(label, "value") + " · " + text(label, "source") + " by "
-                + text(label, "labeller") + " · " + text(label, "createdAt");
+    /**
+     * A label from {@code reply} as {@code list} shows it: cheat, value, source, labeller, and whether it is revoked.
+     */
+    static Component listed(JsonObject label, LabelClient.Reply reply) {
+        String line = LabelClient.field(label, "cheat", reply) + " " + LabelClient.field(label, "value", reply) + " · "
+                + LabelClient.field(label, "source", reply) + " by " + LabelClient.field(label, "labeller", reply)
+                + " · " + LabelClient.field(label, "createdAt", reply);
         boolean revoked = label.has("revokedAt") && !label.get("revokedAt").isJsonNull();
         return Component.text()
-                .append(id(text(label, "id")))
+                .append(id(LabelClient.field(label, "id", reply)))
                 .append(Component.text(
                         " " + line + (revoked ? " (revoked)" : ""),
                         revoked ? NamedTextColor.DARK_GRAY : NamedTextColor.GRAY))
-                .build();
-    }
-
-    private static String text(JsonObject object, String key) {
-        JsonElement value = object.get(key);
-        return value == null || value.isJsonNull()
-                ? "?"
-                : value.isJsonPrimitive() ? value.getAsString() : value.toString();
+                .asComponent();
     }
 }

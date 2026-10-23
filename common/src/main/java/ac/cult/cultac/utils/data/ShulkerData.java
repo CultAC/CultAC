@@ -27,7 +27,6 @@ public class ShulkerData {
     public PacketEntity entity = null;
     public BlockPos blockPos = null;
 
-    // Calculate if the player has no-push, and when to end the possibility of applying piston
     private int ticksOfOpeningClosing = 0;
 
     public ShulkerData(BlockPos position, int lastTransactionSent, boolean isClosing) {

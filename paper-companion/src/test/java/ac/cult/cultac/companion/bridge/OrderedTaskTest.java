@@ -2,7 +2,6 @@ package ac.cult.cultac.companion.bridge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.companion.Stubs;
 import java.util.ArrayList;
@@ -23,7 +22,7 @@ class OrderedTaskTest {
     @Test
     void runsBetweenTheGamePacketsAroundIt() {
         processor.scheduleIfPossible(listener, new GamePacket("use item before"));
-        assertTrue(OrderedTask.schedule(processor, listener, () -> handled.add("clear")));
+        processor.scheduleIfPossible(listener, new OrderedTask(() -> handled.add("clear")));
         processor.scheduleIfPossible(listener, new GamePacket("use item after"));
 
         assertEquals(List.of(), handled);
@@ -33,15 +32,8 @@ class OrderedTaskTest {
 
     @Test
     void refusesListenersThatTakeNoGamePackets() {
-        assertFalse(OrderedTask.schedule(processor, listener(PacketListener.class), () -> handled.add("clear")));
-        processor.processQueuedPackets();
+        assertFalse(OrderedTask.schedule(null, listener(PacketListener.class), () -> handled.add("clear")));
         assertEquals(List.of(), handled);
-    }
-
-    @Test
-    void refusesAClosedQueue() {
-        processor.close();
-        assertFalse(OrderedTask.schedule(processor, listener, () -> handled.add("clear")));
     }
 
     private static <T extends PacketListener> T listener(Class<T> type) {

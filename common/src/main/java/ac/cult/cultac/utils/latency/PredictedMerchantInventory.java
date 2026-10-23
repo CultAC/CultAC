@@ -17,7 +17,7 @@ final class PredictedMerchantInventory {
     private PredictedMerchantInventory() {}
 
     static void mirrorTrade(AbstractContainerMenu menu, List<MerchantOffer> offers, int selectedTrade) {
-        if (menu == null || offers == null || menu.getSlots().size() < PLAYER_SLOT_END) {
+        if (menu.getSlots().size() < PLAYER_SLOT_END) {
             return;
         }
 
@@ -25,7 +25,7 @@ final class PredictedMerchantInventory {
     }
 
     static void mirrorTradeSelection(AbstractContainerMenu menu, List<MerchantOffer> offers, int selectedTrade) {
-        if (menu == null || offers == null || menu.getSlots().size() < PLAYER_SLOT_END) {
+        if (menu.getSlots().size() < PLAYER_SLOT_END) {
             return;
         }
 
@@ -198,15 +198,11 @@ final class PredictedMerchantInventory {
 
     /** Temporary storage edge; the selection and conservation rules receive owned values. */
     static List<MerchantOfferSelection.Offer> values(List<MerchantOffer> offers) {
-        return offers == null
-                ? null
-                : offers.stream()
-                        .map(offer -> offer == null
-                                ? null
-                                : new MerchantOfferSelection.Offer(
-                                        ItemUtil.inventoryValue(offer.costA()), ItemUtil.inventoryValue(offer.costB()),
-                                        ItemUtil.inventoryValue(offer.result()), offer.outOfStock()))
-                        .toList();
+        return offers.stream()
+                .map(offer -> new MerchantOfferSelection.Offer(
+                        ItemUtil.inventoryValue(offer.costA()), ItemUtil.inventoryValue(offer.costB()),
+                        ItemUtil.inventoryValue(offer.result()), offer.outOfStock()))
+                .toList();
     }
 
     private static boolean isEmpty(SimItemStack stack) {

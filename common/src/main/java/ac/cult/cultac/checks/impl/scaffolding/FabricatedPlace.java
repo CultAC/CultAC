@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.scaffolding;
 
+import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
@@ -46,14 +47,14 @@ public class FabricatedPlace extends BlockPlaceCheck {
     @Override
     public void onBlockPlace(final BlockPlace place) {
         Vec3 cursor = place.getCursor();
-        if (cursor == null) return;
 
         // Determine if we allow up to 1.5 (Lecterns, Scaffolding, etc)
+        BlockDefinition placedAgainst = place.getPlacedAgainstMaterial();
         boolean isExtended = DataTables.defaults()
                         .registry()
-                        .facts(place.getPlacedAgainstMaterial().defaultState())
+                        .facts(placedAgainst.defaultState())
                         .has(StateFacts.LARGE_COLLISION)
-                || place.getPlacedAgainstMaterial() == BlockIds.LECTERN;
+                || placedAgainst == BlockIds.LECTERN;
 
         double maxBound = isExtended ? 1.5 : 1.0;
         double minBound = 1.0 - maxBound; // Usually 0.0

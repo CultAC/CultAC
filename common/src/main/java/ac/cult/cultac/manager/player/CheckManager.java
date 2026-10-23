@@ -10,6 +10,7 @@ import ac.cult.cultac.checks.impl.badpackets.*;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.breaking.*;
 import ac.cult.cultac.checks.impl.chat.*;
+import ac.cult.cultac.checks.impl.cloud.Cloud;
 import ac.cult.cultac.checks.impl.combat.EntityHitboxes;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -27,6 +28,7 @@ import ac.cult.cultac.checks.impl.exploit.ExploitF;
 import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
 import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.misc.GhostBlockMitigation;
+import ac.cult.cultac.checks.impl.misc.SkinBlinker;
 import ac.cult.cultac.checks.impl.movement.EntityControl;
 import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
@@ -73,12 +75,12 @@ import ac.cult.cultac.network.PacketSendRoute;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
-import ac.cult.cultac.platform.api.permissions.PermissionDefaultValue;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.PacketTypeTable;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
@@ -105,7 +107,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CheckManager {
     private static final List<Class<? extends CheckListener>> SEND_DISPATCH_LISTENER_TYPES = List.of(
@@ -127,16 +128,27 @@ public class CheckManager {
 
     private final CultPlayer player;
 
-    ClassToInstanceMap<CheckListener> packetChecks;
-    ClassToInstanceMap<CheckListener> positionCheck;
-    ClassToInstanceMap<RotationListener> rotationCheck;
-    ClassToInstanceMap<VehicleListener> vehicleCheck;
-    ClassToInstanceMap<CheckListener> identityChecks;
-    ClassToInstanceMap<CheckListener> prePredictionChecks;
+    final ClassToInstanceMap<CheckListener> packetChecks;
+    final ClassToInstanceMap<CheckListener> positionCheck;
+    final ClassToInstanceMap<RotationListener> rotationCheck;
+    final ClassToInstanceMap<VehicleListener> vehicleCheck;
+    final ClassToInstanceMap<CheckListener> identityChecks;
+    final ClassToInstanceMap<CheckListener> prePredictionChecks;
 
-    ClassToInstanceMap<BlockPlaceCheck> blockPlaceCheck;
-    ClassToInstanceMap<PostPredictionListener> postPredictionCheck;
-    ClassToInstanceMap<PostPredictionListener> pseudoCheck;
+    final ClassToInstanceMap<BlockPlaceCheck> blockPlaceCheck;
+    final ClassToInstanceMap<PostPredictionListener> postPredictionCheck;
+    final ClassToInstanceMap<PostPredictionListener> pseudoCheck;
+
+    // Dispatch snapshots of the immutable maps above, in their iteration order.
+    private final CheckListener[] positionUpdateListeners;
+    private final RotationListener[] rotationListeners;
+    private final VehicleListener[] vehicleListeners;
+    private final BlockPlaceCheck[] blockPlaceListeners;
+    private final PostPredictionListener[] predictionListeners;
+    private final PostPredictionListener[] pseudoListeners;
+    private final Map<Class<?>, CheckListener> listenersByClass;
+    private final PacketWorldBorder worldBorder;
+    private final SetbackBlocker setbackBlocker;
 
     List<BlockPlace> placesToCheck = new EvictingQueue<>(20);
 
@@ -144,20 +156,20 @@ public class CheckManager {
     private final List<CheckListener> postFlyingBlockBreakListeners = new ArrayList<>();
     private final List<BlockBreak> breaksToCheck = new EvictingQueue<>(20);
 
-    public ClassToInstanceMap<CheckListener> allCheckListeners;
+    public final ClassToInstanceMap<CheckListener> allCheckListeners;
 
     public final Map<Class<? extends Check>, Check> allChecks = new HashMap<>();
     private final PacketHandlerScanner recordScanner;
     private final List<TickEndHandlerRegistration> tickEndHandlers = new ArrayList<>();
-    /** Set on the packet thread while a tick end's handlers run. */
+    /** Set on the packet thread while a received tick end's handlers run; synthetic recovery cuts no capture frame. */
     private boolean dispatchingTickEnd;
 
-    private Map<PacketType<?>, PacketReceiveRoute<Object>> earlyReceiveRoutes = Map.of();
+    private PacketTypeTable<PacketReceiveRoute<Object>> earlyReceiveRoutes = PacketTypeTable.empty();
     private final List<DecodedPacketReceiveListener> decodedReceiveListeners = new ArrayList<>();
     private final List<PacketReceiveHandler<ServerboundPacket>> nonAsyncReceiveHandlers = new ArrayList<>();
-    private Map<PacketType<?>, PacketReceiveRoute<Object>> prePredictionReceiveRoutes = Map.of();
-    private Map<PacketType<?>, PacketReceiveRoute<Object>> receiveRoutes = Map.of();
-    private Map<PacketType<?>, PacketSendRoute<Object>> sendRoutes = Map.of();
+    private PacketTypeTable<PacketReceiveRoute<Object>> prePredictionReceiveRoutes = PacketTypeTable.empty();
+    private PacketTypeTable<PacketReceiveRoute<Object>> receiveRoutes = PacketTypeTable.empty();
+    private PacketTypeTable<PacketSendRoute<Object>> sendRoutes = PacketTypeTable.empty();
 
     public Collection<Check> getAllChecks() {
         return allChecks.values();
@@ -196,6 +208,32 @@ public class CheckManager {
                 .putAll(prePredictionChecks)
                 .putAll(pseudoCheck)
                 .build();
+        listenersByClass = new IdentityHashMap<>(allCheckListeners);
+        worldBorder = getListener(PacketWorldBorder.class);
+        setbackBlocker = getListener(SetbackBlocker.class);
+
+        List<CheckListener> positionUpdates = new ArrayList<>();
+        for (var checks : List.of(prePredictionChecks, positionCheck, packetChecks)) {
+            for (CheckListener check : checks.values()) {
+                if (overridesPositionUpdate(check)) positionUpdates.add(check);
+            }
+        }
+        positionUpdateListeners = positionUpdates.toArray(CheckListener[]::new);
+
+        List<RotationListener> rotations = new ArrayList<>(rotationCheck.values());
+        for (BlockPlaceCheck check : blockPlaceCheck.values()) {
+            if (check instanceof RotationListener rotationListener) rotations.add(rotationListener);
+        }
+        rotationListeners = rotations.toArray(RotationListener[]::new);
+        vehicleListeners = vehicleCheck.values().toArray(VehicleListener[]::new);
+        blockPlaceListeners = blockPlaceCheck.values().toArray(BlockPlaceCheck[]::new);
+
+        List<PostPredictionListener> predictions = new ArrayList<>();
+        for (PostPredictionListener check : postPredictionCheck.values()) {
+            if (overridesPredictionComplete(check)) predictions.add(check);
+        }
+        predictionListeners = predictions.toArray(PostPredictionListener[]::new);
+        pseudoListeners = pseudoCheck.values().toArray(PostPredictionListener[]::new);
 
         for (CheckListener listener : allCheckListeners.values()) {
             if (listener instanceof BlockBreakListener) {
@@ -217,28 +255,6 @@ public class CheckManager {
                 check.reload();
             } else if (listener instanceof CultProcessor processor) {
                 processor.reload();
-            }
-        }
-
-        registerCheckPermissionsOnce();
-    }
-
-    private static final AtomicBoolean checkPermissionsRegistered = new AtomicBoolean(false);
-
-    private void registerCheckPermissionsOnce() {
-        if (checkPermissionsRegistered.getAndSet(true)) return;
-
-        final String[] permissions = {
-            "cult.exempt.", "cult.nosetback.", "cult.nomodifypacket.",
-        };
-
-        for (final Check check : allChecks.values()) {
-            if (check.getConfigName() == null) continue;
-            final String id = check.getConfigName().toLowerCase();
-            for (String permissionName : permissions) {
-                CultAPI.INSTANCE
-                        .getPermissionManager()
-                        .registerPermission(permissionName + id, PermissionDefaultValue.FALSE);
             }
         }
     }
@@ -287,6 +303,7 @@ public class CheckManager {
                 new ChatD(player),
                 new ChatE(player),
                 new ClientBrand(player),
+                new SkinBlinker(player),
                 new NoFallExecutor(player),
                 new PingA(player),
                 new TransactionOrder(player),
@@ -345,6 +362,7 @@ public class CheckManager {
                 new MultiActionsQ(player),
                 new MultiActionsR(player),
                 new MultiActionsS(player),
+                new MultiActionsT(player),
                 new MultiInteractA(player),
                 new MultiInteractB(player),
                 player.openWindow,
@@ -360,7 +378,7 @@ public class CheckManager {
                 new NoSwingBreak(player),
                 new FarBreak(player),
                 new InvalidBreak(player),
-                new PositionBreakA(player),
+                new PositionBreakA(player, visibility),
                 new PositionBreakB(player),
                 new MultiBreak(player),
                 new AutoclickerLimit(player),
@@ -389,7 +407,8 @@ public class CheckManager {
     // baseline. Keeping them out of callback lists preserves registration and
     // configuration without inventing behavior.
     private static ClassToInstanceMap<CheckListener> buildIdentityChecks(CultPlayer player) {
-        return listenerMap(List.<CheckListener>of(new VehicleC(player), new BedrockMovement(player)));
+        return listenerMap(
+                List.<CheckListener>of(new VehicleC(player), new BedrockMovement(player), new Cloud(player)));
     }
 
     private static ClassToInstanceMap<PostPredictionListener> buildPostPredictionChecks(CultPlayer player) {
@@ -478,6 +497,7 @@ public class CheckManager {
         return listenerMap(List.<PostPredictionListener>of(
                 new InvalidStep(player),
                 new NoSneakSlow(player),
+                new InputKeys(player),
                 new OmniSprint(player),
                 new NoFallPseudo(player),
                 new VerticalOffset(player),
@@ -507,7 +527,8 @@ public class CheckManager {
                 MultiActionsN.class,
                 MultiActionsP.class,
                 MultiActionsQ.class,
-                MultiActionsR.class)) {
+                MultiActionsR.class,
+                MultiActionsT.class)) {
             registerEarlyReceive(registrations, packetChecks.get(type));
         }
         registerEarlyReceive(registrations, postPredictionCheck.get(SprintH.class));
@@ -527,6 +548,7 @@ public class CheckManager {
         registerEarlyReceive(registrations, packetChecks.get(SelfInteract.class));
         registerEarlyReceive(registrations, packetChecks.get(MultiActionsA.class));
         registerEarlyReceive(registrations, packetChecks.get(MultiActionsE.class));
+        registerEarlyReceive(registrations, packetChecks.get(AirLiquidBreak.class));
         registerEarlyReceive(registrations, packetChecks.get(FastBreak.class));
         registerEarlyReceive(registrations, packetChecks.get(MultiBreak.class));
         registerEarlyReceive(registrations, packetChecks.get(NoSwingBreak.class));
@@ -567,6 +589,7 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(KeepAliveProcessor.class));
         registerReceive(registrations, packetChecks.get(BadPacketsO.class));
         registerReceive(registrations, packetChecks.get(ClientBrand.class));
+        registerReceive(registrations, packetChecks.get(SkinBlinker.class));
         registerReceive(registrations, packetChecks.get(NoFallExecutor.class));
         registerReceive(registrations, prePredictionChecks.get(ExploitA.class));
         registerReceive(registrations, prePredictionChecks.get(ExploitB.class));
@@ -616,6 +639,8 @@ public class CheckManager {
         registerTickEnd(positionCheck.get(CompensatedCooldown.class));
         registerTickEnd(packetChecks.get(MultiActionsH.class));
         registerTickEnd(postPredictionCheck.get(SprintH.class));
+        registerTickEnd(rotationCheck.get(MultiActionsO.class));
+        registerTickEnd(packetChecks.get(BadPacketsJ.class));
         registerTickEnd(player.openWindow);
 
         registerReceive(registrations, postPredictionCheck.get(Phase.class));
@@ -812,10 +837,44 @@ public class CheckManager {
     }
 
     private void buildPacketRoutes(PacketRegistrations registrations) {
-        earlyReceiveRoutes = registrations.receive.receiveRoutes(ReceiveStage.EARLY);
-        prePredictionReceiveRoutes = registrations.prePredictionReceive.receiveRoutes(ReceiveStage.ORDINARY);
-        receiveRoutes = registrations.receive.receiveRoutes(ReceiveStage.ORDINARY);
-        sendRoutes = registrations.send.sendRoutes();
+        earlyReceiveRoutes = PacketTypeTable.of(registrations.receive.receiveRoutes(ReceiveStage.EARLY));
+        prePredictionReceiveRoutes =
+                PacketTypeTable.of(registrations.prePredictionReceive.receiveRoutes(ReceiveStage.ORDINARY));
+        receiveRoutes = PacketTypeTable.of(registrations.receive.receiveRoutes(ReceiveStage.ORDINARY));
+        sendRoutes = PacketTypeTable.of(registrations.send.sendRoutes());
+    }
+
+    /** False only when the callback resolves to an interface's empty default, so skipping the call is a no-op. */
+    static boolean overridesPositionUpdate(CheckListener listener) {
+        return OVERRIDES_POSITION_UPDATE.get(listener.getClass());
+    }
+
+    /** False only when the callback resolves to the interface's empty default, so skipping the call is a no-op. */
+    static boolean overridesPredictionComplete(PostPredictionListener listener) {
+        return OVERRIDES_PREDICTION_COMPLETE.get(listener.getClass());
+    }
+
+    private static final ClassValue<Boolean> OVERRIDES_POSITION_UPDATE = new ClassValue<>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            return callbackOwner(type, "onPositionUpdate", PositionUpdate.class) != CheckListener.class;
+        }
+    };
+
+    private static final ClassValue<Boolean> OVERRIDES_PREDICTION_COMPLETE = new ClassValue<>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            return callbackOwner(type, "onPredictionComplete", PredictionComplete.class)
+                    != PostPredictionListener.class;
+        }
+    };
+
+    private static Class<?> callbackOwner(Class<?> type, String name, Class<?> parameter) {
+        try {
+            return type.getMethod(name, parameter).getDeclaringClass();
+        } catch (NoSuchMethodException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private boolean shouldRegister(CheckListener listener) {
@@ -837,7 +896,7 @@ public class CheckManager {
 
     @SuppressWarnings("unchecked")
     public <T extends CheckListener> T getListener(Class<T> check) {
-        return (T) allCheckListeners.get(check);
+        return (T) listenersByClass.get(check);
     }
 
     @SuppressWarnings("unchecked")
@@ -877,16 +936,17 @@ public class CheckManager {
             // tick therefore must see the post-block-entity piston phase and the
             // post-entity interpolation state, not the stale pre-tick-end cache.
             player.compensatedWorld.onClientTickEnd();
-            dispatchingTickEnd = true;
+            dispatchingTickEnd = !packet.isSynthetic();
             try {
                 for (TickEndHandlerRegistration handler : tickEndHandlers) {
                     handler.handle(packet, player);
                 }
                 PlayerObserver observer = player.observer;
-                if (observer != null) observer.tickEnded();
+                if (observer != null && !packet.isSynthetic()) observer.tickEnded();
             } finally {
                 dispatchingTickEnd = false;
             }
+            player.boatData.onClientTickEnd(player);
             player.tickHeadYaw();
             player.visibilityDebug.update();
         }
@@ -927,7 +987,7 @@ public class CheckManager {
 
     public void doChecksWithKnownLook() {
         for (BlockPlace place : placesToCheck) {
-            for (BlockPlaceCheck check : blockPlaceCheck.values()) {
+            for (BlockPlaceCheck check : blockPlaceListeners) {
                 if (!shouldDispatch(check)) {
                     continue;
                 }
@@ -942,20 +1002,20 @@ public class CheckManager {
             double lastY = player.y;
             double lastZ = player.z;
 
-            Vec3 claimed = player.packetStateData.clientSidePosition;
-            player.x = claimed.x;
-            player.y = claimed.y;
-            player.z = claimed.z;
-
-            if (player.inVehicle()) {
-                Vec3 posFromVehicle = BoundingBoxSize.getRidingOffsetFromVehicle(
-                        player.compensatedEntities.getSelf().getRiding(), player);
-                player.x = posFromVehicle.x;
-                player.y = posFromVehicle.y;
-                player.z = posFromVehicle.z;
-            }
-
             for (BlockBreak blockBreak : breaksToCheck) {
+                Vec3 claimed = blockBreak.clientPosition;
+                player.x = claimed.x;
+                player.y = claimed.y;
+                player.z = claimed.z;
+
+                if (player.inVehicle()) {
+                    Vec3 posFromVehicle = BoundingBoxSize.getRidingOffsetFromVehicle(
+                            player.compensatedEntities.getSelf().getRiding(), player);
+                    player.x = posFromVehicle.x;
+                    player.y = posFromVehicle.y;
+                    player.z = posFromVehicle.z;
+                }
+
                 for (CheckListener check : postFlyingBlockBreakListeners) {
                     if (!shouldDispatch(check)) {
                         continue;
@@ -972,19 +1032,7 @@ public class CheckManager {
     }
 
     public void onPositionUpdate(final PositionUpdate position) {
-        for (CheckListener check : prePredictionChecks.values()) {
-            if (!shouldDispatch(check)) {
-                continue;
-            }
-            check.onPositionUpdate(position);
-        }
-        for (CheckListener check : positionCheck.values()) {
-            if (!shouldDispatch(check)) {
-                continue;
-            }
-            check.onPositionUpdate(position);
-        }
-        for (CheckListener check : packetChecks.values()) {
+        for (CheckListener check : positionUpdateListeners) {
             if (!shouldDispatch(check)) {
                 continue;
             }
@@ -993,22 +1041,16 @@ public class CheckManager {
     }
 
     public void onRotationUpdate(final RotationUpdate rotation) {
-        for (RotationListener check : rotationCheck.values()) {
+        for (RotationListener check : rotationListeners) {
             if (!shouldDispatch(check)) {
                 continue;
             }
             check.process(rotation);
         }
-        for (BlockPlaceCheck check : blockPlaceCheck.values()) {
-            if (!(check instanceof RotationListener rotationListener) || !shouldDispatch(check)) {
-                continue;
-            }
-            rotationListener.process(rotation);
-        }
     }
 
     public void onVehiclePositionUpdate(final VehiclePositionUpdate update) {
-        for (VehicleListener check : vehicleCheck.values()) {
+        for (VehicleListener check : vehicleListeners) {
             if (!shouldDispatch(check)) {
                 continue;
             }
@@ -1017,13 +1059,13 @@ public class CheckManager {
     }
 
     public void onPredictionFinish(final PredictionComplete complete) {
-        for (PostPredictionListener check : postPredictionCheck.values()) {
+        for (PostPredictionListener check : predictionListeners) {
             if (!shouldDispatch(check)) {
                 continue;
             }
             check.onPredictionComplete(complete);
         }
-        for (PostPredictionListener check : pseudoCheck.values()) {
+        for (PostPredictionListener check : pseudoListeners) {
             if (!shouldDispatch(check)) {
                 continue;
             }
@@ -1037,7 +1079,7 @@ public class CheckManager {
     public void onBlockPlace(final BlockPlace place) {
         // Minecraft#pick precedes handleKeybinds and all of this tick's local predictions.
         player.compensatedWorld.withSelectionSnapshot(() -> {
-            for (BlockPlaceCheck check : blockPlaceCheck.values()) {
+            for (BlockPlaceCheck check : blockPlaceListeners) {
                 if (!shouldDispatch(check)) {
                     continue;
                 }
@@ -1062,6 +1104,16 @@ public class CheckManager {
 
     public void queuePostFlyingBlockBreak(final BlockBreak blockBreak) {
         breaksToCheck.add(blockBreak);
+    }
+
+    /** {@code getListener(PacketWorldBorder.class)}, read on every collision scan. */
+    public PacketWorldBorder getWorldBorder() {
+        return worldBorder;
+    }
+
+    /** {@code getListener(SetbackBlocker.class)}, read on every Java movement packet. */
+    public SetbackBlocker getSetbackBlocker() {
+        return setbackBlocker;
     }
 
     private ExplosionHandler explosionHandlerCache;

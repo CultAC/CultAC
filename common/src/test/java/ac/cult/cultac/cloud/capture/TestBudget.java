@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /** A shared budget for retained frames, as the capture keeps one, for sinks in tests. */
 final class TestBudget {
-    /** The process's budget for frames held before JOIN or its answer. */
+    /** The process's budget for retained frames. */
     static final long MAX_HELD_BYTES = 64L * 1024 * 1024;
 
     private final long limit;

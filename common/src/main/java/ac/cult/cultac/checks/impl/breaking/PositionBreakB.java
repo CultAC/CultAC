@@ -25,7 +25,7 @@ public class PositionBreakB extends Check implements BlockBreakListener {
     }
 
     public void onBlockBreak(BlockBreak blockBreak) {
-        if (blockBreak.action == PlayerAction.START_DESTROY_BLOCK) { // PE DiggingAction.START_DIGGING
+        if (blockBreak.action == PlayerAction.START_DESTROY_BLOCK) {
             if (blockBreak.face == lastFace) {
                 lastFace = null;
             }
@@ -35,7 +35,7 @@ public class PositionBreakB extends Check implements BlockBreakListener {
             flag(V.write(verbose()).uint(VerboseTags.enumId(lastFace)).uint(VerboseCodecs.digging(blockBreak.action)));
         }
 
-        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) { // PE DiggingAction.CANCELLED_DIGGING
+        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) {
             lastFace = blockBreak.faceId == 0 ? null : blockBreak.face;
         }
     }

@@ -4,6 +4,7 @@ import static ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap.ite
 import static ac.cult.cultac.network.ItemUseTestSupport.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerCooldown;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
@@ -58,20 +59,34 @@ class UseStartInputProofTest {
     }
 
     @Test
-    void revocationRefusesStartsFromThePrecedingPing() {
+    void revocationAppliesAtTheBundledProof() {
         try (var fixture = fixture()) {
             var player = survivalWithFullHungerOffhandFood(fixture);
             player.isInvulnerable = true;
             var event = abilities(player, false, false);
             ackPrecedingPing(player, event);
-            assertFalse(player.isInvulnerable);
-            assertOffhandRefused(player, 1);
+            assertTrue(player.isInvulnerable);
 
             ackTrailingProof(player, event);
             assertFalse(player.isInvulnerable);
-            player.packetStateData.acceptedClientTick++;
-            useOffhand(player, 2);
-            assertNoPredictedSustainedUse(player);
+            assertOffhandRefused(player, 1);
+        }
+    }
+
+    @Test
+    void bedrockRevocationRefusesStartsFromThePrecedingPing() {
+        try (var fixture = fixture()) {
+            var player = survivalWithFullHungerOffhandFood(fixture);
+            player.movementPlatform = MovementPlatform.BEDROCK;
+            player.isInvulnerable = true;
+            player.canInstabuild = true;
+            var event = abilities(player, false, false);
+            ackPrecedingPing(player, event);
+            assertFalse(player.isInvulnerable);
+            assertFalse(player.canInstabuild);
+
+            ackTrailingProof(player, event);
+            assertFalse(player.isInvulnerable);
         }
     }
 
@@ -89,8 +104,8 @@ class UseStartInputProofTest {
             assertTrue(player.isInvulnerable);
             assertTrue(player.canInstabuild);
             ackPrecedingPing(player, revoke);
-            assertFalse(player.isInvulnerable);
-            assertFalse(player.canInstabuild);
+            assertTrue(player.isInvulnerable);
+            assertTrue(player.canInstabuild);
 
             ackTrailingProof(player, revoke);
             assertFalse(player.isInvulnerable);
@@ -115,17 +130,17 @@ class UseStartInputProofTest {
     }
 
     @Test
-    void hungerBeforeItsTrailingProofIsNeverBelowEitherValue() {
+    void hungerAppliesAtItsBundledProof() {
         try (var fixture = fixture()) {
             var player = survivalWithFullHungerOffhandFood(fixture);
             player.food = 18;
             var full = health(player, 20);
             ackPrecedingPing(player, full);
-            assertEquals(20, player.food);
-            assertOffhandRefused(player, 1);
+            assertEquals(18, player.food);
 
             ackTrailingProof(player, full);
             assertEquals(20, player.food);
+            assertOffhandRefused(player, 1);
 
             var hungry = health(player, 18);
             ackPrecedingPing(player, hungry);

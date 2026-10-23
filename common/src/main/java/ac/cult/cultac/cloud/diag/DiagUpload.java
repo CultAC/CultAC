@@ -20,7 +20,7 @@ public final class DiagUpload {
     private long refilledNanos = Long.MIN_VALUE;
 
     /** Queues a part for the socket of {@code generation}; false, with nothing queued, when it does not fit. */
-    boolean offer(long generation, byte[] record) {
+    public boolean offer(long generation, byte[] record) {
         return queue(generation, record, MAX_BYTES);
     }
 
@@ -28,7 +28,7 @@ public final class DiagUpload {
      * As {@link #offer}, up to {@link #CLOSING_BYTES} past the cap: a bundle's small closing part, so the service learns
      * why the rest is missing. False, with nothing queued, past that too.
      */
-    boolean force(long generation, byte[] record) {
+    public boolean force(long generation, byte[] record) {
         return queue(generation, record, MAX_BYTES + CLOSING_BYTES);
     }
 
@@ -40,7 +40,7 @@ public final class DiagUpload {
         return true;
     }
 
-    synchronized void rate(int bytesPerSecond) {
+    public synchronized void rate(int bytesPerSecond) {
         this.bytesPerSecond = bytesPerSecond;
     }
 

@@ -85,19 +85,19 @@ public class PacketSelfMetadataListener {
                     boolean isSprinting = (field & 0x8) == 0x8;
 
                     final Runnable applySharedFlags = () -> {
-                        player.isSwimming = isSwimming;
+                        player.swimState.onServerFlag(isSwimming);
+                        player.packetStateData.swimmingPossible = isSwimming;
                         player.sprintState.onServerFlag(isSprinting);
-                        if (!isSprinting) {
-                            // The local client can retain its Camel sprint input for
-                            // the movement tick in which the replicated flag stops.
-                            player.vehicleData.camelSprintingState = SprintingState.STOPPING;
-                        }
+                        // Minecraft#runTick applies the flag before the next tick's
+                        // camel travel reads the controller's sprint.
+                        player.vehicleData.camelSprintingState =
+                                isSprinting ? SprintingState.STARTED : SprintingState.STOPPED;
                         // Protect this due to players being able to get the server to spam this packet a lot
                         if (player.isGliding != isGliding) {
                             // no-op
                         }
                         player.isGliding = isGliding;
-                        player.refreshPlayerPose();
+                        // The local pose changes only in Player#updatePlayerPose, after the tick's aiStep.
                     };
                     bundledSharedFlags = applySharedFlags;
                 }
@@ -156,8 +156,8 @@ public class PacketSelfMetadataListener {
                     if (proof != null) {
                         if (!event.isInsideBundle()) event.bundle();
                         player.latencyUtils.addRealTimeTask(proof.transaction(), () -> {
+                            // LivingEntity#onSyncedDataUpdated leaves the pose to Player#updatePlayerPose after aiStep.
                             player.isRiptidePose = isRiptiding;
-                            player.refreshPlayerPose();
                             ac.cult.cultac.utils.data.ItemUseInventory.metadata(player, (byte) handValue);
                         });
                     }

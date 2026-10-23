@@ -40,9 +40,9 @@ spectators:
 # Oyuncuların zaman aşımından dolayı sunucudan atılmadan önce ne kadar süreleri olmalı? Varsayılan = 60 saniye
 max-transaction-time: 60
 
-# CultAC'ın kendisi başarısız olduğunda (bir oyuncuya bağlanamaz, istemci sürümü desteklenmez veya
-# max-transaction-time içinde hiçbir ping yanıtlanmazsa), oyuncu bağlantısı kesilmek yerine denetlenmeden
-# oynamaya devam eder. Paket seli ve çökertme açıkları için atmalar yine uygulanır.
+# CultAC'ın kendisi başarısız olduğunda (bir oyuncuya bağlanamaz veya istemci sürümü desteklenmezse), oyuncu
+# bağlantısı kesilmek yerine denetlenmeden oynamaya devam eder. Paket seli, çökertme açıkları ve
+# max-transaction-time içinde yanıtlanmayan pingler için atmalar yine uygulanır.
 launch-safety:
   fail-open: true
 
@@ -269,6 +269,14 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
+  # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
+  # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
+  perf: false
+  # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
+  # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
+  # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
+  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  team-sync: false
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.

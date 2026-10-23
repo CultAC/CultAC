@@ -5,14 +5,17 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 
 public class PacketPlayerWindow {
 
@@ -38,9 +41,7 @@ public class PacketPlayerWindow {
 
     @CultPacketHandler
     public void onServerboundContainerClose(
-            PacketReceiveEvent<ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose> event,
-            CultPlayer player,
-            ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose packet) {
+            PacketReceiveEvent<ServerboundContainerClose> event, CultPlayer player, ServerboundContainerClose packet) {
         if (player.isBedrockMovement()) handleInventory(player, false);
         else player.openWindow.onClientOpenOrCloseWindow(false);
     }
@@ -85,10 +86,9 @@ public class PacketPlayerWindow {
         if (!player.isBedrockMovement()) {
             var entity = player.compensatedEntities.serverPositionsMap.get(packet.entityId());
             if (entity != null
-                    && (ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isHorseFamily(entity.getEntityType())
-                            || ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isType(entity.getEntityType(), "nautilus")
-                            || ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isType(
-                                    entity.getEntityType(), "zombie_nautilus"))) {
+                    && (EntityTypeUtil.isHorseFamily(entity.getEntityType())
+                            || EntityTypeUtil.isType(entity.getEntityType(), "nautilus")
+                            || EntityTypeUtil.isType(entity.getEntityType(), "zombie_nautilus"))) {
                 player.openWindow.onServerWindow(event, packet.containerId(), MenuType.UNKNOWN);
             }
             return;
@@ -102,9 +102,7 @@ public class PacketPlayerWindow {
 
     @CultPacketHandler
     public void onClientboundContainerClose(
-            PacketSendEvent<ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose> event,
-            CultPlayer player,
-            ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose packet) {
+            PacketSendEvent<ClientboundContainerClose> event, CultPlayer player, ClientboundContainerClose packet) {
         if (!player.isBedrockMovement()) {
             player.openWindow.onServerWindow(event, 0, null);
             return;

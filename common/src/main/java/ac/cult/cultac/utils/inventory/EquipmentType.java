@@ -1,5 +1,9 @@
 package ac.cult.cultac.utils.inventory;
 
+import ac.cult.blocksim.data.ItemComponents;
+import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
+
 public enum EquipmentType {
     MAINHAND,
     OFFHAND,
@@ -23,15 +27,13 @@ public enum EquipmentType {
         }
     }
 
-    public static EquipmentType getEquipmentSlotForItem(ac.cult.blocksim.engine.SimItemStack stack) {
+    public static EquipmentType getEquipmentSlotForItem(SimItemStack stack) {
         if (stack == null || stack.isEmpty()) return MAINHAND;
-        var equippable = ac.cult.blocksim.data.ItemComponents.equippable(stack.components());
-        return equippable == null
-                ? MAINHAND
-                : fromSlot(ac.cult.cultac.protocol.value.EquipmentSlot.byName(equippable.slot()));
+        var equippable = ItemComponents.equippable(stack.components());
+        return equippable == null ? MAINHAND : fromSlot(EquipmentSlot.byName(equippable.slot()));
     }
 
-    private static EquipmentType fromSlot(ac.cult.cultac.protocol.value.EquipmentSlot slot) {
+    private static EquipmentType fromSlot(EquipmentSlot slot) {
         return switch (slot) {
             case OFFHAND -> OFFHAND;
             case FEET -> FEET;

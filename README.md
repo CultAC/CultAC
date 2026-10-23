@@ -57,7 +57,9 @@ an unsupported version, a Bedrock client without Geyser, or a player whose conne
 uninspected. The server receives every packet exactly as the client sent it: what a check, crash protection,
 movement integrity, `max-clicks-per-tick` or the plugin message limit would cancel, rewrite or drop is still
 inspected and flagged, then forwarded unchanged, and a client past `packet-spam-threshold` is logged once
-instead of disconnected. Observe-only still does the following:
+instead of disconnected. `/cult observe <on|off>` (`cult.observe`) writes the key and reloads, unless
+`CULTAC_OBSERVE_ONLY` pins the mode; bare `/cult observe` shows the mode and its source. Observe-only still
+does the following:
 
 * CultAC sends its own pings, bundled with the packets they follow, and withholds the pong that answers one;
 * a non-finite rotation from the server is sent as 0, and the player's own pose metadata is stripped;
@@ -192,7 +194,7 @@ What makes Cult stand out against other anticheats?
 * Vanilla holders keep their bootstrap defaults. Immutable connection snapshots supply tags and item defaults,
   and the isolated placement runtime reads tags from each request without a shared model lock.
 * Older Velocity protocols resolve dynamic registry entries by name against the 26.3 defaults, while preserving
-  received dimension types. Custom dynamic entries unavailable in those defaults are logged once.
+  received dimension types.
 * The anticheat can scale to many hundreds of players, if not more
 * Thread safety is carefully thought out
 * The next core allows for this design

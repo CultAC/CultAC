@@ -5,7 +5,10 @@ import ac.cult.blocksim.engine.SimInventory;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.utils.inventory.Inventory;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.TreeMap;
 
 /** One action's inventory snapshot, using the packet layer's compensated storage. */
 public final class BlockSimulatorInventory {
@@ -45,27 +48,22 @@ public final class BlockSimulatorInventory {
     }
 
     /** Resolve all detached changes before applying world or inventory mutations. */
-    public static java.util.Map<Integer, SimItemStack> resolveChanges(SimInventory before, SimInventory after) {
+    public static Map<Integer, SimItemStack> resolveChanges(SimInventory before, SimInventory after) {
         var copies = new IdentityHashMap<SimItemStack, SimItemStack>();
-        var changes = new java.util.TreeMap<Integer, SimItemStack>();
+        var changes = new TreeMap<Integer, SimItemStack>();
         for (int index = 0; index < 43; index++) {
             var old = before.get(index);
             var changed = after.get(index);
             if (old.count() == changed.count()
                     && old.itemKey().equals(changed.itemKey())
                     && old.capturedPrototype().equals(changed.capturedPrototype())
-                    && old.capturedPrototype()
-                            .encodedNbt()
-                            .equals(changed.capturedPrototype().encodedNbt())
+                    && old.capturedPrototype().sameEncodedNbt(changed.capturedPrototype())
                     && old.patch().equals(changed.patch())
-                    && old.patch()
-                            .added()
-                            .encodedNbt()
-                            .equals(changed.patch().added().encodedNbt())) continue;
+                    && old.patch().added().sameEncodedNbt(changed.patch().added())) continue;
             var stack = copies.computeIfAbsent(changed, SimItemStack::copy);
             changes.put(index, stack);
         }
-        return java.util.Collections.unmodifiableMap(changes);
+        return Collections.unmodifiableMap(changes);
     }
 
     public static int storageSlot(int slot) {

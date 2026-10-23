@@ -5,15 +5,21 @@ import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.NativePlayerSet;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
+import ac.cult.reload.host.AlertSubscriptions;
 import ac.grim.grimac.api.GrimUser;
 import ac.grim.grimac.api.alerts.AlertManager;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.config.ConfigReloadable;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.atomic.AtomicBoolean;
 import net.kyori.adventure.text.Component;
 import org.bukkit.entity.Player;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
@@ -36,19 +42,18 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         public @NotNull String enableMessage;
         public @NotNull String disableMessage;
         public final @NotNull Set<@NotNull PlatformPlayer> players;
-        private final java.util.concurrent.atomic.AtomicBoolean console;
+        private final AtomicBoolean console;
 
         AlertType(@NotNull String enableMessage, @NotNull String disableMessage) {
             this.enableMessage = enableMessage;
             this.disableMessage = disableMessage;
-            var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+            var host = RuntimeEnvironment.host();
             if (host == null) {
                 players = new CopyOnWriteArraySet<>();
-                console = new java.util.concurrent.atomic.AtomicBoolean();
+                console = new AtomicBoolean();
             } else {
-                var subscriptions = (ac.cult.reload.host.AlertSubscriptions)
-                        host.shared("alerts", ac.cult.reload.host.AlertSubscriptions::new);
-                players = new ac.cult.cultac.runtime.NativePlayerSet(subscriptions.players(name()));
+                var subscriptions = (AlertSubscriptions) host.shared("alerts", AlertSubscriptions::new);
+                players = new NativePlayerSet(subscriptions.players(name()));
                 console = subscriptions.console(name());
             }
         }
@@ -72,7 +77,11 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
                 Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
             HashSet<PlatformPlayer> listeners = new HashSet<>(players);
             if (excluding != null) {
-                listeners.removeAll(excluding);
+                Set<Object> excludedNatives = Collections.newSetFromMap(new IdentityHashMap<>());
+                for (PlatformPlayer excluded : excluding) {
+                    if (excluded != null) excludedNatives.add(excluded.getNative());
+                }
+                listeners.removeIf(listener -> excludedNatives.contains(listener.getNative()));
             }
 
             for (PlatformPlayer platformPlayer : listeners) {
@@ -96,7 +105,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
     @Override
     public void reload(ConfigManager config) {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host == null || host.current()) {
             setConsoleAlertsEnabled(config.getBooleanElse("alerts.print-to-console", true), true);
             setConsoleVerboseEnabled(config.getBooleanElse("verbose.print-to-console", false), true);
@@ -218,28 +227,12 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         AlertType.BRAND.players.remove(platformPlayer);
     }
 
-    /** Returns the online Bukkit players currently receiving alerts. */
-    public Set<Player> getEnabledAlerts() {
-        Set<Player> enabled = new HashSet<>();
-        for (PlatformPlayer platformPlayer : AlertType.NORMAL.players) {
-            if (platformPlayer.getNative() instanceof Player bukkitPlayer) {
-                enabled.add(bukkitPlayer);
-            }
-        }
-        return enabled;
-    }
-
     public boolean toggleConsoleAlerts() {
         return toggleConsoleAlerts(false);
     }
 
     public boolean toggleConsoleAlerts(boolean silent) {
         return setConsoleAlertsEnabled(!hasConsoleAlertsEnabled(), silent);
-    }
-
-    @Contract("_ -> param1")
-    public boolean setConsoleAlertsEnabled(boolean enabled) {
-        return setConsoleAlertsEnabled(enabled, false);
     }
 
     @Contract("_, _ -> param1")
@@ -262,11 +255,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         return setConsoleVerboseEnabled(!hasConsoleVerboseEnabled(), silent);
     }
 
-    @Contract("_ -> param1")
-    public boolean setConsoleVerboseEnabled(boolean enabled) {
-        return setConsoleVerboseEnabled(enabled, false);
-    }
-
     @Contract("_, _ -> param1")
     public boolean setConsoleVerboseEnabled(boolean enabled, boolean silent) {
         if (enabled) setConsoleAlertsEnabled(true, silent);
@@ -284,11 +272,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
     public boolean toggleConsoleBrands(boolean silent) {
         return setConsoleBrandsEnabled(!hasConsoleBrandsEnabled(), silent);
-    }
-
-    @Contract("_ -> param1")
-    public boolean setConsoleBrandsEnabled(boolean enabled) {
-        return setConsoleStateAndNotify(AlertType.BRAND, enabled, false);
     }
 
     @Contract("_, _ -> param1")
@@ -317,7 +300,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         return enabled;
     }
 
-    // All internal code, will replace later
     private void setPlayerStateAndNotify(
             @NotNull PlatformPlayer platformPlayer, boolean enabled, boolean silent, @NotNull AlertType type) {
         Objects.requireNonNull(platformPlayer, "platformPlayer cannot be null");
@@ -328,17 +310,8 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         }
     }
 
-    public boolean toggleBrands(@NotNull PlatformPlayer player) {
-        return toggleBrands(player, false);
-    }
-
     public boolean toggleBrands(@NotNull PlatformPlayer player, boolean silent) {
         return setBrandsEnabled(player, !hasBrandsEnabled(player), silent);
-    }
-
-    @Contract("_, _ -> param2")
-    public boolean setBrandsEnabled(@NotNull PlatformPlayer player, boolean enabled) {
-        return setBrandsEnabled(player, enabled, false);
     }
 
     @Contract("_, _, _ -> param2")
@@ -360,11 +333,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         return setVerboseEnabled(player, !hasVerboseEnabled(player), silent);
     }
 
-    @Contract("_, _ -> param2")
-    public boolean setVerboseEnabled(@NotNull PlatformPlayer player, boolean enabled) {
-        return setVerboseEnabled(player, enabled, false);
-    }
-
     @Contract("_, _, _ -> param2")
     public boolean setVerboseEnabled(@NotNull PlatformPlayer player, boolean enabled, boolean silent) {
         if (enabled) setAlertsEnabled(player, true, silent);
@@ -383,11 +351,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
     public boolean toggleAlerts(@NotNull PlatformPlayer player, boolean silent) {
         return setAlertsEnabled(player, !hasAlertsEnabled(player), silent);
-    }
-
-    @Contract("_, _ -> param2")
-    public boolean setAlertsEnabled(@NotNull PlatformPlayer player, boolean enabled) {
-        return setAlertsEnabled(player, enabled, false);
     }
 
     @Contract("_, _, _ -> param2")

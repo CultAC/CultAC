@@ -4,6 +4,7 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -13,6 +14,15 @@ import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 
 public class BouncyBlock implements UncertaintyHandler {
+    @Override
+    public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        if (lastResult == null) return true;
+        int onBlock = lastResult.getSimulationContext().getWorldData().getOnBlock();
+        return !BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)
+                && (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)
+                        || !ClientBlockProperties.isBed(onBlock));
+    }
+
     @Override
     public PredVector handleUncertainty(
             CultPlayer player,
@@ -26,11 +36,10 @@ public class BouncyBlock implements UncertaintyHandler {
 
         int onBlock = lastContext.getSimulationContext().getWorldData().getOnBlock();
 
-        // This could be improved...
-        //
-        // Player velocity can multiply 0.4-0.45 (guess on max) when the player is on slime with
-        // a Y velocity of 0 to 0.1.  Because 0.03 we don't know this so just give lenience here
-        if (BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)) {
+        // SlimeBlock#stepOn scales the carried horizontal velocity by 0.4 to 0.42 below 0.1 vertical speed. A Java
+        // client's or living vehicle's exact-effects carry already holds that scale (JavaInsideBlockEffects#stepOn).
+        if (BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)
+                && !JavaInsideBlockEffects.carriesStepOn(player, lastContext.getSimulationContext())) {
             SimpleCollisionBox expandToZero = new SimpleCollisionBox(start, start);
             expandToZero.unionX(0);
             expandToZero.unionZ(0);
@@ -64,13 +73,15 @@ public class BouncyBlock implements UncertaintyHandler {
 
         if (minYAmount > 0) return start;
 
-        // Living entities (such as the player) will bounce by 0.8, non-living by 1.0
         // 0.66F for beds, times this multiplier again specified above.
         double bounceMultiplier =
                 player.compensatedEntities.getEntityInControl().isLivingEntity() ? 1.0 : 0.8;
 
         // The player can bounce this high
         double bounceAmount = minYAmount * -1 * bounceMultiplier * bounceLevel;
+        // Entity#move stops a descending velocity at the floor, so a client that moved down less than the carried
+        // velocity, or not at all, moved as the carried velocity does and Entity#move registers the collision below.
+        if (end.y <= 0.0 && start.y < end.y) return start;
         double bounceY = CultMath.clamp(end.y, start.y, bounceAmount);
         return start.withY(bounceY, "bounce");
     }

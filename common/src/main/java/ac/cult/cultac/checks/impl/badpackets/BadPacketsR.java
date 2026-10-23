@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
@@ -37,8 +38,11 @@ public class BadPacketsR extends Check implements CheckListener {
         long ms = (player.getPlayerClockAtLeast() - clock) / 1000000L;
         long diff = (System.currentTimeMillis() - lastTransTime);
         if (diff > 2000 && ms > 2000) {
+            // LocalPlayer#tick, which sends every position, runs only once ClientPacketListener#hasClientLoaded.
             if (positions == 0
                     && clock != 0
+                    && (player.packetStateData.playerLoadedIntoLevel
+                            || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4))
                     && player.cameraEntity.isSelf()
                     && !player.compensatedEntities.getSelf().isDead) {
                 flag(V.write(verbose()).ulong(ms).ulong(diff).uint(positions));
@@ -57,7 +61,14 @@ public class BadPacketsR extends Check implements CheckListener {
     @CultPacketHandler
     public void onMovePlayer(
             final PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if ((packet.hasPosition()) && !player.inVehicle()) {
+        if (!player.inVehicle()) {
+            if (packet.hasPosition()) positions++;
+            return;
+        }
+        // LocalPlayer#sendChanges sends a passenger's Rot every tick, and a MoveVehicle only for a vehicle it controls,
+        // so the Rot is the update of a passenger the vehicle does not require to move it.
+        if (!player.compensatedEntities.vehicles.mustEchoMoveVehicle(
+                player.compensatedEntities.getSelf().getRiding())) {
             positions++;
         }
     }

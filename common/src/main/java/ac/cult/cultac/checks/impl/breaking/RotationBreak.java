@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.breaking;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.EyePositions;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.checks.type.PostFlyingBlockBreakListener;
@@ -38,7 +39,7 @@ public class RotationBreak extends Check implements BlockBreakListener, PostFlyi
     public void onBlockBreak(BlockBreak blockBreak) {
         if (!player.cameraEntity.isSelf()) return; // you don't send flying packets when spectating entities
         if (player.inVehicle()) return; // falses
-        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) return; // PE DiggingAction.CANCELLED_DIGGING; falses
+        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) return; // falses
 
         if (flagBuffer > 0 && !didRayTraceHit(blockBreak)) {
             ignorePost = true;
@@ -53,7 +54,7 @@ public class RotationBreak extends Check implements BlockBreakListener, PostFlyi
     public void onPostFlyingBlockBreak(BlockBreak blockBreak) {
         if (!player.cameraEntity.isSelf()) return; // you don't send flying packets when spectating entities
         if (player.inVehicle()) return; // falses
-        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) return; // PE DiggingAction.CANCELLED_DIGGING; falses
+        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) return; // falses
 
         // Don't flag twice
         if (ignorePost) {
@@ -73,15 +74,7 @@ public class RotationBreak extends Check implements BlockBreakListener, PostFlyi
         SimpleCollisionBox box = new SimpleCollisionBox(blockBreak.position);
 
         // Start checking if player is in the block
-        double minEyeHeight = Double.MAX_VALUE;
-        double maxEyeHeight = Double.MIN_VALUE;
-        for (double height : player.getPossibleEyeHeights()) {
-            minEyeHeight = Math.min(minEyeHeight, height);
-            maxEyeHeight = Math.max(maxEyeHeight, height);
-        }
-
-        SimpleCollisionBox eyePositions = new SimpleCollisionBox(
-                player.x, player.y + minEyeHeight, player.z, player.x, player.y + maxEyeHeight, player.z);
+        SimpleCollisionBox eyePositions = EyePositions.box(player, player.getPossibleEyeHeights());
         eyePositions.expand(player.getMovementThreshold());
 
         // If the player is inside a block, then they can ray trace through the block and hit the other side of the

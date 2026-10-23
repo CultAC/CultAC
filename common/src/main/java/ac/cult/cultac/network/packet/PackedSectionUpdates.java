@@ -2,6 +2,7 @@ package ac.cult.cultac.network.packet;
 
 import ac.cult.cultac.protocol.value.BlockPos;
 import java.util.AbstractList;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -30,8 +31,8 @@ final class PackedSectionUpdates extends AbstractList<WorldPackets.BlockUpdate> 
     static List<WorldPackets.BlockUpdate> read(long section, int count, LongSupplier input, IntUnaryOperator states) {
         if (count == 0) return List.of();
         if (!WorldPackets.BlockUpdate.hasCompactStateIds()) {
-            // Future model registries must retain every valid ID, rather than truncate it.
-            var values = new java.util.ArrayList<WorldPackets.BlockUpdate>(count);
+            // Future model registries must retain every valid ID.
+            var values = new ArrayList<WorldPackets.BlockUpdate>(count);
             for (int i = 0; i < count; i++) {
                 long entry = input.getAsLong();
                 values.add(new WorldPackets.BlockUpdate(

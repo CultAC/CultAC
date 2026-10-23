@@ -17,11 +17,6 @@ public final class PacketSendRoute<R> {
         this.connectionHandlers = connectionHandlers;
     }
 
-    @SuppressWarnings("unchecked")
-    public static <R> PacketSendRoute<R> of(PacketSendHandler<? super R>[] handlers) {
-        return of(handlers, new PacketSendHandler[0]);
-    }
-
     /** {@code connectionHandlers} must be a subset of {@code handlers}. */
     public static <R> PacketSendRoute<R> of(
             PacketSendHandler<? super R>[] handlers, PacketSendHandler<? super R>[] connectionHandlers) {

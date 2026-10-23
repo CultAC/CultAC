@@ -24,6 +24,7 @@ import io.netty.channel.EventLoop;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -348,6 +349,9 @@ class CloudBackendsTest {
 
             @Override
             public void addListener(BridgeMessageListener listener) {}
+
+            @Override
+            public void removeListener(BridgeMessageListener listener) {}
         };
     }
 
@@ -388,6 +392,100 @@ class CloudBackendsTest {
         backends.onClosed(onA);
         assertNull(backends.factsOf(id, "a").settings().get("attack-speed-base"));
         assertEquals(50_000, backends.factsOf(id, "a").tickMicros(), "backend facts outlive the session");
+    }
+
+    @Test
+    void onlyTheCompanionsSettingsAreKept() {
+        BridgeSession session = session("a", "Paper 26.3");
+        backends.onReady(session);
+
+        Map<String, String> server = new LinkedHashMap<>();
+        server.put("update-equipment-on-player-actions", "true");
+        server.put("skip-vanilla-damage-tick-when-shield-blocked", "yes");
+        server.put("keepalive-interval-ms", "1".repeat(32_767));
+        server.put("client-ip", "203.0.113.42");
+        backends.onMessage(session, new BridgeMessage.CloudFacts(50_000, server));
+        Map<String, String> player = new LinkedHashMap<>();
+        player.put("max-no-damage-ticks", "20");
+        player.put("attack-speed-base", "4.0");
+        player.put("combat-mode", "1.9\n[INFO] forged");
+        player.put("client-ip", "203.0.113.42");
+        player.put("update-equipment-on-player-actions", "false");
+        backends.onMessage(session, new PlayerFacts(player));
+
+        assertEquals(
+                Map.of(
+                        "update-equipment-on-player-actions", "true",
+                        "max-no-damage-ticks", "20",
+                        "attack-speed-base", "4.0"),
+                backends.factsOf(id, "a").settings());
+    }
+
+    @Test
+    void repeatedPlayerFactsAreNotSentAgain() {
+        List<UUID> changed = new CopyOnWriteArrayList<>();
+        backends.onFactsChanged(changed::add);
+        BridgeSession session = session("a", "Paper 26.3");
+        backends.onReady(session);
+
+        backends.onMessage(session, new PlayerFacts(Map.of("max-no-damage-ticks", "20")));
+        backends.onMessage(session, new PlayerFacts(Map.of("max-no-damage-ticks", "20")));
+        assertEquals(List.of(id), changed);
+
+        backends.onMessage(session, new PlayerFacts(Map.of("max-no-damage-ticks", "10")));
+        assertEquals(List.of(id, id), changed);
+    }
+
+    @Test
+    void togglingLeavesOneListenerAndRetiredCollectorsKeepNothing() {
+        List<BridgeMessageListener> listeners = new CopyOnWriteArrayList<>();
+        BridgeSessions bridge = new BridgeSessions() {
+            @Override
+            public BridgeSession current(UUID player) {
+                return null;
+            }
+
+            @Override
+            public void addListener(BridgeMessageListener listener) {
+                listeners.add(listener);
+            }
+
+            @Override
+            public void removeListener(BridgeMessageListener listener) {
+                listeners.remove(listener);
+            }
+        };
+        List<UUID> changed = new CopyOnWriteArrayList<>();
+        List<CloudBackends> retired = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            CloudBackends collector = collector();
+            collector.onFactsChanged(changed::add);
+            collector.start(bridge);
+            collector.close();
+            retired.add(collector);
+        }
+        backends.onFactsChanged(changed::add);
+        backends.start(bridge);
+        assertEquals(List.of(backends), listeners);
+
+        BridgeSession session = session("a", "Paper 26.3");
+        for (CloudBackends collector : retired) {
+            collector.onReady(session);
+            collector.onMessage(session, new BridgeMessage.CloudFacts(50_000, Map.of("keepalive-interval-ms", "1000")));
+            collector.onMessage(session, new PlayerFacts(Map.of("max-no-damage-ticks", "20")));
+            assertEquals(ServerFacts.NONE, collector.factsOf(id, "a"));
+        }
+        assertTrue(changed.isEmpty());
+
+        for (BridgeMessageListener listener : listeners) {
+            listener.onMessage(session, new PlayerFacts(Map.of("max-no-damage-ticks", "20")));
+        }
+        assertEquals(List.of(id), changed);
+    }
+
+    private CloudBackends collector() {
+        return new CloudBackends(
+                proxy, new Object(), ignored -> channel, inPlay::contains, POLL_MILLIS, FACTS_WAIT_MILLIS, () -> now);
     }
 
     @Test

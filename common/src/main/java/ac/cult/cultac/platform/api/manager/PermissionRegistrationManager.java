@@ -3,7 +3,7 @@ package ac.cult.cultac.platform.api.manager;
 import ac.cult.cultac.platform.api.permissions.PermissionDefaultValue;
 
 /**
- * Manages permissions across different platforms (e.g., Bukkit, Fabric).
+ * Manages permissions across different platforms (e.g., Bukkit, Velocity).
  * Provides methods for registering permissions.
  */
 public interface PermissionRegistrationManager {

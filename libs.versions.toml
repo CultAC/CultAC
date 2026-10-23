@@ -14,6 +14,7 @@ placeholderapi = "2.11.6"
 viaversion = "5.12.0"
 via-codecs = "5.12.1"
 luckperms = "5.5"
+apollo-api = "1.2.5"
 
 # --- General Java Utilities ---
 fastutil = "8.5.15"
@@ -52,6 +53,7 @@ cult-api = { group = "ac.grim.grimac", name = "GrimAPI", version.ref = "cult-api
 cult-internal = { group = "ac.grim.grimac", name = "grim-internal", version.ref = "cult-api" }
 cult-internal-shims = { group = "ac.grim.grimac", name = "grim-internal-shims", version.ref = "cult-api" }
 cult-bukkit-internal = { group = "ac.grim.grimac", name = "grim-bukkit-internal", version.ref = "cult-api" }
+apollo-api = { group = "com.lunarclient", name = "apollo-api", version.ref = "apollo-api" }
 viaversion = { group = "com.viaversion", name = "viaversion", version.ref = "viaversion" }
 viabackwards = { group = "com.viaversion", name = "viabackwards", version.ref = "viaversion" }
 via-codecs-core = { group = "com.viaversion", name = "viaversion", version.ref = "via-codecs" }

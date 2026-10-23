@@ -8,7 +8,6 @@ import ac.cult.cultac.protocol.codec.world.BlockEventCodec;
 import ac.cult.cultac.protocol.data.*;
 import ac.cult.cultac.protocol.packet.clientbound.*;
 import ac.cult.cultac.protocol.wire.Wire;
-import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import io.netty.buffer.*;
 import java.util.*;
 import java.util.function.Function;
@@ -76,10 +75,6 @@ public final class ObservedPacketValues implements PacketValueAdapter {
         configurationTags.clear();
     }
 
-    WireValueDecoder decoder() {
-        return decoder;
-    }
-
     WireRegistryState names() {
         return names;
     }
@@ -118,7 +113,14 @@ public final class ObservedPacketValues implements PacketValueAdapter {
                         ? toModel.blockState(packet.data())
                         : packet.data();
                 yield new ClientboundAddEntity(
-                        packet.entityId(), type, packet.position(), packet.yaw(), packet.pitch(), data, packet.uuid());
+                        packet.entityId(),
+                        type,
+                        packet.position(),
+                        packet.yaw(),
+                        packet.pitch(),
+                        data,
+                        packet.uuid(),
+                        packet.velocity());
             }
             case "minecraft:block_event" -> {
                 var packet = new BlockEventCodec().read(input, context);
@@ -166,12 +168,6 @@ public final class ObservedPacketValues implements PacketValueAdapter {
     private RegistryData registry(ByteBuf input) {
         var packet = decoder.registry(input);
         names.append(packet);
-        for (var entry : packet.entries()) {
-            if (!packet.registry().equals("minecraft:dimension_type")
-                    && !(entry.data() != null && ClientWorldRegistries.OLDER_RETAINED.contains(packet.registry()))
-                    && names.modelId(packet.registry(), entry.name()) < 0)
-                names.unavailable(packet.registry(), entry.name());
-        }
         return new RegistryData(packet.registry(), packet.entries());
     }
 }

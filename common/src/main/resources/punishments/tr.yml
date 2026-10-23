@@ -95,6 +95,7 @@ Punishments:
       - "Elytra"
       - "Chat"
       - "Exploit"
+      - "SkinBlinker"
     commands:
       - "10:5 [alert]"
       - "1:1 [log]"
@@ -118,5 +119,14 @@ Punishments:
     commands:
       - "20:40 [alert]"
       - "1:1 [log]"
+  Cloud:
+    remove-violations-after: 1800
+    checks:
+      - "Cloud"
+    commands:
+      - "1:1 [alert]"
+      - "1:1 [log]"
+      - "3:3 [webhook]"
+      - "3:3 [proxy]"
 
-cult-config-version: 3
+cult-config-version: 4

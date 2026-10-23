@@ -14,7 +14,7 @@ import java.util.List;
 final class TestSink implements CaptureStream.Sink {
     final List<byte[]> sent = new ArrayList<>();
     final TestBudget budget;
-    CloudConnection.Terms terms = CloudConnection.Terms.PROTOCOL_3;
+    CloudConnection.Terms terms = CloudConnection.Terms.sections(0, 0);
     int refuse;
     int maxFrameBytes = 1 << 20;
     boolean textStripped = true;

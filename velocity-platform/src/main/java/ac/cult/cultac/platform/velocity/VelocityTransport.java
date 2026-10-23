@@ -1,7 +1,9 @@
 package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.cloud.CloudModule;
+import ac.cult.cultac.network.ConnectionContinuation;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.PacketOwner;
@@ -10,6 +12,7 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.reload.api.RuntimeInstance;
 import com.velocitypowered.api.event.EventTask;
@@ -20,6 +23,7 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import io.netty.channel.Channel;
 import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
@@ -76,7 +80,7 @@ final class VelocityTransport {
                     + "; CultAC supports up to " + VelocityProtocols.NEWEST.minecraftVersion()
                     + " and disconnects newer clients");
         }
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() != null) {
+        if (RuntimeEnvironment.host() != null) {
             running = true;
             return;
         }
@@ -156,11 +160,7 @@ final class VelocityTransport {
         }
     }
 
-    synchronized void attach(
-            Player player,
-            Channel channel,
-            PacketOwner bedrock,
-            ac.cult.cultac.network.ConnectionContinuation continued) {
+    synchronized void attach(Player player, Channel channel, PacketOwner bedrock, ConnectionContinuation continued) {
         if (!running) {
             return;
         }
@@ -189,8 +189,7 @@ final class VelocityTransport {
 
     synchronized CompletionStage<Void> remove() {
         running = false;
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
-            proxy.getEventManager().unregisterListener(plugin, this);
+        if (RuntimeEnvironment.host() == null) proxy.getEventManager().unregisterListener(plugin, this);
         return CompletableFuture.allOf(
                 manager.connections().stream().map(this::detach).toArray(CompletableFuture[]::new));
     }
@@ -200,16 +199,15 @@ final class VelocityTransport {
      *
      * @return the client state to continue, or null when this engine keeps the connection
      */
-    java.util.Map<String, Object> release(Channel channel) {
+    Map<String, Object> release(Channel channel) {
         var connection = manager.connection(channel);
         if (connection == null
                 || !connection.owner().inEventLoop()
                 || connection.phase(PacketDirection.SERVERBOUND) != ConnectionPhase.PLAY
                 || connection.phase(PacketDirection.CLIENTBOUND) != ConnectionPhase.CONFIGURATION) return null;
-        var state = ac.cult.cultac.network.ConnectionContinuation.capture(connection);
+        var state = ConnectionContinuation.capture(connection);
         if (connection.bedrockBridge() != null) {
-            var bedrock =
-                    ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime.releaseSession(connection.bedrockBridge());
+            var bedrock = GeyserBedrockBridgeRuntime.releaseSession(connection.bedrockBridge());
             if (bedrock == null) return null;
             state.put("bedrock-session", connection.bedrockBridge());
             state.put("bedrock", bedrock);

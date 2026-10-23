@@ -30,8 +30,11 @@ import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.checks.type.LegacyPacketEventSemantics;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundKeepAlive;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundKeepAlive;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -252,8 +255,7 @@ public final class OrderedLegacyCheckDispatchTest {
                     7,
                     ac.cult.blocksim.data.BlockIds.STONE.defaultState());
             check.onBlockBreak(blockBreak);
-            List<?> histories = (List<?>) objectField(check, "histories");
-            assertEquals(7, invokeInt(histories.getFirst(), "last"));
+            assertTrue(intField(check, "lastSequence") == 7);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -292,7 +294,12 @@ public final class OrderedLegacyCheckDispatchTest {
         try {
             BadPacketsO check = player.checkManager.getListener(BadPacketsO.class);
             for (long id = 0; id < 25; id++) {
-                check.onKeepAlive(null, player, new ClientboundKeepAlive(id));
+                var packet = new ClientboundKeepAlive(id);
+                check.onKeepAlive(
+                        new PacketSendEvent<>(
+                                player.user, ConnectionPhase.PLAY, ClientboundPackets.KEEP_ALIVE, packet, false),
+                        player,
+                        packet);
             }
 
             check.onKeepAlive(receiveEvent(player, new ServerboundKeepAlive(0L)), player, new ServerboundKeepAlive(0L));
@@ -301,7 +308,8 @@ public final class OrderedLegacyCheckDispatchTest {
             field.setAccessible(true);
             LinkedList<?> outstanding = (LinkedList<?>) field.get(check);
             assertTrue(outstanding.size() == 24);
-            assertTrue(outstanding.getFirst().equals(1L));
+            check.onKeepAlive(receiveEvent(player, new ServerboundKeepAlive(1L)), player, new ServerboundKeepAlive(1L));
+            assertTrue(outstanding.size() == 23);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -553,10 +561,10 @@ public final class OrderedLegacyCheckDispatchTest {
         return (boolean) method.invoke(target);
     }
 
-    private static int invokeInt(Object target, String name) throws ReflectiveOperationException {
-        Method method = target.getClass().getDeclaredMethod(name);
-        method.setAccessible(true);
-        return (int) method.invoke(target);
+    private static int intField(Object target, String name) throws ReflectiveOperationException {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.getInt(target);
     }
 
     private static Object objectField(Object target, String name) throws ReflectiveOperationException {

@@ -6,24 +6,16 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.AbstractCheck;
-import ac.grim.grimac.api.storage.DataStore;
-import ac.grim.grimac.internal.storage.checks.CheckRegistry;
-import ac.grim.grimac.internal.storage.identity.PlayerIdentityService;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /** Only builds engine metadata; all asynchronous writes execute host-owned code. */
 public final class LiveWriteHooksImpl implements LiveWriteHooks {
-    private final java.util.function.Supplier<StorageWriteHooks> hooks;
+    private final Supplier<StorageWriteHooks> hooks;
 
-    public LiveWriteHooksImpl(
-            DataStore store, PlayerIdentityService identities, CheckRegistry checks, SessionTracker sessions) {
-        var fixed = new StorageWriteHooksImpl(store, identities, checks, sessions);
-        this.hooks = () -> fixed;
-    }
-
-    public LiveWriteHooksImpl(java.util.function.Supplier<StorageWriteHooks> hooks) {
+    public LiveWriteHooksImpl(Supplier<StorageWriteHooks> hooks) {
         this.hooks = hooks;
     }
 
@@ -81,8 +73,7 @@ public final class LiveWriteHooksImpl implements LiveWriteHooks {
                     System.currentTimeMillis(),
                     LiveWriteHooks.clientMetaFor(player.user, player));
         } catch (RuntimeException e) {
-            // Don't let a datastore issue break the alert path; the legacy
-            // write already ran when we got here. One warn, then swallow.
+            // A datastore failure must not break the alert path: warn and swallow.
             LogUtil.warn("v1 datastore recordFlag failed: " + e.getMessage());
         }
     }

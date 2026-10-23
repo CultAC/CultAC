@@ -18,6 +18,7 @@ import ac.grim.grimac.internal.storage.backend.sqlite.SqliteBackend;
 import ac.grim.grimac.internal.storage.checks.CheckRegistry;
 import ac.grim.grimac.internal.storage.verbose.VerboseRegistry;
 import java.util.Map;
+import java.util.UUID;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -116,6 +117,36 @@ public final class DataStoreLifecycle implements StartableInitable, StoppableIni
 
     public @NotNull PlayerToggleStore playerToggleStore() {
         return shared.playerToggleStore();
+    }
+
+    // TODO(cultLoaderVersion>5): every host then has connection holds. Drop this check
+    // and the fallbacks below, and call the two-argument methods directly.
+    /**
+     * The installed host may predate connection holds: {@link PlayerToggleStore} is
+     * loaded by the host, so this runtime sees the host's version of it.
+     */
+    private static final boolean HOST_HOLDS_PER_CONNECTION = holdsPerConnection(PlayerToggleStore.class);
+
+    static boolean holdsPerConnection(Class<?> store) {
+        try {
+            store.getMethod("prefetch", UUID.class, UUID.class);
+            store.getMethod("evict", UUID.class, UUID.class);
+            return true;
+        } catch (NoSuchMethodException older) {
+            return false;
+        }
+    }
+
+    /** Holds the player's toggle slot for this connection. */
+    public void holdToggles(@NotNull UUID uuid, @NotNull UUID connectionId) {
+        if (HOST_HOLDS_PER_CONNECTION) playerToggleStore().prefetch(uuid, connectionId);
+        else playerToggleStore().prefetch(uuid);
+    }
+
+    /** Releases this connection's hold on the player's toggle slot. */
+    public void releaseToggles(@NotNull UUID uuid, @NotNull UUID connectionId) {
+        if (HOST_HOLDS_PER_CONNECTION) playerToggleStore().evict(uuid, connectionId);
+        else playerToggleStore().evict(uuid);
     }
 
     @ApiStatus.Internal

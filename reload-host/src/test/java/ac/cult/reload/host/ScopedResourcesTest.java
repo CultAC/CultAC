@@ -2,8 +2,11 @@ package ac.cult.reload.host;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
 
 class ScopedResourcesTest {
@@ -84,5 +87,42 @@ class ScopedResourcesTest {
         assertThrows(
                 CompletionException.class,
                 () -> scope.close().toCompletableFuture().join());
+    }
+
+    @Test
+    void guardsNothingHoldsAreCollectedWhileTheScopeStaysOpen() throws Exception {
+        var scope = new ScopedResources();
+        var captured = new ArrayList<WeakReference<Object>>();
+        for (int i = 0; i < 1000; i++) {
+            Object player = new Object();
+            captured.add(new WeakReference<>(player));
+            Runnable task = scope.guard(() -> player.hashCode());
+            // Half run, as a finished one-shot; the rest never do, as a cancelled one.
+            if (i % 2 == 0) task.run();
+        }
+        awaitCollected(() -> scope.registrations() == 0
+                && captured.stream().allMatch(reference -> reference.get() == null));
+        assertEquals(0, scope.inFlight());
+        scope.close().toCompletableFuture().get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void aGuardStillHeldIsDisarmedAtClose() throws Exception {
+        var scope = new ScopedResources();
+        var runs = new AtomicInteger();
+        Runnable pending = scope.guard(runs::incrementAndGet);
+        System.gc();
+        scope.close().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        pending.run();
+        assertEquals(0, runs.get());
+    }
+
+    private static void awaitCollected(BooleanSupplier done) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (!done.getAsBoolean()) {
+            assertTrue(System.nanoTime() < deadline, "not collected");
+            System.gc();
+            Thread.sleep(10);
+        }
     }
 }

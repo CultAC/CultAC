@@ -27,9 +27,8 @@ public class BadPacketsD extends Check implements CheckListener {
 
         if (!packet.hasRotation()) return;
 
-        final float pitch = packet.pitchOr(player.xRot);
+        final float pitch = packet.pitch();
         if (pitch > 90 || pitch < -90) {
-            // Ban.
             if (flag(V.write(verbose()).f32(pitch)) && shouldModifyPackets()) {
                 // prevent other checks from using an invalid pitch
                 clampPitch(player);

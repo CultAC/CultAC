@@ -47,6 +47,7 @@ public final class FixtureEntrypoint implements RuntimeEntrypoint, RuntimeInstan
     }
 
     public void superseded() {
+        block("superseded:" + variant);
         events.add(variant + ":superseded");
         if (controls.containsKey("superseded-fail:" + variant)) throw new IllegalStateException("Step aside failed");
     }

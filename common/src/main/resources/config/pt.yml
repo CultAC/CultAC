@@ -41,9 +41,9 @@ spectators:
 # Quanto tempo os jogadores tem até expulsarmos eles por inatividade? Padrão = 60 segundos.
 max-transaction-time: 60
 
-# Quando o próprio CultAC falha (não consegue se anexar a um jogador, a versão do cliente não é suportada ou
-# nenhum ping é respondido dentro de max-transaction-time), o jogador continua sem inspeção em vez de ser
-# desconectado. Expulsões por flood de pacotes e exploits de crash continuam valendo.
+# Quando o próprio CultAC falha (não consegue se anexar a um jogador ou a versão do cliente não é suportada),
+# o jogador continua sem inspeção em vez de ser desconectado. Expulsões por flood de pacotes, exploits de crash
+# e pings sem resposta além de max-transaction-time continuam valendo.
 launch-safety:
   fail-open: true
 
@@ -275,6 +275,14 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
+  # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
+  # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
+  perf: false
+  # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
+  # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
+  # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
+  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  team-sync: false
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.

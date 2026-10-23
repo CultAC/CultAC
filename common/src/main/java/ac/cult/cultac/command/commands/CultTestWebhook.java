@@ -4,7 +4,6 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
-import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.data.webhook.discord.WebhookMessage;
 import org.incendo.cloud.CommandManager;
@@ -14,8 +13,7 @@ import org.jetbrains.annotations.NotNull;
 public class CultTestWebhook implements BuildableCommand {
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        commandManager.command(commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        commandManager.command(BuildableCommand.root(commandManager)
                 .literal("testwebhook")
                 .permission("cult.testwebhook")
                 .handler(this::handleTestWebhook));
@@ -45,10 +43,6 @@ public class CultTestWebhook implements BuildableCommand {
                     context.sender()
                             .sendMessage(MessageUtil.miniMessage(
                                     CultAPI.INSTANCE.getConfigManager().getWebhookTestFailed()));
-
-                    if (throwable != null) {
-                        LogUtil.error("Exception caught while sending a Discord webhook test alert", throwable);
-                    }
                 }));
     }
 }

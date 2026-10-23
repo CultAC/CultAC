@@ -20,6 +20,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
@@ -34,7 +35,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundTeleportEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Relative;
@@ -50,9 +50,12 @@ import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
+import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.Friction;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.IsUsingItem;
+import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 import ac.grim.grimac.api.event.events.GrimPlayerSetbackEvent;
 import ac.grim.grimac.api.event.events.GrimTeleportEvent;
 import java.util.Collections;
@@ -103,6 +106,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
     // Sync to netty
     public final ConcurrentLinkedDeque<TeleportData> pendingTeleports = new ConcurrentLinkedDeque<>();
+    /** The teleport whose ID a pre-26.3 client sent last, until the PosRot that must follow it. */
+    private TeleportData awaitingPosRot;
     private final ConcurrentLinkedQueue<VehicleTeleport> vehicleTeleports = new ConcurrentLinkedQueue<>();
     private BedrockCoordinateFrame activeBedrockCoordinateFrame = BedrockCoordinateFrame.IDENTITY;
 
@@ -125,6 +130,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     // We fix this by blocking serverbound movements until the player is out of the loading screen.
     // TODO: Inspect the join packets to ensure that the player has sent player loaded packet
     public boolean hasFullyLoaded = false;
+    /** ClientPacketListener#handleRespawn: until the Java client reads a respawn, its old LocalPlayer ticks and moves. */
+    public boolean respawnUnread = false;
     // Was there a ghost block that forces us to block offsets until the player accepts their teleport?
     public boolean blockOffsets = false;
     // This required setback data is the head of the teleport.
@@ -209,6 +216,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 speed = 0.0f;
             }
             initialVel = UncertaintyHelper.handleCircular(initialVel, context.getTarget(), speed);
+            if (VelocityCandidates.collidedVertically(result)) {
+                initialVel = initialVel.withY(
+                        VelocityCandidates.afterVerticalCollision(result, initialVel.y), "vertical restitution");
+            }
 
             afterTickFriction = simulateFriction(
                     initialVel,
@@ -237,6 +248,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             if (!completedPrediction.getSetBackData().isBedrockTransportOnly()) {
                 lastKnownGoodPosition =
                         new SetbackPosWithVector(to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
+                lastKnownGoodPosition.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
+                        player, predictionComplete.isTeleport() ? null : completedPrediction));
             }
         } else if ((!player.isBedrockMovement() || profileState != null)
                 && (requiredSetBack == null
@@ -249,6 +262,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             // As we didn't setback here, the new position is known to be safe!
             lastKnownGoodPosition =
                     new SetbackPosWithVector(to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
+            lastKnownGoodPosition.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
+                    player, predictionComplete.isTeleport() ? null : completedPrediction));
         }
 
         if (requiredSetBack != null) requiredSetBack.tick();
@@ -308,6 +323,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     public void levelLeft() {
         lastKnownGoodPosition = null;
         hasFullyLoaded = false;
+        respawnUnread = false;
         requiredSetBack = null;
         blockOffsets = false;
         player.checkManager.getSimulationProcessor().getLastMovementTime().clear();
@@ -320,9 +336,19 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     public void respawnSent() {
         lastKnownGoodPosition = null;
         hasFullyLoaded = false;
+        respawnUnread = !player.isBedrockMovement();
         blockOffsets = false;
         // Latency is measured from the next movement of the placed player, not the last one before it died.
         player.checkManager.getSimulationProcessor().getLastMovementTime().clear();
+    }
+
+    /**
+     * A Java client accepts each teleport before it acknowledges the configuration that precedes a LOGIN, so a
+     * teleport still pending at LOGIN send was withheld. It can no longer be accepted, and the new backend reuses its
+     * ID.
+     */
+    public void loginSent() {
+        pendingTeleports.removeIf(SetbackTeleportUtil::isJavaIdTeleport);
     }
 
     public boolean executeTooHighLatencySetback(String cause) {
@@ -375,6 +401,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
     private void blockMovementsUntilResync(boolean simulateNext, boolean fullResync, boolean ignoreUnchanged) {
         if (lastKnownGoodPosition == null) return; // Hasn't spawned
+        // A teleport changes neither attributes nor the sprint flag; the rejected moves' modifier evidence is dropped.
+        if (!player.isBedrockMovement()) player.sprintState.restore(lastKnownGoodPosition.getSprintOutcomes());
 
         // If the chunk hasn't loaded, we can't simulate their movement yet
         if (player.getSetbackTeleportUtil().insideUnloadedChunk()) {
@@ -418,9 +446,11 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         if (sentKnockback != null) {
             clientVel = sentKnockback.getVel();
         }
-        // Don't apply explosions multiple times when spamming violations by looking at transaction order
+        // Don't apply explosions multiple times when spamming violations. Use wire order: one flush ping can prove
+        // both the motion and a later explosion.
         final boolean explosionIsNewer = sentExplosion != null
-                && (sentKnockback == null || sentExplosion.getTransaction() > sentKnockback.getTransaction());
+                && (sentKnockback == null
+                        || sentExplosion.getOutboundSequence() > sentKnockback.getOutboundSequence());
         if (explosionIsNewer) {
             clientVel = clientVel.add(sentExplosion.getVel());
         }
@@ -442,6 +472,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 && lastPrediction != null
                 && !player.compensatedEntities.getSelf().inVehicle()) {
             SimpleCollisionBox oldBB = player.boundingBox;
+            double oldX = player.x, oldY = player.y, oldZ = player.z;
             try {
                 player.boundingBox = GetBoundingBox.getPlayerBoundingBox(player, position.x, position.y, position.z);
 
@@ -479,7 +510,30 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 }
 
                 if (clientVel.x != collide.x) clientVel = new Vec3(0, clientVel.y, clientVel.z);
-                if (clientVel.y != collide.y) clientVel = new Vec3(clientVel.x, 0, clientVel.z);
+                if (clientVel.y != collide.y) {
+                    boolean landed = clientVel.y < 0.0D;
+                    // Entity#checkSupportingBlock ranks candidates by distance from the post-move position.
+                    player.x = position.x;
+                    player.y = position.y;
+                    player.z = position.z;
+                    MainSupportingBlockData support = player.checkManager
+                            .getSimulationProcessor()
+                            .mainSupportingBlockAfter(
+                                    GetBoundingBox.getPlayerBoundingBox(player, position.x, position.y, position.z),
+                                    collide,
+                                    landed);
+                    player.x = oldX;
+                    player.y = oldY;
+                    player.z = oldZ;
+                    double restitutedY = VelocityCandidates.afterVerticalCollision(
+                            player,
+                            BlockProperties.getOnPos(player, support, position),
+                            context.isSneaking(),
+                            true,
+                            clientVel.y,
+                            collide.y);
+                    clientVel = new Vec3(clientVel.x, restitutedY, clientVel.z);
+                }
                 if (clientVel.z != collide.z) clientVel = new Vec3(clientVel.x, clientVel.y, 0);
 
                 clientVel = simulateFriction(
@@ -492,6 +546,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                         context);
             } finally {
                 player.boundingBox = oldBB;
+                player.x = oldX;
+                player.y = oldY;
+                player.z = oldZ;
             }
         }
 
@@ -568,7 +625,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             simulated = input.multiply(0.99F, 0.98F, 0.99F);
         } else { // Gliding doesn't have friction, we handle it differently
             final double horizFriction = wasOnGround ? 0.91F * 0.6F : 0.91F;
-            simulated = input.subtract(0.0D, gravity, 0.0D).multiply(horizFriction, 0.98f, horizFriction);
+            simulated = new Vec3(input.x, Friction.applyAirGravity(player, input.y, gravity), input.z)
+                    .multiply(horizFriction, 0.98f, horizFriction);
         }
 
         // stop 1.8 players from stepping onto 1.25 high blocks, because why not?
@@ -694,10 +752,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                             data.getTeleportData().getTransaction());
                 } else {
                     sendPlayerSetbackPackets(
-                            teleportId,
-                            position,
-                            data.getTeleportData().getFlags().getMask(),
-                            data.isExpectedOnGround());
+                            teleportId, position, data.getTeleportData().getFlags().getMask());
                 }
             }
 
@@ -735,23 +790,13 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
     }
 
-    private void sendPlayerSetbackPackets(int teleportId, Vec3 position, int relativeMask, boolean onGround) {
+    private void sendPlayerSetbackPackets(int teleportId, Vec3 position, int relativeMask) {
         var point = new Vec3d(position.x, position.y, position.z);
         var relatives = Relative.unpack(relativeMask);
-        var correction = new CultWrite(
-                new ClientboundPlayerPosition(teleportId, point, Vec3d.ZERO, 0.0F, 0.0F, relatives), true);
-        if (player.isBedrockMovement()) {
-            player.user.write(correction);
-            return;
-        }
-
-        // ClientPacketListener#handleBundlePacket processes both packets before movement.
-        // Apply the correction first so the mirror targets the corrected position.
-        // Only the correction was registered by addSentTeleport; the mirror reaches listeners.
-        var mirror = new CultWrite(
-                new ClientboundTeleportEntity(player.entityID, point, Vec3d.ZERO, 0.0F, 0.0F, relatives, onGround),
-                false);
-        player.user.write(List.of(correction, mirror), true);
+        // unfortunately, 26.3 clients don't like ClietboundTeleportEntity as it causes weird interpolation if multiple
+        // teleports are sent within a few ticks.
+        player.user.write(new CultWrite(
+                new ClientboundPlayerPosition(teleportId, point, Vec3d.ZERO, 0.0F, 0.0F, relatives), true));
     }
 
     private int resolveSetbackVehicleId() {
@@ -1001,6 +1046,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             this.hasFullyLoaded = true;
             this.hasFullyJoined = true;
         }
+        if (!player.isBedrockMovement() && !teleport.isPositionOnly() && teleport.getBedrockTransportRevision() < 0L) {
+            player.compensatedWorld.onClientTeleport();
+        }
         accepted.setTeleportData(teleport.copyWithLocation(location));
         accepted.setTeleport(true);
         return accepted;
@@ -1140,10 +1188,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 return teleportData;
             }
 
-            // ClientPacketListener handles bundled rotations in order and immediately
-            // sends each Rot. In-flight ordinary look updates also precede that echo.
-            // Relative angles therefore use the receive timeline, not the send snapshot.
-            TeleportData resolved = teleportPos.resolvePlayerRotation(player.xRot, player.yRot);
+            // The first Rot after a ping that handleRotatePlayer's bundle task answered first is its echo.
+            TeleportData resolved = player.lastTransactionReceived.get() >= teleportPos.getBundleTransaction()
+                    ? teleportPos.resolvePlayerRotationEcho(yaw, pitch, player.xRot, player.yRot)
+                    : teleportPos.resolvePlayerRotation(player.xRot, player.yRot);
             if (matchesRotationTeleport(resolved, yaw, pitch)) {
                 pendingTeleports.poll();
                 teleportData.setTeleportData(resolved.copyWithLocation(new Vec3(player.x, player.y, player.z)));
@@ -1194,6 +1242,15 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
      * @return - Whether the player has completed a teleport by being at this position
      */
     public TeleportAcceptData checkVehicleTeleportQueue(Integer vehicleId, double x, double y, double z) {
+        return checkVehicleTeleportQueue(vehicleId, x, y, z, false);
+    }
+
+    /**
+     * @param tickMove whether LocalPlayer#sendChanges sent the packet after the rider's Rot, which no
+     *     ClientPacketListener response is
+     */
+    public TeleportAcceptData checkVehicleTeleportQueue(
+            Integer vehicleId, double x, double y, double z, boolean tickMove) {
         TeleportAcceptData acceptData = new TeleportAcceptData();
 
         int lastTransaction = player.lastTransactionReceived.get();
@@ -1220,8 +1277,17 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             }
 
             if (matchesVehicleTeleportPosition(position, x, y, z, teleportPos.responseDistanceTolerance())) {
-                final VehicleTeleport matchedEntry = vehicleTeleports.poll();
-                return completeVehicleTeleport(teleportPos);
+                if (!tickMove) {
+                    final VehicleTeleport matchedEntry = vehicleTeleports.poll();
+                    return completeVehicleTeleport(teleportPos);
+                }
+                // A ticking boat interpolates onto a TELEPORT_ENTITY target and the client sends no response for it.
+                if (teleportPos.state() != null
+                        && !isRequiredSetbackVehicleTeleport(teleportPos)
+                        && lastTransaction >= teleportPos.transaction()) {
+                    vehicleTeleports.poll();
+                    continue;
+                }
             }
 
             // MCP-Reborn sends exact MoveVehicle responses from the packet
@@ -1490,9 +1556,14 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         return shouldBlockMovement(false);
     }
 
+    /** After reading a respawn, LocalPlayer#tick sends nothing until the placement teleport is accepted. */
+    private boolean awaitingSpawn() {
+        return !hasFullyLoaded && !respawnUnread;
+    }
+
     /** A corrected vehicle must still be checked before its pending setback can complete. */
     public boolean shouldBlockMovement(boolean validatingVehicleCorrection) {
-        boolean block = (!hasFullyLoaded || (!validatingVehicleCorrection && (blockOffsets || isPendingSetback())))
+        boolean block = (awaitingSpawn() || (!validatingVehicleCorrection && (blockOffsets || isPendingSetback())))
                 && !insideUnloadedChunk();
         return tooFarFromUnloadedChunk() || block;
     }
@@ -1519,7 +1590,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
         // Vehicle packets move the controlled root entity, not the player body. SetbackBlocker has
         // already proved current server mount/control and active Cult vehicle setbacks separately.
-        return !hasFullyLoaded || (!simulatedCorrection && isPendingSetback());
+        return awaitingSpawn() || (!simulatedCorrection && isPendingSetback());
     }
 
     public boolean hasUnacknowledgedSetbackVehicleTeleport() {
@@ -1669,6 +1740,51 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
     }
 
+    /**
+     * ClientPacketListener#handleMovePlayer answers a teleport with its ID, carrying the position from 26.3 on and
+     * followed by a PosRot before.
+     */
+    public void teleportAnswered(int teleportId, boolean carriesPosition) {
+        awaitingPosRot = null;
+        for (TeleportData pending : pendingTeleports) {
+            if (isJavaIdTeleport(pending) && !pending.isAnswered() && pending.getTeleportId() == teleportId) {
+                if (carriesPosition) {
+                    pending.setAnswered(true);
+                } else {
+                    awaitingPosRot = pending;
+                }
+                return;
+            }
+        }
+    }
+
+    /** A PosRot from a client whose teleport answers carry no position. */
+    public void posRotReceived() {
+        if (awaitingPosRot != null) {
+            awaitingPosRot.setAnswered(true);
+            awaitingPosRot = null;
+        }
+    }
+
+    /**
+     * Whether the client handled a ping sent after a player_position teleport without answering it.
+     * ClientPacketListener#handleMovePlayer sends its answer before the client handles the next ping, so a vanilla
+     * client never does.
+     */
+    public boolean hasWithheldJavaTeleport() {
+        if (pendingTeleports.isEmpty()) return false;
+        int received = player.lastTransactionReceived.get();
+        for (TeleportData pending : pendingTeleports) {
+            if (isJavaIdTeleport(pending) && !pending.isAnswered() && received > pending.getTransaction()) return true;
+        }
+        return false;
+    }
+
+    /** A player_position teleport, which the Java client accepts by ID. */
+    private static boolean isJavaIdTeleport(TeleportData pending) {
+        return !pending.isRotationOnly() && !pending.isPositionOnly() && pending.getBedrockTransportRevision() < 0L;
+    }
+
     public void addImmediatePlayerTeleport(
             Vec3 position,
             Vec3 deltaMovement,
@@ -1801,6 +1917,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
     public void addImmediatePlayerRotationTeleport(
             RelativeFlag flags,
+            int bundleTransaction,
             int proofTransaction,
             float sourceYaw,
             float sourcePitch,
@@ -1812,6 +1929,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 Vec3.ZERO, flags, Vec3.ZERO, transaction, 0, sourceYaw, sourcePitch, finalYaw, finalPitch);
         data.setRotationOnly(true);
         data.setPlayerRotation(rotation);
+        data.setBundleTransaction(bundleTransaction < 0 ? Integer.MAX_VALUE : bundleTransaction);
         pendingTeleports.add(data);
         if (proofTransaction >= 0) {
             player.latencyUtils.addRealTimeTask(transaction, () -> {
@@ -1839,31 +1957,41 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     //
     // We will assume that velocity is more sensitive to not moving than general movement
     public void checkIfMustMove() {
+        checkIfMustMove(System.nanoTime());
+    }
+
+    public void checkIfMustMove(long currentTime) {
+        if (!mustMoveDue(currentTime)) return;
+        final long elapsed = currentTime - lastMovement();
+        // if the player must move
+        if (player.checkManager
+                .getSimulationProcessor()
+                .tryToAchievePointThree(new Vec3(player.x, player.y, player.z), player.xRot, player.yRot)
+                .getFlags()
+                .isEmpty()) {
+            return;
+        }
+        // This will activate the velocity part of this check
+        final String latencyReason = "move, " + TimeUnit.NANOSECONDS.toMillis(elapsed) + "ms";
+        executeTooHighLatencySetback(latencyReason);
+    }
+
+    /** True when {@link #checkIfMustMove} at {@code currentTime} goes on to test the player's position. */
+    public boolean mustMoveDue(long currentTime) {
         final EvictingQueue<Long> movementTimes =
                 player.checkManager.getSimulationProcessor().getLastMovementTime();
-        if (movementTimes.isEmpty()) return;
-        if (player.inVehicle()) return;
+        if (movementTimes.isEmpty()) return false;
+        if (player.inVehicle()) return false;
         final KnockbackHandler knockback = player.checkManager.getKnockbackHandler();
-        if (knockback.lastSent != null) return;
-
-        final long lastMovement = Collections.max(movementTimes);
-        final long currentTime = System.nanoTime();
+        if (knockback.lastSent != null) return false;
 
         // If the player hasn't sent a movement in 1.5 seconds, setback (and send velocity to activate other part)
-        final long elapsed = currentTime - lastMovement;
+        final long elapsed = currentTime - lastMovement();
         final long freezeNanos = TimeUnit.NANOSECONDS.convert(freeze, TimeUnit.MILLISECONDS);
-        if (elapsed > freezeNanos) {
-            // if the player must move
-            if (player.checkManager
-                    .getSimulationProcessor()
-                    .tryToAchievePointThree(new Vec3(player.x, player.y, player.z), player.xRot, player.yRot)
-                    .getFlags()
-                    .isEmpty()) {
-                return;
-            }
-            // This will activate the velocity part of this check
-            final String latencyReason = "move, " + TimeUnit.NANOSECONDS.toMillis(elapsed) + "ms";
-            executeTooHighLatencySetback(latencyReason);
-        }
+        return elapsed > freezeNanos;
+    }
+
+    private long lastMovement() {
+        return Collections.max(player.checkManager.getSimulationProcessor().getLastMovementTime());
     }
 }

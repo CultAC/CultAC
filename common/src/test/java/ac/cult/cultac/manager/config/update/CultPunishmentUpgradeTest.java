@@ -41,12 +41,14 @@ class CultPunishmentUpgradeTest {
         var data = read(file);
         assertTrue(result.migrated);
         assertEquals(1, result.oldVersion);
-        assertEquals(3, result.newVersion);
-        assertEquals(3, data.get("cult-config-version"));
+        assertEquals(4, result.newVersion);
+        assertEquals(4, data.get("cult-config-version"));
         assertEquals(List.of("Knockback", "Explosion", "KeepSprint"), checks(data, "Knockback"));
         assertEquals(
                 List.of("Interact", "Aim", "AttackPlayerVisibility", "AttackMobVisibility"), checks(data, "Combat"));
-        assertEquals(List.of("NoSlow", "NoSneakSlow", "Sprint", "Place", "Break"), checks(data, "Misc"));
+        assertEquals(List.of("NoSlow", "NoSneakSlow", "Sprint", "Place", "Break", "SkinBlinker"), checks(data, "Misc"));
+        assertEquals(List.of("Cloud"), checks(data, "Cloud"));
+        assertEquals(1800, group(data, "Cloud").get("remove-violations-after"));
         assertEquals(77, group(data, "Knockback").get("remove-violations-after"));
         assertEquals(
                 List.of("17:4 custom-knockback %player%"),
@@ -80,7 +82,15 @@ class CultPunishmentUpgradeTest {
         assertEquals(List.of("Knockback", "Explosion"), checks(data, "Knockback"));
         assertEquals(List.of("Interact", "Aim", "AttackPlayerVisibility"), checks(data, "Combat"));
         assertEquals(
-                List.of("NoSlow", "NoSneakSlow", "Sprint", "Place", "Break", "!AttackMob", "!KeepSprint"),
+                List.of(
+                        "NoSlow",
+                        "NoSneakSlow",
+                        "Sprint",
+                        "Place",
+                        "Break",
+                        "!AttackMob",
+                        "!KeepSprint",
+                        "SkinBlinker"),
                 checks(data, "Misc"));
     }
 
@@ -152,19 +162,21 @@ class CultPunishmentUpgradeTest {
         var result = upgrade(file);
         assertTrue(result.migrated);
         assertEquals(2, result.oldVersion);
-        assertEquals(3, result.newVersion);
-        assertEquals(List.of("Vehicle", "NoSlow", "NoSneakSlow", "Sprint"), checks(read(file), "Misc"));
+        assertEquals(4, result.newVersion);
+        assertEquals(List.of("Vehicle", "NoSlow", "NoSneakSlow", "Sprint", "SkinBlinker"), checks(read(file), "Misc"));
     }
 
     @Test
     void doesNotDuplicateOrOverrideAnExistingNoSneakSlowEntry() throws Exception {
         Path present = write(REVISION_2.replace("      - \"Sprint\"", "      - \"Sprint\"\n      - \"NoSneakSlow\""));
         upgrade(present);
-        assertEquals(List.of("Vehicle", "NoSlow", "Sprint", "NoSneakSlow"), checks(read(present), "Misc"));
+        assertEquals(
+                List.of("Vehicle", "NoSlow", "Sprint", "NoSneakSlow", "SkinBlinker"), checks(read(present), "Misc"));
 
         Path excluded = write(REVISION_2.replace("      - \"Sprint\"", "      - \"Sprint\"\n      - \"!NoSneakSlow\""));
         upgrade(excluded);
-        assertEquals(List.of("Vehicle", "NoSlow", "Sprint", "!NoSneakSlow"), checks(read(excluded), "Misc"));
+        assertEquals(
+                List.of("Vehicle", "NoSlow", "Sprint", "!NoSneakSlow", "SkinBlinker"), checks(read(excluded), "Misc"));
     }
 
     @ParameterizedTest
@@ -173,12 +185,54 @@ class CultPunishmentUpgradeTest {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/punishments/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
-            assertEquals(3, data.get("cult-config-version"));
+            assertEquals(4, data.get("cult-config-version"));
             assertTrue(checks(data, "Knockback").contains("KeepSprint"));
             assertTrue(checks(data, "Combat").containsAll(List.of("AttackPlayerVisibility", "AttackMobVisibility")));
             List<?> misc = checks(data, "Misc");
             assertEquals("NoSneakSlow", misc.get(misc.indexOf("NoSlow") + 1));
+            assertEquals("SkinBlinker", misc.get(misc.indexOf("Exploit") + 1));
+            assertEquals(List.of("Cloud"), checks(data, "Cloud"));
         }
+    }
+
+    private static final String REVISION_3 = """
+            cult-config-version: 3
+            Punishments:
+              Misc:
+                checks:
+                  - "Chat"
+                  - "Exploit"
+                  - "Vehicle"
+                commands:
+                  - "10:5 [alert]"
+            """;
+
+    @Test
+    void insertsSkinBlinkerBelowExploitAndAddsTheCloudGroup() throws Exception {
+        Path file = write(REVISION_3);
+        var result = upgrade(file);
+        assertTrue(result.migrated);
+        assertEquals(3, result.oldVersion);
+        var data = read(file);
+        assertEquals(List.of("Chat", "Exploit", "SkinBlinker", "Vehicle"), checks(data, "Misc"));
+        assertEquals(List.of("Cloud"), checks(data, "Cloud"));
+        assertEquals(
+                List.of("1:1 [alert]", "1:1 [log]", "3:3 [webhook]", "3:3 [proxy]"),
+                group(data, "Cloud").get("commands"));
+        assertEquals(1800, group(data, "Cloud").get("remove-violations-after"));
+    }
+
+    @Test
+    void keepsAnOperatorsCloudGroupAsItIs() throws Exception {
+        Path file = write(
+                REVISION_3
+                        + "  Bans:\n    remove-violations-after: 600\n    checks: [Cloud]\n    commands: ['2:0 ban %player%']\n");
+        upgrade(file);
+        var data = read(file);
+        assertNull(group(data, "Cloud"));
+        assertEquals(List.of("Cloud"), checks(data, "Bans"));
+        assertEquals(600, group(data, "Bans").get("remove-violations-after"));
+        assertEquals(List.of("2:0 ban %player%"), group(data, "Bans").get("commands"));
     }
 
     private Path write(String content) throws Exception {

@@ -9,6 +9,7 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
@@ -24,10 +25,11 @@ public final class ClientItemUseState {
             int proof,
             float legalMultiplier,
             float requiredMultiplier,
+            float slowestMultiplier,
             boolean canSprint,
             boolean required,
             boolean definitelyUsing) {
-        public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, true, false, false);
+        public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, 1, true, false, false);
     }
 
     public record ActiveUse(Hand hand, String itemKey) {}
@@ -46,7 +48,7 @@ public final class ClientItemUseState {
     private long session;
     private int lastPreparedTick = Integer.MIN_VALUE;
     private Snapshot prepared = Snapshot.NONE;
-    private final Set<SimItemStack> possiblyChanged = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Map<SimItemStack, Integer> possiblyChanged = new IdentityHashMap<>();
     private boolean possiblyFull;
 
     /**
@@ -76,7 +78,7 @@ public final class ClientItemUseState {
             for (SimItemStack stack : hand == Hand.MAIN_HAND ? hotbar : List.of(off)) {
                 // LivingEntity.startUsingItem cannot start an empty hand, and an
                 // unproven local completion may have emptied or replaced this stack.
-                if (stack.isEmpty() || possiblyChanged(stack)) couldNotStart = true;
+                if (stack.isEmpty() || possiblyEmpty(stack)) couldNotStart = true;
                 if (!stack.isEmpty()) merge(next, new Use(hand, stack.copy(), duration(stack), stack));
             }
         }
@@ -138,10 +140,13 @@ public final class ClientItemUseState {
                 obligation = new Use(obligation.hand(), held.copy(), nextRemaining(obligation.remaining()), held);
         }
         float legal = inactive ? 1 : 0;
+        // LocalPlayer#modifyInput slows by any use the client may hold, including one it may have refused.
+        float slowest = 1;
         boolean canSprint = inactive;
         for (Use use : candidates) {
             var effects = effects(use.stack(), version);
             legal = Math.max(legal, effects.speedMultiplier());
+            slowest = Math.min(slowest, effects.speedMultiplier());
             canSprint |= effects.canSprint();
         }
         float required =
@@ -152,6 +157,7 @@ public final class ClientItemUseState {
                 proof,
                 legal,
                 required,
+                Math.min(slowest, required),
                 canSprint,
                 obligation != null && required < 1,
                 !inactive && !candidates.isEmpty());
@@ -164,11 +170,10 @@ public final class ClientItemUseState {
 
     /**
      * LivingEntity.completeUsingItem runs only while the client is locally using, and only
-     * for the same stack object bound at its last entity tick; otherwise it releases. Hotbar
-     * slots other than the reported one are realities only while a hotbar change is unconfirmed.
+     * for the same stack object bound at its last entity tick; otherwise it releases. Every bound
+     * hotbar slot is a reality: a number key can rebind the use without a carried-item packet before it.
      */
-    public Completions completions(
-            List<SimItemStack> hotbar, SimItemStack off, int selected, boolean unconfirmedHotbar) {
+    public Completions completions(List<SimItemStack> hotbar, SimItemStack off) {
         var completions = new LinkedHashSet<Completion>();
         boolean skipped = inactive || candidates.isEmpty();
         for (Use use : candidates) {
@@ -179,7 +184,6 @@ public final class ClientItemUseState {
         }
         if (candidates.stream().anyMatch(use -> use.hand() == Hand.MAIN_HAND)) {
             for (int slot = 0; slot < hotbar.size(); slot++) {
-                if (slot != selected && !unconfirmedHotbar) continue;
                 SimItemStack held = hotbar.get(slot);
                 if (candidates.stream().anyMatch(use -> use.hand() == Hand.MAIN_HAND && use.boundStack() == held))
                     completions.add(new Completion(Hand.MAIN_HAND, slot));
@@ -189,13 +193,34 @@ public final class ClientItemUseState {
         return new Completions(List.copyOf(completions), skipped);
     }
 
-    /** The client may hold different contents in this stack's slot after an unproven completion. */
-    public void markPossiblyChanged(SimItemStack stack) {
-        possiblyChanged.add(stack);
+    /**
+     * After an unproven completion the client may hold as few as {@code lowest} of this stack in
+     * its slot; 0 also covers a converted or replaced stack.
+     */
+    public void markPossiblyChanged(SimItemStack stack, int lowest) {
+        possiblyChanged.merge(stack, Math.max(0, lowest), Math::min);
     }
 
-    public boolean possiblyChanged(SimItemStack stack) {
-        return possiblyChanged.contains(stack);
+    /** The fewest of this stack the client may hold in its slot. */
+    public int lowestCount(SimItemStack stack) {
+        return possiblyChanged.getOrDefault(stack, stack.count());
+    }
+
+    /** The fewest the client may hold in place of {@code result}, which the model derived from {@code from}. */
+    public int lowestCountAfter(SimItemStack from, SimItemStack result) {
+        if (!result.sameItemSameComponents(from)) return 0;
+        return Math.max(0, result.count() - from.count() + lowestCount(from));
+    }
+
+    /** A modelled copy of a possibly changed stack is still unproven against the client's contents. */
+    public void carryPossibleChange(SimItemStack from, SimItemStack result) {
+        if (!result.isEmpty() && possiblyChanged.containsKey(from))
+            markPossiblyChanged(result, lowestCountAfter(from, result));
+    }
+
+    /** Only an empty slot refuses LivingEntity.startUsingItem or Player.getProjectile; count otherwise does not. */
+    public boolean possiblyEmpty(SimItemStack stack) {
+        return lowestCount(stack) == 0;
     }
 
     /** Received slot contents replace the stack object, which ends its stamp. */
@@ -204,7 +229,7 @@ public final class ClientItemUseState {
         Set<SimItemStack> held = Collections.newSetFromMap(new IdentityHashMap<>());
         held.addAll(hotbar);
         held.add(off);
-        possiblyChanged.retainAll(held);
+        possiblyChanged.keySet().retainAll(held);
     }
 
     public void markPossiblyFull() {
@@ -247,10 +272,6 @@ public final class ClientItemUseState {
 
     public boolean hasObligation() {
         return obligation != null;
-    }
-
-    public float obligationMultiplier(ClientVersion version) {
-        return obligation == null ? 1 : effects(obligation.stack(), version).speedMultiplier();
     }
 
     public void reset() {

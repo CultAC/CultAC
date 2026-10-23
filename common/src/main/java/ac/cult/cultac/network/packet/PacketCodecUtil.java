@@ -5,8 +5,6 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.math.Vec3;
 
 public final class PacketCodecUtil {
-    public static final double ENTITY_POSITION_PACKET_ROUNDING = (1.0D / 4096.0D) / 2.0D + 1.0E-10D;
-
     private static final long LP_DATA_BITS_MASK = 32767L;
     private static final double LP_MAX_QUANTIZED_VALUE = 32766.0D;
     private static final double LP_ABS_MAX_VALUE = 1.7179869183E10D;
@@ -84,21 +82,6 @@ public final class PacketCodecUtil {
         return Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, encoded)) / 8000.0D;
     }
 
-    public static float quantizeRotationByte(float rotation) {
-        // Mirrors ByteBufCodecs.ROTATION_BYTE for packets that store float rotations before encoding.
-        return (byte) Math.floor(rotation * 256.0F / 360.0F) * 360 / 256.0F;
-    }
-
-    public static int decodeSignedShort(int value) {
-        // Mirrors FriendlyByteBuf.readShort after a packet wrote an int with writeShort.
-        return (short) value;
-    }
-
-    public static int decodeUnsignedByte(int value) {
-        // Mirrors FriendlyByteBuf.readUnsignedByte after a packet wrote an int with writeByte.
-        return Byte.toUnsignedInt((byte) value);
-    }
-
     public static Vec3 decodeRelativeEntityPosition(Vec3 base, double deltaX, double deltaY, double deltaZ) {
         return decodeRelativeEntityPosition(
                 base, Math.round(deltaX * 4096.0D), Math.round(deltaY * 4096.0D), Math.round(deltaZ * 4096.0D));
@@ -114,12 +97,6 @@ public final class PacketCodecUtil {
                 xa == 0L ? base.x : decodeEntityPosition(encodeEntityPosition(base.x) + xa),
                 ya == 0L ? base.y : decodeEntityPosition(encodeEntityPosition(base.y) + ya),
                 za == 0L ? base.z : decodeEntityPosition(encodeEntityPosition(base.z) + za));
-    }
-
-    public static boolean matchesEntityPositionPacketRounding(Vec3 expected, Vec3 actual) {
-        return Math.abs(expected.x - actual.x) <= ENTITY_POSITION_PACKET_ROUNDING
-                && Math.abs(expected.y - actual.y) <= ENTITY_POSITION_PACKET_ROUNDING
-                && Math.abs(expected.z - actual.z) <= ENTITY_POSITION_PACKET_ROUNDING;
     }
 
     private static double sanitizeLp(double value) {

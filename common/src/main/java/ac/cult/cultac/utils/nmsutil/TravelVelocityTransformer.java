@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
@@ -28,61 +29,64 @@ public final class TravelVelocityTransformer {
             return Collections.singletonList(playerVelocity);
         }
 
-        // There isn't friction or gravity when gliding
         List<Vec3> frictions = new ArrayList<>(4);
         List<Boolean> inWaterStates =
                 result.getSimulationContext().getWorldData().getInWater().getStates();
         List<Boolean> inLavaStates =
                 result.getSimulationContext().getWorldData().getInLava().getStates();
-        List<Vec3> rootVelocities = preTravelRootVelocities(player, result, playerVelocity);
 
         for (int waterIndex = 0, waterSize = inWaterStates.size(); waterIndex < waterSize; waterIndex++) {
             boolean inWater = inWaterStates.get(waterIndex);
             for (int lavaIndex = 0, lavaSize = inLavaStates.size(); lavaIndex < lavaSize; lavaIndex++) {
                 boolean inLava = inLavaStates.get(lavaIndex);
-                for (int rootIndex = 0, rootSize = rootVelocities.size(); rootIndex < rootSize; rootIndex++) {
-                    Vec3 movedVelocity = rootVelocities.get(rootIndex);
-                    // Entity#move applies horizontal collision zeroing and then
-                    // getBlockSpeedFactor before LivingEntity#travel applies air/water friction.
-                    // Multiplying by an exact 1 keeps every component's bits.
-                    if (additionalBlockFriction != 1.0F || movedVelocity.getClass() != Vec3.class) {
-                        movedVelocity = movedVelocity.multiply(additionalBlockFriction, 1, additionalBlockFriction);
-                    }
-
-                    // Water/lava overrides gliding status
-                    if (result.getSimulationContext().usesFallFlyingMovement() && !inWater && !inLava) {
-                        frictions.add(movedVelocity);
-                        continue;
-                    }
-
-                    // LivingEntity#getEffectiveGravity uses stored deltaMovement,
-                    // not the collision-clipped packet displacement. This matters
-                    // when a slow-falling player hits a ceiling.
-                    boolean falling = movedVelocity.y <= 0.0D;
-                    double grav = player.compensatedEntities.getEntityInControl().gravity;
-                    if (falling && result.getSimulationContext().getEntities().getSlowFallingAmplifier() != null) {
-                        grav = Math.min(grav, 0.01D);
-                    }
-                    if (!player.compensatedEntities.getEntityInControl().hasGravity) grav = 0;
-                    Friction.applyTravelDrag(
-                            player,
-                            onGround,
-                            from,
-                            movedVelocity,
-                            result.getSimulationContext(),
-                            falling,
-                            grav,
-                            inWater,
-                            inLava,
-                            frictions);
+                Vec3 movedVelocity = playerVelocity;
+                // Entity#move applies horizontal collision zeroing and then
+                // getBlockSpeedFactor before LivingEntity#travel applies air/water friction.
+                // Multiplying by an exact 1 keeps every component's bits.
+                if (additionalBlockFriction != 1.0F || movedVelocity.getClass() != Vec3.class) {
+                    movedVelocity = movedVelocity.multiply(additionalBlockFriction, 1, additionalBlockFriction);
                 }
+
+                // Water/lava overrides gliding status
+                if (result.getSimulationContext().usesFallFlyingMovement() && !inWater && !inLava) {
+                    frictions.add(movedVelocity);
+                    continue;
+                }
+
+                // LivingEntity#getEffectiveGravity uses stored deltaMovement,
+                // not the collision-clipped packet displacement. This matters
+                // when a slow-falling player hits a ceiling.
+                boolean falling = movedVelocity.y <= 0.0D;
+                double grav = player.compensatedEntities.getEntityInControl().gravity;
+                if (falling && result.getSimulationContext().getEntities().getSlowFallingAmplifier() != null) {
+                    grav = Math.min(grav, 0.01D);
+                }
+                if (!player.compensatedEntities.getEntityInControl().hasGravity) grav = 0;
+                Friction.applyTravelDrag(
+                        player,
+                        onGround,
+                        from,
+                        movedVelocity,
+                        result.getSimulationContext(),
+                        falling,
+                        grav,
+                        inWater,
+                        inLava,
+                        frictions);
             }
+        }
+
+        // Player#travel replaces the travelled Y with 0.6 of the Y it travelled with, without gravity.
+        if (result.getSimulationContext().getVehicle() == null
+                && player.isFlying
+                && result.getInitialStartingVel() != null) {
+            double flightY = result.getInitialStartingVel().y * 0.6;
+            frictions.replaceAll(velocity -> new Vec3(velocity.x, flightY, velocity.z));
         }
 
         // MCP-Reborn Strider#floatStrider only rewrites deltaMovement from the
         // post-travel Strider#tick path while the strider is actually in lava.
-        if (!ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine.contextUsesExactEffects(
-                        result.getSimulationContext())
+        if (!JavaMovementEngine.contextUsesExactEffects(result.getSimulationContext())
                 && result.getSimulationContext().getVehicle() != null
                 && result.getSimulationContext().getVehicle().type == EntityTypeIds.STRIDER
                 && result.getSimulationContext()
@@ -103,12 +107,5 @@ public final class TravelVelocityTransformer {
         }
 
         return frictions;
-    }
-
-    static List<Vec3> preTravelRootVelocities(CultPlayer player, PredictionResult result, Vec3 playerVelocity) {
-        // Entity#baseTick current was already applied to the starting velocity
-        // before collision/prediction. This method runs after the accepted move
-        // to derive travel drag; applying current here would add it twice.
-        return Collections.singletonList(playerVelocity);
     }
 }

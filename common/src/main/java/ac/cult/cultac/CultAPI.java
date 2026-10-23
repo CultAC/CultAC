@@ -8,6 +8,7 @@ import ac.cult.cultac.manager.TickManager;
 import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.manager.init.Initable;
+import ac.cult.cultac.manager.portal.PortalSyncService;
 import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.PlatformLoader;
@@ -53,6 +54,7 @@ public final class CultAPI {
     private final GrimExtensionManager extensionManager;
     private final EventBus eventBus;
     private final CultExternalAPI externalAPI;
+    private final PortalSyncService portalSync = new PortalSyncService();
     private DataStoreLifecycle dataStoreLifecycle;
     private final BackendRegistry backendRegistry = ac.cult.cultac.runtime.RuntimeEnvironment.host() == null
             ? buildBackendRegistry()

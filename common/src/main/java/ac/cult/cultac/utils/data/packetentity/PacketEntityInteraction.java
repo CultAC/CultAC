@@ -11,6 +11,8 @@ public final class PacketEntityInteraction extends PacketEntity {
 
     public PacketEntityInteraction(CultPlayer player, int id, int type, Vec3 position) {
         super(player, id, type, position.x, position.y, position.z);
+        // The spawn box is built before this class's fields are initialised.
+        refreshDimensions(player);
     }
 
     public Box actionBounds(SimpleCollisionBox position) {

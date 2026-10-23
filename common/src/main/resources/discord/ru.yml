@@ -4,21 +4,26 @@ webhook: ""
 # Установите значение `true`, чтобы обойти проверку формата URL Discord.
 # Это разрешает любой действительный HTTPS URL (полезно для прокси или Matrix forwarder).
 disable-webhook-validation: false
-embed-title: "**Cult Оповещение**"
+embed-title: "%player% обнаружен проверкой %check% [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+include-state: true
 # Заменяет обратные кавычки (`) в значениях (например, в названиях клиентов), чтобы не нарушать форматирование текста в Discord.
 # Установите значение "`", чтобы отключить эту замену.
 backtick-replacement-char: "ˋ"
 violation-content:
     - "**Игрок**: `%player%`"
-    - "**Проверка**: %check%"
-    - "**Нарушения**: %violations%"
-    - "**Версия Клиента**: %version%"
+    - "**UUID**: `%uuid%`"
+    - "**Проверка**: `%check%`"
+    - "**Версия Клиента**: `%version%`"
     - "**Бренд**: `%brand%`"
-    - "**Пинг**: %ping%"
-    - "**ТПС**: %tps%"
+    - "**Чувствительность**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**Пинг**: `%ping%`"
+    - "**ТПС**: `%tps%`"
+    - "**Сервер**: `%server%`"
+    - "**Мир**: `%world% (%world_type%)`"
 
 # Маркеры схемы — см. шапку config.yml.
 config-flavor: V2
-config-version: 1
+config-version: 2

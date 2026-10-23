@@ -37,8 +37,7 @@ public class FarBreak extends Check implements BlockBreakListener {
     public void onBlockBreak(BlockBreak blockBreak) {
         if (!player.cameraEntity.isSelf()
                 || player.inVehicle()
-                || blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) // PE DiggingAction.CANCELLED_DIGGING
-        return; // falses
+                || blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) return; // falses
 
         double min = Double.MAX_VALUE;
         for (double d : player.getPossibleEyeHeights()) {

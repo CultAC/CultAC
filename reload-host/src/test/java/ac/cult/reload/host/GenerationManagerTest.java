@@ -6,9 +6,15 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import ac.cult.cultac.fixture.FixtureEntrypoint;
 import ac.grim.grimac.api.GrimAbstractAPI;
 import ac.grim.grimac.api.GrimUser;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.nio.file.attribute.AclEntry;
+import java.nio.file.attribute.AclEntryPermission;
+import java.nio.file.attribute.AclEntryType;
+import java.nio.file.attribute.AclFileAttributeView;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.BooleanSupplier;
@@ -349,6 +355,34 @@ class GenerationManagerTest {
             eventually(() -> events.contains("hung:close"));
             eventually(() -> manager.status().size() == 1);
         } finally {
+            await(manager.stop());
+        }
+    }
+
+    @Test
+    void hungSupersededDoesNotBlockLaterDeploymentsOrCloseUnderItsCallback() throws Exception {
+        var manager = start();
+        var release = new CompletableFuture<Void>();
+        var entered = new CompletableFuture<Void>();
+        try {
+            manager.lifecycleTimeout(java.time.Duration.ofMillis(300));
+            controls.put("superseded:initial", release);
+            controls.put("entered:superseded:initial", entered);
+            artifact("next.jar", "2", "next", "paper");
+            var updating = manager.update("next.jar");
+            entered.get(10, TimeUnit.SECONDS);
+            assertTrue(updating.toCompletableFuture().get(2, TimeUnit.SECONDS).startsWith("Activated"));
+            artifact("later.jar", "3", "later", "paper");
+            await(manager.update("later.jar"));
+            manager.attach("player", null);
+            assertTrue(events.contains("later:attach:player"));
+            assertFalse(events.contains("initial:close"));
+            assertTrue(reports.stream().anyMatch(line -> line.contains("did not finish supersede")));
+            release.complete(null);
+            eventually(() -> events.contains("initial:close"));
+            eventually(() -> manager.status().size() == 1);
+        } finally {
+            release.complete(null);
             await(manager.stop());
         }
     }
@@ -716,6 +750,50 @@ class GenerationManagerTest {
     }
 
     @Test
+    void leftoverRuntimeThatCannotBeListedDoesNotFailStartup() throws Exception {
+        await(start().stop());
+        Path locked = Files.createDirectories(directory.resolve("CultAC/runtime/generations/orphan/locked"));
+        Files.writeString(locked.resolve("runtime.jar"), "x");
+        var acl = Files.getFileAttributeView(locked, AclFileAttributeView.class);
+        List<AclEntry> original = acl == null ? null : acl.getAcl();
+        if (acl != null) {
+            var denied = new ArrayList<AclEntry>();
+            denied.add(AclEntry.newBuilder()
+                    .setType(AclEntryType.DENY)
+                    .setPrincipal(acl.getOwner())
+                    .setPermissions(AclEntryPermission.READ_DATA)
+                    .build());
+            denied.addAll(original);
+            acl.setAcl(denied);
+        } else {
+            locked.toFile().setReadable(false);
+        }
+        try {
+            assumeTrue(cannotList(locked), "listing cannot be blocked for this user");
+            var restarted = start();
+            try {
+                restarted.attach("player", null);
+                assertTrue(events.contains("initial:attach:player"));
+                assertTrue(reports.stream().anyMatch(line -> line.contains("cleanup failed for orphan")));
+            } finally {
+                await(restarted.stop());
+            }
+        } finally {
+            if (acl != null) acl.setAcl(original);
+            else locked.toFile().setReadable(true);
+        }
+    }
+
+    private static boolean cannotList(Path directory) {
+        try (var entries = Files.list(directory)) {
+            entries.toList();
+            return false;
+        } catch (IOException | UncheckedIOException failure) {
+            return true;
+        }
+    }
+
+    @Test
     void incompatibleLeftoverRuntimeFallsBackToTheBundledRuntime() throws Exception {
         stopAfterUpdateToV2();
         var marker = new Properties();
@@ -900,12 +978,32 @@ class GenerationManagerTest {
     }
 
     @Test
+    void failedConnectionCleanupStillReleasesTheSessionAndTheDrainingGenerationRetires() throws Exception {
+        var manager = start();
+        try {
+            manager.attach("failed", null);
+            artifact("new.jar", "2", "new", "paper");
+            await(manager.update("new.jar"));
+            controls.put("disconnect:failed", CompletableFuture.failedFuture(new IllegalStateException("fixture")));
+            assertThrows(ExecutionException.class, () -> await(manager.disconnect("failed")));
+            eventually(() -> manager.status().size() == 1);
+            assertTrue(events.contains("initial:close"));
+            assertTrue(reports.stream().anyMatch(line -> line.contains("session cleanup failed")));
+        } finally {
+            await(manager.stop());
+        }
+    }
+
+    @Test
     void failedConnectionCleanupFailsShutdownWithoutUnsafeUnloadOrHanging() throws Exception {
         var manager = start();
         manager.attach("failed", null);
-        controls.put("disconnect:failed", CompletableFuture.failedFuture(new IllegalStateException("fixture")));
-        assertThrows(ExecutionException.class, () -> await(manager.disconnect("failed")));
-        assertThrows(ExecutionException.class, () -> await(manager.stop()));
+        var pending = new CompletableFuture<Void>();
+        controls.put("disconnect:failed", pending);
+        var stopped = manager.stop();
+        eventually(() -> events.contains("initial:disconnect:failed"));
+        pending.completeExceptionally(new IllegalStateException("fixture"));
+        assertThrows(ExecutionException.class, () -> await(stopped));
         assertTrue(manager.status().getFirst().contains("CLEANUP_FAILED"));
         assertFalse(events.contains("initial:close"));
     }

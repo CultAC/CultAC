@@ -13,11 +13,23 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
+import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketDirection;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.EntityPose;
+import ac.cult.cultac.protocol.value.PositionPath;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import java.nio.ByteBuffer;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /** ClientLevel#tickEntities order: an entity ticking before the player pushes this travel, one after it the next. */
@@ -33,6 +45,10 @@ class JavaEntityPushTest {
     private static final double SECOND_FALL = fall(FIRST_FALL);
     private static final Vec3 CONTACT = START.add(0, FIRST_FALL, 0);
     private static final Vec3 AWAY = new Vec3(4.5, FLOOR_Y, 4.5);
+    /** A zombie whose top stays below the player's contact box while a slime seated on it reaches into it. */
+    private static final Vec3 BELOW_TOUCHING = TOUCHING.add(0, -1.5, 0);
+
+    private static final int RIDER = 101;
     /** Out of reach of the player's contact box until its first interpolation step lands it on {@link #TOUCHING}. */
     private static final Vec3 STEPPING_FROM = TOUCHING.add(0, 0, 0.4);
     /** Three interpolation steps of -0.4 each. */
@@ -84,6 +100,20 @@ class JavaEntityPushTest {
     void anEntityTickingBeforeThePlayerPushesItOnFirstContact() throws Exception {
         try (var f = falling()) {
             entity(f, 100, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
+        }
+    }
+
+    /** AABB spans a negative height below the position, and LivingEntity#pushEntities pushes from that box. */
+    @Test
+    void aSlimeOfNegativeSizePushesFromBelowItsPosition() throws Exception {
+        try (var f = falling()) {
+            // Size -4 spans 2.08 down to 0.5 above the player's feet; above its position it would miss the player.
+            f.player.compensatedEntities.addEntity(100, EntityTypeIds.SLIME, TOUCHING.add(0, 3.5, 0), 0, 0, 0);
+            f.player.compensatedEntities.updateEntityMetadata(
+                    100, List.of(new EntityMetadata.Entry(18, -4, ByteBuffer.allocate(0))));
+            f.player.compensatedEntities.getEntity(100).setClientTickOrder(-1L);
 
             assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
         }
@@ -354,17 +384,227 @@ class JavaEntityPushTest {
         }
     }
 
+    /** Entity#push moves no entity that isVehicle: a player carrying a passenger takes no pushes. */
     @Test
-    void aPassengerTicksInItsRootVehiclesPlace() throws Exception {
+    void aPlayerCarryingAPassengerIsNotPushed() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, PUSH), false);
+
+            assertFalse(exact(contact), describe(contact));
+            assertEquals(0, contact.getSimulationContext().getWorldData().getNumPushing());
+        }
+    }
+
+    @Test
+    void aPlayerCarryingAPassengerCarriesNoPushIntoTheNextTick() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            entity(f, 102, TOUCHING);
+
+            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
+            assertExact(contact);
+            assertEquals(0, contact.getSimulationContext().getWorldData().getNumCollidingTickingAfterPlayer());
+            PredictionResult next = f.tick(START.add(0, FIRST_FALL + SECOND_FALL, PUSH), false);
+            assertFalse(exact(next), describe(next));
+        }
+    }
+
+    /** Before its ping is answered the client may not have read the set_passengers: it may still be pushed. */
+    @Test
+    void anUnansweredPassengerKeepsThePush() throws Exception {
+        try (var f = falling()) {
+            carry(f, false);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
+        }
+    }
+
+    @Test
+    void anUnansweredDismountOfThePassengerKeepsThePush() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            f.setPassengers(f.player.entityID, List.of());
+            assertUnanswered(f);
+            assertFalse(f.player.compensatedEntities.getSelf().passengers.isEmpty());
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
+        }
+    }
+
+    @Test
+    void anUnansweredMountOfThePassengerElsewhereKeepsThePush() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            entity(f, 103, AWAY);
+            f.setPassengers(103, List.of(100));
+            assertUnanswered(f);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
+        }
+    }
+
+    @Test
+    void anUnansweredRemovalOfThePassengerKeepsThePush() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            removeEntity(f, 100);
+            assertUnanswered(f);
+            assertFalse(f.player.compensatedEntities.getSelf().passengers.isEmpty());
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
+        }
+    }
+
+    /** A removal sent without a ping settles at the next one: the client ejects the passenger on receipt. */
+    @Test
+    void aRemovalOfThePassengerWithoutAPingKeepsThePush() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            f.fixture.connection.phase(PacketDirection.CLIENTBOUND, ConnectionPhase.CONFIGURATION);
+            removeEntity(f, 100);
+            f.fixture.connection.phase(PacketDirection.CLIENTBOUND, ConnectionPhase.PLAY);
+            assertFalse(f.player.compensatedEntities.selfCertainlyCarriesPassenger());
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
+        }
+    }
+
+    /** Entity#setRemoved stops the discarded passenger riding the player. */
+    @Test
+    void aRemovedPassengerLeavesThePlayerPushable() throws Exception {
+        try (var f = falling()) {
+            carry(f, true);
+            f.player.compensatedEntities.removeEntity(100);
+            entity(f, 102, TOUCHING).setClientTickOrder(-1L);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
+        }
+    }
+
+    @Test
+    void aRiderOutsideTheOwnRidingTreePushesFromItsSeatNotItsLastPosition() throws Exception {
         try (var f = falling()) {
             PacketEntity vehicle = entity(f, 100, new Vec3(4.5, FLOOR_Y, 4.5));
             vehicle.setClientTickOrder(-1L);
             entity(f, 101, TOUCHING).mount(vehicle);
 
-            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, PUSH), false);
+            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
 
-            assertEquals(1, contact.getSimulationContext().getWorldData().getNumPushing());
+            assertEquals(0, contact.getSimulationContext().getWorldData().getNumPushing());
             assertExact(contact);
+        }
+    }
+
+    /** Entity#rideTick runs LivingEntity#tick, whose aiStep pushes from the seat positionRider gave the rider. */
+    @Test
+    void aLivingRiderOfAnotherEntityPushesFromItsSeat() throws Exception {
+        try (var f = falling()) {
+            seatSlime(f, entity(f, 100, BELOW_TOUCHING));
+
+            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
+            assertExact(contact);
+            WorldData world = contact.getSimulationContext().getWorldData();
+            assertEquals(1, world.getNumColliding());
+            assertEquals(1, world.getNumCollidingTickingAfterPlayer());
+            assertExact(f.tick(START.add(0, FIRST_FALL + SECOND_FALL, PUSH), false));
+        }
+    }
+
+    /** ClientLevel#tickNonPassenger ticks a passenger right after its vehicle, in the vehicle's tick-list place. */
+    @Test
+    void aLivingRiderTicksInItsVehiclesPlace() throws Exception {
+        try (var f = falling()) {
+            PacketEntity vehicle = entity(f, 100, BELOW_TOUCHING);
+            vehicle.setClientTickOrder(-1L);
+            seatSlime(f, vehicle);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
+        }
+    }
+
+    @Test
+    void aLivingRiderAndItsVehiclePushTheirOwnPushes() throws Exception {
+        try (var f = falling()) {
+            seatSlime(f, entity(f, 100, TOUCHING));
+
+            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
+            assertEquals(2, contact.getSimulationContext().getWorldData().getNumCollidingTickingAfterPlayer());
+            PredictionResult next = f.tick(START.add(0, FIRST_FALL + SECOND_FALL, 2 * PUSH), false);
+            assertEquals(2, next.getSimulationContext().getWorldData().getNumPushing());
+            assertExact(next);
+        }
+    }
+
+    /** Avatar#POSES: a swimming player is 0.6 tall, so its hat sits 0.6 above its feet. */
+    @Test
+    void aLivingRiderOfASwimmingPlayerPushesFromItsLoweredSeat() throws Exception {
+        assertVehicleAndRiderPush(EntityPose.SWIMMING, 0.5);
+    }
+
+    /** Avatar#POSES: a crouching player is 1.5 tall, so its hat sits 1.5 above its feet. */
+    @Test
+    void aLivingRiderOfACrouchingPlayerPushesFromItsLoweredSeat() throws Exception {
+        assertVehicleAndRiderPush(EntityPose.CROUCHING, 0.29);
+    }
+
+    private static void assertVehicleAndRiderPush(EntityPose pose, double aboveContact) throws Exception {
+        try (var f = falling()) {
+            f.player.compensatedEntities.addEntity(
+                    100, EntityTypeIds.PLAYER, TOUCHING.add(0, CONTACT.y - TOUCHING.y + aboveContact, 0), 0, 0, 0);
+            PacketEntity vehicle = f.player.compensatedEntities.entityMap.get(100);
+            vehicle.onPose(pose, Integer.MIN_VALUE);
+            vehicle.onSizeHandled(Integer.MAX_VALUE);
+            seatSlime(f, vehicle);
+
+            PredictionResult contact = f.tick(CONTACT, false);
+            assertExact(contact);
+            assertEquals(2, contact.getSimulationContext().getWorldData().getNumCollidingTickingAfterPlayer());
+            assertExact(f.tick(START.add(0, FIRST_FALL + SECOND_FALL, 2 * PUSH), false));
+        }
+    }
+
+    /** A vehicle that may be anywhere along its pending move may seat its rider anywhere along it too. */
+    @Test
+    void aLivingRiderOfAVehicleWithAnUncertainPositionMayPushFromAnySeat() throws Exception {
+        try (var f = falling()) {
+            PacketEntity vehicle = entity(f, 100, BELOW_TOUCHING);
+            vehicle.onFirstTransaction(true, true, 0, 0, 2.0, f.player);
+            seatSlime(f, vehicle);
+
+            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
+            assertExact(contact);
+            assertEquals(1, contact.getSimulationContext().getWorldData().getNumCollidingTickingAfterPlayer());
+        }
+    }
+
+    /**
+     * ClientPacketListener#handleEntityPositionSync moves an entity too far to interpolate with Entity#snapTo, which
+     * leaves its InterpolationHandler running: the next interpolate shifts the steps it still owes by the jump, so they
+     * carry it on from the synced position into the player.
+     */
+    @Test
+    void anEntitySnappedMidInterpolationPushesFromWhereItsRemainingStepsLeaveIt() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(STANDING, Vec3.ZERO);
+            f.input(NONE);
+            PacketEntity entity = entity(f, 100, SNAP_FROM);
+            assertExact(f.tick(STANDING, true));
+            entity.onFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
+            entity.onSecondTransaction();
+            assertExact(f.tick(STANDING, true));
+
+            positionSync(f, 100, SNAPPED);
+            assertExact(f.tick(STANDING, true));
+            assertExact(f.tick(STANDING, true));
+            assertExact(f.tick(STANDING.add(-pushFrom(SNAPPED.x + 2.0 / 3.0 * SNAP_STEPPING_DX - STANDING.x), 0, 0), true));
         }
     }
 
@@ -504,6 +744,36 @@ class JavaEntityPushTest {
         return f.player.compensatedEntities.entityMap.get(id);
     }
 
+    /** Seats a slime, a living rider like a hat mob on a player, on {@code vehicle}; it spawns far from the player. */
+    private static void seatSlime(JavaTickFixture f, PacketEntity vehicle) {
+        f.player.compensatedEntities.addEntity(RIDER, EntityTypeIds.SLIME, AWAY, 0, 0, 0);
+        f.player.compensatedEntities.entityMap.get(RIDER).mount(vehicle);
+    }
+
+    /** A set_passengers putting zombie 100 on the player, its ping answered or not. */
+    private static void carry(JavaTickFixture f, boolean answered) {
+        entity(f, 100, AWAY);
+        f.setPassengers(f.player.entityID, List.of(100));
+        if (answered) {
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertFalse(f.player.compensatedEntities.getSelf().passengers.isEmpty());
+        } else {
+            assertUnanswered(f);
+        }
+    }
+
+    private static void removeEntity(JavaTickFixture f, int id) {
+        var packet = new ClientboundRemoveEntities(List.of(id));
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.REMOVE_ENTITIES, packet, false);
+        f.player.packetEntityReplication.onRemoveEntities(event, f.player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+    }
+
+    private static void assertUnanswered(JavaTickFixture f) {
+        assertTrue(f.player.lastTransactionSent.get() > f.player.lastTransactionReceived.get());
+    }
+
     /** A respawn into the current level, its spawn teleport to {@link #START}, then two falling ticks to {@link #CONTACT}. */
     private static void respawnFalling(JavaTickFixture f) {
         f.fixture.respawn((byte) 0);
@@ -513,6 +783,25 @@ class JavaEntityPushTest {
         f.input(NONE);
         assertExact(f.tick(START, false));
         assertExact(f.tick(CONTACT, false));
+    }
+
+    private static final Vec3 STANDING = new Vec3(0.5, FLOOR_Y, 0.5);
+    /** Clear of {@link #STANDING}'s contact box; the last of the steps it still owes there lands the entity on it. */
+    private static final Vec3 SNAPPED = new Vec3(1.75, FLOOR_Y, 0.5);
+    /** More than 64 blocks from {@link #SNAPPED}, so a position sync there snaps rather than interpolates. */
+    private static final Vec3 SNAP_FROM = SNAPPED.add(0, 0, 80);
+    /** Three interpolation steps of -0.4 each. */
+    private static final double SNAP_STEPPING_DX = -1.2;
+
+    /** An entity_position_sync of entity {@code id} to {@code position}, answered through its pings. */
+    private static void positionSync(JavaTickFixture f, int id, Vec3 position) {
+        var sync = new ClientboundEntityPositionSync(
+                id, new PositionPath.Linear(new Vec3d(position.x, position.y, position.z)), 0.0F, 0.0F, true);
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_POSITION_SYNC, sync, false);
+        f.player.packetEntityReplication.onEntityPositionSync(event, f.player, sync);
+        event.tasksAfter().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
     }
 
     /** An entity snapped to {@code position}, as by a position sync too far to interpolate. */

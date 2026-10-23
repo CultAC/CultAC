@@ -228,8 +228,9 @@ class VelocityClientboundHandlingTest {
             for (int id = 1; id <= 4; id++) {
                 received.set(id);
                 fixture.player.latencyUtils.handleNettySyncTransaction(id);
-                // A rise lands at the preceding ping; the exact value lands at the following one.
-                int expected = id < 3 ? previousFood : id < 4 ? Math.max(previousFood, food) : food;
+                // Without a bundled proof a rise lands at the preceding ping; the exact value lands at the proof.
+                int beforeProof = proofSendable ? previousFood : Math.max(previousFood, food);
+                int expected = id < 3 ? previousFood : id < 4 ? beforeProof : food;
                 assertEquals(
                         expected,
                         fixture.player.food,

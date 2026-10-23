@@ -2,7 +2,6 @@ package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.blocksim.data.Box;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.latency.ClientPlayerModes;
@@ -31,20 +30,7 @@ public final class PacketEntityPlayer extends PacketEntity {
     }
 
     public Box actionBounds(SimpleCollisionBox position) {
-        float width = .6F, height = 1.8F;
-        boolean fixed = actionPose == EntityPose.SLEEPING || actionPose == EntityPose.DYING;
-        if (fixed) {
-            width = .2F;
-            height = .2F;
-        } else {
-            height = switch (actionPose) {
-                case FALL_FLYING, SWIMMING, SPIN_ATTACK -> .6F;
-                case CROUCHING -> 1.5F;
-                default -> height;
-            };
-            width *= scale;
-            height *= scale;
-        }
+        float width = avatarWidth(actionPose, scale), height = avatarHeight(actionPose, scale);
         double x = position.minX + .5 * (position.maxX - position.minX);
         double z = position.minZ + .5 * (position.maxZ - position.minZ), radius = width / 2.0F;
         return new Box(x - radius, position.minY, z - radius, x + radius, position.minY + height, z + radius);

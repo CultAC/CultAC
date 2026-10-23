@@ -9,6 +9,11 @@ import ac.cult.cultac.utils.math.Vec3;
 public class Fireworks implements UncertaintyHandler {
 
     @Override
+    public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        return player.compensatedFireworks.getMaxFireworksAppliedPossible() == 0;
+    }
+
+    @Override
     public PredVector handleUncertainty(
             CultPlayer player,
             ValidMovements valid,

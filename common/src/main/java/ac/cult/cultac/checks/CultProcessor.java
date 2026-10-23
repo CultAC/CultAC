@@ -2,6 +2,7 @@ package ac.cult.cultac.checks;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.StringReturner;
 import ac.cult.cultac.utils.common.ConfigReloadObserver;
 import ac.grim.grimac.api.AbstractProcessor;
@@ -18,13 +19,12 @@ public abstract class CultProcessor implements AbstractProcessor, ConfigReloadab
         this.player = player;
     }
 
-    public static boolean isDrop(ac.cult.cultac.protocol.value.PlayerAction action) {
-        return action == ac.cult.cultac.protocol.value.PlayerAction.DROP_ITEM
-                || action == ac.cult.cultac.protocol.value.PlayerAction.DROP_ALL_ITEMS;
+    public static boolean isDrop(PlayerAction action) {
+        return action == PlayerAction.DROP_ITEM || action == PlayerAction.DROP_ALL_ITEMS;
     }
 
-    protected final boolean canCancelInventoryAction(ac.cult.cultac.protocol.value.PlayerAction action) {
-        return action != ac.cult.cultac.protocol.value.PlayerAction.RELEASE_USE_ITEM && !isDrop(action);
+    protected final boolean canCancelInventoryAction(PlayerAction action) {
+        return action != PlayerAction.RELEASE_USE_ITEM && !isDrop(action);
     }
 
     public CultPlayer getPlayer() {

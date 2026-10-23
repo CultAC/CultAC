@@ -25,13 +25,6 @@ public enum DesyncStatus {
         return UNKNOWN;
     }
 
-    public DesyncStatus addBoolean(DesyncStatus b) {
-        if (this == UNKNOWN || b == UNKNOWN) return UNKNOWN;
-        if (this == TRUE && b == TRUE) return TRUE;
-        if (this == FALSE && b == FALSE) return FALSE;
-        return UNKNOWN;
-    }
-
     public static DesyncStatus fromBooleans(boolean b1, boolean b2) {
         if (b1 == b2) {
             return fromBoolean(b1);

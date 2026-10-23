@@ -2,6 +2,7 @@ package ac.cult.cultac.network;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +21,7 @@ final class ReportedFailures extends Handler implements AutoCloseable {
     private final List<String> warnings = new ArrayList<>();
 
     ReportedFailures() {
+        CultNetworkManager.failureThrottle(new LogThrottle());
         logger.addHandler(this);
     }
 

@@ -12,12 +12,10 @@ public class PistonData implements TransactionOrder {
 
     public final boolean isPush;
     public final boolean hasSlimeBlock;
-    public final boolean hasHoneyBlock;
     public final Direction direction;
     public final int lastTransactionSent;
     private final boolean phaseWithClientTickEnd;
 
-    // Calculate if the player has no-push, and when to end the possibility of applying piston
     public int ticksOfPistonBeingAlive = 0;
 
     // The movement areas from the last completed client block-entity tick.
@@ -41,7 +39,6 @@ public class PistonData implements TransactionOrder {
             int lastTransactionSent,
             boolean isPush,
             boolean hasSlimeBlock,
-            boolean hasHoneyBlock,
             boolean phaseWithClientTickEnd) {
         this.direction = direction;
         this.movingPositions = movingPositions;
@@ -50,7 +47,6 @@ public class PistonData implements TransactionOrder {
         this.lastTransactionSent = lastTransactionSent;
         this.isPush = isPush;
         this.hasSlimeBlock = hasSlimeBlock;
-        this.hasHoneyBlock = hasHoneyBlock;
         this.phaseWithClientTickEnd = phaseWithClientTickEnd;
     }
 

@@ -1,6 +1,6 @@
 package ac.cult.cultac.utils.data;
 
-/** Policy accounting, deliberately independent of cheating flags and timer balances. */
+/** Policy accounting, independent of cheating flags and timer balances. */
 public final class ItemUseDesyncHistory {
     private boolean[] history = new boolean[100];
     private int size;

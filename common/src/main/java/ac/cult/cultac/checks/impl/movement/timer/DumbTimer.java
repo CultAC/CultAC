@@ -7,6 +7,7 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
+import ac.cult.cultac.utils.data.TeleportAcceptData;
 
 /** Caps movement backlog alongside the precise TimerA check. */
 public class DumbTimer extends CultProcessor implements PositionListener {
@@ -33,7 +34,7 @@ public class DumbTimer extends CultProcessor implements PositionListener {
 
     @Override
     public void onPositionUpdate(final PositionUpdate positionUpdate) {
-        final ac.cult.cultac.utils.data.TeleportAcceptData teleportData = positionUpdate.getTeleportData();
+        final TeleportAcceptData teleportData = positionUpdate.getTeleportData();
         if (teleportData.isTeleport()) {
             final double teleportDistance = positionUpdate.getFrom().distanceTo(positionUpdate.getTo());
             final boolean spawnTeleport = teleportData.isInitialSpawnTeleport();

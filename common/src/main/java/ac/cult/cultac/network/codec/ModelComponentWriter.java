@@ -6,7 +6,10 @@ import ac.cult.blocksim.data.nbt.NbtJson;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder;
+import com.google.gson.JsonElement;
 import io.netty.buffer.ByteBuf;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 
 /** Changed components use portable values and the private versioned Via writer. */
 final class ModelComponentWriter {
@@ -38,7 +41,7 @@ final class ModelComponentWriter {
                 return new NbtValue.Numeric(NbtValue.Kind.DOUBLE, 0D);
         }
         if (value instanceof NbtValue.Compound object) {
-            var fields = new java.util.LinkedHashMap<String, NbtValue>();
+            var fields = new LinkedHashMap<String, NbtValue>();
             object.values().forEach((key, field) -> fields.put(key, nbtZeros(field)));
             return new NbtValue.Compound(fields);
         }
@@ -48,7 +51,7 @@ final class ModelComponentWriter {
         return value;
     }
 
-    private static NbtValue literal(com.google.gson.JsonElement value) {
+    private static NbtValue literal(JsonElement value) {
         if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()) {
             Number number = value.getAsNumber();
             double decimal = number.doubleValue();
@@ -57,7 +60,7 @@ final class ModelComponentWriter {
                         number instanceof Float ? NbtValue.Kind.FLOAT : NbtValue.Kind.DOUBLE, number);
         }
         if (value.isJsonObject()) {
-            var fields = new java.util.LinkedHashMap<String, NbtValue>();
+            var fields = new LinkedHashMap<String, NbtValue>();
             value.getAsJsonObject().entrySet().forEach(entry -> fields.put(entry.getKey(), literal(entry.getValue())));
             return new NbtValue.Compound(fields);
         }
@@ -75,11 +78,11 @@ final class ModelComponentWriter {
                     : new NbtValue.Numeric(NbtValue.Kind.DOUBLE, -0.0D);
         if (!(signs instanceof NbtValue.Compound fields)) return value;
         if (value instanceof NbtValue.Compound object) {
-            var result = new java.util.LinkedHashMap<>(object.values());
+            var result = new LinkedHashMap<>(object.values());
             fields.values().forEach((key, sign) -> result.put(key, signs(result.get(key), sign)));
             return new NbtValue.Compound(result);
         }
-        var result = new java.util.ArrayList<>(((NbtValue.Sequence) value).values());
+        var result = new ArrayList<>(((NbtValue.Sequence) value).values());
         fields.values().forEach((key, sign) -> {
             int index = Integer.parseInt(key);
             result.set(index, signs(result.get(index), sign));

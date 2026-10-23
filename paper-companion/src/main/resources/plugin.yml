@@ -7,10 +7,8 @@ author: CultAC
 website: https://github.com/CultAC/CultAC
 description: Backend companion for the CultAC Velocity proxy.
 provides: [GrimAC]
-commands:
-  cult:
-    description: CultAC commands, run on the proxy.
-    aliases: [cultac, grim, grimac]
+# Lunar Client mods reach the proxy through Apollo when it is installed.
+softdepend: [Apollo-Bukkit]
 # Mirrors the cult.* nodes in bukkit/build.gradle.kts except the loader's cult.update and cult.runtimes; change both together.
 permissions:
   cult.alerts:

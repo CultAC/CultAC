@@ -37,7 +37,7 @@ public class WrongBreak extends Check implements BlockBreakListener {
     }
 
     public void onBlockBreak(BlockBreak blockBreak) {
-        if (blockBreak.action == PlayerAction.START_DESTROY_BLOCK) { // PE DiggingAction.START_DIGGING
+        if (blockBreak.action == PlayerAction.START_DESTROY_BLOCK) {
             final BlockPos pos = blockBreak.position;
 
             // getBlockDamage might not return the correct value if the player
@@ -48,7 +48,7 @@ public class WrongBreak extends Check implements BlockBreakListener {
             lastBlock = pos;
         }
 
-        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) { // PE DiggingAction.CANCELLED_DIGGING
+        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) {
             final BlockPos pos = blockBreak.position;
 
             if (!shouldExempt(blockBreak.block) && !pos.equals(lastBlock)) {
@@ -76,7 +76,7 @@ public class WrongBreak extends Check implements BlockBreakListener {
             return;
         }
 
-        if (blockBreak.action == PlayerAction.STOP_DESTROY_BLOCK) { // PE DiggingAction.FINISHED_DIGGING
+        if (blockBreak.action == PlayerAction.STOP_DESTROY_BLOCK) {
             final BlockPos pos = blockBreak.position;
 
             // when a player looks away from the mined block, they send a cancel, and if they look at it again, they

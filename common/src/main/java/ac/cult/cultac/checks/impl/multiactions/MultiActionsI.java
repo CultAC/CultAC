@@ -12,8 +12,7 @@ import ac.cult.cultac.protocol.value.*;
 @CheckData(
         name = "MultiActionsI",
         stableKey = "cult.multiactions.inventory_attack",
-        description = "Interacted with an entity while in an inventory",
-        experimental = true)
+        description = "Interacted with an entity while in an inventory")
 public class MultiActionsI extends Check implements CheckListener {
     public MultiActionsI(CultPlayer player) {
         super(player);

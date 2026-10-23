@@ -8,7 +8,6 @@ import ac.grim.grimac.api.config.ConfigManager;
 import java.util.LinkedList;
 import org.jetbrains.annotations.NotNull;
 
-// @CheckData(name = "Autoclicker (Limit)", configName = "AutoclickerLimit")
 public class AutoclickerLimit extends AutoClickCheck {
     double maxCps = 25;
 

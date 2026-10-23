@@ -5,7 +5,6 @@ import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
 
 public class PacketEntityStrider extends PacketEntityRideable {
-    public boolean isShaking = false;
     private float walkAnimationSpeed = 0.0F;
     private float walkAnimationPosition = 0.0F;
 

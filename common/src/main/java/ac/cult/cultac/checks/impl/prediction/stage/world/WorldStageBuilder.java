@@ -2,6 +2,9 @@ package ac.cult.cultac.checks.impl.prediction.stage.world;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.data.BlockRegistry;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -13,14 +16,18 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -29,9 +36,9 @@ import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
-import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.FluidTypeFlowing;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import ac.cult.cultac.utils.nmsutil.RiptideUtil;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -48,6 +55,7 @@ public class WorldStageBuilder {
     // floating point inprecision is any decent way... perhaps looking at the many bounding boxes that can send
     // the position and picking the one at the end of the tick that doesn't intersect with any new block collisions?
     private static final double BEDROCK_PUSH_OUT_INSET = 0.002D;
+    private static final BlockRegistry BLOCKS = DataTables.defaults().registry();
     private static final Direction[] HORIZONTAL_ESCAPES = {
         Direction.WEST, Direction.EAST, Direction.NORTH, Direction.SOUTH
     };
@@ -58,6 +66,8 @@ public class WorldStageBuilder {
 
     private final SupportScan supportScan = new SupportScan();
     private int collidingTickingBeforePlayer;
+    private int pushingTickingAfterPlayer;
+    private int ridersTickingAfterPlayer;
 
     public WorldData generateWorldData(
             CultPlayer player,
@@ -163,10 +173,13 @@ public class WorldStageBuilder {
                 player.onGround);
 
         boolean isSuffocating = mightBeSuffocating(player, simulationContext);
-        int numColliding = getNumEntitiesCollidingWith(simulationContext);
+        int numColliding = getNumEntitiesCollidingWith(player, simulationContext);
+        SpinTarget spinTarget = spinTarget(player, simulationContext);
         CarriedPush carriedPush = player.checkManager.getSimulationProcessor().getCarriedPush();
         int numCarriedPushing = pushersFromLastTick(simulationContext, lastPrediction, !carriedPush.isZero());
-        int numPushing = collidingTickingBeforePlayer + numCarriedPushing;
+        boolean pushable =
+                player.isBedrockMovement() || !simulationContext.getEntities().selfCertainlyCarriesPassenger();
+        int numPushing = (pushable ? collidingTickingBeforePlayer : 0) + numCarriedPushing;
         int onBlock = BlockProperties.getOnPos(player, mainSupportingBlockData, to);
 
         SimpleCollisionBox minExtent = simulationContext.getFromMinimumExtent();
@@ -175,15 +188,30 @@ public class WorldStageBuilder {
         // If the player isn't in water, then they aren't in a bubble column
         final BubbleColumnData bubble = computeBubbleColumns(player, to, simulationContext);
 
-        PistonPushes push = player.compensatedWorld.tickPlayerInPistonPushingArea(simulationContext);
+        PistonPushes push = player.compensatedWorld.tickPlayerInPistonPushingArea(
+                simulationContext,
+                lastOnGround.determineOptimistically(),
+                lastPrediction == null
+                        ? null
+                        : lastPrediction.getSimulationContext().getWorldData().getPistonPushes());
         // Java 1.21.2+ sends tick-end after the block-entity pass. Its piston,
         // shulker and recent world state already advance in CheckManager at that
         // boundary, including idle ticks; prediction must not advance them again.
         StuckSpeedData stuckSpeedData = calculateStuckSpeed(player, simulationContext, push);
 
-        // Eye-fluid state is sampled at the movement start position.
-        player.wasEyeInWater = ClientFluidQueries.eyesInWater(
-                player, simulationContext.getFromMinimumExtent(), from, from.y + player.getEyeHeight());
+        // Entity#baseTick samples the eye at the movement start, at the pose Player#updatePlayerPose left last tick.
+        boolean eyeInWater = eyeInWater(player, simulationContext, player.pose);
+        // LocalPlayer#isUnderWater is the eye Player#updateIsUnderwater read before this tick's Entity#baseTick.
+        boolean underwater = lastPrediction != null
+                && lastPrediction.getSimulationContext().getWorldData().isEyeInWater();
+        // Entity#updateSwimming runs in Entity#baseTick, before LocalPlayer#aiStep updates the sprint and flying
+        // flags; Player#updateSwimming clears it while flying, which only a flight kept since last tick proves.
+        boolean swimming = simulationContext.getVehicle() == null
+                && !(player.isFlying && player.swimState.flewLastTick())
+                && player.sprintState.flagBeforeAiStep()
+                && (player.swimState.swimming() && player.gamemode != GameMode.SPECTATOR
+                        ? isInWater.determineOptimistically()
+                        : underwater && player.compensatedWorld.getWaterFluidLevelAt(from.x, from.y, from.z) > 0);
         // Portal contact uses the swept inside-block volume.
         player.intersectedWithNetherPortal = Collisions.hasState(
                 player,
@@ -203,7 +231,13 @@ public class WorldStageBuilder {
 
         DesyncStatus desyncLastOnGround = lastOnGround;
 
-        if (!push.getPush().isEmpty() || player.packetStateData.riptideLevel > 0) {
+        Boolean groundAfterShove = push.onGroundAfterShoveBeforeTravel();
+        if (simulationContext.isRiptideReleaseCertain()) {
+            // Entity#move of TridentItem#releaseUsing's upward lift leaves onGround false before LivingEntity#aiStep.
+            desyncLastOnGround = DesyncStatus.FALSE;
+        } else if (groundAfterShove != null) {
+            desyncLastOnGround = DesyncStatus.fromBoolean(groundAfterShove);
+        } else if (!push.getPush().isEmpty()) {
             desyncLastOnGround = DesyncStatus.UNKNOWN;
         }
         if (simulationContext.getVehicle() != null
@@ -244,10 +278,12 @@ public class WorldStageBuilder {
                 climbingAtStart,
                 climbing,
                 numColliding,
-                numColliding - collidingTickingBeforePlayer,
+                pushable ? pushingTickingAfterPlayer : 0,
+                pushable ? ridersTickingAfterPlayer : 0,
                 numPushing,
                 numCarriedPushing,
                 carriedPush,
+                pushable,
                 onBlock,
                 stuckEdgeData,
                 bubble,
@@ -257,7 +293,33 @@ public class WorldStageBuilder {
                 onHoney,
                 mainSupportingBlockData,
                 fishingRodPulls,
-                pushesWhileLoadingLevel(player, simulationContext));
+                pushesWhileLoadingLevel(player, simulationContext),
+                lastOnGround,
+                eyeInWater,
+                underwater,
+                swimming,
+                simulationContext.getVehicle() != null && minFluidState.isInWater(),
+                spinTarget != SpinTarget.NONE,
+                spinTarget == SpinTarget.PLAYER);
+    }
+
+    // EntityFluidInteraction#update finds the eye only among the fluids inside Entity#getFluidInteractionBox.
+    private static boolean eyeInWater(CultPlayer player, SimulationContext context, Pose pose) {
+        Vec3 from = context.getStart();
+        if (context.getVehicle() != null) {
+            if (player.isBedrockMovement()) {
+                return ClientFluidQueries.eyesInWater(
+                        player, context.getFromMinimumExtent(), from, from.y + pose.eyeHeight * player.dimensionScale);
+            }
+            // Entity#rideTick runs the passenger's Entity#baseTick where the previous Entity#positionRider seated it;
+            // on the first ride tick that is where Entity#startRiding found it, standing.
+            Vec3 seat = player.compensatedEntities.lastRideTickSeat();
+            from = seat != null ? seat : new Vec3(player.x, player.y, player.z);
+            if (seat == null) pose = Pose.STANDING;
+        }
+        SimpleCollisionBox body = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                from.x, from.y, from.z, pose.width * player.dimensionScale, pose.height * player.dimensionScale);
+        return ClientFluidQueries.eyesInWater(player, body, from, from.y + pose.eyeHeight * player.dimensionScale);
     }
 
     private DesyncStatus sampleClimbingAtStart(CultPlayer player, SimulationContext context) {
@@ -356,7 +418,7 @@ public class WorldStageBuilder {
         Vec3 oldPos = context.getStart();
         if (player.isBedrockMovement()) return false;
         // TODO: Does 0.03 affect this and if so, how?
-        float bbWidth = 0.6f;
+        float bbWidth = context.getPose().width * context.getScale();
         return this.moveToClosestSpace(player, oldPos.x - bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D)
                 || this.moveToClosestSpace(player, oldPos.x - bbWidth * 0.35D, oldPos.y, oldPos.z - bbWidth * 0.35D)
                 || this.moveToClosestSpace(player, oldPos.x + bbWidth * 0.35D, oldPos.y, oldPos.z - bbWidth * 0.35D)
@@ -482,27 +544,47 @@ public class WorldStageBuilder {
         return pushes == null ? null : pushes.copy();
     }
 
-    private int getNumEntitiesCollidingWith(SimulationContext context) {
+    private int getNumEntitiesCollidingWith(CultPlayer player, SimulationContext context) {
         int numColliding = 0;
         collidingTickingBeforePlayer = 0;
+        pushingTickingAfterPlayer = 0;
+        ridersTickingAfterPlayer = 0;
         List<SimpleCollisionBox> entityCollisionBoxes = null;
         List<HardCollidingEntityCollision> hardCollidingEntityCollisions = null;
 
         // Players in vehicles do not have collisions
         if (context.getVehicle() == null) {
-            SimpleCollisionBox playerBox = pusherContactBox(context);
+            SimpleCollisionBox sweep = playerSweep(context);
+            SimpleCollisionBox playerBox = pusherContactBox(sweep);
             SimpleCollisionBox entityBounds = new SimpleCollisionBox();
             SimpleCollisionBox entityScratch = new SimpleCollisionBox();
             CompensatedEntities entities = context.getEntities();
+            PacketEntity rootOfSelf = entities.rootOfSelf();
+            PacketEntity selfRidingRoot = entities.selfRidingRoot();
+            PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
             long playerTickOrder = entities.getSelf().getClientTickOrder();
 
-            for (PacketEntity entity : entities.entityMap.values()) {
-                SimpleCollisionBox entityBox =
-                        collidingPusherBox(entities, entity, playerBox, entityBounds, entityScratch);
+            for (PacketEntity entity : entities.pushOrCollideCandidates()) {
+                SimpleCollisionBox entityBox = collidingPusherBox(
+                        player,
+                        entities,
+                        entity,
+                        rootOfSelf,
+                        selfRidingRoot,
+                        serverVehicleRoot,
+                        playerBox,
+                        entityBounds,
+                        entityScratch);
                 if (entityBox == null) continue;
                 numColliding++;
-                if (entities.clientTickOrder(entity) < playerTickOrder) collidingTickingBeforePlayer++;
-                boolean boatLike = EntityTypeUtil.isBoat(entity.type);
+                if (entities.clientTickOrder(entity) < playerTickOrder) {
+                    if (pushesPlayer(entity, entityBox, sweep)) collidingTickingBeforePlayer++;
+                } else {
+                    if (pushesPlayer(entity, entityBox, sweep)) pushingTickingAfterPlayer++;
+                    if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot))
+                        ridersTickingAfterPlayer++;
+                }
+                boolean boatLike = entity.isBoat();
                 boolean minecartLike = entity.isMinecart();
                 if (boatLike || minecartLike || isBedrockHardCollidingEntity(entity)) {
                     if (hardCollidingEntityCollisions == null) hardCollidingEntityCollisions = new ArrayList<>();
@@ -522,13 +604,118 @@ public class WorldStageBuilder {
         return numColliding;
     }
 
-    /** The box an entity must touch to push or collide with the player through the context's movement. */
-    private static SimpleCollisionBox pusherContactBox(SimulationContext context) {
+    /** What LivingEntity#checkAutoSpinAttack may hit: no LivingEntity, any LivingEntity, or possibly a RemotePlayer. */
+    private enum SpinTarget {
+        NONE,
+        LIVING,
+        PLAYER
+    }
+
+    /**
+     * The LivingEntity that may lie in the box LivingEntity#checkAutoSpinAttack searches while autoSpinAttackTicks is
+     * positive: the player's boxes before and after the travel, the box before it lifted by a release on the ground.
+     * Every LivingEntity but a spectator counts, armor stands included.
+     */
+    private static SpinTarget spinTarget(CultPlayer player, SimulationContext context) {
+        if (context.getVehicle() != null || player.riptideSpinAttackTicks <= 0) return SpinTarget.NONE;
+        Vec3 from = context.getStart();
+        SimpleCollisionBox start = GetBoundingBox.getPlayerBoundingBox(player, from.x, from.y, from.z);
+        SimpleCollisionBox sweep = start.copy().union(context.getToMaximumExtent());
+        if (RiptideUtil.releasedOnTheGround(player)) {
+            for (SimpleCollisionBox lifted : RiptideUtil.liftedBoxes(player, start)) sweep.union(lifted);
+        }
+        SimpleCollisionBox entityBounds = new SimpleCollisionBox();
+        SimpleCollisionBox entityScratch = new SimpleCollisionBox();
+        CompensatedEntities entities = context.getEntities();
+        PacketEntity selfRidingRoot = entities.selfRidingRoot();
+        PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
+        SpinTarget target = SpinTarget.NONE;
+        for (PacketEntity entity : entities.entityMap.values()) {
+            if (!entity.isLivingEntity() || isSpectator(entity, entities)) continue;
+            SimpleCollisionBox entityBox;
+            if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) {
+                if (!entities.untrackedRiderMayReach(entity, sweep, entityBounds, entityScratch)) continue;
+                entityBox = entities.untrackedRiderPushBox(entity);
+                if (entityBox == null) continue;
+                entityBox = entity.toBoundingBox(player, entityBox);
+            } else {
+                entityBox = entity.toBoundingBox(
+                        player, entity.getPossibleMovementCollisionBoxes(entityBounds, entityScratch));
+            }
+            if (!intersects(entityBox, 0.0D, 0.0D, sweep)) continue;
+            if (entity instanceof PacketEntityPlayer) return SpinTarget.PLAYER;
+            target = SpinTarget.LIVING;
+        }
+        return target;
+    }
+
+    /**
+     * Whether LivingEntity#checkAutoSpinAttack certainly finds a LivingEntity after the travel to the context's end: a
+     * living entity at rest, in a box the client has applied, intersects the least box the player swept.
+     */
+    public static boolean certainlySpinAttacks(CultPlayer player, SimulationContext context) {
+        if (context.getVehicle() != null
+                || context.getRiptideLevel() != 0
+                || context.isTestingPointThree()
+                || !player.isTickingReliablyFor(1)) return false;
+        int received = player.lastTransactionReceived.get();
+        SimpleCollisionBox sweep = context.getFromMinimumExtent().union(context.getToMinimumExtent());
+        for (PacketEntity entity : context.getEntities().entityMap.values()) {
+            if (!entity.isLivingEntity()
+                    || entity instanceof PacketEntityPlayer
+                    || entity.type == EntityTypeIds.PUFFERFISH
+                    || entity instanceof PacketEntityArmorStand stand && !stand.hasMovementSize()
+                    || entity.isDead
+                    || !entity.hasCertainBox(received)) continue;
+            SimpleCollisionBox entityBox = entity.toBoundingBox(
+                    player, entity.getExactMovementCollisionBox().copy());
+            if (intersects(entityBox, 0.0D, 0.0D, sweep)) return true;
+        }
+        return false;
+    }
+
+    /** EntitySelector#NO_SPECTATORS, which Level#getEntities applies, for a remote player of known game mode. */
+    private static boolean isSpectator(PacketEntity entity, CompensatedEntities entities) {
+        return entity instanceof PacketEntityPlayer remote
+                && remote.profile != null
+                && remote.actionSpectator(entities.clientPlayerModes);
+    }
+
+    /** The boxes the player's own box may hold through the context's movement. */
+    private static SimpleCollisionBox playerSweep(SimulationContext context) {
         Vec3 from = context.getStart();
         SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(from.x, from.y, from.z, 0.6f, 1.8f);
         playerBox.union(context.getToMaximumExtent());
+        return playerBox;
+    }
+
+    /** The box an entity must touch to push or collide with the player through the movement {@code sweep} holds. */
+    private static SimpleCollisionBox pusherContactBox(SimpleCollisionBox sweep) {
+        SimpleCollisionBox playerBox = sweep.copy();
         playerBox.expand(0.2); // bit more because why not
         return playerBox;
+    }
+
+    /**
+     * Whether {@code entity}, colliding within {@code entityBox}, may push a player whose box lies within
+     * {@code sweep}. A boat pushes the entities its box inflated by 0.2, -0.01, 0.2 intersects
+     * (AbstractBoat#tick, AbstractBoat.java:325), and the player pushes the entities its own box intersects
+     * (LivingEntity#pushEntities).
+     */
+    private static boolean pushesPlayer(PacketEntity entity, SimpleCollisionBox entityBox, SimpleCollisionBox sweep) {
+        if (!entity.isBoat()) return true;
+        return intersects(entityBox, 0.2F, -0.01F, sweep) || intersects(entityBox, 0.0D, 0.0D, sweep);
+    }
+
+    /** AABB#intersects of {@code box} inflated by {@code horizontal}, {@code vertical}, {@code horizontal}. */
+    private static boolean intersects(
+            SimpleCollisionBox box, double horizontal, double vertical, SimpleCollisionBox other) {
+        return box.minX - horizontal < other.maxX
+                && box.maxX + horizontal > other.minX
+                && box.minY - vertical < other.maxY
+                && box.maxY + vertical > other.minY
+                && box.minZ - horizontal < other.maxZ
+                && box.maxZ + horizontal > other.minZ;
     }
 
     /**
@@ -536,21 +723,39 @@ public class WorldStageBuilder {
      * Each one's LivingEntity#pushEntities runs after its own move in ClientLevel#tickEntities, so it pushes the
      * player from where its interpolation step that tick left it, not from where it was when the player moved.
      */
-    public static void recountCollidingTickingAfterPlayer(PredictionResult prediction) {
+    public static void recountCollidingTickingAfterPlayer(CultPlayer player, PredictionResult prediction) {
         SimulationContext context = prediction.getSimulationContext();
-        if (context == null || context.getVehicle() != null) return;
-        SimpleCollisionBox playerBox = pusherContactBox(context);
+        if (context == null
+                || context.getVehicle() != null
+                || !context.getWorldData().isPushable()) return;
+        SimpleCollisionBox sweep = playerSweep(context);
+        SimpleCollisionBox playerBox = pusherContactBox(sweep);
         SimpleCollisionBox entityBounds = new SimpleCollisionBox();
         SimpleCollisionBox entityScratch = new SimpleCollisionBox();
         CompensatedEntities entities = context.getEntities();
+        PacketEntity rootOfSelf = entities.rootOfSelf();
+        PacketEntity selfRidingRoot = entities.selfRidingRoot();
+        PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
         long playerTickOrder = entities.getSelf().getClientTickOrder();
         int tickingAfterPlayer = 0;
-        for (PacketEntity entity : entities.entityMap.values()) {
-            if (entities.clientTickOrder(entity) < playerTickOrder) continue;
-            if (collidingPusherBox(entities, entity, playerBox, entityBounds, entityScratch) != null)
-                tickingAfterPlayer++;
+        for (PacketEntity entity : entities.pushOrCollideCandidates()) {
+            if (!entity.mayPushOrCollide() || entities.clientTickOrder(entity) < playerTickOrder) continue;
+            // A rider pushes from the seat its vehicle gave it before this tick: the movement's own count holds it.
+            if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) continue;
+            SimpleCollisionBox entityBox = collidingPusherBox(
+                    player,
+                    entities,
+                    entity,
+                    rootOfSelf,
+                    selfRidingRoot,
+                    serverVehicleRoot,
+                    playerBox,
+                    entityBounds,
+                    entityScratch);
+            if (entityBox != null && pushesPlayer(entity, entityBox, sweep)) tickingAfterPlayer++;
         }
-        context.getWorldData().setNumCollidingTickingAfterPlayer(tickingAfterPlayer);
+        WorldData world = context.getWorldData();
+        world.setNumCollidingTickingAfterPlayer(tickingAfterPlayer + world.getNumRidersTickingAfterPlayer());
     }
 
     /**
@@ -559,13 +764,26 @@ public class WorldStageBuilder {
      * every other entity's pushEntities.
      */
     public void addPushesOnStandingPlayer(CultPlayer player, double x, double y, double z, SimpleCollisionBox pushes) {
-        if (player.compensatedEntities.getSelf().inVehicle()) return;
+        if (player.compensatedEntities.getSelf().inVehicle()
+                || !player.isBedrockMovement() && player.compensatedEntities.selfCertainlyCarriesPassenger()) return;
         SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(x, y, z, 0.6f, 1.8f);
         SimpleCollisionBox entityBounds = new SimpleCollisionBox();
         SimpleCollisionBox entityScratch = new SimpleCollisionBox();
         CompensatedEntities entities = player.compensatedEntities;
-        for (PacketEntity entity : entities.entityMap.values()) {
-            SimpleCollisionBox box = collidingPusherBox(entities, entity, playerBox, entityBounds, entityScratch);
+        PacketEntity rootOfSelf = entities.rootOfSelf();
+        PacketEntity selfRidingRoot = entities.selfRidingRoot();
+        PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
+        for (PacketEntity entity : entities.pushOrCollideCandidates()) {
+            SimpleCollisionBox box = collidingPusherBox(
+                    player,
+                    entities,
+                    entity,
+                    rootOfSelf,
+                    selfRidingRoot,
+                    serverVehicleRoot,
+                    playerBox,
+                    entityBounds,
+                    entityScratch);
             if (box == null) continue;
             double width = BoundingBoxSize.getWidth(player, entity);
             // The box holds every box the entity may have this tick; its centre spans the box less one size.
@@ -579,27 +797,49 @@ public class WorldStageBuilder {
 
     /** The box of an entity that pushes or collides with the player when it touches {@code playerBox}, else null. */
     private static SimpleCollisionBox collidingPusherBox(
+            CultPlayer player,
             CompensatedEntities entities,
             PacketEntity entity,
+            PacketEntity rootOfSelf,
+            PacketEntity selfRidingRoot,
+            PacketEntity serverVehicleRoot,
             SimpleCollisionBox playerBox,
             SimpleCollisionBox entityBounds,
             SimpleCollisionBox entityScratch) {
-        boolean hardCollidingEntity =
-                EntityTypeUtil.isBoat(entity.type) || entity.isMinecart() || isBedrockHardCollidingEntity(entity);
-        // Players can push living entities. Some entities also provide
-        // hard movement collision boxes that Bedrock consumes as geometry.
-        // The one exemption to a living entity is an armor stand (matters due to plugins sending them)
-        if (!entity.isLivingEntity() && !hardCollidingEntity || entity.type == EntityTypeIds.ARMOR_STAND) return null;
-        if (entities.sharesRootVehicleWithSelf(entity)) return null;
+        if (!entity.mayPushOrCollide()) return null;
+        if (entities.sharesRootVehicleWithSelf(entity, rootOfSelf)) return null;
 
-        // MCP-Reborn push/collision checks use the entity's concrete
-        // bounding box, not the reach-expanded uncertainty box.
-        SimpleCollisionBox entityBox = entity.getPossibleMovementCollisionBoxes(entityBounds, entityScratch);
+        SimpleCollisionBox entityBox;
+        if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) {
+            if (!mayPushAsUntrackedRider(player, entity)
+                    || !entities.untrackedRiderMayReach(entity, playerBox, entityBounds, entityScratch)) return null;
+            entityBox = entities.untrackedRiderPushBox(entity);
+            if (entityBox == null) return null;
+            entityBox = entity.toBoundingBox(player, entityBox);
+        } else {
+            // MCP-Reborn push/collision checks use the entity's concrete
+            // bounding box, not the reach-expanded uncertainty box.
+            entityBox =
+                    entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes(entityBounds, entityScratch));
+        }
         return playerBox.isCollided(entityBox) ? entityBox : null;
     }
 
+    /**
+     * Whether a rider outside the player's riding trees pushes it: Entity#rideTick runs LivingEntity#tick, whose aiStep
+     * pushes from the seat positionRider last gave the rider. Hard-colliding riders stay out, as Bedrock contact skips
+     * them.
+     */
+    private static boolean mayPushAsUntrackedRider(CultPlayer player, PacketEntity entity) {
+        return !player.isBedrockMovement()
+                && entity.isLivingEntity()
+                && !entity.isBoat()
+                && !entity.isMinecart()
+                && !isBedrockHardCollidingEntity(entity);
+    }
+
     private static boolean isBedrockHardCollidingEntity(PacketEntity entity) {
-        return entity.type == EntityTypeIds.STRIDER || EntityTypeUtil.isHappyGhast(entity.type);
+        return entity.type == EntityTypeIds.STRIDER || entity.isHappyGhast();
     }
 
     private StuckEdgeData couldBeOnStuckEdge(
@@ -857,6 +1097,18 @@ public class WorldStageBuilder {
             SimpleCollisionBox from,
             SimpleCollisionBox to,
             boolean powderSnowCanApply) {
+        ClientVersion version = player.getClientVersion();
+        if (player.bedrockState == null
+                && version.isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && version.isOlderThan(ClientVersion.V_1_21_9)) {
+            return Collisions.checkStuckSpeedAlongMovementBefore1Dot21Dot9(
+                    player,
+                    from,
+                    to,
+                    version.isNewerThanOrEquals(ClientVersion.V_1_21_5),
+                    version.isOlderThan(ClientVersion.V_1_21_4),
+                    powderSnowCanApply);
+        }
         Vec3 endpoint = Collisions.checkStuckSpeed(player, to, powderSnowCanApply);
         boolean ordered =
                 player.bedrockState == null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
@@ -912,7 +1164,7 @@ public class WorldStageBuilder {
         return fishingRodPulls;
     }
 
-    private MainSupportingBlockData findMainSupportingBlockPos(
+    public MainSupportingBlockData findMainSupportingBlockPos(
             CultPlayer player,
             SimulationContext lastContext,
             double lastMovementX,
@@ -943,7 +1195,15 @@ public class WorldStageBuilder {
     private BlockPos findSupportingBlock(CultPlayer player, SimpleCollisionBox searchBox) {
         SupportScan scan = supportScan.inUse ? new SupportScan() : supportScan;
         try {
-            Collisions.hasState(player, searchBox, scan.start(player, searchBox));
+            // The cells BlockCollisions visits: one layer past the search box on each axis.
+            SimpleCollisionBox cells = new SimpleCollisionBox(
+                    Math.floor(searchBox.minX - 1.0E-7) - 1,
+                    Math.floor(searchBox.minY - 1.0E-7) - 1,
+                    Math.floor(searchBox.minZ - 1.0E-7) - 1,
+                    Math.floor(searchBox.maxX + 1.0E-7) + 1,
+                    Math.floor(searchBox.maxY + 1.0E-7) + 1,
+                    Math.floor(searchBox.maxZ + 1.0E-7) + 1);
+            Collisions.hasState(player, cells, scan.start(player, searchBox, cells));
             return scan.best;
         } finally {
             scan.clear();
@@ -955,14 +1215,16 @@ public class WorldStageBuilder {
         private boolean inUse;
         private CultPlayer player;
         private SimpleCollisionBox searchBox;
+        private SimpleCollisionBox cells;
         private double playerX, playerY, playerZ;
         private BlockPos best;
         private double bestDistance;
 
-        private SupportScan start(CultPlayer player, SimpleCollisionBox searchBox) {
+        private SupportScan start(CultPlayer player, SimpleCollisionBox searchBox, SimpleCollisionBox cells) {
             inUse = true;
             this.player = player;
             this.searchBox = searchBox;
+            this.cells = cells;
             playerX = player.x;
             playerY = player.y;
             playerZ = player.z;
@@ -974,12 +1236,22 @@ public class WorldStageBuilder {
         private void clear() {
             player = null;
             searchBox = null;
+            cells = null;
             best = null;
             inUse = false;
         }
 
         @Override
         public boolean test(int block, BlockPos blockPos) {
+            // BlockCollisions#computeNext: an outer cell on one axis holds only a block with a large collision
+            // shape, on two axes only a moving piston, and on all three none.
+            int outer = (blockPos.getX() == cells.minX || blockPos.getX() == cells.maxX ? 1 : 0)
+                    + (blockPos.getY() == cells.minY || blockPos.getY() == cells.maxY ? 1 : 0)
+                    + (blockPos.getZ() == cells.minZ || blockPos.getZ() == cells.maxZ ? 1 : 0);
+            if (outer == 3
+                    || outer == 1 && !BLOCKS.facts(block).has(StateFacts.LARGE_COLLISION)
+                    || outer == 2 && !BlockIds.is(block, BlockIds.MOVING_PISTON)) return false;
+
             CollisionBox collision =
                     ClientBlockShapes.movement(player, block, blockPos.getX(), blockPos.getY(), blockPos.getZ());
             if (!collision.isIntersected(searchBox)) return false;
@@ -990,40 +1262,13 @@ public class WorldStageBuilder {
             double distance = distanceX * distanceX + distanceY * distanceY + distanceZ * distanceZ;
 
             if (distance < bestDistance
-                    || distance == bestDistance && (best == null || firstHasPriorityOverSecond(blockPos, best))) {
+                    // CollisionGetter#findSupportingBlock keeps the greatest BlockPos#compareTo among equal distances.
+                    || distance == bestDistance && (best == null || best.compareTo(blockPos) < 0)) {
                 best = blockPos;
                 bestDistance = distance;
             }
 
             return false;
         }
-    }
-
-    private boolean firstHasPriorityOverSecond(BlockPos first, BlockPos second) {
-        // Order of loop is X, Y, and Z
-        // We prioritize lowest Y axis, then lowest X axis, then lowest Z axis
-        // Ties among the X and Z positions are broken by the order of looping being X
-        //
-        // X O O
-        // 0 X 0
-        // 0 0 X
-        // If the three blocks were this, the lowest right would win because of iteration order
-        //
-        // X 0 0
-        // 0 0 X
-        // But the upper left would win here because of prioritizing negative X and negative Z
-        if (first.getY() < second.getY()) return true;
-
-        double sumX = second.getX() - first.getX();
-        double sumY = second.getZ() - first.getZ();
-
-        double horizontalSumTotal = sumX + sumY;
-        if (horizontalSumTotal == 0) {
-            // If X is farther in the X direction, then it was found later and therefore won't override
-            return sumX < 0;
-        }
-
-        // Otherwise, lower X and lower Z have priority
-        return horizontalSumTotal < 0;
     }
 }

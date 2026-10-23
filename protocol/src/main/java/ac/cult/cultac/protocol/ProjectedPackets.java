@@ -1,9 +1,12 @@
 package ac.cult.cultac.protocol;
 
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.ByteBufUtil;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -14,18 +17,33 @@ public final class ProjectedPackets implements AutoCloseable {
     /** Owns its buffer until it is transferred to the transport. */
     public record Encoded(List<ByteBuf> frames) {}
 
+    private static final Object NO_MODEL_TYPE = new Object();
+
     private final ProtocolRuntime observed, model;
     private final Supplier<PacketValueAdapter> adapter;
+    private final byte[][] bundleDelimiters = new byte[ConnectionPhase.values().length][];
+    private final Object[][][] modelTypes;
     private boolean closed;
 
     public ProjectedPackets(ProtocolRuntime observed, ProtocolRuntime model, Supplier<PacketValueAdapter> adapter) {
         this.observed = Objects.requireNonNull(observed);
         this.model = Objects.requireNonNull(model);
         this.adapter = Objects.requireNonNull(adapter);
+        modelTypes = new Object[ConnectionPhase.values().length][PacketDirection.values().length][];
+        for (ConnectionPhase phase : ConnectionPhase.values()) {
+            for (PacketDirection direction : PacketDirection.values()) {
+                modelTypes[phase.ordinal()][direction.ordinal()] =
+                        new Object[observed.data().packets(phase, direction).size()];
+            }
+        }
     }
 
     public ProtocolRuntime observed() {
         return observed;
+    }
+
+    public boolean closed() {
+        return closed;
     }
 
     public boolean translated() {
@@ -35,10 +53,21 @@ public final class ProjectedPackets implements AutoCloseable {
     /** The model family of observed wire packet {@code id}; null when the model has none. */
     public PacketType<?> type(ConnectionPhase phase, PacketDirection direction, int id) {
         var bound = observed.binding(phase, direction, id);
-        return bound == null
-                ? model.typeForKey(direction.name().toLowerCase(java.util.Locale.ROOT) + "."
-                        + observed.data().packets(phase, direction).name(id).replace("minecraft:", ""))
-                : bound.type();
+        if (bound != null) return bound.type();
+        Object[] types = modelTypes[phase.ordinal()][direction.ordinal()];
+        if (id < 0 || id >= types.length) return modelType(phase, direction, id);
+        Object type = types[id];
+        if (type == null) {
+            PacketType<?> resolved = modelType(phase, direction, id);
+            type = resolved == null ? NO_MODEL_TYPE : resolved;
+            types[id] = type;
+        }
+        return type == NO_MODEL_TYPE ? null : (PacketType<?>) type;
+    }
+
+    private PacketType<?> modelType(ConnectionPhase phase, PacketDirection direction, int id) {
+        return model.typeForKey(direction.name().toLowerCase(Locale.ROOT) + "."
+                + observed.data().packets(phase, direction).name(id).replace("minecraft:", ""));
     }
 
     /** Borrows the physical frame; no generated frames or mirrored observations exist. */
@@ -48,18 +77,20 @@ public final class ProjectedPackets implements AutoCloseable {
             ByteBuf physical,
             CodecState state,
             Predicate<PacketType<?>> consumed) {
-        Value value = read(phase, direction, physical, state, consumed, false);
-        return value == null ? List.of() : List.of(value);
+        return values(phase, direction, physical, state, consumed, false);
     }
 
-    /** As {@link #read}, for the frame's one value; null where it has none. */
-    public Value readOne(
+    /**
+     * As {@link #read}, for the packet of the frame's one value, whose type is the one {@code consumed} accepted; null
+     * where it has none.
+     */
+    public Object readOne(
             ConnectionPhase phase,
             PacketDirection direction,
             ByteBuf physical,
             CodecState state,
             Predicate<PacketType<?>> consumed) {
-        return read(phase, direction, physical, state, consumed, false);
+        return packet(phase, direction, physical, state, consumed, false);
     }
 
     /** Borrows the frame and reads diagnostic values without committing adapter state. */
@@ -69,11 +100,32 @@ public final class ProjectedPackets implements AutoCloseable {
             ByteBuf physical,
             CodecState state,
             Predicate<PacketType<?>> consumed) {
-        Value value = read(phase, direction, physical, state, consumed, true);
-        return value == null ? List.of() : List.of(value);
+        return values(phase, direction, physical, state, consumed, true);
     }
 
-    private Value read(
+    private List<Value> values(
+            ConnectionPhase phase,
+            PacketDirection direction,
+            ByteBuf physical,
+            CodecState state,
+            Predicate<PacketType<?>> consumed,
+            boolean observation) {
+        PacketType<?>[] accepted = {null};
+        Object packet = packet(
+                phase,
+                direction,
+                physical,
+                state,
+                type -> {
+                    accepted[0] = type;
+                    return consumed.test(type);
+                },
+                observation);
+        return packet == null ? List.of() : List.of(new Value(accepted[0], packet));
+    }
+
+    /** At most one type is offered to {@code consumed}; a non-null packet is a value of that type. */
+    private Object packet(
             ConnectionPhase phase,
             PacketDirection direction,
             ByteBuf physical,
@@ -107,7 +159,7 @@ public final class ProjectedPackets implements AutoCloseable {
                     throw new MalformedPacketException("Trailing bytes on " + type);
             } else packet = observed.decode(phase, direction, id, input, state);
             if (packet == null) return unavailable(type, state);
-            return new Value(type, packet);
+            return packet;
         } finally {
             // Codec reads are synchronous and do not mutate bytes or index marks.
             // Restore even when the codec, adapter, or consumed predicate throws.
@@ -115,7 +167,7 @@ public final class ProjectedPackets implements AutoCloseable {
         }
     }
 
-    private static Value unavailable(PacketType<?> type, CodecState state) {
+    private static Object unavailable(PacketType<?> type, CodecState state) {
         if (state.requiresValues()) throw new ProtocolResolutionException("Unavailable value for " + type);
         return null;
     }
@@ -146,6 +198,26 @@ public final class ProjectedPackets implements AutoCloseable {
         } finally {
             if (output != null) output.release();
         }
+    }
+
+    /**
+     * The one frame {@link #encode} gives a bundle delimiter, whose bytes depend only on the phase; each call owns a
+     * fresh buffer.
+     */
+    public ByteBuf encodeBundleDelimiter(ConnectionPhase phase, ByteBufAllocator allocator, CodecState state) {
+        if (closed) throw new IllegalStateException("Packet values are closed");
+        byte[] bytes = bundleDelimiters[phase.ordinal()];
+        if (bytes == null) {
+            var type = ClientboundPackets.BUNDLE_DELIMITER;
+            ByteBuf frame = encode(phase, type, type.opaqueValue(), allocator, state)
+                    .frames()
+                    .getFirst();
+            bundleDelimiters[phase.ordinal()] = ByteBufUtil.getBytes(frame);
+            return frame;
+        }
+        ByteBuf output = allocator.buffer();
+        output.writeBytes(bytes);
+        return output;
     }
 
     public <R> PacketType<R> writableType(R packet) {

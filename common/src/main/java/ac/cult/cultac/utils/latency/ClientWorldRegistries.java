@@ -2,8 +2,11 @@ package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.data.HolderSets;
 import ac.cult.blocksim.data.nbt.BinaryNbt;
+import ac.cult.blocksim.data.nbt.NbtJson;
 import ac.cult.blocksim.data.nbt.NbtValue;
+import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.entity.PaintingSize;
+import ac.cult.blocksim.environment.BiomeWeather;
 import ac.cult.blocksim.environment.ClientWorldDefaults;
 import ac.cult.blocksim.environment.DimensionData;
 import ac.cult.blocksim.environment.EnvironmentData;
@@ -23,7 +26,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.StreamSupport;
 
 /** Connection-owned world definitions. Contents are immutable; tag reloads publish a new map. */
 public final class ClientWorldRegistries {
@@ -93,8 +98,7 @@ public final class ClientWorldRegistries {
             if (holders == null) return List.of();
             List<String> names;
             if (holders.isJsonArray())
-                names = java.util.stream.StreamSupport.stream(
-                                holders.getAsJsonArray().spliterator(), false)
+                names = StreamSupport.stream(holders.getAsJsonArray().spliterator(), false)
                         .map(value -> HolderSets.identifier(value.getAsString()))
                         .toList();
             else {
@@ -105,8 +109,7 @@ public final class ClientWorldRegistries {
                 if (names == null) throw new IllegalArgumentException("Missing received timeline tag " + name);
             }
             return names.stream()
-                    .map(name -> java.util.Objects.requireNonNull(
-                            definitions.get(name), "Missing received timeline " + name))
+                    .map(name -> Objects.requireNonNull(definitions.get(name), "Missing received timeline " + name))
                     .toList();
         }
     }
@@ -127,11 +130,10 @@ public final class ClientWorldRegistries {
     }
 
     /** Rain eligibility reads this connection's biome climate without retaining another decoded table. */
-    public boolean canRain(String biome, ac.cult.blocksim.engine.BlockPos pos, int seaLevel) {
+    public boolean canRain(String biome, BlockPos pos, int seaLevel) {
         for (var definition : data.registries().get(BIOMES)) {
             if (definition.key().equals(biome))
-                return ac.cult.blocksim.environment.BiomeWeather.canRain(
-                        definition.value().data(), pos, seaLevel);
+                return BiomeWeather.canRain(definition.value().data(), pos, seaLevel);
         }
         throw new IllegalArgumentException("Missing received biome " + biome);
     }
@@ -282,7 +284,7 @@ public final class ClientWorldRegistries {
         var nbt = (NbtValue.Compound) BinaryNbt.read(raw);
         JsonObject json = registry.equals(DIMENSIONS)
                 ? WorldRegistryJson.dimension(nbt)
-                : ac.cult.blocksim.data.nbt.NbtJson.encode(nbt).getAsJsonObject();
+                : NbtJson.encode(nbt).getAsJsonObject();
         String encoded = registry.equals(DIMENSIONS)
                 ? ModelDimensions.project(entry.name(), json.toString(), source, ProtocolVersion.V26_3)
                 : json.toString();
@@ -316,7 +318,7 @@ public final class ClientWorldRegistries {
     }
 
     public PaintingSize painting(String key) {
-        return java.util.Objects.requireNonNull(
+        return Objects.requireNonNull(
                 paintings.get(HolderSets.identifier(key)), "Missing received painting variant " + key);
     }
 

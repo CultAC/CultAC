@@ -14,6 +14,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.Setback;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.UserInfo;
 import ac.cult.cultac.bridge.protocol.ListenerKind;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
+import ac.cult.cultac.manager.datastore.PlayerToggleStore;
 import ac.cult.cultac.platform.velocity.bridge.BridgeFrames;
 import ac.cult.cultac.platform.velocity.bridge.BridgeMessageListener;
 import ac.cult.cultac.platform.velocity.bridge.BridgeSession;
@@ -178,29 +179,52 @@ public final class BridgeApiPublisher implements BridgeMessageListener {
         }
         if (!(message instanceof AlertToggle toggle)) return;
         switch (toggle.kind()) {
-            case AlertToggle.ALERTS -> applyToggle(session, mirror, toggle, "cult.alerts", alerts::setAlertsEnabled);
-            case AlertToggle.VERBOSE -> applyToggle(session, mirror, toggle, "cult.verbose", alerts::setVerboseEnabled);
-            case AlertToggle.BRANDS -> applyToggle(session, mirror, toggle, "cult.brand", alerts::setBrandsEnabled);
+            case AlertToggle.ALERTS ->
+                applyToggle(
+                        session, mirror, toggle, "cult.alerts", PlayerToggleStore.KEY_ALERTS, alerts::setAlertsEnabled);
+            case AlertToggle.VERBOSE ->
+                applyToggle(
+                        session,
+                        mirror,
+                        toggle,
+                        "cult.verbose",
+                        PlayerToggleStore.KEY_VERBOSE,
+                        alerts::setVerboseEnabled);
+            case AlertToggle.BRANDS ->
+                applyToggle(
+                        session, mirror, toggle, "cult.brand", PlayerToggleStore.KEY_BRANDS, alerts::setBrandsEnabled);
             default -> {}
         }
     }
 
     /**
      * Enabling needs the proxy permission of the matching command. A refused or rate-limited toggle still gets the
-     * ALERT_STATE reply, which corrects the backend's bits.
+     * ALERT_STATE reply, which corrects the backend's bits. An applied toggle persists like the matching command's, so
+     * a backend setting such as a staff preference holds on the next join.
      */
     private void applyToggle(
-            BridgeSession session, Mirror mirror, AlertToggle toggle, String permission, AlertSetter setter) {
+            BridgeSession session,
+            Mirror mirror,
+            AlertToggle toggle,
+            String permission,
+            String key,
+            AlertSetter setter) {
         if (session.admitControl(false)) {
             try {
                 if (!toggle.enabled() || mirror.user.hasPermission(permission)) {
                     setter.set(mirror.user, toggle.enabled(), toggle.silent());
+                    persist(mirror.user.getUniqueId(), key, toggle.enabled());
                 }
             } catch (RuntimeException failure) {
                 logger.log(Level.WARNING, "Unable to apply an alert toggle from " + session.serverName(), failure);
             }
         }
         mirror.sendAlertState(true);
+    }
+
+    private static void persist(UUID player, String key, boolean enabled) {
+        var lifecycle = ac.cult.cultac.CultAPI.INSTANCE.getDataStoreLifecycle();
+        if (lifecycle != null) lifecycle.playerToggleStore().applyUserToggle(player, key, enabled);
     }
 
     private interface AlertSetter {

@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 
-// @CheckData(name = "Elytra")
 public class ElytraPseudo extends Check implements PostPredictionListener {
     public ElytraPseudo(CultPlayer cultPlayer) {
         super(cultPlayer, CheckInfo.builder().name("Elytra").build());

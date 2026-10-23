@@ -33,7 +33,9 @@ public final class RootVehicleInterpolationCollision {
         }
 
         for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-            if (entity.getEntityId() == player.entityID || !canCollideWithRootVehicle(vehicle, entity)) {
+            if (entity.getEntityId() == player.entityID
+                    || !canCollideWithRootVehicle(vehicle, entity)
+                    || player.compensatedEntities.isUntrackedRider(entity)) {
                 continue;
             }
 

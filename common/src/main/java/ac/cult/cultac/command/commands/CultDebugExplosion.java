@@ -2,6 +2,7 @@ package ac.cult.cultac.command.commands;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.BuildableCommand;
+import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -21,7 +22,7 @@ import org.incendo.cloud.parser.standard.IntegerParser;
 public final class CultDebugExplosion implements BuildableCommand {
     @Override
     public void register(CommandManager<Sender> manager, CloudPlatformCommandArguments arguments) {
-        manager.command(manager.commandBuilder("cult", "cultac", "grim", "grimac")
+        manager.command(BuildableCommand.root(manager)
                 .literal("debug")
                 .literal("explosion", Description.of("Send yourself an explosion knockback after a delay in ticks"))
                 .permission("cult.debug")
@@ -50,7 +51,8 @@ public final class CultDebugExplosion implements BuildableCommand {
         if (silent && player.isBedrockMovement()) {
             // Geyser translates the explosion into native motion that Grim's Bedrock bridge observes.
             sender.sendMessage(Component.text(
-                    "--silent is only available to Java players; use /cult debug velocity --silent.",
+                    "--silent is only available to Java players; use "
+                            + CloudCommandService.command("debug velocity --silent") + ".",
                     NamedTextColor.RED));
             return;
         }

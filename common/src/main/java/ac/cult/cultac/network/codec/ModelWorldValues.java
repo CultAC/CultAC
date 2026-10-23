@@ -1,5 +1,7 @@
 package ac.cult.cultac.network.codec;
 
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.network.packet.SectionSnapshot;
 import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.RegistryNames;
@@ -9,6 +11,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.function.IntUnaryOperator;
@@ -31,11 +34,8 @@ final class ModelWorldValues {
 
     /** The single update uses byIdOrThrow; section updates use nullable byId. */
     private static int modelState(int state) {
-        if (state < 0
-                || state
-                        >= ac.cult.blocksim.data.DataTables.defaults()
-                                .registry()
-                                .stateCount()) throw new IllegalArgumentException("No value with id " + state);
+        if (state < 0 || state >= DataTables.defaults().registry().stateCount())
+            throw new IllegalArgumentException("No value with id " + state);
         return state;
     }
 
@@ -61,23 +61,18 @@ final class ModelWorldValues {
     }
 
     static WorldPackets.Chunk chunk(ByteBuf input, RegistryNames names) {
-        return chunk(input, ProtocolVersion.V26_3, blockEntityTypes(names), ByteBufUtil::getBytes);
-    }
-
-    /** {@code sections} receives exactly the section payload and returns 26.3 section bytes. */
-    static WorldPackets.Chunk chunk(
-            ByteBuf input, ProtocolVersion version, IntFunction<String> types, Function<ByteBuf, byte[]> sections) {
+        IntFunction<String> types = blockEntityTypes(names);
         int x = input.readInt(), z = input.readInt();
-        long[] motionBlocking = MotionHeightmapValues.read(input, version);
-        byte[] model = sections.apply(input.readSlice(Wire.readLength(input, 2097152)));
-        return finishChunk(input, version, types, x, z, motionBlocking, model, null);
+        long[] motionBlocking = MotionHeightmapValues.read(input, ProtocolVersion.V26_3);
+        byte[] model = ByteBufUtil.getBytes(input.readSlice(Wire.readLength(input, 2097152)));
+        return finishChunk(input, ProtocolVersion.V26_3, types, x, z, motionBlocking, model, null);
     }
 
     static WorldPackets.Chunk chunkDecoded(
             ByteBuf input,
             ProtocolVersion version,
             IntFunction<String> types,
-            Function<ByteBuf, java.util.List<ac.cult.cultac.network.packet.SectionSnapshot>> sections) {
+            Function<ByteBuf, List<SectionSnapshot>> sections) {
         int x = input.readInt(), z = input.readInt();
         long[] motionBlocking = MotionHeightmapValues.read(input, version);
         var model = sections.apply(input.readSlice(Wire.readLength(input, 2097152)));
@@ -92,7 +87,7 @@ final class ModelWorldValues {
             int z,
             long[] motionBlocking,
             byte[] model,
-            java.util.List<ac.cult.cultac.network.packet.SectionSnapshot> decoded) {
+            List<SectionSnapshot> decoded) {
         int count = Wire.readLength(input, input.readableBytes());
         var tickers = new ArrayList<BlockPos>();
         var entities = new ArrayList<WorldPackets.BlockEntityUpdate>(count);
@@ -109,22 +104,17 @@ final class ModelWorldValues {
     }
 
     static WorldPackets.ChunkBiomes biomes(ByteBuf input) {
-        return biomes(input, ByteBufUtil::getBytes);
-    }
-
-    static WorldPackets.ChunkBiomes biomes(ByteBuf input, Function<ByteBuf, byte[]> sections) {
         int count = Wire.readLength(input, input.readableBytes());
         var chunks = new ArrayList<WorldPackets.BiomeChunk>(count);
         for (int i = 0; i < count; i++) {
             long pos = input.readLong();
-            byte[] model = sections.apply(input.readSlice(Wire.readLength(input, 2097152)));
+            byte[] model = ByteBufUtil.getBytes(input.readSlice(Wire.readLength(input, 2097152)));
             chunks.add(new WorldPackets.BiomeChunk((int) pos, (int) (pos >>> 32), ByteBuffer.wrap(model)));
         }
         return new WorldPackets.ChunkBiomes(chunks);
     }
 
-    static WorldPackets.ChunkBiomes biomesDecoded(
-            ByteBuf input, Function<ByteBuf, java.util.List<ac.cult.cultac.network.packet.SectionSnapshot>> sections) {
+    static WorldPackets.ChunkBiomes biomesDecoded(ByteBuf input, Function<ByteBuf, List<SectionSnapshot>> sections) {
         int count = Wire.readLength(input, input.readableBytes());
         var chunks = new ArrayList<WorldPackets.BiomeChunk>(count);
         for (int i = 0; i < count; i++) {

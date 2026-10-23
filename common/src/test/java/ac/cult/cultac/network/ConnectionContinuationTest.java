@@ -57,6 +57,26 @@ class ConnectionContinuationTest {
         assertEquals(previous.user.getConnectionId(), continued.connectionId());
     }
 
+    @Test
+    void brandReadBeforeAttachDoesNotReplaceAReceivedOne() {
+        OfflineCultTestBootstrap.installConfig();
+        var received = player(TestUsers.create(profile(), new EmbeddedChannel()));
+        var wire = received.checkManager.getCheck(ClientBrand.class);
+        wire.restore("fabric");
+        wire.observe("vanilla");
+        assertEquals("fabric", received.getBrand());
+
+        var unknown = player(TestUsers.create(profile(), new EmbeddedChannel()));
+        unknown.checkManager.getCheck(ClientBrand.class).observe(null);
+        assertFalse(unknown.checkManager.getCheck(ClientBrand.class).isHasBrand());
+
+        // The wire bound applies to a brand the platform read: a VarInt length and the string within 64 bytes.
+        var oversized = player(TestUsers.create(profile(), new EmbeddedChannel()));
+        oversized.checkManager.getCheck(ClientBrand.class).observe("x".repeat(64));
+        assertEquals("sent 65 bytes as brand", oversized.getBrand());
+        assertTrue(oversized.checkManager.getCheck(ClientBrand.class).isHasBrand());
+    }
+
     private static boolean jdkValue(Object value) {
         if (value instanceof Map<?, ?> nested)
             return nested.values().stream().allMatch(ConnectionContinuationTest::jdkValue);

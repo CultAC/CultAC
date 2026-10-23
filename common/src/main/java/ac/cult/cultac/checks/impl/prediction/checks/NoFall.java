@@ -4,12 +4,14 @@ import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockVerticalCollisionVerdict;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
+import ac.cult.cultac.utils.data.PistonPushes;
+import ac.cult.cultac.utils.data.ShulkerBoxShoveResult;
 
-// @CheckData(name = "NoFall")
 public class NoFall implements EngineCheck {
     private static final VanillaStepProof STEP_PROOF = new VanillaStepProof();
 
@@ -29,21 +31,42 @@ public class NoFall implements EngineCheck {
         boolean flaggedNoFall = false;
         final NoFallPseudo noFallPseudo = player.checkManager.getListener(NoFallPseudo.class);
 
-        if (!canCollideDown
+        PistonPushes pushes = result.getSimulationContext().getWorldData().getPistonPushes();
+        // From 26.3 the shulker box block shoves are the packet's last Entity#move calls, and the last sets onGround.
+        boolean shoveMayEndMove =
+                pushes != null && !pushes.getShulkerBoxPush().isEmpty() && !pushes.isShulkerBoxShoveBeforeTravel();
+        ShulkerBoxShoveResult shoveEndsMove = null;
+        if (shoveMayEndMove && pushes.getShulkerBoxShovesAfterTravel() != null) {
+            // The prediction's trace holds what the shoves left, or nothing when none reached the player.
+            MovementTrace trace = result.getValidMovements().getClosestTrace();
+            shoveEndsMove = trace == null ? null : trace.shulkerBoxShove();
+            shoveMayEndMove = shoveEndsMove != null;
+        }
+
+        if (shoveEndsMove != null) {
+            boolean reported = result.getSimulationContext().isOnGround();
+            if (reported != shoveEndsMove.onGround()) {
+                result.addFlag(noFallPseudo, () -> String.valueOf(reported), 0.1);
+                flaggedNoFall = true;
+            }
+        } else if (!canCollideDown
                 && result.getSimulationContext().isOnGround()
                 && !STEP_PROOF.canStandAtDestination(player, result)) {
-            result.addFlag(player.checkManager.getListener(NoFallPseudo.class), () -> "true", 0.1);
+            result.addFlag(noFallPseudo, () -> "true", 0.1);
             flaggedNoFall = true;
         }
 
         SimpleCollisionBox valid = result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
+        double stuckSpeedY = result.getSimulationContext().getLastStuckSpeed().y;
+        // Every Entity#move sets onGround from its own collision, so the travel lands by its own displacement:
+        // the reported movement minus the position-only shove.
+        double travelY = result.getTarget().y - result.getPositionOnlyDelta().y / stuckSpeedY;
         // The player is off the ground and can collide to the ground
         if (!result.getSimulationContext().isOnGround()
-                && downCollide != null
-                && downCollide.isLikelyCollide()
-                && valid.maxY + 0.001 < result.getTarget().y // And their valid Y is below their actual movement
-                && downCollide.inMovementSpace(result.getSimulationContext().getLastStuckSpeed().y) + 0.001
-                        >= result.getTarget().y) { // And they recovered by colliding
+                && !shoveMayEndMove
+                && canCollideDown
+                && valid.maxY + 0.001 < travelY // And their valid Y is below their actual movement
+                && downCollide.inMovementSpace(stuckSpeedY) + 0.001 >= travelY) { // And they recovered by colliding
             result.addFlag(noFallPseudo, () -> "false", 0.1);
             flaggedNoFall = true;
         }

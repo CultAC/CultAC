@@ -25,13 +25,14 @@ dependencies {
     implementation("org.incendo:cloud-velocity:2.0.0-beta.10")
     implementation("org.xerial:sqlite-jdbc:3.49.1.0")
     compileOnly("com.velocitypowered:velocity-api:3.4.0")
+    compileOnly(libs.luckperms)
     compileOnly("io.netty:netty-handler:4.2.18.Final")
     testImplementation("com.velocitypowered:velocity-api:3.4.0")
     testImplementation(project(":reload-api"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testImplementation("org.mockito:mockito-core:5.22.0")
     testImplementation("io.netty:netty-handler:4.2.18.Final")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.11.4")
     testRuntimeOnly(libs.viaversion)
 }
 tasks.test {

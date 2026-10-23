@@ -31,6 +31,7 @@ import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 class SpectateManagerTest {
@@ -657,6 +658,26 @@ class SpectateManagerTest {
         verify(staff).setGameMode(GameMode.CREATIVE);
         verify(staff, never()).getGameMode();
         verify(staff, never()).getLocation();
+    }
+
+    @Test
+    void returnKeepsTheReportedWorldOnceItsLocationLetsGo() {
+        router.servers.put(STAFF, "lobby");
+        router.servers.put(TARGET, "lobby");
+        Location reported = new Location(world, 1, 2, 3, 90, 10);
+        router.reply().complete(new ServerState(GameMode.CREATIVE, reported));
+        router.teleport.complete(true);
+        spectate(target).join();
+        // Location holds its world weakly; clearing it stands in for the collector.
+        reported.setWorld(null);
+        when(staff.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
+
+        manager.disable(staff, true);
+
+        ArgumentCaptor<Location> sent = ArgumentCaptor.forClass(Location.class);
+        verify(staff).teleportAsync(sent.capture());
+        assertEquals(new Location(world, 1, 2, 3, 90, 10), sent.getValue());
+        verify(staff).setGameMode(GameMode.CREATIVE);
     }
 
     @Test

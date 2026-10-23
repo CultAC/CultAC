@@ -7,6 +7,7 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
@@ -27,7 +28,6 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
     }
 
     private boolean openingInventory;
-    private boolean swapping;
     private boolean dropping;
     private boolean interacting;
     private boolean attacking;
@@ -77,8 +77,6 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
     public void onPlayerAction(
             PacketReceiveEvent<ServerboundPlayerAction> event, CultPlayer player, ServerboundPlayerAction packet) {
         switch (packet.action()) {
-            case SWAP_ITEM_WITH_OFFHAND -> swapping = true;
-
             case DROP_ITEM, DROP_ALL_ITEMS -> dropping = true;
             case RELEASE_USE_ITEM -> releasing = true;
 
@@ -146,9 +144,7 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
 
     @CultPacketHandler
     public void onContainerClose(
-            PacketReceiveEvent<ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose> event,
-            CultPlayer player,
-            ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose packet) {
+            PacketReceiveEvent<ServerboundContainerClose> event, CultPlayer player, ServerboundContainerClose packet) {
         maybeReset(player, false);
     }
 
@@ -173,7 +169,6 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
     private void maybeReset(CultPlayer player, boolean tickPacket) {
         if (!player.cameraEntity.isSelf() || tickPacket) {
             openingInventory = false;
-            swapping = false;
             dropping = false;
             attacking = false;
             interacting = false;

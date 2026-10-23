@@ -1,5 +1,6 @@
 package ac.cult.cultac.network.codec;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.data.ModelRegistryData;
 import io.netty.buffer.ByteBuf;
@@ -51,7 +52,7 @@ final class ObservedWorldValues {
         var names = values.names();
         return new SectionProjection.Registries(
                 ModelRegistryData.load(values.version()).blockStates().size(),
-                ac.cult.blocksim.data.DataTables.defaults().registry().stateCount(),
+                DataTables.defaults().registry().stateCount(),
                 names.size(BIOME),
                 names.modelSize(BIOME),
                 values.mappings()::blockState,

@@ -13,10 +13,6 @@ public class ReflectionUtils {
         return getClass(className) != null;
     }
 
-    public static boolean hasMethod(@NotNull Class<?> clazz, String methodName, Class<?>... parameterTypes) {
-        return getMethod(clazz, methodName, parameterTypes) != null;
-    }
-
     public static @Nullable Method getMethod(
             @NotNull Class<?> clazz, @NotNull String methodName, Class<?>... parameterTypes) {
         try {

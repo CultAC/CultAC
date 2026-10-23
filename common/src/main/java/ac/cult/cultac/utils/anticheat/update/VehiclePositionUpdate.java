@@ -4,11 +4,9 @@ import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.math.Vec3;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.Setter;
 
 @AllArgsConstructor
 @Getter
-@Setter
 public class VehiclePositionUpdate {
     private final Vec3 from, to;
     private final float xRot, yRot;

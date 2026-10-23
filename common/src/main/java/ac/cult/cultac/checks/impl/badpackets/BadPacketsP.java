@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
 import ac.cult.cultac.utils.inventory.InventoryClick;
@@ -42,7 +43,7 @@ public class BadPacketsP extends Check implements CheckListener {
         final int button = data.button();
 
         boolean flag = switch (clickType) {
-            case PICKUP, QUICK_MOVE, CLONE -> button > 2 || button < 0;
+            case PICKUP, QUICK_MOVE, CLONE -> !isMouseButton(button);
             case SWAP -> (button > 8 || button < 0) && button != 40;
             case THROW -> button != 0 && button != 1;
             case QUICK_CRAFT -> button == 3 || button == 7 || button > 10 || button < 0;
@@ -62,5 +63,15 @@ public class BadPacketsP extends Check implements CheckListener {
                 player.onPacketCancel();
             }
         }
+    }
+
+    /**
+     * AbstractContainerScreen#mouseReleased sends a carried item's click with the released mouse button. GLFW reports
+     * buttons 0 to GLFW_MOUSE_BUTTON_LAST (7); from 26.3 SDL reports a signed byte that getContainerClickButton maps
+     * 1 to 0 and 3 to 1.
+     */
+    private boolean isMouseButton(int button) {
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) return button >= 0 && button <= 7;
+        return button >= Byte.MIN_VALUE && button <= Byte.MAX_VALUE && button != 3;
     }
 }

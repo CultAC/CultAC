@@ -3,12 +3,14 @@ package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockTags;
 import ac.cult.blocksim.data.FluidTags;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
@@ -56,16 +58,14 @@ public final class JavaFallDistance {
         return reset ? 0.0 : distance;
     }
 
-    public record Moved(double fallDistance, Vec3 movement, boolean landed) {}
+    public record Moved(double fallDistance, Vec3 movement, boolean landed, DesyncStatus touchingWater) {}
 
     public static Moved afterCollision(CultPlayer player, PredictionResult result, Vec3 acceptedDiff) {
         SimulationContext context = result.getSimulationContext();
         PacketEntity actor = actor(player, context);
         double distance =
                 beforeMove(player, context, result.getInitialStartingVel()).fallDistance();
-        Vec3 movement = result.hasEffectiveFlags()
-                ? result.getLegacyLikePredictionVector().multiply(context.getLastStuckSpeed())
-                : acceptedDiff;
+        Vec3 movement = movement(result, acceptedDiff);
         var down = result.getCollideAxisData().getYNeg();
         boolean landed = landsOnClip(down, movement.y, context.getLastStuckSpeed().y);
         if (distance != 0 && movement.lengthSqr() >= 1 && crossesResetBlock(player, context, movement)) distance = 0;
@@ -88,7 +88,11 @@ public final class JavaFallDistance {
                 actor.riding != null,
                 waterBelow,
                 actor.isStrider() && context.getWorldData().getInLava().determinePessimistically());
-        return new Moved(storedDistance(context.getVersion(), distance), movement, landed);
+        return new Moved(
+                storedDistance(context.getVersion(), distance),
+                movement,
+                landed,
+                water ? DesyncStatus.TRUE : context.getWorldData().getInWater());
     }
 
     static double afterMoveForActor(
@@ -106,10 +110,12 @@ public final class JavaFallDistance {
     }
 
     private static boolean touchesWater(CultPlayer player, SimulationContext context, Vec3 end) {
-        var box = context.getToActualPose()
-                .copy()
-                .offset(end.subtract(context.getEnd()))
-                .expand(-0.001);
+        return touchesWater(player, context.getToActualPose().copy().offset(end.subtract(context.getEnd())));
+    }
+
+    /** Entity#updateFluidHeightAndDoFluidPushing for water: whether {@code box} touches it. */
+    public static boolean touchesWater(CultPlayer player, SimpleCollisionBox entityBox) {
+        var box = entityBox.copy().expand(-0.001);
         for (int x = (int) Math.floor(box.minX); x < Math.ceil(box.maxX); x++)
             for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++)
                 for (int z = (int) Math.floor(box.minZ); z < Math.ceil(box.maxZ); z++) {
@@ -127,9 +133,7 @@ public final class JavaFallDistance {
         double distance =
                 beforeMove(player, context, result.getInitialStartingVel()).fallDistance();
         // Rejected packet endpoints must not manufacture a fall-distance reset.
-        Vec3 movement = result.hasEffectiveFlags()
-                ? result.getLegacyLikePredictionVector().multiply(context.getLastStuckSpeed())
-                : acceptedDiff;
+        Vec3 movement = movement(result, acceptedDiff);
         var world = context.getWorldData();
         boolean water = world.getInWater().determinePessimistically();
         var down = result.getCollideAxisData().getYNeg();
@@ -163,9 +167,29 @@ public final class JavaFallDistance {
      * Entity#stuckSpeedMultiplier) must be scaled back first - see CollideAxisData.CollideResult.
      */
     static boolean landsOnClip(CollideAxisData.CollideResult down, double movementY, double stuckSpeedY) {
-        return down != null
-                && down.isLikelyCollide()
-                && Math.abs(movementY - down.inMovementSpace(stuckSpeedY)) <= 1.0E-7D;
+        return down != null && down.isLikelyCollide() && sameMoveY(movementY, down.inMovementSpace(stuckSpeedY));
+    }
+
+    /** Whether the packet-visible Y movement {@code movementY} is the Y movement {@code y} the model computes. */
+    static boolean sameMoveY(double movementY, double y) {
+        return Math.abs(movementY - y) <= 1.0E-7D;
+    }
+
+    /** The move the tick commits: the packet's move, or the scaled prediction when the result flags. */
+    static Vec3 movement(PredictionResult result, Vec3 acceptedDiff) {
+        return result.hasEffectiveFlags()
+                ? result.getLegacyLikePredictionVector()
+                        .multiply(result.getSimulationContext().getLastStuckSpeed())
+                : acceptedDiff;
+    }
+
+    /**
+     * Entity#move's verticalCollisionBelow, which sets a locally controlled actor's onGround: the requested Y is
+     * downward and collision changed it, by landing on the probed clip or by a step-up. A requested Y of zero is never
+     * below, even at rest on a block.
+     */
+    static boolean collidesBelow(double requestedY, Moved moved) {
+        return requestedY < 0.0D && (moved.landed() || Math.abs(moved.movement().y - requestedY) > 1.0E-7D);
     }
 
     private static boolean crossesResetBlock(CultPlayer player, SimulationContext context, Vec3 movement) {

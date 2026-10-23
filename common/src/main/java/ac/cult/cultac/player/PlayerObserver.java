@@ -14,6 +14,9 @@ public interface PlayerObserver {
     /** A client tick ended, after every tick-end listener ran for it. */
     default void tickEnded() {}
 
+    /** Server tick {@code serverTick} ended. Runs at the tick end's outbound position, before any ping it writes. */
+    default void serverTickEnded(int serverTick) {}
+
     /** {@code check} flagged; {@code violations} is its violation level. */
     default void flagged(Check check, double violations) {}
 

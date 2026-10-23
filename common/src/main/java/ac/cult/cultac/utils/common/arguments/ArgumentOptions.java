@@ -4,7 +4,6 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import lombok.Getter;
-import org.jetbrains.annotations.NotNull;
 
 @Getter
 public class ArgumentOptions<T> {
@@ -22,10 +21,6 @@ public class ArgumentOptions<T> {
     private Function<T, T> modifier = t -> t;
     private SystemArgument.Visibility visibility = SystemArgument.Visibility.VISIBLE;
     private boolean nullable = false;
-
-    public static <T> Builder<T> from(Class<T> clazz, String key, @NotNull Supplier<@NotNull T> defaultValue) {
-        return new Builder<>(new ArgumentOptions<>(clazz, key, defaultValue));
-    }
 
     public static <T> Builder<T> from(Class<T> clazz, String key, T defaultValue) {
         return new Builder<>(new ArgumentOptions<>(clazz, key, () -> defaultValue)).nullable(defaultValue == null);
@@ -49,16 +44,6 @@ public class ArgumentOptions<T> {
 
         public Builder<T> modifier(Function<T, T> modifier) {
             options.modifier = modifier;
-            return this;
-        }
-
-        public Builder<T> defaultSupplier(Supplier<T> supplier) {
-            options.defaultSupplier = supplier;
-            return this;
-        }
-
-        public Builder<T> visibility(SystemArgument.Visibility visibility) {
-            options.visibility = visibility;
             return this;
         }
 

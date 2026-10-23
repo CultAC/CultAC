@@ -93,7 +93,7 @@ public abstract class PacketEvent<R> {
         if (ConnectionLifecycle.handles(type))
             throw new IllegalStateException("Protocol-switch packet cannot be cancelled or replaced: " + type);
     }
-    /** Packet callback failures retain the original bytes, as before. */
+    /** Packet callback failures retain the original bytes. */
     public void discardChanges() {
         packet = original;
         cancelled = cancelledFinally;

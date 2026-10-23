@@ -32,4 +32,9 @@ public class BadPacketsA extends Check implements CheckListener {
 
         lastSlot = slot;
     }
+
+    /** ClientPacketListener#handleLogin's new MultiPlayerGameMode starts its carriedIndex at 0. */
+    public void resetCarriedIndex() {
+        lastSlot = 0;
+    }
 }

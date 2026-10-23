@@ -1,31 +1,35 @@
 package ac.cult.cultac.network;
 
 import ac.cult.cultac.network.event.PacketListenerPriority;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 
 /** A private registration batch; only compiled immutable routes reach packet threads. */
 public final class PacketRouteBuilder {
     private final PacketHandlerScanner scanner;
-    private final java.util.Map<PacketType<?>, java.util.List<ReceiveRegistration>> receives =
-            new java.util.HashMap<>();
-    private final java.util.Map<PacketType<?>, java.util.List<SendRegistration>> sends = new java.util.HashMap<>();
+    private final Map<PacketType<?>, List<ReceiveRegistration>> receives = new HashMap<>();
+    private final Map<PacketType<?>, List<SendRegistration>> sends = new HashMap<>();
 
     public PacketRouteBuilder(PacketHandlerScanner scanner) {
-        this.scanner = java.util.Objects.requireNonNull(scanner);
+        this.scanner = Objects.requireNonNull(scanner);
     }
 
     PacketRouteBuilder copy() {
         var copy = new PacketRouteBuilder(scanner);
-        receives.forEach((type, handlers) -> copy.receives.put(type, new java.util.ArrayList<>(handlers)));
-        sends.forEach((type, handlers) -> copy.sends.put(type, new java.util.ArrayList<>(handlers)));
+        receives.forEach((type, handlers) -> copy.receives.put(type, new ArrayList<>(handlers)));
+        sends.forEach((type, handlers) -> copy.sends.put(type, new ArrayList<>(handlers)));
         return copy;
     }
 
@@ -41,7 +45,7 @@ public final class PacketRouteBuilder {
 
     public void receiveOpaque(
             List<PacketType<Opaque>> types, PacketListenerPriority priority, PacketReceiveHandler<Opaque> handler) {
-        java.util.Objects.requireNonNull(handler);
+        Objects.requireNonNull(handler);
         for (var type : types) {
             if (!type.isOpaque()) throw new IllegalArgumentException("Not an opaque family: " + type);
             if (type.direction() != PacketDirection.SERVERBOUND)
@@ -57,7 +61,7 @@ public final class PacketRouteBuilder {
         return scanner;
     }
 
-    public java.util.List<PacketType<?>> packetTypes(Class<?> listenerClass, PacketDirection direction) {
+    public List<PacketType<?>> packetTypes(Class<?> listenerClass, PacketDirection direction) {
         return scanner.packetTypes(listenerClass, direction);
     }
 
@@ -94,10 +98,8 @@ public final class PacketRouteBuilder {
 
     /** A per-type connection callback, after player callbacks, also before a player exists. */
     public <R extends ServerboundPacket> void receiveConnection(
-            PacketType<R> type,
-            PacketListenerPriority priority,
-            java.util.function.BiConsumer<ac.cult.cultac.network.event.PacketReceiveEvent<R>, R> handler) {
-        java.util.Objects.requireNonNull(handler);
+            PacketType<R> type, PacketListenerPriority priority, BiConsumer<PacketReceiveEvent<R>, R> handler) {
+        Objects.requireNonNull(handler);
         PacketReceiveHandler<Object> checked = (event, player, packet) ->
                 handler.accept(event, type.recordClass().cast(packet));
         if (scanner.supports(type)) {
@@ -110,7 +112,7 @@ public final class PacketRouteBuilder {
             PacketListenerPriority priority,
             PacketReceiveHandler<? super R> handler,
             boolean early) {
-        java.util.Objects.requireNonNull(handler);
+        Objects.requireNonNull(handler);
         PacketReceiveHandler<Object> checked = (event, player, packet) ->
                 handler.handle(event, player, type.recordClass().cast(packet));
         if (scanner.supports(type)) {
@@ -120,11 +122,9 @@ public final class PacketRouteBuilder {
 
     public <R extends ClientboundPacket> void send(
             PacketType<R> type, PacketListenerPriority priority, PacketSendHandler<? super R> handler) {
-        java.util.Objects.requireNonNull(handler);
+        Objects.requireNonNull(handler);
         PacketSendHandler<Object> checked = (event, player, packet) -> handler.handle(
-                (ac.cult.cultac.network.event.PacketSendEvent) event,
-                player,
-                type.recordClass().cast(packet));
+                (PacketSendEvent) event, player, type.recordClass().cast(packet));
         if (scanner.supports(type)) {
             addSend(type, priority, checked, false);
         }
@@ -179,13 +179,13 @@ public final class PacketRouteBuilder {
             PacketListenerPriority priority,
             PacketReceiveHandler<Object> handler,
             ReceiveStage stage) {
-        java.util.Objects.requireNonNull(priority);
-        java.util.Objects.requireNonNull(handler);
-        java.util.Objects.requireNonNull(stage);
+        Objects.requireNonNull(priority);
+        Objects.requireNonNull(handler);
+        Objects.requireNonNull(stage);
         if (type.direction() != PacketDirection.SERVERBOUND)
             throw new IllegalArgumentException("Not serverbound: " + type);
         if (scanner.supports(type))
-            receives.computeIfAbsent(type, ignored -> new java.util.ArrayList<>())
+            receives.computeIfAbsent(type, ignored -> new ArrayList<>())
                     .add(new ReceiveRegistration(priority, stage, handler));
     }
 
@@ -194,28 +194,28 @@ public final class PacketRouteBuilder {
             PacketListenerPriority priority,
             PacketSendHandler<Object> handler,
             boolean connection) {
-        java.util.Objects.requireNonNull(priority);
-        java.util.Objects.requireNonNull(handler);
+        Objects.requireNonNull(priority);
+        Objects.requireNonNull(handler);
         if (type.direction() != PacketDirection.CLIENTBOUND)
             throw new IllegalArgumentException("Not clientbound: " + type);
         if (scanner.supports(type))
-            sends.computeIfAbsent(type, ignored -> new java.util.ArrayList<>())
+            sends.computeIfAbsent(type, ignored -> new ArrayList<>())
                     .add(new SendRegistration(priority, handler, connection));
     }
 
-    public java.util.Map<PacketType<?>, PacketReceiveRoute<Object>> receiveRoutes(ReceiveStage stage) {
-        var result = new java.util.HashMap<PacketType<?>, PacketReceiveRoute<Object>>();
+    public Map<PacketType<?>, PacketReceiveRoute<Object>> receiveRoutes(ReceiveStage stage) {
+        var result = new HashMap<PacketType<?>, PacketReceiveRoute<Object>>();
         receives.forEach((type, registrations) -> {
             var route = compileReceive(registrations, stage);
             if (!route.isEmpty()) result.put(type, route);
         });
-        return java.util.Map.copyOf(result);
+        return Map.copyOf(result);
     }
 
-    public java.util.Map<PacketType<?>, PacketSendRoute<Object>> sendRoutes() {
-        var result = new java.util.HashMap<PacketType<?>, PacketSendRoute<Object>>();
+    public Map<PacketType<?>, PacketSendRoute<Object>> sendRoutes() {
+        var result = new HashMap<PacketType<?>, PacketSendRoute<Object>>();
         sends.forEach((type, registrations) -> result.put(type, compileSend(registrations)));
-        return java.util.Map.copyOf(result);
+        return Map.copyOf(result);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -223,7 +223,7 @@ public final class PacketRouteBuilder {
             List<ReceiveRegistration> registrations, ReceiveStage stage) {
         return PacketReceiveRoute.of(registrations.stream()
                 .filter(r -> r.stage() == stage)
-                .sorted(java.util.Comparator.comparing(ReceiveRegistration::priority))
+                .sorted(Comparator.comparing(ReceiveRegistration::priority))
                 .map(ReceiveRegistration::handler)
                 .toArray(PacketReceiveHandler[]::new));
     }
@@ -231,7 +231,7 @@ public final class PacketRouteBuilder {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static PacketSendRoute<Object> compileSend(List<SendRegistration> registrations) {
         var sorted = registrations.stream()
-                .sorted(java.util.Comparator.comparing(SendRegistration::priority))
+                .sorted(Comparator.comparing(SendRegistration::priority))
                 .toList();
         return PacketSendRoute.of(
                 sorted.stream().map(SendRegistration::handler).toArray(PacketSendHandler[]::new),

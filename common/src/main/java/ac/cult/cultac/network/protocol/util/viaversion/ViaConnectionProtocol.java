@@ -10,6 +10,8 @@ public final class ViaConnectionProtocol {
 
     /** -1 means no translator; 0 means its original handshake is not known yet. */
     public static int originalProtocol(Channel channel) {
+        // Plugins such as ProtocolLib hand out channel wrappers; Via keys its connection on the pipeline owner.
+        channel = channel.pipeline().channel();
         var decoder = channel.pipeline().get(ViaDecodeHandler.class);
         var encoder = channel.pipeline().get(ViaEncodeHandler.class);
         if (decoder == null && encoder == null) return -1;

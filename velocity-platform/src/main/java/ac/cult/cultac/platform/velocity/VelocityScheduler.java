@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.scheduler.AsyncScheduler;
 import ac.cult.cultac.platform.api.scheduler.EntityScheduler;
@@ -9,7 +10,8 @@ import ac.cult.cultac.platform.api.scheduler.PlatformScheduler;
 import ac.cult.cultac.platform.api.scheduler.RegionScheduler;
 import ac.cult.cultac.platform.api.scheduler.TaskHandle;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
-import ac.cult.cultac.utils.math.Location;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.reload.host.Callbacks;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import io.netty.util.concurrent.DefaultEventExecutor;
 import io.netty.util.concurrent.EventExecutor;
@@ -35,10 +37,10 @@ final class VelocityScheduler
     private final EventExecutor global =
             new DefaultEventExecutor((ThreadFactory) runnable -> new Thread(runnable, "CultAC-global"));
     private final Map<GrimPlugin, Set<Future<?>>> tasks = new ConcurrentHashMap<>();
-    private final Function<PlatformWorld, ac.cult.cultac.network.CultConnection> worldOwner;
+    private final Function<PlatformWorld, CultConnection> worldOwner;
     private boolean closed;
 
-    VelocityScheduler(Function<PlatformWorld, ac.cult.cultac.network.CultConnection> worldOwner) {
+    VelocityScheduler(Function<PlatformWorld, CultConnection> worldOwner) {
         this.worldOwner = worldOwner;
     }
 
@@ -68,23 +70,19 @@ final class VelocityScheduler
             throw new RejectedExecutionException("CultAC scheduler is closed");
         }
         var owned = tasks.computeIfAbsent(plugin, ignored -> ConcurrentHashMap.newKeySet());
-        Runnable guarded = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
+        Runnable guarded = RuntimeEnvironment.guard(task);
         Future<?> future = period > 0
                 ? executor.scheduleAtFixedRate(guarded, Math.max(0, delay), period, unit)
                 : executor.schedule(guarded, Math.max(0, delay), unit);
         owned.add(future);
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host == null) future.addListener(ignored -> owned.remove(future));
         else {
-            future.addListener(ac.cult.reload.host.Callbacks.future(host.resources(), () -> owned.remove(future)));
-            host.resources().track(future, () -> future.cancel(false));
+            future.addListener(Callbacks.future(host.resources(), () -> owned.remove(future)));
+            // A one-shot needs no entry: its guard disarms it at close, and Netty lets go of it once it has run.
+            if (period > 0) host.resources().track(future, () -> future.cancel(false));
         }
         return new TaskHandle() {
-            @Override
-            public boolean isSync() {
-                return false;
-            }
-
             @Override
             public boolean isCancelled() {
                 return future.isCancelled();
@@ -212,52 +210,14 @@ final class VelocityScheduler
         run(plugin, world, x, z, task);
     }
 
-    @Override
-    public void execute(GrimPlugin plugin, Location location, Runnable task) {
-        execute(plugin, location.getWorld(), 0, 0, task);
-    }
-
-    @Override
-    public TaskHandle run(GrimPlugin plugin, PlatformWorld world, int x, int z, Runnable task) {
+    private TaskHandle run(GrimPlugin plugin, PlatformWorld world, int x, int z, Runnable task) {
         return runDelayed(plugin, world, x, z, task, 0);
     }
 
-    @Override
-    public TaskHandle run(GrimPlugin plugin, Location location, Runnable task) {
-        return run(plugin, location.getWorld(), 0, 0, task);
-    }
-
-    @Override
-    public TaskHandle runDelayed(GrimPlugin plugin, PlatformWorld world, int x, int z, Runnable task, long delay) {
+    private TaskHandle runDelayed(GrimPlugin plugin, PlatformWorld world, int x, int z, Runnable task, long delay) {
         var connection = worldOwner.apply(world);
         return schedule(
                 connection.owner(), plugin, () -> connection.runInModel(task), ticks(delay), 0, TimeUnit.MILLISECONDS);
-    }
-
-    @Override
-    public TaskHandle runDelayed(GrimPlugin plugin, Location location, Runnable task, long delay) {
-        return runDelayed(plugin, location.getWorld(), 0, 0, task, delay);
-    }
-
-    @Override
-    public TaskHandle runAtFixedRate(
-            GrimPlugin plugin, PlatformWorld world, int x, int z, Runnable task, long delay, long period) {
-        if (period <= 0) {
-            throw new IllegalArgumentException("Non-positive task period");
-        }
-        var connection = worldOwner.apply(world);
-        return schedule(
-                connection.owner(),
-                plugin,
-                () -> connection.runInModel(task),
-                ticks(delay),
-                ticks(period),
-                TimeUnit.MILLISECONDS);
-    }
-
-    @Override
-    public TaskHandle runAtFixedRate(GrimPlugin plugin, Location location, Runnable task, long delay, long period) {
-        return runAtFixedRate(plugin, location.getWorld(), 0, 0, task, delay, period);
     }
 
     private static long ticks(long value) {

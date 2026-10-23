@@ -30,11 +30,16 @@ import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import com.google.protobuf.InvalidProtocolBufferException;
+import io.netty.channel.Channel;
+import io.netty.channel.DefaultEventLoop;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -249,6 +254,113 @@ class CloudCaptureIsolationTest {
 
     private static DiagPart part(byte[] record) throws InvalidProtocolBufferException {
         return Intake.parseFrom(record).getMessages(0).getDiag();
+    }
+
+    @Test
+    void captureRepliesWaitingForABusyLoopCoalesce() throws Exception {
+        try (CaptureFixture fixture = joined(Host.SERVER)) {
+            FakeUplink a = fixture.uplinks.socket("a");
+            UUID player = fixture.player.getUniqueId();
+            DefaultEventLoop loop = new DefaultEventLoop();
+            CountDownLatch busy = new CountDownLatch(1);
+            CountDownLatch running = new CountDownLatch(1);
+            Object tapped = get(fixture.capture, "channel");
+            Channel held = Mockito.mock(Channel.class);
+            Mockito.when(held.eventLoop()).thenReturn(loop);
+            try {
+                loop.execute(() -> {
+                    running.countDown();
+                    try {
+                        busy.await();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+                running.await();
+                set(fixture.capture, "channel", held);
+                int[] ids = new int[1024];
+                for (int i = 0; i < 1000; i++) a.reply(player, new IntakeWire.Capture(player, ids, ids, ids));
+
+                assertEquals(1, loop.pendingTasks());
+            } finally {
+                busy.countDown();
+                loop.submit(() -> {}).sync();
+                set(fixture.capture, "channel", tapped);
+                loop.shutdownGracefully(0, 0, TimeUnit.SECONDS).sync();
+            }
+        }
+    }
+
+    @Test
+    void everyReplyWaitingForABusyLoopIsBounded() throws Exception {
+        try (CaptureFixture fixture = joined(Host.SERVER)) {
+            FakeUplink a = fixture.uplinks.socket("a");
+            UUID player = fixture.player.getUniqueId();
+            DefaultEventLoop loop = new DefaultEventLoop();
+            CountDownLatch busy = new CountDownLatch(1);
+            CountDownLatch running = new CountDownLatch(1);
+            Object tapped = get(fixture.capture, "channel");
+            Channel held = Mockito.mock(Channel.class);
+            Mockito.when(held.eventLoop()).thenReturn(loop);
+            long dropped = CloudCapture.cutsDropped.get();
+            try {
+                loop.execute(() -> {
+                    running.countDown();
+                    try {
+                        busy.await();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+                running.await();
+                set(fixture.capture, "channel", held);
+                int[] ids = new int[16];
+                for (int message = 0; message < 200; message++) {
+                    for (int i = 0; i < 20; i++) {
+                        a.reply(player, new IntakeWire.DiagWatchReply(player, 1));
+                        a.reply(player, new IntakeWire.DiagCutReply(player, new Cut(new byte[16], 0, 1, 0, 1)));
+                        a.reply(player, new IntakeWire.Capture(player, ids, ids, ids));
+                    }
+                    assertEquals(1, loop.pendingTasks());
+                }
+                assertEquals(200 * 20 - CloudCapture.MAX_WAITING_CUTS, CloudCapture.cutsDropped.get() - dropped);
+                loop.execute(() -> {});
+                assertEquals(2, loop.pendingTasks());
+            } finally {
+                busy.countDown();
+                loop.submit(() -> {}).sync();
+                set(fixture.capture, "channel", tapped);
+                loop.shutdownGracefully(0, 0, TimeUnit.SECONDS).sync();
+            }
+            assertEquals(0, loop.pendingTasks());
+        }
+    }
+
+    @Test
+    void waitingWatchesKeepTheirPlaceAroundCutsAndStops() {
+        UUID player = UUID.randomUUID();
+        IntakeWire.Reply watch = new IntakeWire.DiagWatchReply(player, 60);
+        IntakeWire.Reply cut = new IntakeWire.DiagCutReply(player, new Cut(new byte[16], 100, 102, 100, 102));
+        IntakeWire.Reply renewal = new IntakeWire.DiagWatchReply(player, 61);
+        assertEquals(List.of(watch, cut, renewal), waited(watch, cut, renewal));
+
+        IntakeWire.Reply stop = new IntakeWire.DiagWatchReply(player, 0);
+        assertEquals(List.of(stop, watch, cut), waited(stop, watch, cut));
+        assertEquals(List.of(stop, renewal), waited(watch, stop, watch, renewal));
+        assertEquals(List.of(stop), waited(watch, stop, renewal, stop));
+
+        IntakeWire.Reply[] flapping = new IntakeWire.Reply[1000];
+        for (int i = 0; i < flapping.length; i++) flapping[i] = i % 2 == 0 ? watch : stop;
+        assertEquals(List.of(stop), waited(flapping));
+    }
+
+    private static List<IntakeWire.Reply> waited(IntakeWire.Reply... replies) {
+        ArrayDeque<CloudCapture.Waiting> waiting = new ArrayDeque<>();
+        for (IntakeWire.Reply reply : replies) {
+            if (reply instanceof IntakeWire.DiagWatchReply watch) CloudCapture.supersede(waiting, watch);
+            waiting.addLast(new CloudCapture.Waiting(0, reply));
+        }
+        return waiting.stream().map(CloudCapture.Waiting::reply).toList();
     }
 
     private static Object get(Object owner, String name) throws ReflectiveOperationException {

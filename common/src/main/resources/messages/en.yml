@@ -1,5 +1,6 @@
 # \u00BB is » (double >>), ANSI and UTF-8 interpret this differently... you may even see ? due to this
 prefix: "&bCult &8\u00BB"
+command-aliases: [cult, cultac, grim, grimac]
 
 alerts-enabled: "%prefix% &fAlerts enabled"
 alerts-disabled: "%prefix% &fAlerts disabled"
@@ -14,7 +15,7 @@ reloaded: "%prefix% &fConfig has been reloaded."
 reload-failed: "%prefix% &cFailed to reload config."
 player-not-found: "%prefix% &cPlayer is exempt or offline!"
 sender-not-found: "%prefix% &cYou cannot be exempt to use this command!"
-spectate-return: "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &fClick here to return to previous location\n</hover></click>"
+spectate-return: "<click:run_command:/%command% stopspectating><hover:show_text:\"/%command% stopspectating\">\n%prefix% &fClick here to return to previous location\n</hover></click>"
 cannot-spectate-return: "%prefix% &cYou can only do this after spectating a player"
 cannot-run-on-self: "%prefix% &cYou cannot use this command on yourself!"
 upload-log: "%prefix% &fUploaded debug to: %url%"
@@ -46,7 +47,7 @@ experimental-symbol: "*"
 
 profile:
     - "&7======================"
-    - "%prefix% &bProfile for &f%player%"
+    - "&bProfile for &f%player%"
     - "&bPing: &f%ping%"
     - "&bVersion: &f%version%"
     - "&bClient Brand: &f%brand%"
@@ -54,26 +55,51 @@ profile:
     - "&bVertical Sensitivity: &f%v_sensitivity%%"
     - "&bFastMath Enabled: &f%fast_math%"
     - "&7======================"
+# /cult profile for a player this instance does not hold: the last stored session.
+# %player% %status% %server% %version% %brand% %timeago%
+profile-stored:
+    - "&7======================"
+    - "&bProfile for &f%player% &7(last session)"
+    - "&bStatus: &f%status%"
+    - "&bServer: &f%server%"
+    - "&bVersion: &f%version%"
+    - "&bClient Brand: &f%brand%"
+    - "&bLast seen: &f%timeago% ago"
+    - "&7======================"
+# The player is online through another instance (proxy) that did not answer in time. %player% %instance%
+profile-remote-unanswered: "%prefix% &f%player% &7is online on &f%instance%&7, which did not answer; showing their last session."
+profile-unknown-player: "%prefix% &c%player% is not online on this instance and has no stored session."
+# /cult debug channels <player> — %player%, %count%, %channel%
+debug-channels-header: "%prefix% &b%player% has &f%count% &bplugin channels open"
+debug-channels-entry: "&8- &f%channel%"
+debug-channels-none: "%prefix% &f%player% &bhas no plugin channels open"
+# /cult debug mods <player> — %player%, %count%, %type%, %mod%, %name%, %version%
+debug-mods-header: "%prefix% &b%player% has &f%count% &bLunar Client mods"
+debug-mods-type: "&b%type%:"
+debug-mods-entry: "&8- &f%name% &7(%mod%) &8%version%"
+debug-mods-not-lunar: "%prefix% &f%player% &bis not connected to Apollo; not a Lunar Client player"
+debug-mods-unavailable: "%prefix% &cNo Apollo data for &f%player%&c; their server needs Apollo-Bukkit and the CultAC companion"
 help:
     - "&7======================"
-    - "/cult alerts &f- &7Toggle alerts"
-    - "/cult brands &f- &7Toggle brands"
-    - "/cult profile <player> &f- &7View player info"
-    - "/cult help &f- &7View this help message"
-    - "/cult debug <player> &f- &7Developer Prediction output"
-    - "/cult perf &f- &7Developer ms/prediction"
-    - "/cult reload &f- &7Reloads the config"
-    - "/cult spectate <player> &f- &7Spectate a player"
-    - "/cult verbose &f- &7Shows every flag to you, without buffers"
-    - "/cult log [0-255] &f- &7Uploads a debug log for prediction flags"
-    - "/cult history <player> &f- &7Session list (newest first)"
-    - "/cult history <player> page <N> &f- &7Jump to page N of the session list"
-    - "/cult history <player> session <N|latest> [-d] [-v] &f- &7Session detail (most recent violations first)"
-    - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7Session detail, violation page N"
-    - "/cult cloud &f- &7Cloud upload status: sockets, held frames and counters"
-    - "/cult findings <player> [count] &f- &7A player's latest cloud findings"
-    - "/cult top [check] [minutes] &f- &7Players with the most confident cloud findings"
-    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Label a player in the cloud's label ledger (also list, revoke)"
+    - "/%command% alerts &f- &7Toggle alerts"
+    - "/%command% brands &f- &7Toggle brands"
+    - "/%command% profile <player> &f- &7View player info"
+    - "/%command% help &f- &7View this help message"
+    - "/%command% debug <player> &f- &7Developer Prediction output"
+    - "/%command% perf &f- &7Developer ms/prediction"
+    - "/%command% reload &f- &7Reloads the config"
+    - "/%command% observe [on|off] &f- &7Show or switch observe-only mode"
+    - "/%command% spectate <player> &f- &7Spectate a player"
+    - "/%command% verbose &f- &7Shows every flag to you, without buffers"
+    - "/%command% log [0-255] &f- &7Uploads a debug log for prediction flags"
+    - "/%command% history <player> &f- &7Session list (newest first)"
+    - "/%command% history <player> page <N> &f- &7Jump to page N of the session list"
+    - "/%command% history <player> session <N|latest> [-d] [-v] &f- &7Session detail (most recent violations first)"
+    - "/%command% history <player> session <N|latest> page <N> [-d] [-v] &f- &7Session detail, violation page N"
+    - "/%command% cloud &f- &7Cloud upload status: sockets, held frames and counters"
+    - "/%command% findings <player> [count] &f- &7A player's latest cloud findings"
+    - "/%command% top [check] [minutes] &f- &7Players with the most confident cloud findings"
+    - "/%command% label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Label a player in the cloud's label ledger (also list, revoke)"
     - "&7======================"
 
 # === /cult history ===
@@ -133,4 +159,4 @@ cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
 # Schema markers — see header comment in config.yml.
 config-flavor: V2
-config-version: 2
+config-version: 3

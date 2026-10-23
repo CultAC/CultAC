@@ -3,6 +3,7 @@ package ac.cult.blocksim;
 import ac.cult.blocksim.behavior.*;
 import ac.cult.blocksim.data.*;
 import ac.cult.blocksim.engine.SimLevel;
+import ac.cult.blocksim.engine.SimWorldView;
 import ac.cult.blocksim.interaction.*;
 import java.util.List;
 import java.util.Map;
@@ -95,6 +96,8 @@ public final class BlockSimulator {
             }
         } catch (SimLevel.UnloadedWorldException unloaded) {
             return new SimResult(null, false, List.of(), Map.of(), Map.of(), input.player(), input.cooldowns(), input.breaking(), List.of(), Decline.UNLOADED);
+        } catch (SimWorldView.UndecidedQueryException undecided) {
+            return new SimResult(null, false, List.of(), Map.of(), Map.of(), input.player(), input.cooldowns(), input.breaking(), List.of(), Decline.UNDECIDED);
         }
         return new SimResult(interaction, breaking == null ? accepted : breaking.accepted(), level.writes(), level.retainedPossibilities(), level.blockEntityChanges(),
             fork.player(), fork.cooldowns(), breaking == null ? fork.breaking() : breaking.state(), breaking == null ? List.of() : breaking.packets(), null);

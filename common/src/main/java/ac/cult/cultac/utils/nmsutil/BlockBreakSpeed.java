@@ -5,24 +5,23 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.blockplace.ClientBlockActions;
+import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 
 public class BlockBreakSpeed {
 
     public static double getBlockDamage(CultPlayer player, BlockPos position) {
-        return getBlockDamage(player, position, player.compensatedWorld.getBlockStateIdAt(position));
+        return getBlockDamage(player, player.compensatedWorld.getBlockStateIdAt(position));
     }
 
-    public static double getBlockDamage(CultPlayer player, BlockPos position, int block) {
+    public static double getBlockDamage(CultPlayer player, int block) {
         return getBlockDamage(player, player.getInventory().getHeldItem(), block);
     }
 
     public static boolean couldInstantlyBreakBlock(CultPlayer player, int block) {
         for (int slot = 0; slot < 9; slot++) {
-            SimItemStack stack = player.getInventory()
-                    .inventory
-                    .getInventoryStorage()
-                    .getItem(ac.cult.cultac.utils.inventory.Inventory.HOTBAR_OFFSET + slot);
+            SimItemStack stack =
+                    player.getInventory().inventory.getInventoryStorage().getItem(Inventory.HOTBAR_OFFSET + slot);
             if (getBlockDamage(player, stack, block) >= 1.0D) return true;
         }
         return false;

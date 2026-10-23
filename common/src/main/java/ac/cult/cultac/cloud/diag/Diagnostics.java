@@ -2,7 +2,7 @@ package ac.cult.cultac.cloud.diag;
 
 import ac.cult.cultac.checks.impl.prediction.BlockGrid;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
-import com.github.luben.zstd.Zstd;
+import com.github.luben.zstd.ZstdCompressCtx;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -239,7 +239,12 @@ public final class Diagnostics {
         reserved += watch.ringBytes;
         refusals.remove(player);
         ensureThread();
-        command(() -> known.add(watch));
+        if (!command(() -> known.add(watch))) {
+            watches.remove(player, watch);
+            reserved -= watch.ringBytes;
+            refusals.put(player, "busy");
+            return null;
+        }
         return watch;
     }
 
@@ -343,13 +348,13 @@ public final class Diagnostics {
     }
 
     private void run() {
-        try {
+        try (ZstdCompressCtx zstd = new ZstdCompressCtx().setLevel(ZSTD_LEVEL)) {
             while (true) {
                 Object item = inbox.poll(POLL_MILLIS, TimeUnit.MILLISECONDS);
                 runCommands();
                 int handled = 0;
                 while (item != null) {
-                    handle(item);
+                    handle(item, zstd);
                     item = ++handled < QUEUE ? inbox.poll() : null;
                 }
                 try {
@@ -394,10 +399,10 @@ public final class Diagnostics {
         }
     }
 
-    private void handle(Object item) {
+    private void handle(Object item, ZstdCompressCtx zstd) {
         try {
             switch (item) {
-                case DiagWatch.Raw raw -> captured(raw);
+                case DiagWatch.Raw raw -> captured(raw, zstd);
                 case DiagWatch.TickEnd end -> {
                     if (!end.watch().ended && end.watch().ring != null)
                         end.watch().ring.flags(end.seq(), end.flags());
@@ -409,7 +414,7 @@ public final class Diagnostics {
         }
     }
 
-    private void captured(DiagWatch.Raw raw) {
+    private void captured(DiagWatch.Raw raw, ZstdCompressCtx zstd) {
         DiagWatch watch = raw.watch();
         if (watch.ended) return;
         if (watch.ring == null) watch.ring = new DiagRing(watch.ringTicks, watch.ringBytes);
@@ -420,7 +425,7 @@ public final class Diagnostics {
         if (raw.state() != null) {
             String text = text(raw.state(), raw.grid());
             chars = text.length();
-            full = compress(text);
+            full = compress(zstd, text);
         }
         costs.add(raw.nanos(), System.nanoTime() - start, chars, full == null ? 0 : full.length);
         watch.ring.add(raw.seq(), raw.offset(), raw.trace(), full);
@@ -435,15 +440,15 @@ public final class Diagnostics {
 
     /** A tick's full text: its state as the packet thread printed it, then the block grid. */
     static String text(String state, BlockGrid grid) {
-        StringBuilder sb = new StringBuilder(state.length() + 16384);
+        StringBuilder sb = new StringBuilder(state.length() + (grid == null ? 0 : grid.textLength()));
         sb.append(state);
         if (grid != null) grid.appendTo(sb);
         return sb.toString();
     }
 
     /** One Zstandard frame. */
-    static byte[] compress(String text) {
-        return Zstd.compress(text.getBytes(StandardCharsets.UTF_8), ZSTD_LEVEL);
+    static byte[] compress(ZstdCompressCtx zstd, String text) {
+        return zstd.compress(text.getBytes(StandardCharsets.UTF_8));
     }
 
     static long p99(long[] samples) {

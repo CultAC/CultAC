@@ -346,7 +346,7 @@ class IntakeSectionsInteropTest {
                 records.writeBytes(record);
             }
             plain.add(records.toByteArray());
-            ByteBuffer written = writer.write(new ArrayList<>(queued), bytes);
+            ByteBuffer written = writer.write(new ArrayList<>(queued), bytes, true);
             queued.clear();
             try {
                 out.writeInt(written.remaining());

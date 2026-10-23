@@ -4,21 +4,26 @@ webhook: ""
 # Stel in op `true` om de URL-formaatcontrole van Discord te omzeilen.
 # Dit staat elke geldige HTTPS-URL toe (handig voor proxy's of Matrix-forwarders).
 disable-webhook-validation: false
-embed-title: "**Cult Waarschuwing**"
+embed-title: "%player% is gedetecteerd voor %check% [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+include-state: true
 # Vervangt backticks (`) in waarden (zoals clientmerken) om te voorkomen dat de tekstopmaak van Discord breekt.
 # Stel in op "`" om deze vervanging uit te schakelen.
 backtick-replacement-char: "ˋ"
 violation-content:
     - "**Speler**: `%player%`"
-    - "**Controle**: %check%"
-    - "**Overtredingen**: %violations%"
-    - "**Client-versie**: %version%"
+    - "**UUID**: `%uuid%`"
+    - "**Controle**: `%check%`"
+    - "**Client-versie**: `%version%`"
     - "**Client-merk**: `%brand%`"
-    - "**Ping**: %ping%"
-    - "**TPS**: %tps%"
+    - "**Gevoeligheid**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**Ping**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**Server**: `%server%`"
+    - "**Wereld**: `%world% (%world_type%)`"
 
 # Schemamarkers — zie de header-comment in config.yml.
 config-flavor: V2
-config-version: 1
+config-version: 2

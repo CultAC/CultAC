@@ -8,6 +8,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSwingAnimation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -22,12 +23,12 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundSpectatorAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
+import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.SwingKind;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 
-// @CheckData(name = "Post")
 public class PostCheck extends Check implements CheckListener, PostPredictionListener {
     private String post;
     private final EvictingQueue<String> flags = new EvictingQueue<>(10);
@@ -132,13 +133,13 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
     @CultPacketHandler
     public void onInteract(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
-        if ((packet.action() == ac.cult.cultac.protocol.value.InteractAction.ATTACK
+        if ((packet.action() == InteractAction.ATTACK
                 && event.getUser()
                         .getCultConnection()
                         .runtime()
                         .data()
                         .version()
-                        .atLeast(ac.cult.cultac.protocol.ProtocolVersion.V26_1))) {
+                        .atLeast(ProtocolVersion.V26_1))) {
             if (sentFlying && post == null) post = "attack";
         } else {
             recordPostPacket(packet);

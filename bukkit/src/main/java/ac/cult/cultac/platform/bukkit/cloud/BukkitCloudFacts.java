@@ -71,9 +71,7 @@ public final class BukkitCloudFacts implements Listener {
     private static void read(UUID id) {
         CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(id);
         if (player == null) return;
-        var platform = player.platformPlayer != null
-                ? player.platformPlayer
-                : CultAPI.INSTANCE.getPlatformPlayerFactory().getFromUUID(id);
+        var platform = player.platformPlayer != null ? player.platformPlayer : player.user.getPlayer();
         if (platform instanceof BukkitPlatformPlayer bukkit && bukkit.readCloudFacts()) {
             CloudCapture.factsChanged(player);
         }

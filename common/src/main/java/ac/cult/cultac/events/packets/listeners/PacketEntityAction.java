@@ -7,15 +7,18 @@ import ac.cult.cultac.checks.impl.elytra.ElytraA;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.EquipmentSlot;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
+import ac.cult.cultac.utils.inventory.ClientGlider;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
-import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import ac.cult.cultac.utils.nmsutil.RiptideUtil;
 
 public class PacketEntityAction {
 
@@ -28,6 +31,7 @@ public class PacketEntityAction {
         switch (packet.action()) {
             case START_SPRINTING:
                 player.isSprinting = true;
+                player.sprintClearedAsPassenger = false;
                 player.vehicleData.camelSprintingState = SprintingState.STARTED;
                 break;
             case STOP_SPRINTING:
@@ -35,22 +39,23 @@ public class PacketEntityAction {
                 player.vehicleData.camelSprintingState = SprintingState.STOPPED;
                 break;
             case START_FLYING_WITH_ELYTRA:
-                if (player.onGround || player.lastOnGround || lavaPreventsGlideActivation(player)) {
+                boolean grounded = player.onGround || player.lastOnGround;
+                // Only a TridentItem#releaseUsing spin lifts a player on ground before LocalPlayer#aiStep reads
+                // onGround, so a glide start after a release on the ground follows a spin.
+                boolean released = RiptideUtil.releasedOnTheGround(player);
+                if (released) player.packetStateData.riptideReleaseCertain = true;
+                if (grounded && !released || lavaPreventsGlideActivation(player)) {
                     rejectGlideStart(event, player);
                     break;
                 }
 
                 // ElytraA evaluates the pre-command glide state after the
                 // grounded rejection, but before equipment validation.
-                // This direct callback bypasses CheckManager's Bedrock
-                // support filter, so retain that boundary explicitly.
-                if (!player.isBedrockMovement()) {
-                    player.checkManager.getCheck(ElytraA.class).onStartGliding(event);
-                }
+                player.checkManager.getCheck(ElytraA.class).onStartGliding(event);
 
                 if (canGlideUsingEquippedItem(player)) {
+                    // The pose follows in Player#updatePlayerPose, after this tick's aiStep.
                     player.isGliding = true;
-                    player.refreshPlayerPose();
                 } else {
                     rejectGlideStart(event, player);
                 }
@@ -65,6 +70,7 @@ public class PacketEntityAction {
                     break;
                 }
                 PacketEntityHorse horse = player.compensatedEntities.vehicles.getClientVisibleHorseRoot();
+                // Camel#onPlayerJump. The client releases the jump only if Camel#canJump holds after the camel's tick.
                 if (horse instanceof PacketEntityCamel camel
                         && (!camel.hasSaddle || camel.dashCooldown > 0 || !camel.onGround)) {
                     break;
@@ -82,7 +88,10 @@ public class PacketEntityAction {
                     // standIfPossible() for that next tick.
                     horse.nextHorseJump = jumpScale;
                     horse.nextAllowStandSliding = true;
-                    horse.armClientRidingJumpStand();
+                    // Before 1.21.5, Entity#isEffectiveAi is !level().isClientSide, so the client horse never stands.
+                    if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
+                        horse.armClientRidingJumpStand();
+                    }
                 }
                 break;
             default:
@@ -95,11 +104,10 @@ public class PacketEntityAction {
         if (!ClientFluidQueries.usesTagBasedFluidRules(player)) return false;
         // Entity#baseTick refreshes fluids before LocalPlayer#aiStep attempts
         // gliding. The previous prediction sampled the preceding tick's start.
-        return ClientFluidQueries.depth(
-                        player,
-                        GetBoundingBox.getPlayerBoundingBox(player, player.x, player.y, player.z),
-                        FluidTags.LAVA)
-                > 0.0D;
+        for (SimpleCollisionBox box : RiptideUtil.glideStartBoxes(player)) {
+            if (ClientFluidQueries.depth(player, box, FluidTags.LAVA) <= 0.0D) return false;
+        }
+        return true;
     }
 
     private void rejectGlideStart(PacketReceiveEvent event, CultPlayer player) {
@@ -114,7 +122,7 @@ public class PacketEntityAction {
 
     private boolean canGlideUsingEquippedItem(CultPlayer player) {
         for (EquipmentSlot slot : EquipmentSlot.values()) {
-            ac.cult.blocksim.engine.SimItemStack itemStack = getEquippedItem(player, slot);
+            SimItemStack itemStack = getEquippedItem(player, slot);
             if (canGlideUsing(itemStack, slot)) {
                 return true;
             }
@@ -123,8 +131,8 @@ public class PacketEntityAction {
         return false;
     }
 
-    private static boolean canGlideUsing(ac.cult.blocksim.engine.SimItemStack itemStack, EquipmentSlot slot) {
-        return ac.cult.cultac.utils.inventory.ClientGlider.canUse(itemStack, slot);
+    private static boolean canGlideUsing(SimItemStack itemStack, EquipmentSlot slot) {
+        return ClientGlider.canUse(itemStack, slot);
     }
 
     private SimItemStack getEquippedItem(CultPlayer player, EquipmentSlot slot) {

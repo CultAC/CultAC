@@ -96,6 +96,25 @@ public class BukkitPlatformServer implements PlatformServer {
         return Bukkit.getTPS()[0];
     }
 
+    @Override
+    public int onlinePlayers() {
+        try {
+            return Bukkit.getOnlinePlayers().size();
+        } catch (RuntimeException | LinkageError unsupported) {
+            return -1;
+        }
+    }
+
+    @Override
+    public long[] recentTickNanos() {
+        try {
+            long[] times = Bukkit.getServer().getTickTimes();
+            return times == null ? null : times.clone();
+        } catch (RuntimeException | LinkageError unsupported) {
+            return null;
+        }
+    }
+
     /** The server's software, target tick length and combat settings, read once. */
     @Override
     public ServerFacts cloudFacts() {

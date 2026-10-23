@@ -15,7 +15,6 @@ public final class CheckInfo {
     private final String description;
     private final double decay;
     private final double setback;
-    private final boolean experimental;
 
     private CheckInfo(Builder builder) {
         if (builder.name == null || builder.name.isEmpty()) {
@@ -28,7 +27,6 @@ public final class CheckInfo {
         this.description = builder.description != null ? builder.description : FALLBACK_DESCRIPTION;
         this.decay = builder.decay;
         this.setback = builder.setback;
-        this.experimental = builder.experimental;
     }
 
     public static Builder builder() {
@@ -66,10 +64,6 @@ public final class CheckInfo {
         return setback;
     }
 
-    public boolean isExperimental() {
-        return experimental;
-    }
-
     public static final class Builder {
         private String name;
         private String altName;
@@ -78,7 +72,6 @@ public final class CheckInfo {
         private String description;
         private double decay = 0.05;
         private double setback = 25;
-        private boolean experimental;
 
         private Builder() {}
 
@@ -114,11 +107,6 @@ public final class CheckInfo {
 
         public Builder setback(double setback) {
             this.setback = setback;
-            return this;
-        }
-
-        public Builder experimental(boolean experimental) {
-            this.experimental = experimental;
             return this;
         }
 

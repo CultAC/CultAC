@@ -5,6 +5,7 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -19,7 +20,7 @@ public final class ClientPlayerModes {
         return profiles.get(id);
     }
 
-    public void remove(java.util.List<UUID> ids) {
+    public void remove(List<UUID> ids) {
         ids.forEach(profiles::remove);
     }
 

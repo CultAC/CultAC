@@ -27,11 +27,18 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
     }
 
     public void addNewFirework(int entityID) {
-        activeFireworks.add(entityID);
+        if (!activeFireworks.contains(entityID)) activeFireworks.add(entityID);
     }
 
     public void removeFirework(int entityID) {
-        fireworksToRemoveNextTick.add(entityID);
+        if (activeFireworks.contains(entityID) && !fireworksToRemoveNextTick.contains(entityID))
+            fireworksToRemoveNextTick.add(entityID);
+    }
+
+    /** A replacement client level holds none of the old level's rockets. */
+    public void clearLevel() {
+        activeFireworks.clear();
+        fireworksToRemoveNextTick.clear();
     }
 
     public int getMaxFireworksAppliedPossible() {

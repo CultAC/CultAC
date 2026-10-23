@@ -19,8 +19,7 @@ public class CultFindings implements BuildableCommand {
 
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        commandManager.command(commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        commandManager.command(BuildableCommand.root(commandManager)
                 .literal("findings")
                 .permission(CloudArguments.VIEW)
                 .required("player", StringParser.stringParser(), CloudArguments.players())

@@ -4,21 +4,26 @@ webhook: ""
 # 设置为 `true` 以绕过 Discord 的 URL 格式验证。
 # 这将允许任何有效的 HTTPS URL（适用于代理或 Matrix 转发器）。
 disable-webhook-validation: false
-embed-title: "**Cult 警报**"
+embed-title: "%player% 被 %check% 检测到 [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+include-state: true
 # 替换变量值（如客户端品牌）中的反引号 (`)，以防止破坏 Discord 的文本格式。
 # 将其设置为 "`" 即可禁用此替换。
 backtick-replacement-char: "ˋ"
 violation-content:
     - "**玩家名**: `%player%`"
-    - "**检查**: %check%"
-    - "**违规次数**: %violations%"
-    - "**游戏版本**: %version%"
+    - "**UUID**: `%uuid%`"
+    - "**检查**: `%check%`"
+    - "**游戏版本**: `%version%`"
     - "**客户端品牌**: `%brand%`"
-    - "**延迟**: %ping%"
-    - "**TPS**: %tps%"
+    - "**灵敏度**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**延迟**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**服务器**: `%server%`"
+    - "**世界**: `%world% (%world_type%)`"
 
 # 模式标记 — 参见 config.yml 顶部的注释。
 config-flavor: V2
-config-version: 1
+config-version: 2

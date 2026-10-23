@@ -246,19 +246,4 @@ class CaptureStreamCompactTest {
         }
         assertEquals(CaptureStream.micros(nanos), micros);
     }
-
-    @Test
-    void protocol3KeepsWholeProbesAndNanoseconds() {
-        TestSink sink = new TestSink(CloudConnection.Terms.PROTOCOL_3);
-        CaptureStream stream = joined(sink);
-        ping(stream, 31, 1_000_123);
-        tick(stream, 1, 2_000_000);
-        pong(stream, 31, 3_000_000);
-        tick(stream, 2, 4_000_000);
-
-        List<Record> first = frames(sink).get(0);
-        assertEquals(Record.BodyCase.CLIENTBOUND, first.get(0).getBodyCase());
-        assertEquals(1_000_123, first.get(0).getAdvanceNanos());
-        assertEquals(Record.BodyCase.SERVERBOUND, frames(sink).get(1).get(0).getBodyCase());
-    }
 }

@@ -189,13 +189,11 @@ public final class Wire {
 
     public static BlockPos readBlockPos(ByteBuf buffer) {
         requireBytes(buffer, 8);
-        long packed = buffer.readLong();
-        return new BlockPos((int) (packed >> 38), (int) (packed << 52 >> 52), (int) (packed << 26 >> 38));
+        return BlockPos.of(buffer.readLong());
     }
 
     public static void writeBlockPos(ByteBuf buffer, BlockPos value) {
-        buffer.writeLong(
-                ((long) value.x() & 0x3ffffff) << 38 | ((long) value.z() & 0x3ffffff) << 12 | (value.y() & 0xfff));
+        buffer.writeLong(value.asLong());
     }
 
     public static float readAngle(ByteBuf buffer) {

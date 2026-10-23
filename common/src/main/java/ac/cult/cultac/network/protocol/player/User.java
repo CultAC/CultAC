@@ -86,6 +86,10 @@ public final class User {
         cultConnection.executeAfterWrites(task);
     }
 
+    public void flushAfterWrites() {
+        cultConnection.flushAfterWrites();
+    }
+
     public boolean isPreparingWrites() {
         return cultConnection.isPreparingWrites();
     }

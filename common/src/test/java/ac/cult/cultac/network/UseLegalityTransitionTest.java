@@ -5,6 +5,7 @@ import static ac.cult.cultac.network.ItemUseTestSupport.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsA;
 import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerCooldown;
@@ -68,35 +69,75 @@ class UseLegalityTransitionTest {
     }
 
     @Test
-    void aCreativeRevocationRefusesStartsFromThePrecedingPing() {
+    void aCreativeRevocationAppliesAtItsBundledProof() {
         try (var fixture = fixture()) {
             var player = creative(fixture);
             var sent = gameMode(player, 0);
             ackPrecedingPing(player, sent);
-            assertFalse(player.isInvulnerable);
-            assertFalse(player.canInstabuild);
-            assertOffhandRefused(player, 1);
+            assertTrue(player.isInvulnerable);
+            assertTrue(player.canInstabuild);
 
             ackTrailingProof(player, sent);
             assertFalse(player.isInvulnerable);
-            assertOffhandRefused(player, 2);
+            assertFalse(player.canInstabuild);
+            assertOffhandRefused(player, 1);
         }
     }
 
     @Test
-    void aRespawnIntoSurvivalRefusesStartsBeforeItsPostPing() {
+    void withNoTransactionARevocationRefusesStartsAtOnce() {
+        try (var fixture = fixture()) {
+            var player = creative(fixture);
+            int sent = player.lastTransactionSent.get();
+            withoutTransactions(fixture, () -> gameMode(player, 0));
+            acknowledge(player, sent);
+            assertFalse(player.isInvulnerable);
+            assertFalse(player.canInstabuild);
+            assertOffhandRefused(player, 1);
+        }
+    }
+
+    @Test
+    void aBundledRespawnIntoSurvivalAppliesItsAbilitiesAndFoodAtItsProof() {
         try (var fixture = fixture()) {
             var player = survival(fixture, item("minecraft:bread", 2));
             acknowledge(player, login(player, GameMode.CREATIVE));
-            assertTrue(player.isInvulnerable);
             setOffhand(player, item("minecraft:bread", 2));
-            player.food = 20;
+            player.food = 10;
 
-            respawn(player, "minecraft:overworld", GameMode.SURVIVAL);
+            int proof = respawn(player, "minecraft:overworld", GameMode.SURVIVAL);
+            assertTrue(player.isInvulnerable);
+            assertTrue(player.canInstabuild);
+            assertEquals(10, player.food);
+
+            acknowledge(player, proof);
             assertFalse(player.isInvulnerable);
             assertFalse(player.canInstabuild);
+            assertEquals(20, player.food);
             useOffhand(player, 1);
             assertFalse(player.isClientUsingItem());
+            assertNoAttackCancellation(fixture, player);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void anUnbundledRespawnIntoSurvivalRefusesStartsAtOnce(boolean bedrock) {
+        try (var fixture = fixture()) {
+            var player = survival(fixture, item("minecraft:bread", 2));
+            acknowledge(player, login(player, GameMode.CREATIVE));
+            setOffhand(player, item("minecraft:bread", 2));
+            player.food = 10;
+
+            if (bedrock) {
+                player.movementPlatform = MovementPlatform.BEDROCK;
+                respawn(player, "minecraft:overworld", GameMode.SURVIVAL);
+            } else {
+                withoutTransactions(fixture, () -> respawn(player, "minecraft:overworld", GameMode.SURVIVAL));
+            }
+            assertFalse(player.isInvulnerable);
+            assertFalse(player.canInstabuild);
+            assertEquals(20, player.food);
             assertNoAttackCancellation(fixture, player);
         }
     }

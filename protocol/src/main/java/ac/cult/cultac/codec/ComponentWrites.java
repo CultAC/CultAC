@@ -14,40 +14,7 @@ import java.util.LinkedHashMap;
 
 /** Reconstructs changed client values; Via owns their version-specific wire layout. */
 final class ComponentWrites {
-    private static final java.util.Set<String> SUPPORTED = java.util.Set.of(
-            "damage",
-            "max_damage",
-            "max_stack_size",
-            "map_id",
-            "repair_cost",
-            "ominous_bottle_amplifier",
-            "custom_data",
-            "bucket_entity_data",
-            "container_loot",
-            "creative_slot_lock",
-            "glider",
-            "potion_contents",
-            "lodestone_tracker",
-            "map_post_processing",
-            "dyed_color",
-            "block_state",
-            "entity_data",
-            "block_entity_data",
-            "minimum_attack_charge",
-            "potion_duration_scale",
-            "enchantment_glint_override",
-            "unbreakable",
-            "intangible_projectile");
-
     private ComponentWrites() {}
-
-    static boolean supports(String key) {
-        String name = Key.stripMinecraftNamespace(key);
-        return SUPPORTED.contains(name)
-                || ComponentRecordWrites.supports(name)
-                || ComponentSimpleWrites.supports(name)
-                || ComponentConsumeValues.supports(name);
-    }
 
     @SuppressWarnings("unchecked")
     static void write(

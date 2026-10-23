@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.interaction.BlockHit;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
@@ -19,13 +20,8 @@ import org.jetbrains.annotations.Nullable;
 public class TraverseBlocks {
     // Copied from MCP...
     // Returns null if there isn't anything.
-    //
-    // I do have to admit that I'm starting to like bifunctions/new java 8 things more than I originally did.
-    // although I still don't understand Mojang's obsession with streams in some of the hottest methods... that kills
-    // performance
     public static HitData traverseBlocks(
             CultPlayer player, Vec3 start, Vec3 end, BiFunction<Integer, BlockPos, HitData> predicate) {
-        // I guess go back by the collision epsilon?
         double endX = CultMath.lerp(-1.0E-7D, end.x, start.x);
         double endY = CultMath.lerp(-1.0E-7D, end.y, start.y);
         double endZ = CultMath.lerp(-1.0E-7D, end.z, start.z);
@@ -60,7 +56,6 @@ public class TraverseBlocks {
         double d13 = posYInverse * (ySign > 0 ? 1.0D - CultMath.frac(startY) : CultMath.frac(startY));
         double d14 = posZInverse * (zSign > 0 ? 1.0D - CultMath.frac(startZ) : CultMath.frac(startZ));
 
-        // Can't figure out what this code does currently
         while (d12 <= 1.0D || d13 <= 1.0D || d14 <= 1.0D) {
             if (d12 < d13) {
                 if (d12 < d14) {
@@ -166,25 +161,7 @@ public class TraverseBlocks {
         });
     }
 
-    public static @Nullable HitData getNearestPlaceOnWaterHitResult(CultPlayer player) {
-        Vec3 startingPos = new Vec3(player.x, player.y + player.getEyeHeight(), player.z);
-        Ray trace = new Ray(player, startingPos.x, startingPos.y, startingPos.z, player.xRot, player.yRot);
-        double range = getBlockInteractionRange(player);
-        Vector3dm endVec = trace.getPointAtDistance(range);
-        Vec3 endPos = new Vec3(endVec.getX(), endVec.getY(), endVec.getZ());
-
-        // This mirrors PlaceOnWaterBlockItem#getPlayerPOVHitResult: OUTLINE blocks, SOURCE_ONLY fluids.
-        var hitResult = player.compensatedWorld
-                .geometry()
-                .clipOutline(
-                        startingPos,
-                        endPos,
-                        player,
-                        state -> ClientFluidQueries.modelFluid(state).isSource());
-        return hitData(player, hitResult);
-    }
-
-    private static @Nullable HitData hitData(CultPlayer player, ac.cult.blocksim.interaction.BlockHit hitResult) {
+    private static @Nullable HitData hitData(CultPlayer player, BlockHit hitResult) {
         if (hitResult == null) {
             return null;
         }

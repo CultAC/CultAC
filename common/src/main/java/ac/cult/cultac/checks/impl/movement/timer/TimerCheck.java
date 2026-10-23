@@ -21,10 +21,6 @@ public class TimerCheck extends AbstractTimerCheck {
                         .build());
     }
 
-    protected TimerCheck(CultPlayer cultPlayer, CheckInfo checkInfo) {
-        super(cultPlayer, checkInfo);
-    }
-
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {

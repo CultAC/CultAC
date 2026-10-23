@@ -27,8 +27,7 @@ public class CultTop implements BuildableCommand {
 
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        commandManager.command(commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        commandManager.command(BuildableCommand.root(commandManager)
                 .literal("top")
                 .permission(CloudArguments.VIEW)
                 .optional("check", StringParser.stringParser(), CloudArguments.checks())

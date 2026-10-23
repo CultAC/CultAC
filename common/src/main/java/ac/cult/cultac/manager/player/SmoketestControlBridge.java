@@ -5,6 +5,7 @@ import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.blockplace.SmoketestPredictionSafety;
+import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.SectionPool;
 import ac.cult.cultac.utils.math.Location;
 import java.io.ByteArrayInputStream;
@@ -21,10 +22,6 @@ public final class SmoketestControlBridge {
     static boolean handle(CultPlayer player, String channel, byte[] data) {
         if (!CHANNEL.equals(channel)) {
             return false;
-        }
-        if (!enabled()) {
-            LogUtil.warn("Cult smoketest control ignored player=" + player.getName() + " reason=disabled");
-            return true;
         }
         if (data.length == 0) {
             return true;
@@ -101,7 +98,7 @@ public final class SmoketestControlBridge {
                 + " totalCanonicalSections=" + (canonicalAirSections + pooledUniqueSections)
                 + " deduplicatedSections=" + pooledUniqueSections
                 + " mutableCopies="
-                + ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection.mutableCopyCounter.get());
+                + CompensatedWorld.CachedSection.mutableCopyCounter.get());
         for (SectionPool.DimensionStats stats : SectionPool.dimensionStats()) {
             LogUtil.info("SectionPool dimension stats: "
                     + "label=" + safeLabel(label)
@@ -126,10 +123,10 @@ public final class SmoketestControlBridge {
 
     private static void logChunkStats(CultPlayer player, String target) {
         String[] parts = target.split(":");
-        String label = parts.length > 0 ? parts[0] : "";
         if (parts.length != 3) {
             throw new IllegalArgumentException("chunkstats target must be label:chunkX:chunkZ");
         }
+        String label = parts[0];
         int chunkX = Integer.parseInt(parts[1]);
         int chunkZ = Integer.parseInt(parts[2]);
         LogUtil.info("SectionPool chunk stats: "

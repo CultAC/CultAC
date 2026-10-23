@@ -8,7 +8,6 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 
-// @CheckData(name = "Timer", configName = "TimerA", setback = 10)
 public abstract class AbstractTimerCheck extends Check implements CheckListener {
     protected static final long ONE_CLIENT_TICK = 50_000_000L;
     private final boolean serverSupportsClientTickEnd;
@@ -159,9 +158,6 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
     }
 
     protected boolean shouldCountClientTickEndForTimer() {
-        if (player.isBedrockMovement()) {
-            return false;
-        }
         // Minecraft#tick sends tick-end after the tick's movement packets.
         return usesClientTickEndBoundary();
     }

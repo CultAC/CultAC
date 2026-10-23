@@ -10,11 +10,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
@@ -24,12 +29,17 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.math.TrigHandler;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockSpeedFactors;
 import ac.cult.cultac.utils.nmsutil.Friction;
+import java.lang.reflect.Method;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -192,6 +202,31 @@ class JavaTravelAttributeTest {
     }
 
     @Test
+    void respawnWithoutKeptModifiersDropsJumpStrength() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            attribute(f, "minecraft:jump_strength", 0.42F, 0.3);
+            respawn(f, ClientboundRespawn.KEEP_ATTRIBUTE_MODIFIERS);
+            assertEquals(0.42F + 0.3, f.player.compensatedEntities.getSelf().jumpStrength, 1.0E-6);
+            respawn(f, (byte) 0);
+            assertEquals(0.42F, f.player.compensatedEntities.getSelf().jumpStrength);
+        }
+    }
+
+    @Test
+    void respawnWithoutKeptModifiersDropsScaleAndMovementSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            attribute(f, "minecraft:scale", 1.0, 0.5);
+            attribute(f, "minecraft:movement_speed", 0.1F, -0.05);
+            respawn(f, ClientboundRespawn.KEEP_ATTRIBUTE_MODIFIERS);
+            assertEquals(1.5F, f.player.getScale());
+            assertEquals(0.1F - 0.05, f.player.compensatedEntities.getSelf().playerSpeed, 1.0E-6);
+            respawn(f, (byte) 0);
+            assertEquals(1.0F, f.player.getScale());
+            assertEquals(0.1F, f.player.compensatedEntities.getSelf().playerSpeed, 1.0E-6);
+        }
+    }
+
+    @Test
     void negativeGravityLiftsThePlayer() throws Exception {
         try (var f = new JavaTickFixture()) {
             attribute(f, "minecraft:gravity", 0.08, -0.12);
@@ -322,6 +357,50 @@ class JavaTravelAttributeTest {
             // Mth.lerp in float.
             float lerped = 0.4F + 0.5F * (1.0F - 0.4F);
             assertEquals(lerped, BlockSpeedFactors.nextTickForResult(f.player, ridden(f, horse)));
+        }
+    }
+
+    @Test
+    void aFlyingRidersVehicleKeepsItsSoulSandSlowdown() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntity horse = horseOnSoulSand(f);
+            // Only Player#getBlockSpeedFactor reads abilities.flying, which a passenger keeps.
+            f.player.isFlying = true;
+            assertEquals(0.4F, BlockSpeedFactors.nextTickForResult(f.player, ridden(f, horse)));
+        }
+    }
+
+    /**
+     * Camel#executeRidersJump at full strength, looking along +z: the look's horizontal direction scaled by 22.2222F,
+     * movement_speed 0.09F and the camel's own getBlockSpeedFactor, soul sand's 0.4F, plus 1.4285F times its jump
+     * power 0.42F up.
+     */
+    @Test
+    void aFlyingRidersCamelDashesAtItsSoulSandSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntityCamel camel = (PacketEntityCamel) vehicleOnSoulSand(f, EntityTypeIds.CAMEL);
+            camel.horseJump = 1.0F;
+            Vec3 dash = new Vec3(0.0, 1.4285F * (double) 0.42F, 22.2222F * (double) 0.09F * 0.4F);
+            assertDash(dash, camelDash(f, camel));
+            f.player.isFlying = true;
+            assertDash(dash, camelDash(f, camel));
+        }
+    }
+
+    /**
+     * AbstractNautilus#executeRidersJump at full strength out of water, the controller looking along +z: the look
+     * scaled by 0.5F, movement_speed 1.0 and the nautilus's own getBlockSpeedFactor, soul sand's 0.4F.
+     */
+    @Test
+    void aFlyingRidersNautilusDashesAtItsSoulSandSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntityNautilus nautilus = (PacketEntityNautilus) vehicleOnSoulSand(
+                    f, EntityTypes.defaults().byKey("minecraft:nautilus").id());
+            nautilus.pendingJumpScale = 1.0;
+            Vec3 dash = new Vec3(0.0, 0.0, 0.5F * 1.0 * 0.4F);
+            assertDash(dash, nautilusDash(f, nautilus));
+            f.player.isFlying = true;
+            assertDash(dash, nautilusDash(f, nautilus));
         }
     }
 
@@ -465,9 +544,49 @@ class JavaTravelAttributeTest {
     }
 
     private static PacketEntity horseOnSoulSand(JavaTickFixture f) {
+        return vehicleOnSoulSand(f, EntityTypeIds.HORSE);
+    }
+
+    private static PacketEntity vehicleOnSoulSand(JavaTickFixture f, int type) {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y - 1, 0), BlockIds.SOUL_SAND.defaultState());
-        f.player.compensatedEntities.addEntity(100, EntityTypeIds.HORSE, new Vec3(0.5, SOUL_SAND_TOP, 0.5), 0, 0, 0);
+        f.player.compensatedEntities.addEntity(100, type, new Vec3(0.5, SOUL_SAND_TOP, 0.5), 0, 0, 0);
         return f.player.compensatedEntities.getEntity(100);
+    }
+
+    /** The dash VelocityTransformer adds from rest for {@code camel}, grounded on its soul sand. */
+    private static Vec3 camelDash(JavaTickFixture f, PacketEntityCamel camel) throws Exception {
+        Method dash = VelocityTransformer.class.getDeclaredMethod(
+                "applyCamelDash", CultPlayer.class, PredVector.class, double.class);
+        dash.setAccessible(true);
+        Vec3 dashed = (Vec3) dash.invoke(dashing(f, camel), f.player, new PredVector(Vec3.ZERO), 1.0);
+        return new Vec3(dashed.x, dashed.y, dashed.z);
+    }
+
+    /** The dry dash VelocityTransformer adds from rest for {@code nautilus} on its soul sand. */
+    private static Vec3 nautilusDash(JavaTickFixture f, PacketEntityNautilus nautilus) throws Exception {
+        Method dash = VelocityTransformer.class.getDeclaredMethod(
+                "applyNautilusDash", CultPlayer.class, PredVector.class, PacketEntityNautilus.class, boolean.class);
+        dash.setAccessible(true);
+        Vec3 dashed = (Vec3) dash.invoke(dashing(f, nautilus), f.player, new PredVector(Vec3.ZERO), nautilus, false);
+        return new Vec3(dashed.x, dashed.y, dashed.z);
+    }
+
+    private static void assertDash(Vec3 expected, Vec3 dash) {
+        assertEquals(expected.x, dash.x, 0.0);
+        assertEquals(expected.y, dash.y, 0.0);
+        assertEquals(expected.z, dash.z, 0.0);
+    }
+
+    private static VelocityTransformer dashing(JavaTickFixture f, PacketEntity vehicle) {
+        SimulationContext context = Mockito.mock(SimulationContext.class);
+        Mockito.when(context.getVehicle()).thenReturn(vehicle);
+        Mockito.when(context.getStart()).thenReturn(new Vec3(0.5, SOUL_SAND_TOP, 0.5));
+        Mockito.when(context.getLastTickMainSupportingBlockData())
+                .thenReturn(new MainSupportingBlockData(new BlockPos(0, FLOOR_Y - 1, 0), true));
+        Mockito.when(context.getLastOnGround()).thenReturn(DesyncStatus.TRUE);
+        Mockito.when(context.getJumpAmplifier()).thenReturn(null);
+        Mockito.when(context.getTrig()).thenReturn(new TrigHandler(f.player));
+        return new VelocityTransformer(context);
     }
 
     private static PredictionResult ridden(JavaTickFixture f, PacketEntity vehicle) {
@@ -503,6 +622,10 @@ class JavaTravelAttributeTest {
                 null,
                 Pose.STANDING,
                 1.0F);
+        WorldData worldData = Mockito.mock(WorldData.class);
+        Mockito.when(worldData.getMainSupportingBlockPos())
+                .thenReturn(new MainSupportingBlockData(new BlockPos(0, FLOOR_Y - 1, 0), true));
+        context.setWorldData(worldData);
         PredictionResult result = Mockito.mock(PredictionResult.class);
         Mockito.when(result.getSimulationContext()).thenReturn(context);
         return result;

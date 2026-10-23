@@ -1,6 +1,7 @@
 package ac.cult.cultac.command.render;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
@@ -12,7 +13,6 @@ import ac.grim.grimac.api.storage.history.SessionSummary;
 import ac.grim.grimac.api.storage.history.ViolationEntry;
 import ac.grim.grimac.api.storage.query.Page;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -94,7 +94,7 @@ public final class HistoryComponentRenderer {
         // Emit both %max_pages% (new) and %maxPages% (pre-cutover spelling) so
         // operators upgrading from 1.x with a legacy cult-history-header that
         // still references %maxPages% see a correctly-rendered count.
-        String maxPagesStr = Integer.toString(Math.max(1, maxPages));
+        String maxPagesStr = Integer.toString(maxPages);
         out.add(parse(
                         sender,
                         cfg,
@@ -126,7 +126,8 @@ public final class HistoryComponentRenderer {
         String crashedMarker = (!ongoing && s.endedUnexpectedly())
                 ? cfg.getStringElse("cult-history-crashed-marker", " &8(&ccrashed&8)")
                 : "";
-        String detailCommand = "/cult history player " + playerDisplayName + " session " + s.sessionOrdinal();
+        String detailCommand =
+                CloudCommandService.command("history player " + playerDisplayName + " session " + s.sessionOrdinal());
         RenderedTemplate rendered = parse(
                 sender,
                 cfg,
@@ -501,7 +502,7 @@ public final class HistoryComponentRenderer {
     }
 
     /** Renders untrusted template values as plain text before MiniMessage parsing. */
-    private static String mmSafe(@Nullable String raw) {
+    public static String mmSafe(@Nullable String raw) {
         if (raw == null || raw.isEmpty()) return "";
         // Strip '%' first so '&%c' cannot become '&c' after placeholder removal.
         String stripped = LEGACY_FORMAT_PATTERN.matcher(raw.replace("%", "")).replaceAll("");
@@ -531,15 +532,11 @@ public final class HistoryComponentRenderer {
         return sb.toString().trim();
     }
 
-    public static @NotNull String formatAbsolute(long epochMs) {
-        return new Date(epochMs).toString();
-    }
-
     private static @NotNull String nullToUnknown(@Nullable String s) {
         return s == null ? "unknown" : s;
     }
 
-    static @NotNull String clientVersionDisplay(int pvn) {
+    public static @NotNull String clientVersionDisplay(int pvn) {
         if (pvn <= 0) return "unknown";
 
         for (ClientVersion version : ClientVersion.values()) {

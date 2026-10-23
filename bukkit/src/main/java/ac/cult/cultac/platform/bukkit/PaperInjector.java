@@ -6,6 +6,7 @@ import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.netty.ChannelInitializationBarrier;
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import io.netty.channel.Channel;
 import io.papermc.paper.network.ChannelInitializeListenerHolder;
 import java.lang.reflect.Field;
@@ -76,8 +77,8 @@ final class PaperInjector {
         var listener = ((CraftServer) Bukkit.getServer()).getServer().getConnection();
         if (listener != null)
             for (var connection : listener.getConnections()) {
-                if (connection.channel != null)
-                    connection.channel.eventLoop().execute(() -> inject(connection.channel, true));
+                var channel = BukkitConnectionAdapter.channel(connection);
+                if (channel != null) channel.eventLoop().execute(() -> inject(channel, true));
             }
     }
 
@@ -86,7 +87,7 @@ final class PaperInjector {
         if (!(channel.pipeline().get("packet_handler") instanceof Connection nativeConnection)) return;
         var inbound = existing ? installedPhase(channel, "decoder", PacketDecoder.class) : ConnectionPhase.HANDSHAKE;
         var outbound = existing ? installedPhase(channel, "encoder", PacketEncoder.class) : ConnectionPhase.HANDSHAKE;
-        var connection = manager.createConnection(new BukkitConnectionAdapter(nativeConnection), channel);
+        var connection = manager.createConnection(new BukkitConnectionAdapter(nativeConnection, channel), channel);
         if (existing) {
             connection.phase(PacketDirection.SERVERBOUND, inbound);
             connection.phase(PacketDirection.CLIENTBOUND, outbound);
@@ -98,8 +99,7 @@ final class PaperInjector {
 
     synchronized CompletionStage<Void> unregister() {
         registered = false;
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
-            ChannelInitializeListenerHolder.removeListener(KEY);
+        if (RuntimeEnvironment.host() == null) ChannelInitializeListenerHolder.removeListener(KEY);
         return CompletableFuture.allOf(manager.connections().stream()
                 .map(connection -> {
                     var completion = new CompletableFuture<Void>();

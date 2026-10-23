@@ -14,6 +14,7 @@ import ac.cult.cultac.utils.floodgate.GeyserUtil;
 import ac.grim.grimac.api.event.events.GrimJoinEvent;
 import ac.grim.grimac.api.event.events.GrimQuitEvent;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,6 +31,7 @@ public class PlayerDataManager {
 
     // Enumeration only; each session owns its sole player attachment.
     private final Set<CultPlayer> activePlayers = ConcurrentHashMap.newKeySet();
+    private final Set<CultPlayer> entries = Collections.unmodifiableSet(activePlayers);
     // Exemption belongs to one connection, not to an identity. Two simultaneous
     // connections may legitimately present the same UUID; carrying an exemption
     // across them would let the replacement connection evade the anticheat.
@@ -120,7 +122,7 @@ public class PlayerDataManager {
         CloudModule.playerRegistered(created);
         UUID uuid = user.getUUID();
         if (uuid != null && CultAPI.INSTANCE.getDataStoreLifecycle() != null) {
-            CultAPI.INSTANCE.getDataStoreLifecycle().playerToggleStore().prefetch(uuid);
+            CultAPI.INSTANCE.getDataStoreLifecycle().holdToggles(uuid, user.getConnectionId());
         }
     }
 
@@ -171,6 +173,7 @@ public class PlayerDataManager {
         }
         if (tracked == null) {
             clearExemptions(user);
+            releaseConnection(user, null, transferred);
             return false;
         }
 
@@ -180,28 +183,33 @@ public class PlayerDataManager {
 
     private void cleanupOwnedSession(CultPlayer tracked, boolean transferred) {
         User user = tracked.user;
-        UUID uuid = user.getUUID();
 
         tracked.onRemove();
         clearExemptions(user);
         Channels.QUIT.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(tracked));
         if (ac.cult.cultac.runtime.RuntimeEnvironment.host() != null)
             ac.cult.cultac.runtime.RuntimeEnvironment.host().unbindUser(user.getChannel());
+        releaseConnection(user, tracked, transferred);
+    }
+
+    /** Releases state owned by the connection rather than by its CultPlayer, which may already be gone. */
+    private void releaseConnection(User user, @Nullable CultPlayer tracked, boolean transferred) {
+        UUID uuid = user.getUUID();
         if (!transferred && CultAPI.INSTANCE.getDataStoreLifecycle() != null) {
             CultAPI.INSTANCE
                     .getDataStoreLifecycle()
                     .liveWriteHooks()
                     .onQuitFromUserDisconnect(user, tracked, System.currentTimeMillis());
-            CultAPI.INSTANCE.getDataStoreLifecycle().playerToggleStore().evict(uuid);
+            CultAPI.INSTANCE.getDataStoreLifecycle().releaseToggles(uuid, user.getConnectionId());
         }
 
         PlatformPlayer quittingPlayer = user.getPlayer();
+        if (!transferred) {
+            CultAPI.INSTANCE.getAlertManager().handlePlayerQuit(quittingPlayer);
+        }
         boolean currentPlayer = !transferred
                 && quittingPlayer != null
                 && PlatformPlayerCache.getInstance().getPlayer(uuid) == quittingPlayer;
-        if (currentPlayer) {
-            CultAPI.INSTANCE.getAlertManager().handlePlayerQuit(quittingPlayer);
-        }
         if (currentPlayer && CultAPI.INSTANCE.getSpectateManager() != null) {
             CultAPI.INSTANCE.getSpectateManager().onQuit(uuid);
         }
@@ -211,7 +219,7 @@ public class PlayerDataManager {
     }
 
     public Collection<CultPlayer> getEntries() {
-        return java.util.Collections.unmodifiableSet(activePlayers);
+        return entries;
     }
 
     public int size() {
@@ -242,7 +250,7 @@ public class PlayerDataManager {
         return state;
     }
 
-    private boolean isKnownBedrockPlayer(UUID uuid) {
+    public boolean isKnownBedrockPlayer(UUID uuid) {
         return FloodgateUtil.isFloodgatePlayer(uuid)
                 || isGeyserFormattedUuid(uuid)
                 || ((CultAPI.INSTANCE.getPluginManager().isPluginEnabled("Geyser-Spigot")

@@ -5,6 +5,7 @@ import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.manager.init.ReloadableInitable;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.math.Location;
@@ -396,7 +397,7 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
         if (generation != null && !returning(id, generation, previousState)) {
             return CompletableFuture.completedFuture(null);
         }
-        return platformPlayer.teleportAsync(previousState.location).handle((bool, failure) -> {
+        return platformPlayer.teleportAsync(previousState.returnLocation()).handle((bool, failure) -> {
             if (generation != null && !returning(id, generation, previousState)) return null;
             if (failure == null && Boolean.TRUE.equals(bool)) {
                 onDisable(previousState, platformPlayer);
@@ -428,6 +429,8 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
     private static final class PreviousState {
         private final GameMode gameMode;
         private final Location location;
+        // Location holds its world weakly, and a proxy's backend world has no other holder.
+        private final @Nullable PlatformWorld world;
         private final @Nullable String server;
         // The player's pre-spectator game mode on the server it last connected to for spectating.
         private volatile @Nullable TargetMode target;
@@ -435,7 +438,14 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
         private PreviousState(GameMode gameMode, Location location, @Nullable String server) {
             this.gameMode = gameMode;
             this.location = location;
+            this.world = location.getWorld();
             this.server = server;
+        }
+
+        private Location returnLocation() {
+            Location back = location.clone();
+            back.setWorld(world);
+            return back;
         }
     }
 

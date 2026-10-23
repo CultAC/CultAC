@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.player.CultPlayer;
 import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
@@ -32,11 +33,12 @@ final class GeyserPingTranslator extends PacketTranslator<ClientboundPingPacket>
             downstream.send(new ServerboundPongPacket(packet.getId()));
             return;
         }
-        session.sendNetworkLatencyStackPacket(packet.getId(), true, () -> {
-            if (!GeyserBedrockBridgeRuntime.acceptTransaction(session, packet.getId())) {
-                session.sendDownstreamPacket(new ServerboundPongPacket(packet.getId()));
-            }
-        });
+        int id = packet.getId();
+        CultPlayer player = GeyserBedrockBridgeRuntime.playerForSession(session);
+        boolean ours = player != null && player.awaitsTransactionResponse(id);
+        session.sendNetworkLatencyStackPacket(id, true, ours
+                ? () -> GeyserBedrockBridgeRuntime.acceptTransaction(session, id)
+                : () -> session.sendDownstreamPacket(new ServerboundPongPacket(id)));
     }
 
     boolean isInstalled() {

@@ -5,7 +5,11 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate;
 import ac.cult.cultac.network.packet.WorldPackets.BlockUpdate;
 import ac.cult.cultac.network.packet.WorldPackets.Chunk;
+import ac.cult.cultac.network.packet.WorldPackets.ChunkBiomes;
+import ac.cult.cultac.network.packet.WorldPackets.Difficulty;
+import ac.cult.cultac.network.packet.WorldPackets.RecipeInputs;
 import ac.cult.cultac.network.packet.WorldPackets.SectionBlocksUpdate;
+import ac.cult.cultac.network.packet.WorldPackets.TimeUpdate;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockChangedAck;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
@@ -42,43 +46,31 @@ public class BasePacketWorldReader {
     public void onBlockEntityData(
             PacketSendEvent<BlockEntityUpdate> event, CultPlayer player, BlockEntityUpdate packet) {
         String dimension = packetDimension(player);
-        int transaction = appendTrailingProofTransaction(event, player);
+        int transaction = appendFlushProofTransaction(event, player);
         player.latencyUtils.addRealTimeTask(
                 transaction, () -> player.compensatedWorld.applyClientBlockEntityData(dimension, packet));
     }
 
     @CultPacketHandler
-    public void onTimeUpdate(
-            PacketSendEvent<ac.cult.cultac.network.packet.WorldPackets.TimeUpdate> event,
-            CultPlayer player,
-            ac.cult.cultac.network.packet.WorldPackets.TimeUpdate packet) {
+    public void onTimeUpdate(PacketSendEvent<TimeUpdate> event, CultPlayer player, TimeUpdate packet) {
         var backendTicks = player.backendTicks();
         if (backendTicks != null) backendTicks.onGameTime(packet.gameTime(), System.nanoTime());
         player.latencyUtils.addRealTimeTaskNext(() -> player.compensatedWorld.applyClientTime(packet));
     }
 
     @CultPacketHandler
-    public void onDifficulty(
-            PacketSendEvent<ac.cult.cultac.network.packet.WorldPackets.Difficulty> event,
-            CultPlayer player,
-            ac.cult.cultac.network.packet.WorldPackets.Difficulty packet) {
+    public void onDifficulty(PacketSendEvent<Difficulty> event, CultPlayer player, Difficulty packet) {
         player.latencyUtils.addRealTimeTaskNext(() -> player.compensatedWorld.applyClientDifficulty(packet));
     }
 
     @CultPacketHandler
-    public void onRecipeInputs(
-            PacketSendEvent<ac.cult.cultac.network.packet.WorldPackets.RecipeInputs> event,
-            CultPlayer player,
-            ac.cult.cultac.network.packet.WorldPackets.RecipeInputs packet) {
-        int transaction = appendTrailingProofTransaction(event, player);
+    public void onRecipeInputs(PacketSendEvent<RecipeInputs> event, CultPlayer player, RecipeInputs packet) {
+        int transaction = appendFlushProofTransaction(event, player);
         player.latencyUtils.addRealTimeTask(transaction, () -> player.compensatedWorld.applyClientRecipeInputs(packet));
     }
 
     @CultPacketHandler
-    public void onChunkBiomes(
-            PacketSendEvent<ac.cult.cultac.network.packet.WorldPackets.ChunkBiomes> event,
-            CultPlayer player,
-            ac.cult.cultac.network.packet.WorldPackets.ChunkBiomes packet) {
+    public void onChunkBiomes(PacketSendEvent<ChunkBiomes> event, CultPlayer player, ChunkBiomes packet) {
         if (player.compensatedWorld.isClientboundUnresolved()) return;
         handleBiomes(player, event, packet);
     }
@@ -125,10 +117,7 @@ public class BasePacketWorldReader {
         // Subclasses decode the active chunk format.
     }
 
-    public void handleBiomes(
-            CultPlayer player,
-            PacketSendEvent<?> event,
-            ac.cult.cultac.network.packet.WorldPackets.ChunkBiomes packet) {
+    public void handleBiomes(CultPlayer player, PacketSendEvent<?> event, ChunkBiomes packet) {
         // Subclasses decode the active biome palette format.
     }
 
@@ -136,41 +125,6 @@ public class BasePacketWorldReader {
             PacketSendEvent<?> event,
             CultPlayer player,
             CachedSection[] chunks,
-            boolean isGroundUp,
-            int chunkX,
-            int chunkZ) {
-        addChunkToCache(event, player, chunks, isGroundUp, packetDimension(player), chunkX, chunkZ);
-    }
-
-    public void addChunkToCache(
-            PacketSendEvent<?> event,
-            CultPlayer player,
-            CachedSection[] chunks,
-            boolean isGroundUp,
-            String dimension,
-            int chunkX,
-            int chunkZ) {
-        addChunkToCache(event, player, chunks, isGroundUp, dimension, chunkX, chunkZ, List.of());
-    }
-
-    public void addChunkToCache(
-            PacketSendEvent<?> event,
-            CultPlayer player,
-            CachedSection[] chunks,
-            boolean isGroundUp,
-            String dimension,
-            int chunkX,
-            int chunkZ,
-            List<BlockPos> geyserTickers) {
-        addChunkToCache(
-                event, player, chunks, isGroundUp, dimension, chunkX, chunkZ, geyserTickers, List.of(), null, null);
-    }
-
-    public void addChunkToCache(
-            PacketSendEvent<?> event,
-            CultPlayer player,
-            CachedSection[] chunks,
-            boolean isGroundUp,
             String dimension,
             int chunkX,
             int chunkZ,
@@ -204,36 +158,13 @@ public class BasePacketWorldReader {
             // Wrap this between bread.
             player.sendTransaction();
         }
-        int applyTransaction = appendTrailingProofTransaction(event, player);
-        if (isGroundUp) {
-            if (player.chunkDebug) {
-                player.sendMessage("Chunk " + chunkX + " " + chunkZ + " was added.");
-            }
-            CachedChunk column = new CachedChunk(chunks, applyTransaction, blockEntities, biomes);
-            player.compensatedWorld.addToCache(
-                    column, dimension, applyTransaction, chunkX, chunkZ, geyserTickers, motionBlocking);
-        } else {
-            if (player.chunkDebug) {
-                player.sendMessage("Chunk " + chunkX + " " + chunkZ + " was merged.");
-            }
-            int level = player.compensatedWorld.level();
-            player.latencyUtils.addRealTimeTask(applyTransaction, () -> {
-                if (level != player.compensatedWorld.level()) return;
-                CachedChunk existingColumn = player.compensatedWorld.getChunk(chunkX, chunkZ);
-                if (existingColumn == null) {
-                    // Corrupting the player's empty chunk is actually quite meaningless
-                    // You are able to set blocks inside it, and they do apply, it just always returns air despite what
-                    // its data says
-                    // So go ahead, corrupt the player's empty chunk and make it no longer all air, it doesn't matter
-                    //
-                    // LogUtil.warn("Invalid non-ground up continuous sent for empty chunk " + chunkX + " " + chunkZ + "
-                    // for " + player.user.getProfile().getName() + "! This corrupts the player's empty chunk!");
-                    return;
-                }
-                player.compensatedWorld.mergeIntoCache(
-                        existingColumn, chunks, dimension, applyTransaction, chunkX, chunkZ);
-            });
+        int applyTransaction = appendFlushProofTransaction(event, player);
+        if (player.chunkDebug) {
+            player.sendMessage("Chunk " + chunkX + " " + chunkZ + " was added.");
         }
+        CachedChunk column = new CachedChunk(chunks, applyTransaction, blockEntities, biomes);
+        player.compensatedWorld.addToCache(
+                column, dimension, applyTransaction, chunkX, chunkZ, geyserTickers, motionBlocking);
     }
 
     private String packetDimension(CultPlayer player) {
@@ -241,25 +172,17 @@ public class BasePacketWorldReader {
     }
 
     public void unloadChunk(PacketSendEvent<?> event, CultPlayer player, int x, int z) {
-        if (player == null) return;
         if (player.chunkDebug) {
             player.sendMessage("Chunk " + x + " " + z + " queued for unload.");
         }
-        int applyTransaction = appendTrailingProofTransaction(event, player);
+        int applyTransaction = appendFlushProofTransaction(event, player);
         player.compensatedWorld.removeChunkLater(packetDimension(player), x, z, applyTransaction);
     }
 
-    public void unloadChunk(CultPlayer player, int x, int z) {
-        if (player == null) return;
-        if (player.chunkDebug) {
-            player.sendMessage("Chunk " + x + " " + z + " queued for unload.");
-        }
-        player.compensatedWorld.removeChunkLater(x, z);
-    }
-
-    protected int appendTrailingProofTransaction(PacketSendEvent<?> event, CultPlayer player) {
-        CultPlayer.TrackedTransaction transaction = player.appendTrailingProofTransaction(event);
-        return transaction == null ? player.lastTransactionSent.get() : transaction.transaction();
+    /** The flush ping that proves this world update; see {@link CultPlayer#appendFlushProofTransaction}. */
+    protected int appendFlushProofTransaction(PacketSendEvent<?> event, CultPlayer player) {
+        int transaction = player.appendFlushProofTransaction(event);
+        return transaction > 0 ? transaction : player.lastTransactionSent.get();
     }
 
     public void handleBlockChange(CultPlayer player, PacketSendEvent<BlockUpdate> event, BlockUpdate blockChange) {
@@ -267,14 +190,14 @@ public class BasePacketWorldReader {
 
         BlockPos blockPosition = blockChange.position();
         int state = blockChange.state();
-        // MCP-Reborn ClientPacketListener handles packets in bundle order on the client
-        // thread. Put Cult's ping after the block update so the pong marks the point
-        // where the client has processed the new block state.
+        // ClientPacketListener#handleBundlePacket handles the flush bundle in one task, so the
+        // pong of a ping in it marks the point where the client has the new block state.
         if (isNearPlayer(player, blockPosition, range)) {
-            CultPlayer.TrackedTransaction transaction = player.appendTrailingProofTransaction(event);
-            if (transaction != null) {
+            int transaction = player.appendFlushProofTransaction(event);
+            if (transaction > 0) {
                 if (blockChange != event.getOriginalPacket()) event.replace(blockChange);
-                player.compensatedWorld.handleServerBlockUpdate(blockPosition, state, transaction);
+                player.compensatedWorld.queueServerBlockUpdate(
+                        blockPosition.getX(), blockPosition.getY(), blockPosition.getZ(), state, transaction);
                 return;
             }
         }
@@ -296,8 +219,10 @@ public class BasePacketWorldReader {
                 blockEvent.position().z());
         String dimension = packetDimension(player);
         if (isNearPlayer(player, blockPosition, range)) {
-            CultPlayer.TrackedTransaction transaction = player.appendTrailingProofTransaction(event);
-            if (transaction != null) {
+            // ClientPacketListener#handleBlockEvent runs Level#blockEvent in the bundle's task, so
+            // the flush proof proves the event exactly as it does the block updates around it.
+            int transaction = player.appendFlushProofTransaction(event);
+            if (transaction > 0) {
                 if (blockEvent != event.getOriginalPacket()) event.replace(blockEvent);
                 event.getTasksAfterSend().add(() -> {
                     Runnable applyEvent = () -> {
@@ -307,9 +232,9 @@ public class BasePacketWorldReader {
                                 blockEvent.blockId(),
                                 blockEvent.action(),
                                 blockEvent.parameter(),
-                                transaction.transaction());
+                                transaction);
                     };
-                    player.latencyUtils.addRealTimeTask(transaction.transaction(), applyEvent);
+                    player.latencyUtils.addRealTimeTask(transaction, applyEvent);
                 });
                 return;
             }
@@ -344,17 +269,14 @@ public class BasePacketWorldReader {
         }
 
         if (nearPlayer) {
-            CultPlayer.TrackedTransaction transaction = player.appendTrailingProofTransaction(event);
-            if (transaction != null) {
-                multiBlockChange.runUpdates((x, y, z, state) ->
-                        player.compensatedWorld.queueServerBlockUpdate(x, y, z, state, transaction.transaction()));
+            int transaction = player.appendFlushProofTransaction(event);
+            if (transaction > 0) {
+                player.compensatedWorld.queueServerBlockUpdates(multiBlockChange, transaction);
                 return;
             }
         }
 
-        int transaction = player.lastTransactionSent.get();
-        multiBlockChange.runUpdates(
-                (x, y, z, state) -> player.compensatedWorld.queueServerBlockUpdate(x, y, z, state, transaction));
+        player.compensatedWorld.queueServerBlockUpdates(multiBlockChange, player.lastTransactionSent.get());
     }
 
     private boolean isNearPlayer(CultPlayer player, BlockPos pos, int range) {

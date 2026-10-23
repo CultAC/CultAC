@@ -37,7 +37,9 @@ public class PacketPlayerDigging {
 
             if (j > 0 && RiptideUtil.isValidRiptideRelease(player, hand)) {
                 player.packetStateData.riptideLevel = j;
+                player.packetStateData.riptideReleaseCertain = RiptideUtil.isCertainRiptideRelease(player);
                 player.riptideSpinAttackTicks = 20;
+                player.riptideSpinCertain = player.packetStateData.riptideReleaseCertain;
             } else if (j > 0) {
                 player.packetStateData.invalidRiptideRelease = true;
                 player.packetStateData.invalidRiptideReleaseReason = RiptideUtil.invalidReleaseReason(player, hand);
@@ -65,9 +67,6 @@ public class PacketPlayerDigging {
             if (blockBreak.isCancelled()) {
                 event.setCancelled(true);
                 player.onPacketCancel();
-                player.getResyncHandler()
-                        .resyncPosition(
-                                blockPosition.getX(), blockPosition.getY(), blockPosition.getZ(), packet.sequence());
                 return;
             }
 
@@ -83,7 +82,7 @@ public class PacketPlayerDigging {
 
     public static void selectHotbarSlot(CultPlayer player, int slotId) {
         // Stop people from spamming the server with out of bounds exceptions
-        if (slotId > 8 || slotId < 0) return; // TODO: flag?
+        if (slotId > 8 || slotId < 0) return;
 
         player.packetStateData.lastSlotSelected = slotId;
         if (player.packetStateData.riptideUseHand != Hand.OFF_HAND) {

@@ -580,19 +580,37 @@ class CaptureStreamSectionsTest {
     }
 
     @Test
-    void aProtocol3SocketKeepsItsChunkPacketsAndSendsNoSections() {
+    void captureBeforeJoinHoldsNoChunkPacketAndSendsTheRestInMicroseconds() {
         loadAroundOrigin(3);
-        sink.terms = CloudConnection.Terms.PROTOCOL_3;
-        CaptureStream stream = joined();
-        byte[] update = blockUpdate(1, 70, 1, 9);
-        assertTrue(stream.wants(IntakeWire.CLIENTBOUND, BLOCK_UPDATE));
-        stream.tap(IntakeWire.CLIENTBOUND, BLOCK_UPDATE, update, nanos, -64, 384, SESSION);
-        stream.blockChanged(1, 70, 1, 9, nanos);
+        CaptureStream stream = new CaptureStream(PLAYER);
+        stream.start(0);
+        stream.chunks(new ChunkIds(LEVEL_CHUNK, BLOCK_UPDATE, SECTION_UPDATE, FORGET));
+        stream.terrain(terrain);
+        stream.prepare(sink);
+        assertFalse(stream.wants(IntakeWire.CLIENTBOUND, LEVEL_CHUNK));
+        assertFalse(stream.wants(IntakeWire.CLIENTBOUND, BLOCK_UPDATE));
+        assertTrue(stream.wants(IntakeWire.CLIENTBOUND, TELEPORT));
+        stream.tap(IntakeWire.CLIENTBOUND, TELEPORT, new byte[] {TELEPORT, 1}, nanos, -64, 384, SESSION);
+        stream.tap(
+                IntakeWire.CLIENTBOUND,
+                LEVEL_CHUNK,
+                new SyntheticTerrain().levelChunk(LEVEL_CHUNK, 0, 0),
+                nanos + 1_000_000,
+                -64,
+                384,
+                SESSION);
+        stream.tap(IntakeWire.CLIENTBOUND, TELEPORT, new byte[] {TELEPORT, 2}, nanos + 2_000_000, -64, 384, SESSION);
+        stream.join(sink, IntakeWire.join(PLAYER, PROTOCOL, "vanilla", -64, 384, null, null, 0), 0, SESSION);
+        answer(stream);
         tick(stream);
 
-        assertTrue(sink.records().stream().noneMatch(r -> r.hasSection() || r.hasBlock()));
-        assertTrue(sink.records().stream().anyMatch(Record::hasClientbound));
-        assertFalse(stream.sections().active());
+        List<Record> clientbound =
+                sink.records().stream().filter(Record::hasClientbound).toList();
+        assertEquals(2, clientbound.size());
+        for (Record record : clientbound)
+            assertEquals(TELEPORT, record.getClientbound().byteAt(0));
+        assertEquals(2_000, clientbound.get(1).getAdvanceNanos());
+        assertEquals(inRange(0, 4, 0), received);
     }
 
     private CaptureStream joined() {

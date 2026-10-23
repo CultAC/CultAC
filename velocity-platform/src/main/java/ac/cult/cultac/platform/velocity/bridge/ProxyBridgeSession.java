@@ -6,6 +6,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Auth;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Challenge;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.ClearActiveItem;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.ClientMods;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Close;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Hello;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Listeners;
@@ -38,6 +39,8 @@ final class ProxyBridgeSession implements BridgeSession {
 
     static final long READY_TIMEOUT_MILLIS = 10_000;
     static final int QUEUE_LIMIT = 256;
+    /** How long a frame waits for the client's tick end before it goes out regardless; two client ticks. */
+    static final long HOLD_MILLIS = 100;
 
     private record Pending(CompletableFuture<@Nullable BridgeMessage> future, ScheduledFuture<?> timeout) {}
 
@@ -50,6 +53,11 @@ final class ProxyBridgeSession implements BridgeSession {
     private final long helloRetryMillis;
     private final long readyTimeoutMillis;
     private final ArrayDeque<BridgeMessage> queue = new ArrayDeque<>();
+    /** Encoded frames waiting for the client's tick end, in write order. */
+    private final ArrayDeque<byte[]> held = new ArrayDeque<>();
+
+    private boolean releaseAtTickEnd;
+    private @Nullable ScheduledFuture<?> holdTimeout;
     private final Map<Integer, Pending> pending = new HashMap<>();
     private volatile State state = State.HANDSHAKE;
     private volatile long capabilities;
@@ -280,6 +288,7 @@ final class ProxyBridgeSession implements BridgeSession {
             }
             case Result result -> reply(result.requestId(), result);
             case PlayerStateResult result -> reply(result.requestId(), result);
+            case ClientMods mods -> reply(mods.requestId(), mods);
             default -> {}
         }
         service.onMessage(this, message);
@@ -361,9 +370,43 @@ final class ProxyBridgeSession implements BridgeSession {
             }
             return;
         }
+        if (held.isEmpty() && !backend.midClientTick()) writeFrame(frame);
+        else hold(frame);
+    }
+
+    /** Keeps {@code frame} for right after the client's tick end, and at most {@link #HOLD_MILLIS}. */
+    private void hold(byte[] frame) {
+        if (held.size() >= QUEUE_LIMIT) release();
+        held.addLast(frame);
+        if (holdTimeout == null) {
+            holdTimeout = backend.eventLoop().schedule(this::release, HOLD_MILLIS, TimeUnit.MILLISECONDS);
+        }
+        if (!releaseAtTickEnd) {
+            releaseAtTickEnd = true;
+            backend.afterClientTick(() -> {
+                releaseAtTickEnd = false;
+                release();
+            });
+        }
+    }
+
+    private void release() {
+        cancel(holdTimeout);
+        holdTimeout = null;
+        while (!held.isEmpty()) {
+            if (!backend.inPlay()) {
+                held.clear();
+                return;
+            }
+            writeFrame(held.pollFirst());
+        }
+    }
+
+    private void writeFrame(byte[] frame) {
         try {
             backend.write(frame);
         } catch (IllegalStateException disconnected) {
+            held.clear();
             closeNow(null);
         }
     }

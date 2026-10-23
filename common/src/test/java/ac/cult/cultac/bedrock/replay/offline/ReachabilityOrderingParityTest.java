@@ -30,6 +30,7 @@ import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.inventory.Inventory;
 import io.netty.channel.embedded.EmbeddedChannel;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -462,6 +463,9 @@ public final class ReachabilityOrderingParityTest {
                         player.isBedrockMovement()
                                 ? constructor.newInstance(transaction, id)
                                 : constructor.newInstance(transaction, id, System.nanoTime()));
+        Field ids = CultPlayer.class.getDeclaredField("transactionIdsSent");
+        ids.setAccessible(true);
+        ((IntSet) ids.get(player)).add(id);
     }
 
     private static long longField(Object target, String name) throws ReflectiveOperationException {

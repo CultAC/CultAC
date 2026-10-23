@@ -13,15 +13,12 @@ import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.ComplexCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.NoCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
 import java.util.ArrayList;
 import java.util.List;
 
 public final class NativeBlockCollisionHelper {
     private NativeBlockCollisionHelper() {}
-
-    public static CollisionBox getCollisionBox(CultPlayer player, int state, int x, int y, int z) {
-        return getCollisionBox(player, state, x, y, z, player == null ? Double.NaN : player.y);
-    }
 
     public static CollisionBox getCollisionBox(CultPlayer player, int state, int x, int y, int z, double entityBottom) {
         return getCollisionBox(
@@ -43,14 +40,94 @@ public final class NativeBlockCollisionHelper {
             return NoCollisionBox.INSTANCE;
         }
 
-        VoxelShape shape = getCollisionShape(player, state, x, y, z, entityBottom, actor);
+        return collider(player, getCollisionShape(player, state, x, y, z, entityBottom, actor), x, y, z);
+    }
+
+    static CollisionBox collider(CultPlayer player, VoxelShape shape, int x, int y, int z) {
         // Entity#collideWithShapes scans VoxelShape's cells, including internal
         // faces when a server update places the actor partly inside a shape.
         boolean voxelMovement = !player.isBedrockMovement();
         if (voxelMovement && !shape.isEmpty())
-            return new ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox(shape, shape == Shapes.block())
-                    .offset(x, y, z);
+            return new VoxelShapeCollisionBox(shape, shape == Shapes.block()).offset(x, y, z);
         return fromShape(shape, x, y, z);
+    }
+
+    /** Adds getCollisionBox's boxes to {@code result} when any of them intersects {@code query}. */
+    public static void addIfAnyIntersects(
+            CultPlayer player,
+            int state,
+            int x,
+            int y,
+            int z,
+            double entityBottom,
+            JavaCollisionState actor,
+            SimpleCollisionBox query,
+            List<SimpleCollisionBox> scratch,
+            List<SimpleCollisionBox> result) {
+        VoxelShape shape = getCollisionShape(player, state, x, y, z, entityBottom, actor);
+        if (shape.isEmpty()) return;
+        if (shape == Shapes.block() && !player.isBedrockMovement() && query.getClass() == SimpleCollisionBox.class) {
+            // The single box VoxelShapeCollisionBox.downCast emits for a unit cube.
+            double minX = 0.0 + x, minY = 0.0 + y, minZ = 0.0 + z;
+            double maxX = 1.0 + x, maxY = 1.0 + y, maxZ = 1.0 + z;
+            if (maxX - SimpleCollisionBox.COLLISION_EPSILON > query.minX
+                    && minX + SimpleCollisionBox.COLLISION_EPSILON < query.maxX
+                    && maxY - SimpleCollisionBox.COLLISION_EPSILON > query.minY
+                    && minY + SimpleCollisionBox.COLLISION_EPSILON < query.maxY
+                    && maxZ - SimpleCollisionBox.COLLISION_EPSILON > query.minZ
+                    && minZ + SimpleCollisionBox.COLLISION_EPSILON < query.maxZ)
+                result.add(SimpleCollisionBox.between(minX, minY, minZ, maxX, maxY, maxZ));
+            return;
+        }
+        var boxes = !player.isBedrockMovement()
+                        && query.getClass() == SimpleCollisionBox.class
+                        && shape.hasFiniteCoordinates()
+                ? ClientShapeBoxes.cached(shape)
+                : null;
+        if (boxes != null) {
+            // The boxes VoxelShapeCollisionBox.downCast emits for a translated cached shape.
+            for (int i = 0; i < boxes.size(); i++) {
+                var box = boxes.get(i);
+                double x1 = box.minX() + x, y1 = box.minY() + y, z1 = box.minZ() + z;
+                double x2 = box.maxX() + x, y2 = box.maxY() + y, z2 = box.maxZ() + z;
+                if (Math.max(x1, x2) - SimpleCollisionBox.COLLISION_EPSILON > query.minX
+                        && Math.min(x1, x2) + SimpleCollisionBox.COLLISION_EPSILON < query.maxX
+                        && Math.max(y1, y2) - SimpleCollisionBox.COLLISION_EPSILON > query.minY
+                        && Math.min(y1, y2) + SimpleCollisionBox.COLLISION_EPSILON < query.maxY
+                        && Math.max(z1, z2) - SimpleCollisionBox.COLLISION_EPSILON > query.minZ
+                        && Math.min(z1, z2) + SimpleCollisionBox.COLLISION_EPSILON < query.maxZ) {
+                    for (int j = 0; j < boxes.size(); j++) {
+                        var part = boxes.get(j);
+                        result.add(SimpleCollisionBox.between(
+                                part.minX() + x,
+                                part.minY() + y,
+                                part.minZ() + z,
+                                part.maxX() + x,
+                                part.maxY() + y,
+                                part.maxZ() + z));
+                    }
+                    return;
+                }
+            }
+            return;
+        }
+        addIfAnyIntersects(collider(player, shape, x, y, z), query, scratch, result);
+    }
+
+    /** Adds {@code box}'s boxes to {@code result} when any of them intersects {@code query}. */
+    public static void addIfAnyIntersects(
+            CollisionBox box,
+            SimpleCollisionBox query,
+            List<SimpleCollisionBox> scratch,
+            List<SimpleCollisionBox> result) {
+        scratch.clear();
+        box.downCast(scratch);
+        for (int i = 0; i < scratch.size(); i++) {
+            if (query.isIntersected(scratch.get(i))) {
+                result.addAll(scratch);
+                return;
+            }
+        }
     }
 
     public static CollisionBox getSelectionBox(CultPlayer player, int state, int x, int y, int z) {
@@ -134,7 +211,7 @@ public final class NativeBlockCollisionHelper {
             return Shapes.empty();
         }
 
-        // Selected-target checks deliberately use a closed shulker; movement retains the real lid.
+        // Selected-target checks use a closed shulker; movement keeps the real lid.
         if (player.compensatedWorld.isReadingSelectionSnapshot() && BlockFamilies.SHULKER_BOX.test(state))
             return Shapes.block();
 
@@ -196,7 +273,6 @@ public final class NativeBlockCollisionHelper {
     }
 
     public static EntityCollisionContext entityContext(CultPlayer player, double entityBottom) {
-        if (player == null) return EntityCollisionContext.emptyContext();
         String key = heldItem(player);
         return new EntityCollisionContext(entityBottom, player.isSneaking, 0, false, false, key, false, false, false);
     }

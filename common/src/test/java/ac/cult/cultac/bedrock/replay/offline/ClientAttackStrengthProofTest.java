@@ -17,6 +17,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.*;
 import ac.cult.cultac.utils.inventory.Inventory;
@@ -193,6 +194,35 @@ public final class ClientAttackStrengthProofTest {
             complete(player);
             tick(player);
             assertTrue(player.attackStrength.isFullStrength(DELAY));
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void slotClaimedAndLeftInOneTickMayHaveResetInThePreviousTick() throws Exception {
+        CultPlayer player = player("minecraft:diamond_sword", 1);
+        try {
+            player.getInventory()
+                    .inventory
+                    .getInventoryStorage()
+                    .setItem(Inventory.HOTBAR_OFFSET + 1, ItemUtil.modelItems().stack("minecraft:mace", 1));
+            // A hotbar key held the mace through the previous Player#tick; this tick claims it, then the sword.
+            for (int slot : List.of(1, 0)) {
+                var packet = new ServerboundSetCarriedItem(slot);
+                player.getInventory()
+                        .onSetCarriedItem(
+                                new PacketReceiveEvent<>(
+                                        player.user, ConnectionPhase.PLAY, ServerboundPackets.SET_CARRIED_ITEM, packet),
+                                player,
+                                packet);
+            }
+            assertFalse(player.attackStrength.isFullStrength(DELAY));
+            assertTrue(player.attackStrength.canBeFullStrength(DELAY));
+            // This tick's Player#tick sees the sword after the mace and resets again.
+            tick(player);
+            for (int i = 0; i < DELAY - 1; i++) tick(player);
+            assertFalse(player.attackStrength.isFullStrength(DELAY));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

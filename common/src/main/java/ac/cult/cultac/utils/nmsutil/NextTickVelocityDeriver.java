@@ -1,7 +1,9 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.data.ShulkerBoxShoveResult;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.HashSet;
 import java.util.List;
@@ -110,6 +112,13 @@ public final class NextTickVelocityDeriver {
         // The 26.2 geyser ticker runs after the entity tick, so it modifies the
         // carried deltaMovement directly rather than going through travel.
         if (geysers) velocities = GeyserVelocity.applyToResult(player, result, velocities);
+        // From 26.3 the shulker box block shoves after the travel are block entity ticks too.
+        ShulkerBoxShoveResult shove = geysers ? JavaMovementEngine.shulkerBoxShoveAfterTravel(result) : null;
+        if (shove != null) {
+            Set<Vec3> shoved = new HashSet<>(velocities.size());
+            for (Vec3 velocity : velocities) shoved.add(shove.velocityAfter(velocity));
+            velocities = shoved;
+        }
         return velocities;
     }
 }

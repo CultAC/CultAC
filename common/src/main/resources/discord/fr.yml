@@ -4,21 +4,26 @@ webhook: ""
 # Définissez sur `true` pour contourner la validation du format d'URL de Discord.
 # Cela autorise n'importe quelle URL HTTPS valide (utile pour les proxys ou redirecteurs Matrix).
 disable-webhook-validation: false
-embed-title: "**Cult Alerte**"
+embed-title: "%player% a été détecté pour %check% [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+include-state: true
 # Remplace les accents graves (`) dans les valeurs (ex. marques de clients) pour éviter de casser le formatage du texte sur Discord.
 # Définissez sur "`" pour désactiver ce remplacement.
 backtick-replacement-char: "ˋ"
 violation-content:
     - "**Joueur**: `%player%`"
-    - "**Vérification**: %check%"
-    - "**Violations**: %violations%"
-    - "**Version du client**: %version%"
+    - "**UUID**: `%uuid%`"
+    - "**Vérification**: `%check%`"
+    - "**Version du client**: `%version%`"
     - "**Marque du client**: `%brand%`"
-    - "**Latence**: %ping%"
-    - "**TPS**: %tps%"
+    - "**Sensibilité**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**Latence**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**Serveur**: `%server%`"
+    - "**Monde**: `%world% (%world_type%)`"
 
 # Marqueurs de schéma — voir le commentaire d'en-tête dans config.yml.
 config-flavor: V2
-config-version: 1
+config-version: 2

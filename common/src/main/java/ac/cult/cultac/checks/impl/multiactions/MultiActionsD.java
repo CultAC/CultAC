@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
 @CheckData(
@@ -21,9 +22,7 @@ public class MultiActionsD extends Check implements CheckListener {
 
     @CultPacketHandler
     public void onContainerClose(
-            PacketReceiveEvent<ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose> event,
-            CultPlayer player,
-            ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose packet) {
+            PacketReceiveEvent<ServerboundContainerClose> event, CultPlayer player, ServerboundContainerClose packet) {
         if (player.serverOpenedInventoryThisTick) return;
 
         boolean sprinting = MultiActionsC.isVerboseSprinting(player);

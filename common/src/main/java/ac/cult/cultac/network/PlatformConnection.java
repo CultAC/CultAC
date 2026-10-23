@@ -1,8 +1,15 @@
 package ac.cult.cultac.network;
 
+import ac.cult.cultac.manager.tick.BackendTickEstimator;
+import ac.cult.cultac.network.codec.ConnectionModelValues;
+import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.PacketValueAdapter;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.data.RegistryNames;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.Nullable;
 
@@ -17,33 +24,40 @@ public interface PlatformConnection {
     PlayerBinding playerBinding();
 
     /** Current model IDs for packet conversion: received registries on connections with model values. */
-    default ac.cult.cultac.protocol.data.RegistryNames registryNames() {
+    default RegistryNames registryNames() {
         var values = modelValues();
-        return values == null
-                ? ac.cult.cultac.network.codec.ModelRegistryNamesState.defaults()
-                : values.registryNames();
+        return values == null ? ModelRegistryNamesState.defaults() : values.registryNames();
     }
 
     /** Owned initial world facts; received configuration packets replace them. */
-    default ac.cult.cultac.utils.latency.ClientWorldRegistries.Data initialWorldData() {
-        return ac.cult.cultac.utils.latency.ClientWorldRegistries.modelDefaults();
+    default ClientWorldRegistries.Data initialWorldData() {
+        return ClientWorldRegistries.modelDefaults();
     }
 
     /** Encoding at Cult's actual pipeline position; null selects the native dispatcher encoding. */
     @Nullable
-    default ac.cult.cultac.protocol.ProtocolVersion getObservedProtocol() {
+    default ProtocolVersion getObservedProtocol() {
         return null;
     }
 
     /** Original authenticated client protocol, independent of any translation before Cult. */
     @Nullable
-    default ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
+    default ProtocolVersion getClientProtocol() {
         return null;
     }
 
     /** Disconnects a client older than 1.21.2 (in observe-only, leaves it untracked); true when it is not to be tracked. */
     default boolean disconnectOutdatedClient() {
         return false;
+    }
+
+    /**
+     * The brand the platform already received on this connection before Cult attached; null when the platform does not
+     * keep it or none was sent yet.
+     */
+    @Nullable
+    default String clientBrand() {
+        return null;
     }
 
     /** The backend server this connection is in, where the platform has several; null otherwise. */
@@ -54,11 +68,11 @@ public interface PlatformConnection {
 
     /** Present when the observed wire can differ from the 26.3 model; shared by every platform. */
     @Nullable
-    default ac.cult.cultac.network.codec.ConnectionModelValues modelValues() {
+    default ConnectionModelValues modelValues() {
         return null;
     }
 
-    default ac.cult.cultac.protocol.PacketValueAdapter packetValues(CultConnection connection) {
+    default PacketValueAdapter packetValues(CultConnection connection) {
         var values = modelValues();
         return values == null ? null : values.packetValues(getObservedProtocol(), connection);
     }
@@ -68,7 +82,7 @@ public interface PlatformConnection {
      * server's tick loop. Null where the platform delivers tick ends itself.
      */
     @Nullable
-    default ac.cult.cultac.manager.tick.BackendTickEstimator backendTicks() {
+    default BackendTickEstimator backendTicks() {
         return null;
     }
 

@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 
 /** Immutable entity-dependent shape inputs; never backed by a live server entity. */
 public record JavaCollisionState(
@@ -17,9 +18,7 @@ public record JavaCollisionState(
     public static JavaCollisionState of(CultPlayer player, PacketEntity actor, double fallDistance) {
         boolean self = actor == player.compensatedEntities.getSelf();
         boolean walks = EntityTags.POWDER_SNOW_WALKABLE_MOBS.test(actor.type)
-                || self
-                        && player.getInventory().getBoots().getItem()
-                                == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS;
+                || self && player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS;
         return new JavaCollisionState(
                 fallDistance, walks, self && player.isSneaking, actor.type == EntityTypeIds.FALLING_BLOCK);
     }

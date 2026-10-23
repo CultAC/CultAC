@@ -1,11 +1,10 @@
 package ac.cult.cultac.platform.bukkit.scheduler.folia;
 
 import ac.cult.cultac.platform.api.scheduler.RegionScheduler;
-import ac.cult.cultac.platform.api.scheduler.TaskHandle;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
 import ac.cult.cultac.platform.bukkit.world.BukkitPlatformWorld;
-import ac.cult.cultac.utils.math.Location;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import org.bukkit.Bukkit;
 import org.jetbrains.annotations.NotNull;
@@ -18,7 +17,7 @@ public class FoliaRegionScheduler implements RegionScheduler {
     @Override
     public void execute(
             @NotNull GrimPlugin plugin, @NotNull PlatformWorld world, int chunkX, int chunkZ, @NotNull Runnable task) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
+        final Runnable guarded_task = RuntimeEnvironment.guard(task);
 
         regionScheduler.execute(
                 CultACBukkitLoaderPlugin.LOADER,
@@ -26,105 +25,5 @@ public class FoliaRegionScheduler implements RegionScheduler {
                 chunkX,
                 chunkZ,
                 guarded_task);
-    }
-
-    @Override
-    public void execute(@NotNull GrimPlugin plugin, @NotNull Location location, @NotNull Runnable task) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
-
-        execute(plugin, location.getWorld(), location.getBlockX() >> 4, location.getBlockZ() >> 4, guarded_task);
-    }
-
-    @Override
-    public TaskHandle run(
-            @NotNull GrimPlugin plugin, @NotNull PlatformWorld world, int chunkX, int chunkZ, @NotNull Runnable task) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
-
-        return new FoliaTaskHandle(regionScheduler.run(
-                CultACBukkitLoaderPlugin.LOADER,
-                ((BukkitPlatformWorld) world).bukkitWorld(),
-                chunkX,
-                chunkZ,
-                ac.cult.reload.host.Callbacks.run(guarded_task)));
-    }
-
-    @Override
-    public TaskHandle run(@NotNull GrimPlugin plugin, @NotNull Location location, @NotNull Runnable task) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
-
-        return run(plugin, location.getWorld(), location.getBlockX() >> 4, location.getBlockZ() >> 4, guarded_task);
-    }
-
-    @Override
-    public TaskHandle runDelayed(
-            @NotNull GrimPlugin plugin,
-            @NotNull PlatformWorld world,
-            int chunkX,
-            int chunkZ,
-            @NotNull Runnable task,
-            long delayTicks) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
-
-        return new FoliaTaskHandle(regionScheduler.runDelayed(
-                CultACBukkitLoaderPlugin.LOADER,
-                ((BukkitPlatformWorld) world).bukkitWorld(),
-                chunkX,
-                chunkZ,
-                ac.cult.reload.host.Callbacks.run(guarded_task),
-                delayTicks));
-    }
-
-    @Override
-    public TaskHandle runDelayed(
-            @NotNull GrimPlugin plugin, @NotNull Location location, @NotNull Runnable task, long delayTicks) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
-
-        return runDelayed(
-                plugin,
-                location.getWorld(),
-                location.getBlockX() >> 4,
-                location.getBlockZ() >> 4,
-                guarded_task,
-                delayTicks);
-    }
-
-    @Override
-    public TaskHandle runAtFixedRate(
-            @NotNull GrimPlugin plugin,
-            @NotNull PlatformWorld world,
-            int chunkX,
-            int chunkZ,
-            @NotNull Runnable task,
-            long initialDelayTicks,
-            long periodTicks) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
-
-        return new FoliaTaskHandle(regionScheduler.runAtFixedRate(
-                CultACBukkitLoaderPlugin.LOADER,
-                ((BukkitPlatformWorld) world).bukkitWorld(),
-                chunkX,
-                chunkZ,
-                ac.cult.reload.host.Callbacks.run(guarded_task),
-                initialDelayTicks,
-                periodTicks));
-    }
-
-    @Override
-    public TaskHandle runAtFixedRate(
-            @NotNull GrimPlugin plugin,
-            @NotNull Location location,
-            @NotNull Runnable task,
-            long initialDelayTicks,
-            long periodTicks) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
-
-        return runAtFixedRate(
-                plugin,
-                location.getWorld(),
-                location.getBlockX() >> 4,
-                location.getBlockZ() >> 4,
-                guarded_task,
-                initialDelayTicks,
-                periodTicks);
     }
 }

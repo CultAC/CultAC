@@ -3,8 +3,11 @@ package ac.cult.cultac.protocol.netty;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.CultWrite;
+import ac.cult.cultac.network.PacketDispatcher;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.protocol.ConnectionLifecycle;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketBundlePolicy;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.UnsupportedOnVersionException;
@@ -23,6 +26,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 
 /** Prepares and emits ordered packet groups synchronously on the connection event loop. */
 public final class CultEncoder extends ChannelOutboundHandlerAdapter {
@@ -30,8 +35,31 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private static final String HOST_CONTROL_NAME = NAME + "-host-control";
 
     private final CultConnection connection;
+    private final RouteProbe routeProbe = new RouteProbe();
+    private final ReentrantWrites reentrantWrites = new ReentrantWrites();
     private boolean insideBundle;
+    // Members of the current physical flush bundle. BundlerInfo accepts at most 4,096.
+    private int flushBundleMembers;
+    // The latest CultAC ping written into the current physical flush bundle; 0 when there is none.
+    private int flushPing;
+    private static final int MAX_BUNDLE_PACKETS = 4096;
+    // A packet shares the bundle's ping only while the frames prepared around it still fit.
+    private static final int SHARE_HEADROOM = 16;
     private Output emission;
+    // The latest CultAC ping that every frame written since shares a client bundle with; 0 when there is none.
+    private int provingPing;
+    // Counts opened flush bundles, so a queued close ends only the bundle its flush saw.
+    private int flushBundles;
+    // The flush bundle whose close is queued; a newer bundle queues its own.
+    private int closeQueuedFor = -1;
+    // The flush bundle holds a host bundle whose closing delimiter it has not reached.
+    private boolean heldHostBundle;
+    // Delimiter frames retain their preparation generation across a protocol-changing terminal.
+    private int protocolGeneration;
+    // Only the known closing marker of this retired source scope may be consumed; never a new-phase opener.
+    private int retiredBundleGeneration = -1;
+    // The output of the outermost write being prepared; its frames precede the packet being expanded.
+    private Output processing;
     private boolean removed;
 
     public CultEncoder(CultConnection connection) {
@@ -93,7 +121,11 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             ctx.write(message, promise);
             return;
         }
-        if (!connection.packets().translated() && message instanceof ByteBuf frame) {
+        if (emission == null
+                && !connection.isPreparingWrites()
+                && !connection.packets().translated()
+                && message instanceof ByteBuf frame
+                && !PacketBundlePolicy.requiresStandalone(wireType(frame))) {
             try {
                 var phase = connection.phase(PacketDirection.CLIENTBOUND);
                 var route = connection.dispatcher().get(PacketDirection.CLIENTBOUND, phase, Wire.peekVarInt(frame));
@@ -102,14 +134,28 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                         connection.runInModel(
                                 () -> connection.observePacket(PacketDirection.CLIENTBOUND, phase, frame));
                     }
-                    ctx.write(frame, promise);
+                    writeRaw(ctx, frame, promise);
                     return;
                 }
             } catch (Throwable failure) {
                 CultNetworkManager.reportFailure("outbound packet lookup", failure);
-                ctx.write(frame, promise);
+                writeRaw(ctx, frame, promise);
                 return;
             }
+        }
+        if (emission == null
+                && !connection.isPreparingWrites()
+                && message instanceof ByteBuf frame
+                && !PacketBundlePolicy.requiresStandalone(wireType(frame))
+                && unroutedTranslated(frame)) {
+            if (removed || !ctx.channel().isActive()) {
+                new Pending(frame, promise).discard(new ClosedChannelException());
+            } else {
+                connection.observePacket(
+                        PacketDirection.CLIENTBOUND, connection.phase(PacketDirection.CLIENTBOUND), frame);
+                writeRaw(ctx, frame, promise);
+            }
+            return;
         }
         boolean[] consumed = {false};
         try {
@@ -121,7 +167,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                         new Pending(message, promise).discard(new ClosedChannelException());
                         return;
                     }
-                    output = process(ctx, new Pending(message, promise));
+                    output = process(ctx, message, promise);
                     if (emission == null) emit(ctx, output);
                     else emission.append(output);
                 } catch (Throwable failure) {
@@ -133,7 +179,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         } catch (Throwable failure) {
             CultNetworkManager.reportFailure("outbound model context", failure);
             if (!consumed[0]) {
-                if (message instanceof ByteBuf frame) ctx.write(frame, promise);
+                if (message instanceof ByteBuf frame) writeRaw(ctx, frame, promise);
                 else new Pending(message, promise).discard(failure);
             }
         }
@@ -141,8 +187,12 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
 
     @Override
     public void flush(ChannelHandlerContext ctx) {
-        if (emission == null) ctx.flush();
-        else emission.addLast(new Frame(null, null, null));
+        if (emission == null) {
+            flushBundle(ctx);
+        } else {
+            // A recursive flush happens after the frames already in emission.
+            emission.addLast(frame(null, null, null));
+        }
     }
 
     /** A host callback runs after all preceding synchronous writes and their proofs. */
@@ -152,56 +202,84 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         write(ctx, new CultConnection.WriteTask(java.util.Objects.requireNonNull(task)), ctx.newPromise());
     }
 
-    private Output process(ChannelHandlerContext ctx, Pending pending) {
+    private Output process(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
         var output = new Output();
+        Output enclosing = processing;
+        processing = output;
         var activeFamilies = new Families();
         // Recursive callbacks finish first and append their complete groups here.
         // The enclosing group's frames have not been appended yet, so these writes
         // precede even its opening delimiter. No retained expansion tree is needed.
-        connection.reentrantWriter(
-                (message, promise) -> prepare(ctx, new Pending(message, promise), activeFamilies, output));
+        var enclosingCtx = reentrantWrites.ctx;
+        var enclosingFamilies = reentrantWrites.activeFamilies;
+        var enclosingOutput = reentrantWrites.output;
+        reentrantWrites.ctx = ctx;
+        reentrantWrites.activeFamilies = activeFamilies;
+        reentrantWrites.output = output;
+        connection.reentrantWriter(reentrantWrites);
+        connection.flushPingSource(this::provingPing);
         try {
-            prepare(ctx, pending, activeFamilies, output);
+            prepare(ctx, message, promise, activeFamilies, output);
             return output;
         } catch (Throwable failure) {
             output.discard(failure);
             throw failure;
         } finally {
             connection.reentrantWriter(null);
+            connection.flushPingSource(null);
+            processing = enclosing;
+            reentrantWrites.ctx = enclosingCtx;
+            reentrantWrites.activeFamilies = enclosingFamilies;
+            reentrantWrites.output = enclosingOutput;
         }
     }
 
-    private void prepare(ChannelHandlerContext ctx, Pending pending, Families activeFamilies, Output output) {
+    private void prepare(
+            ChannelHandlerContext ctx, Object message, ChannelPromise promise, Families activeFamilies, Output output) {
         // Reentrant writes observe the emitted wire state, not an enclosing
         // group's planned delimiters. I/O cannot emit while this dispatch runs.
         var batch = new Batch(insideBundle);
-        ByteBuf fallback = pending.message instanceof ByteBuf frame ? frame.retain() : null;
+        ByteBuf fallback = message instanceof ByteBuf frame ? frame.retain() : null;
         try {
-            if (pending.message instanceof CultConnection.WriteTask task) {
+            if (message instanceof CultConnection.WriteTask task) {
                 // The active writer captures callback-generated packets at this exact
                 // queue position, before packets that arrived after the callback.
                 task.action().run();
                 output.flush |= !output.isEmpty();
-                pending.promise.trySuccess();
-            } else if (pending.message instanceof CultConnection.WriteGroup group) {
-                prepareGroup(ctx, group, pending.promise, activeFamilies, batch);
+                promise.trySuccess();
+            } else if (message instanceof CultConnection.WriteGroup group) {
+                prepareGroup(ctx, group, promise, activeFamilies, batch);
             } else {
-                boolean requested = expandPacket(ctx, pending, activeFamilies, batch);
-                if (!insideBundle && (requested || batch.output.size() > 1) && connection.clientHasLevel())
-                    wrap(ctx, batch.output);
+                boolean requested = expandPacket(ctx, message, promise, activeFamilies, batch);
+                // A leading ping opens the flush bundle at emission, which then holds this packet.
+                if (!insideBundle && !batch.lead && (requested || batch.size() > 1) && connection.clientHasLevel())
+                    wrap(ctx, batch);
             }
-            output.append(batch.output);
+            output.append(batch);
         } catch (Throwable failure) {
-            batch.output.discard(failure, fallback == null ? null : pending.promise);
+            batch.discard(failure, fallback == null ? null : promise);
             CultNetworkManager.reportFailure("outbound packet expansion", failure);
             if (fallback != null) {
                 PacketType<?> type = fallbackType(fallback);
-                output.addLast(new Frame(fallback, pending.promise, type));
+                output.addLast(frame(fallback, promise, type));
                 fallback = null;
                 connection.placedClientbound(type);
-            } else pending.promise.tryFailure(failure);
+            } else promise.tryFailure(failure);
         } finally {
             if (fallback != null) fallback.release();
+        }
+    }
+
+    /** A translated frame whose type has no route, which the expansion would emit alone and unchanged. */
+    private boolean unroutedTranslated(ByteBuf frame) {
+        try {
+            var packets = connection.packets();
+            if (!packets.translated() || packets.closed()) return false;
+            var type = packets.type(
+                    connection.phase(PacketDirection.CLIENTBOUND), PacketDirection.CLIENTBOUND, Wire.peekVarInt(frame));
+            return type == null || connection.dispatcher().get(type) == null;
+        } catch (Throwable failure) {
+            return false;
         }
     }
 
@@ -234,33 +312,47 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         for (CultWrite write : group.writes()) {
             var part = ctx.newPromise();
             parts.add(part);
-            var pending = new Pending(write, part);
             if (group.bundle()) {
-                expandPacket(ctx, pending, activeFamilies, batch);
+                expandPacket(ctx, write, part, activeFamilies, batch);
             } else {
                 // Unbundled groups give each entry its own automatic bundle scope.
                 var entry = new Batch(batch.inside);
                 try {
-                    boolean requested = expandPacket(ctx, pending, activeFamilies, entry);
-                    if (!batch.inside && (requested || entry.output.size() > 1) && connection.clientHasLevel())
-                        wrap(ctx, entry.output);
+                    boolean requested = expandPacket(ctx, write, part, activeFamilies, entry);
+                    if (!batch.inside && !entry.lead && (requested || entry.size() > 1) && connection.clientHasLevel())
+                        wrap(ctx, entry);
                     batch.inside = entry.inside;
-                    batch.output.append(entry.output);
+                    batch.lead |= entry.lead;
+                    batch.append(entry);
                 } catch (Throwable failure) {
-                    entry.output.discard(failure);
+                    entry.discard(failure);
                     throw failure;
                 }
             }
         }
         if (wrapGroup) batch.add(delimiter(ctx));
-        batch.output.collectPromises(parts);
-        batch.output.addGroup(new GroupCompletion(List.copyOf(parts), promise));
+        batch.collectPromises(parts);
+        batch.addGroup(new GroupCompletion(List.copyOf(parts), promise));
     }
 
-    /** Expands only packets. The caller decides whether this expansion needs a bundle. */
-    private boolean expandPacket(ChannelHandlerContext ctx, Pending pending, Families activeFamilies, Batch batch) {
-        if (!(pending.message instanceof CultWrite write)) {
-            return expandFrame(ctx, (ByteBuf) pending.message, pending.promise, false, false, activeFamilies, batch);
+    private boolean expandPacket(
+            ChannelHandlerContext ctx, Object message, ChannelPromise promise, Families activeFamilies, Batch batch) {
+        return expandPacket(ctx, message, promise, activeFamilies, batch, 0);
+    }
+
+    /**
+     * Expands only packets. The caller decides whether this expansion needs a bundle. A nonzero {@code leadPing}
+     * is the transaction of the CultAC ping in {@code message}, which opens the flush bundle.
+     */
+    private boolean expandPacket(
+            ChannelHandlerContext ctx,
+            Object message,
+            ChannelPromise promise,
+            Families activeFamilies,
+            Batch batch,
+            int leadPing) {
+        if (!(message instanceof CultWrite write)) {
+            return expandFrame(ctx, (ByteBuf) message, promise, false, false, activeFamilies, batch, 0);
         }
         var phase = connection.phase(PacketDirection.CLIENTBOUND);
         ac.cult.cultac.protocol.ProjectedPackets.Encoded encoded;
@@ -272,17 +364,17 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             // CultAC's own play packets need the client's level; without one they are dropped, never sent.
             if (!type.phases().contains(ConnectionPhase.CONFIGURATION) && !connection.clientHasLevel()) {
                 connection.droppedWithoutLevel(type);
-                pending.promise.tryFailure(new UnsupportedOnVersionException(type + " needs the client's level"));
+                promise.tryFailure(new UnsupportedOnVersionException(type + " needs the client's level"));
                 return false;
             }
             encoded = connection.packets().encode(phase, type, write.packet(), ctx.alloc(), connection);
         } catch (Throwable failure) {
-            pending.promise.tryFailure(failure);
+            promise.tryFailure(failure);
             CultNetworkManager.reportFailure("authored packet encoding", failure);
             return false;
         }
         if (encoded.frames().isEmpty()) {
-            pending.promise.trySuccess();
+            promise.trySuccess();
             return false;
         }
         var parts = encoded.frames().size() > 1
@@ -291,19 +383,19 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         boolean requested = false;
         int transferred = 0;
         try {
-            for (ByteBuf frame : encoded.frames()) {
-                var part = encoded.frames().size() == 1 ? pending.promise : ctx.newPromise();
+            for (int i = 0; i < encoded.frames().size(); i++) {
+                ByteBuf frame = encoded.frames().get(i);
+                var part = encoded.frames().size() == 1 ? promise : ctx.newPromise();
                 if (parts != null) parts.add(part);
                 transferred++;
-                requested |= expandFrame(ctx, frame, part, write.silent(), true, activeFamilies, batch);
+                requested |= expandFrame(ctx, frame, part, write.silent(), true, activeFamilies, batch, leadPing);
             }
-            if (encoded.frames().size() > 1)
-                batch.output.addGroup(new GroupCompletion(List.copyOf(parts), pending.promise));
+            if (encoded.frames().size() > 1) batch.addGroup(new GroupCompletion(List.copyOf(parts), promise));
             return requested;
         } catch (Throwable failure) {
             for (int i = transferred; i < encoded.frames().size(); i++)
                 encoded.frames().get(i).release();
-            pending.promise.tryFailure(failure);
+            promise.tryFailure(failure);
             throw failure;
         }
     }
@@ -317,40 +409,45 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             boolean silent,
             boolean authored,
             Families activeFamilies,
-            Batch batch) {
+            Batch batch,
+            int leadPing) {
         var phase = connection.phase(PacketDirection.CLIENTBOUND);
         boolean requested = false;
-        PacketType<?>[] untracked = {null};
         PacketType<?> forwardedType = null;
         try {
-            var values = connection.packets().read(phase, PacketDirection.CLIENTBOUND, bytes, connection, type -> {
-                var route = connection.dispatcher().get(type);
-                if (route == null) return false;
-                if (phase != ConnectionPhase.PLAY || tracked()) return true;
-                if (route.send() != null && route.send().hasConnectionHandlers()) return true;
-                untracked[0] = type;
-                return false;
-            });
-            if (untracked[0] != null)
-                forwardedType = connection.dispatcher().get(untracked[0]).type();
-            for (var value : values) {
-                var route = connection.dispatcher().get(value.type());
+            routeProbe.phase = phase;
+            routeProbe.found = null;
+            routeProbe.skipped = null;
+            var value = connection.packets().readOne(phase, PacketDirection.CLIENTBOUND, bytes, connection, routeProbe);
+            var route = routeProbe.found;
+            if (routeProbe.skipped != null) forwardedType = routeProbe.skipped.type();
+            if (value != null) {
                 forwardedType = route.type();
                 connection.prepare();
-                if (silent || route.send() == null || activeFamilies.contains(route.type())) continue;
+            }
+            if (value != null && !silent && route.send() != null && !activeFamilies.contains(route.type())) {
                 activeFamilies.addLast(route.type());
                 try {
                     var type = (PacketType<ClientboundPacket>) route.type();
                     var event = new PacketSendEvent<>(
-                            connection.user(), phase, type, (ClientboundPacket) value.packet(), batch.inside);
+                            connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
                     if (authored) event.authored();
+                    // Emission closes the flush bundle before a structural packet, so its ping cannot prove one.
+                    event.sharedPing(PacketBundlePolicy.requiresStandalone(type) ? 0 : sharedPing(batch));
                     connection.dispatcher().send(event, route.send());
                     if (event.isCancelled()) {
                         promise.trySuccess();
                         return false;
                     }
-                    for (CultWrite write : event.writesBefore()) {
-                        expandPacket(ctx, new Pending(write, ctx.newPromise()), activeFamilies, batch);
+                    CultWrite leading = event.leadingPing();
+                    if (leading != null) {
+                        expandPacket(ctx, leading, ctx.newPromise(), activeFamilies, batch, event.flushPing());
+                    }
+                    var writesBefore = event.writesBefore();
+                    if (!writesBefore.isEmpty()) {
+                        for (CultWrite write : writesBefore) {
+                            expandPacket(ctx, write, ctx.newPromise(), activeFamilies, batch);
+                        }
                     }
                     {
                         if (bytes == null) throw new IllegalStateException("Multiple physical packet identities");
@@ -360,17 +457,21 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                                     .encode(phase, type, event.getPacket(), ctx.alloc(), connection);
                             bytes.release();
                             bytes = null;
-                            appendReplacement(ctx, replacement, promise, type, batch);
+                            appendReplacement(ctx, replacement, promise, type, batch, leadPing);
                         } else {
-                            batch.add(new Frame(bytes, promise, type));
+                            int ping = leadPing != 0 ? leadPing : event.trackedPing();
+                            batch.add(frame(bytes, promise, type, ping, leadPing != 0));
                             bytes = null;
                         }
                         connection.placedClientbound(type);
                     }
-                    for (CultWrite write : event.writesAfter()) {
-                        expandPacket(ctx, new Pending(write, ctx.newPromise()), activeFamilies, batch);
+                    var writesAfter = event.writesAfter();
+                    if (!writesAfter.isEmpty()) {
+                        for (CultWrite write : writesAfter) {
+                            expandPacket(ctx, write, ctx.newPromise(), activeFamilies, batch);
+                        }
                     }
-                    batch.output.addTasks(event.tasksAfter());
+                    batch.addTasks(event.tasksAfter());
                     requested |= event.isBundleRequested();
                 } finally {
                     activeFamilies.removeLast();
@@ -379,13 +480,45 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             // Unknown/cancelled model packets still retain their physical representation.
             if (bytes != null) {
                 PacketType<?> placed = forwardedType != null ? forwardedType : fallbackType(bytes);
-                batch.add(new Frame(bytes, promise, forwardedType));
+                batch.add(frame(bytes, promise, forwardedType, leadPing, leadPing != 0));
                 bytes = null;
                 connection.placedClientbound(placed);
             }
             return requested;
         } finally {
             if (bytes != null) bytes.release();
+        }
+    }
+
+    /** Reset before each frame's read; the routes are assigned after {@link #tracked()}, which can expand frames. */
+    private final class RouteProbe implements Predicate<PacketType<?>> {
+        ConnectionPhase phase;
+        PacketDispatcher.Route found;
+        PacketDispatcher.Route skipped;
+
+        @Override
+        public boolean test(PacketType<?> type) {
+            var phase = this.phase;
+            var route = connection.dispatcher().get(type);
+            if (route == null) return false;
+            boolean consumed = phase != ConnectionPhase.PLAY
+                    || tracked()
+                    || route.send() != null && route.send().hasConnectionHandlers();
+            found = route;
+            skipped = consumed ? null : route;
+            return consumed;
+        }
+    }
+
+    /** Prepares writes made while a write group is processed, into that group's output. */
+    private final class ReentrantWrites implements BiConsumer<Object, ChannelPromise> {
+        ChannelHandlerContext ctx;
+        Families activeFamilies;
+        Output output;
+
+        @Override
+        public void accept(Object message, ChannelPromise promise) {
+            prepare(ctx, message, promise, activeFamilies, output);
         }
     }
 
@@ -405,7 +538,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             ac.cult.cultac.protocol.ProjectedPackets.Encoded replacement,
             ChannelPromise promise,
             PacketType<?> type,
-            Batch batch) {
+            Batch batch,
+            int leadPing) {
         if (replacement.frames().isEmpty()) {
             promise.trySuccess();
             return;
@@ -415,14 +549,15 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 : null;
         int transferred = 0;
         try {
-            for (ByteBuf frame : replacement.frames()) {
+            for (int i = 0; i < replacement.frames().size(); i++) {
+                ByteBuf frame = replacement.frames().get(i);
                 var part = replacement.frames().size() == 1 ? promise : ctx.newPromise();
                 if (parts != null) parts.add(part);
-                batch.add(new Frame(frame, part, transferred == 0 ? type : null));
+                boolean first = transferred == 0;
+                batch.add(frame(frame, part, first ? type : null, first ? leadPing : 0, first && leadPing != 0));
                 transferred++;
             }
-            if (replacement.frames().size() > 1)
-                batch.output.addGroup(new GroupCompletion(List.copyOf(parts), promise));
+            if (replacement.frames().size() > 1) batch.addGroup(new GroupCompletion(List.copyOf(parts), promise));
         } catch (Throwable failure) {
             for (int i = transferred; i < replacement.frames().size(); i++)
                 replacement.frames().get(i).release();
@@ -437,20 +572,225 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
 
     private Frame delimiter(ChannelHandlerContext ctx) {
         var type = ClientboundPackets.BUNDLE_DELIMITER;
-        var encoded = connection
+        ByteBuf bytes = connection
                 .packets()
-                .encode(
-                        connection.phase(PacketDirection.CLIENTBOUND),
-                        type,
-                        type.opaqueValue(),
-                        ctx.alloc(),
-                        connection);
-        if (encoded.frames().size() != 1) {
-            encoded.frames().forEach(ByteBuf::release);
-            throw new IllegalStateException("Bundle delimiter must encode one physical frame");
+                .encodeBundleDelimiter(connection.phase(PacketDirection.CLIENTBOUND), ctx.alloc(), connection);
+        return frame(bytes, ctx.newPromise(), type);
+    }
+
+    /**
+     * The ping a packet prepared now can share. Frames prepared earlier and not yet emitted could close or split
+     * the flush bundle before this packet, so with any of them pending the packet leads with its own ping.
+     */
+    private int sharedPing(Batch batch) {
+        return batch.isEmpty() ? sharedPing() : 0;
+    }
+
+    /**
+     * The CultAC ping whose pong proves the client handled every packet written so far, at the current queue
+     * position: the latest one, when each packet since shares its client bundle; 0 when there is none.
+     */
+    private int provingPing() {
+        boolean pendingFrames =
+                (emission != null && !emission.isEmpty()) || (processing != null && !processing.isEmpty());
+        return pendingFrames ? 0 : provingPing;
+    }
+
+    /** As {@link #sharedPing(Batch)}, at the current queue position. */
+    private int sharedPing() {
+        if (!connection.flushBundleOpen()
+                || flushPing == 0
+                || flushBundleMembers >= MAX_BUNDLE_PACKETS - SHARE_HEADROOM) return 0;
+        boolean pendingFrames =
+                (emission != null && !emission.isEmpty()) || (processing != null && !processing.isEmpty());
+        return pendingFrames ? 0 : flushPing;
+    }
+
+    private void writeFrame(ChannelHandlerContext ctx, Frame frame) {
+        connection.observePacket(
+                PacketDirection.CLIENTBOUND, connection.phase(PacketDirection.CLIENTBOUND), frame.bytes);
+        // Downstream handlers can synchronously write another packet. Publish this frame's wire state first.
+        if (frame.type == ClientboundPackets.BUNDLE_DELIMITER) {
+            insideBundle = !insideBundle;
+            flushBundleMembers = 0;
         }
-        ByteBuf bytes = encoded.frames().getFirst();
-        return new Frame(bytes, ctx.newPromise(), type);
+        // A later ping in the bundle proves the same task, so it replaces the one packets share.
+        if (frame.ping != 0 && connection.flushBundleOpen()) flushPing = frame.ping;
+        if (frame.ping != 0) provingPing = frame.ping;
+        else if (frame.type != ClientboundPackets.BUNDLE_DELIMITER) outrunProvingPing();
+        ctx.write(frame.bytes, frame.promise);
+        if (frame.type != null && frame.type != ClientboundPackets.BUNDLE_DELIMITER) {
+            try {
+                var phase = connection.phase(PacketDirection.CLIENTBOUND);
+                if (ConnectionLifecycle.nextPhase(PacketDirection.CLIENTBOUND, phase, frame.type, null) != phase)
+                    protocolGeneration++;
+                connection.forwarded(frame.type, null);
+            } catch (Throwable failure) {
+                CultNetworkManager.reportFailure("outbound protocol transition", failure);
+            }
+        }
+    }
+
+    /** A packet written outside the proving ping's client bundle is handled after its pong. */
+    private void outrunProvingPing() {
+        if (!connection.flushBundleOpen() || !delimitsFlushBundle()) provingPing = 0;
+    }
+
+    /** A frame forwarded without expansion; inside an open flush bundle it is an ordinary member. */
+    private void writeRaw(ChannelHandlerContext ctx, ByteBuf frame, ChannelPromise promise) {
+        PacketType<?> type = wireType(frame);
+        if (PacketBundlePolicy.requiresStandalone(type)) {
+            // Even a model-context fallback must serialize the close/write/resume sequence against reentry.
+            var output = new Output();
+            output.addLast(frame(frame, promise, type));
+            if (emission == null) emit(ctx, output);
+            else emission.append(output);
+            return;
+        }
+        countFlushBundleMember(ctx);
+        ctx.write(frame, promise);
+        outrunProvingPing();
+    }
+
+    /** The model family of a clientbound frame, whether or not CultAC listens to it; null when unknown. */
+    private PacketType<?> wireType(ByteBuf frame) {
+        try {
+            return connection
+                    .packets()
+                    .type(
+                            connection.phase(PacketDirection.CLIENTBOUND),
+                            PacketDirection.CLIENTBOUND,
+                            Wire.peekVarInt(frame));
+        } catch (RuntimeException failure) {
+            return null;
+        }
+    }
+
+    /**
+     * A leading ping opens the flush bundle, or a new physical bundle when the current one is nearly full. A ping
+     * and its packet must share a client bundle, so the lead leaves them the headroom a sharing packet keeps.
+     */
+    private void openFlushBundle(ChannelHandlerContext ctx) {
+        if (connection.flushBundleOpen()) {
+            if (flushBundleMembers < MAX_BUNDLE_PACKETS - SHARE_HEADROOM) return;
+            writeFrame(ctx, delimiter(ctx));
+            writeFrame(ctx, delimiter(ctx));
+            provingPing = 0;
+        } else {
+            if (!connection.clientHasLevel()) return;
+            if (delimitsFlushBundle()) {
+                // The host's open bundle becomes the flush bundle, which then owes it its closing delimiter.
+                if (insideBundle) {
+                    heldHostBundle = true;
+                    // The host's packets so far stay in their own bundle; the rest continue after the ping.
+                    if (flushBundleMembers >= MAX_BUNDLE_PACKETS - SHARE_HEADROOM) {
+                        writeFrame(ctx, delimiter(ctx));
+                        writeFrame(ctx, delimiter(ctx));
+                    }
+                } else writeFrame(ctx, delimiter(ctx));
+            }
+            connection.flushBundleOpen(true);
+            flushBundles++;
+        }
+        flushPing = 0;
+    }
+
+    /**
+     * Geyser translates a Java bundle into separate Bedrock packets, so a Bedrock player's flush group is tracked
+     * without delimiters: its packets share one ping as a Java bundle's do, without the client handling them in one
+     * task.
+     */
+    private boolean delimitsFlushBundle() {
+        return connection.bedrockBridge() == null;
+    }
+
+    /** Counts the next member, splitting the physical bundle at the client's limit. */
+    private void countFlushBundleMember(ChannelHandlerContext ctx) {
+        // Only a client bundle has a member limit.
+        if (!insideBundle || !delimitsFlushBundle()) return;
+        if (flushBundleMembers == MAX_BUNDLE_PACKETS && connection.flushBundleOpen()) {
+            // Unreachable unless more than the headroom was prepared ahead of a sharing packet.
+            writeFrame(ctx, delimiter(ctx));
+            writeFrame(ctx, delimiter(ctx));
+            flushPing = 0;
+            provingPing = 0;
+        }
+        ++flushBundleMembers;
+    }
+
+    /**
+     * Sends what was written and ends the flush bundle once the writes already queued behind this flush have joined
+     * it. A host that does not suspend flushing, as during a respawn, flushes each packet; those queued together
+     * still share one ping. The client handles nothing in the bundle before its closing delimiter.
+     */
+    private void flushBundle(ChannelHandlerContext ctx) {
+        ctx.flush();
+        if (!connection.flushBundleOpen() || closeQueuedFor == flushBundles) return;
+        int bundle = flushBundles;
+        closeQueuedFor = bundle;
+        connection.executeLater(() -> {
+            if (removed || !ctx.channel().isActive() || bundle != flushBundles) return;
+            closeFlushBundle(ctx);
+            ctx.flush();
+        });
+    }
+
+    private void closeFlushBundle(ChannelHandlerContext ctx) {
+        if (!connection.flushBundleOpen()) return;
+        // Deferred closure runs outside emit(). Queue downstream reentry until the closing delimiters and
+        // any held host continuation have been written, just as closure before a standalone packet does.
+        if (emission == null) {
+            var output = new Output();
+            emission = output;
+            try {
+                closeFlushBundle(ctx);
+            } finally {
+                emission = null;
+            }
+            emit(ctx, output);
+            return;
+        }
+        connection.flushBundleOpen(false);
+        flushPing = 0;
+        boolean resumeHostBundle = heldHostBundle;
+        heldHostBundle = false;
+        if (delimitsFlushBundle()) {
+            writeFrame(ctx, delimiter(ctx));
+            // The rest of a held host bundle stays in a bundle of its own, closed by its own delimiter.
+            if (resumeHostBundle) writeFrame(ctx, delimiter(ctx));
+        }
+    }
+
+    /**
+     * Leave the physical stream outside a bundle without moving the standalone packet past earlier frames.
+     * A held source/explicit continuation may reopen only after the packet, and only in the same protocol.
+     * Its original closing delimiter still owns the resumed bundle. A pure flush bundle needs no continuation:
+     * the next packet that needs a proof will lead with a fresh ping.
+     */
+    private boolean suspendBundle(ChannelHandlerContext ctx) {
+        boolean resumeBundle = insideBundle;
+        if (connection.flushBundleOpen() && delimitsFlushBundle()) {
+            resumeBundle = heldHostBundle;
+            heldHostBundle = false;
+        }
+        closeFlushBundle(ctx);
+        // A source/explicit bundle can exist without a flush bundle (including a translated connection).
+        if (insideBundle) writeFrame(ctx, delimiter(ctx));
+        return resumeBundle;
+    }
+
+    /**
+     * Inside an open flush bundle a host bundle's delimiters are dropped and its packets join the flush bundle,
+     * which ClientPacketListener#handleBundlePacket still handles in one task. A client bundle cannot nest.
+     */
+    private boolean joinsFlushBundle(ChannelHandlerContext ctx, Frame frame) {
+        if (frame.type != ClientboundPackets.BUNDLE_DELIMITER
+                || !connection.flushBundleOpen()
+                || !delimitsFlushBundle()) return false;
+        heldHostBundle = !heldHostBundle;
+        frame.bytes.release();
+        if (frame.promise != null) frame.promise.trySuccess();
+        return true;
     }
 
     private void emit(ChannelHandlerContext ctx, Output output) {
@@ -466,24 +806,40 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     settleGroups(ctx, output);
                     Frame frame = output.removeFirst();
                     if (frame.bytes == null) {
-                        ctx.flush();
+                        flushBundle(ctx);
                         continue;
                     }
-                    connection.observePacket(
-                            PacketDirection.CLIENTBOUND, connection.phase(PacketDirection.CLIENTBOUND), frame.bytes);
-                    ctx.write(frame.bytes, frame.promise);
-                    if (frame.type == ClientboundPackets.BUNDLE_DELIMITER) insideBundle = !insideBundle;
-                    else if (frame.type != null) {
-                        try {
-                            connection.forwarded(frame.type, null);
-                        } catch (Throwable failure) {
-                            CultNetworkManager.reportFailure("outbound protocol transition", failure);
-                        }
+                    if (frame.type == ClientboundPackets.BUNDLE_DELIMITER
+                            && frame.generation == retiredBundleGeneration) {
+                        // This marker was identified while the old protocol still owned the source bundle.
+                        // Raw packet IDs received after a switch are never guessed to be old delimiters.
+                        retiredBundleGeneration = -1;
+                        frame.bytes.release();
+                        frame.promise.trySuccess();
+                        continue;
+                    }
+                    if (joinsFlushBundle(ctx, frame)) continue;
+                    // Unlistened authored/translated frames can have no dispatch type; their wire identity
+                    // still determines whether they may join a bundle and advance the protocol.
+                    PacketType<?> type = frame.type != null ? frame.type : wireType(frame.bytes);
+                    boolean standalone = PacketBundlePolicy.requiresStandalone(type);
+                    if (standalone && frame.type == null)
+                        frame = new Frame(frame.bytes, frame.promise, type, frame.ping, frame.lead, frame.generation);
+                    boolean resumeBundle = false;
+                    if (standalone) resumeBundle = suspendBundle(ctx);
+                    else if (frame.lead) openFlushBundle(ctx);
+                    var phase = connection.phase(PacketDirection.CLIENTBOUND);
+                    int generation = protocolGeneration;
+                    countFlushBundleMember(ctx);
+                    writeFrame(ctx, frame);
+                    if (resumeBundle) {
+                        if (connection.phase(PacketDirection.CLIENTBOUND) == phase) writeFrame(ctx, delimiter(ctx));
+                        else retiredBundleGeneration = generation;
                     }
                 }
                 if (output.flush) {
                     output.flush = false;
-                    ctx.flush();
+                    flushBundle(ctx);
                 }
                 if (!output.isEmpty()) continue;
                 while (output.hasTasks() && output.isEmpty())
@@ -507,6 +863,20 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     @Override
     public void handlerRemoved(ChannelHandlerContext ctx) {
         removed = true;
+        // Uninstall and rebind happen on live connections. A flush bundle left open on the
+        // wire would absorb every later packet, so close it first.
+        if (ctx.channel().isActive() && connection.flushBundleOpen()) {
+            try {
+                closeFlushBundle(ctx);
+                ctx.flush();
+            } catch (Throwable failure) {
+                CultNetworkManager.reportFailure("flush bundle close on removal", failure);
+            }
+        }
+        connection.flushBundleOpen(false);
+        flushPing = 0;
+        heldHostBundle = false;
+        retiredBundleGeneration = -1;
     }
 
     private record Pending(Object message, ChannelPromise promise) {
@@ -516,21 +886,32 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    private record Frame(ByteBuf bytes, ChannelPromise promise, PacketType<?> type) {}
+    private Frame frame(ByteBuf bytes, ChannelPromise promise, PacketType<?> type) {
+        return frame(bytes, promise, type, 0, false);
+    }
+
+    private Frame frame(ByteBuf bytes, ChannelPromise promise, PacketType<?> type, int ping, boolean lead) {
+        return new Frame(bytes, promise, type, ping, lead, protocolGeneration);
+    }
+
+    /** {@code ping} is a CultAC transaction; {@code generation} identifies prepared old-protocol delimiters. */
+    private record Frame(
+            ByteBuf bytes, ChannelPromise promise, PacketType<?> type, int ping, boolean lead, int generation) {}
 
     private record GroupCompletion(List<ChannelPromise> parts, ChannelPromise promise) {}
 
     /** Inline recursion guard for the ordinary one-family dispatch. */
     private static final class Families {
-        PacketType<?> first;
+        PacketType<?> first, second;
         ArrayDeque<PacketType<?>> nested;
 
         boolean contains(PacketType<?> type) {
-            return first == type || nested != null && nested.contains(type);
+            return first == type || second == type || nested != null && nested.contains(type);
         }
 
         void addLast(PacketType<?> type) {
             if (first == null) first = type;
+            else if (second == null) second = type;
             else {
                 if (nested == null) nested = new ArrayDeque<>(2);
                 nested.addLast(type);
@@ -538,28 +919,31 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         }
 
         void removeLast() {
-            if (nested == null || nested.isEmpty()) first = null;
-            else nested.removeLast();
+            if (nested != null && !nested.isEmpty()) nested.removeLast();
+            else if (second != null) second = null;
+            else first = null;
         }
     }
 
     /** Local bundle cursor during expansion; it never changes the emitted wire state. */
-    private static final class Batch {
-        final Output output = new Output();
+    private static final class Batch extends Output {
         boolean inside;
+        // A leading ping opens the flush bundle for this expansion, so it needs no bundle of its own.
+        boolean lead;
 
         Batch(boolean inside) {
             this.inside = inside;
         }
 
         void add(Frame frame) {
-            output.addLast(frame);
+            addLast(frame);
             if (frame.type == ClientboundPackets.BUNDLE_DELIMITER) inside = !inside;
+            lead |= frame.lead;
         }
     }
 
     /** Owns only un-emitted frames. Appending transfers ownership without retaining a tree. */
-    private static final class Output {
+    private static class Output {
         // Most expansions contain exactly one frame. Allocate a queue only for a second one.
         Frame first;
         ArrayDeque<Frame> tail;
@@ -610,7 +994,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         void addTasks(List<Runnable> actions) {
             if (actions.isEmpty()) return;
             if (tasks == null) tasks = new ArrayDeque<>(actions.size());
-            tasks.addAll(actions);
+            for (int i = 0; i < actions.size(); i++) tasks.addLast(actions.get(i));
         }
 
         void addGroup(GroupCompletion group) {
@@ -629,7 +1013,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             }
             if (source.hasTasks()) {
                 if (tasks == null) tasks = source.tasks;
-                else tasks.addAll(source.tasks);
+                else while (!source.tasks.isEmpty()) tasks.addLast(source.tasks.pollFirst());
             }
             if (source.groups != null && !source.groups.isEmpty()) {
                 if (groups == null) groups = source.groups;

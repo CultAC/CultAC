@@ -12,13 +12,11 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Plugin-side facade that fans out player-lifecycle and flag events into the
- * data store. Datastore-disabled or init-failed paths get {@link #NOOP}, so
- * callers don't null-check.
+ * data store.
  *
  * <p>The "from" convenience methods build all the per-call args (UUID, name,
- * timestamp, {@link SessionTracker.ClientMeta}) inside the impl. NOOP skips
- * the work entirely. Granular methods stay platform-neutral for tests +
- * tooling.
+ * timestamp, {@link SessionTracker.ClientMeta}) inside the impl. Granular
+ * methods stay platform-neutral for tests + tooling.
  */
 public interface LiveWriteHooks {
 
@@ -64,9 +62,9 @@ public interface LiveWriteHooks {
     void observeBrandFromCheck(@NotNull CultPlayer cultPlayer);
 
     /**
-     * Convenience for {@code PunishmentManager.recordV1Flag}. Wraps the call
+     * Convenience for {@code PunishmentManager.handleAlert}. Wraps the call
      * in a try/catch so call sites don't need their own — datastore failures
-     * are warned once and swallowed (the legacy violation write already ran).
+     * are logged as a warning and swallowed.
      */
     void recordFlagFromCheck(
             @NotNull CultPlayer player, @NotNull AbstractCheck check, double vl, @Nullable String verbose);
@@ -95,55 +93,4 @@ public interface LiveWriteHooks {
         return new SessionTracker.ClientMeta(
                 grimVersion, brand, clientVersionPvn, serverVersion, user.getConnectionId());
     }
-
-    /**
-     * No-op hooks returned by {@code DataStoreLifecycle.liveWriteHooks()}
-     * when the v1 datastore is disabled or its init failed. Every method is
-     * empty — the convenience overloads' arg-building is skipped too.
-     */
-    LiveWriteHooks NOOP = new LiveWriteHooks() {
-        @Override
-        public void onJoin(@NotNull UUID u, @Nullable String n, long t, @NotNull SessionTracker.ClientMeta m) {}
-
-        @Override
-        public void onQuit(@NotNull UUID u, long t, @NotNull SessionTracker.ClientMeta m) {}
-
-        @Override
-        public void observeBrand(@NotNull UUID u, long t, @NotNull SessionTracker.ClientMeta m) {}
-
-        @Override
-        public void recordFlag(
-                @NotNull UUID u,
-                @NotNull AbstractCheck c,
-                double v,
-                @Nullable String vb,
-                long t,
-                @NotNull SessionTracker.ClientMeta m) {}
-
-        @Override
-        public void recordFlagData(
-                @NotNull UUID u,
-                @NotNull AbstractCheck c,
-                double v,
-                byte @Nullable [] d,
-                long t,
-                @NotNull SessionTracker.ClientMeta m) {}
-
-        @Override
-        public void onJoinFromUserLogin(@NotNull PlatformPlayer p, @NotNull User u, long t) {}
-
-        @Override
-        public void onQuitFromUserDisconnect(@NotNull User u, @Nullable CultPlayer g, long t) {}
-
-        @Override
-        public void observeBrandFromCheck(@NotNull CultPlayer g) {}
-
-        @Override
-        public void recordFlagFromCheck(
-                @NotNull CultPlayer p, @NotNull AbstractCheck c, double v, @Nullable String vb) {}
-
-        @Override
-        public void recordFlagDataFromCheck(
-                @NotNull CultPlayer p, @NotNull AbstractCheck c, double v, byte @Nullable [] d) {}
-    };
 }

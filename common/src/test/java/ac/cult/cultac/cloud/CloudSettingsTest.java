@@ -9,6 +9,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -30,7 +32,7 @@ class CloudSettingsTest {
                         "cloud.api-key", "key",
                         "cloud.server-id", "{server}",
                         "cloud.proxy-id", "edge-1")),
-                CloudSettings.PROXY_PROTOCOLS,
+                CloudSettings.PROTOCOLS,
                 CloudSettings.DEFAULT_SERVER_ID);
         assertEquals("http://127.0.0.1:8080", settings.url());
         assertEquals("key", settings.apiKey());
@@ -70,8 +72,110 @@ class CloudSettingsTest {
         }
     }
 
+    @Test
+    void aKeyThatIsNotAHeaderValueLeavesTheUploadOffAndIsNeverLogged() throws Exception {
+        try (Globals globals = new Globals()) {
+            for (String key : List.of(
+                    "issued-token-0123456789\u007f", "issued-token\n0123456789", "issued-token\u200b0123456789")) {
+                CloudSettings settings = read(
+                        Map.of(
+                                "cloud.url", "https://intake.example",
+                                "cloud.api-key", key,
+                                "cloud.proxy-id", "lobby"),
+                        CloudSettings.PROTOCOLS);
+                assertEquals("", settings.apiKey());
+                assertFalse(settings.enabled());
+            }
+            CloudSettings fine = read(
+                    Map.of("cloud.url", "https://intake.example", "cloud.api-key", " issued-token_0123456789= "),
+                    CloudSettings.PROTOCOLS);
+            assertEquals("issued-token_0123456789=", fine.apiKey());
+            synchronized (globals.logs) {
+                assertEquals(3, globals.logs.size());
+                for (LogRecord record : globals.logs) {
+                    assertEquals(Level.WARNING, record.getLevel());
+                    assertEquals(globals.logs.get(0).getMessage(), record.getMessage());
+                    assertFalse(record.getMessage().contains("issued-token"), record.getMessage());
+                    assertFalse(record.getMessage().contains("0123456789"), record.getMessage());
+                }
+            }
+        }
+    }
+
+    @Test
+    void theKeyIsNotInToString() {
+        CloudSettings settings = new CloudSettings(
+                "https://intake.example", "issued-token-0123456789", "{server}", "lobby", List.of(5), false, false);
+        String text = settings.toString();
+        assertFalse(text.contains("issued-token-0123456789"), text);
+        assertTrue(text.contains("https://intake.example"), text);
+    }
+
+    @Test
+    void perfIsOffByDefault() {
+        ConfigManager config = config(Map.of());
+        Mockito.when(config.getBooleanElse(Mockito.eq("cloud.perf"), Mockito.anyBoolean()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        assertFalse(CloudSettings.perf(config, name -> null));
+        assertFalse(CloudSettings.OFF.perf());
+    }
+
+    @Test
+    void perfFollowsTheConfig() {
+        ConfigManager config = config(Map.of());
+        Mockito.when(config.getBooleanElse(Mockito.eq("cloud.perf"), Mockito.anyBoolean()))
+                .thenReturn(true);
+        assertTrue(CloudSettings.perf(config, name -> null));
+    }
+
+    @Test
+    void theEnvironmentWinsOverTheConfigForPerf() {
+        ConfigManager off = config(Map.of());
+        Mockito.when(off.getBooleanElse(Mockito.eq("cloud.perf"), Mockito.anyBoolean()))
+                .thenReturn(false);
+        ConfigManager on = config(Map.of());
+        Mockito.when(on.getBooleanElse(Mockito.eq("cloud.perf"), Mockito.anyBoolean()))
+                .thenReturn(true);
+        for (String yes : List.of("true", "1", "yes", " YES ")) {
+            assertTrue(CloudSettings.perf(off, Map.of("CULTAC_CLOUD_PERF", yes)::get), yes);
+        }
+        for (String no : List.of("false", "0", "no", "False")) {
+            assertFalse(CloudSettings.perf(on, Map.of("CULTAC_CLOUD_PERF", no)::get), no);
+        }
+        assertTrue(CloudSettings.perf(on, Map.of("CULTAC_CLOUD_PERF", "")::get));
+        assertTrue(CloudSettings.perf(on, Map.of("CULTAC_CLOUD_PERF", "maybe")::get));
+    }
+
+    @Test
+    void teamSyncIsOffByDefault() {
+        ConfigManager config = config(Map.of());
+        Mockito.when(config.getBooleanElse(Mockito.eq("cloud.team-sync"), Mockito.anyBoolean()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        assertFalse(CloudSettings.team(config, name -> null));
+        assertFalse(CloudSettings.team(config, Map.of(CloudSettings.TEAM_ENV, "maybe")::get));
+        assertFalse(CloudSettings.OFF.team());
+    }
+
+    @Test
+    void theEnvironmentWinsOverTheConfigForTeamSync() {
+        ConfigManager off = config(Map.of());
+        Mockito.when(off.getBooleanElse(Mockito.eq("cloud.team-sync"), Mockito.anyBoolean()))
+                .thenReturn(false);
+        ConfigManager on = config(Map.of());
+        Mockito.when(on.getBooleanElse(Mockito.eq("cloud.team-sync"), Mockito.anyBoolean()))
+                .thenReturn(true);
+        assertTrue(CloudSettings.team(on, name -> null));
+        for (String yes : List.of("true", "1", "yes", " YES ")) {
+            assertTrue(CloudSettings.team(off, Map.of(CloudSettings.TEAM_ENV, yes)::get), yes);
+        }
+        for (String no : List.of("false", "0", "no", "False")) {
+            assertFalse(CloudSettings.team(on, Map.of(CloudSettings.TEAM_ENV, no)::get), no);
+        }
+        assertTrue(CloudSettings.team(on, Map.of(CloudSettings.TEAM_ENV, "")::get));
+    }
+
     private static CloudSettings read(String url) {
-        return read(Map.of("cloud.url", url, "cloud.api-key", "key"), CloudSettings.SERVER_PROTOCOLS);
+        return read(Map.of("cloud.url", url, "cloud.api-key", "key"), CloudSettings.PROTOCOLS);
     }
 
     private static CloudSettings read(Map<String, String> strings, List<Integer> protocols) {
@@ -86,7 +190,7 @@ class CloudSettingsTest {
                 "CULTAC_PROXY_ID", "p0");
         CloudSettings settings = CloudSettings.read(
                 config(Map.of("cloud.url", "https://config.example", "cloud.api-key", "config-key")),
-                CloudSettings.PROXY_PROTOCOLS,
+                CloudSettings.PROTOCOLS,
                 CloudSettings.DEFAULT_SERVER_ID,
                 env::get);
         assertEquals("https://env.example", settings.url());
@@ -94,23 +198,22 @@ class CloudSettingsTest {
         assertEquals("p0", settings.proxyId());
         CloudSettings configured = CloudSettings.read(
                 config(Map.of("cloud.proxy-id", "edge-1")),
-                CloudSettings.PROXY_PROTOCOLS,
+                CloudSettings.PROTOCOLS,
                 CloudSettings.DEFAULT_SERVER_ID,
                 env::get);
         assertEquals("edge-1", configured.proxyId());
         CloudSettings bare = CloudSettings.read(
-                config(Map.of()), CloudSettings.PROXY_PROTOCOLS, CloudSettings.DEFAULT_SERVER_ID, name -> null);
+                config(Map.of()), CloudSettings.PROTOCOLS, CloudSettings.DEFAULT_SERVER_ID, name -> null);
         assertEquals("", bare.url());
         assertFalse(bare.enabled());
     }
 
     @Test
     void anEmptyUrlOrKeyIsOff() {
-        assertFalse(read(Map.of("cloud.api-key", "key"), CloudSettings.SERVER_PROTOCOLS)
-                .enabled());
         assertFalse(
-                read(Map.of("cloud.url", "http://127.0.0.1:8080", "cloud.api-key", " "), CloudSettings.SERVER_PROTOCOLS)
-                        .enabled());
+                read(Map.of("cloud.api-key", "key"), CloudSettings.PROTOCOLS).enabled());
+        assertFalse(read(Map.of("cloud.url", "http://127.0.0.1:8080", "cloud.api-key", " "), CloudSettings.PROTOCOLS)
+                .enabled());
         assertFalse(read(Map.of("cloud.url", "http://127.0.0.1:8080", "cloud.api-key", "key"), List.of())
                 .enabled());
     }
@@ -121,21 +224,21 @@ class CloudSettingsTest {
                 CloudSettings.OWN_SERVER_ID,
                 CloudSettings.read(
                                 config(Map.of("cloud.server-id", "")),
-                                CloudSettings.SERVER_PROTOCOLS,
+                                CloudSettings.PROTOCOLS,
                                 CloudSettings.OWN_SERVER_ID)
                         .serverIdTemplate());
         assertEquals(
                 CloudSettings.DEFAULT_SERVER_ID,
                 CloudSettings.read(
                                 config(Map.of("cloud.server-id", "")),
-                                CloudSettings.PROXY_PROTOCOLS,
+                                CloudSettings.PROTOCOLS,
                                 CloudSettings.DEFAULT_SERVER_ID)
                         .serverIdTemplate());
         assertEquals(
                 "{proxy}-{server}",
                 CloudSettings.read(
                                 config(Map.of("cloud.server-id", "{proxy}-{server}")),
-                                CloudSettings.SERVER_PROTOCOLS,
+                                CloudSettings.PROTOCOLS,
                                 CloudSettings.OWN_SERVER_ID)
                         .serverIdTemplate());
     }
@@ -170,7 +273,7 @@ class CloudSettingsTest {
                     false);
             assertTrue(CloudService.status()
                     .get(0)
-                    .startsWith("Cloud upload on, protocols " + CloudSettings.SERVER_PROTOCOLS + ","));
+                    .startsWith("Cloud upload on, protocols " + CloudSettings.PROTOCOLS + ","));
         } finally {
             CloudService.configure(config(Map.of()), false);
             CloudCapture.uplinks(CloudCapture.Uplinks.NONE);

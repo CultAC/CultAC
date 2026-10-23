@@ -19,10 +19,6 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
         return rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.08F;
     }
 
-    public float getRiddenTickPitch(float controllerPitch) {
-        return controllerPitch * 0.5F;
-    }
-
     public Vec3 getRiddenInput(Vec3 rawInputState, boolean jumping, float controllerPitch) {
         Vec3 controllerInput = getExactControllerModifiedInput(rawInputState);
         float xxa = (float) controllerInput.x;

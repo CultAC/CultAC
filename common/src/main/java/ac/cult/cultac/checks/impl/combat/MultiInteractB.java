@@ -33,8 +33,7 @@ public class MultiInteractB extends Check implements CheckListener {
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
         if (packet.action() != InteractAction.INTERACT_AT) return;
 
-        Vec3d pos = packet.target().orElse(null);
-        if (pos == null) return; // shouldn't ever happen, but whatever
+        Vec3d pos = packet.target().orElseThrow();
 
         if (!player.cameraEntity.isSelf()) {
             hasInteracted = false;

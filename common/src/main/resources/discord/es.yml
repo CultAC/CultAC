@@ -11,12 +11,14 @@ webhook: ""
 # Esto permite cualquier URL HTTPS válida (útil para proxies o reenviadores de Matrix).
 disable-webhook-validation: false
 
-embed-title: "**Cult Alerta**"
+embed-title: "%player% ha sido detectado por %check% [%violations%]"
 
 # El color del embed que se mandara por este webhook.
 embed-color: "#00FFFF"
 
 include-timestamp: true
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+include-state: true
 
 # Reemplaza las comillas invertidas (`) en los valores (como las marcas de clientes) para no romper el formato de texto de Discord.
 # Establécelo en "`" para desactivar este reemplazo.
@@ -25,13 +27,16 @@ backtick-replacement-char: "ˋ"
 # El contenido del embed que se mandara por este webhook.
 violation-content:
     - "**Jugador**: `%player%`"
-    - "**Comprobación**: %check%"
-    - "**Violaciones**: %violations%"
-    - "**Version del cliente**: %version%"
+    - "**UUID**: `%uuid%`"
+    - "**Comprobación**: `%check%`"
+    - "**Version del cliente**: `%version%`"
     - "**Marca del cliente**: `%brand%`"
-    - "**Latencia**: %ping%"
-    - "**TPS**: %tps%"
+    - "**Sensibilidad**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**Latencia**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**Servidor**: `%server%`"
+    - "**Mundo**: `%world% (%world_type%)`"
 
 # Marcadores de esquema — ver el comentario de cabecera en config.yml.
 config-flavor: V2
-config-version: 1
+config-version: 2

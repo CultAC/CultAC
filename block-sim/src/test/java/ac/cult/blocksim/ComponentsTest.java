@@ -201,4 +201,54 @@ class ComponentsTest {
         assertEquals(31, stack.count());
         assertEquals(32, independent.count());
     }
+
+    @Test void sameEncodedNbtAgreesWithComparingBothEncodedCompounds() throws Exception {
+        var random = new java.util.Random(11);
+        var items = new ItemRegistry(DataTables.load("26.3"));
+        var pool = new ArrayList<Components>();
+        for (String key : java.util.List.of("minecraft:stone", "minecraft:diamond_sword", "minecraft:honey_bottle"))
+            pool.add(items.defaults(key));
+        for (int i = 0; i < 400; i++) pool.add(randomComponents(random));
+        for (int i = 0; i < 200; i++) {
+            var base = pool.get(random.nextInt(pool.size()));
+            var added = randomComponents(random);
+            var removed = random.nextBoolean() ? Set.<String>of() : Set.of("k" + random.nextInt(5));
+            pool.add(base.overlay(added, removed));
+        }
+        int equal = 0, thrown = 0;
+        for (int i = 0; i < 20_000; i++) {
+            var first = pool.get(random.nextInt(pool.size()));
+            var second = random.nextInt(4) == 0 ? first : pool.get(random.nextInt(pool.size()));
+            Object expected, actual;
+            try {
+                expected = first.encodedNbt().equals(second.encodedNbt());
+            } catch (RuntimeException failure) {
+                expected = failure.getClass().getName() + ": " + failure.getMessage();
+            }
+            try {
+                actual = first.sameEncodedNbt(second);
+            } catch (RuntimeException failure) {
+                actual = failure.getClass().getName() + ": " + failure.getMessage();
+            }
+            assertEquals(expected, actual, "pair " + i);
+            if (Boolean.TRUE.equals(expected)) equal++;
+            if (expected instanceof String) thrown++;
+        }
+        assertTrue(equal > 1000 && thrown > 1000, equal + " equal, " + thrown + " thrown");
+    }
+
+    private static Components randomComponents(java.util.Random random) {
+        var values = new java.util.HashMap<String, com.google.gson.JsonElement>();
+        var encoded = new java.util.HashMap<String, NbtValue>();
+        int keys = random.nextInt(4);
+        for (int i = 0; i < keys; i++) {
+            String key = "k" + random.nextInt(5);
+            values.put(key, new com.google.gson.JsonPrimitive(random.nextInt(2)));
+            if (random.nextInt(8) != 0) encoded.put(key, random.nextBoolean()
+                    ? new NbtValue.Numeric(NbtValue.Kind.INT, random.nextInt(2))
+                    : new NbtValue.Text("t" + random.nextInt(2)));
+        }
+        if (random.nextInt(6) == 0) encoded.put("extra" + random.nextInt(2), new NbtValue.Text("x"));
+        return new Components(values, encoded);
+    }
 }

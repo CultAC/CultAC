@@ -85,6 +85,11 @@ class ObserveOnlyCallSiteTest {
             "setCancelled",
             "replace",
             "correctPlayerSlot",
+            "resyncCancelledClick",
+            "sendCorrections",
+            "rejectPlace",
+            "rejectDig",
+            "rejectEarly",
             "sendServerStates",
             "resyncFromServerView",
             "inject",
@@ -95,10 +100,7 @@ class ObserveOnlyCallSiteTest {
             "disconnectPacket",
             "resyncPackets",
             "sendVehicleProtocolResync",
-            "resyncPose",
-            "resyncCancelledClick",
-            "rejectPlace",
-            "rejectDig");
+            "resyncPose");
 
     private static final List<String> GUARDS = List.of("isObserveOnly()", "shouldModifyPackets()", "failsOpen()");
 
@@ -133,14 +135,22 @@ class ObserveOnlyCallSiteTest {
             manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData,boolean) sendSetback
             manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData,boolean,boolean) sendSetback
             manager/player/SetbackTeleportUtil.java#transferBedrockVehicleSetback(int) sendSetback
-            [] follows a cancel that already happened
-            events/packets/listeners/CheckManagerListener.java#processUseItemOnReceive(PacketReceiveEvent,CultPlayer,ServerboundUseItemOn) resync
-            events/packets/listeners/CheckManagerListener.java#processUseItemOnReceive(PacketReceiveEvent,CultPlayer,ServerboundUseItemOn) setCancelled
-            events/packets/listeners/PacketPlayerDigging.java#onPlayerAction(PacketReceiveEvent,CultPlayer,ServerboundPlayerAction) setCancelled
-            [] the reconciler counts the action as forwarded in observe-only
-            events/packets/listeners/CheckManagerListener.java#processUseItemOnReceive(PacketReceiveEvent,CultPlayer,ServerboundUseItemOn) rejectPlace
-            utils/latency/BlockActionReconciler.java#rejectEarly(Object) rejectPlace
+            [reachesServer(] CheckManagerListener.reachesServer(PacketReceiveEvent) is true in observe-only
+            events/packets/listeners/CheckManagerListener.java#handle(PacketReceiveEvent,CultPlayer,Object) rejectEarly
+            events/packets/listeners/CheckManagerListener.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) resyncCancelledClick
+            events/packets/listeners/CheckManagerListener.java#processPlayerActionReceive(PacketReceiveEvent,CultPlayer,ServerboundPlayerAction) rejectDig
+            [] sends the correction its caller decided on; each caller is listed
+            events/packets/patch/ResyncWorldUtil.java#sendServerStates(CultPlayer,Collection,int) sendCorrections x2
             utils/latency/BlockActionReconciler.java#rejectEarly(Object) rejectDig
+            utils/latency/BlockActionReconciler.java#rejectEarly(Object) rejectPlace
+            utils/latency/BlockActionReconciler.java#send(Correction) sendCorrections
+            utils/latency/BlockPredictionAckSender.java#sendAck(CultPlayer,int,Collection) sendCorrections
+            utils/latency/BlockPredictionAckSender.java#sendCorrections(CultPlayer,int,boolean,Collection,Collection) sendCorrections
+            utils/latency/CompensatedInventory.java#correctPlayerSlot(int) sendCorrections
+            utils/latency/CompensatedInventory.java#resyncCancelledClick(InventoryClick) sendCorrections
+            utils/latency/CompensatedInventory.java#resyncFromServerView() sendCorrections
+            [] follows a cancel that already happened
+            events/packets/listeners/PacketPlayerDigging.java#onPlayerAction(PacketReceiveEvent,CultPlayer,ServerboundPlayerAction) setCancelled
             [] the codec forwards the client's packet in observe-only
             checks/impl/crash/CrashA.java#onMovePlayer(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) setCancelled
             checks/impl/crash/CrashB.java#onSetCreativeModeSlot(PacketReceiveEvent,CultPlayer,CreativeSlot) setCancelled
@@ -157,6 +167,7 @@ class ObserveOnlyCallSiteTest {
             checks/impl/movement/SetbackBlocker.java#handleMovePlayer(PacketReceiveEvent,ServerboundMovePlayer,boolean) replace
             checks/impl/movement/SetbackBlocker.java#handleMovePlayer(PacketReceiveEvent,ServerboundMovePlayer,boolean) setCancelled x2
             checks/impl/movement/SetbackBlocker.java#handleMoveVehicle(PacketReceiveEvent) setCancelled x6
+            checks/impl/movement/SetbackBlocker.java#onJavaMovePlayerAfterChecks(PacketReceiveEvent) setCancelled
             events/packets/listeners/CheckManagerListener.java#processMovePlayerReceive(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) replace x2
             events/packets/listeners/CheckManagerListener.java#processMovePlayerReceive(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) setCancelled x3
             events/packets/listeners/CheckManagerListener.java#processMoveVehicleReceive(PacketReceiveEvent,CultPlayer,ServerboundMoveVehicle) setCancelled x5
@@ -204,7 +215,7 @@ class ObserveOnlyCallSiteTest {
             events/packets/worldreader/BasePacketWorldReader.java#handleBlockEvent(CultPlayer,PacketSendEvent,ClientboundBlockEvent) replace
             network/PacketDispatcher.java#clear() replace
             utils/data/packetentity/PacketEntity.java#mount(PacketEntity) eject
-            utils/latency/CompensatedEntities.java#removeEntity(int) eject
+            utils/latency/CompensatedEntities.java#removeEntity(int) eject x2
             utils/latency/CompensatedVehicleState.java#applyClientVisibleDismount() eject
             utils/latency/CompensatedVehicleState.java#applyVehiclePassengers(int,int[]) eject
             [] session cleanup and shutdown
@@ -216,6 +227,8 @@ class ObserveOnlyCallSiteTest {
             cloud/transport/SharedTransport.java#stopIfDone() shutdown x2
             manager/InitManager.java#<init>(Initable[]) shutdown
             manager/datastore/SharedDataStoreLifecycle.java#close() shutdown
+            manager/datastore/SharedDataStoreLifecycle.java#disablePersistenceAfterLostOwnership() shutdown
+            manager/datastore/SharedDataStoreLifecycle.java#disableStorageAfterDuplicate() shutdown
             manager/tick/impl/ClientVersionSetter.java#tick() disconnect
             network/CultNetworkManager.java#disconnect(Channel) disconnect
             network/CultNetworkManager.java#disconnect(User) disconnect
@@ -242,6 +255,7 @@ class ObserveOnlyCallSiteTest {
             companion/api/ApiModule.java#disable() shutdown
             companion/bridge/BridgeModule.java#disable() cancel
             companion/command/CommandModule.java#disable() cancel
+            manager/portal/PortalSyncService.java#stop() cancel
             platform/bukkit/scheduler/bukkit/BukkitTaskHandle.java#cancel() cancel
             platform/bukkit/scheduler/folia/FoliaTaskHandle.java#cancel() cancel
             platform/velocity/VelocityScheduler.java#entity(CultEntity,GrimPlugin,Runnable,Runnable,long,long) cancel x2
@@ -249,7 +263,7 @@ class ObserveOnlyCallSiteTest {
             [] platform implementations; each caller is listed
             network/protocol/player/User.java#closeConnection() close
             platform/api/PlatformServer.java#dispatchCommand(Sender,String,PlatformPlayer,AbstractCheck,double,String) dispatchCommand
-            platform/bukkit/BukkitConnectionAdapter.java#disconnect(Component) disconnect
+            platform/bukkit/BukkitConnectionAdapter.java#disconnect(Component) disconnect x2
             platform/bukkit/BukkitConnectionAdapter.java#disconnect(Component) kick
             platform/bukkit/BukkitPlatformServer.java#dispatchCommand(Sender,String) dispatchCommand
             platform/bukkit/BukkitValidationBlocks.java#apply(PlatformPlayer,int,int,int,String,Runnable) setBlockData

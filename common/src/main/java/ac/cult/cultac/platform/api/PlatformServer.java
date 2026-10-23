@@ -42,6 +42,16 @@ public interface PlatformServer {
         return false;
     }
 
+    /** Players connected to this server or proxy; -1 when it cannot tell. Any thread. */
+    default int onlinePlayers() {
+        return -1;
+    }
+
+    /** A copy of the server's recent tick durations in nanoseconds; null when it has none. Any thread. */
+    default long[] recentTickNanos() {
+        return null;
+    }
+
     /**
      * Places a real server block as an explicit validation stimulus, then reports through the
      * callback. Only platforms with server authority support this.

@@ -8,9 +8,6 @@ import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.math.VectorUtils;
 
 public class ReachUtils {
-    // Copied from 1.8... I couldn't figure out 1.14+. "Enterprise" java code is unreadable!
-    // yes, i do see the irony of that statement considering i'm an enterprise java dev
-    // maybe that's why i write unreadable code
     public static Pair<Vector3dm, Direction> calculateIntercept(
             SimpleCollisionBox self, Vector3dm origin, Vector3dm end) {
         Vector3dm minX = getIntermediateWithXValue(origin, end, self.minX);
@@ -171,14 +168,15 @@ public class ReachUtils {
                 && vec.getY() <= self.maxY;
     }
 
-    // Look vector accounting for optifine FastMath.
+    // Entity#calculateViewVector, accounting for optifine FastMath. Yaw is negated before
+    // the table lookup and the products stay float, as in every client from 1.21.2 to 26.3.
     public static Vector3dm getLook(CultPlayer player, float yaw, float pitch) {
         float f = pitch * ((float) Math.PI / 180F);
         float f1 = -yaw * ((float) Math.PI / 180F);
-        float f2 = player.trigHandler.cos(f1);
-        float f3 = player.trigHandler.sin(f1);
-        float f4 = player.trigHandler.cos(f);
-        float f5 = player.trigHandler.sin(f);
+        float f2 = player.trigHandler.clientCos(f1);
+        float f3 = player.trigHandler.clientSin(f1);
+        float f4 = player.trigHandler.clientCos(f);
+        float f5 = player.trigHandler.clientSin(f);
         return new Vector3dm(f3 * f4, -f5, (double) (f2 * f4));
     }
 
@@ -192,12 +190,10 @@ public class ReachUtils {
     }
 
     public static double getMinReachToBox(CultPlayer player, SimpleCollisionBox targetBox) {
-        boolean giveMovementThresholdLenience = true;
-
         double lowest = Double.MAX_VALUE;
 
         for (double eyes : player.getPossibleEyeHeights()) {
-            if (giveMovementThresholdLenience) targetBox.expand(player.getMovementThreshold());
+            targetBox.expand(player.getMovementThreshold());
             Vector3dm from = new Vector3dm(player.x, player.y + eyes, player.z);
             Vector3dm closestPoint = VectorUtils.cutBoxToVector(from, targetBox);
             lowest = Math.min(lowest, closestPoint.distance(from));

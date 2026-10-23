@@ -2,6 +2,8 @@ package ac.cult.cultac.platform.luckperms;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.init.stop.StoppableInitable;
+import ac.cult.cultac.manager.portal.PortalSync;
+import ac.cult.cultac.manager.portal.PortalSync.Role;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.util.ArrayList;
@@ -10,8 +12,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import net.luckperms.api.LuckPerms;
+import net.luckperms.api.cacheddata.CachedPermissionData;
 import net.luckperms.api.event.EventSubscription;
 import net.luckperms.api.event.LuckPermsEvent;
 import net.luckperms.api.event.context.ContextUpdateEvent;
@@ -23,6 +27,7 @@ import net.luckperms.api.event.user.UserDataRecalculateEvent;
 import net.luckperms.api.model.PermissionHolder;
 import net.luckperms.api.model.group.Group;
 import net.luckperms.api.model.user.User;
+import net.luckperms.api.model.user.UserManager;
 import net.luckperms.api.node.Node;
 import net.luckperms.api.node.types.InheritanceNode;
 import net.luckperms.api.node.types.PermissionNode;
@@ -40,7 +45,22 @@ public abstract class AbstractLuckPermsHandler implements StoppableInitable {
         subscriptions.add(subscribe(luckPerms, GroupDataRecalculateEvent.class, this::onGroupDataRecalculate));
         subscriptions.add(subscribe(luckPerms, GroupDeleteEvent.class, this::onGroupDelete));
         subscriptions.add(subscribe(luckPerms, ContextUpdateEvent.class, this::onContextUpdate));
+        CultAPI.INSTANCE.getPortalSync().offlineLookup(uuid -> portalRole(luckPerms, uuid));
         LogUtil.info("LuckPerms detected");
+    }
+
+    /** The stored portal role of a player who is not online, loaded on LuckPerms' own threads. */
+    private static CompletableFuture<PortalSync.Offline> portalRole(LuckPerms luckPerms, UUID uuid) {
+        UserManager users = luckPerms.getUserManager();
+        return users.loadUser(uuid).thenApply(user -> {
+            if (user == null) return null;
+            CachedPermissionData permissions = user.getCachedData()
+                    .getPermissionData(luckPerms.getContextManager().getStaticQueryOptions());
+            Role role = Role.highest(node -> permissions.checkPermission(node).asBoolean());
+            String name = user.getUsername();
+            if (CultAPI.INSTANCE.getPlatformPlayerFactory().getFromUUID(uuid) == null) users.cleanupUser(user);
+            return new PortalSync.Offline(name, role);
+        });
     }
 
     protected final boolean isRegistered() {
@@ -54,6 +74,7 @@ public abstract class AbstractLuckPermsHandler implements StoppableInitable {
 
     @Override
     public void stop() {
+        CultAPI.INSTANCE.getPortalSync().offlineLookup(null);
         if (subscriptions == null) {
             luckPerms = null;
             return;
@@ -158,7 +179,7 @@ public abstract class AbstractLuckPermsHandler implements StoppableInitable {
             User user = luckPerms.getUserManager().getUser(player.playerUUID);
             if (user == null || !userInheritsGroup(user, groupName)) continue;
             if (!refreshed.add(player.playerUUID)) continue;
-            player.updatePermissions();
+            refresh(player);
         }
     }
 
@@ -167,8 +188,13 @@ public abstract class AbstractLuckPermsHandler implements StoppableInitable {
         for (CultPlayer player : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
             if (player == null || player.playerUUID == null) continue;
             if (!refreshed.add(player.playerUUID)) continue;
-            player.updatePermissions();
+            refresh(player);
         }
+    }
+
+    private static void refresh(CultPlayer player) {
+        player.updatePermissions();
+        CultAPI.INSTANCE.getPortalSync().permissionsChanged(player.playerUUID);
     }
 
     private static boolean userInheritsGroup(User user, String groupName) {
@@ -187,7 +213,7 @@ public abstract class AbstractLuckPermsHandler implements StoppableInitable {
         if (uuid == null) return;
         CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(uuid);
         if (player == null) return;
-        player.updatePermissions();
+        refresh(player);
     }
 
     private static void refreshCultPlayerPermissions(User user) {

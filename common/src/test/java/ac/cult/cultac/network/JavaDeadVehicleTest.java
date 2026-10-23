@@ -9,7 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
@@ -17,6 +19,8 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
+import java.nio.ByteBuffer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -83,6 +87,22 @@ class JavaDeadVehicleTest {
         }
     }
 
+    /**
+     * LivingEntity#isAlive reads health, not the dead flag event 3 also sets (isDeadOrDying); positive
+     * health lets travelRidden take the rider's input again.
+     */
+    @Test
+    void aHealedHorseMovesOnItsRidersInputAgain() throws Exception {
+        try (var f = ridden()) {
+            kill(f);
+            setHealth(f, HORSE, 20.0F);
+            f.input(FORWARD);
+            assertTrue(exact(f.rideTick(SEAT, true)));
+            PredictionResult moved = f.rideTick(SEAT, true);
+            assertFalse(exact(moved), describe(moved));
+        }
+    }
+
     /** A saddled horse at {@link #SEAT} mounted through set_passengers, after one stationary ridden tick. */
     private static JavaTickFixture ridden() throws Exception {
         JavaTickFixture f = new JavaTickFixture();
@@ -102,6 +122,24 @@ class JavaDeadVehicleTest {
         entityEvent(f, HORSE, DEATH);
         f.pongThrough(f.player.lastTransactionSent.get());
         assertTrue(f.player.compensatedEntities.getEntity(HORSE).isDead);
+    }
+
+    private static void setHealth(JavaTickFixture f, int entityId, float health) {
+        var packet = new EntityMetadata(
+                entityId,
+                List.of(new EntityMetadata.Entry(WatchableIndexUtil.LIVING_HEALTH, health, ByteBuffer.allocate(0))));
+        var event = new PacketSendEvent<>(f.fixture.user, ConnectionPhase.PLAY, metadataType(), packet, false);
+        f.player.packetEntityReplication.onSetEntityData(event, f.player, packet);
+        event.getTasksAfterSend().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static PacketType<EntityMetadata> metadataType() {
+        return (PacketType<EntityMetadata>) TestProtocolRuntime.catalog().stream()
+                .filter(type -> type.recordClass() == EntityMetadata.class)
+                .findFirst()
+                .orElseThrow();
     }
 
     private static PacketEntity add(JavaTickFixture f, int id, int type) {

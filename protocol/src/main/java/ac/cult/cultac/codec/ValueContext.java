@@ -13,20 +13,17 @@ import ac.cult.shaded.vialib.util.Key;
 /** Borrowed read-only registry snapshot, scoped to one decode. */
 final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
     private final WireValueDecoder.Registries names;
-    private final ac.cult.cultac.protocol.ProtocolVersion version;
+    private final ProtocolVersion version;
     private final ModelIdMappings mappings;
     private final java.util.Map<String, java.util.Map<Integer, String>> references = new java.util.HashMap<>();
 
-    ValueContext(
-            WireValueDecoder.Registries names,
-            ac.cult.cultac.protocol.ProtocolVersion version,
-            ModelIdMappings mappings) {
+    ValueContext(WireValueDecoder.Registries names, ProtocolVersion version, ModelIdMappings mappings) {
         this.names = names;
         this.version = version;
         this.mappings = mappings;
     }
 
-    ac.cult.cultac.protocol.ProtocolVersion version() {
+    ProtocolVersion version() {
         return version;
     }
 

@@ -9,6 +9,10 @@ import ac.cult.cultac.utils.math.CultMath;
  * block-state ids, so a grid read on the player's packet thread may be printed on any other.
  */
 public final class BlockGrid {
+    /** Printed names by default-registry state id; a racing fill stores the same immutable name. */
+    private static final String[] NAMES =
+            new String[DataTables.defaults().registry().stateCount()];
+
     private final int minX;
     private final int minY;
     private final int minZ;
@@ -51,55 +55,120 @@ public final class BlockGrid {
 
     /** Prints the grid, one layer per y from the top, each block padded to the longest name. */
     public void appendTo(StringBuilder sb) {
-        int maxPosLength = Math.max(coordinateWidth(minX), coordinateWidth(maxX));
-        maxPosLength = Math.max(maxPosLength, Math.max(coordinateWidth(minZ), coordinateWidth(maxZ)));
+        int maxPosLength = maxPosLength();
+        int maxLength = maxLength();
+        sb.ensureCapacity(sb.length() + textLength(maxPosLength, maxLength));
 
         int xSize = maxX - minX + 1;
         int zSize = maxZ - minZ + 1;
-        String[] nearbyBlocks = new String[states.length];
-        int maxLength = 0;
-        for (int i = 0; i < states.length; i++) {
-            String text =
-                    DataTables.defaults().registry().debugString(states[i]).replace("minecraft:", "");
-            nearbyBlocks[i] = text;
-            maxLength = Math.max(text.length(), maxLength);
-        }
-
-        maxPosLength += 4; // To handle "x: [num] "
-        maxLength++; // Add a space between blocks
-
+        int last = 0;
+        String lastName = null;
         for (int y = maxY; y >= minY; y--) {
             sb.append("y: ");
             sb.append(y);
-            sb.append("\n");
+            sb.append('\n');
 
             appendPadded(sb, "x: ", maxPosLength);
             for (int x = minX; x <= maxX; x++) {
-                appendPadded(sb, Integer.toString(x), maxLength);
+                int start = sb.length();
+                sb.append(x);
+                pad(sb, sb.length() - start, maxLength);
             }
-            sb.append("\n");
+            sb.append('\n');
 
             for (int z = minZ; z <= maxZ; z++) {
-                appendPadded(sb, "z: " + z + " ", maxPosLength);
+                int start = sb.length();
+                sb.append("z: ").append(z).append(' ');
+                pad(sb, sb.length() - start, maxPosLength);
                 for (int x = minX; x <= maxX; x++) {
-                    appendPadded(sb, nearbyBlocks[index(x, y, z, minX, minY, minZ, xSize, zSize)], maxLength);
+                    int state = states[index(x, y, z, minX, minY, minZ, xSize, zSize)];
+                    if (state != last || lastName == null) {
+                        last = state;
+                        lastName = name(state);
+                    }
+                    appendPadded(sb, lastName, maxLength);
                 }
-                sb.append("\n");
+                sb.append('\n');
             }
 
             sb.append("\n\n\n");
         }
     }
 
+    /** The number of chars {@link #appendTo} appends. */
+    public int textLength() {
+        return textLength(maxPosLength(), maxLength());
+    }
+
+    private int textLength(int maxPosLength, int maxLength) {
+        int layer = Math.max(3, maxPosLength) + 1 + 3;
+        for (int x = minX; x <= maxX; x++) layer += Math.max(length(x), maxLength);
+        int row = 1;
+        for (int x = minX; x <= maxX; x++) row += Math.max(0, maxLength);
+        for (int z = minZ; z <= maxZ; z++) layer += Math.max(4 + length(z), maxPosLength) + row;
+        int length = 0;
+        for (int y = maxY; y >= minY; y--) length += 3 + length(y) + 1 + layer;
+        return length;
+    }
+
+    /** The label column width: "x: " or "z: [num] ". */
+    private int maxPosLength() {
+        int maxPosLength = Math.max(coordinateWidth(minX), coordinateWidth(maxX));
+        maxPosLength = Math.max(maxPosLength, Math.max(coordinateWidth(minZ), coordinateWidth(maxZ)));
+        return maxPosLength + 4;
+    }
+
+    /** The block column width: the longest name and a space. */
+    private int maxLength() {
+        int maxLength = 0;
+        int last = 0;
+        for (int i = 0; i < states.length; i++) {
+            int state = states[i];
+            if (state == last && maxLength > 0) continue;
+            last = state;
+            maxLength = Math.max(name(state).length(), maxLength);
+        }
+        return maxLength + 1;
+    }
+
+    private static String name(int state) {
+        String[] names = NAMES;
+        if (state < 0 || state >= names.length) return printedName(state);
+        String name = names[state];
+        if (name == null) names[state] = name = printedName(state);
+        return name;
+    }
+
+    private static String printedName(int state) {
+        return DataTables.defaults().registry().debugString(state).replace("minecraft:", "");
+    }
+
     private static int coordinateWidth(int coordinate) {
         return (int) Math.ceil(Math.log10(Math.abs(coordinate)));
     }
 
+    /** The number of chars {@link StringBuilder#append(int)} appends. */
+    private static int length(int value) {
+        long remaining = value;
+        int length = 1;
+        if (remaining < 0) {
+            remaining = -remaining;
+            length++;
+        }
+        while (remaining >= 10) {
+            remaining /= 10;
+            length++;
+        }
+        return length;
+    }
+
     private static void appendPadded(StringBuilder sb, String value, int width) {
         sb.append(value);
-        for (int i = value.length(); i < width; i++) {
-            sb.append(' ');
-        }
+        pad(sb, value.length(), width);
+    }
+
+    private static void pad(StringBuilder sb, int length, int width) {
+        if (width > length) sb.repeat(' ', width - length);
     }
 
     private static int index(int x, int y, int z, int minX, int minY, int minZ, int xSize, int zSize) {

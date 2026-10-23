@@ -4,6 +4,7 @@ import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.scheduler.EntityScheduler;
 import ac.cult.cultac.platform.api.scheduler.TaskHandle;
 import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import org.bukkit.Bukkit;
 import org.bukkit.scheduler.BukkitScheduler;
@@ -20,8 +21,8 @@ public class BukkitEntityScheduler implements EntityScheduler {
             @NotNull Runnable run,
             @Nullable Runnable retired,
             long delay) {
-        final Runnable guarded_run = ac.cult.cultac.runtime.RuntimeEnvironment.guard(run);
-        final Runnable guarded_retired = ac.cult.cultac.runtime.RuntimeEnvironment.guard(retired);
+        final Runnable guarded_run = RuntimeEnvironment.guard(run);
+        final Runnable guarded_retired = RuntimeEnvironment.guard(retired);
 
         scheduler.runTaskLater(CultACBukkitLoaderPlugin.LOADER, guarded_run, delay);
     }
@@ -32,8 +33,8 @@ public class BukkitEntityScheduler implements EntityScheduler {
             @NotNull GrimPlugin plugin,
             @NotNull Runnable task,
             @Nullable Runnable retired) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
-        final Runnable guarded_retired = ac.cult.cultac.runtime.RuntimeEnvironment.guard(retired);
+        final Runnable guarded_task = RuntimeEnvironment.guard(task);
+        final Runnable guarded_retired = RuntimeEnvironment.guard(retired);
 
         return new BukkitTaskHandle(scheduler.runTask(CultACBukkitLoaderPlugin.LOADER, guarded_task));
     }
@@ -45,8 +46,8 @@ public class BukkitEntityScheduler implements EntityScheduler {
             @NotNull Runnable task,
             @Nullable Runnable retired,
             long delayTicks) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
-        final Runnable guarded_retired = ac.cult.cultac.runtime.RuntimeEnvironment.guard(retired);
+        final Runnable guarded_task = RuntimeEnvironment.guard(task);
+        final Runnable guarded_retired = RuntimeEnvironment.guard(retired);
 
         return new BukkitTaskHandle(scheduler.runTaskLater(CultACBukkitLoaderPlugin.LOADER, guarded_task, delayTicks));
     }
@@ -59,10 +60,10 @@ public class BukkitEntityScheduler implements EntityScheduler {
             @Nullable Runnable retired,
             long initialDelayTicks,
             long periodTicks) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
-        final Runnable guarded_retired = ac.cult.cultac.runtime.RuntimeEnvironment.guard(retired);
+        final Runnable guarded_task = RuntimeEnvironment.guard(task);
+        final Runnable guarded_retired = RuntimeEnvironment.guard(retired);
 
-        return new BukkitTaskHandle(
+        return BukkitTaskHandle.repeating(
                 scheduler.runTaskTimer(CultACBukkitLoaderPlugin.LOADER, guarded_task, initialDelayTicks, periodTicks));
     }
 }

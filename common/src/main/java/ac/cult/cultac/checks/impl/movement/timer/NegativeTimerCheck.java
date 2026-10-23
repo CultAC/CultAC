@@ -12,7 +12,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 
-// @CheckData(name = "NegativeTimer", configName = "NegativeTimer", setback = 10)
 @DeadCheck(
         reason = DeadCheck.Reason.DEAD_BY_CONSTRUCTION,
         detail = "Never constructed; its only flag call site is commented out.")

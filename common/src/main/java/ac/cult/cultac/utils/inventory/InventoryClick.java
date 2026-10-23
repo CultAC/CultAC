@@ -4,6 +4,7 @@ import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.BiPredicate;
 
 /** A menu action and its claimed results, independent of the transport packet. */
@@ -19,7 +20,7 @@ public record InventoryClick(
         implements ServerboundPacket {
     public InventoryClick {
         changedSlots = Map.copyOf(changedSlots);
-        java.util.Objects.requireNonNull(matches);
+        Objects.requireNonNull(matches);
     }
 
     public InventoryClick(

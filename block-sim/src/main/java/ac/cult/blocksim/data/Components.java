@@ -83,6 +83,14 @@ public final class Components {
         keys().forEach(key -> result.put(key, encodedNbt(key)));
         return new NbtValue.Compound(result);
     }
+    /** {@code encodedNbt().equals(other.encodedNbt())}, throwing what either call throws, this side first. */
+    public boolean sameEncodedNbt(Components other) {
+        for (String key : keys()) encodedNbt(key);
+        for (String key : other.keys()) other.encodedNbt(key);
+        if (keys().size() != other.keys().size()) return false;
+        for (String key : keys()) if (!encodedNbt(key).equals(other.encodedNbt(key))) return false;
+        return true;
+    }
     public Components subset(Set<String> keys) {
         if (keys.isEmpty()) return EMPTY;
         var selected = new HashMap<String, JsonElement>();
@@ -239,6 +247,8 @@ public final class Components {
         JsonElement value = values.get(key);
         return value == null ? null : value.deepCopy();
     }
+    /** The stored tree itself, for read-only views in this package. */
+    JsonElement view(String key) { return values.get(key); }
     public int integer(String key, int fallback) {
         JsonElement value = values.get(key);
         return value == null ? fallback : value.getAsInt();

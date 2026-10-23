@@ -75,11 +75,15 @@ final class PaperPlatform implements BridgePlatform {
         try {
             GlobalConfiguration.UnsupportedSettings unsupported = GlobalConfiguration.get().unsupportedSettings;
             settings.put(
-                    "update-equipment-on-player-actions", String.valueOf(unsupported.updateEquipmentOnPlayerActions));
-            settings.put(
                     "skip-vanilla-damage-tick-when-shield-blocked",
                     String.valueOf(unsupported.skipVanillaDamageTickWhenShieldBlocked));
-        } catch (RuntimeException | LinkageError unreadable) {
+            // Absent before 1.21.4.
+            settings.put(
+                    "update-equipment-on-player-actions",
+                    String.valueOf(GlobalConfiguration.UnsupportedSettings.class
+                            .getField("updateEquipmentOnPlayerActions")
+                            .getBoolean(unsupported)));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unreadable) {
         }
         String keepAlive = keepAliveIntervalMillis();
         if (keepAlive != null) settings.put("keepalive-interval-ms", keepAlive);

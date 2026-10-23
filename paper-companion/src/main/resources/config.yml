@@ -2,3 +2,4 @@
 # Otherwise use a long random value (at least 32 characters), the same as bridge.secret on the proxy.
 secret: ""
 debug: false
+command-aliases: [cult, cultac, grim, grimac]

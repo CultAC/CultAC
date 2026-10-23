@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
@@ -24,6 +25,8 @@ import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import io.netty.util.concurrent.ScheduledFuture;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.AllArgsConstructor;
 
@@ -83,18 +86,73 @@ public class FairReach extends Check implements CheckListener {
         }
     }
 
-    public void handleEntityMove(int entityId, double x, double y, double z) {
-        AtomicBoolean hasAppliedChanges = new AtomicBoolean(false);
-
-        // Ensure the client has received this before MAX_PING_TIME, or apply them sooner if client responds in time
-        player.latencyUtils.addRealTimeTaskNext(() -> applyChanges(entityId, x, y, z, hasAppliedChanges));
-        player.nettyScheduler.runTaskInMs(
-                () -> applyChanges(entityId, x, y, z, hasAppliedChanges), max_ping_compensation);
+    /** The packet that moved an entity; a teleport and a position sync snap past 64 blocks instead of lerping. */
+    public enum PositionUpdate {
+        RELATIVE,
+        TELEPORT,
+        POSITION_SYNC
     }
 
-    private void addEntity(int entityId, ac.cult.cultac.utils.math.Vec3 spawnPosition) {
-        targetPlayers.put(
-                entityId, new FairReachEntity(entityId, new Vec3(spawnPosition.x, spawnPosition.y, spawnPosition.z)));
+    public void handleEntityMove(int entityId, double x, double y, double z, PositionUpdate update) {
+        schedule(new PendingMove(entityId, x, y, z, update, false));
+    }
+
+    /**
+     * A rotation-only move restarts the client's position interpolation: toward the kept target before 1.21.5, and
+     * from 1.21.9 only when the rotation changed; 1.21.5 to 1.21.8 retarget it to the entity's shown position, and
+     * 26.3 appends a stationary step instead.
+     */
+    public void handleEntityRotation(int entityId, double x, double y, double z, boolean rotationChanged) {
+        ClientVersion version = player.getClientVersion();
+        if (version.isNewerThanOrEquals(ClientVersion.V_26_3)) return;
+        if (version.isNewerThanOrEquals(ClientVersion.V_1_21_9) && !rotationChanged) return;
+        boolean holdsShownPosition =
+                version.isNewerThanOrEquals(ClientVersion.V_1_21_5) && version.isOlderThan(ClientVersion.V_1_21_9);
+        schedule(new PendingMove(entityId, x, y, z, PositionUpdate.RELATIVE, holdsShownPosition));
+    }
+
+    private void schedule(PendingMove move) {
+        // Ensure the client has received this before MAX_PING_TIME, or apply them sooner if client responds in time
+        player.latencyUtils.addRealTimeTaskNext(move);
+        player.user.getPacketExecutor().schedule((Callable<Void>) move, max_ping_compensation, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * One entity move, applied by whichever of its transaction or its deadline comes first. The deadline runs it as a
+     * {@link Callable} through {@link CultPlayer#runSafely}.
+     */
+    private final class PendingMove extends AtomicBoolean implements Runnable, Callable<Void> {
+        private final int entityId;
+        private final double x;
+        private final double y;
+        private final double z;
+        private final PositionUpdate update;
+        private final boolean holdsShownPosition;
+
+        private PendingMove(
+                int entityId, double x, double y, double z, PositionUpdate update, boolean holdsShownPosition) {
+            this.entityId = entityId;
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.update = update;
+            this.holdsShownPosition = holdsShownPosition;
+        }
+
+        @Override
+        public void run() {
+            applyChanges(entityId, x, y, z, update, holdsShownPosition, this);
+        }
+
+        @Override
+        public Void call() {
+            player.runSafely(this);
+            return null;
+        }
+    }
+
+    private void addEntity(int entityId, Vec3 spawnPosition) {
+        targetPlayers.put(entityId, new FairReachEntity(entityId, spawnPosition));
     }
 
     private void handleInteract(final PacketReceiveEvent event, ServerboundInteract attack) {
@@ -178,12 +236,42 @@ public class FairReach extends Check implements CheckListener {
         }
     }
 
-    private void applyChanges(int entityId, double x, double y, double z, AtomicBoolean hasAppliedChanges) {
+    private void applyChanges(
+            int entityId,
+            double x,
+            double y,
+            double z,
+            PositionUpdate update,
+            boolean holdsShownPosition,
+            AtomicBoolean hasAppliedChanges) {
         if (hasAppliedChanges.getAndSet(true)) return;
 
         FairReachEntity target = targetPlayers.get(entityId);
         if (target == null) return;
-        target.setTarget(x, y, z);
+        if (holdsShownPosition) {
+            Vec3 shown = target.currentPosition;
+            target.setTarget(shown.x, shown.y, shown.z);
+        } else if (snaps(target, update, x, y, z)) {
+            target.snapTo(x, y, z);
+        } else {
+            target.setTarget(x, y, z);
+        }
+    }
+
+    /**
+     * ClientPacketListener#setValuesFromPositionPacket measures a teleport from the lerp target while one is active,
+     * on every version; #handleEntityPositionSync measures from the shown position.
+     */
+    private boolean snaps(FairReachEntity target, PositionUpdate update, double x, double y, double z) {
+        if (update == PositionUpdate.RELATIVE) return false;
+        boolean fromLerpTarget = update == PositionUpdate.TELEPORT && target.lerpTicks > 0;
+        Vec3 from = fromLerpTarget ? target.targetPosition : target.currentPosition;
+        return from.distanceToSqr(x, y, z) > 4096.0;
+    }
+
+    /** A replacement client level holds none of the old level's players. */
+    public void clearLevel() {
+        targetPlayers.clear();
     }
 
     public void onPlayerQuit() {
@@ -230,10 +318,19 @@ public class FairReach extends Check implements CheckListener {
             this.lerpTicks = 3;
         }
 
+        private void snapTo(double x, double y, double z) {
+            this.currentPosition = new Vec3(x, y, z);
+            this.targetPosition = currentPosition;
+            this.lerpTicks = 0;
+        }
+
         private void tick() {
             if (lerpTicks > 0) {
-                currentPosition = currentPosition.add(
-                        targetPosition.subtract(currentPosition).scale(1d / lerpTicks));
+                double scale = 1d / lerpTicks;
+                currentPosition = new Vec3(
+                        currentPosition.x + (targetPosition.x - currentPosition.x) * scale,
+                        currentPosition.y + (targetPosition.y - currentPosition.y) * scale,
+                        currentPosition.z + (targetPosition.z - currentPosition.z) * scale);
                 lerpTicks--;
             }
         }

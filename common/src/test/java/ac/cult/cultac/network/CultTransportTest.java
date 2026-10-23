@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
+import ac.cult.cultac.network.logging.PacketLogObserver;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
@@ -15,8 +16,10 @@ import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.*;
 import io.netty.channel.*;
@@ -26,6 +29,8 @@ import io.netty.util.concurrent.DefaultEventExecutor;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -214,6 +219,71 @@ class CultTransportTest {
             inbound.release();
             outbound.release();
         }
+    }
+
+    @Test
+    void anEmptyInboundFrameIsForwardedUnread() {
+        for (boolean owned : List.of(false, true)) {
+            try (var f = new Fixture(owned)) {
+                var observed = new AtomicInteger();
+                f.connection.packetObserver(new PacketLogObserver() {
+                    @Override
+                    public void packet(PacketDirection direction, ConnectionPhase phase, ByteBuf frame) {
+                        observed.incrementAndGet();
+                    }
+                });
+                f.routes.receive(ServerboundPackets.PONG, event -> {});
+                // Vanilla's ByteToMessageDecoder never decodes an empty buffer.
+                f.channel.pipeline().replace("decoder", "decoder", new ChannelInboundHandlerAdapter());
+                ByteBuf empty = Unpooled.buffer(0);
+                f.channel.writeInbound(empty);
+                f.pump();
+                assertSame(empty, f.channel.readInbound());
+                assertEquals(1, empty.refCnt());
+                assertTrue(f.channel.isOpen());
+                assertEquals(0, observed.get(), "the empty frame is not read");
+                empty.release();
+            }
+        }
+    }
+
+    @Test
+    void routesPublishedBetweenFramesReachTheNextFrameInBothDirections() throws Exception {
+        for (boolean owned : List.of(false, true))
+            try (var f = new Fixture(owned)) {
+                var received = new ArrayList<String>();
+                var sent = new ArrayList<String>();
+                f.routes.receive(
+                        ServerboundPackets.PONG,
+                        event -> received.add("a" + event.getPacket().id()));
+                f.routes.send(
+                        ClientboundPackets.PING,
+                        event -> sent.add("a" + event.getPacket().id()));
+                f.channel.writeInbound(f.pong(PLAY, 1));
+                f.channel.writeAndFlush(f.ping(PLAY, 1));
+                f.pump();
+                f.routes.receive(ServerboundPackets.PONG, event -> {
+                    received.add("b" + event.getPacket().id());
+                    f.routes.receive(
+                            ServerboundPackets.PONG,
+                            next -> received.add("c" + next.getPacket().id()));
+                });
+                f.routes.send(ClientboundPackets.PING, event -> {
+                    sent.add("b" + event.getPacket().id());
+                    f.routes.send(
+                            ClientboundPackets.PING,
+                            next -> sent.add("c" + next.getPacket().id()));
+                });
+                f.channel.writeInbound(f.pong(PLAY, 2), f.pong(PLAY, 3));
+                f.channel.writeAndFlush(f.ping(PLAY, 2));
+                f.channel.writeAndFlush(f.ping(PLAY, 3));
+                f.pump();
+                assertEquals(List.of("a1", "b2", "c3"), received);
+                assertEquals(List.of("a1", "b2", "c3"), sent);
+                for (int id = 1; id <= 3; id++) assertEquals(f.hex(f.pong(PLAY, id)), f.hex(f.channel.readInbound()));
+                assertNull(f.channel.readInbound());
+                assertEquals(List.of("P1", "P2", "P3"), f.output());
+            }
     }
 
     @Test
@@ -1146,6 +1216,93 @@ class CultTransportTest {
         }
     }
 
+    @Test
+    void flushAfterWritesMatchesAnEmptyWriteTask() throws Exception {
+        var scenarios = new LinkedHashMap<String, BiConsumer<Fixture, Runnable>>();
+        scenarios.put("idle", (f, action) -> action.run());
+        scenarios.put("unflushed frame", (f, action) -> {
+            f.channel.write(f.ping(PLAY, 1));
+            action.run();
+        });
+        scenarios.put("unflushed frames with proofs", (f, action) -> {
+            var sequence = new AtomicInteger();
+            f.routes.send(ClientboundPackets.PING, event -> {
+                if (event.getPacket().id() >= 100) {
+                    event.getWritesAfterSend()
+                            .add(new CultWrite(new ClientboundPing(sequence.incrementAndGet()), false));
+                }
+            });
+            f.channel.write(f.ping(PLAY, 100));
+            action.run();
+            f.channel.write(f.ping(PLAY, 200));
+        });
+        scenarios.put(
+                "inside a write task",
+                (f, action) -> f.user.executeAfterWrites(() -> {
+                    f.user.write(new ClientboundPing(1));
+                    action.run();
+                    f.user.write(new ClientboundPing(2));
+                }));
+        scenarios.put("inside a send listener", (f, action) -> {
+            f.routes.send(ClientboundPackets.PING, event -> {
+                if (event.getPacket().id() == 1) action.run();
+            });
+            f.channel.write(f.ping(PLAY, 1));
+        });
+        scenarios.put("after close", (f, action) -> {
+            f.channel.close();
+            action.run();
+        });
+        scenarios.put("after handler removal", (f, action) -> {
+            f.channel.write(f.ping(PLAY, 1));
+            f.connection.removeHandlers(() -> {
+                f.channel.pipeline().remove(CultDecoder.NAME);
+                f.channel.pipeline().remove(CultEncoder.NAME);
+            });
+            action.run();
+        });
+        for (boolean owned : new boolean[] {true, false}) {
+            for (var scenario : scenarios.entrySet()) {
+                String at = scenario.getKey() + (owned ? " (owned)" : "");
+                var task = transcript(owned, scenario.getValue(), f -> f.user.executeAfterWrites(() -> {}));
+                var flush = transcript(owned, scenario.getValue(), f -> f.user.flushAfterWrites());
+                assertEquals(task, flush, at);
+                if (scenario.getKey().equals("unflushed frame"))
+                    assertEquals(List.of("write P1", "flush", "outbound", "P1", "open true"), task, at);
+            }
+        }
+    }
+
+    /** Every write and flush reaching the head, then the outbound frames and whether the channel stayed open. */
+    private static List<String> transcript(
+            boolean owned, BiConsumer<Fixture, Runnable> scenario, Consumer<Fixture> action) {
+        try (var f = new Fixture(owned)) {
+            var log = new ArrayList<String>();
+            f.channel.pipeline().addFirst("recorder", new ChannelOutboundHandlerAdapter() {
+                @Override
+                public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
+                    log.add("write "
+                            + (message instanceof ByteBuf frame
+                                    ? f.name(frame)
+                                    : message.getClass().getSimpleName()));
+                    ctx.write(message, promise);
+                }
+
+                @Override
+                public void flush(ChannelHandlerContext ctx) {
+                    log.add("flush");
+                    ctx.flush();
+                }
+            });
+            scenario.accept(f, () -> action.accept(f));
+            f.pump();
+            log.add("outbound");
+            log.addAll(f.output());
+            log.add("open " + f.channel.isOpen());
+            return log;
+        }
+    }
+
     @FunctionalInterface
     private interface ConfigurationTask {
         void configure(ChannelHandlerContext context);
@@ -1168,6 +1325,1154 @@ class CultTransportTest {
                 task.configure(context);
                 promise.setSuccess();
             } else context.write(message, promise);
+        }
+    }
+
+    @Test
+    void theFlushBundleLeadsWithOnePingSharedUntilTheRealFlush() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            f.channel.write(wireCamera(f, 1));
+            f.channel.write(wireCamera(f, 2));
+            f.channel.flush();
+            f.pump();
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "minecraft:set_camera", "D"), f.output());
+            assertFalse(f.connection.flushBundleOpen());
+            f.channel.writeAndFlush(wireCamera(f, 3));
+            assertEquals(List.of("D", "P42", "minecraft:set_camera", "D"), f.output());
+            assertEquals(List.of(41, 41, 42), proofs);
+        }
+    }
+
+    @Test
+    void aWriteTaskSeesThePingTheOpenFlushBundleShares() {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            var seen = new ArrayList<Integer>();
+            f.connection.executeAfterWrites(() -> seen.add(f.connection.provingPing()));
+            f.channel.write(wireCamera(f, 1));
+            f.connection.executeAfterWrites(() -> seen.add(f.connection.provingPing()));
+            f.pump();
+            assertEquals(List.of(0, 41), seen);
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "D"), f.output());
+            assertEquals(0, f.connection.provingPing());
+        }
+    }
+
+    @Test
+    void theLastPingProvesTheWireUntilAPacketFollowsItsBundle() {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            var seen = new ArrayList<Integer>();
+            f.channel.writeAndFlush(wireCamera(f, 1));
+            f.pump();
+            // The bundle has closed, and nothing has been written after it.
+            f.connection.executeAfterWrites(() -> seen.add(f.connection.provingPing()));
+            f.channel.writeAndFlush(f.frame(CLIENTBOUND, PLAY, "sound"));
+            f.connection.executeAfterWrites(() -> seen.add(f.connection.provingPing()));
+            f.pump();
+            assertEquals(List.of(41, 0), seen);
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "D", "minecraft:sound"), f.output());
+        }
+    }
+
+    @Test
+    void anUnlistenedPacketStaysInsideTheFlushBundle() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            f.channel.write(wireCamera(f, 1));
+            f.channel.write(f.frame(CLIENTBOUND, PLAY, "sound"));
+            f.channel.write(wireCamera(f, 2));
+            f.channel.flush();
+            f.pump();
+            assertEquals(
+                    List.of("D", "P41", "minecraft:set_camera", "minecraft:sound", "minecraft:set_camera", "D"),
+                    f.output());
+            assertEquals(List.of(41, 41), proofs);
+        }
+    }
+
+    @Test
+    void aHostBundleJoinsTheOpenFlushBundle() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            f.channel.write(wireCamera(f, 1));
+            f.channel.write(f.delimiter());
+            f.channel.write(f.ping(PLAY, 7));
+            f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 2));
+            f.channel.flush();
+            f.pump();
+            // A client bundle cannot nest: the host's delimiters are dropped and its packets join the flush bundle.
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "P7", "minecraft:set_camera", "D"), f.output());
+            assertEquals(List.of(41, 41), proofs);
+        }
+    }
+
+    @Test
+    void aProofInsideAHostBundleMakesItTheFlushBundle() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 1));
+            f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 2));
+            f.channel.flush();
+            f.pump();
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "minecraft:set_camera", "D"), f.output());
+            assertEquals(List.of(41, 41), proofs);
+        }
+    }
+
+    @Test
+    void aRespawnLeavesAHeldHostBundleBeforeItsContinuationReopens() {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 1));
+            f.channel.write(structuralFrame(f, "respawn"));
+            f.channel.write(f.delimiter());
+            f.channel.flush();
+            f.pump();
+            // Even a held source bundle resumes only after its standalone respawn.
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "D", "minecraft:respawn", "D", "D"), f.output());
+        }
+    }
+
+    @Test
+    void aRespawnClosesTheFlushBundle() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            f.channel.write(wireCamera(f, 1));
+            // Cult keeps level/player replacement outside the preceding packet proof's bundle.
+            f.channel.write(structuralFrame(f, "respawn"));
+            f.channel.write(wireCamera(f, 2));
+            f.channel.flush();
+            f.pump();
+            assertEquals(
+                    List.of(
+                            "D",
+                            "P41",
+                            "minecraft:set_camera",
+                            "D",
+                            "minecraft:respawn",
+                            "D",
+                            "P42",
+                            "minecraft:set_camera",
+                            "D"),
+                    f.output());
+            assertEquals(List.of(41, 42), proofs);
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"login,false", "login,true", "respawn,false", "respawn,true"})
+    void structuralPacketsResumeHostBundlesAfterTheirStandaloneFrame(String name, boolean hostStartedFirst) {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            if (hostStartedFirst) f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 1));
+            if (!hostStartedFirst) f.channel.write(f.delimiter());
+            ByteBuf structural = structuralFrame(f, name);
+            var sent = f.channel.write(structural);
+            assertFalse(f.connection.flushBundleOpen());
+            f.channel.write(wireCamera(f, 2));
+            f.channel.write(f.delimiter());
+            f.channel.writeAndFlush(wireCamera(f, 3));
+            f.pump();
+            var emitted = f.output();
+            assertEquals(
+                    List.of(
+                            "D",
+                            "P41",
+                            "minecraft:set_camera",
+                            "D",
+                            "minecraft:" + name,
+                            "D",
+                            "P42",
+                            "minecraft:set_camera",
+                            "minecraft:set_camera",
+                            "D"),
+                    emitted);
+            assertStructuralOutsideBundles(emitted);
+            assertEquals(List.of(41, 42, 42), proofs);
+            assertTrue(sent.isSuccess());
+            assertEquals(0, structural.refCnt());
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "login,false,false",
+        "login,true,false",
+        "respawn,false,false",
+        "respawn,true,false",
+        "login,false,true",
+        "login,true,true",
+        "respawn,false,true",
+        "respawn,true,true"
+    })
+    void structuralPacketsStayStandaloneInAutomaticAndRequestedBundles(String name, boolean requested, boolean prove) {
+        try (var f = new Fixture(false)) {
+            var proofs = new ArrayList<Integer>();
+            var next = new AtomicInteger(40);
+            if (prove)
+                f.routes.send(ClientboundPackets.ENTITY_MOTION, event -> {
+                    int proof = event.flushPing();
+                    if (proof == 0) {
+                        proof = next.incrementAndGet();
+                        event.leadWith(new CultWrite(new ClientboundPing(proof), false), proof);
+                    }
+                    proofs.add(proof);
+                });
+            Consumer<ac.cult.cultac.network.event.PacketSendEvent<?>> expand = event -> {
+                assertEquals(0, event.flushPing());
+                event.getWritesBeforeSend()
+                        .add(new CultWrite(new ClientboundEntityMotion(1, new Vec3d(0, 0, 0)), false));
+                event.getWritesAfterSend()
+                        .add(new CultWrite(new ClientboundEntityMotion(2, new Vec3d(0, 0, 0)), false));
+                if (requested) event.bundle();
+            };
+            if (name.equals("login")) f.routes.send(ClientboundPackets.LOGIN, expand::accept);
+            else f.routes.send(ClientboundPackets.RESPAWN, expand::accept);
+            var sent = f.channel.writeAndFlush(structuralFrame(f, name));
+            f.pump();
+            var emitted = f.output();
+            assertEquals(
+                    prove
+                            ? List.of(
+                                    "D",
+                                    "P41",
+                                    "minecraft:set_entity_motion",
+                                    "D",
+                                    "minecraft:" + name,
+                                    "D",
+                                    "P42",
+                                    "minecraft:set_entity_motion",
+                                    "D")
+                            : List.of(
+                                    "D",
+                                    "minecraft:set_entity_motion",
+                                    "D",
+                                    "minecraft:" + name,
+                                    "D",
+                                    "minecraft:set_entity_motion",
+                                    "D"),
+                    emitted);
+            assertStructuralOutsideBundles(emitted);
+            assertEquals(prove ? List.of(41, 42) : List.of(), proofs);
+            assertTrue(sent.isSuccess(), () -> String.valueOf(sent.cause()));
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"login", "respawn"})
+    void reentrantUnlistenedStructuralPacketsKeepTheirWirePosition(String name) {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            var promises = new ArrayList<ChannelFuture>();
+            f.channel.pipeline().addFirst(new ChannelOutboundHandlerAdapter() {
+                boolean injected;
+
+                @Override
+                public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
+                    if (!injected && f.name((ByteBuf) message).equals("D")) {
+                        injected = true;
+                        promises.add(f.channel.write(structuralFrame(f, name)));
+                    }
+                    ctx.write(message, promise);
+                }
+            });
+            f.channel.writeAndFlush(wireCamera(f, 1));
+            f.pump();
+            var emitted = f.output();
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "D", "minecraft:" + name), emitted);
+            assertStructuralOutsideBundles(emitted);
+            assertEquals(1, promises.size());
+            assertTrue(promises.getFirst().isSuccess());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"login,false", "login,true", "respawn,false", "respawn,true"})
+    void structuralTrailingProofDoesNotClaimBundleAtomicity(String name, boolean translated) throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = translated
+                        ? RecordReceiveFixture.olderHost(ProtocolVersion.V1_21_11)
+                        : new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            services.useNetwork(f.manager);
+            f.user.bind(mock(ac.cult.cultac.platform.api.player.PlatformPlayer.class));
+            f.player.nettyScheduler.removeScheduler();
+            var claims = new ArrayList<Boolean>();
+            var tasks = new AtomicInteger();
+            f.registrar.register(routes -> {
+                routes.registerSendListener(
+                        ac.cult.cultac.network.event.PacketListenerPriority.NORMAL,
+                        new ac.cult.cultac.events.packets.listeners.PacketPingListener());
+                routes.send(
+                        ClientboundPackets.SET_CAMERA,
+                        ac.cult.cultac.network.event.PacketListenerPriority.NORMAL,
+                        (event, player, packet) -> player.appendFlushProofTransaction(event));
+                routes.send(
+                        ClientboundPackets.LOGIN,
+                        ac.cult.cultac.network.event.PacketListenerPriority.NORMAL,
+                        (event, player, packet) ->
+                                claims.add(player.runAtTrailingProof(event, tasks::incrementAndGet)));
+                routes.send(
+                        ClientboundPackets.RESPAWN,
+                        ac.cult.cultac.network.event.PacketListenerPriority.NORMAL,
+                        (event, player, packet) ->
+                                claims.add(player.runAtTrailingProof(event, tasks::incrementAndGet)));
+                // An ordinary inert packet retains the helper's bundle-atomic guarantee.
+                routes.send(
+                        ClientboundPackets.ENTITY_MOTION,
+                        ac.cult.cultac.network.event.PacketListenerPriority.NORMAL,
+                        (event, player, packet) ->
+                                claims.add(player.runAtTrailingProof(event, tasks::incrementAndGet)));
+            });
+            f.channel.write(f.id(ClientboundPackets.BUNDLE_DELIMITER, "bundle_delimiter"));
+            ByteBuf camera = f.id(ClientboundPackets.SET_CAMERA, "set_camera");
+            Wire.writeVarInt(camera, 1);
+            f.channel.write(camera);
+            var type = name.equals("login") ? ClientboundPackets.LOGIN : ClientboundPackets.RESPAWN;
+            ByteBuf structural = structuralPayload(f.id(type, name), name, !translated);
+            var sent = f.channel.write(structural);
+            f.connection.write(new CultWrite(new ClientboundEntityMotion(2, new Vec3d(0, 0, 0)), false));
+            f.channel.writeAndFlush(f.id(ClientboundPackets.BUNDLE_DELIMITER, "bundle_delimiter"));
+            for (int i = 0; i < 8; i++) f.channel.runPendingTasks();
+            f.channel.checkException();
+            var emitted = new ArrayList<String>();
+            var pingIds = new HashSet<Integer>();
+            ByteBuf frame;
+            while ((frame = f.channel.readOutbound()) != null) {
+                try {
+                    String packet = f.data.packets(PLAY, CLIENTBOUND).name(Wire.readVarInt(frame));
+                    if (packet.equals("minecraft:ping")) {
+                        assertTrue(pingIds.add(frame.readInt()));
+                        emitted.add("P");
+                    } else emitted.add(packet.equals("minecraft:bundle_delimiter") ? "D" : packet);
+                } finally {
+                    frame.release();
+                }
+            }
+            assertEquals(
+                    List.of(
+                            "D",
+                            "P",
+                            "minecraft:set_camera",
+                            "D",
+                            "minecraft:" + name,
+                            "D",
+                            "P",
+                            "minecraft:set_entity_motion",
+                            "P",
+                            "D"),
+                    emitted);
+            assertStructuralOutsideBundles(emitted);
+            assertEquals(List.of(false, true), claims);
+            assertEquals(3, pingIds.size());
+            assertEquals(0, tasks.get(), "Outbound proofs must not acknowledge or execute their receive tasks");
+            assertEquals(0, f.player.lastTransactionReceived.get());
+            assertTrue(sent.isSuccess());
+            assertEquals(0, structural.refCnt());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void protocolTerminalRetiresOnlyItsKnownOldScopeDelimiter(boolean queuedOldClose) {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            var emitted = new ArrayList<String>();
+            var oldClose = f.delimiter();
+            var promises = new ArrayList<ChannelFuture>();
+            f.channel.pipeline().addFirst(new ChannelOutboundHandlerAdapter() {
+                @Override
+                public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
+                    var bytes = ((ByteBuf) message).duplicate();
+                    var phase = f.connection.phase(CLIENTBOUND);
+                    String name = RUNTIME.data().packets(phase, CLIENTBOUND).name(Wire.readVarInt(bytes));
+                    emitted.add(name.equals("minecraft:bundle_delimiter") ? "D" : name);
+                    if (queuedOldClose && name.equals("minecraft:start_configuration"))
+                        promises.add(f.channel.write(oldClose));
+                    ctx.write(message, promise);
+                }
+            });
+            f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 1));
+            var terminal = f.channel.writeAndFlush(f.frame(CLIENTBOUND, PLAY, "start_configuration"));
+            assertEquals(CONFIGURATION, f.connection.phase(CLIENTBOUND));
+            assertFalse(f.connection.flushBundleOpen());
+            assertFalse(f.connection.clientHasLevel());
+            var proofsAfterTerminal = new ArrayList<Integer>();
+            f.connection.executeAfterWrites(() -> proofsAfterTerminal.add(f.connection.provingPing()));
+            assertEquals(List.of(0), proofsAfterTerminal);
+            // Configuration ID zero is a different packet, not an old PLAY bundle marker.
+            ByteBuf config = Unpooled.buffer();
+            Wire.writeVarInt(config, 0);
+            Wire.writeString(config, "minecraft:test", 32767);
+            f.channel.write(config);
+            f.channel.writeAndFlush(f.frame(CLIENTBOUND, CONFIGURATION, "finish_configuration"));
+            assertEquals(PLAY, f.connection.phase(CLIENTBOUND));
+            f.channel.write(structuralFrame(f, "login"));
+            f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 2));
+            f.channel.writeAndFlush(f.delimiter());
+            f.pump();
+            assertEquals(
+                    List.of(
+                            "D",
+                            "minecraft:ping",
+                            "minecraft:set_camera",
+                            "D",
+                            "minecraft:start_configuration",
+                            RUNTIME.data().packets(CONFIGURATION, CLIENTBOUND).name(0),
+                            "minecraft:finish_configuration",
+                            "minecraft:login",
+                            "D",
+                            "minecraft:ping",
+                            "minecraft:set_camera",
+                            "D"),
+                    emitted);
+            assertStructuralOutsideBundles(emitted);
+            assertTrue(terminal.isSuccess());
+            if (queuedOldClose) {
+                assertEquals(1, promises.size());
+                assertTrue(promises.getFirst().isSuccess());
+                assertEquals(0, oldClose.refCnt());
+            } else oldClose.release();
+            ByteBuf output;
+            while ((output = f.channel.readOutbound()) != null) output.release();
+        }
+    }
+
+    @Test
+    void loginFinishedAndConfigurationFinishedRemainStandalone() {
+        try (var f = new Fixture(false)) {
+            f.connection.phase(CLIENTBOUND, LOGIN);
+            ByteBuf loginFinished = f.frame(CLIENTBOUND, LOGIN, "login_finished");
+            loginFinished.writeLong(0).writeLong(1);
+            Wire.writeString(loginFinished, "BoundaryTest", 16);
+            Wire.writeVarInt(loginFinished, 0);
+            loginFinished.writeLong(0).writeLong(2); // 26.3 session UUID follows the profile.
+            assertTrue(f.channel.writeAndFlush(loginFinished).isSuccess());
+            assertEquals(CONFIGURATION, f.connection.phase(CLIENTBOUND));
+            assertTrue(f.channel
+                    .writeAndFlush(f.frame(CLIENTBOUND, CONFIGURATION, "finish_configuration"))
+                    .isSuccess());
+            assertEquals(PLAY, f.connection.phase(CLIENTBOUND));
+            assertFalse(f.connection.clientHasLevel());
+            ByteBuf first = f.channel.readOutbound();
+            ByteBuf second = f.channel.readOutbound();
+            try {
+                assertSame(loginFinished, first);
+                assertEquals(
+                        "minecraft:login_finished",
+                        RUNTIME.data().packets(LOGIN, CLIENTBOUND).name(Wire.readVarInt(first)));
+                assertEquals(
+                        "minecraft:finish_configuration",
+                        RUNTIME.data().packets(CONFIGURATION, CLIENTBOUND).name(Wire.readVarInt(second)));
+                assertNull(f.channel.readOutbound());
+            } finally {
+                first.release();
+                second.release();
+            }
+        }
+    }
+
+    @Test
+    void cancellingRespawnDoesNotSplitOrLeakTheFlushBundle() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            f.routes.send(ClientboundPackets.RESPAWN, event -> event.setCancelled(true));
+            f.channel.write(wireCamera(f, 1));
+            ByteBuf structural = structuralFrame(f, "respawn");
+            var sent = f.channel.write(structural);
+            f.channel.writeAndFlush(wireCamera(f, 2));
+            f.pump();
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "minecraft:set_camera", "D"), f.output());
+            assertEquals(List.of(41, 41), proofs);
+            assertTrue(sent.isSuccess());
+            assertEquals(0, structural.refCnt());
+        }
+    }
+
+    @Test
+    void aProtocolTerminalCannotAllocateAnOldPhaseTrailingProof() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            services.useNetwork(f.manager);
+            f.user.bind(mock(ac.cult.cultac.platform.api.player.PlatformPlayer.class));
+            f.player.nettyScheduler.removeScheduler();
+            var calls = new AtomicInteger();
+            f.registrar.register(routes -> routes.send(
+                    ClientboundPackets.START_CONFIGURATION,
+                    ac.cult.cultac.network.event.PacketListenerPriority.NORMAL,
+                    (event, player, packet) -> {
+                        assertEquals(-1, player.appendFlushProofTransaction(event));
+                        assertNull(player.appendTrailingProofTransaction(event));
+                        calls.incrementAndGet();
+                    }));
+            assertTrue(f.channel
+                    .writeAndFlush(f.id(ClientboundPackets.START_CONFIGURATION, "start_configuration"))
+                    .isSuccess());
+            for (int i = 0; i < 8; i++) f.channel.runPendingTasks();
+            f.channel.checkException();
+            assertEquals(1, calls.get());
+            assertEquals(CONFIGURATION, f.connection.phase(CLIENTBOUND));
+            assertEquals(0, f.player.lastTransactionSent.get());
+            ByteBuf terminal = f.channel.readOutbound();
+            try {
+                assertEquals(
+                        "minecraft:start_configuration",
+                        f.data.packets(PLAY, CLIENTBOUND).name(Wire.readVarInt(terminal)));
+                assertNull(f.channel.readOutbound());
+            } finally {
+                terminal.release();
+            }
+        }
+    }
+
+    private static ByteBuf structuralFrame(Fixture f, String name) {
+        return structuralPayload(f.frame(CLIENTBOUND, PLAY, name), name, true);
+    }
+
+    private static ByteBuf structuralPayload(ByteBuf frame, String name, boolean modern) {
+        if (name.equals("login")) {
+            frame.writeInt(1).writeBoolean(false);
+            Wire.writeVarInt(frame, 1);
+            Wire.writeString(frame, "minecraft:overworld", 32767);
+            Wire.writeVarInt(frame, 20);
+            Wire.writeVarInt(frame, 10);
+            Wire.writeVarInt(frame, 10);
+            frame.writeBoolean(false).writeBoolean(true).writeBoolean(false);
+        }
+        Wire.writeVarInt(frame, 0);
+        Wire.writeString(frame, "minecraft:overworld", 32767);
+        frame.writeLong(0);
+        if (modern) {
+            Wire.writeVarInt(frame, 0);
+            Wire.writeVarInt(frame, 0);
+        } else frame.writeByte(0).writeByte(-1);
+        frame.writeBoolean(false).writeBoolean(false).writeBoolean(false);
+        Wire.writeVarInt(frame, 0);
+        Wire.writeVarInt(frame, 63);
+        if (name.equals("respawn")) frame.writeByte(0);
+        else {
+            if (modern) frame.writeBoolean(false); // 26.3 online mode.
+            frame.writeBoolean(false); // Enforces secure chat.
+        }
+        return frame;
+    }
+
+    private static void assertStructuralOutsideBundles(List<String> emitted) {
+        boolean inside = false;
+        for (String name : emitted) {
+            if (name.equals("D")) inside = !inside;
+            else if (List.of(
+                            "minecraft:login",
+                            "minecraft:respawn",
+                            "minecraft:start_configuration",
+                            "minecraft:finish_configuration",
+                            "minecraft:login_finished")
+                    .contains(name)) assertFalse(inside, name + " must be outside a physical bundle: " + emitted);
+        }
+        assertFalse(inside, "Every resumed source bundle must have its closer: " + emitted);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void keepAliveClosesAFlushWaveAndStartsAFreshProofScope(boolean listened) {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            if (listened) f.routes.send(ClientboundPackets.KEEP_ALIVE, event -> assertEquals(0, event.flushPing()));
+            var proving = new ArrayList<Integer>();
+            f.channel.write(wireCamera(f, 1));
+            ByteBuf keepAlive = f.keepAlive(101);
+            var sent = f.channel.write(keepAlive);
+            f.channel.write(new CultConnection.WriteTask(() -> proving.add(f.connection.provingPing())));
+            f.channel.write(wireCamera(f, 2));
+            f.channel.flush();
+            f.pump();
+            var emitted = f.output();
+            assertEquals(
+                    List.of("D", "P41", "minecraft:set_camera", "D", "K101", "D", "P42", "minecraft:set_camera", "D"),
+                    emitted);
+            assertKeepAlivesOutsideBundles(emitted);
+            assertEquals(List.of(41, 42), proofs);
+            assertEquals(List.of(0), proving);
+            assertTrue(sent.isSuccess());
+            assertEquals(0, keepAlive.refCnt());
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void keepAliveResumesAHeldHostBundleOnlyAfterItsStandaloneFrame(boolean hostStartedFirst) {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            if (hostStartedFirst) f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 1));
+            if (!hostStartedFirst) f.channel.write(f.delimiter());
+            f.channel.write(f.keepAlive(101));
+            assertFalse(f.connection.flushBundleOpen());
+            f.channel.write(wireCamera(f, 2));
+            f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 3));
+            f.channel.flush();
+            f.pump();
+            var emitted = f.output();
+            assertEquals(
+                    List.of(
+                            "D",
+                            "P41",
+                            "minecraft:set_camera",
+                            "D",
+                            "K101",
+                            "D",
+                            "P42",
+                            "minecraft:set_camera",
+                            "minecraft:set_camera",
+                            "D"),
+                    emitted);
+            assertKeepAlivesOutsideBundles(emitted);
+            assertEquals(List.of(41, 42, 42), proofs);
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    @Test
+    void keepAliveSplitsASourceBundleWithoutAFlushOwner() {
+        try (var f = new Fixture(false)) {
+            f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 1));
+            f.channel.write(f.keepAlive(101));
+            f.channel.write(wireCamera(f, 2));
+            f.channel.writeAndFlush(f.delimiter());
+            f.pump();
+            var emitted = f.output();
+            assertEquals(List.of("D", "minecraft:set_camera", "D", "K101", "D", "minecraft:set_camera", "D"), emitted);
+            assertKeepAlivesOutsideBundles(emitted);
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void keepAliveSplitsAnExplicitlyRequestedBundleWithoutSharingAcrossTheBoundary(boolean prove) {
+        try (var f = new Fixture(false)) {
+            var proofs = new ArrayList<Integer>();
+            var next = new AtomicInteger(40);
+            if (prove)
+                f.routes.send(ClientboundPackets.ENTITY_MOTION, event -> {
+                    int proof = event.flushPing();
+                    if (proof == 0) {
+                        proof = next.incrementAndGet();
+                        event.leadWith(new CultWrite(new ClientboundPing(proof), false), proof);
+                    }
+                    proofs.add(proof);
+                });
+            f.routes.send(ClientboundPackets.KEEP_ALIVE, event -> {
+                event.getWritesBeforeSend()
+                        .add(new CultWrite(new ClientboundEntityMotion(1, new Vec3d(0, 0, 0)), false));
+                event.getWritesAfterSend()
+                        .add(new CultWrite(new ClientboundEntityMotion(2, new Vec3d(0, 0, 0)), false));
+                event.bundle();
+            });
+            // KEEP_ALIVE is read-only: the real host frame, not an unsupported CultWrite, enters the wrapper.
+            var sent = f.channel.writeAndFlush(f.keepAlive(101));
+            f.pump();
+            var emitted = f.output();
+            assertEquals(
+                    prove
+                            ? List.of(
+                                    "D",
+                                    "P41",
+                                    "minecraft:set_entity_motion",
+                                    "D",
+                                    "K101",
+                                    "D",
+                                    "P42",
+                                    "minecraft:set_entity_motion",
+                                    "D")
+                            : List.of(
+                                    "D",
+                                    "minecraft:set_entity_motion",
+                                    "D",
+                                    "K101",
+                                    "D",
+                                    "minecraft:set_entity_motion",
+                                    "D"),
+                    emitted);
+            assertKeepAlivesOutsideBundles(emitted);
+            assertEquals(prove ? List.of(41, 42) : List.of(), proofs);
+            assertTrue(sent.isSuccess(), () -> String.valueOf(sent.cause()));
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    @Test
+    void keepAliveStaysStandaloneWhenItsExpansionCreatesAnAutomaticBundle() {
+        try (var f = new Fixture(false)) {
+            f.routes.send(ClientboundPackets.KEEP_ALIVE, event -> {
+                assertEquals(0, event.flushPing());
+                event.getWritesBeforeSend()
+                        .add(new CultWrite(new ClientboundEntityMotion(1, new Vec3d(0, 0, 0)), false));
+                event.getWritesAfterSend()
+                        .add(new CultWrite(new ClientboundEntityMotion(2, new Vec3d(0, 0, 0)), false));
+            });
+            var sent = f.channel.writeAndFlush(f.keepAlive(101));
+            f.pump();
+            var emitted = f.output();
+            assertEquals(
+                    List.of("D", "minecraft:set_entity_motion", "D", "K101", "D", "minecraft:set_entity_motion", "D"),
+                    emitted);
+            assertKeepAlivesOutsideBundles(emitted);
+            assertTrue(sent.isSuccess());
+        }
+    }
+
+    @Test
+    void keepAliveContinuationResetsThePhysicalMemberCountBeforeAFreshProof() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            f.channel.write(f.delimiter());
+            for (int i = 0; i < 4094; i++) {
+                f.channel.write(
+                        f.frame(CLIENTBOUND, PLAY, "game_event").writeByte(7).writeFloat(1));
+            }
+            f.channel.write(f.keepAlive(101));
+            f.channel.write(wireCamera(f, 1));
+            f.channel.writeAndFlush(f.delimiter());
+            f.pump();
+            var emitted = f.output();
+            assertKeepAlivesOutsideBundles(emitted);
+            assertEquals(4101, emitted.size());
+            assertEquals(
+                    List.of("D", "K101", "D", "P41", "minecraft:set_camera", "D"),
+                    emitted.subList(4095, emitted.size()));
+            assertEquals(List.of(41), proofs);
+        }
+    }
+
+    @Test
+    void reentrantUnlistenedKeepAliveWaitsForTheFramesAlreadyBeingEmitted() {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            var promises = new ArrayList<ChannelFuture>();
+            f.channel.pipeline().addFirst(new ChannelOutboundHandlerAdapter() {
+                boolean injected;
+
+                @Override
+                public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
+                    if (!injected && f.name((ByteBuf) message).equals("D")) {
+                        injected = true;
+                        promises.add(f.channel.write(f.keepAlive(101)));
+                    }
+                    ctx.write(message, promise);
+                }
+            });
+            f.channel.writeAndFlush(wireCamera(f, 1));
+            f.pump();
+            var emitted = f.output();
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "D", "K101"), emitted);
+            assertKeepAlivesOutsideBundles(emitted);
+            assertEquals(1, promises.size());
+            assertTrue(promises.getFirst().isSuccess());
+        }
+    }
+
+    @Test
+    void cancellingKeepAliveDoesNotSplitTheFlushBundleOrLeakItsFrame() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            f.routes.send(ClientboundPackets.KEEP_ALIVE, event -> event.setCancelled(true));
+            f.channel.write(wireCamera(f, 1));
+            ByteBuf keepAlive = f.keepAlive(101);
+            var sent = f.channel.write(keepAlive);
+            f.channel.writeAndFlush(wireCamera(f, 2));
+            f.pump();
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "minecraft:set_camera", "D"), f.output());
+            assertEquals(List.of(41, 41), proofs);
+            assertTrue(sent.isSuccess());
+            assertEquals(0, keepAlive.refCnt());
+        }
+    }
+
+    @Test
+    void removingTheEncoderAfterKeepAliveLeavesTheHostItsOwnClosingDelimiter() {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            f.channel.write(f.delimiter());
+            f.channel.write(wireCamera(f, 1));
+            f.channel.write(f.keepAlive(101));
+            CultEncoder.uninstall(f.channel);
+            // This source delimiter must still close exactly the resumed host continuation.
+            f.channel.writeAndFlush(f.delimiter());
+            f.pump();
+            var emitted = f.output();
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "D", "K101", "D", "D"), emitted);
+            assertKeepAlivesOutsideBundles(emitted);
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void productionKeepAliveProcessorKeepsItsDistinctPingBracketAroundAStandaloneChallenge(boolean translated)
+            throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = translated
+                        ? RecordReceiveFixture.olderHost(ProtocolVersion.V1_21_11)
+                        : new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            services.useNetwork(f.manager);
+            f.user.bind(mock(ac.cult.cultac.platform.api.player.PlatformPlayer.class));
+            f.player.nettyScheduler.removeScheduler();
+            var processor = new ac.cult.cultac.utils.latency.KeepAliveProcessor(f.player);
+            var keepAliveCheck =
+                    f.player.checkManager.getCheck(ac.cult.cultac.checks.impl.badpackets.BadPacketsO.class);
+            f.registrar.register(routes -> {
+                routes.registerSendListener(ac.cult.cultac.network.event.PacketListenerPriority.NORMAL, processor);
+                routes.registerSendListener(ac.cult.cultac.network.event.PacketListenerPriority.NORMAL, keepAliveCheck);
+                routes.registerSendListener(
+                        ac.cult.cultac.network.event.PacketListenerPriority.NORMAL,
+                        new ac.cult.cultac.events.packets.listeners.PacketPingListener());
+                routes.send(
+                        ClientboundPackets.SET_CAMERA,
+                        ac.cult.cultac.network.event.PacketListenerPriority.NORMAL,
+                        (event, player, packet) -> player.appendFlushProofTransaction(event));
+            });
+            assertEquals(translated, f.connection.packets().translated());
+            ByteBuf before = f.id(ClientboundPackets.SET_CAMERA, "set_camera");
+            Wire.writeVarInt(before, 1);
+            f.channel.write(before);
+            var sent = f.channel.write(
+                    f.id(ClientboundPackets.KEEP_ALIVE, "keep_alive").writeLong(101));
+            ByteBuf after = f.id(ClientboundPackets.SET_CAMERA, "set_camera");
+            Wire.writeVarInt(after, 2);
+            f.channel.writeAndFlush(after);
+            for (int i = 0; i < 8; i++) f.channel.runPendingTasks();
+            f.channel.checkException();
+            var emitted = new ArrayList<String>();
+            var pingIds = new ArrayList<Integer>();
+            ByteBuf frame;
+            while ((frame = f.channel.readOutbound()) != null) {
+                try {
+                    String name = f.data.packets(PLAY, CLIENTBOUND).name(Wire.readVarInt(frame));
+                    if (name.equals("minecraft:ping")) {
+                        pingIds.add(frame.readInt());
+                        emitted.add("P");
+                    } else if (name.equals("minecraft:bundle_delimiter")) emitted.add("D");
+                    else if (name.equals("minecraft:keep_alive")) emitted.add("K" + frame.readLong());
+                    else emitted.add(name);
+                } finally {
+                    frame.release();
+                }
+            }
+            assertEquals(
+                    List.of(
+                            "D",
+                            "P",
+                            "minecraft:set_camera",
+                            "P",
+                            "D",
+                            "K101",
+                            "P",
+                            "D",
+                            "P",
+                            "minecraft:set_camera",
+                            "D"),
+                    emitted);
+            assertKeepAlivesOutsideBundles(emitted);
+            assertEquals(4, new HashSet<>(pingIds).size());
+            assertEquals(0, f.player.lastTransactionReceived.get(), "Outbound KA must not acknowledge a transaction");
+            assertNotNull(processor.getPingMap().get(101L));
+            assertTrue(sent.isSuccess());
+
+            var pendingField = ac.cult.cultac.checks.impl.badpackets.BadPacketsO.class.getDeclaredField("keepalives");
+            pendingField.setAccessible(true);
+            var pending = (java.util.Collection<?>) pendingField.get(keepAliveCheck);
+            var pongListener = new ac.cult.cultac.events.packets.listeners.PacketPingListener();
+            var tickEnd = new ac.cult.cultac.protocol.packet.Opaque(ServerboundPackets.CLIENT_TICK_END);
+            var tickEvent = new ac.cult.cultac.network.event.PacketReceiveEvent<>(
+                    f.user, PLAY, ServerboundPackets.CLIENT_TICK_END, tickEnd);
+            for (int i = 0; i < 3; i++) {
+                var pong = new ac.cult.cultac.protocol.packet.serverbound.ServerboundPong(pingIds.get(i));
+                pongListener.onPong(
+                        new ac.cult.cultac.network.event.PacketReceiveEvent<>(
+                                f.user, PLAY, ServerboundPackets.PONG, pong),
+                        f.player,
+                        pong);
+                assertEquals(1, pending.size(), "a pong alone cannot retire a deferred reply");
+                if (i == 1) {
+                    keepAliveCheck.onClientTickEnd(tickEvent, f.player, tickEnd);
+                    assertEquals(1, pending.size(), "the leading ping does not prove the standalone challenge");
+                }
+            }
+            keepAliveCheck.onClientTickEnd(tickEvent, f.player, tickEnd);
+            assertEquals(0, pending.size(), "the tick after the actual trailing pong retires the challenge");
+            assertEquals(0, keepAliveCheck.getViolations());
+        }
+    }
+
+    private static void assertKeepAlivesOutsideBundles(List<String> emitted) {
+        boolean inside = false;
+        int members = 0;
+        for (String name : emitted) {
+            if (name.equals("D")) {
+                inside = !inside;
+                members = 0;
+            } else {
+                if (name.startsWith("K")) assertFalse(inside, "Keepalive must retain its standalone dispatch path");
+                if (inside) assertTrue(++members <= 4096, "A physical bundle holds at most 4,096 packets");
+            }
+        }
+        assertFalse(inside, "All host and generated bundle continuations must close");
+    }
+
+    @Test
+    void aBundleOpenedBeforeAStaleQueuedCloseRunsStillCloses() {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            // EmbeddedChannel runs queued tasks after each write and flush reaching its head. Holding the frames
+            // short of it keeps the first flush's queued close behind the later writes, as a host's event loop does.
+            var held = new ArrayList<ByteBuf>();
+            f.channel.pipeline().addFirst(new ChannelOutboundHandlerAdapter() {
+                @Override
+                public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
+                    held.add((ByteBuf) message);
+                    promise.setSuccess();
+                }
+
+                @Override
+                public void flush(ChannelHandlerContext ctx) {}
+            });
+            f.channel.pipeline().write(wireCamera(f, 1));
+            f.channel.pipeline().flush();
+            // The respawn closes the first bundle before its queued close runs.
+            f.channel.pipeline().write(f.frame(CLIENTBOUND, PLAY, "respawn"));
+            f.channel.pipeline().write(wireCamera(f, 2));
+            f.channel.pipeline().flush();
+            f.pump();
+            var names = new ArrayList<String>();
+            for (ByteBuf frame : held) {
+                names.add(f.name(frame));
+                frame.release();
+            }
+            assertEquals(
+                    List.of(
+                            "D",
+                            "P41",
+                            "minecraft:set_camera",
+                            "D",
+                            "minecraft:respawn",
+                            "D",
+                            "P42",
+                            "minecraft:set_camera",
+                            "D"),
+                    names);
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    @Test
+    void aLaterCultPingInTheBundleBecomesTheSharedPing() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            // Stands in for PacketPingListener, which tags CultAC's own pings with their transaction.
+            f.routes.send(ClientboundPackets.PING, event -> {
+                if (event.getPacket().id() >= 100)
+                    event.trackedPing(event.getPacket().id());
+            });
+            f.channel.write(wireCamera(f, 1));
+            f.channel.write(f.ping(PLAY, 7));
+            f.channel.write(wireCamera(f, 2));
+            f.channel.write(f.ping(PLAY, 100));
+            f.channel.write(wireCamera(f, 3));
+            f.channel.flush();
+            f.pump();
+            assertEquals(
+                    List.of(
+                            "D",
+                            "P41",
+                            "minecraft:set_camera",
+                            "P7",
+                            "minecraft:set_camera",
+                            "P100",
+                            "minecraft:set_camera",
+                            "D"),
+                    f.output());
+            assertEquals(List.of(41, 41, 100), proofs);
+        }
+    }
+
+    @Test
+    void aBundledWriteGroupJoinsTheOpenFlushBundle() {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            f.channel.write(wireCamera(f, 1));
+            f.pump();
+            var group = f.connection.write(List.of(new CultWrite(new ClientboundPing(9), false)), true);
+            f.pump();
+            f.channel.flush();
+            f.pump();
+            assertTrue(group.isSuccess());
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "P9", "D"), f.output());
+        }
+    }
+
+    @Test
+    void anOversizedFlushBundleSplitsWithAFreshLeadingPing() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            for (int id = 0; id < 4096; id++) f.channel.write(wireCamera(f, id));
+            f.channel.flush();
+            f.pump();
+            List<String> emitted = f.output();
+            // With 16 slots of sharing headroom, the lead and 4,079 cameras fill the first proof scope.
+            assertEquals(4102, emitted.size());
+            assertEquals(List.of("D", "P41"), emitted.subList(0, 2));
+            assertEquals(List.of("D", "D", "P42"), emitted.subList(4081, 4084));
+            assertEquals("D", emitted.get(4101));
+            assertEquals(4079, proofs.stream().filter(proof -> proof == 41).count());
+            assertEquals(17, proofs.stream().filter(proof -> proof == 42).count());
+        }
+    }
+
+    @Test
+    void aLeadAdoptingAFullHostBundleStaysWithItsPacket() {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            // A valid host bundle: 4,095 unlistened packets, then one CultAC proves.
+            f.channel.write(f.delimiter());
+            for (int i = 0; i < 4095; i++) {
+                f.channel.write(
+                        f.frame(CLIENTBOUND, PLAY, "game_event").writeByte(7).writeFloat(1));
+            }
+            f.channel.write(wireCamera(f, 1));
+            f.channel.write(f.delimiter());
+            f.channel.flush();
+            f.pump();
+            List<String> emitted = f.output();
+            assertEquals(List.of(41), proofs);
+            int ping = emitted.indexOf("P41");
+            // ClientPacketListener#handleBundlePacket answers the ping in the camera's task only within one bundle.
+            assertEquals("minecraft:set_camera", emitted.get(ping + 1));
+            int members = 0;
+            for (String name : emitted) {
+                if (name.equals("D")) members = 0;
+                else assertTrue(++members <= 4096, "A client bundle holds at most 4,096 packets");
+            }
+        }
+    }
+
+    @Test
+    void removingTheEncoderClosesAnOpenFlushBundle() {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            f.channel.write(wireCamera(f, 1));
+            f.pump();
+            CultEncoder.uninstall(f.channel);
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "D"), f.output());
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    /**
+     * Each camera is proven as CultPlayer#appendFlushProofTransaction proves an update: it shares the bundle's
+     * ping, or leads with a new one. Returns the transactions in packet order.
+     */
+    private static List<Integer> proveCameras(Fixture f) {
+        var proofs = new ArrayList<Integer>();
+        var next = new AtomicInteger(40);
+        f.routes.send(ClientboundPackets.SET_CAMERA, event -> {
+            int proof = event.flushPing();
+            if (proof == 0) {
+                proof = next.incrementAndGet();
+                event.leadWith(new CultWrite(new ClientboundPing(proof), false), proof);
+            }
+            proofs.add(proof);
+        });
+        return proofs;
+    }
+
+    private static ByteBuf wireCamera(Fixture f, int entityId) {
+        ByteBuf buffer = f.frame(CLIENTBOUND, PLAY, "set_camera");
+        Wire.writeVarInt(buffer, entityId);
+        return buffer;
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void aReentrantWriteDuringFlushClosureGetsANewProof(boolean standalone) {
+        try (var f = new Fixture(false)) {
+            var proofs = proveCameras(f);
+            var delimiters = new AtomicInteger();
+            f.channel.pipeline().addBefore(CultEncoder.NAME, "reentrant-close", new ChannelOutboundHandlerAdapter() {
+                @Override
+                public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
+                    boolean closing = message instanceof ByteBuf bytes
+                            && f.name(bytes).equals("D")
+                            && delimiters.incrementAndGet() == 2;
+                    ctx.write(message, promise);
+                    if (closing) f.channel.write(wireCamera(f, 2));
+                }
+            });
+            f.channel.write(wireCamera(f, 1));
+            if (standalone) f.channel.write(f.keepAlive(101));
+            f.channel.flush();
+            f.pump();
+            f.channel.flush();
+            f.pump();
+            assertEquals(List.of(41, 42), proofs);
+            var emitted = f.output();
+            assertEquals(
+                    2,
+                    emitted.stream()
+                            .filter(name -> name.equals("P41") || name.equals("P42"))
+                            .count());
+            assertKeepAlivesOutsideBundles(emitted);
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    @Test
+    void transferIsWrittenOutsideTheFlushBundle() {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            f.channel.write(wireCamera(f, 1));
+            var transfer = f.frame(CLIENTBOUND, PLAY, "transfer");
+            Wire.writeString(transfer, "localhost", 32767);
+            Wire.writeVarInt(transfer, 25565);
+            f.channel.write(transfer);
+            f.channel.flush();
+            f.pump();
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "D", "minecraft:transfer"), f.output());
+            assertFalse(f.connection.flushBundleOpen());
+        }
+    }
+
+    @Test
+    void disconnectClosesTheBundleBeforeItsCompletionCanCloseTheChannel() {
+        try (var f = new Fixture(false)) {
+            proveCameras(f);
+            f.channel.write(wireCamera(f, 1));
+            var completion = f.channel.newPromise();
+            completion.addListener(ignored -> f.channel.close());
+            // The raw packet retains the host's completion callback even without a model send route.
+            f.channel
+                    .pipeline()
+                    .write(
+                            f.frame(CLIENTBOUND, PLAY, "disconnect")
+                                    .writeByte(10)
+                                    .writeByte(0),
+                            completion);
+            f.channel.flush();
+            f.pump();
+            assertEquals(List.of("D", "P41", "minecraft:set_camera", "D", "minecraft:disconnect"), f.output());
+            assertFalse(f.channel.isOpen());
         }
     }
 
@@ -1267,6 +2572,10 @@ class CultTransportTest {
             return frame(CLIENTBOUND, phase, "ping").writeInt(id);
         }
 
+        ByteBuf keepAlive(long id) {
+            return frame(CLIENTBOUND, PLAY, "keep_alive").writeLong(id);
+        }
+
         ByteBuf pong(ConnectionPhase phase, int id) {
             return frame(SERVERBOUND, phase, "pong").writeInt(id);
         }
@@ -1280,7 +2589,9 @@ class CultTransportTest {
             String name = RUNTIME.data().packets(PLAY, CLIENTBOUND).name(Wire.readVarInt(view));
             return name.equals("minecraft:bundle_delimiter")
                     ? "D"
-                    : name.equals("minecraft:ping") ? "P" + view.readInt() : name;
+                    : name.equals("minecraft:ping")
+                            ? "P" + view.readInt()
+                            : name.equals("minecraft:keep_alive") ? "K" + view.readLong() : name;
         }
 
         String hex(ByteBuf frame) {

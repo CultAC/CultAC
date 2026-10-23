@@ -24,6 +24,6 @@ public final class AttackPlayerVisibility extends VisibilityCheck {
         if (packet.action() != InteractAction.ATTACK) return;
         var entity = player.compensatedEntities.getEntity(packet.entityId());
         if (entity == null || entity.type != EntityTypeIds.PLAYER) return;
-        if (visibility.entityHidden(entity)) reject(event, "action=attack entity=" + packet.entityId());
+        if (attackHidden(entity)) reject(event, "");
     }
 }

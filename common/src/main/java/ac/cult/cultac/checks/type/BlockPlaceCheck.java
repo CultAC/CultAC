@@ -1,7 +1,6 @@
 package ac.cult.cultac.checks.type;
 
 import ac.cult.cultac.checks.Check;
-import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.api.config.ConfigManager;
@@ -13,10 +12,6 @@ public class BlockPlaceCheck extends Check implements CheckListener {
 
     public BlockPlaceCheck(CultPlayer player) {
         super(player);
-    }
-
-    public BlockPlaceCheck(CultPlayer player, CheckInfo checkInfo) {
-        super(player, checkInfo);
     }
 
     @Override

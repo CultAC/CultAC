@@ -37,7 +37,6 @@ public class InvalidPlaceB extends BlockPlaceCheck {
         }
 
         if (faceId < 0 || faceId > 5) {
-            // ban
             int direction = faceId;
             if (flag(V.write(verbose()).sint(direction)) && shouldModifyPackets() && shouldCancel()) {
                 place.resync();

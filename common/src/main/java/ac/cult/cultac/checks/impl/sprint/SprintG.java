@@ -4,6 +4,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -30,8 +31,8 @@ public class SprintG extends Check implements PostPredictionListener {
         PredictionResult lastResult =
                 player.checkManager.getSimulationProcessor().getLastPrediction();
 
-        boolean wasTouchingWater = result != null
-                && result.getSimulationContext().getWorldData().getInWater().determinePessimistically();
+        WorldData world = result == null ? null : result.getSimulationContext().getWorldData();
+        boolean wasTouchingWater = world != null && world.getInWater().determinePessimistically();
         boolean wasWasTouchingWater = lastResult != null
                 && lastResult.getSimulationContext().getWorldData().getInWater().determinePessimistically();
 
@@ -44,11 +45,11 @@ public class SprintG extends Check implements PostPredictionListener {
 
         if (wasTouchingWater
                 && (wasWasTouchingWater || player.getClientVersion() == ClientVersion.V_1_21_4)
-                && !player.wasEyeInWater
+                && !world.isUnderwater()
                 && wasLastPredictionCompleteChecked
                 && isChecked
                 && !(riding != null && riding.type == EntityTypeIds.CAMEL)
-                && !player.isSwimming) {
+                && !world.isSwimming()) {
             if (player.isSprinting) {
                 flagWithSetback();
             } else {

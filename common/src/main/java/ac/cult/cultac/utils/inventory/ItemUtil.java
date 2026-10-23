@@ -69,10 +69,6 @@ public final class ItemUtil {
                 : ItemComponents.enchantments(stack.components()).getOrDefault(enchantment, 0);
     }
 
-    public static String name(ItemDefinition item) {
-        return item.key().substring(item.key().indexOf(':') + 1).toUpperCase(java.util.Locale.ROOT);
-    }
-
     public static boolean isSword(ItemDefinition item) {
         if (item == null) return false;
         var tool = ItemComponents.tool(modelItems().defaults(item.key()));

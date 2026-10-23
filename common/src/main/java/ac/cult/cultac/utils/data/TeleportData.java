@@ -51,11 +51,19 @@ public class TeleportData {
     @Setter
     ClientboundPlayerRotation playerRotation;
 
+    /** A ping the client answers in the same bundle task before it handles {@link #playerRotation}. */
+    @Setter
+    int bundleTransaction = Integer.MAX_VALUE;
+
     @Setter
     boolean sentWhileVehicle;
 
     @Setter
     boolean sentDuringVehicleDismount;
+
+    /** The client sent this pending teleport's whole answer: its ID with the position, or its ID and a PosRot. */
+    @Setter
+    boolean answered;
 
     @Setter
     Boolean bedrockOnGround;
@@ -127,9 +135,52 @@ public class TeleportData {
         copy.sourceYaw = yaw;
         copy.sourcePitch = pitch;
         copy.finalYaw = (playerRotation.relativeYaw() ? yaw : 0.0F) + playerRotation.yaw();
-        float changedPitch = (playerRotation.relativePitch() ? pitch : 0.0F) + playerRotation.pitch();
-        copy.finalPitch = Math.max(-90.0F, Math.min(90.0F, changedPitch));
+        copy.finalPitch = clampPitch((playerRotation.relativePitch() ? pitch : 0.0F) + playerRotation.pitch());
         return copy;
+    }
+
+    /**
+     * Resolve handleRotatePlayer's echo {@code yaw}/{@code pitch}. Its relative axes start from the client's live
+     * rotation, which becomes the source; an absolute axis keeps the last reported {@code lastYaw}/{@code lastPitch}.
+     */
+    public TeleportData resolvePlayerRotationEcho(float yaw, float pitch, float lastYaw, float lastPitch) {
+        if (playerRotation == null) return this;
+        TeleportData copy = copyWithLocation(location);
+        copy.sourceYaw = lastYaw;
+        copy.sourcePitch = lastPitch;
+        if (playerRotation.relativeYaw()) {
+            copy.finalYaw = yaw;
+            copy.sourceYaw = yaw - playerRotation.yaw();
+        }
+        if (playerRotation.relativePitch()) {
+            copy.finalPitch = clampPitch(pitch);
+            copy.sourcePitch = pitchBeforeRelativeRotation(copy.finalPitch, playerRotation.pitch(), lastPitch);
+        }
+        return copy;
+    }
+
+    private static float clampPitch(float pitch) {
+        return Math.max(-90.0F, Math.min(90.0F, pitch));
+    }
+
+    /**
+     * The live pitch that PositionMoveRotation#calculateAbsolute added {@code relative} to for {@code echo}.
+     * calculateAbsolute clamps the sum to [-90, 90], so every live pitch in a range produces the same echo at a bound.
+     */
+    public static float pitchBeforeRelativeRotation(float echo, float relative, float lastPitch) {
+        float low;
+        float high;
+        if (echo >= 90.0F) {
+            low = Math.max(-90.0F, 90.0F - relative);
+            high = 90.0F;
+        } else if (echo <= -90.0F) {
+            low = -90.0F;
+            high = Math.min(90.0F, -90.0F - relative);
+        } else {
+            return echo - relative;
+        }
+        if (low > high) return echo - relative;
+        return Math.max(low, Math.min(high, lastPitch));
     }
 
     public void applyBedrockTransportBoundary(Vec3 physicalFeetPosition, boolean onGround, long revision) {

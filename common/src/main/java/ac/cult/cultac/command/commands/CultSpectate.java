@@ -21,8 +21,7 @@ import org.jetbrains.annotations.NotNull;
 public class CultSpectate implements BuildableCommand {
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        commandManager.command(commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        commandManager.command(BuildableCommand.root(commandManager)
                 .literal("spectate")
                 .permission("cult.spectate")
                 .required("target", arguments.singlePlayerSelectorParser())
@@ -50,7 +49,7 @@ public class CultSpectate implements BuildableCommand {
                 MessageUtil.getParsedComponent(
                         sender,
                         "spectate-return",
-                        "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &fClick here to return to previous location\n</hover></click>"));
+                        "<click:run_command:/%command% stopspectating><hover:show_text:\"/%command% stopspectating\">\n%prefix% &fClick here to return to previous location\n</hover></click>"));
         CultAPI.INSTANCE
                 .getSpectateManager()
                 .spectate(platformPlayer, target, sendReturnLink)

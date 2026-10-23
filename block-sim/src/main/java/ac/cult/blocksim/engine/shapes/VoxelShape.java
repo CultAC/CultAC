@@ -158,6 +158,12 @@ public final class VoxelShape {
         return AabbVoxelIntersection.intersects(this, query, offsetX, offsetY, offsetZ, translated);
     }
 
+    /** {@link #intersectsAabb(VoxelShape, double, double, double, boolean)} with {@code Shapes.create} of the bounds. */
+    public boolean intersectsAabb(double minX, double minY, double minZ, double maxX, double maxY, double maxZ,
+                                  double offsetX, double offsetY, double offsetZ, boolean translated) {
+        return AabbVoxelIntersection.intersects(this, minX, minY, minZ, maxX, maxY, maxZ, offsetX, offsetY, offsetZ, translated);
+    }
+
     public VoxelShape move(double x, double y, double z) {
         if (isEmpty()) return Shapes.empty();
         var moved = new double[3][];

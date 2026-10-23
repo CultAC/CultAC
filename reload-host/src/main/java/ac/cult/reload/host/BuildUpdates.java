@@ -40,7 +40,7 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -72,8 +72,13 @@ public final class BuildUpdates {
     private static final Pattern VERSION = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._+-]{0,127}");
     private static final Pattern JAR = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,99}\\.jar");
     private static final Pattern DOWNLOAD = Pattern.compile("build-[0-9]{1,18}(-[0-9a-f]{12}\\.jar|\\.jar\\.part)");
-    /** One update at a time per loader. */
-    private static final AtomicBoolean RUNNING = new AtomicBoolean();
+    /** The update holding the one-at-a-time guard of this loader; null when none runs. */
+    private static final AtomicReference<Object> RUNNING = new AtomicReference<>();
+    /**
+     * Past every bounded step of an install (requests, download, runtime load and start), an update gives the guard
+     * up, so one hung in the runtime cannot block every later update.
+     */
+    static final Duration UPDATE_LIMIT = Duration.ofMinutes(10);
 
     /**
      * Where builds come from.
@@ -116,6 +121,7 @@ public final class BuildUpdates {
     private final Endpoints endpoints;
     private final HttpClient http;
     private final Duration requestTimeout, downloadTimeout;
+    private Duration updateLimit = UPDATE_LIMIT;
 
     /** @param bundledVersion the version of the runtime the installed plugin jar bundles */
     public BuildUpdates(UpdateSettings settings, String bundledVersion) {
@@ -143,6 +149,10 @@ public final class BuildUpdates {
         http = HttpClients.create(connectTimeout);
     }
 
+    void updateLimit(Duration limit) {
+        updateLimit = limit;
+    }
+
     /** The build number a version names, {@code 0.1.0-b142-stable-abc1234}; 0 for an unnumbered version. */
     public static long buildNumber(String version) {
         if (version == null) return 0;
@@ -163,7 +173,7 @@ public final class BuildUpdates {
      * {@code needs a proxy restart} or why it was refused.
      */
     public CompletionStage<String> install(GenerationManager engine, long number, Executor executor) {
-        return exclusive(() -> installBuild(engine, number, null), executor);
+        return exclusive(() -> installBuild(engine, number, null), executor, updateLimit);
     }
 
     /** Installs the newest build of {@code branch}, as {@link #install} does. */
@@ -183,7 +193,43 @@ public final class BuildUpdates {
                         return "update refused: interrupted";
                     }
                 },
-                executor);
+                executor,
+                updateLimit);
+    }
+
+    /**
+     * {@code /cult update <file.jar>}: activates a jar from the updates directory under the same one-at-a-time guard as
+     * build installs. Completes with one line: the activation or why it was refused.
+     *
+     * @param stateFile the update state to clear once the jar is active, so the next boot keeps it; null to leave it
+     */
+    public static CompletionStage<String> installFile(
+            GenerationManager engine, String filename, Path stateFile, Executor executor) {
+        return installFile(engine, filename, stateFile, executor, UPDATE_LIMIT);
+    }
+
+    static CompletionStage<String> installFile(
+            GenerationManager engine, String filename, Path stateFile, Executor executor, Duration limit) {
+        return exclusive(
+                () -> {
+                    try {
+                        return engine.update(filename, () -> {
+                                    if (stateFile == null) return "";
+                                    try {
+                                        UpdateState.clear(stateFile);
+                                        return "";
+                                    } catch (IOException | RuntimeException failure) {
+                                        return "; the next boot may start the last installed build instead: " + failure;
+                                    }
+                                })
+                                .toCompletableFuture()
+                                .join();
+                    } catch (CompletionException | CancellationException failure) {
+                        return "update refused: " + cause(failure).getMessage();
+                    }
+                },
+                executor,
+                limit);
     }
 
     /** The newest builds, of {@code branch} or of every branch when null, the running one marked. */
@@ -296,15 +342,23 @@ public final class BuildUpdates {
         }
     }
 
-    private CompletionStage<String> exclusive(Supplier<String> task, Executor executor) {
-        if (!RUNNING.compareAndSet(false, true))
+    /**
+     * Runs {@code task} unless another update holds the guard. Past {@code limit} the update is answered as timed out
+     * and gives the guard up. Boot selections are recorded by the manager at publication, including late activations.
+     */
+    private static CompletionStage<String> exclusive(Supplier<String> task, Executor executor, Duration limit) {
+        var token = new Object();
+        if (!RUNNING.compareAndSet(null, token))
             return CompletableFuture.completedFuture("update refused: another update is running");
         try {
             return CompletableFuture.supplyAsync(task, executor)
-                    .exceptionally(failure -> "update refused: " + cause(failure))
-                    .whenComplete((line, failure) -> RUNNING.set(false));
+                    .orTimeout(limit.toMillis(), TimeUnit.MILLISECONDS)
+                    .exceptionally(failure -> cause(failure) instanceof TimeoutException
+                            ? "update timed out after " + limit.toSeconds() + " s; it may still activate later"
+                            : "update refused: " + cause(failure))
+                    .whenComplete((line, failure) -> RUNNING.compareAndSet(token, null));
         } catch (RuntimeException rejected) {
-            RUNNING.set(false);
+            RUNNING.compareAndSet(token, null);
             return CompletableFuture.completedFuture("update refused: " + rejected);
         }
     }
@@ -312,21 +366,32 @@ public final class BuildUpdates {
     /** @param branch the branch the build must be signed for; null for any */
     private String installBuild(GenerationManager engine, long number, String branch) {
         String running = engine.currentBuild();
-        if (buildNumber(running) == number) return "already on b" + number;
+        if (buildNumber(running) == number) {
+            String note = engine.recordSelection(running, () -> recordBuild(number));
+            if (note != null) return "already on b" + number + note;
+        }
         Path jar = null;
         try {
             Build build = fetch(number);
             if (branch != null && !build.branch().equals(branch))
                 throw new Refused("b" + number + " is signed for " + build.branch() + ", not " + branch);
-            if (build.version().equals(running)) return "already on b" + number;
+            if (build.version().equals(running)) {
+                String note = engine.recordSelection(running, () -> recordBuild(number));
+                if (note != null) return "already on b" + number + note;
+            }
             if (!build.loaderVersion().equals(engine.loaderVersion()))
                 return "b" + number + " needs a proxy restart (loader " + engine.loaderVersion() + " → "
                         + build.loaderVersion() + ")";
             Files.createDirectories(engine.updates());
             jar = download(build, engine.updates());
             String result;
+            var selectionNote = new AtomicReference<>("");
             try {
-                result = engine.update(jar.getFileName().toString())
+                result = engine.update(jar.getFileName().toString(), () -> {
+                            String note = recordBuild(number);
+                            selectionNote.set(note);
+                            return note;
+                        })
                         .toCompletableFuture()
                         .join();
             } catch (CompletionException | CancellationException failure) {
@@ -337,12 +402,7 @@ public final class BuildUpdates {
                     ? "already on b" + number
                     : label(running) + " → b" + number + " (" + build.branch() + " "
                             + build.commit().substring(0, 7) + "), " + engine.drainingSessions() + " players draining";
-            try {
-                UpdateState.write(settings.stateFile(), number, bundledVersion);
-            } catch (IOException failure) {
-                line += "; the next boot does not know it: " + failure;
-            }
-            return line;
+            return line + selectionNote.get();
         } catch (Refused refused) {
             return "update refused: " + refused.getMessage();
         } catch (InterruptedException interrupted) {
@@ -357,6 +417,15 @@ public final class BuildUpdates {
                 } catch (IOException ignored) {
                 }
             }
+        }
+    }
+
+    private String recordBuild(long number) {
+        try {
+            UpdateState.write(settings.stateFile(), number, bundledVersion);
+            return "";
+        } catch (IOException | RuntimeException failure) {
+            return "; the next boot does not know it: " + failure;
         }
     }
 

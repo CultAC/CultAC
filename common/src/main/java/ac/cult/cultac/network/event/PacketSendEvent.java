@@ -16,6 +16,21 @@ public final class PacketSendEvent<R> extends PacketEvent<R> {
     private boolean bundle;
     private boolean authored;
     private final ProtocolVersion decodedProtocol;
+    // A CultAC ping already in the open flush bundle this packet joins; 0 when there is none.
+    private int sharedPing;
+    private CultWrite leadingPing;
+    private int leadingTransaction;
+    private int trackedPing;
+    private int receiptProof;
+
+    /** A proof already written after this packet by an earlier listener. */
+    public int receiptProof() {
+        return receiptProof;
+    }
+
+    public void receiptProof(int transaction) {
+        receiptProof = transaction;
+    }
 
     public PacketSendEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet, boolean insideBundle) {
         super(user, phase, type, packet);
@@ -65,6 +80,40 @@ public final class PacketSendEvent<R> extends PacketEvent<R> {
         return authored;
     }
 
+    /** The encoder found a CultAC ping, transaction {@code transaction}, in the flush bundle this packet joins. */
+    public void sharedPing(int transaction) {
+        sharedPing = transaction;
+    }
+
+    /**
+     * The transaction of a CultAC ping in the same physical bundle as this packet, or 0 when a listener must lead
+     * the packet with its own. The client handles a bundle in one task and answers its pings inside it, so any
+     * ping in the bundle proves every packet in it.
+     */
+    public int flushPing() {
+        return leadingPing != null ? leadingTransaction : sharedPing;
+    }
+
+    /** Writes {@code ping} directly before this packet; the encoder opens the flush bundle before it. */
+    public void leadWith(CultWrite ping, int transaction) {
+        if (leadingPing != null) throw new IllegalStateException("Packet already has a leading ping");
+        leadingPing = ping;
+        leadingTransaction = transaction;
+    }
+
+    public CultWrite leadingPing() {
+        return leadingPing;
+    }
+
+    /** This packet is the CultAC ping of transaction {@code transaction}. */
+    public void trackedPing(int transaction) {
+        trackedPing = transaction;
+    }
+
+    public int trackedPing() {
+        return trackedPing;
+    }
+
     public List<CultWrite> writesBefore() {
         return before == null ? List.of() : before;
     }
@@ -84,5 +133,8 @@ public final class PacketSendEvent<R> extends PacketEvent<R> {
         if (after != null) after.clear();
         if (tasks != null) tasks.clear();
         bundle = false;
+        leadingPing = null;
+        receiptProof = 0;
+        // trackedPing stays: the packet is still forwarded, and its ping was marked sent.
     }
 }

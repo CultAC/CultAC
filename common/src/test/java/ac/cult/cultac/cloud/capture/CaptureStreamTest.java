@@ -20,6 +20,9 @@ import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.ProtocolData;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
+import io.netty.buffer.Unpooled;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -35,6 +38,133 @@ class CaptureStreamTest {
     private static final int SERVERBOUND_ID = 1;
     private static final int CLIENTBOUND_ID = 2;
     private static final int DIMENSION_ID = 3;
+
+    @Test
+    void borrowedWireCopiesMatchOwnedArraysAcrossDelayedVerdictsPolicyDropsAndReuse() {
+        for (boolean delayedPolicy : new boolean[] {false, true}) {
+            for (boolean direct : new boolean[] {false, true}) {
+                TestSink ownedSink = new TestSink();
+                TestSink copiedSink = new TestSink();
+                CaptureStream owned = joined(ownedSink);
+                CaptureStream copied = joined(copiedSink);
+                if (!delayedPolicy) {
+                    answer(owned);
+                    answer(copied);
+                }
+                ByteBuf wire = direct ? PooledByteBufAllocator.DEFAULT.directBuffer(300) : Unpooled.buffer(300);
+                try {
+                    for (int tick = 1; tick <= 40; tick++) {
+                        if (tick % 13 == 0) {
+                            ownedSink.refuse = 1;
+                            copiedSink.refuse = 1;
+                        }
+                        for (int packet = 0; packet < 32; packet++) {
+                            if (tick % 17 == 0 && packet == 20) {
+                                overfill(owned, tick * 1000L + packet);
+                                overfill(copied, tick * 1000L + packet);
+                            }
+                            boolean serverbound = packet % 3 == 0;
+                            int kind = serverbound ? IntakeWire.SERVERBOUND : IntakeWire.CLIENTBOUND;
+                            int id = serverbound ? SERVERBOUND_ID : CLIENTBOUND_ID;
+                            int length = packet % 4 == 0 ? 280 : 8 + packet % 8;
+                            byte[] bytes = new byte[length];
+                            Arrays.fill(bytes, (byte) (tick + packet));
+                            bytes[0] = (byte) id;
+                            long nanos = tick * 1000L + packet;
+                            int minY = serverbound ? 0 : -64;
+                            int height = serverbound ? 0 : 384;
+                            CaptureStream.Session session = serverbound ? null : SESSION;
+                            owned.tap(kind, id, bytes, nanos, minY, height, session);
+                            wire.clear().writeByte(77).writeBytes(bytes).readerIndex(1);
+                            copied.tap(kind, id, wire, nanos, minY, height, session, 0);
+                            assertEquals(1, wire.readerIndex());
+                            wire.setZero(0, wire.writerIndex());
+                        }
+                        owned.cut(tick * 1000L + 900);
+                        copied.cut(tick * 1000L + 900);
+                        if (tick > 3) {
+                            verdict(owned, tick - 3, tick - 3, 0);
+                            verdict(copied, tick - 3, tick - 3, 0);
+                        }
+                        if (delayedPolicy && tick == 10) {
+                            answer(owned);
+                            answer(copied);
+                        }
+                    }
+                    for (int tick = 38; tick <= 40; tick++) {
+                        verdict(owned, tick, tick, 0);
+                        verdict(copied, tick, tick, 0);
+                    }
+                    assertTrue(ownedSink.sent.size() > 30);
+                    assertEquals(ownedSink.sent.size(), copiedSink.sent.size());
+                    for (int i = 0; i < ownedSink.sent.size(); i++)
+                        assertArrayEquals(ownedSink.sent.get(i), copiedSink.sent.get(i));
+                } finally {
+                    wire.release();
+                }
+            }
+        }
+    }
+
+    @Test
+    void reusableCopyCapacityStaysBoundedAndIsGivenBackWhenTrafficQuietsStallsOrResets() {
+        long process = CapturePacketCopies.processBytes();
+        CaptureStream stream = answered(new TestSink());
+        ByteBuf wire = PooledByteBufAllocator.DEFAULT.directBuffer(300);
+        long second = 1_000_000_000L;
+        try {
+            long nanos = 0;
+            long peak = 0;
+            for (int tick = 1; tick <= 40; tick++) {
+                nanos = tick * 50_000_000L;
+                for (int packet = 0; packet < 160; packet++)
+                    serverbound(stream, wire, 1 + (tick * 7 + packet * 13) % 256, nanos);
+                stream.cut(nanos);
+                if (tick > 3) verdict(stream, tick - 3, tick - 3, 0);
+                peak = Math.max(peak, stream.pooledBytes());
+                assertTrue(stream.pooledBytes() <= CapturePacketCopies.PLAYER_BYTES, stream.pooledBytes() + "");
+            }
+            for (int tick = 38; tick <= 40; tick++) verdict(stream, tick, tick, 0);
+            assertTrue(peak > CapturePacketCopies.MAX_RETAINED_BYTES, peak + "");
+
+            for (int tick = 41; tick <= 100; tick++) {
+                nanos += second;
+                serverbound(stream, wire, 1, nanos);
+                stream.cut(nanos);
+                verdict(stream, tick, tick, 0);
+                assertTrue(stream.pooledBytes() <= CapturePacketCopies.PLAYER_BYTES, stream.pooledBytes() + "");
+            }
+            long quiet = stream.pooledBytes();
+            assertTrue(quiet <= 2 * CapturePacketCopies.POOL_BYTES + 128, quiet + " after a peak of " + peak);
+
+            for (int tick = 101; tick <= 200; tick++) {
+                nanos += 50_000_000L;
+                for (int packet = 0; packet < 160; packet++)
+                    serverbound(stream, wire, 1 + (tick * 11 + packet * 17) % 256, nanos);
+                stream.cut(nanos);
+                assertTrue(stream.pooledBytes() <= CapturePacketCopies.PLAYER_BYTES, stream.pooledBytes() + "");
+                assertTrue(
+                        CapturePacketCopies.processBytes() - process <= CapturePacketCopies.PLAYER_BYTES,
+                        CapturePacketCopies.processBytes() - process + "");
+            }
+
+            stream.reset();
+
+            assertEquals(0, stream.pooledBytes());
+            assertEquals(process, CapturePacketCopies.processBytes());
+        } finally {
+            wire.release();
+        }
+    }
+
+    private static void serverbound(CaptureStream stream, ByteBuf wire, int length, long nanos) {
+        wire.clear()
+                .writeByte(77)
+                .writeByte(SERVERBOUND_ID)
+                .writeZero(length - 1)
+                .readerIndex(1);
+        stream.tap(IntakeWire.SERVERBOUND, SERVERBOUND_ID, wire, nanos, 0, 0, null, 0);
+    }
 
     @Test
     void firstJoinWithAnOpenSocketIsByteIdenticalToAnImmediateJoin() {
@@ -99,17 +229,17 @@ class CaptureStreamTest {
         stream.start(5);
         stream.prepare(sink);
         CaptureStream.Session login = new CaptureStream.Session(42, 1, "minecraft:overworld", true);
-        stream.observe(login, -64, 384, 100);
-        stream.tap(IntakeWire.CLIENTBOUND, DIMENSION_ID, new byte[] {DIMENSION_ID}, 100, -64, 384, login);
-        stream.tap(IntakeWire.CLIENTBOUND, CLIENTBOUND_ID, new byte[] {CLIENTBOUND_ID, 10}, 110, -64, 384, login);
-        stream.tap(IntakeWire.CLIENTBOUND, CLIENTBOUND_ID, new byte[] {CLIENTBOUND_ID, 20}, 120, -64, 384, login);
-        stream.cut(150);
+        stream.observe(login, -64, 384, 100_000);
+        stream.tap(IntakeWire.CLIENTBOUND, DIMENSION_ID, new byte[] {DIMENSION_ID}, 100_000, -64, 384, login);
+        stream.tap(IntakeWire.CLIENTBOUND, CLIENTBOUND_ID, new byte[] {CLIENTBOUND_ID, 10}, 110_000, -64, 384, login);
+        stream.tap(IntakeWire.CLIENTBOUND, CLIENTBOUND_ID, new byte[] {CLIENTBOUND_ID, 20}, 120_000, -64, 384, login);
+        stream.cut(150_000);
         verdict(stream, 6, 6, 1L << IntakeWire.FLYING);
-        tick(stream, 200);
-        assertEquals(100, stream.baseNanos(300));
+        tick(stream, 200_000);
+        assertEquals(100_000, stream.baseNanos(300_000));
         assertEquals(0, sink.sent.size());
 
-        stream.join(sink, join(), 300, login);
+        stream.join(sink, join(), 300_000, login);
         answer(stream);
         verdict(stream, 7, 7, 1L << IntakeWire.GLIDING);
 
@@ -224,13 +354,13 @@ class CaptureStreamTest {
     void reconnectDoesNotReplayFramesFromEitherSideOfTheDisconnect() {
         TestSink sink = new TestSink();
         CaptureStream stream = preparing(sink);
-        tick(stream, 100);
-        stream.join(sink, join(), 200, SESSION);
+        tick(stream, 100_000);
+        stream.join(sink, join(), 200_000, SESSION);
         stream.reset();
-        tick(stream, 300);
-        stream.join(sink, join(), 400, SESSION);
+        tick(stream, 300_000);
+        stream.join(sink, join(), 400_000, SESSION);
         answer(stream);
-        tick(stream, 500);
+        tick(stream, 500_000);
         verdict(stream, 3, 3, 0);
         assertEquals(2, sink.entries(IntakeMessage.KindCase.JOIN).size());
         assertEquals(1, frames(sink).size());
@@ -288,17 +418,17 @@ class CaptureStreamTest {
     }
 
     @Test
-    void afterTheServiceAnswersFramesTakeNothingFromTheSharedBudget() {
+    void afterTheServiceAnswersFramesStillTakeFromTheSharedBudget() {
         TestSink sink = new TestSink(new TestBudget(20_000));
         CaptureStream stream = answered(sink);
         packet(stream, 100);
         stream.cut(150);
-        assertEquals(0, sink.used);
+        assertTrue(sink.used > 0);
         stream.tap(IntakeWire.CLIENTBOUND, CLIENTBOUND_ID, new byte[25_000], 200, -64, 384, SESSION);
-        assertEquals(0, sink.used);
         stream.cut(250);
         verdict(stream, 2, 2, 0);
-        assertEquals(2, frames(sink).size());
+        assertEquals(1, frames(sink).size(), "the frame past the budget is dropped");
+        assertEquals(0, sink.used);
         stream.leave(300);
         assertEquals(0, sink.used);
     }
@@ -1293,14 +1423,19 @@ class CaptureStreamTest {
         stream.tap(IntakeWire.CLIENTBOUND, CLIENTBOUND_ID, new byte[] {CLIENTBOUND_ID, 1}, nanos, -64, 384, SESSION);
     }
 
-    /** Each clientbound record's server tick, from the frame's and the deltas; its ping kinds alongside. */
+    /**
+     * Each clientbound record's and ping marker's server tick, from the frame's and the deltas; its ping kinds alongside.
+     */
     private static List<long[]> serverTicks(Frame frame) {
         List<long[]> ticks = new ArrayList<>();
         long tick = frame.serverTick() == null ? -1 : frame.serverTick();
-        for (Capture capture : frame.records(IntakeWire.CLIENTBOUND)) {
-            tick += capture.record().getServerTickDelta();
+        for (Capture capture : frame.records()) {
+            boolean marker = capture.kind() == IntakeWire.PING_MARKER;
+            if (!marker && capture.kind() != IntakeWire.CLIENTBOUND) continue;
+            tick += capture.record().getTickDelta();
             ticks.add(new long[] {
-                frame.serverTick() == null ? -1 : tick, capture.record().getPingKindValue()
+                frame.serverTick() == null ? -1 : tick,
+                marker ? capture.record().getPingValue() : capture.record().getPingKindValue()
             });
         }
         return ticks;
@@ -1358,7 +1493,7 @@ class CaptureStreamTest {
         assertEquals(4, frames.size());
         assertEquals(null, frames.get(0).serverTick());
         assertEquals(
-                0, frames.get(0).records(IntakeWire.CLIENTBOUND).get(0).record().getServerTickDelta());
+                0, frames.get(0).records(IntakeWire.CLIENTBOUND).get(0).record().getTickDelta());
         assertEquals(100L, frames.get(1).serverTick());
         assertArrayEquals(
                 new long[][] {{100, 0}, {100, 3}, {100, 1}, {101, 0}, {101, 2}},
@@ -1367,5 +1502,25 @@ class CaptureStreamTest {
                 new long[][] {{101, 0}, {101, 4}}, serverTicks(frames.get(2)).toArray(long[][]::new));
         assertArrayEquals(
                 new long[][] {{103, 0}, {103, 1}}, serverTicks(frames.get(3)).toArray(long[][]::new));
+    }
+
+    @Test
+    void aTickEndWithoutAPingStillEndsTheTick() {
+        TestSink sink = new TestSink();
+        CaptureStream stream = pinging(sink);
+        endOfTick(stream, 8, 1, 99);
+        tick(stream, 5);
+        // Tick 100's packets share leading ping 9, and the tick ends without a ping of its own.
+        ping(stream, 9, 11, 3);
+        clientbound(stream, 12);
+        stream.endOfTick(100);
+        clientbound(stream, 13);
+        tick(stream, 20);
+        for (int seq = 1; seq <= 2; seq++) verdict(stream, seq, seq, 0);
+
+        List<Frame> frames = frames(sink);
+        assertEquals(2, frames.size());
+        assertArrayEquals(
+                new long[][] {{100, 3}, {100, 0}, {101, 0}}, serverTicks(frames.get(1)).toArray(long[][]::new));
     }
 }

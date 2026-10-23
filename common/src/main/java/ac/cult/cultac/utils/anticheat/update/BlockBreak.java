@@ -7,6 +7,7 @@ import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.collisions.HitboxData;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.Getter;
@@ -18,6 +19,9 @@ public final class BlockBreak {
     public final PlayerAction action;
     public final int sequence;
     public final int block;
+    /** The position the client claimed before this action; Minecraft#pick casts the action's ray from its eye. */
+    public final Vec3 clientPosition;
+
     private final CultPlayer player;
 
     @Getter
@@ -38,6 +42,7 @@ public final class BlockBreak {
         this.action = action;
         this.sequence = sequence;
         this.block = block;
+        this.clientPosition = player.packetStateData.clientSidePosition;
     }
 
     public void cancel() {

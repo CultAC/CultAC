@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.inventory.InventoryClick;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.ObjLongConsumer;
 
 /**
  * Debug stimulus for the resync paths: drops the client's interactions before Cult or the server
@@ -28,7 +29,7 @@ public final class InteractionPause {
     private static final int MAX_TRACKED_POSITIONS = 512;
 
     private final CultPlayer player;
-    private final java.util.function.ObjLongConsumer<Runnable> delay;
+    private final ObjLongConsumer<Runnable> delay;
     private final Set<BlockPos> positions = new LinkedHashSet<>();
     private boolean active;
     private int generation;
@@ -45,7 +46,7 @@ public final class InteractionPause {
     }
 
     /** {@code delay} runs a task after the given milliseconds on any thread. */
-    public InteractionPause(CultPlayer player, java.util.function.ObjLongConsumer<Runnable> delay) {
+    public InteractionPause(CultPlayer player, ObjLongConsumer<Runnable> delay) {
         this.player = player;
         this.delay = delay;
     }

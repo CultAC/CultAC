@@ -2,6 +2,7 @@ package ac.cult.cultac.command.commands;
 
 import ac.cult.cultac.cloud.findings.Finding;
 import ac.cult.cultac.cloud.findings.FindingsLog;
+import ac.cult.cultac.utils.anticheat.LogThrottle;
 import java.util.Locale;
 import java.util.Map;
 import net.kyori.adventure.text.Component;
@@ -28,12 +29,13 @@ final class FindingLines {
         TextComponent.Builder line = Component.text()
                 .append(Component.text(place + ". ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(
-                        ranked.name() == null ? ranked.player().toString() : ranked.name(), NamedTextColor.WHITE))
+                        ranked.name() == null ? ranked.player().toString() : oneLine(ranked.name()),
+                        NamedTextColor.WHITE))
                 .append(Component.text(" " + confidence(ranked.max()), NamedTextColor.YELLOW))
                 .append(Component.text(" ×" + ranked.count(), NamedTextColor.DARK_GRAY));
         StringBuilder checks = new StringBuilder();
         for (Map.Entry<String, Integer> check : ranked.checks()) {
-            checks.append(' ').append(check.getKey()).append('×').append(check.getValue());
+            checks.append(' ').append(oneLine(check.getKey())).append('×').append(check.getValue());
         }
         return line.append(Component.text(checks.toString(), NamedTextColor.GRAY))
                 .asComponent();
@@ -41,15 +43,20 @@ final class FindingLines {
 
     private static Component body(Finding finding) {
         String detail = finding.detail();
-        String shown = detail.length() > MAX_DETAIL ? detail.substring(0, MAX_DETAIL - 1) + "…" : detail;
-        String category = finding.category().isEmpty() ? "" : " " + finding.category();
+        String shown = LogThrottle.oneLine(detail, MAX_DETAIL);
+        String category = finding.category().isEmpty() ? "" : " " + oneLine(finding.category());
         TextComponent.Builder line = Component.text()
-                .append(Component.text(finding.check(), NamedTextColor.WHITE))
+                .append(Component.text(oneLine(finding.check()), NamedTextColor.WHITE))
                 .append(Component.text(" " + confidence(finding.confidence()), NamedTextColor.YELLOW))
                 .append(Component.text(category + " @" + finding.tick(), NamedTextColor.DARK_GRAY));
         if (!shown.isEmpty()) line.append(Component.text(" " + shown, NamedTextColor.GRAY));
         if (!detail.isEmpty()) line.hoverEvent(HoverEvent.showText(Component.text(detail, NamedTextColor.GRAY)));
         return line.asComponent();
+    }
+
+    /** Service text that the line shows inline, kept to that one line. */
+    private static String oneLine(String text) {
+        return LogThrottle.oneLine(text, text.length());
     }
 
     static String confidence(double confidence) {

@@ -14,8 +14,10 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
     public double horseJump = 0;
     public boolean allowStandSliding = false;
     public boolean nextAllowStandSliding = false;
-    private int clientRidingJumpStandTicks = 0;
-    private int nextClientRidingJumpStandTicks = 0;
+    /** AbstractHorse#standCounter: local and never synced, so metadata writes leave it running. */
+    private int standCounter = 0;
+
+    private boolean nextStandIfPossible = false;
     public float movementSpeedAttribute = 0.225f;
     public float standAnim = 0.0F;
     public float standAnimO = 0.0F;
@@ -36,6 +38,11 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
         if (player.isBedrockMovement()) jumpStrength = 0.5F;
     }
 
+    /** AbstractHorse#isTamed: FLAG_TAME of DATA_ID_FLAGS. */
+    public boolean isTamed() {
+        return isTame;
+    }
+
     @Override
     public void onMovement(CultPlayer player, boolean highBound) {
         super.onMovement(player, highBound);
@@ -46,53 +53,78 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
         }
     }
 
-    public void tickClientAnimation() {
-        tickStandAnimation();
+    private void tickStandAnimation() {
+        tickStandTail();
     }
 
-    private void tickStandAnimation() {
-        // MCP-Reborn AbstractHorse#tick decrements standCounter before updating standAnim.
-        boolean clientJumpStanding = clientRidingJumpStandTicks > 0 && --clientRidingJumpStandTicks > 0;
-        boolean standing = isRearing || clientJumpStanding;
+    /**
+     * MCP-Reborn AbstractHorse#tick after super.tick() (so after travel): count down standCounter, then update
+     * standAnim from the single visible standing bit (DATA_ID_FLAGS 32, AbstractHorse#isStanding).
+     */
+    public void tickStandTail() {
+        if (standCounter > 0 && --standCounter <= 0) {
+            clearStanding();
+        }
 
-        // MCP-Reborn AbstractHorse#tick updates standAnimO/standAnim from the visible standing flag.
         standAnimO = standAnim;
-        if (standing) {
+        if (isRearing) {
             standAnim += (1.0F - standAnim) * 0.4F + 0.05F;
             if (standAnim > 1.0F) {
                 standAnim = 1.0F;
             }
         } else {
-            // MCP-Reborn AbstractHorse#tick clears allowStandSliding once the
-            // synced standing flag drops.
+            // AbstractHorse#tick clears allowStandSliding on every tick the horse is not standing.
             allowStandSliding = false;
             standAnim += (0.8F * standAnim * standAnim * standAnim - standAnim) * 0.6F - 0.05F;
             if (standAnim < 0.0F) {
                 standAnim = 0.0F;
             }
         }
+    }
 
-        if (nextClientRidingJumpStandTicks > 0) {
-            clientRidingJumpStandTicks = Math.max(clientRidingJumpStandTicks, nextClientRidingJumpStandTicks);
-            nextClientRidingJumpStandTicks = 0;
-        }
+    /** The riding jump LocalPlayer#aiStep would release this tick, for a vehicle that cannot jump after its tick. */
+    public void dropRidingJump() {
+        nextHorseJump = 0.0D;
+        nextAllowStandSliding = false;
+        nextStandIfPossible = false;
     }
 
     public void armClientRidingJumpStand() {
-        // MCP-Reborn AbstractHorse#onPlayerJump calls standIfPossible(), which
-        // sets the client-visible standing flag for 20 ticks. Because the root
-        // horse tick already ran before LocalPlayer#rideTick sends the packet,
-        // arm this for the next root horse tick rather than the current one.
-        nextClientRidingJumpStandTicks = Math.max(nextClientRidingJumpStandTicks, 20);
+        // MCP-Reborn AbstractHorse#onPlayerJump calls standIfPossible() during the
+        // passenger tick, after the root horse tick has already run. Stage it for
+        // promoteClientRidingJumpStand() at the client tick end.
+        nextStandIfPossible = true;
+    }
+
+    /** AbstractHorse#standIfPossible from the staged onPlayerJump, run after this tick's root tail. */
+    public void promoteClientRidingJumpStand(boolean locallyTicked) {
+        if (!nextStandIfPossible) return;
+        nextStandIfPossible = false;
+        // Camel#canPerformRearing and Llama#canPerformRearing are false; on the client, Entity#isEffectiveAi requires
+        // local authority and Mob#isEffectiveAi requires !isNoAi().
+        if (!locallyTicked || !canPerformRearing() || noAI) return;
+        // AbstractHorse#setStanding(20).
+        horseFlagsRevision++;
+        isRearing = true;
+        standCounter = 20;
+    }
+
+    private boolean canPerformRearing() {
+        return !(this instanceof PacketEntityCamel)
+                && type != EntityTypeIds.LLAMA
+                && !EntityTypeUtil.isType(type, "trader_llama");
+    }
+
+    /** AbstractHorse#clearStanding. */
+    private void clearStanding() {
+        horseFlagsRevision++;
+        isRearing = false;
+        standCounter = 0;
     }
 
     public void setRearingFromMetadata(boolean rearing) {
         horseFlagsRevision++;
+        // SynchedEntityData writes only the flag bit; the local standCounter keeps running, as in vanilla.
         isRearing = rearing;
-        // A horse flags metadata packet writes the same client-visible bit that
-        // local setStanding()/clearStanding() writes, so the packet result owns
-        // the visible standing state once it is processed.
-        clientRidingJumpStandTicks = 0;
-        nextClientRidingJumpStandTicks = 0;
     }
 }

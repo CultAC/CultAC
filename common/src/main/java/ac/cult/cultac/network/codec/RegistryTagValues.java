@@ -10,14 +10,17 @@ import ac.cult.cultac.network.packet.RegistryTags;
 import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import io.netty.buffer.ByteBuf;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Set;
 
 /** Registry identifiers and varint tag members; no native objects or shared tag rebinding. */
 public final class RegistryTagValues {
-    static final java.util.Set<String> STATIC =
-            java.util.Set.of("minecraft:block", "minecraft:item", "minecraft:entity_type", "minecraft:fluid");
+    static final Set<String> STATIC =
+            Set.of("minecraft:block", "minecraft:item", "minecraft:entity_type", "minecraft:fluid");
 
     private RegistryTagValues() {}
 
@@ -34,7 +37,7 @@ public final class RegistryTagValues {
 
     public static RegistryTags.Payload readPayload(ByteBuf input) {
         int count = Wire.readLength(input, input.readableBytes());
-        var tags = new LinkedHashMap<String, java.util.List<Integer>>();
+        var tags = new LinkedHashMap<String, List<Integer>>();
         for (int index = 0; index < count; index++) {
             String name = Wire.readIdentifier(input);
             int size = Wire.readLength(input, input.readableBytes());
@@ -57,16 +60,13 @@ public final class RegistryTagValues {
         for (var wire : received.tags().entrySet()) {
             String registry = wire.getKey();
             var payload = wire.getValue();
-            if (!names.hasModelRegistry(registry)) {
-                names.unavailable(registry, "<registry>");
-                continue;
-            }
+            if (!names.hasModelRegistry(registry)) continue;
             // These dynamic tag families are not consumed. Via may inject their registry
             // packets outside the host codec; missing those IDs must not abort login.
             if (!names.hasWireRegistry(registry)
-                    && !ac.cult.cultac.utils.latency.ClientWorldRegistries.REGISTRIES.contains(registry)
+                    && !ClientWorldRegistries.REGISTRIES.contains(registry)
                     && payload.entries().values().stream().anyMatch(members -> !members.isEmpty())) continue;
-            var tags = new LinkedHashMap<String, java.util.List<String>>();
+            var tags = new LinkedHashMap<String, List<String>>();
             // Vanilla resolves only actual members. Via may add empty dynamic-registry
             // payloads without sending their contents; those require no wire ID table.
             int registrySize = payload.entries().values().stream().anyMatch(members -> !members.isEmpty())
@@ -84,7 +84,7 @@ public final class RegistryTagValues {
             if (STATIC.contains(registry))
                 tags = new LinkedHashMap<>(
                         ProtocolCodecs.projectTags(registry, tags, version, version, ProtocolVersion.V26_3));
-            var projected = new LinkedHashMap<String, java.util.List<Integer>>();
+            var projected = new LinkedHashMap<String, List<Integer>>();
             for (var entry : tags.entrySet()) {
                 var ids = new ArrayList<Integer>();
                 for (String member : entry.getValue()) {
@@ -92,21 +92,11 @@ public final class RegistryTagValues {
                             ? names.id(registry, member)
                             : names.modelId(registry, member);
                     if (id >= 0) ids.add(id);
-                    else names.unavailable(registry, member);
                 }
                 projected.put(entry.getKey(), ids);
             }
             registries.put(registry, new RegistryTags.Payload(projected));
         }
         return new RegistryTags(registries);
-    }
-
-    public static void writePayload(ByteBuf output, RegistryTags.Payload payload) {
-        Wire.writeVarInt(output, payload.entries().size());
-        payload.entries().forEach((name, members) -> {
-            Wire.writeString(output, name, Wire.MAX_STRING_LENGTH);
-            Wire.writeVarInt(output, members.size());
-            members.forEach(id -> Wire.writeVarInt(output, id));
-        });
     }
 }

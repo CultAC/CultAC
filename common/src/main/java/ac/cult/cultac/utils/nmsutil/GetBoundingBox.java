@@ -29,12 +29,12 @@ public class GetBoundingBox {
     }
 
     // Size regular: 0.6 width 1.8 height
-    // Size shifting on 1.14+ (19w12a): 0.6 width 1.5 height
+    // Size shifting: 0.6 width 1.5 height
     // Size while gliding/swimming: 0.6 width 0.6 height
     // Size while sleeping: 0.2 width 0.2 height
     public static SimpleCollisionBox getPlayerBoundingBox(
             CultPlayer player, double centerX, double minY, double centerZ) {
-        float width = player.pose.width * player.getScale();
+        float width = player.pose.width * player.dimensionScale;
         float height = player.getBukkitHeight();
 
         return getBoundingBoxFromPosAndSize(centerX, minY, centerZ, width, height);

@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
@@ -28,6 +29,9 @@ public final class JavaPacketLogger implements AutoCloseable {
 
     private final PendingPacketCaptures pending = new PendingPacketCaptures();
     private final Map<CultConnection, Capture> captures = new ConcurrentHashMap<>();
+    /** Never below the number of captures: raised before each put, lowered after each successful remove. */
+    private final AtomicInteger captureBound = new AtomicInteger();
+
     private final AtomicLong queuedBytes = new AtomicLong();
     private final Path directory;
     private final String platform, version;
@@ -52,6 +56,7 @@ public final class JavaPacketLogger implements AutoCloseable {
         return new PacketLogObserver() {
             @Override
             public boolean active() {
+                if (captureBound.get() == 0) return false;
                 var capture = captures.get(connection);
                 return capture != null && capture.log.recording();
             }
@@ -89,7 +94,7 @@ public final class JavaPacketLogger implements AutoCloseable {
         }
         var existing = captures.get(connection);
         if (existing != null && existing.log.finished().isDone()) {
-            captures.remove(connection, existing);
+            remove(connection, existing);
             existing = null;
         }
         if (existing != null) {
@@ -151,7 +156,8 @@ public final class JavaPacketLogger implements AutoCloseable {
         AtomicLong skipped = new AtomicLong();
         PacketLogCapture log = new PacketLogCapture(
                 path, header, queuedBytes, 16L << 20, 64L << 20, () -> " skipped_unreadable=" + skipped.get());
-        captures.put(connection, new Capture(log, skipped));
+        captureBound.incrementAndGet();
+        if (captures.put(connection, new Capture(log, skipped)) != null) captureBound.decrementAndGet();
         log.opened()
                 .whenComplete((file, failure) -> feedback.accept(
                         failure == null
@@ -165,6 +171,7 @@ public final class JavaPacketLogger implements AutoCloseable {
     }
 
     private void observe(CultConnection connection, PacketDirection direction, ConnectionPhase phase, ByteBuf frame) {
+        if (captureBound.get() == 0) return;
         var capture = captures.get(connection);
         if (capture == null || !capture.log.recording()) return;
         try {
@@ -203,8 +210,12 @@ public final class JavaPacketLogger implements AutoCloseable {
     private void drain() {
         captures.forEach((connection, capture) -> {
             capture.log.drain();
-            if (capture.log.finished().isDone()) captures.remove(connection, capture);
+            if (capture.log.finished().isDone()) remove(connection, capture);
         });
+    }
+
+    private void remove(CultConnection connection, Capture capture) {
+        if (captures.remove(connection, capture)) captureBound.decrementAndGet();
     }
 
     @Override

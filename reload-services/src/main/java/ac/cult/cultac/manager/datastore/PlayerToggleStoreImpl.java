@@ -7,8 +7,10 @@ import ac.grim.grimac.api.storage.model.SettingScope;
 import ac.grim.grimac.api.storage.query.Page;
 import ac.grim.grimac.api.storage.query.Queries;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -71,6 +73,8 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
         final AtomicBoolean brandsDirty = new AtomicBoolean();
         /** Single-flight reference: at most one flush per slot in scheduler at a time. */
         final AtomicReference<ScheduledFuture<?>> pendingFlush = new AtomicReference<>();
+        /** Connections holding this slot; only touched inside the slot map's compute for its UUID. */
+        final Set<UUID> connections = new HashSet<>();
     }
 
     private static final long DEFAULT_FLUSH_DELAY_MS = 500L;
@@ -99,17 +103,22 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
         this.ownsScheduler = ownsScheduler;
     }
 
-    private static ScheduledExecutorService defaultScheduler() {
+    static ScheduledExecutorService defaultScheduler() {
         return Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "cult-toggle-flush");
             t.setDaemon(true);
+            t.setContextClassLoader(PlayerToggleStoreImpl.class.getClassLoader());
             return t;
         });
     }
 
     @Override
-    public void prefetch(@NotNull UUID uuid) {
-        ToggleSlot slot = slots.computeIfAbsent(uuid, k -> new ToggleSlot());
+    public void prefetch(@NotNull UUID uuid, @NotNull UUID connectionId) {
+        ToggleSlot slot = slots.compute(uuid, (k, held) -> {
+            ToggleSlot s = held == null ? new ToggleSlot() : held;
+            s.connections.add(connectionId);
+            return s;
+        });
         prefetchKey(uuid, slot.alerts, KEY_ALERTS);
         prefetchKey(uuid, slot.verbose, KEY_VERBOSE);
         prefetchKey(uuid, slot.brands, KEY_BRANDS);
@@ -157,8 +166,15 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
     }
 
     @Override
-    public void evict(@NotNull UUID uuid) {
-        ToggleSlot slot = slots.remove(uuid);
+    public void evict(@NotNull UUID uuid, @NotNull UUID connectionId) {
+        ToggleSlot[] released = new ToggleSlot[1];
+        slots.computeIfPresent(uuid, (k, s) -> {
+            s.connections.remove(connectionId);
+            if (!s.connections.isEmpty()) return s;
+            released[0] = s;
+            return null;
+        });
+        ToggleSlot slot = released[0];
         if (slot == null) return;
         ScheduledFuture<?> f = slot.pendingFlush.getAndSet(null);
         if (f != null) f.cancel(false);

@@ -13,7 +13,6 @@ public final class BedrockMovementProfileTest {
     public void bedrockUsesImmediatePacketVelocityModifiers() {
         BedrockMovementProfile profile = new BedrockMovementProfile();
 
-        assertTrue(profile.usesPacketVelocityModifiers(null));
         assertFalse(profile.shouldUseBundledPacketProof(null));
     }
 

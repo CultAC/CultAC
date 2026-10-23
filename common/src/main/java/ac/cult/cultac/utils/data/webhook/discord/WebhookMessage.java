@@ -1,10 +1,8 @@
 package ac.cult.cultac.utils.data.webhook.discord;
 
-import static ac.cult.cultac.utils.data.json.JsonSerializable.deserializeArray;
 import static ac.cult.cultac.utils.data.json.JsonSerializable.serializeArray;
 
 import ac.cult.cultac.utils.data.json.JsonSerializable;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.Objects;
 import lombok.Getter;
@@ -28,16 +26,6 @@ public class WebhookMessage implements JsonSerializable {
     private @NotNull Embed @Nullable [] embeds;
 
     public WebhookMessage() {}
-
-    public WebhookMessage(@NotNull JsonObject json) {
-        JsonElement element;
-        if ((element = json.get("content")) != null) content(element.getAsString());
-        if ((element = json.get("username")) != null) username(element.getAsString());
-        if ((element = json.get("avatar_url")) != null) avatar(element.getAsString());
-        if ((element = json.get("tts")) != null) tts(element.getAsBoolean());
-        if ((element = json.get("embeds")) != null)
-            embeds(deserializeArray(element.getAsJsonArray(), Embed[]::new, Embed::new));
-    }
 
     @Contract(value = "_ -> this", mutates = "this")
     public @NotNull WebhookMessage content(@Nullable String content) {

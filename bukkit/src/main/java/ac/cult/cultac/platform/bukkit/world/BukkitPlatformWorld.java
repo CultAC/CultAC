@@ -1,7 +1,6 @@
 package ac.cult.cultac.platform.bukkit.world;
 
 import ac.cult.blocksim.data.BlockIds;
-import ac.cult.cultac.platform.api.world.PlatformChunk;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import java.util.UUID;
 import net.minecraft.world.level.block.Block;
@@ -32,11 +31,6 @@ public record BukkitPlatformWorld(@NotNull World bukkitWorld) implements Platfor
     @Override
     public @NotNull UUID getUID() {
         return this.bukkitWorld.getUID();
-    }
-
-    @Override
-    public PlatformChunk getChunkAt(int currChunkX, int currChunkZ) {
-        return new BukkitPlatformChunk(bukkitWorld.getChunkAt(currChunkX, currChunkZ));
     }
 
     @Override

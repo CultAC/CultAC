@@ -23,15 +23,14 @@ public class CultStopSpectating implements BuildableCommand {
 
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        commandManager.command(commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        commandManager.command(BuildableCommand.root(commandManager)
                 .literal("stopspectating")
                 .permission("cult.spectate")
                 .optional("here", StringParser.stringParser(), SuggestionProvider.blocking((ctx, in) -> {
                     if (ctx.sender().hasPermission("cult.spectate.stophere")) {
                         return List.of(Suggestion.suggestion("here"));
                     }
-                    return List.of(); // No suggestions if no permission
+                    return List.of();
                 }))
                 .handler(this::onStopSpectate)
                 .apply(CloudCommandService.REQUIREMENT_FACTORY.create(PlayerSenderRequirement.INSTANCE)));

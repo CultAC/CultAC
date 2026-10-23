@@ -11,12 +11,17 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
-import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.WaterCurrent;
 import java.util.ArrayList;
 import java.util.List;
 
 public class BoatTransform implements UncertaintyHandler {
+    @Override
+    public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        return context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type);
+    }
+
     @Override
     public PredVector handleUncertainty(
             CultPlayer player,
@@ -26,8 +31,7 @@ public class BoatTransform implements UncertaintyHandler {
             PredictionResult lastResult,
             PredVector start,
             Vec3 end) {
-        if (context.getVehicle() == null
-                || !ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(context.getVehicle().type)) return start;
+        if (context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type)) return start;
         if (!player.packetStateData.isVehicleMovementFromClientTick()) {
             // MCP-Reborn ClientPacketListener#handleMoveVehicle only snaps the
             // local-authoritative root with Entity#absSnapTo and immediately
@@ -44,8 +48,7 @@ public class BoatTransform implements UncertaintyHandler {
 
     public static void commitAcceptedBoatTickState(CultPlayer player, PredictionResult result) {
         SimulationContext context = result.getSimulationContext();
-        if (context.getVehicle() == null
-                || !ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(context.getVehicle().type)) return;
+        if (context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type)) return;
 
         BoatTickResult tick = selectBoatTick(
                 player, context, result.getInitialStartingVel(), BoatTickState.capture(player), result.getTarget());
@@ -53,15 +56,14 @@ public class BoatTransform implements UncertaintyHandler {
     }
 
     public static String debugBoatTick(CultPlayer player, SimulationContext context, Vec3 vector) {
-        if (context.getVehicle() == null
-                || !ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(context.getVehicle().type)) {
+        if (context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type)) {
             return null;
         }
 
         BoatTickState state = BoatTickState.capture(player);
         String waterEntryProbe = debugWaterEntryProbe(player, context, state);
         Vec3 withCurrent = applyBoatWaterCurrent(player, context, vector);
-        FloatBoatResult floated = floatBoat(player, context, withCurrent, state.lastYd(), state);
+        FloatBoatResult floated = floatBoat(player, context, withCurrent, state);
         BoatControlResult controlled = controlBoat(player, context, floated.vector(), floated.state());
         return "Boat tick debug: start=" + vector
                 + " withCurrent=" + withCurrent
@@ -82,8 +84,7 @@ public class BoatTransform implements UncertaintyHandler {
     }
 
     public static boolean usesProvenWaterEntryPositionSnap(CultPlayer player, SimulationContext context) {
-        if (context.getVehicle() == null
-                || !ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(context.getVehicle().type)) {
+        if (context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type)) {
             return false;
         }
 
@@ -106,15 +107,6 @@ public class BoatTransform implements UncertaintyHandler {
         return waterEntrySnapHasNoCollision(player, context, movedBox);
     }
 
-    public static Vec3 applyBoatBaseTickWaterCurrent(
-            CultPlayer player, PacketEntity vehicle, Vec3 physicalPosition, Vec3 vector) {
-        SimpleCollisionBox fluidBox = player.boatData.fluidInteractionBox == null
-                ? GetBoundingBox.getPacketEntityBoundingBox(
-                        player, physicalPosition.x, physicalPosition.y, physicalPosition.z, vehicle)
-                : player.boatData.fluidInteractionBox;
-        return applyBoatBaseTickWaterCurrent(player, fluidBox, vector);
-    }
-
     private static Vec3 applyBoatWaterCurrent(CultPlayer player, SimulationContext context, Vec3 vector) {
         // MCP-Reborn AbstractBoat#tick calls super.tick() before floatBoat(); Entity#baseTick
         // applies EntityFluidInteraction water current there. AbstractBoat#getStatus() and
@@ -134,7 +126,7 @@ public class BoatTransform implements UncertaintyHandler {
     }
 
     private static FloatBoatResult floatBoat(
-            CultPlayer player, SimulationContext context, Vec3 vector, double lastYd, BoatTickState state) {
+            CultPlayer player, SimulationContext context, Vec3 vector, BoatTickState state) {
         SimpleCollisionBox boatBox = context.getFromMaximumExtent();
         double boatY = context.getStart().y;
         double boatHeight = boatBox.maxY - boatBox.minY;
@@ -146,7 +138,7 @@ public class BoatTransform implements UncertaintyHandler {
                 && state.status() != BoatEntityStatus.IN_AIR
                 && state.status() != BoatEntityStatus.ON_LAND) {
             double waterLevel = boatY + boatHeight;
-            double targetY = getWaterLevelAbove(player, boatBox, lastYd) - boatHeight + 0.101D;
+            double targetY = getWaterLevelAbove(player, boatBox, state.lastYd()) - boatHeight + 0.101D;
             Vec3 snapVector = new Vec3(vector.x, targetY - boatY, vector.z);
             SimpleCollisionBox movedBox = boatBox.copy().offset(0.0D, targetY - boatY, 0.0D);
 
@@ -174,7 +166,6 @@ public class BoatTransform implements UncertaintyHandler {
                 invFriction = 0.9F;
             } else if (state.status() == BoatEntityStatus.ON_LAND) {
                 invFriction = state.landFriction();
-                // player.boatData.landFriction /= 2.0F; // why does mojang do this?
             }
 
             vector = new Vec3(vector.x * invFriction, vector.y + d1, vector.z * invFriction);
@@ -235,7 +226,7 @@ public class BoatTransform implements UncertaintyHandler {
         // MCP-Reborn AbstractBoat#getWaterLevelAbove uses AbstractBoat.lastYd.
         // checkFallDamage stores that from getDeltaMovement().y, not from the
         // actual position delta; water-entry snaps can move Y while lastYd is 0.
-        FloatBoatResult floated = floatBoat(player, context, vector, state.lastYd(), state);
+        FloatBoatResult floated = floatBoat(player, context, vector, state);
         BoatTickState postFloatState = floated.state();
         BoatControlResult controlled = controlBoat(player, context, floated.vector(), postFloatState);
         return new BoatTickResult(

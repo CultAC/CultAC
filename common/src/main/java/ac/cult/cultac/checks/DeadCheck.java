@@ -7,7 +7,7 @@ import java.lang.annotation.Target;
 
 /**
  * Marks a check that is provably dead on the supported 1.21.2+ matrix.
- * The class is retained deliberately (port-faithfulness / lineage documentation).
+ * The class is retained for port-faithfulness and lineage documentation.
  * This annotation is informational only: registration and behavior are unchanged.
  */
 @Retention(RetentionPolicy.RUNTIME)

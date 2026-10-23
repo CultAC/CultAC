@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.prediction;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
@@ -33,10 +34,25 @@ public class PredictionResult {
     CollideAxisData collideAxisData;
     ValidMovements validMovements;
 
+    /** The move whose exact-effects inside-block pass built the committed Java carry; null before that commit. */
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    JavaFallDistance.Moved javaCommittedMove;
+
     List<Flag> flags = List.of();
     double flagSeverity = 0; // Cache for performance and to allow exempting
+
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private double selectionOffset = Double.NaN;
     private Boolean cachedAnyRealityControlsVerticalMovement;
     private Boolean cachedAnyRealityDidTickSkipGravity;
+
+    /** VanillaStepProof's source-proven step for this result; one handleResult pass reads it from two checks. */
+    @EqualsAndHashCode.Exclude
+    Boolean sourceProvenStep;
 
     @Getter
     @Setter
@@ -90,6 +106,25 @@ public class PredictionResult {
         flags.add(new Flag(check, message, flagSeverity));
     }
 
+    /** Drops the flags of {@code check} and their severity, leaving every other flag on this result. */
+    public void removeFlags(Class<? extends Check> check) {
+        if (getFlag(check) == null) {
+            return;
+        }
+        List<Flag> kept = new ArrayList<>(flags.size());
+        double severity = 0.0D;
+        for (Flag flag : flags) {
+            if (flag.getCheck().getClass() != check) {
+                kept.add(flag);
+                severity += flag.getSeverity();
+            }
+        }
+        flags = kept;
+        if (!isExempt) {
+            flagSeverity = severity;
+        }
+    }
+
     public boolean hasFlag(Class<? extends Check> check) {
         return getFlag(check) != null;
     }
@@ -106,6 +141,12 @@ public class PredictionResult {
     public double getOffset() {
         Vec3 predicted = getLegacyLikePredictionVector();
         return predicted.distanceTo(getTarget());
+    }
+
+    /** {@link #getOffset()} read once during candidate selection, after the candidate's movement is final. */
+    public double selectionOffset() {
+        if (Double.isNaN(selectionOffset)) selectionOffset = getOffset();
+        return selectionOffset;
     }
 
     public Vec3 getAcceptedClosestToTarget() {
@@ -169,15 +210,14 @@ public class PredictionResult {
 
     /** Radius of the circular horizontal input allowance around the closest movement. */
     public double getHorizontalInputRadius() {
-        float speed = getSimulationContext().getMaxSpeed(player);
-        return getSimulationContext().getVehicle() == null ? speed * 1.3D : speed;
+        return getSimulationContext().getHorizontalInputRadius(player, initialStartingVel);
     }
 
     public Vec3 getInputVectorAndVerticals() {
         Vec3 closest = getAcceptedClosestToTarget();
         Vec3 diff = getTarget().subtract(closest);
         Vec3 minimumInputRequired = HorizontalAnalyzer.getBestTheoreticalPlayerInput(
-                diff, getSimulationContext().getXRot());
+                diff, getSimulationContext().getXRot(), getSimulationContext().getVersion());
         return new Vec3(minimumInputRequired.x, closest.y, minimumInputRequired.z);
     }
 
@@ -211,21 +251,21 @@ public class PredictionResult {
         return falling;
     }
 
-    public List<Double> getPossibleGravity() {
+    /** LivingEntity#getEffectiveGravity for every stored deltaMovement with a y in this range. */
+    public List<Double> getPossibleGravity(double minVelocityY, double maxVelocityY) {
         if (!getSimulationContext().getEntities().getEntityInControl().hasGravity) {
             return Collections.singletonList(0.0);
         }
 
-        DesyncStatus falling = getIsFalling();
         boolean hasSlowFalling = getSimulationContext().getEntities().getSlowFallingAmplifier() != null;
 
         double gravity = getSimulationContext().getEntities().getEntityInControl().gravity;
-        if (!hasSlowFalling || falling == DesyncStatus.FALSE) { // No slow falling, or not falling
+        if (!hasSlowFalling) {
             return Collections.singletonList(gravity);
-        } else if (falling == DesyncStatus.UNKNOWN) { // We don't know
+        } else if (initialStartingVel.isTickSkip() || (minVelocityY <= 0.0D && maxVelocityY > 0.0D)) {
             return Arrays.asList(Math.min(gravity, 0.01D), gravity);
-        } else { // Slow falling
-            return Collections.singletonList(Math.min(gravity, 0.01D));
+        } else {
+            return Collections.singletonList(maxVelocityY <= 0.0D ? Math.min(gravity, 0.01D) : gravity);
         }
     }
 

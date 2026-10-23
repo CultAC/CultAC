@@ -21,7 +21,7 @@ public class BukkitConversionUtils {
     }
 
     /**
-     * Converts this enum to a Bukkit PermissionDefault.
+     * Converts a PermissionDefaultValue to a Bukkit PermissionDefault.
      *
      * @return The corresponding Bukkit PermissionDefault.
      */

@@ -11,11 +11,11 @@ public class CommonCultArguments {
             .supportEnv()
             .build();
 
-    public static final SystemArgument<Boolean> KICK_ON_TRANSACTION_ERRORS =
-            FACTORY.create(string("KickOnTransactionTaskErrors", true));
     public static final SystemArgument<String> API_URL =
             FACTORY.create(string("APIUrl", "https://api.grim.ac/v1/server/"));
-    public static final SystemArgument<String> PASTE_URL = FACTORY.create(string("PasteUrl", "https://paste.grim.ac/"));
+    public static final SystemArgument<String> PASTE_API_URL =
+            FACTORY.create(string("PasteApiUrl", "https://api.pastes.dev/"));
+    public static final SystemArgument<String> PASTE_URL = FACTORY.create(string("PasteUrl", "https://pastes.dev/"));
     public static final SystemArgument<Platform> PLATFORM_OVERRIDE = FACTORY.create(platform("PlatformOverride"));
     public static final SystemArgument<Integer> URL_TIMEOUT = FACTORY.create(range("UrlTimeout", 10000, 1000, 60000));
 

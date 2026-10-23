@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.scaffolding;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.EyePositions;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
@@ -80,15 +81,7 @@ public class RotationPlace extends BlockPlaceCheck {
         final List<Double> possibleEyeHeights = player.getPossibleEyeHeights();
 
         // Start checking if player is in the block
-        double minEyeHeight = Double.MAX_VALUE;
-        double maxEyeHeight = Double.MIN_VALUE;
-        for (double height : possibleEyeHeights) {
-            minEyeHeight = Math.min(minEyeHeight, height);
-            maxEyeHeight = Math.max(maxEyeHeight, height);
-        }
-
-        SimpleCollisionBox eyePositions = new SimpleCollisionBox(
-                player.x, player.y + minEyeHeight, player.z, player.x, player.y + maxEyeHeight, player.z);
+        SimpleCollisionBox eyePositions = EyePositions.box(player, possibleEyeHeights);
         eyePositions.expand(player.getMovementThreshold());
 
         // If the player is inside a block, then they can ray trace through the block and hit the other side of the

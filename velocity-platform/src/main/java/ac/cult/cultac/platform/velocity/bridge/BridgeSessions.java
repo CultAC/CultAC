@@ -13,6 +13,9 @@ public interface BridgeSessions {
 
         @Override
         public void addListener(BridgeMessageListener listener) {}
+
+        @Override
+        public void removeListener(BridgeMessageListener listener) {}
     };
 
     /** The READY or HANDSHAKE session for the player's current backend. */
@@ -20,4 +23,6 @@ public interface BridgeSessions {
     BridgeSession current(UUID player);
 
     void addListener(BridgeMessageListener listener);
+
+    void removeListener(BridgeMessageListener listener);
 }

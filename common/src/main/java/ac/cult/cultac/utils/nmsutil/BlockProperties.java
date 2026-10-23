@@ -11,14 +11,7 @@ import ac.cult.cultac.utils.math.Vec3;
 
 public class BlockProperties {
     private static final BlockRegistry BLOCKS = DataTables.defaults().registry();
-    /**
-     * This is used for falling onto a block (We care if there is a bouncy block)
-     * This is also used for striders checking if they are on lava
-     * <p>
-     * For soul speed (server-sided only)
-     * (we don't account for this and instead remove this debuff) And powder snow block attribute
-     * Returns the block's default model state, preserving the material-only identity of this query.
-     */
+    /** Returns the block's default model state, preserving the material-only identity of this query. */
     public static int getOnPos(CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
         return BLOCKS.block(getOnPosState(player, playerPos, mainSupportingBlockData, 0.2F))
                 .defaultState();
@@ -33,7 +26,12 @@ public class BlockProperties {
     public static float getBlockSpeedFactor(
             CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
         if (player.isGliding || player.isFlying) return 1.0f;
+        return getEntityBlockSpeedFactor(player, mainSupportingBlockData, playerPos);
+    }
 
+    /** Entity#getBlockSpeedFactor of an entity at {@code playerPos} on the supporting block its last move found. */
+    public static float getEntityBlockSpeedFactor(
+            CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
         int inBlock = player.compensatedWorld.getBlockStateIdAt(
                 CultMath.floor(playerPos.x), CultMath.floor(playerPos.y), CultMath.floor(playerPos.z));
         float inBlockSpeedFactor = getBlockSpeedFactor(inBlock);
@@ -53,7 +51,6 @@ public class BlockProperties {
                 CultMath.floor(playerPos.x), CultMath.floor(playerPos.y), CultMath.floor(playerPos.z));
         // MCP-Reborn Entity#getBlockJumpFactor reads the entity's current
         // blockPosition first, then getBlockPosBelowThatAffectsMyMovement().
-        // Jump-factor honey must follow that exact lookup, not getOnPosLegacy().
         return BlockIds.is(inBlock, BlockIds.HONEY_BLOCK)
                 || BlockIds.is(
                         getBlockPosBelowThatAffectsMyMovement(player, mainSupportingBlockData, playerPos),
@@ -82,7 +79,6 @@ public class BlockProperties {
         if (mainBlockPos != null) {
             int blockstate = player.compensatedWorld.getBlockStateIdAt(mainBlockPos);
 
-            // I genuinely don't understand this code, or why fences are special
             boolean shouldReturn = (!((double) searchBelowPlayer <= 0.5D) || !ClientBlockProperties.isFence(blockstate))
                     && !ClientBlockProperties.isWall(blockstate)
                     && !ClientBlockProperties.isFenceGate(blockstate);

@@ -109,21 +109,63 @@ class ItemUseCompletionTest {
     }
 
     @Test
-    void confirmedHotbarCompletesTheSelectedSlot() {
+    void confirmedHotbarContentsStillCompleteAnyBoundSlot() {
         fillHotbar(() -> food("minecraft:apple", 3, 5));
         storage.setItem(Inventory.SLOT_OFFHAND, food("minecraft:golden_apple", 2, 5));
         eat(Hand.MAIN_HAND);
 
+        // The reported slot need not be the client's selection at completion.
         assertEquals(14, player.food);
-        assertEquals(2, storage.getItem(Inventory.HOTBAR_OFFSET).getCount());
-        for (int slot = 1; slot < 9; slot++) {
+        for (int slot = 0; slot < 9; slot++) {
             var stack = storage.getItem(Inventory.HOTBAR_OFFSET + slot);
             assertEquals(3, stack.getCount());
-            assertFalse(player.clientItemUse.possiblyChanged(stack));
+            assertEquals(2, player.clientItemUse.lowestCount(stack));
         }
         var cooldowns = player.checkManager.getCompensatedCooldown();
         assertTrue(cooldowns.hasItem(storage.getItem(Inventory.SLOT_OFFHAND)));
         assertFalse(cooldowns.possiblyHasItem(storage.getItem(Inventory.SLOT_OFFHAND)));
+    }
+
+    @Test
+    void aPossiblyShorterStackStillStartsWithAnObligation() {
+        // The empty hotbar slots keep a silent local stop possible, so completion is uncertain.
+        storage.setItem(Inventory.HOTBAR_OFFSET, item("minecraft:apple", 64));
+        eat(Hand.MAIN_HAND);
+        player.clientItemUse.release();
+        assertEquals(64, storage.getItem(Inventory.HOTBAR_OFFSET).getCount());
+
+        // LivingEntity.startUsingItem refuses only an empty stack; 63 or 64 apples both start.
+        assertStartsCertainly(Hand.MAIN_HAND);
+    }
+
+    @Test
+    void repeatedUnprovenCompletionsCanEmptyTheSlot() {
+        storage.setItem(Inventory.HOTBAR_OFFSET, item("minecraft:apple", 2));
+        eat(Hand.MAIN_HAND);
+        player.clientItemUse.release();
+        assertStartsCertainly(Hand.MAIN_HAND);
+
+        tick();
+        complete();
+        player.clientItemUse.release();
+        assertEquals(2, storage.getItem(Inventory.HOTBAR_OFFSET).getCount());
+        assertRefused(Hand.MAIN_HAND);
+    }
+
+    @Test
+    void anUnreportedSameItemSelectionCanCompleteAnotherSlot() {
+        fillHotbar(() -> item("minecraft:apple", 3));
+        storage.setItem(Inventory.HOTBAR_OFFSET + 1, food("minecraft:apple", 3, 5));
+        eat(Hand.MAIN_HAND);
+        player.clientItemUse.release();
+
+        // A number key rebinds the use to slot 1 before the completion; only that reality starts the cooldown.
+        var cooldowns = player.checkManager.getCompensatedCooldown();
+        assertFalse(cooldowns.hasItem(storage.getItem(Inventory.HOTBAR_OFFSET + 1)));
+        assertTrue(cooldowns.possiblyHasItem(storage.getItem(Inventory.HOTBAR_OFFSET + 1)));
+        player.getInventory().selectHotbarSlot(1);
+        assertRefused(Hand.MAIN_HAND);
+        assertFalse(player.clientItemUse.hasObligation());
     }
 
     @Test
@@ -292,7 +334,7 @@ class ItemUseCompletionTest {
         storage.setItem(Inventory.HOTBAR_OFFSET + 2, item("minecraft:stone"));
         storage.setItem(Inventory.SLOT_OFFHAND, item("minecraft:bow"));
         eat(Hand.MAIN_HAND);
-        assertTrue(player.clientItemUse.possiblyChanged(arrow));
+        assertTrue(player.clientItemUse.possiblyEmpty(arrow));
         player.getInventory().selectHotbarSlot(1);
 
         // BowItem.use fails without ammo in the reality that ate the only arrow.
@@ -314,7 +356,7 @@ class ItemUseCompletionTest {
     @Test
     void anOffhandSwapClickCarriesAPossiblyConsumedArrowStack() {
         fillHotbar(() -> item("minecraft:bow"));
-        storage.setItem(Inventory.HOTBAR_OFFSET, edibleArrow(2));
+        storage.setItem(Inventory.HOTBAR_OFFSET, edibleArrow(1));
         storage.setItem(Inventory.SLOT_OFFHAND, item("minecraft:bow"));
         eat(Hand.MAIN_HAND);
         player.clientItemUse.release();
@@ -417,6 +459,13 @@ class ItemUseCompletionTest {
         use(hand);
         assertTrue(player.isClientUsingItem());
         assertTrue(noSlowFlags(player));
+    }
+
+    /** The use opens an obligation; another hotbar item can still stop it silently at the next entity tick. */
+    private void assertStartsCertainly(Hand hand) {
+        use(hand);
+        assertTrue(player.isClientUsingItem());
+        assertTrue(player.clientItemUse.hasObligation());
     }
 
     private void ageCooldowns(int ticks) {

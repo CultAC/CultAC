@@ -1,5 +1,6 @@
 # \u00BB это " (двойной >>), ANSI и UTF-8 интерпретируют это по-разному... вы можете даже увидеть "?" из-за этого
 prefix: "&bCult &8\u00BB"
+command-aliases: [cult, cultac, grim, grimac]
 
 alerts-enabled: "%prefix% &fОповещения включены"
 alerts-disabled: "%prefix% &fОповещения отключены"
@@ -14,7 +15,7 @@ reloaded: "%prefix% &fConfig has been reloaded."
 reload-failed: "%prefix% &cFailed to reload config."
 player-not-found: "%prefix% &cИгрок исключен или находится вне сети!"
 sender-not-found: "%prefix% &cВы не можете использовать эту команду, если у вас есть исключение!"
-spectate-return: "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &fНажмите здесь, чтобы вернуться на предыдущее место\n</hover></click>"
+spectate-return: "<click:run_command:/%command% stopspectating><hover:show_text:\"/%command% stopspectating\">\n%prefix% &fНажмите здесь, чтобы вернуться на предыдущее место\n</hover></click>"
 cannot-spectate-return: "%prefix% &cВы можете сделать это только после наблюдения за игроком"
 cannot-run-on-self: "%prefix% &cВы не можете использовать эту команду на себе!"
 upload-log: "%prefix% &fОтладка была загружена на: %url%"
@@ -46,7 +47,7 @@ experimental-symbol: "*"
 
 profile:
     - "&7======================"
-    - "%prefix% &bПрофиль для &f%player%"
+    - "&bПрофиль для &f%player%"
     - "&bПинг: &f%ping%"
     - "&bВерсия: &f%version%"
     - "&bБренд клиента: &f%brand%"
@@ -56,24 +57,25 @@ profile:
     - "&7======================"
 help:
     - "&7======================"
-    - "/cult alerts &f- &7Включить/выключить оповещения"
-    - "/cult brands &f- &7Toggle brands"
-    - "/cult profile <игрок> &f- &7Просмотреть информацию об игроке"
-    - "/cult help &f- &7Просмотреть это сообщение помощи"
-    - "/cult debug <игрок> &f- &7Вывод прогноза разработчика"
-    - "/cult perf &f- &7Вывод производительности Cult для разработчиков"
-    - "/cult reload &f- &7Перезагружает конфигурацию"
-    - "/cult spectate <игрок> &f- &7Наблюдать за игроком"
-    - "/cult verbose &f- &7Показывает все флаги без буферов"
-    - "/cult log [0-255] &f- &7Загружает журнал отладки для флагов предсказания"
-    - "/cult history <player> &f- &7Список сессий (новые сверху)"
-    - "/cult history <player> page <N> &f- &7Перейти к странице N списка сессий"
-    - "/cult history <player> session <N|latest> [-d] [-v] &f- &7Детали сессии (свежие нарушения сверху)"
-    - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7Детали сессии, страница N нарушений"
-    - "/cult cloud &f- &7Статус выгрузки в облако: сокеты, удерживаемые кадры и счётчики"
-    - "/cult findings <player> [count] &f- &7Последние облачные находки по игроку"
-    - "/cult top [check] [minutes] &f- &7Игроки с самыми уверенными облачными находками"
-    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Пометить игрока в реестре меток облака (также list, revoke)"
+    - "/%command% alerts &f- &7Включить/выключить оповещения"
+    - "/%command% brands &f- &7Toggle brands"
+    - "/%command% profile <игрок> &f- &7Просмотреть информацию об игроке"
+    - "/%command% help &f- &7Просмотреть это сообщение помощи"
+    - "/%command% debug <игрок> &f- &7Вывод прогноза разработчика"
+    - "/%command% perf &f- &7Вывод производительности Cult для разработчиков"
+    - "/%command% reload &f- &7Перезагружает конфигурацию"
+    - "/%command% observe [on|off] &f- &7Показать или переключить режим observe-only"
+    - "/%command% spectate <игрок> &f- &7Наблюдать за игроком"
+    - "/%command% verbose &f- &7Показывает все флаги без буферов"
+    - "/%command% log [0-255] &f- &7Загружает журнал отладки для флагов предсказания"
+    - "/%command% history <player> &f- &7Список сессий (новые сверху)"
+    - "/%command% history <player> page <N> &f- &7Перейти к странице N списка сессий"
+    - "/%command% history <player> session <N|latest> [-d] [-v] &f- &7Детали сессии (свежие нарушения сверху)"
+    - "/%command% history <player> session <N|latest> page <N> [-d] [-v] &f- &7Детали сессии, страница N нарушений"
+    - "/%command% cloud &f- &7Статус выгрузки в облако: сокеты, удерживаемые кадры и счётчики"
+    - "/%command% findings <player> [count] &f- &7Последние облачные находки по игроку"
+    - "/%command% top [check] [minutes] &f- &7Игроки с самыми уверенными облачными находками"
+    - "/%command% label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Пометить игрока в реестре меток облака (также list, revoke)"
     - "&7======================"
 
 # === /cult history ===
@@ -135,4 +137,4 @@ cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
 # Маркеры схемы — см. шапку config.yml.
 config-flavor: V2
-config-version: 2
+config-version: 3

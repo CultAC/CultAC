@@ -2,6 +2,7 @@ package ac.cult.cultac.cloud;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.impl.cloud.Cloud;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck;
@@ -18,7 +19,6 @@ import ac.cult.cultac.cloud.diag.PredictionDiagnostics;
 import ac.cult.cultac.cloud.intake.v3.Outcome;
 import ac.cult.cultac.cloud.transport.CloudConnection;
 import ac.cult.cultac.cloud.wire.IntakeWire;
-import ac.cult.cultac.network.FrameCopies;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -58,8 +58,10 @@ import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.EventLoop;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -99,7 +101,7 @@ public final class CloudCapture implements PlayerObserver {
     private static final Set<String> ENCODERS = Set.of("via-encoder", "cult-encoder", "encoder", "minecraft-encoder");
     /** The first protocol with {@code client_tick_end}. */
     static final int FIRST_PROTOCOL = 768;
-    /** Frames held before their segment is bound or answered, across every player. */
+    /** Capture frames retained until they are sent or dropped, across every player. */
     static final long MAX_HELD_BYTES = 64L * 1024 * 1024;
 
     static final Budget HELD = new Budget(MAX_HELD_BYTES);
@@ -114,6 +116,10 @@ public final class CloudCapture implements PlayerObserver {
     static final int LAST_PROTOCOL = 777;
     /** Segments discarded because no backend was named for them in time. */
     static final AtomicLong unbound = new AtomicLong();
+    /** Diagnostics cuts dropped because their player's loop already had {@link #MAX_WAITING_CUTS} to take. */
+    static final AtomicLong cutsDropped = new AtomicLong();
+    /** Diagnostics cuts a player's loop may have waiting; each holds at most one reply entry. */
+    static final int MAX_WAITING_CUTS = 16;
 
     private static final Map<Integer, StreamIds> STREAM_IDS = new ConcurrentHashMap<>();
     private static final List<String> REGISTRIES = List.of("minecraft:damage_type", "minecraft:enchantment");
@@ -186,11 +192,6 @@ public final class CloudCapture implements PlayerObserver {
 
         boolean enabled();
 
-        /** Whether every socket speaks only intake protocol 5, so no chunk packet is ever kept. */
-        default boolean sectionsOnly() {
-            return false;
-        }
-
         /** The socket for backend {@code serverName}, held until {@link #release}; null when it has none. */
         @Nullable
         Uplink open(String serverName);
@@ -250,8 +251,8 @@ public final class CloudCapture implements PlayerObserver {
     }
 
     /**
-     * Makes {@code player}'s capture when the upload is on and they have none, then installs it, or takes it out when
-     * the upload is off. Any thread.
+     * Makes {@code player}'s capture when it is {@linkplain #wanted wanted} and they have none, then installs it, or
+     * takes it out when it is not. Any thread.
      */
     static void reconfigure(CultPlayer player) {
         if (!(player.user.getChannel() instanceof Channel found)) return;
@@ -259,7 +260,7 @@ public final class CloudCapture implements PlayerObserver {
             found.eventLoop().execute(() -> {
                 CloudCapture capture = of(player);
                 if (capture == null) {
-                    if (!uplinks.enabled()) return;
+                    if (!wanted(player)) return;
                     capture = new CloudCapture(player);
                     player.observer = capture;
                 }
@@ -275,7 +276,8 @@ public final class CloudCapture implements PlayerObserver {
 
     @Override
     public void flagged(Check check, double violations) {
-        if (channel == null) return;
+        // The service's own findings, which it already has.
+        if (channel == null || check instanceof Cloud) return;
         try {
             String name = check.getCheckName();
             if (name == null || name.isEmpty()) name = check.getClass().getSimpleName();
@@ -315,7 +317,7 @@ public final class CloudCapture implements PlayerObserver {
         Channel tapped = channel;
         if (tapped == null || !tapped.eventLoop().inEventLoop()) return;
         try {
-            actions.sent(packet);
+            actions.sent(packet, System.nanoTime());
         } catch (Throwable failure) {
             streamFailed("answer", failure);
         }
@@ -404,8 +406,8 @@ public final class CloudCapture implements PlayerObserver {
     }
 
     /**
-     * Installs the capture on the player's channel when the upload is on, and takes it out when it is off; segments
-     * whose socket the settings moved end there and go on on the new one. Any thread.
+     * Installs the capture on the player's channel when it is {@linkplain #wanted wanted}, and takes it out when it is
+     * not; segments whose socket the settings moved end there and go on on the new one. Any thread.
      */
     void reconfigure() {
         if (!(player.user.getChannel() instanceof Channel found)) return;
@@ -450,8 +452,17 @@ public final class CloudCapture implements PlayerObserver {
         else capture.detach();
     }
 
+    /**
+     * A capture belongs on {@code player}'s channel while the upload is on and this runtime still tracks them. A
+     * hand-off stops tracking them on the channel's loop, so work queued before it finds them gone and stays out of
+     * the pipeline the newer runtime's capture takes.
+     */
+    private static boolean wanted(CultPlayer player) {
+        return uplinks.enabled() && player.user.getCultPlayer() == player;
+    }
+
     private void reconfigureOnLoop(Channel found) {
-        if (!uplinks.enabled()) {
+        if (!wanted(player)) {
             if (channel != null) detachOnLoop(channel);
             leave();
             return;
@@ -511,7 +522,6 @@ public final class CloudCapture implements PlayerObserver {
             built.pingPacket(ids.ping());
             built.pongPacket(ids.pong());
             built.chunks(ids.chunks());
-            built.sectionsOnly(uplinks.sectionsOnly());
             built.text(PlayerText.of(protocol));
             built.terrain(new SimulationTerrain());
             stream = built;
@@ -586,6 +596,7 @@ public final class CloudCapture implements PlayerObserver {
         closed = null;
         channel = null;
         capturing = false;
+        if (stream != null) stream.reset();
         stream = null;
         engine = null;
         leave();
@@ -620,6 +631,7 @@ public final class CloudCapture implements PlayerObserver {
         Channel tapped = channel;
         if (tapped == null) return;
         if (segment != null) endSegment();
+        actions.forget();
         Segment started = new Segment();
         segment = started;
         started.resumed = playing;
@@ -684,7 +696,7 @@ public final class CloudCapture implements PlayerObserver {
         Segment ended = segment;
         if (ended == null) return;
         segment = null;
-        actions.forgetAwaited();
+        actions.forget();
         if (ended.timeout != null) ended.timeout.cancel(false);
         if (ended.uplink == null) {
             stream.reset();
@@ -726,9 +738,49 @@ public final class CloudCapture implements PlayerObserver {
                 });
             }
 
+            /**
+             * The replies the loop has yet to take, in order: the newest capture policy, at most a watch stop and start
+             * between two cuts ({@link #supersede}), at most {@link #MAX_WAITING_CUTS} cuts and a refusal, after which
+             * nothing matters. One task at a time carries them there. Guarded by itself.
+             */
+            private final ArrayDeque<Waiting> waiting = new ArrayDeque<>();
+
+            private int waitingCuts;
+
             @Override
             public void reply(long generation, IntakeWire.Reply reply) {
-                run("reply", () -> CloudCapture.this.reply(owner, generation, reply));
+                Channel tapped = channel;
+                if (tapped == null) return;
+                synchronized (waiting) {
+                    boolean idle = waiting.isEmpty();
+                    if (!idle && waiting.peekLast().reply() instanceof IntakeWire.Refused) return;
+                    if (reply instanceof IntakeWire.DiagCutReply) {
+                        if (waitingCuts == MAX_WAITING_CUTS) {
+                            cutsDropped.incrementAndGet();
+                            return;
+                        }
+                        waitingCuts++;
+                    } else if (reply instanceof IntakeWire.DiagWatchReply watch) {
+                        supersede(waiting, watch);
+                    } else if (!(reply instanceof IntakeWire.Refused)) {
+                        waiting.removeIf(queued -> queued.reply().getClass() == reply.getClass());
+                    }
+                    waiting.addLast(new Waiting(generation, reply));
+                    if (!idle) return;
+                }
+                onLoop(tapped, () -> {
+                    List<Waiting> taken;
+                    synchronized (waiting) {
+                        taken = new ArrayList<>(waiting);
+                        waiting.clear();
+                        waitingCuts = 0;
+                    }
+                    if (channel != tapped) return;
+                    for (Waiting next : taken) {
+                        guarded("reply", () -> CloudCapture.this.reply(owner, next.generation(), next.reply()))
+                                .run();
+                    }
+                });
             }
 
             private void run(String where, Runnable task) {
@@ -773,7 +825,7 @@ public final class CloudCapture implements PlayerObserver {
                         height,
                         facts,
                         player.getName(),
-                        uplink.terms(generation).sections() ? ClientPacketCodecs.MODEL_VERSION.protocol() : 0);
+                        ClientPacketCodecs.MODEL_VERSION.protocol());
         stream.join(sink(uplink, generation), join, base, sent);
         if (!unstreamed) mirror();
     }
@@ -793,6 +845,10 @@ public final class CloudCapture implements PlayerObserver {
             case IntakeWire.DiagCutReply cut ->
                 PredictionDiagnostics.INSTANCE.cut(player, uplink.diagnostics(), cut.cut());
             case IntakeWire.DiagLimitsReply ignored -> {}
+            case IntakeWire.PerfLimitsReply ignored -> {}
+            case IntakeWire.PerfStartReply ignored -> {}
+            case IntakeWire.TeamStateReply ignored -> {}
+            case IntakeWire.TeamSweepReply ignored -> {}
             case IntakeWire.Event ignored -> {}
             case IntakeWire.Capture capture -> {
                 if (!unstreamed) stream.capture(capture.serverbound(), capture.clientbound(), capture.dimension());
@@ -857,7 +913,7 @@ public final class CloudCapture implements PlayerObserver {
 
             @Override
             public CloudConnection.Terms terms() {
-                return uplink == null ? CloudConnection.Terms.PROTOCOL_3 : uplink.terms(generation);
+                return uplink == null ? CloudConnection.Terms.NONE : uplink.terms(generation);
             }
 
             @Override
@@ -1102,7 +1158,7 @@ public final class CloudCapture implements PlayerObserver {
             sightCheck = null;
             return null;
         }
-        if (sightOrigin == null) return null;
+        if (sightOrigin == null || player.compensatedEntities.isUntrackedRider(entity)) return null;
         List<Vec3> origins = player.compensatedEntities.getSelf().getRiding() == null
                 ? List.of(sightOrigin)
                 : sightCheck.getAttackOrigins();
@@ -1171,7 +1227,8 @@ public final class CloudCapture implements PlayerObserver {
     static String summary() {
         return "Cloud segments: " + unbound.get() + " discarded unbound, " + HELD.remaining() / 1048576 + " of "
                 + MAX_HELD_BYTES / 1048576 + " MiB free for held frames; outcomes " + CaptureStream.outcomesSent.get()
-                + " sent, " + CaptureStream.outcomesDropped.get() + " dropped";
+                + " sent, " + CaptureStream.outcomesDropped.get() + " dropped; diagnostics cuts " + cutsDropped.get()
+                + " dropped";
     }
 
     /** Inbound: the packet as the client sent it. Nothing here may disturb the connection. */
@@ -1185,7 +1242,7 @@ public final class CloudCapture implements PlayerObserver {
                             && player.user.getConnectionState() == ConnectionPhase.PLAY
                             && buf.readableBytes() <= CaptureStream.MAX_SERVERBOUND_BYTES
                             && stream.wants(IntakeWire.SERVERBOUND, id)) {
-                        stream.tap(IntakeWire.SERVERBOUND, id, FrameCopies.bytes(buf), System.nanoTime(), 0, 0, null);
+                        stream.tap(IntakeWire.SERVERBOUND, id, buf, System.nanoTime(), 0, 0, null, 0);
                     } else {
                         stream.skipped();
                     }
@@ -1198,11 +1255,18 @@ public final class CloudCapture implements PlayerObserver {
                         long now = System.nanoTime();
                         stream.cut(now);
                         actions.expire(now);
-                        if (actions.unmarked()) binder.mark(player, actions.marker());
                         mirror();
                     } catch (Throwable failure) {
                         tapFailed(failure);
                     }
+                    ctx.fireChannelRead(message);
+                    // The marker reaches the server after the tick end, so it never sits inside the client's tick.
+                    try {
+                        if (actions.unmarked()) binder.mark(player, actions.marker());
+                    } catch (Throwable failure) {
+                        tapFailed(failure);
+                    }
+                    return;
                 }
             }
             ctx.fireChannelRead(message);
@@ -1249,18 +1313,35 @@ public final class CloudCapture implements PlayerObserver {
         if (!stream.capturing()) return;
         int pingKind = id == pingPacket && id >= 0 ? pingKind(buf, id) : 0;
         if (!stream.wants(IntakeWire.CLIENTBOUND, id)) return;
-        stream.tap(IntakeWire.CLIENTBOUND, id, FrameCopies.bytes(buf), now, minY, height, sent, pingKind);
+        stream.tap(IntakeWire.CLIENTBOUND, id, buf, now, minY, height, sent, pingKind);
     }
 
-    /** A tapped ping's {@code PingKind}; an end-of-tick ping's server tick goes to the stream first. */
+    /**
+     * The frames written before this call were handed to the event loop first, so the mark queues behind them there
+     * and lands at the tick end's place in the stream, ahead of an end-of-tick ping written after it.
+     */
+    @Override
+    public void serverTickEnded(int serverTick) {
+        Channel tapped = channel;
+        if (tapped == null) return;
+        onLoop(tapped, () -> {
+            CaptureStream current = stream;
+            if (segment == null || current == null || !current.capturing()) return;
+            try {
+                current.endOfTick(serverTick);
+            } catch (Throwable failure) {
+                tapFailed(failure);
+            }
+        });
+    }
+
+    /** A tapped ping's {@code PingKind}. */
     private int pingKind(ByteBuf buf, int id) {
         int at = buf.readerIndex() + varIntBytes(id);
         if (buf.writerIndex() - at < 4) return IntakeWire.PING_FOREIGN;
         long provenance = player.pingProvenance(buf.getInt(at));
         int kind = (int) (provenance & 0xFF);
-        if (kind == 0) return IntakeWire.PING_FOREIGN;
-        if (kind == IntakeWire.PING_END_OF_TICK) stream.endOfTick(provenance >> 8);
-        return kind;
+        return kind == 0 ? IntakeWire.PING_FOREIGN : kind;
     }
 
     private static int varIntBytes(int value) {
@@ -1356,6 +1437,23 @@ public final class CloudCapture implements PlayerObserver {
         private boolean onEventLoop() {
             Channel tapped = channel;
             return tapped != null && tapped.eventLoop().inEventLoop();
+        }
+    }
+
+    record Waiting(long generation, IntakeWire.Reply reply) {}
+
+    /**
+     * Drops the waiting watches {@code watch} makes redundant: those since the last waiting cut, but for a stop when
+     * {@code watch} starts one. Between two cuts at most a stop and a start then wait.
+     */
+    static void supersede(ArrayDeque<Waiting> waiting, IntakeWire.DiagWatchReply watch) {
+        for (Iterator<Waiting> newest = waiting.descendingIterator(); newest.hasNext(); ) {
+            IntakeWire.Reply queued = newest.next().reply();
+            if (queued instanceof IntakeWire.DiagCutReply) return;
+            if (queued instanceof IntakeWire.DiagWatchReply earlier) {
+                if (watch.leaseSeconds() > 0 && earlier.leaseSeconds() <= 0) return;
+                newest.remove();
+            }
         }
     }
 

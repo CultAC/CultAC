@@ -3,8 +3,10 @@ package ac.cult.cultac.utils.blockplace;
 import ac.cult.blocksim.data.Box;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.HolderSets;
+import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.BlockRaycast;
 import ac.cult.blocksim.engine.BlockSimClientVersion;
+import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimPlayer;
 import ac.cult.blocksim.engine.SimWorldView;
 import ac.cult.blocksim.engine.Vec3;
@@ -14,10 +16,12 @@ import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityCat;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityCreaking;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHanging;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
@@ -25,6 +29,8 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityInteraction;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySpider;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
@@ -47,8 +53,7 @@ public final class ClientEntityQueries {
                 player.user.getCultConnection().dispatcher().runtime().data().version();
         var client = player.isBedrockMovement()
                 ? source
-                : ac.cult.cultac.protocol.ProtocolVersion.of(
-                        player.getClientVersion().getProtocolVersion());
+                : ProtocolVersion.of(player.getClientVersion().getProtocolVersion());
         clientVersion = BlockSimClientVersion.of(client.protocol());
         tags = player.registryState == null
                 ? HolderSets.Overlay.EMPTY
@@ -76,11 +81,9 @@ public final class ClientEntityQueries {
         return any(entity -> !spectator(entity), box::intersects);
     }
 
-    public boolean hasSittingCatAt(ac.cult.blocksim.engine.BlockPos pos) {
+    public boolean hasSittingCatAt(BlockPos pos) {
         var query = new Box(pos.x(), pos.y() + 1, pos.z(), pos.x() + 1, pos.y() + 2, pos.z() + 1);
-        return any(
-                entity -> entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityCat cat && cat.sitting,
-                query::intersects);
+        return any(entity -> entity instanceof PacketEntityCat cat && cat.sitting, query::intersects);
     }
 
     /** EntityGetter.getEntityCollisions returns every selected box in the inflated search area. */
@@ -101,17 +104,18 @@ public final class ClientEntityQueries {
     }
 
     /** Concrete compensated boxes selected by EntityGetter#getEntityCollisions for a player source. */
-    public java.util.List<Box> playerCollisionBoxes(Box query) {
-        var result = new java.util.ArrayList<Box>();
+    public List<Box> playerCollisionBoxes(Box query) {
+        var result = new ArrayList<Box>();
         var search = query.inflate(1.0E-7);
         for (var entity : player.compensatedEntities.entityMap.values()) {
             if (!present(entity) || spectator(entity) || !collidable(entity)) continue;
-            for (var bounds : entity.getPossibleMovementCollisionBoxCandidates()) {
+            for (var candidate : entity.getPossibleMovementCollisionBoxCandidates()) {
+                var bounds = entity.toBoundingBox(player, candidate);
                 var box = new Box(bounds.minX, bounds.minY, bounds.minZ, bounds.maxX, bounds.maxY, bounds.maxZ);
                 if (search.intersects(box) && !result.contains(box)) result.add(box);
             }
         }
-        return java.util.List.copyOf(result);
+        return List.copyOf(result);
     }
 
     /** Brush's ProjectileUtil overload has zero margin and does not count containment as a ray hit. */
@@ -141,8 +145,7 @@ public final class ClientEntityQueries {
     private void requireDragonParts() {
         for (var entity : player.compensatedEntities.entityMap.values())
             if (modelType(entity).key().equals("minecraft:ender_dragon"))
-                throw new IllegalStateException(
-                        "Client entity picking requires the dragon's independently positioned parts");
+                throw new SimWorldView.UndecidedQueryException("ender dragon part pick");
     }
 
     private boolean pickable(PacketEntity entity) {
@@ -198,7 +201,7 @@ public final class ClientEntityQueries {
 
     private boolean onClimbable(Vec3 position, boolean gliding) {
         if (world == null) throw new IllegalStateException("Client pushable query requires its compensated block view");
-        var pos = new ac.cult.blocksim.engine.BlockPos(
+        var pos = new BlockPos(
                 (int) Math.floor(position.x()), (int) Math.floor(position.y()), (int) Math.floor(position.z()));
         int state = world.stateAt(pos);
         var registry = DataTables.defaults().registry();
@@ -207,7 +210,7 @@ public final class ClientEntityQueries {
         if (members("block:minecraft:climbable").contains(block.key())) return true;
         if (!block.bindings().get("classHierarchy").contains("net.minecraft.world.level.block.TrapDoorBlock")
                 || !registry.value(state, "open").equals("true")) return false;
-        int below = world.stateAt(pos.relative(ac.cult.blocksim.engine.Direction.DOWN));
+        int below = world.stateAt(pos.relative(Direction.DOWN));
         return registry.block(below).key().equals("minecraft:ladder")
                 && registry.value(state, "facing").equals(registry.value(below, "facing"));
     }
@@ -237,12 +240,12 @@ public final class ClientEntityQueries {
             if (Boolean.TRUE.equals(result)) return true;
             unresolved |= result == null;
         }
-        if (unresolved) throw new IllegalStateException("Client entity candidates disagree on the block action query");
+        if (unresolved) throw new SimWorldView.UndecidedQueryException("entity candidates disagree");
         return false;
     }
 
     /** Null means that the existing packet/tick ordering has not proved one query outcome. */
-    private static Boolean test(PacketEntity entity, Predicate<Box> query) {
+    private Boolean test(PacketEntity entity, Predicate<Box> query) {
         if (entity instanceof PacketEntityHanging hanging) return query.test(hanging.actionBounds());
         Boolean result = null;
         for (var position : entity.getPossibleMovementCollisionBoxCandidates()) {
@@ -255,8 +258,10 @@ public final class ClientEntityQueries {
             } else if (entity instanceof PacketEntityPlayer remote) box = remote.actionBounds(position);
             else if (entity instanceof PacketEntityArmorStand stand) box = stand.actionBounds(position);
             else if (entity instanceof PacketEntityInteraction interaction) box = interaction.actionBounds(position);
-            else
-                box = new Box(position.minX, position.minY, position.minZ, position.maxX, position.maxY, position.maxZ);
+            else {
+                var bounds = entity.toBoundingBox(player, position);
+                box = new Box(bounds.minX, bounds.minY, bounds.minZ, bounds.maxX, bounds.maxY, bounds.maxZ);
+            }
             boolean matched = box != null && query.test(box);
             if (result != null && result != matched) return null;
             result = matched;
@@ -278,8 +283,10 @@ public final class ClientEntityQueries {
                 || entity.type == EntityTypeIds.END_CRYSTAL;
     }
 
-    private static boolean present(PacketEntity entity) {
-        return !(entity instanceof PacketEntityPlayer remote) || remote.actionPresent;
+    // Riders outside the local player's own riding tree have no simulated position.
+    private boolean present(PacketEntity entity) {
+        return (!(entity instanceof PacketEntityPlayer remote) || remote.actionPresent)
+                && !player.compensatedEntities.isUntrackedRider(entity);
     }
 
     private boolean spectator(PacketEntity entity) {

@@ -6,6 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.experimental.UtilityClass;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -135,15 +137,35 @@ public final class CultConfigSpecs {
     public static @NotNull ConfigUpdater.Spec cultConfig(String resourceDirectory) {
         ConfigUpdater.Spec.Builder builder = ConfigUpdater.Spec.builder(
                         resourceDirectory,
-                        resourceDirectory.equals("/punishments/") ? 3 : 0,
+                        resourceDirectory.equals("/punishments/") ? 4 : 0,
                         ConfigUpdater.ConfigFlavor.V2)
                 .cultVersioning();
         if (resourceDirectory.equals("/punishments/")) {
             builder.migration(1, CultConfigSpecs::addBedrockPunishment)
                     .migration(2, CultConfigSpecs::addMissingCheckPunishments)
-                    .migration(3, CultConfigSpecs::addNoSneakSlowPunishment);
+                    .migration(3, CultConfigSpecs::addNoSneakSlowPunishment)
+                    .migration(4, CultConfigSpecs::addSkinBlinkerAndCloudPunishments);
         }
         return builder.build();
+    }
+
+    private static void addSkinBlinkerAndCloudPunishments(MigrationContext ctx) {
+        addPunishmentChecks(
+                ctx,
+                "Misc",
+                List.of("Exploit"),
+                List.of("SkinBlinker"),
+                List.of("10:5 [alert]", "1:1 [log]", "20:10 [webhook]", "20:10 [proxy]"),
+                "Exploit");
+        // A finding is a window's verdict, minutes apart rather than ticks, so they count for longer.
+        addPunishmentChecks(
+                ctx,
+                "Cloud",
+                List.of("Cloud"),
+                List.of("Cloud"),
+                List.of("1:1 [alert]", "1:1 [log]", "3:3 [webhook]", "3:3 [proxy]"),
+                null,
+                1800);
     }
 
     private static void addNoSneakSlowPunishment(MigrationContext ctx) {
@@ -180,7 +202,6 @@ public final class CultConfigSpecs {
         addPunishmentChecks(ctx, defaultGroup, selectors, additions, defaultCommands, null);
     }
 
-    /** Inserts additions right after the {@code insertAfter} entry when the target group has it, else appends. */
     private static void addPunishmentChecks(
             MigrationContext ctx,
             String defaultGroup,
@@ -188,6 +209,21 @@ public final class CultConfigSpecs {
             List<String> additions,
             List<String> defaultCommands,
             @Nullable String insertAfter) {
+        addPunishmentChecks(ctx, defaultGroup, selectors, additions, defaultCommands, insertAfter, 300);
+    }
+
+    /**
+     * Inserts additions right after the {@code insertAfter} entry when the target group has it, else appends; a group
+     * made for them removes violations after {@code removeViolationsAfter} seconds.
+     */
+    private static void addPunishmentChecks(
+            MigrationContext ctx,
+            String defaultGroup,
+            List<String> selectors,
+            List<String> additions,
+            List<String> defaultCommands,
+            @Nullable String insertAfter,
+            int removeViolationsAfter) {
         Map<String, Object> groups = ctx.output().getMap("Punishments");
         if (groups == null) return;
         String target = groups.containsKey(defaultGroup) ? defaultGroup : null;
@@ -240,7 +276,7 @@ public final class CultConfigSpecs {
         if (!changed) return;
         if (target == null) {
             Map<String, Object> group = new LinkedHashMap<>();
-            group.put("remove-violations-after", 300);
+            group.put("remove-violations-after", removeViolationsAfter);
             group.put("checks", checks);
             group.put("commands", defaultCommands);
             ctx.output().put("Punishments." + defaultGroup, group);
@@ -284,13 +320,51 @@ public final class CultConfigSpecs {
         };
     }
 
+    /**
+     * Spec for {@code discord.yml}.
+     *
+     * <p>v1 → v2: the alert names the player, check and violations in its title and puts every value in a code span.
+     * A title or {@code violation-content} still in a shipped v1 shape, in any language, takes the new default; one
+     * the operator wrote stays. {@code include-state} is added by the default rewrite.
+     */
     public static @NotNull ConfigUpdater.Spec discord() {
-        return ConfigUpdater.Spec.builder("/discord/", 1, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/discord/", 2, ConfigUpdater.ConfigFlavor.V2)
+                .migration(2, CultConfigSpecs::discordAlertLayout)
                 .build();
     }
 
+    private static final Pattern SHIPPED_DISCORD_TITLE = Pattern.compile("\\*\\*(?:Cult|Grim) [^%*]+\\*\\*");
+    private static final Pattern SHIPPED_DISCORD_LINE = Pattern.compile("\\*\\*[^*]+\\*\\*: (`?)%([a-z_]+)%\\1");
+    private static final List<String> SHIPPED_DISCORD_PLACEHOLDERS =
+            List.of("player", "check", "violations", "version", "brand", "ping", "tps");
+
+    static void discordAlertLayout(MigrationContext ctx) {
+        String title = ctx.input().getString("embed-title");
+        String newTitle = ctx.defaults().getString("embed-title");
+        if (title != null
+                && newTitle != null
+                && SHIPPED_DISCORD_TITLE.matcher(title).matches()) {
+            ctx.output().put("embed-title", newTitle);
+        }
+        List<?> content = ctx.input().getList("violation-content");
+        List<?> newContent = ctx.defaults().getList("violation-content");
+        if (content != null && newContent != null && isShippedDiscordContent(content)) {
+            ctx.output().put("violation-content", newContent);
+        }
+    }
+
+    private static boolean isShippedDiscordContent(List<?> content) {
+        if (content.size() != SHIPPED_DISCORD_PLACEHOLDERS.size()) return false;
+        for (int i = 0; i < content.size(); i++) {
+            if (!(content.get(i) instanceof String line)) return false;
+            Matcher matcher = SHIPPED_DISCORD_LINE.matcher(line);
+            if (!matcher.matches() || !matcher.group(2).equals(SHIPPED_DISCORD_PLACEHOLDERS.get(i))) return false;
+        }
+        return true;
+    }
+
     public static @NotNull ConfigUpdater.Spec messages() {
-        return ConfigUpdater.Spec.builder("/messages/", 2, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/messages/", 3, ConfigUpdater.ConfigFlavor.V2)
                 .build();
     }
 

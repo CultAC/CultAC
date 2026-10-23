@@ -97,7 +97,14 @@ class BridgeCodecTest {
                 new CommandOutput(15, "{\"text\":\"Reloaded\"}"),
                 new CommandDone(15),
                 new Suggest(16, PLAYER, "cult al"),
-                new Suggestions(16, List.of("alerts", "")));
+                new Suggestions(16, List.of("alerts", "")),
+                new ModsRequest(18),
+                new ClientMods(
+                        18,
+                        true,
+                        List.of(
+                                new ClientMod("sodium", "Sodium", "0.6.0", "FABRIC_INTERNAL"),
+                                new ClientMod("freecam", "", "", "FABRIC_EXTERNAL"))));
     }
 
     @Test
@@ -275,6 +282,7 @@ class BridgeCodecTest {
         assertEquals(1L << 10, ServerCapability.CLEAR_ACTIVE_ITEM.flag());
         assertEquals(1L << 11, ServerCapability.CLOUD_FACTS.flag());
         assertEquals(1L << 12, ServerCapability.MARKER.flag());
+        assertEquals(1L << 13, ServerCapability.APOLLO_MODS.flag());
         long mask = ServerCapability.mask(EnumSet.of(ServerCapability.TELEPORT, ServerCapability.CLEAR_ACTIVE_ITEM));
         assertTrue(ServerCapability.has(mask, ServerCapability.TELEPORT));
         assertTrue(ServerCapability.has(mask, ServerCapability.CLEAR_ACTIVE_ITEM));

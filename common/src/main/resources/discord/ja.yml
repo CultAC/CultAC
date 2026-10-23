@@ -6,21 +6,26 @@ webhook: ""
 # DiscordのURLフォーマット検証をバイパスするには `true` に設定します。
 # これにより、任意の有効なHTTPS URLが許可されます（プロキシやMatrixフォワーダーに便利です）。
 disable-webhook-validation: false
-embed-title: "**Cult 警告**"
+embed-title: "%player% が %check% で検出されました [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+include-state: true
 # 値（クライアントのブランド名など）に含まれるバッククォート (`) を置換し、Discordのテキスト書式が崩れるのを防ぎます。
 # この置換を無効にするには "`" を設定してください。
 backtick-replacement-char: "ˋ"
 violation-content:
     - "**プレイヤー**: `%player%`"
-    - "**違反項目**: %check%"
-    - "**違反回数**: %violations%"
-    - "**クライアントバージョン**: %version%"
+    - "**UUID**: `%uuid%`"
+    - "**違反項目**: `%check%`"
+    - "**クライアントバージョン**: `%version%`"
     - "**ブランド**: `%brand%`"
-    - "**Ping**: %ping%"
-    - "**TPS**: %tps%"
+    - "**感度**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**Ping**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**サーバー**: `%server%`"
+    - "**ワールド**: `%world% (%world_type%)`"
 
 # スキーマ用マーカー — config.yml のヘッダーコメントを参照。
 config-flavor: V2
-config-version: 1
+config-version: 2

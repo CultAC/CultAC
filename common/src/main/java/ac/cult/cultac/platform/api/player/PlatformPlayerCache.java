@@ -8,9 +8,7 @@ public class PlatformPlayerCache {
     private static final PlatformPlayerCache INSTANCE = new PlatformPlayerCache();
     private final Map<UUID, PlatformPlayer> playerCache = new ConcurrentHashMap<>();
 
-    private PlatformPlayerCache() {
-        // Private constructor to prevent instantiation
-    }
+    private PlatformPlayerCache() {}
 
     public static PlatformPlayerCache getInstance() {
         return INSTANCE;

@@ -17,7 +17,12 @@ import org.jetbrains.annotations.Nullable;
  * made when the upload is configured on.
  */
 public final class CloudConnections {
-    private record Key(String url, String apiKey, String serverId) {}
+    record Key(String url, String apiKey, String serverId) {
+        @Override
+        public String toString() {
+            return "Key[url=" + url + ", serverId=" + serverId + "]";
+        }
+    }
 
     private final CloudConnection.Timing timing;
     private final Map<Key, CloudConnection> connections = new ConcurrentHashMap<>();
@@ -36,6 +41,11 @@ public final class CloudConnections {
         public void finding(IntakeWire.Event event) {
             findings.accept(event);
         }
+
+        @Override
+        public TeamSocket.Listener team() {
+            return team;
+        }
     };
     private volatile CloudSettings settings = CloudSettings.OFF;
     /** The transport the open sockets share; made when the current settings turn the upload on. */
@@ -47,6 +57,7 @@ public final class CloudConnections {
 
     private volatile Runnable turnedOff = () -> {};
     private volatile Consumer<IntakeWire.Event> findings = event -> {};
+    private volatile TeamSocket.Listener team = TeamSocket.Listener.NONE;
 
     public CloudConnections() {
         this(CloudConnection.Timing.DEFAULT);
@@ -58,7 +69,7 @@ public final class CloudConnections {
     }
 
     /**
-     * Applies {@code settings}. Sockets on another service, key or protocol offer close; the rest
+     * Applies {@code settings}. Sockets on another service, key, protocol, perf or team offer close; the rest
      * reconnect if the agent they announced has changed. With the upload on, zstd is loaded and the shared transport
      * made here, so {@link #forServer} does map work only.
      */
@@ -76,7 +87,9 @@ public final class CloudConnections {
                     && shared != null
                     && previous.url().equals(settings.url())
                     && previous.apiKey().equals(settings.apiKey())
-                    && previous.protocols().equals(settings.protocols());
+                    && previous.protocols().equals(settings.protocols())
+                    && previous.perf() == settings.perf()
+                    && previous.team() == settings.team();
             if (same) {
                 for (CloudConnection connection : connections.values()) connection.reloaded();
                 return;
@@ -110,6 +123,11 @@ public final class CloudConnections {
         findings = hook;
     }
 
+    /** Sends what every team socket hears to {@code listener}, in place of any earlier one. */
+    public void onTeam(TeamSocket.Listener listener) {
+        team = listener;
+    }
+
     /**
      * The socket for server id {@code id}, opened on first use; null while the upload is off. Each call starts the
      * socket's idle period again.
@@ -129,6 +147,8 @@ public final class CloudConnections {
                     current.apiKey(),
                     id,
                     current.protocols(),
+                    current.perf(),
+                    current.team(),
                     shared,
                     owner,
                     timing);

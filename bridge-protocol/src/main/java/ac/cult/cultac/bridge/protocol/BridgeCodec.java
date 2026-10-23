@@ -7,6 +7,8 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.Challenge;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CheckCatalog;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CheckInfo;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.ClearActiveItem;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.ClientMod;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.ClientMods;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Close;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CloseInventory;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CloudFacts;
@@ -20,6 +22,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.Hello;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Listeners;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Marker;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Metrics;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.ModsRequest;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerFacts;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerState;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerStateResult;
@@ -250,6 +253,18 @@ public final class BridgeCodec {
                 writeCount(out, m.suggestions().size());
                 for (String suggestion : m.suggestions()) writeString(out, suggestion);
             }
+            case ModsRequest m -> writeVarInt(out, m.requestId());
+            case ClientMods m -> {
+                writeVarInt(out, m.requestId());
+                out.writeBoolean(m.lunar());
+                writeCount(out, m.mods().size());
+                for (ClientMod mod : m.mods()) {
+                    writeString(out, mod.id());
+                    writeString(out, mod.name());
+                    writeString(out, mod.version());
+                    writeString(out, mod.type());
+                }
+            }
         }
     }
 
@@ -363,6 +378,17 @@ public final class BridgeCodec {
                 List<String> suggestions = new ArrayList<>(count);
                 for (int i = 0; i < count; i++) suggestions.add(readString(in));
                 yield new Suggestions(requestId, suggestions);
+            }
+            case ModsRequest.TYPE -> new ModsRequest(readVarInt(in));
+            case ClientMods.TYPE -> {
+                int requestId = readVarInt(in);
+                boolean lunar = readBoolean(in);
+                int count = readCount(in);
+                List<ClientMod> mods = new ArrayList<>(count);
+                for (int i = 0; i < count; i++) {
+                    mods.add(new ClientMod(readString(in), readString(in), readString(in), readString(in)));
+                }
+                yield new ClientMods(requestId, lunar, mods);
             }
             default -> throw BridgeProtocolException.unknown(type);
         };

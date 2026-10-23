@@ -15,7 +15,7 @@ import org.incendo.cloud.parser.standard.StringParser;
 public final class CultGeyserPacketLog implements BuildableCommand {
     @Override
     public void register(CommandManager<Sender> manager, CloudPlatformCommandArguments arguments) {
-        manager.command(manager.commandBuilder("cult", "cultac", "grim", "grimac")
+        manager.command(BuildableCommand.root(manager)
                 .literal("debug")
                 .literal("geyserpacketlog")
                 .permission("cult.debug")

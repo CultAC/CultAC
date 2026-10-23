@@ -10,8 +10,7 @@ import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 @CheckData(
         name = "MultiActionsL",
         stableKey = "cult.multiactions.inventory_break",
-        description = "Breaking a block while in an inventory",
-        experimental = true)
+        description = "Breaking a block while in an inventory")
 public class MultiActionsL extends Check implements BlockBreakListener {
 
     public MultiActionsL(CultPlayer player) {

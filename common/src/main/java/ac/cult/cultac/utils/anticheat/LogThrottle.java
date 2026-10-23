@@ -36,7 +36,7 @@ public final class LogThrottle {
         this(DEFAULT_INTERVAL_NANOS, System::nanoTime);
     }
 
-    LogThrottle(long intervalNanos, LongSupplier clock) {
+    public LogThrottle(long intervalNanos, LongSupplier clock) {
         this.intervalNanos = intervalNanos;
         this.clock = clock;
     }
@@ -57,23 +57,42 @@ public final class LogThrottle {
         }
     }
 
-    /**
-     * Text another party controls, made safe to log: control, format and line or paragraph separator characters
-     * become {@code ?}, and past {@link #MAX_CLIPPED} characters it is cut short with an ellipsis.
-     */
+    /** {@link #warn} at error level; a failure to log reaches the caller. */
+    public void error(String key, String message, Throwable failure) {
+        long suppressed = admit(key);
+        if (suppressed < 0) return;
+        if (suppressed == 0) {
+            if (failure == null) LogUtil.error(message);
+            else LogUtil.error(message, failure);
+            return;
+        }
+        String repeated = failure == null ? message : message + ": " + failure;
+        LogUtil.error(repeated + " (" + suppressed + " more since the last report)");
+    }
+
+    /** Text another party controls, made safe to log: {@link #oneLine} at most {@link #MAX_CLIPPED} characters. */
     public static String clip(String text) {
-        if (text == null) return "null";
-        int length = Math.min(text.length(), MAX_CLIPPED);
+        return text == null ? "null" : oneLine(text, MAX_CLIPPED);
+    }
+
+    /**
+     * Text another party controls as one line of at most {@code max} characters: control, format and line or
+     * paragraph separator characters and the section sign {@code §} become {@code ?}, and a longer text is cut
+     * short with an ellipsis.
+     */
+    public static String oneLine(String text, int max) {
+        int length = Math.min(text.length(), max);
         boolean cut = length < text.length();
         if (cut) {
             length--;
-            if (Character.isHighSurrogate(text.charAt(length - 1))) length--;
+            if (length > 0 && Character.isHighSurrogate(text.charAt(length - 1))) length--;
         }
         StringBuilder clipped = new StringBuilder(length + 1);
         for (int i = 0; i < length; i++) {
             char c = text.charAt(i);
             int type = Character.getType(c);
             boolean unsafe = Character.isISOControl(c)
+                    || c == '§'
                     || type == Character.FORMAT
                     || type == Character.LINE_SEPARATOR
                     || type == Character.PARAGRAPH_SEPARATOR;

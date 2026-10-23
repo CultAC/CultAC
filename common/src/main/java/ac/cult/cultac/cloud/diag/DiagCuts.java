@@ -96,6 +96,7 @@ final class DiagCuts {
         int tickBudget = partBytes - PART_FIELDS;
         List<byte[]> parts = new ArrayList<>();
         DiagPart.Builder part = newPart(playerBytes, bundle, 0);
+        int bare = part.build().getSerializedSize();
         part.setHeader(header);
         if (history != null) part.setHistory(history);
         int partSize = part.build().getSerializedSize();
@@ -108,10 +109,10 @@ final class DiagCuts {
                 lost = true;
                 continue;
             }
-            if (partSize + entry.size > tickBudget && part.getTicksCount() > 0) {
+            if (partSize + entry.size > tickBudget && partSize > bare) {
                 parts.add(DiagWire.record(part.build()));
                 part = newPart(playerBytes, bundle, parts.size());
-                partSize = part.build().getSerializedSize();
+                partSize = bare = part.build().getSerializedSize();
             }
             part.addTicks(entry.encoded);
             partSize += entry.size;

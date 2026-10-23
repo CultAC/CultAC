@@ -9,6 +9,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.nmsutil.RiptideUtil;
 
 @CheckData(name = "ElytraF", stableKey = "cult.elytra.grounded", description = "Started gliding while on ground")
 public class ElytraF extends Check implements PostPredictionListener {
@@ -23,6 +24,8 @@ public class ElytraF extends Check implements PostPredictionListener {
             PacketReceiveEvent<ServerboundPlayerCommand> event, CultPlayer player, ServerboundPlayerCommand packet) {
         if (packet.action() == PlayerCommandAction.START_FLYING_WITH_ELYTRA
                 && player.packetStateData.packetPlayerOnGround
+                // TridentItem#releaseUsing's grounded lift in Minecraft#handleKeybinds leaves onGround false.
+                && !RiptideUtil.releasedOnTheGround(player)
                 && flag()) {
             setback = true;
             if (shouldModifyPackets()) {

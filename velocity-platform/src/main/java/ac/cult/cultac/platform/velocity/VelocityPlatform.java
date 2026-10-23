@@ -3,8 +3,11 @@ package ac.cult.cultac.platform.velocity;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.bridge.protocol.BridgeMessage;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.ClientMods;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.World;
+import ac.cult.cultac.checks.CheckPermissions;
 import ac.cult.cultac.cloud.CloudModule;
+import ac.cult.cultac.command.profile.RemoteProfiles;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
@@ -68,6 +71,8 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     private @Nullable BridgeSessions cloudBridge;
     /** Whether the cloud upload is on, as its hooks last said. */
     private boolean cloudOn;
+    /** Cross-proxy profiles while RedisBungee joins the proxies; null otherwise. */
+    private @Nullable RedisProfiles remoteProfiles;
 
     private volatile boolean bedrockBridge;
     private boolean loaded;
@@ -105,7 +110,8 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                             codecs,
                             bedrock),
                     this::bedrockOwner);
-            this.bridge = new BridgeService(proxy, nativePlugin, transport::channel, plugin.getLogger());
+            this.bridge =
+                    new BridgeService(proxy, nativePlugin, transport::channel, manager::connection, plugin.getLogger());
             this.server = new VelocityServer(proxy, senders, bridge::tps);
             manager.setPacketOwnerResolver(channel -> {
                 var connection = manager.connection(channel);
@@ -137,7 +143,11 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
 
     public void load() {
         if (loaded) return;
-        CultAPI.INSTANCE.load(this, (StartableInitable) this::startBedrockBridge);
+        CultAPI.INSTANCE.load(
+                this,
+                (StartableInitable) this::startBedrockBridge,
+                (StartableInitable) () -> CheckPermissions.register(permissions),
+                new VelocityLuckPermsInitable(proxy));
         loaded = true;
         VelocityBridge.install(bridge);
     }
@@ -153,6 +163,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             cloudBridge = bridged ? bridge : BridgeSessions.NONE;
             startCloudBackends();
         }
+        startRemoteProfiles();
         plugin.getLogger().info("CultAC is inspecting Velocity client connections using the bundled 26.3 model");
         plugin.getLogger()
                 .info("Proxy mode: resyncs use the server state each backend sent; server tick ends are estimated "
@@ -170,6 +181,10 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                 @Override
                 public void onMessage(BridgeSession session, BridgeMessage message) {
                     if (message instanceof World world) mirrorWorld(session.playerId(), world.uid());
+                    if (message instanceof ClientMods mods) {
+                        var player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(session.playerId());
+                        if (player != null) player.clientMods = mods;
+                    }
                 }
             });
             BridgeApiService.start();
@@ -179,6 +194,13 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
                     .info("Proxy-only mode: administrative teleports, spectating and real validation blocks require "
                             + "Paper or a backend running the CultAC companion.");
         }
+    }
+
+    private synchronized void startRemoteProfiles() {
+        remoteProfiles = RedisProfiles.create(proxy, nativePlugin, plugin.getLogger());
+        if (remoteProfiles == null) return;
+        RemoteProfiles.install(remoteProfiles);
+        plugin.getLogger().info("RedisBungee found: /cult profile reaches players on the other proxies");
     }
 
     private void mirrorWorld(UUID playerId, @Nullable UUID worldUid) {
@@ -352,6 +374,12 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     public synchronized void close() {
         BridgeCommandService.stop();
         BridgeApiService.stop();
+        if (remoteProfiles != null) {
+            // A newer runtime may already have installed its own.
+            if (RemoteProfiles.current() == remoteProfiles) RemoteProfiles.install(null);
+            remoteProfiles.close();
+            remoteProfiles = null;
+        }
         if (closed) {
             return;
         }

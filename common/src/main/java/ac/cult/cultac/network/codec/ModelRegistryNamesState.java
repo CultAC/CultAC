@@ -67,7 +67,7 @@ public final class ModelRegistryNamesState {
         for (String registry : defaults.builtinRegistries()) values.put(registry, defaults.initialNames(registry));
         for (String registry : defaults.networkRegistries())
             values.put(registry, pending.getOrDefault(registry, List.of()));
-        return new RegistryNames(values);
+        return new RegistryNames(values, names);
     }
 
     public void publish(RegistryNames generation) {
@@ -82,7 +82,7 @@ public final class ModelRegistryNamesState {
         if (pending.containsKey(ClientWorldRegistries.DIMENSIONS))
             values.put(ClientWorldRegistries.DIMENSIONS, pending.get(ClientWorldRegistries.DIMENSIONS));
         else if (current != null) values.put(ClientWorldRegistries.DIMENSIONS, current.names());
-        publish(new RegistryNames(values));
+        publish(new RegistryNames(values, names));
     }
 
     private RegistryNames older() {
@@ -97,7 +97,7 @@ public final class ModelRegistryNamesState {
             entries.addAll(appended);
             values.put(registry, List.copyOf(entries));
         }
-        return new RegistryNames(values);
+        return new RegistryNames(values, names);
     }
 
     private void clear() {

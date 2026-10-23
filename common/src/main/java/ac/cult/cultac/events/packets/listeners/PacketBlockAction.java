@@ -20,6 +20,8 @@ public class PacketBlockAction {
     @CultPacketHandler
     public void onBlockEvent(
             PacketSendEvent<ClientboundBlockEvent> event, CultPlayer player, ClientboundBlockEvent packet) {
+        // Java shulker box shoves come from CompensatedWorld's client block entities.
+        if (!player.isBedrockMovement()) return;
         BlockPos blockPos = new BlockPos(
                 packet.position().x(), packet.position().y(), packet.position().z());
 

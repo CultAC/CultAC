@@ -13,6 +13,12 @@ class LogThrottleTest {
     }
 
     @Test
+    void oneLineAlsoReplacesTheSectionSignAndCutsAtItsLimit() {
+        assertEquals("?cred ?lbold", LogThrottle.oneLine("\u00a7cred \u00a7lbold", 64));
+        assertEquals("abc\u2026", LogThrottle.oneLine("abcdefgh", 4));
+    }
+
+    @Test
     void clipKeepsShortTextAndCutsLongTextTo200Characters() {
         assertEquals("short", LogThrottle.clip("short"));
         assertEquals("null", LogThrottle.clip(null));

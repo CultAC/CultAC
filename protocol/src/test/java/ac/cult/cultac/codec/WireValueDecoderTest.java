@@ -51,12 +51,20 @@ class WireValueDecoderTest {
                     assertEquals(0, id);
                     return "test:wide";
                 }
+                if (registry.equals("minecraft:trim_pattern")) {
+                    assertEquals(0, id);
+                    return "minecraft:sentry";
+                }
                 return data.registry(registry).name(id);
             }
 
             public int id(String registry, String name) {
                 if (registry.equals("minecraft:enchantment")) {
                     assertEquals("minecraft:efficiency", name);
+                    return 0;
+                }
+                if (registry.equals("minecraft:trim_pattern")) {
+                    assertEquals("minecraft:sentry", name);
                     return 0;
                 }
                 return data.registry(registry).id(name);
@@ -602,12 +610,58 @@ class WireValueDecoderTest {
                     assertEquals(0, decoded.get(3).value());
                     var output = Unpooled.buffer();
                     try {
-                        decoded.forEach(entry -> output.writeBytes(entry.bytes()));
+                        decoded.forEach(entry -> output.writeBytes(input, entry.offset(), entry.length()));
                         output.writeByte(255);
                         assertArrayEquals(original, ByteBufUtil.getBytes(output));
                     } finally {
                         output.release();
                     }
+                } finally {
+                    input.release();
+                }
+            }
+        }
+    }
+
+    /** Camel's LAST_POSE_CHANGE_TICK is the only long the model reads. */
+    @Test
+    void metadataLongsAreDecoded() throws Exception {
+        for (var version : ProtocolVersion.values()) {
+            var types = PrivateCodecService.types(version);
+            var entries = List.of(new EntityData(20, field(types.entityDataTypes(), "longType"), -1234L));
+            var input = Unpooled.buffer();
+            try {
+                types.entityDataList().write(input, entries);
+                var decoded = decoder.metadata(version, input, names(version));
+                assertEquals(1, decoded.size());
+                assertEquals("value", decoded.getFirst().kind(), version.toString());
+                assertEquals(-1234L, decoded.getFirst().value(), version.toString());
+                assertFalse(input.isReadable());
+            } finally {
+                input.release();
+            }
+        }
+    }
+
+    @Test
+    void metadataOfEveryLengthIsAnImmutableListInWireOrder() throws Exception {
+        for (var version : ProtocolVersion.values()) {
+            var byteType = field(PrivateCodecService.types(version).entityDataTypes(), "byteType");
+            for (int count = 0; count <= 5; count++) {
+                var entries = new ArrayList<EntityData>();
+                for (int i = 0; i < count; i++) entries.add(new EntityData(10 + i, byteType, (byte) i));
+                var input = Unpooled.buffer();
+                try {
+                    PrivateCodecService.types(version).entityDataList().write(input, entries);
+                    var decoded = decoder.metadata(version, input, names(version));
+                    assertEquals(count, decoded.size());
+                    for (int i = 0; i < count; i++) {
+                        assertEquals(10 + i, decoded.get(i).index());
+                        assertEquals((byte) i, decoded.get(i).value());
+                    }
+                    assertSame(decoded, List.copyOf(decoded), version + " " + count);
+                    assertEquals(List.copyOf(new ArrayList<>(decoded)).getClass(), decoded.getClass());
+                    assertThrows(UnsupportedOperationException.class, () -> decoded.add(null));
                 } finally {
                     input.release();
                 }
@@ -756,6 +810,72 @@ class WireValueDecoderTest {
                     input.release();
                 }
             }
+        }
+    }
+
+    @Test
+    void largeTrimOverrideMapsAreRejectedBeforeMaterialization() {
+        for (var version : ProtocolVersion.values()) {
+            // 26.3 trim materials carry no overrides.
+            if (version.atLeast(ProtocolVersion.V26_3)) continue;
+            int trim = componentId(version, "minecraft:trim");
+            int provides = componentId(version, "minecraft:provides_trim_material");
+            for (boolean creative : List.of(false, true)) {
+                boolean lengthPrefixed = creative && version.atLeast(ProtocolVersion.V1_21_5);
+                if (creative && !lengthPrefixed) continue;
+                for (int overrides : new int[] {2, 8192}) {
+                    List<byte[]> stacks = new ArrayList<>();
+                    stacks.add(stackItem(version, trim, trim(version, overrides), lengthPrefixed));
+                    if (provides >= 0) {
+                        byte[] material = trimMaterial(version, overrides);
+                        if (!version.atLeast(ProtocolVersion.V26_1)) material = concat(new byte[] {1}, material);
+                        stacks.add(stackItem(version, provides, material, lengthPrefixed));
+                    }
+                    for (byte[] stack : stacks) {
+                        var input = Unpooled.wrappedBuffer(stack);
+                        String what = version + " creative=" + creative + " overrides=" + overrides;
+                        try {
+                            if (overrides > ItemStructureGuard.MAX_TRIM_OVERRIDES) {
+                                assertThrows(
+                                        PacketResourceLimitException.class,
+                                        () -> decoder.item(version, input, creative, names(version)),
+                                        what);
+                            } else {
+                                decoder.item(version, input, creative, names(version));
+                                assertFalse(input.isReadable(), what);
+                            }
+                        } finally {
+                            input.release();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** A trim of a direct material with {@code overrides} armour overrides and a pattern by registry id. */
+    private static byte[] trim(ProtocolVersion version, int overrides) {
+        byte[] trim = concat(trimMaterial(version, overrides), varInt(1));
+        return version.atLeast(ProtocolVersion.V1_21_5) ? trim : concat(trim, new byte[] {1});
+    }
+
+    /** A direct trim material holder with {@code overrides} armour overrides and an empty description. */
+    private static byte[] trimMaterial(ProtocolVersion version, int overrides) {
+        var out = Unpooled.buffer();
+        try {
+            Wire.writeVarInt(out, 0);
+            Wire.writeString(out, "evil", 32767);
+            if (!version.atLeast(ProtocolVersion.V1_21_5)) Wire.writeVarInt(out, itemId(version, "minecraft:stone"));
+            if (!version.atLeast(ProtocolVersion.V1_21_4)) out.writeFloat(0.5f);
+            Wire.writeVarInt(out, overrides);
+            for (int i = 0; i < overrides; i++) {
+                Wire.writeString(out, "%04x".formatted(i), 32767);
+                Wire.writeString(out, "x", 32767);
+            }
+            out.writeBytes(new byte[] {8, 0, 0});
+            return ByteBufUtil.getBytes(out);
+        } finally {
+            out.release();
         }
     }
 

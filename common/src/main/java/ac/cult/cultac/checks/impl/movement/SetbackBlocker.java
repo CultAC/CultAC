@@ -43,14 +43,14 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
 
         // Protocol integrity is independent of check/setback configuration.
         // LocalPlayer#tick emits only Rot (and, for a locally authoritative
-        // root, MoveVehicle) while mounted. Combine the immediate local mount
-        // marker with the transaction-delayed passenger graph so ordinary
-        // movement cannot cross either side of a mount/dismount boundary.
+        // root, MoveVehicle) while mounted on the client's timeline. Before
+        // the client processes a server mount, ordinary movement must still
+        // reach prediction and packet checks; forwarding is blocked afterward.
         // Packet-handler teleport acknowledgements have already set teleport.
         boolean teleport = player.packetStateData.lastPacketWasTeleport;
         if (!player.isBedrockMovement()
                 && !teleport
-                && player.compensatedEntities.vehicles.hasPlayerPassengerState()
+                && player.compensatedEntities.vehicles.hasClientPlayerPassengerState()
                 && !(movePacket.rotationOnly())) {
             event.setCancelled(true);
         }
@@ -160,6 +160,12 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
     /** Runs after Java prediction and packet checks, while teleport classification is still available. */
     public void onJavaMovePlayerAfterChecks(PacketReceiveEvent<ServerboundMovePlayer> event) {
         if (!player.isBedrockMovement()) {
+            if (!event.getPacket().rotationOnly()
+                    && !player.packetStateData.lastPacketWasTeleport
+                    && player.compensatedEntities.vehicles.hasPlayerPassengerState()
+                    && !player.compensatedEntities.vehicles.hasClientPlayerPassengerState()) {
+                event.setCancelled(true);
+            }
             blockMovePlayer(event, event.getPacket(), false);
         }
     }

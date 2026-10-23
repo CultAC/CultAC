@@ -87,13 +87,6 @@ bukkit {
         "jedis",
     )
 
-    commands {
-        register("cult") {
-            description = "CultAC administration"
-            aliases = listOf("cultac", "grim", "grimac")
-        }
-    }
-
     permissions {
         register("cult.update") { default = Permission.Default.OP }
         register("cult.runtimes") { default = Permission.Default.OP }
@@ -182,6 +175,26 @@ bukkit {
         register("cult.cloud.label") {
             description = "Label players in the cloud"
             default = Permission.Default.OP
+        }
+
+        register("cult.cloud.label.clean") {
+            description = "Offer Clean in the label menu"
+            default = Permission.Default.OP
+        }
+
+        register("cult.portal.admin") {
+            description = "Reported to the cloud portal as an admin of this server's organization"
+            default = Permission.Default.FALSE
+        }
+
+        register("cult.portal.moderator") {
+            description = "Reported to the cloud portal as a moderator of this server's organization"
+            default = Permission.Default.FALSE
+        }
+
+        register("cult.portal.viewer") {
+            description = "Reported to the cloud portal as a viewer of this server's organization"
+            default = Permission.Default.FALSE
         }
 
     }

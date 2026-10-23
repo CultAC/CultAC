@@ -22,15 +22,16 @@ public record EntityPositionPath(Vec3 endPosition, List<Step> steps) {
         var position = path.endPosition();
         Vec3 end = new Vec3(position.x(), position.y(), position.z());
         if (path instanceof PositionPath.Linear) return linear(end);
-        var steps = ((PositionPath.Stepped) path)
-                .steps().stream()
-                        .map(step -> new Step(
-                                new Vec3(
-                                        step.position().x(),
-                                        step.position().y(),
-                                        step.position().z()),
-                                step.tickOffset()))
-                        .toList();
+        var protocolSteps = ((PositionPath.Stepped) path).steps();
+        List<Step> steps = new ArrayList<>(protocolSteps.size());
+        for (var step : protocolSteps) {
+            steps.add(new Step(
+                    new Vec3(
+                            step.position().x(),
+                            step.position().y(),
+                            step.position().z()),
+                    step.tickOffset()));
+        }
         return new EntityPositionPath(end, steps);
     }
 

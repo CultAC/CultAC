@@ -1,8 +1,10 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.CheckPermissions;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.command.CloudCommandService;
+import ac.cult.cultac.command.commands.CultLabelMenu;
 import ac.cult.cultac.manager.init.Initable;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.platform.api.Platform;
@@ -10,9 +12,7 @@ import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.command.CommandService;
 import ac.cult.cultac.platform.api.manager.ItemResetHandler;
-import ac.cult.cultac.platform.api.manager.MainThreadPermissions;
 import ac.cult.cultac.platform.api.manager.MessagePlaceHolderManager;
-import ac.cult.cultac.platform.api.manager.PermissionRegistrationManager;
 import ac.cult.cultac.platform.api.manager.PlatformPluginManager;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayerFactory;
@@ -32,11 +32,13 @@ import ac.cult.cultac.platform.bukkit.scheduler.bukkit.BukkitPlatformScheduler;
 import ac.cult.cultac.platform.bukkit.scheduler.folia.FoliaPlatformScheduler;
 import ac.cult.cultac.platform.bukkit.sender.BukkitSenderFactory;
 import ac.cult.cultac.platform.bukkit.utils.placeholder.PlaceholderAPIExpansion;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.lazy.LazyHolder;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import ac.grim.grimac.internal.platform.bukkit.resolver.BukkitResolverRegistrar;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.command.BlockCommandSender;
@@ -76,10 +78,7 @@ public final class CultACBukkitLoaderPlugin implements PlatformLoader {
     private final MessagePlaceHolderManager messagePlaceHolderManager = new BukkitMessagePlaceHolderManager();
 
     @Getter
-    private final PermissionRegistrationManager permissionManager = new MainThreadPermissions(
-            new BukkitPermissionRegistrationManager(),
-            Bukkit::isPrimaryThread,
-            task -> getScheduler().getGlobalRegionScheduler().run(getPlugin(), task));
+    private final BukkitPermissionRegistrationManager permissionManager = new BukkitPermissionRegistrationManager();
 
     public CultACBukkitLoaderPlugin(JavaPlugin nativePlugin) {
         LOADER = nativePlugin;
@@ -110,6 +109,7 @@ public final class CultACBukkitLoaderPlugin implements PlatformLoader {
             (StartableInitable) ac.cult.cultac.events.packets.ProxyAlertMessenger::new,
             new BukkitEventManager(),
             new BukkitLuckPermsInitable(),
+            (StartableInitable) this::registerCheckPermissions,
             (StartableInitable) () -> {
                 if (BukkitMessagePlaceHolderManager.hasPlaceholderAPI) {
                     if (ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
@@ -119,8 +119,25 @@ public final class CultACBukkitLoaderPlugin implements PlatformLoader {
         };
     }
 
+    // Bukkit's permission registry is not thread-safe; a runtime swapped in while the server runs starts elsewhere.
+    private void registerCheckPermissions() {
+        if (Bukkit.isPrimaryThread()) CheckPermissions.register(permissionManager);
+        else
+            getScheduler().getGlobalRegionScheduler().run(plugin, () -> {
+                CheckPermissions.register(permissionManager);
+                for (CultPlayer online : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
+                    try {
+                        online.runSafely(online::updatePermissions);
+                    } catch (RejectedExecutionException closing) {
+                        // A connection whose owner is shutting down has no session left to exempt.
+                    }
+                }
+            });
+    }
+
     public void onEnable() {
         CloudModule.platformHooks(() -> BukkitCloudFacts.turnedOn(LOADER), BukkitCloudFacts::turnedOff);
+        CultLabelMenu.install();
         CultAPI.INSTANCE.start();
     }
 

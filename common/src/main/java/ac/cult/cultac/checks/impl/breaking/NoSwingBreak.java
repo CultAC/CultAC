@@ -26,7 +26,7 @@ public class NoSwingBreak extends Check implements BlockBreakListener {
     }
 
     public void onBlockBreak(BlockBreak blockBreak) {
-        if (blockBreak.action != PlayerAction.ABORT_DESTROY_BLOCK) { // PE DiggingAction.CANCELLED_DIGGING
+        if (blockBreak.action != PlayerAction.ABORT_DESTROY_BLOCK) {
             sentBreak = true;
         }
     }

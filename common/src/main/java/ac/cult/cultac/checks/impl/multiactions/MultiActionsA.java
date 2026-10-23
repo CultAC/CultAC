@@ -53,7 +53,7 @@ public class MultiActionsA extends Check implements CheckListener {
     }
 
     private void check(PacketReceiveEvent event) {
-        if (isActivelyUsingItem()) {
+        if (isActivelyUsingItem(player)) {
             if (flag() && shouldModifyPackets()) {
                 event.setCancelled(true);
                 player.onPacketCancel();
@@ -62,7 +62,7 @@ public class MultiActionsA extends Check implements CheckListener {
     }
 
     // Limit the active item to the in-use hand's current slot.
-    private boolean isActivelyUsingItem() {
+    static boolean isActivelyUsingItem(CultPlayer player) {
         return player.isClientUsingItem()
                 && (player.usesModernJavaItemUse()
                         || player.packetStateData.lastSlotSelected == player.packetStateData.getSlowedByUsingItemSlot()

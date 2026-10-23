@@ -7,12 +7,16 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Immutable catalog metadata; instances are routing identities. A type declares every wire name its family
  * has used; the checked-in {@link ProtocolData} of each version decides which of them exist there.
  */
 public final class PacketType<R> {
+    private static final AtomicInteger INDICES = new AtomicInteger();
+
+    private final int index;
     private final String key;
     private final Class<R> recordClass;
     private final PacketDirection direction;
@@ -54,6 +58,12 @@ public final class PacketType<R> {
             throw new IllegalArgumentException("Wire names do not match codec variants: " + key);
         }
         this.opaque = recordClass == Opaque.class ? new Opaque((PacketType<Opaque>) this) : null;
+        this.index = INDICES.getAndIncrement();
+    }
+
+    /** Unique among the types this class has constructed, counting up from 0; an index into per-type arrays. */
+    public int index() {
+        return index;
     }
 
     public String key() {

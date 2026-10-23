@@ -3,9 +3,13 @@ package ac.cult.cultac.bedrock.bridge;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerWindow;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.GameMode;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.ItemStackRequest;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.ItemStackRequestAction;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.ItemStackRequestActionType;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.ContainerClosePacket;
 import org.cloudburstmc.protocol.bedrock.packet.ItemStackRequestPacket;
@@ -19,6 +23,7 @@ final class GeyserInventoryActions {
     private GeyserInventoryActions() {}
 
     static void translate(GeyserSession session, CultPlayer player, BedrockPacket packet, Runnable translator) {
+        rejectCreativeRequests(session, player, packet);
         if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket
                 || packet instanceof org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket
                 || packet instanceof PlayerAuthInputPacket input && input.getItemStackRequest() == null) {
@@ -53,6 +58,29 @@ final class GeyserInventoryActions {
                 || packet instanceof PlayerAuthInputPacket input && input.getItemStackRequest() != null) {
             PacketPlayerWindow.handleInventory(player, true);
         }
+    }
+
+    // Geyser's player inventory accepts CRAFT_CREATIVE in any gamemode, while the server ignores the creative slot
+    // packet outside creative, leaving a ghost item in Geyser's model that the slot diffs copy into ours.
+    // Geyser rejects and resyncs requests without actions, so strip the request instead of dropping it.
+    static void rejectCreativeRequests(GeyserSession session, CultPlayer player, BedrockPacket packet) {
+        if (player != null && player.gamemode == GameMode.CREATIVE
+                && session.getGameMode() == org.geysermc.mcprotocollib.protocol.data.game.entity.player.GameMode.CREATIVE) return;
+        if (packet instanceof ItemStackRequestPacket requests) {
+            requests.getRequests().replaceAll(GeyserInventoryActions::withoutCreativeActions);
+        } else if (packet instanceof PlayerAuthInputPacket input && input.getItemStackRequest() != null) {
+            input.setItemStackRequest(withoutCreativeActions(input.getItemStackRequest()));
+        }
+    }
+
+    private static ItemStackRequest withoutCreativeActions(ItemStackRequest request) {
+        for (ItemStackRequestAction action : request.getActions()) {
+            if (action.getType() == ItemStackRequestActionType.CRAFT_CREATIVE) {
+                return new ItemStackRequest(request.getRequestId(), new ItemStackRequestAction[0],
+                        request.getFilterStrings(), request.getTextProcessingEventOrigin());
+            }
+        }
+        return request;
     }
 
     private static ItemStack[] snapshot(Inventory inventory) {

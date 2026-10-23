@@ -20,6 +20,6 @@ public final class PlaceVisibility extends VisibilityCheck {
     public void onUseItemOn(
             PacketReceiveEvent<ServerboundUseItemOn> event, CultPlayer player, ServerboundUseItemOn packet) {
         if (visibility.blockFaceHidden(packet.blockPosition(), packet.blockFace()))
-            reject(event, "action=use face=" + packet.blockFace());
+            reject(event, block(packet.blockPosition(), packet.blockFace()));
     }
 }

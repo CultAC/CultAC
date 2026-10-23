@@ -21,7 +21,7 @@ public final class RegistryGenerationAlerts {
     private RegistryGenerationAlerts() {}
 
     static void report(CultPlayer player, Throwable failure) {
-        CultNetworkManager.reportFailure("registry generation for " + player.getName(), failure);
+        CultNetworkManager.reportFailure("registry generation", player.getName(), failure);
         String occurrence = failure.getClass().getName() + ": " + failure.getMessage();
         if (!admit(occurrence, System.currentTimeMillis())) return;
         alert("CultAC could not model the registry data sent to " + player.getName() + " (" + occurrence

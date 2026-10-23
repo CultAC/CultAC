@@ -4,18 +4,16 @@ import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class SectionPool {
     private static final CachedSection CANONICAL_AIR = createCanonicalAir();
 
     static final long STABILITY_DELAY_NANOS = TimeUnit.SECONDS.toNanos(5);
 
-    public static final java.util.concurrent.atomic.AtomicLong internCallCounter =
-            new java.util.concurrent.atomic.AtomicLong(0);
-    public static final java.util.concurrent.atomic.AtomicLong internDedupCounter =
-            new java.util.concurrent.atomic.AtomicLong(0);
-    public static final java.util.concurrent.atomic.AtomicLong tryReinternSuccessCounter =
-            new java.util.concurrent.atomic.AtomicLong(0);
+    public static final AtomicLong internCallCounter = new AtomicLong(0);
+    public static final AtomicLong internDedupCounter = new AtomicLong(0);
+    public static final AtomicLong tryReinternSuccessCounter = new AtomicLong(0);
 
     private List<CachedSection> nonUniformSections;
 
@@ -29,22 +27,6 @@ public final class SectionPool {
 
     public static SectionPool forChunk(String dimension, int chunkX, int sectionIndex, int chunkZ) {
         return SectionPoolRegistry.forChunk(dimension, chunkX, sectionIndex, chunkZ);
-    }
-
-    public static SectionPool forChunk(int chunkX, int sectionIndex, int chunkZ) {
-        return forChunk("minecraft:overworld", chunkX, sectionIndex, chunkZ);
-    }
-
-    static CachedSection canonicalAirSection() {
-        return CANONICAL_AIR;
-    }
-
-    CachedSection getAirSection() {
-        return CANONICAL_AIR;
-    }
-
-    public CachedSection intern(CachedSection section) {
-        return intern(section, 0, ComparisonBudget.unlimited(), false).section();
     }
 
     CachedSection internRetained(CachedSection section) {
@@ -117,14 +99,6 @@ public final class SectionPool {
         }
         nonUniformSections.add(section);
         return new ReinternResult(section, true, 0);
-    }
-
-    public CachedSection tryReintern(CachedSection section) {
-        return tryReintern(section, 0, ComparisonBudget.unlimited(), false).section();
-    }
-
-    ReinternResult tryReintern(CachedSection section, int startComparisonIndex, ComparisonBudget comparisonBudget) {
-        return tryReintern(section, startComparisonIndex, comparisonBudget, false);
     }
 
     ReinternResult tryReinternRetained(

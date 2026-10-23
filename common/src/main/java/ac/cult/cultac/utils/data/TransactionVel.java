@@ -2,7 +2,6 @@ package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.utils.math.Vec3;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
 @Data
@@ -15,10 +14,12 @@ public class TransactionVel implements TransactionOrder {
     final boolean isVelocity;
     final boolean isSetbackVel;
     final int sourceEntityId;
+    /** Outbound impulse order, independent of the receipt ping shared by a flush. */
+    final long outboundSequence;
+
     private double offset = Double.MAX_VALUE;
     private boolean consumed;
     /** The transaction whose answer proves the client handled this velocity. */
-    @EqualsAndHashCode.Exclude
     private int proofTransaction;
 
     public TransactionVel(Vec3 vel, int transaction, boolean isVelocity, boolean isSetbackVel) {
@@ -26,11 +27,22 @@ public class TransactionVel implements TransactionOrder {
     }
 
     public TransactionVel(Vec3 vel, int transaction, boolean isVelocity, boolean isSetbackVel, int sourceEntityId) {
+        this(vel, transaction, isVelocity, isSetbackVel, sourceEntityId, transaction);
+    }
+
+    public TransactionVel(
+            Vec3 vel,
+            int transaction,
+            boolean isVelocity,
+            boolean isSetbackVel,
+            int sourceEntityId,
+            long outboundSequence) {
         this.vel = vel;
         this.transaction = transaction;
         this.isVelocity = isVelocity;
         this.isSetbackVel = isSetbackVel;
         this.sourceEntityId = sourceEntityId;
+        this.outboundSequence = outboundSequence;
         this.proofTransaction = transaction;
     }
 
@@ -41,24 +53,20 @@ public class TransactionVel implements TransactionOrder {
     public static final class Bedrock extends TransactionVel {
         private final long teleportRevision;
 
-        public Bedrock(Vec3 vel, int transaction, boolean isSetbackVel, int sourceEntityId, long teleportRevision) {
-            super(vel, transaction, true, isSetbackVel, sourceEntityId);
+        public Bedrock(
+                Vec3 vel,
+                int transaction,
+                boolean isSetbackVel,
+                int sourceEntityId,
+                long teleportRevision,
+                long outboundSequence) {
+            super(vel, transaction, true, isSetbackVel, sourceEntityId, outboundSequence);
             this.teleportRevision = teleportRevision;
         }
 
         @Override
         public long getBedrockTeleportRevision() {
             return teleportRevision;
-        }
-
-        @Override
-        public boolean equals(Object other) {
-            return this == other;
-        }
-
-        @Override
-        public int hashCode() {
-            return System.identityHashCode(this);
         }
     }
 
@@ -67,16 +75,14 @@ public class TransactionVel implements TransactionOrder {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        TransactionVel that = (TransactionVel) o;
-        return transaction == that.transaction;
+    public final boolean equals(Object o) {
+        // A shared receipt ping proves several distinct impulses; provenance follows the impulse itself.
+        return this == o;
     }
 
     @Override
-    public int hashCode() {
-        return Integer.hashCode(transaction);
+    public final int hashCode() {
+        return System.identityHashCode(this);
     }
 
     @Override

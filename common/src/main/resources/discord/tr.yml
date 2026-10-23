@@ -4,21 +4,26 @@ webhook: ""
 # Discord'un URL biçimi doğrulamasını atlamak için `true` olarak ayarlayın.
 # Bu, geçerli herhangi bir HTTPS URL'sine izin verir (proxy'ler veya Matrix yönlendiricileri için kullanışlıdır).
 disable-webhook-validation: false
-embed-title: "**Cult Uyarı**"
+embed-title: "%player%, %check% tarafından tespit edildi [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+include-state: true
 # Discord'un metin biçimlendirmesini bozmasını önlemek için değerlerdeki (istemci markaları gibi) ters tırnak işaretlerini (`) değiştirir.
 # Bu değiştirmeyi devre dışı bırakmak için "`" olarak ayarlayın.
 backtick-replacement-char: "ˋ"
 violation-content:
     - "**Oyuncu**: `%player%`"
-    - "**Kontrol**: %check%"
-    - "**İhlaller**: %violations%"
-    - "**Client Versiyonu**: %version%"
+    - "**UUID**: `%uuid%`"
+    - "**Kontrol**: `%check%`"
+    - "**Client Versiyonu**: `%version%`"
     - "**Client Markası**: `%brand%`"
-    - "**Gecikme**: %ping%"
-    - "**TPS**: %tps%"
+    - "**Hassasiyet**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**Gecikme**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**Sunucu**: `%server%`"
+    - "**Dünya**: `%world% (%world_type%)`"
 
 # Şema işaretçileri — bkz. config.yml'deki başlık yorumu.
 config-flavor: V2
-config-version: 1
+config-version: 2

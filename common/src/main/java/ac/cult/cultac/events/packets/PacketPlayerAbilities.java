@@ -10,7 +10,8 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerAbilities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAbilities;
 
-// Flight abilities apply at the preceding transaction, item-use abilities at the trailing proof.
+// Flight abilities apply at the preceding transaction, or after every earlier packet's state when no ping precedes
+// them; item-use abilities apply at the trailing proof.
 public class PacketPlayerAbilities extends CultProcessor implements CheckListener {
 
     public PacketPlayerAbilities(CultPlayer player) {
@@ -26,14 +27,16 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
             ServerboundPlayerAbilities packet) {
         if (player.isBedrockMovement()) return;
         boolean flying = packet.flying() && player.canFly;
+        if (flying && !player.isFlying) player.packetStateData.flyingStartBeforeTravel = true;
         player.packetStateData.flyingStopAfterTravel = !flying && player.isFlying;
+        if (player.packetStateData.flyingStopAfterTravel) player.packetStateData.flightStopThisClientTick = true;
         if (!player.packetStateData.flyingStopAfterTravel) player.isFlying = flying;
     }
 
     @CultPacketHandler
     public void onPlayerAbilities(
             PacketSendEvent<ClientboundPlayerAbilities> event, CultPlayer player, ClientboundPlayerAbilities packet) {
-        player.sendTransaction();
+        boolean pingPrecedes = player.sendTransactionAndGetId() != -1;
 
         if (lastSentPlayerCanFly && !packet.canFly()) {
             int noFlying = player.lastTransactionSent.get();
@@ -51,15 +54,21 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
 
         lastSentPlayerCanFly = packet.canFly();
 
-        player.latencyUtils.addRealTimeTaskNow(() -> {
+        int preceding = player.lastTransactionSent.get();
+        Runnable flight = () -> {
             player.canFly = packet.canFly();
             player.isFlying = packet.flying();
             player.flySpeed = packet.flyingSpeed();
-            player.abilitiesSent(packet.instabuild(), packet.invulnerable());
-        });
+        };
+        // Without a ping ahead of it, the flight follows every earlier packet's state, such as LOGIN's game mode.
+        if (pingPrecedes) player.latencyUtils.addRealTimeTask(preceding, flight);
+        else player.latencyUtils.addRealTimeTaskNext(flight);
 
         // Player#canEat and the projectile ammo check read these at the client's USE_ITEM.
-        // handleBundlePacket applies the abilities and the proof in one client task.
-        player.runAtTrailingProof(event, () -> player.abilitiesHandled(packet.instabuild(), packet.invulnerable()));
+        if (!player.runAtTrailingProof(
+                event, () -> player.abilitiesHandled(packet.instabuild(), packet.invulnerable()))) {
+            player.latencyUtils.addRealTimeTask(
+                    preceding, () -> player.abilitiesSent(packet.instabuild(), packet.invulnerable()));
+        }
     }
 }

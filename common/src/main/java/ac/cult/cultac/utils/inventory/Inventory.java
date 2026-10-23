@@ -1,6 +1,5 @@
 package ac.cult.cultac.utils.inventory;
 
-import ac.cult.blocksim.data.ItemDefinition;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -70,25 +69,12 @@ public class Inventory extends AbstractContainerMenu {
         return inventoryStorage.getItem(SLOT_OFFHAND);
     }
 
-    public boolean hasItemType(ItemDefinition item) {
-        for (int i = 0; i < inventoryStorage.items.length; ++i) {
-            if (inventoryStorage.getItem(i).getItem() == item) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     public SimItemStack getHeldItem() {
         return inventoryStorage.getItem(selected + HOTBAR_OFFSET);
     }
 
     public void setHeldItem(SimItemStack item) {
         inventoryStorage.setItem(selected + HOTBAR_OFFSET, item);
-    }
-
-    public SimItemStack getOffhandItem() {
-        return inventoryStorage.getItem(SLOT_OFFHAND);
     }
 
     public boolean add(SimItemStack p_36055_) {

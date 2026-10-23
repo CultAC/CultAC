@@ -44,6 +44,11 @@ final class VelocityServer implements PlatformServer {
     }
 
     @Override
+    public int onlinePlayers() {
+        return proxy.getPlayerCount();
+    }
+
+    @Override
     public void dispatchCommand(Sender sender, String command) {
         proxy.getCommandManager().executeAsync(senders.unwrap(sender), command);
     }

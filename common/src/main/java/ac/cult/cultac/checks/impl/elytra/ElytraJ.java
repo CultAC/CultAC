@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.elytra;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
@@ -13,7 +14,7 @@ import ac.cult.cultac.protocol.value.*;
         stableKey = "cult.elytra.inventory",
         description = "Started gliding in an inventory",
         experimental = true)
-public class ElytraJ extends Check implements ac.cult.cultac.checks.type.PostPredictionListener {
+public class ElytraJ extends Check implements PostPredictionListener {
     public ElytraJ(CultPlayer player) {
         super(player);
     }

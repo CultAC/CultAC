@@ -11,11 +11,10 @@ import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
+import ac.cult.cultac.utils.anticheat.StringReturner;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
-import com.google.common.collect.ImmutableSet;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -24,7 +23,6 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 
-// @CheckData(name = "Prediction (Debug)")
 public class DebugHandler extends CultProcessor implements PostPredictionListener {
     private final Map<UUID, Sender> rewindListeners = new ConcurrentHashMap<>();
     private final Map<UUID, Sender> itemSlowListeners = new ConcurrentHashMap<>();
@@ -54,19 +52,15 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
     }
 
     public boolean hasRewindListeners() {
-        removeInvalidRewindListeners();
+        removeInvalidListeners(rewindListeners);
         return !rewindListeners.isEmpty();
     }
 
     public void relayRewind(Supplier<String> details) {
-        removeInvalidRewindListeners();
+        removeInvalidListeners(rewindListeners);
         if (rewindListeners.isEmpty()) return;
         var message = Component.text(player.getName() + " " + details.get());
         rewindListeners.values().forEach(sender -> sender.sendMessage(message));
-    }
-
-    private void removeInvalidRewindListeners() {
-        removeInvalidListeners(rewindListeners);
     }
 
     private static void removeInvalidListeners(Map<UUID, Sender> listeners) {
@@ -78,19 +72,8 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
                         || !sender.hasPermission("cult.debug"));
     }
 
-    static final Set<UUID> DEVELOPERS = ImmutableSet.of(
-            UUID.fromString("aadd63d0-e545-4cc2-8449-734a6dba0b85"),
-            UUID.fromString("12f4db7a-8b9c-48d9-8571-533ca27170f0"));
-
-    public static boolean isDeveloper(UUID uuid) {
-        return DEVELOPERS.contains(uuid);
-    }
-
-    Set<PlatformPlayer> listeners = new CopyOnWriteArraySet<>(new HashSet<>());
+    Set<PlatformPlayer> listeners = new CopyOnWriteArraySet<>();
     boolean outputToConsole = false;
-
-    boolean enabledFlags = false;
-    boolean lastMovementIsFlag = false;
 
     public DebugHandler(CultPlayer player) {
         super(player);
@@ -104,8 +87,8 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         PredictionResult result = predictionComplete.getPredictionResult();
         PredictionResult lastResult =
                 player.checkManager.getSimulationProcessor().getLastPrediction();
-        BedrockPredictionDebug.MovementDebugView debugView =
-                BedrockPredictionDebug.movementDebugView(player, result, getDebugPredictionVector(result));
+        BedrockPredictionDebug.MovementDebugView debugView = BedrockPredictionDebug.movementDebugView(
+                player, result, MovementProfiles.forPlayer(player).debugPredictionVector(result));
         double offset = debugView.offset();
         Vec3 predictedWithInputs = debugView.predictedWithInputs();
         Vec3 target = debugView.target();
@@ -125,7 +108,7 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         String p = labelColor + "P: " + color + NumFormatter.formatVectorDebug(predictedWithInputs);
         String a = labelColor + "A: " + color + NumFormatter.formatVector(target);
         String o = labelColor + "O: " + color
-                + (debugView.missingObservation() ? "engine-missing" : formatOffsetDebug(offset));
+                + (debugView.missingObservation() ? "engine-missing" : Double.toString(offset));
         String b = outputToConsole
                 ? BedrockPredictionDebug.formatConsoleDebug(player, predictionComplete, labelColor, color)
                 : null;
@@ -139,13 +122,9 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
             // Don't add prefix if the player is listening to oneself
             player.sendMessage((player == getPlayer().platformPlayer ? "" : prefix) + p);
             player.sendMessage((player == getPlayer().platformPlayer ? "" : prefix) + a);
-            if (inVehicle) {
-                player.sendMessage((player == getPlayer().platformPlayer ? "" : prefix) + o);
-            } else {
-                player.sendMessage((player == getPlayer().platformPlayer ? "" : prefix) + o);
-                if (external != null) {
-                    player.sendMessage((player == getPlayer().platformPlayer ? "" : prefix) + external);
-                }
+            player.sendMessage((player == getPlayer().platformPlayer ? "" : prefix) + o);
+            if (!inVehicle && external != null) {
+                player.sendMessage((player == getPlayer().platformPlayer ? "" : prefix) + external);
             }
 
             // Java valid-movement envelopes are not authoritative for Bedrock authored-input prediction.
@@ -203,14 +182,10 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         }
     }
 
-    private static String formatOffsetDebug(double offset) {
-        return Double.toString(offset);
-    }
-
     private String formatExternalMovementDebug(PredictionResult result, PredictionResult lastResult, String color) {
         ExternalMovementUncertainty.Snapshot snapshot = ExternalMovementUncertainty.capture(result, lastResult);
         Vec3 positionOnlyDelta = result.getPositionOnlyDelta();
-        if (!snapshot.hasAnyUncertainty() && positionOnlyDelta.lengthSqr() <= 1.0E-14) {
+        if (!snapshot.hasExternalMove() && positionOnlyDelta.lengthSqr() <= 1.0E-14) {
             return null;
         }
 
@@ -237,13 +212,6 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
 
     private String formatBracketedVector(Vec3 vector) {
         return "[" + ExternalMovementUncertainty.formatVector(vector) + "]";
-    }
-
-    private String getUnknownColor(double offset) {
-        if (offset == 0) {
-            return "\u00a77";
-        }
-        return "\u00a7d";
     }
 
     private boolean positionsTooUncertainToCheck(boolean inVehicle) {
@@ -278,12 +246,7 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         }
     }
 
-    private Vec3 getDebugPredictionVector(PredictionResult result) {
-        return MovementProfiles.forPlayer(player).debugPredictionVector(result);
-    }
-
     public void toggleListener(PlatformPlayer player) {
-        // Toggle, if already added, remove.  If not added, then add
         final boolean wasListening = listeners.remove(player);
         if (wasListening) {
             final String disableMessage = "\u00a77" + "Disabled debugging of predictions";
@@ -291,7 +254,7 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         } else {
             final String enableMessage = "\u00a7a" + "Debugging predictions";
             player.sendMessage(enableMessage);
-            final boolean nowListening = listeners.add(player);
+            listeners.add(player);
         }
     }
 
@@ -310,7 +273,7 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
      * their {@code debug(...)} calls here). The supplier is only evaluated when at least
      * one listener or the console output is active, and rendering happens on the caller.
      */
-    public void relayDebug(String source, ac.cult.cultac.utils.anticheat.StringReturner details) {
+    public void relayDebug(String source, StringReturner details) {
         if (listeners.isEmpty() && !outputToConsole) return;
 
         String message = "\u00a7b" + "[" + source + "] " + "\u00a7f" + details.getString();

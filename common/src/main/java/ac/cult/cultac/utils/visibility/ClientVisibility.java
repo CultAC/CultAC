@@ -3,10 +3,13 @@ package ac.cult.cultac.utils.visibility;
 import ac.cult.blocksim.data.BlockFamilies;
 import ac.cult.blocksim.data.ItemComponents;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TransactionVel;
@@ -16,7 +19,11 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 /** Selection geometry shared by block use, digging, entity attacks and entity interactions. */
 public final class ClientVisibility {
@@ -109,10 +116,11 @@ public final class ClientVisibility {
         TransactionVel motion = knockback.secondBread;
         TransactionVel push = explosion.secondBread;
         List<Vec3> left = new ArrayList<>();
-        int replaced = tickEnd;
-        if (motion != null && motion.getTransaction() > tickEnd) {
+        // Tick ends are ordered by receipt ping; a motion and an explosion proven by one shared ping are ordered by
+        // their outbound sequence.
+        boolean motionSinceTickEnd = motion != null && motion.getTransaction() > tickEnd;
+        if (motionSinceTickEnd) {
             left.add(motion.getVel());
-            replaced = motion.getTransaction();
         } else {
             left.addAll(player.checkManager.getSimulationProcessor().getLastDerivedNextTickVelocities());
             if (left.isEmpty()) left.add(Vec3.ZERO);
@@ -124,7 +132,11 @@ public final class ClientVisibility {
             }
         }
         // An explosion's velocity sums the explosions since the tick end or the last motion.
-        Vec3 pushed = push != null && push.getTransaction() > replaced ? push.getVel() : Vec3.ZERO;
+        boolean pushSinceReplacement = push != null
+                && (motionSinceTickEnd
+                        ? push.getOutboundSequence() > motion.getOutboundSequence()
+                        : push.getTransaction() > tickEnd);
+        Vec3 pushed = pushSinceReplacement ? push.getVel() : Vec3.ZERO;
         TransactionVel pendingMotion = knockback.firstBread;
         TransactionVel pendingPush = explosion.firstBread;
         int count = left.size() * (pendingPush == null ? 1 : 2) + (pendingMotion == null ? 0 : 1);
@@ -136,7 +148,7 @@ public final class ClientVisibility {
         }
         if (pendingMotion != null) {
             Vec3 velocity = pendingMotion.getVel();
-            if (pendingPush != null && pendingPush.getTransaction() > pendingMotion.getTransaction())
+            if (pendingPush != null && pendingPush.getOutboundSequence() > pendingMotion.getOutboundSequence())
                 velocity = velocity.add(pendingPush.getVel());
             putMovement(movements, index, velocity);
         }
@@ -154,7 +166,7 @@ public final class ClientVisibility {
         return index + 3;
     }
 
-    private boolean hiddenForEverySelection(java.util.function.Supplier<Boolean> query) {
+    private boolean hiddenForEverySelection(Supplier<Boolean> query) {
         if (selections.isEmpty()) return query.get();
         Selection previous = activeSelection;
         try {
@@ -289,25 +301,51 @@ public final class ClientVisibility {
         return envelope;
     }
 
-    public boolean entityHidden(ac.cult.cultac.utils.data.packetentity.PacketEntity entity, double positionError) {
-        double pickRadius =
-                EntityTypeUtil.modelType(entity.type).has(ac.cult.blocksim.entity.EntityTypes.PROJECTILE) ? 1.0F : 0;
+    /**
+     * How LocalPlayer#pick may see an entity: some eye selects it, some eye within a pick range sees only blocks before
+     * it, or every eye is beyond every pick range, where filterHitResult alone drops the hit.
+     */
+    public enum Sight {
+        VISIBLE,
+        BLOCKED,
+        OUT_OF_RANGE
+    }
+
+    public boolean entityHidden(PacketEntity entity, double positionError) {
+        return entitySight(entity, positionError) != Sight.VISIBLE;
+    }
+
+    /** The entity's sight under every selection this tick: any selection that selects it makes it visible. */
+    public Sight entitySight(PacketEntity entity, double positionError) {
         // ProjectileUtil#getEntityHitResult clips the physical bounding box,
         // inflated only by the native pick radius/item margin. Reach's separate
         // 0.03125 expansion can invent an exposed point across a solid corner.
-        return hiddenForEverySelection(
-                () -> entityHidden(entity.getPossibleMovementCollisionBoxes(), positionError, pickRadius));
+        boolean[] inRange = {false};
+        if (!hiddenForEverySelection(() -> entityHidden(
+                entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes()),
+                positionError,
+                pickRadius(entity),
+                inRange))) return Sight.VISIBLE;
+        return inRange[0] ? Sight.BLOCKED : Sight.OUT_OF_RANGE;
+    }
+
+    /** Whether no selection selects any part of {@code box}, a box the entity's picked box may lie in. */
+    public boolean entityHidden(PacketEntity entity, SimpleCollisionBox box, double positionError) {
+        return hiddenForEverySelection(() -> entityHidden(box, positionError, pickRadius(entity), null));
+    }
+
+    private static double pickRadius(PacketEntity entity) {
+        return EntityTypeUtil.modelType(entity.type).has(EntityTypes.PROJECTILE) ? 1.0F : 0;
     }
 
     public boolean entityHidden(SimpleCollisionBox target, double positionError) {
-        return hiddenForEverySelection(() -> entityHidden(target, positionError, 0));
+        return hiddenForEverySelection(() -> entityHidden(target, positionError, 0, null));
     }
 
     public boolean entityInteractionHidden(PacketEntity entity, double positionError) {
-        double pickRadius =
-                EntityTypeUtil.modelType(entity.type).has(ac.cult.blocksim.entity.EntityTypes.PROJECTILE) ? 1.0F : 0;
+        double pickRadius = EntityTypeUtil.modelType(entity.type).has(EntityTypes.PROJECTILE) ? 1.0F : 0;
         return hiddenForEverySelection(() -> {
-            var target = entity.getPossibleMovementCollisionBoxes();
+            var target = entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes());
             var self = player.compensatedEntities.getSelf();
             double range = self.getEntityInteractionRange();
             if (!(range > 0)) return true;
@@ -318,13 +356,15 @@ public final class ClientVisibility {
                 if (!withinRange(eye, target, range)) continue;
                 // LocalPlayer#raycastHitResult supplies the same item-dependent
                 // selection for attacks and uses, including native pick margins.
-                return entityHidden(target, positionError, pickRadius);
+                return entityHidden(target, positionError, pickRadius, null);
             }
             return true;
         });
     }
 
-    private boolean entityHidden(SimpleCollisionBox target, double positionError, double pickRadius) {
+    /** Whether no eye selects the target under the active selection; sets {@code inRange[0]} for an eye within range. */
+    private boolean entityHidden(
+            SimpleCollisionBox target, double positionError, double pickRadius, boolean[] inRange) {
         double defaultRange = player.compensatedEntities.getSelf().getEntityInteractionRange();
         ItemComponents.AttackRange attack = selectionAttackRange();
         double itemRange = attack == null ? 0 : Math.sqrt(3) * nativeItemRayScale(attack);
@@ -333,8 +373,16 @@ public final class ClientVisibility {
                 eyes(positionError, List.of(target.copy().expand(margin)), null, Math.max(defaultRange, itemRange))) {
             if (selectable(eye, target, pickRadius, defaultRange)) return false;
             if (attack != null && selectable(eye, target, attack.hitboxMargin(), itemRange)) return false;
+            if (inRange != null
+                    && (inRange(eye, target, pickRadius, defaultRange)
+                            || attack != null && inRange(eye, target, attack.hitboxMargin(), itemRange)))
+                inRange[0] = true;
         }
         return true;
+    }
+
+    private static boolean inRange(Vec3 eye, SimpleCollisionBox target, double margin, double range) {
+        return range > 0 && withinRange(eye, target.copy().expand(margin), range);
     }
 
     private boolean selectable(Vec3 eye, SimpleCollisionBox target, double margin, double range) {
@@ -351,16 +399,12 @@ public final class ClientVisibility {
 
     private ItemComponents.AttackRange currentAttackRange() {
         if (player.gamemode == GameMode.SPECTATOR) return null;
-        if (player.getClientVersion().isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_21_11)) return null;
-        var hand = player.isClientUsingItem()
-                ? player.getClientItemUseHand()
-                : ac.cult.cultac.protocol.value.Hand.MAIN_HAND;
-        var item = hand == ac.cult.cultac.protocol.value.Hand.MAIN_HAND
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_11)) return null;
+        var hand = player.isClientUsingItem() ? player.getClientItemUseHand() : Hand.MAIN_HAND;
+        var item = hand == Hand.MAIN_HAND
                 ? player.getInventory().getClientSelectedHeldItem()
                 : player.getInventory().getOffHand();
-        if (hand == ac.cult.cultac.protocol.value.Hand.MAIN_HAND
-                && player.isClientUsingItem()
-                && !player.usesModernJavaItemUse())
+        if (hand == Hand.MAIN_HAND && player.isClientUsingItem() && !player.usesModernJavaItemUse())
             item = player.getInventory()
                     .inventory
                     .getInventoryStorage()
@@ -407,14 +451,13 @@ public final class ClientVisibility {
         // Ordinary visible picks need no local shape queries or buffered origins.
         return () -> {
             double radius = EyePositionTolerance.BUFFER + positionError;
-            var shapes = new java.util.HashMap<Vec3, List<SimpleCollisionBox>>();
-            java.util.function.Predicate<Vec3> valid = eye -> trackedEyes.contains(eye)
+            var shapes = new HashMap<Vec3, List<SimpleCollisionBox>>();
+            Predicate<Vec3> valid = eye -> trackedEyes.contains(eye)
                     || EyePositionTolerance.outside(eye, shapes.computeIfAbsent(eye, e -> nearbyEyeShapes(e, radius)));
-            return java.util.stream.Stream.concat(
+            return Stream.concat(
                             eyes.stream().filter(valid),
                             eyes.stream().filter(valid).flatMap(eye -> {
-                                if (hiddenAcrossBuffer(eye, radius, targets, excluded, range))
-                                    return java.util.stream.Stream.empty();
+                                if (hiddenAcrossBuffer(eye, radius, targets, excluded, range)) return Stream.empty();
                                 var bounds = EyePositionTolerance.bounds(
                                         eye,
                                         positionError,
@@ -478,7 +521,7 @@ public final class ClientVisibility {
 
     private List<SimpleCollisionBox> selectionBoxes(BlockPos position) {
         int state = player.compensatedWorld.getBlockStateIdAt(position);
-        // Visibility deliberately treats shulker boxes as closed, independent of lid animation.
+        // Shulker boxes count as closed regardless of lid animation.
         if (BlockFamilies.SHULKER_BOX.test(state)) return List.of(new SimpleCollisionBox(position));
         List<SimpleCollisionBox> result = new ArrayList<>();
         ClientBlockShapes.visual(player, state, position.getX(), position.getY(), position.getZ())
@@ -542,6 +585,22 @@ public final class ClientVisibility {
         return range + Math.sqrt(3) * speed;
     }
 
+    /** The longest Minecraft#pick ray any of this tick's selections may have cast. */
+    public double maxPickRange() {
+        if (selections.isEmpty()) return nativePickRange();
+        Selection previous = activeSelection;
+        try {
+            double range = 0;
+            for (Selection selection : selections) {
+                activeSelection = selection;
+                range = Math.max(range, nativePickRange());
+            }
+            return range;
+        } finally {
+            activeSelection = previous;
+        }
+    }
+
     private double nativePickRange() {
         double pickRange = Math.max(
                 player.compensatedEntities.getSelf().getBlockInteractionRange(),
@@ -599,7 +658,7 @@ public final class ClientVisibility {
         int maxChunkZ = (int) Math.floor(Math.max(eye.z, Math.min(target.maxZ, eye.z + range))) >> 4;
         // Iterate received chunks, so plugin-authored large velocities or entity
         // boxes cannot turn this into a scan through millions of unloaded cells.
-        for (long key : player.compensatedWorld.chunks.keySet()) {
+        for (long key : player.compensatedWorld.chunkPositions()) {
             int chunkX = (int) (key >> 32), chunkZ = (int) key;
             if (chunkX < minChunkX || chunkX > maxChunkX || chunkZ < minChunkZ || chunkZ > maxChunkZ) continue;
             SimpleCollisionBox query =

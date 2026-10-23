@@ -47,6 +47,8 @@ public class InitManager {
 
         initializersOnStart = ImmutableList.<StartableInitable>builder()
                 .add(CultAPI.INSTANCE.getExternalAPI())
+                // Before the upload connects: every socket that opens finds team sync running.
+                .add(CultAPI.INSTANCE.getPortalSync())
                 .add(CloudModule::configReloaded)
                 .add(new PacketManager())
                 .add(new ViaBackwardsManager())
@@ -73,6 +75,7 @@ public class InitManager {
                 .add(() -> CultAPI.INSTANCE.getEventBus().unregisterAllListeners(CultAPI.INSTANCE.getGrimPlugin()))
                 .add(ac.cult.cultac.protocol.ProtocolCodecs::close)
                 .add(CultAPI.INSTANCE.getDataStoreLifecycle())
+                .add(CultAPI.INSTANCE.getPortalSync())
                 .add(CloudModule::shutdown)
                 .addAll(extraStoppableInitables)
                 .build();

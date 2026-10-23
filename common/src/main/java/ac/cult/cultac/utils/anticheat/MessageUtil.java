@@ -5,9 +5,6 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundDisconnect;
-import ac.cult.cultac.protocol.value.BlockPos;
-import ac.cult.cultac.utils.data.webhook.discord.CompiledDiscordTemplate;
-import ac.cult.cultac.utils.math.Vec3;
 import ac.grim.grimac.api.GrimUser;
 import java.util.Map;
 import java.util.function.Function;
@@ -23,7 +20,6 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.joml.Vector3f;
 
 @UtilityClass
 public class MessageUtil {
@@ -40,27 +36,9 @@ public class MessageUtil {
                 stripColor(LegacyComponentSerializer.legacySection().serialize(reason)));
     }
 
-    public @NotNull String toUnlabledString(@Nullable Vec3 vec) {
-        return vec == null ? "null" : vec.x + ", " + vec.y + ", " + vec.z;
-    }
-
-    public @NotNull String toUnlabledString(@Nullable Vector3f vec) {
-        return vec == null ? "null" : vec.x + ", " + vec.y + ", " + vec.z;
-    }
-
-    public @NotNull String toUnlabledString(@Nullable BlockPos vec) {
-        return vec == null ? "null" : vec.getX() + ", " + vec.getY() + ", " + vec.getZ();
-    }
-
-    @Contract("_, null, _ -> null; _, !null, _ -> !null")
-    public @Nullable String replacePlaceholders(
-            @Nullable CultPlayer player, @Nullable String string, boolean removeFormatting) {
-        return replacePlaceholders(player, player == null ? null : player.platformPlayer, string, removeFormatting);
-    }
-
     @Contract("_, null -> null; _, !null -> !null")
     public @Nullable String replacePlaceholders(@Nullable CultPlayer player, @Nullable String string) {
-        return replacePlaceholders(player, player == null ? null : player.platformPlayer, string, false);
+        return replacePlaceholders(player, player == null ? null : player.platformPlayer, string);
     }
 
     @Contract("_, null -> null; _, !null -> !null")
@@ -73,25 +51,18 @@ public class MessageUtil {
         return replacePlaceholders(
                 player == null ? null : CultAPI.INSTANCE.getPlayerDataManager().getPlayer(player.getUniqueId()),
                 player,
-                string,
-                false);
+                string);
     }
 
     private static final Pattern UNIFIED_PLACEHOLDER_PATTERN = Pattern.compile("%([a-zA-Z0-9_]+)%");
 
-    @Contract("_, _, null, _ -> null; _, _, !null, _ -> !null")
+    @Contract("_, _, null -> null; _, _, !null -> !null")
     private @Nullable String replacePlaceholders(
-            @Nullable CultPlayer cultPlayer,
-            @Nullable PlatformPlayer platformPlayer,
-            @Nullable String string,
-            boolean removeFormatting) {
+            @Nullable CultPlayer cultPlayer, @Nullable PlatformPlayer platformPlayer, @Nullable String string) {
         if (string == null) return null;
 
-        // --- PHASE 1: FAST PATH ---
-        // JVM Intrinsic: Scanning for a char is significantly faster than initializing a Regex Matcher.
-        // If there is no '%', we can skip all allocation.
+        // Without a '%' there is nothing to replace, so skip all allocation.
         if (string.indexOf('%') == -1) {
-            // Since there are no % signs we can skip calling papi or our own replacement code
             return string;
         }
 
@@ -103,7 +74,6 @@ public class MessageUtil {
             return CultAPI.INSTANCE.getMessagePlaceHolderManager().replacePlaceholders(platformPlayer, string);
         }
 
-        // Get references to the maps once, outside the loop.
         final Map<String, String> staticReplacements =
                 CultAPI.INSTANCE.getExternalAPI().getStaticReplacements();
         final Map<String, Function<GrimUser, String>> variableReplacements =
@@ -112,52 +82,34 @@ public class MessageUtil {
         // chars).
         final StringBuilder sb = new StringBuilder(string.length() + 32);
 
-        // --- PHASE 2: THE REPLACEMENT LOOP ---
-        // Used do-while because the first `matcher.find()` was already called above.
+        // The first matcher.find() already ran above.
         do {
             // The full placeholder, e.g., "%tps%" or "%prefix%"
             final String keyWithPercent = matcher.group(0);
             String value = null;
 
-            // optimization: We check the static map first. This is a single, O(1) hash map lookup.
             String staticValue = staticReplacements.get(keyWithPercent);
 
             if (staticValue != null) {
                 value = staticValue;
             } else if (cultPlayer != null) {
-                // If it's not a static placeholder, check if it's a dynamic one.
-                // This is a second, O(1) hash map lookup.
                 final Function<GrimUser, String> func = variableReplacements.get(keyWithPercent);
                 if (func != null) {
-                    // LAZY EVALUATION: We only call the expensive function (like getTPS)
-                    // if we actually found its placeholder in the string.
                     value = func.apply(cultPlayer);
                 }
             }
 
-            // If we found no replacement, `value` will be null.
-            // In that case, we treat the placeholder as literal text by appending the original key.
+            // An unknown placeholder stays as literal text.
             if (value == null) {
                 value = keyWithPercent;
-                // yes the check for `removeFormatting` is inside the loop, but it's a simple boolean
-                // check and the cost is negligible compared to the string operations.
-                // Do NOT escape - this is probably a PAPI key that must remain intact
-            } else if (removeFormatting) {
-                // Note: This assumes `escapeMarkdown` is reasonably fast.
-                // If it's slow, there are further micro-optimizations, but this is the right place for it.
-                value = CompiledDiscordTemplate.escapeMarkdown(value);
             }
 
-            // `appendReplacement` efficiently appends the text between matches and our replacement value.
-            // `Matcher.quoteReplacement` should handle any '$' or '\' in the replacement value.
             matcher.appendReplacement(sb, Matcher.quoteReplacement(value));
 
         } while (matcher.find());
 
-        // Append the final part of the string after the last found placeholder.
         matcher.appendTail(sb);
 
-        // Create the final string from our builder.
         String cultReplaced = sb.toString();
 
         return CultAPI.INSTANCE

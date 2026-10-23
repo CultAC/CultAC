@@ -1,5 +1,6 @@
 package ac.cult.cultac.network.codec;
 
+import ac.cult.blocksim.data.MerchantPrices;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.packet.InventoryPackets.EquipmentEntry;
@@ -7,6 +8,7 @@ import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.inventory.InventoryClick;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import io.netty.buffer.ByteBuf;
 import java.util.*;
@@ -18,8 +20,7 @@ final class ModelInventoryValues {
 
     ModelInventoryValues(WireValueDecoder decoder, ProtocolVersion version, WireValueDecoder.Registries registries) {
         this.version = version;
-        values =
-                new ModelItemValues(decoder, version, registries, ac.cult.cultac.utils.inventory.ItemUtil.modelItems());
+        values = new ModelItemValues(decoder, version, registries, ItemUtil.modelItems());
     }
 
     Object read(ByteBuf input, String name) {
@@ -97,8 +98,8 @@ final class ModelInventoryValues {
             int special = input.readInt();
             float multiplier = input.readFloat();
             int demand = input.readInt();
-            costA = costA.copyWithCount(ac.cult.blocksim.data.MerchantPrices.count(
-                    costA.getCount(), demand, multiplier, special, costA.getMaxStackSize()));
+            costA = costA.copyWithCount(
+                    MerchantPrices.count(costA.getCount(), demand, multiplier, special, costA.getMaxStackSize()));
             offers.add(new InventoryPackets.MerchantOffer(costA, costB, result, exhausted || uses >= maxUses));
         }
         // Level, XP and UI/restock flags are not consumed by the anticheat.

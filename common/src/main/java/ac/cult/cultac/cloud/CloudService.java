@@ -1,6 +1,7 @@
 package ac.cult.cultac.cloud;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.impl.cloud.Cloud;
 import ac.cult.cultac.cloud.capture.PlayerText;
 import ac.cult.cultac.cloud.capture.Sections;
 import ac.cult.cultac.cloud.diag.Diagnostics;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -33,30 +35,42 @@ public final class CloudService {
     private static final Set<CloudCapture> INSTALLED = ConcurrentHashMap.newKeySet();
 
     private static final ConnectionUplinks UPLINKS = new ConnectionUplinks(CONNECTIONS);
+    private static final Object CONFIGURING = new Object();
+    /** The turn-on hook ran last, not the turn-off hook; guarded by {@link #CONFIGURING}. */
+    private static boolean hooksOn;
     /** The findings the service sent, while the upload is configured on. */
     private static volatile @Nullable FindingsLog findings;
 
     static {
-        CONNECTIONS.onTurnedOff(() -> {
-            reconfigureCaptures();
-            hook("turn-off", CloudModule.turnedOff());
-        });
+        CONNECTIONS.onTurnedOff(CloudService::turnedOff);
         CONNECTIONS.onFinding(CloudService::finding);
     }
 
     private CloudService() {}
+
+    /** Sends what every team socket hears to team sync. */
+    static void listenForTeam() {
+        CONNECTIONS.onTeam(CultAPI.INSTANCE.getPortalSync().teamListener());
+    }
 
     /** Applies the config: sockets open, close or move, and every player's capture follows. Any thread. */
     static void configReloaded() {
         configure(CultAPI.INSTANCE.getConfigManager().getConfig(), CultAPI.INSTANCE.getPlatform() == Platform.VELOCITY);
     }
 
-    /** {@code proxy} picks a proxy's protocols and server-id default over a server's own. */
+    /**
+     * {@code proxy} picks a proxy's protocols and server-id default over a server's own. Calls run one at a time, each
+     * reading the config inside, so the last to run applies the latest config.
+     */
     static void configure(ConfigManager config, boolean proxy) {
-        boolean wasOn = UPLINKS.enabled();
-        CloudSettings settings = proxy
-                ? CloudSettings.read(config, CloudSettings.PROXY_PROTOCOLS, CloudSettings.DEFAULT_SERVER_ID)
-                : CloudSettings.read(config, CloudSettings.SERVER_PROTOCOLS, CloudSettings.OWN_SERVER_ID);
+        synchronized (CONFIGURING) {
+            configureNow(config, proxy);
+        }
+    }
+
+    private static void configureNow(ConfigManager config, boolean proxy) {
+        CloudSettings settings = CloudSettings.read(
+                config, CloudSettings.PROTOCOLS, proxy ? CloudSettings.DEFAULT_SERVER_ID : CloudSettings.OWN_SERVER_ID);
         if (!config.getBooleanElse("cloud.enabled", true)) {
             LogUtil.info("Cloud upload is off: cloud.enabled is false");
             settings = CloudSettings.OFF;
@@ -77,9 +91,30 @@ public final class CloudService {
         CONNECTIONS.configure(settings);
         CloudCapture.uplinks(UPLINKS);
         boolean on = UPLINKS.enabled();
-        if (!wasOn && on) hook("turn-on", CloudModule.turnedOn());
+        if (on && !hooksOn) {
+            hooksOn = true;
+            hook("turn-on", CloudModule.turnedOn());
+        }
         reconfigureCaptures();
-        if (wasOn && !on) hook("turn-off", CloudModule.turnedOff());
+        if (!on) turnOffHook();
+    }
+
+    /**
+     * The service or zstd turned the upload off, on the thread that did. A notice that arrives after a configure has
+     * turned it on again, or has already run the turn-off hook, changes nothing.
+     */
+    static void turnedOff() {
+        synchronized (CONFIGURING) {
+            if (UPLINKS.enabled()) return;
+            reconfigureCaptures();
+            turnOffHook();
+        }
+    }
+
+    private static void turnOffHook() {
+        if (!hooksOn) return;
+        hooksOn = false;
+        hook("turn-off", CloudModule.turnedOff());
     }
 
     private static void hook(String which, Runnable hook) {
@@ -115,8 +150,13 @@ public final class CloudService {
         return UPLINKS.enabled();
     }
 
-    /** {@code player} is tracked: their capture is made and installs when the upload is on. Any thread. */
+    /**
+     * {@code player} is tracked: their kept findings are no longer gone, and their capture is made and installs when the
+     * upload is on. Any thread.
+     */
     static void playerRegistered(CultPlayer player) {
+        FindingsLog log = findings;
+        if (log != null) log.joined(player.getUniqueId());
         if (!UPLINKS.enabled()) return;
         CloudCapture.reconfigure(player);
     }
@@ -151,6 +191,24 @@ public final class CloudService {
                         event.confidence(),
                         event.detail(),
                         event.tick()));
+        if (player != null) punish(player, event);
+    }
+
+    /** Hands {@code event} to the player's {@link Cloud} check on its packet thread, where checks flag. */
+    private static void punish(CultPlayer player, IntakeWire.Event event) {
+        Cloud cloud = player.checkManager.getCheck(Cloud.class);
+        if (cloud == null) return;
+        Runnable flag = () -> cloud.finding(event.checkId(), event.confidence(), event.detail());
+        var owner = player.user.getPacketExecutor();
+        if (owner.inEventLoop()) {
+            flag.run();
+            return;
+        }
+        try {
+            owner.execute(flag);
+        } catch (RejectedExecutionException closed) {
+            // The player's connection is gone; nothing is left to punish.
+        }
     }
 
     private static boolean tracked(UUID player) {
@@ -172,7 +230,6 @@ public final class CloudService {
      */
     static void superseded(String drainSuffix) {
         UPLINKS.drain(drainSuffix);
-        CONNECTIONS.retireOpen();
         reconfigureCaptures();
     }
 
@@ -216,8 +273,15 @@ public final class CloudService {
             this.connections = connections;
         }
 
+        /**
+         * Server ids end in {@code suffix} from here, and the sockets under the old ids retire. Both happen under the
+         * lock {@link #open} resolves ids in, so an open in flight cannot recreate an old id's socket after it retired.
+         */
         void drain(String suffix) {
-            drainSuffix = suffix;
+            synchronized (users) {
+                drainSuffix = suffix;
+                connections.retireOpen();
+            }
         }
 
         /** The status line's note on a draining generation; empty otherwise. */
@@ -232,22 +296,17 @@ public final class CloudService {
         }
 
         @Override
-        public boolean sectionsOnly() {
-            return connections.settings().protocols().equals(List.of(5));
-        }
-
-        @Override
         public @Nullable CloudCapture.Uplink open(String serverName) {
             CloudSettings settings = connections.settings();
             if (!connections.available()) return null;
             String id = CloudServerIds.resolve(settings.serverIdTemplate(), settings.proxyId(), serverName);
             if (id == null) return null;
-            id = CloudServerIds.withSuffix(id, drainSuffix);
             synchronized (users) {
-                CloudConnection connection = connections.forServer(id);
+                String suffixed = CloudServerIds.withSuffix(id, drainSuffix);
+                CloudConnection connection = connections.forServer(suffixed);
                 if (connection == null) return null;
-                users.merge(id, 1, Integer::sum);
-                return new ConnectionUplink(id, connection);
+                users.merge(suffixed, 1, Integer::sum);
+                return new ConnectionUplink(suffixed, connection);
             }
         }
 

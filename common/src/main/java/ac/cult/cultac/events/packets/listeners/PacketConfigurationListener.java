@@ -24,17 +24,11 @@ public class PacketConfigurationListener {
 
         String channelName = packet.channel();
         byte[] data = event.getPacket().data();
-        if (channelName == null) {
-            return;
-        }
-        if (!channelName.equalsIgnoreCase("minecraft:brand") && !channelName.equals("MC|Brand")) {
-            player.checkManager.getListener(PluginChannelManager.class).handleChannelRegistered(channelName);
-        }
-        if (channelName.equals("MC|Brand") || channelName.equalsIgnoreCase("minecraft:brand")) {
+        final PluginChannelManager pluginChannels = player.checkManager.getListener(PluginChannelManager.class);
+        if (channelName.equalsIgnoreCase("minecraft:brand")) {
             final ClientBrand clientBrand = player.checkManager.getListener(ClientBrand.class);
             clientBrand.handle(channelName, data);
         }
-        final PluginChannelManager pluginChannels = player.checkManager.getListener(PluginChannelManager.class);
         pluginChannels.handle(channelName, data, event);
     }
 
@@ -46,9 +40,7 @@ public class PacketConfigurationListener {
         if (event.getPhase() != ConnectionPhase.CONFIGURATION) {
             return;
         }
-        // PreViaCheckManagerListener dispatched configuration CLIENT_SETTINGS to ChatD.
-        // Configuration and play use the same NMS packet class, but the play-only
-        // CheckManagerListener gate deliberately does not see this phase.
+        // The play-only CheckManagerListener gate does not see this phase.
         player.checkManager.getListener(ChatD.class).onClientInformation(event, player, packet);
     }
 }

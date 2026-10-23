@@ -125,9 +125,6 @@ public final class ItemComponents {
     public static int damage(Components components) { return components.integer("minecraft:damage", 0); }
     public static int maxDamage(Components components) { return components.integer("minecraft:max_damage", 0); }
     public static boolean glider(Components components) { return components.has("minecraft:glider"); }
-    public static boolean creativeSlotLock(Components components) { return components.has("minecraft:creative_slot_lock"); }
-    public static String blockTransformer(Components components) { return reference(components, "minecraft:block_transformer"); }
-    public static String mapPostProcessing(Components components) { return reference(components, "minecraft:map_post_processing"); }
     public static NbtValue.Compound customData(Components components) { return (NbtValue.Compound) components.encodedNbt("minecraft:custom_data"); }
     public static List<ItemTemplate> bundleContents(Components components) {
         return components.bundle() == null ? null : components.bundle().items();
@@ -139,8 +136,6 @@ public final class ItemComponents {
                 ? ItemTemplate.fromNbt(components.encodedNbt(key), ComponentLayout.child(components, key, "0"))
                 : ItemTemplate.fromJson(components.get(key));
     }
-    public static List<NbtValue.Compound> canBreak(Components components) { return predicates(components, "minecraft:can_break"); }
-    public static List<NbtValue.Compound> canPlaceOn(Components components) { return predicates(components, "minecraft:can_place_on"); }
 
     public static boolean canGlide(SimItemStack stack, String slot) {
         var equipment = equippable(stack.components());
@@ -174,19 +169,9 @@ public final class ItemComponents {
         components.get(key).getAsJsonArray().forEach(value -> result.add(ItemTemplate.fromJson(value)));
         return List.copyOf(result);
     }
-    private static List<NbtValue.Compound> predicates(Components components, String key) {
-        var value = components.encodedNbt(key);
-        if (value == null) return null;
-        if (value instanceof NbtValue.Compound predicate) return List.of(predicate);
-        return ((NbtValue.Sequence)value).values().stream().map(entry -> (NbtValue.Compound)entry).toList();
-    }
     private static JsonObject object(Components components, String key) {
-        var value = components.get(key);
+        var value = components.view(key);
         return value == null ? null : value.getAsJsonObject();
-    }
-    private static String reference(Components components, String key) {
-        var value = components.get(key);
-        return value == null ? null : value.getAsString();
     }
     private static boolean flag(JsonObject value, String key, boolean fallback) {
         return value.has(key) ? NbtJson.booleanValue(value.get(key)) : fallback;

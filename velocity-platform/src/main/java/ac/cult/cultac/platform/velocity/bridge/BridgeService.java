@@ -6,6 +6,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.ServerStats;
 import ac.cult.cultac.bridge.protocol.BridgeProtocol;
 import ac.cult.cultac.bridge.protocol.BridgeProtocolException;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
+import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.PacketDispatcher;
 import ac.cult.cultac.network.event.PacketEvent;
@@ -55,6 +56,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     private final ProxyServer proxy;
     private final Object plugin;
     private final Function<Player, Channel> channels;
+    private final Function<Channel, @Nullable CultConnection> connections;
     private final Logger logger;
     private final long helloRetryMillis;
     private final long readyTimeoutMillis;
@@ -78,11 +80,17 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     private volatile boolean closed;
     private volatile boolean registered;
 
-    public BridgeService(ProxyServer proxy, Object plugin, Function<Player, Channel> channels, Logger logger) {
+    public BridgeService(
+            ProxyServer proxy,
+            Object plugin,
+            Function<Player, Channel> channels,
+            Function<Channel, @Nullable CultConnection> connections,
+            Logger logger) {
         this(
                 proxy,
                 plugin,
                 channels,
+                connections,
                 logger,
                 ProxyBridgeSession.HELLO_RETRY_MILLIS,
                 ProxyBridgeSession.READY_TIMEOUT_MILLIS,
@@ -93,6 +101,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
             ProxyServer proxy,
             Object plugin,
             Function<Player, Channel> channels,
+            Function<Channel, @Nullable CultConnection> connections,
             Logger logger,
             long helloRetryMillis,
             long readyTimeoutMillis,
@@ -100,6 +109,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
         this.proxy = proxy;
         this.plugin = plugin;
         this.channels = channels;
+        this.connections = connections;
         this.logger = logger;
         this.helloRetryMillis = helloRetryMillis;
         this.readyTimeoutMillis = readyTimeoutMillis;
@@ -213,7 +223,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
             }
             if (malformedPlayers.add(playerId)) {
                 logger.warning("Closing the CultAC bridge for " + playerId + " on " + session.serverName()
-                        + ": malformed frame (" + failure.getMessage() + ")");
+                        + ": malformed frame (" + printable(failure.getMessage(), MAX_LOGGED_REASON_CHARS) + ")");
             }
             session.close("malformed frame");
             return;
@@ -275,7 +285,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
             return;
         }
         reconfiguring.remove(playerId, server);
-        open(playerId, server, new VelocityBackend(server, channel, backendInPlay));
+        open(playerId, server, new VelocityBackend(server, channel, backendInPlay, connections.apply(channel)));
     }
 
     /**
@@ -303,7 +313,10 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
             if (closed || !channel.isActive()) return;
             ServerConnection server = player.getCurrentServer().orElse(null);
             if (server == null || !backendInPlay.test(server)) return;
-            open(player.getUniqueId(), server, new VelocityBackend(server, channel, backendInPlay));
+            open(
+                    player.getUniqueId(),
+                    server,
+                    new VelocityBackend(server, channel, backendInPlay, connections.apply(channel)));
         });
     }
 
@@ -346,6 +359,11 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     @Override
     public void addListener(BridgeMessageListener listener) {
         listeners.add(listener);
+    }
+
+    @Override
+    public void removeListener(BridgeMessageListener listener) {
+        listeners.remove(listener);
     }
 
     /** TPS last reported by the companion on the player's backend, or NaN. */
@@ -408,7 +426,8 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
         missingServers.remove(server);
         rejections.remove(server);
         if (activeServers.add(server)) {
-            logger.info("CultAC bridge active on " + server + " (" + session.serverVersion() + "), capabilities "
+            logger.info("CultAC bridge active on " + server + " ("
+                    + printable(session.serverVersion(), MAX_LOGGED_REASON_CHARS) + "), capabilities "
                     + describe(session));
         }
         for (var listener : listeners) {

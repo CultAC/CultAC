@@ -116,6 +116,7 @@ public final class ClientboundPackets {
     // Configuration and play.
     public static final PacketType<ClientboundDisconnect> DISCONNECT =
             COMMON.add("disconnect", ClientboundDisconnect.class, new DisconnectCodec());
+    public static final PacketType<Opaque> TRANSFER = COMMON.ignored("transfer");
     public static final PacketType<ClientboundKeepAlive> KEEP_ALIVE =
             COMMON.add("keep_alive", ClientboundKeepAlive.class, new ClientboundKeepAliveCodec());
     public static final PacketType<ClientboundPing> PING = COMMON.add("ping", ClientboundPing.class, new PingCodec());

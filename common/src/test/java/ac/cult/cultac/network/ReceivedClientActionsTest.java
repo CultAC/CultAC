@@ -281,6 +281,66 @@ class ReceivedClientActionsTest {
         }
     }
 
+    @Test
+    void riptideTridentUseStartsOnlyInWaterOrRain() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        try (var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var player = fixture.player;
+            player.gamemode = GameMode.SURVIVAL;
+            fixture.registrar.register(routes -> routes.registerReceiveListener(
+                    ac.cult.cultac.network.event.PacketListenerPriority.NORMAL,
+                    new ac.cult.cultac.events.packets.listeners.CheckManagerListener()));
+            var trident = OfflineCultTestBootstrap.item("minecraft:trident");
+            trident.setComponent("minecraft:enchantments", CanonicalSnbt.parse("{'minecraft:riptide':3}"));
+            player.getInventory().inventory.setHeldItem(trident);
+            var world = player.compensatedWorld;
+            var dimension = player.getWorldRegistries().dimension("minecraft:overworld");
+            world.setLastClientboundDimension("minecraft:overworld", dimension.dimension());
+            world.setDimension("minecraft:overworld", dimension);
+            world.clientBiomeZoomSeed(55);
+            world.ensureValidationChunkLoaded(0, 0);
+            var names = ac.cult.cultac.network.codec.ModelRegistryNamesState.defaults();
+            int[][] palettes = new int[world.getLastClientboundSectionCount()][64];
+            for (var palette : palettes)
+                java.util.Arrays.fill(palette, names.id("minecraft:worldgen/biome", "minecraft:forest"));
+            world.applyClientBiomes("minecraft:overworld", 0, 0, palettes);
+            player.x = 8.5D;
+            player.y = 64.0D;
+            player.z = 8.5D;
+            player.boundingBox = ac.cult.cultac.utils.nmsutil.GetBoundingBox.getCollisionBoxForPlayer(
+                    player, player.x, player.y, player.z);
+
+            // TridentItem#use returns FAIL for a riptide trident while !Player#isInWaterOrRain.
+            forwardUse(fixture, 1);
+            assertFalse(player.isClientUsingItem());
+
+            // Entity#isInRain: Level#isRainingAt needs rain, an open sky and a biome that rains there.
+            world.applyClientWeather(ac.cult.cultac.protocol.value.GameEventType.RAIN_LEVEL_CHANGE, 1.0F);
+            forwardUse(fixture, 2);
+            assertTrue(player.isClientUsingItem());
+            assertTrue(player.clientItemUse.hasObligation());
+            player.clientItemUse.release();
+
+            int stone = DataTables.defaults().registry().block("minecraft:stone").defaultState();
+            world.applyBlockChangeRawDANGER(8, 67, 8, stone);
+            forwardUse(fixture, 3);
+            assertFalse(player.isClientUsingItem());
+            assertFalse(player.clientItemUse.hasObligation());
+            world.applyBlockChangeRawDANGER(8, 67, 8, 0);
+
+            for (var palette : palettes)
+                java.util.Arrays.fill(palette, names.id("minecraft:worldgen/biome", "minecraft:desert"));
+            world.applyClientBiomes("minecraft:overworld", 0, 0, palettes);
+            forwardUse(fixture, 4);
+            assertFalse(player.isClientUsingItem());
+            assertFalse(player.clientItemUse.hasObligation());
+
+            world.updateBlock(8, 64, 8, DataTables.defaults().registry().block("minecraft:water").defaultState());
+            forwardUse(fixture, 5);
+            assertTrue(player.isClientUsingItem());
+        }
+    }
+
     private static void queuedUse(ac.cult.cultac.player.CultPlayer player, Hand hand, int sequence) {
         player.compensatedWorld.advanceClientPredictionSequence();
         ac.cult.cultac.events.packets.blockplace.PlaceHandler.handleQueuedUseItem(

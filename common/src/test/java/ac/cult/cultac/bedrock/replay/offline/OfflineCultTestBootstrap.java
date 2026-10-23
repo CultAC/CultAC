@@ -29,7 +29,8 @@ public final class OfflineCultTestBootstrap {
         }
         initializeProtocolRuntime();
         installPlatformLoader();
-        ConfigManager config = Mockito.mock(ConfigManager.class);
+        // The config outlives every test in the fork, so it records no invocations.
+        ConfigManager config = Mockito.mock(ConfigManager.class, Mockito.withSettings().stubOnly());
         Mockito.when(config.getIntElse(Mockito.anyString(), Mockito.anyInt()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
         Mockito.when(config.getBooleanElse(Mockito.anyString(), Mockito.anyBoolean()))

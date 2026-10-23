@@ -6,15 +6,12 @@ import java.util.*;
 
 /** Connection-owned wire IDs. Shared decoders only borrow this lookup for one invocation. */
 public final class WireRegistryState implements WireValueDecoder.Registries {
-    private final ProtocolVersion version;
     private final ModelRegistryData source;
     private final java.util.function.Supplier<RegistryNames> model;
     private final Map<String, List<String>> received = new HashMap<>();
     private boolean awaitingRegistryData;
-    private final Set<String> unavailable = new HashSet<>();
 
     public WireRegistryState(ProtocolVersion version, java.util.function.Supplier<RegistryNames> model) {
-        this.version = version;
         this.source = ModelRegistryData.load(version);
         this.model = model;
     }
@@ -69,16 +66,5 @@ public final class WireRegistryState implements WireValueDecoder.Registries {
 
     public int modelId(String registry, String name) {
         return model.get().id(registry, name);
-    }
-
-    public void unavailable(String registry, String name) {
-        if (unavailable.add(registry + "/" + name))
-            System.getLogger(getClass().getName())
-                    .log(
-                            System.Logger.Level.WARNING,
-                            "Older backend {0}: unavailable model registry value {1}/{2}",
-                            version,
-                            registry,
-                            name);
     }
 }

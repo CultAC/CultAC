@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -13,13 +14,21 @@ import static org.mockito.Mockito.verify;
 
 import ac.cult.cultac.cloud.labels.LabelClient.Reply;
 import ac.cult.cultac.platform.api.sender.Sender;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.net.ConnectException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -156,6 +165,81 @@ class TargetLookupTest {
         clock.set(Duration.ofMinutes(10).toNanos());
         lookup.resolve("notch").join();
         assertEquals(2, calls.get());
+    }
+
+    @Test
+    void theCacheIsBoundedAndDropsExpiredNamesWhenOneIsAdded() {
+        MojangProfiles mojang = new MojangProfiles(url -> reply(200, MOJANG_BODY), clock::get);
+        for (int i = 0; i < MojangProfiles.MAX_ENTRIES + 10; i++)
+            mojang.lookup("n" + i).join();
+        assertEquals(MojangProfiles.MAX_ENTRIES, mojang.size());
+        assertNull(mojang.cached("n0"));
+        assertNotNull(mojang.cached("n" + (MojangProfiles.MAX_ENTRIES + 9)));
+        clock.addAndGet(MojangProfiles.TTL.toNanos());
+        mojang.lookup("fresh").join();
+        assertEquals(1, mojang.size());
+    }
+
+    @Test
+    void lookupsInFlightAreCapped() {
+        List<CompletableFuture<Reply>> pending = new ArrayList<>();
+        MojangProfiles mojang = new MojangProfiles(
+                url -> {
+                    CompletableFuture<Reply> call = new CompletableFuture<>();
+                    pending.add(call);
+                    return call;
+                },
+                clock::get);
+        List<CompletableFuture<TargetLookup.Outcome>> running = new ArrayList<>();
+        for (int i = 0; i < MojangProfiles.MAX_LOOKUPS; i++) running.add(mojang.lookup("n" + i));
+        TargetLookup.Outcome refused = mojang.lookup("extra").getNow(null);
+        assertNotNull(refused);
+        assertNull(refused.target());
+        assertNotNull(refused.problem());
+        assertEquals(MojangProfiles.MAX_LOOKUPS, pending.size());
+
+        pending.get(0).complete(new Reply(200, MOJANG_BODY));
+        assertNotNull(running.get(0).join().target());
+        pending.get(1).completeExceptionally(new ConnectException("refused"));
+        assertTrue(running.get(1).isCompletedExceptionally());
+        mojang.lookup("again");
+        mojang.lookup("more");
+        assertEquals(MojangProfiles.MAX_LOOKUPS + 2, pending.size());
+        assertNull(mojang.lookup("over").getNow(null).target());
+    }
+
+    @Test
+    void anOversizedMojangAnswerIsCutOff() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        CompletableFuture<Long> sent = new CompletableFuture<>();
+        long total = 32 << 20;
+        server.createContext("/", exchange -> {
+            long written = 0;
+            byte[] block = new byte[64 << 10];
+            try {
+                exchange.sendResponseHeaders(200, 0);
+                OutputStream out = exchange.getResponseBody();
+                while (written < total) {
+                    out.write(block);
+                    written += block.length;
+                }
+                out.close();
+            } catch (IOException cutOff) {
+            } finally {
+                sent.complete(written);
+                exchange.close();
+            }
+        });
+        server.start();
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/Notch";
+            assertThrows(
+                    ExecutionException.class,
+                    () -> MojangProfiles.get(HttpClient.newHttpClient(), url).get(20, TimeUnit.SECONDS));
+            assertTrue(sent.get(20, TimeUnit.SECONDS) < total);
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test

@@ -3,8 +3,10 @@ package ac.cult.cultac.checks.impl.prediction.stage;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Riptide;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
@@ -14,6 +16,7 @@ import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.WaterCurrent;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,6 +36,7 @@ public class VelocityTransformer {
             return input;
         }
 
+        input = Riptide.release(player, simulationContext, input);
         input = applyBaseTickFluidCurrents(player, input);
         input = applyLegacyLivingVehicleDrag(player, input);
         input = applyAttackSlow(input);
@@ -50,6 +54,15 @@ public class VelocityTransformer {
             return applyJumps(player, input);
         }
 
+        if (simulationContext.getVehicle() instanceof PacketEntityHorse) {
+            // LivingEntity#aiStep thresholds deltaMovement before travelRidden runs
+            // AbstractHorse#tickRidden's rider jump and travel adds the ridden input.
+            input = applyMovementThreshold(input, simulationContext.getVersion(), false);
+            input = applyRideableInput(player, input);
+            // Camel#travel clears the refusing camel's motion after tickRidden's dash.
+            return applyCamelRefusal(player, applyJumps(player, input));
+        }
+
         input = applyRideableInput(player, input);
 
         // MCP-Reborn LivingEntity#handleRelativeFrictionAndCalculateMovement moves
@@ -64,14 +77,65 @@ public class VelocityTransformer {
         // utils.nmsutil.NextTickVelocityDeriver.findVelocitiesForNextTick(...), which derives
         // the carried delta from the accepted packet movement after the move.
 
-        // Horse jumping is done before movement threshold
-        if (simulationContext.getVehicle() instanceof PacketEntityHorse) {
-            input = applyJumps(player, input);
-            return applyMovementThreshold(input, simulationContext.getVersion(), false);
+        boolean abilityFlying = simulationContext.getVehicle() == null && player.isFlying;
+        if (abilityFlying) {
+            input = applyFlightTakeoff(player, input);
+            input = applyFlightInput(player, input);
         }
-
         input = applyMovementThreshold(input, simulationContext.getVersion(), simulationContext.getVehicle() == null);
-        return applyJumps(player, input);
+        // Player#isAffectedByFluids is false in flight, so LivingEntity#aiStep runs neither jump.
+        return abilityFlying ? input : applyJumps(player, input);
+    }
+
+    /**
+     * LocalPlayer#aiStep runs jumpFromGround when its double-tap toggle turns flight on while on the ground, ahead of
+     * the flight input. The player_abilities of that start precedes this tick's player_input and move. Any other
+     * flight start is a player_abilities ServerGamePacketListenerImpl#handlePlayerAbilities accepts without a jump.
+     */
+    private List<PredVector> applyFlightTakeoff(CultPlayer player, List<PredVector> velocities) {
+        if (!player.packetStateData.flyingStartBeforeTravel || !FlightToggle.canToggle(player)) return velocities;
+        List<Boolean> onGroundStates = simulationContext.getLastOnGround().getStates();
+        if (!onGroundStates.contains(true)) return velocities;
+        List<PredVector> outputs = new ArrayList<>();
+        for (PredVector velocity : velocities) {
+            outputs.addAll(applyPossibleJumpStates(player, velocity));
+        }
+        // LivingEntity#jumpFromGround leaves the velocity unchanged at or below 1.0E-5F.
+        if (onGroundStates.contains(false) || jumpFromGroundCanDoNothing(player)) outputs.addAll(velocities);
+        return outputs;
+    }
+
+    private boolean jumpFromGroundCanDoNothing(CultPlayer player) {
+        for (boolean onHoney :
+                simulationContext.getWorldData().getOnHoneyBlock().getStates()) {
+            if (jumpPower(player, onHoney) <= 1.0E-5F) return true;
+        }
+        return false;
+    }
+
+    private float jumpPower(CultPlayer player, boolean onHoney) {
+        float jumpPower = (float) player.compensatedEntities.getSelf().jumpStrength * (onHoney ? 0.5f : 1.0f);
+        if (simulationContext.getJumpAmplifier() != null) {
+            jumpPower += 0.1f * (simulationContext.getJumpAmplifier() + 1);
+        }
+        return jumpPower;
+    }
+
+    /**
+     * LocalPlayer#aiStep adds three times the abilities' flying speed to the delta movement's Y while jump is held
+     * in flight and subtracts it while shift is held, before LivingEntity#aiStep's movement threshold. The keys are
+     * the ones LocalPlayer#sendChanges reports in the player_input preceding this tick's move.
+     */
+    private static List<PredVector> applyFlightInput(CultPlayer player, List<PredVector> velocities) {
+        KnownInput keys = player.packetStateData.knownInput;
+        int inputYa = (keys.jump() ? 1 : 0) - (keys.shift() ? 1 : 0);
+        if (inputYa == 0) return velocities;
+        double impulse = (float) inputYa * player.flySpeed * 3.0F;
+        List<PredVector> outputs = new ArrayList<>(velocities.size());
+        for (PredVector velocity : velocities) {
+            outputs.add(velocity.add(0, impulse, 0, "Flight input"));
+        }
+        return outputs;
     }
 
     private boolean shouldThresholdBeforeItemControlledRiddenInput(CultPlayer player) {
@@ -84,19 +148,19 @@ public class VelocityTransformer {
 
     private List<PredVector> applyLegacyLivingVehicleDrag(CultPlayer player, List<PredVector> input) {
         PacketEntity vehicle = simulationContext.getVehicle();
-        if (simulationContext.getVersion() != ClientVersion.V_1_21_2
+        if (simulationContext.getVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)
                 || vehicle == null
                 || !vehicle.isLivingEntity()
                 || !player.packetStateData.isVehicleMovementFromClientTick()
                 || vehicle.newPacketLocation != null && vehicle.newPacketLocation.hasActiveInterpolationTarget()) {
             return input;
         }
-        // 1.21.2/1.21.3 LivingEntity#aiStep scales deltaMovement before
-        // thresholding and travelRidden because Entity#isEffectiveAi is false
+        // Before 1.21.5, LivingEntity#aiStep scales deltaMovement before
+        // thresholding and travelRidden because Mob#isEffectiveAi is false
         // on the client, including locally controlled living vehicles. The
         // preceding lerpSteps > 0 branch skips this drag, including the final
         // interpolation step; prediction still sees the pre-tick target here.
-        // Newer clients instead test canSimulateMovement and retain the delta.
+        // From 1.21.5 the branch tests canSimulateMovement, which keeps the delta.
         List<PredVector> transformed = new ArrayList<>(input.size());
         for (PredVector vector : input) {
             transformed.add(vector.multiply(0.98D, "legacy living vehicle drag"));
@@ -140,13 +204,31 @@ public class VelocityTransformer {
         return Double.isFinite(vector.x) && Double.isFinite(vector.y) && Double.isFinite(vector.z);
     }
 
+    /** Camel#travel clears the horizontal deltaMovement of a grounded camel that refuses to move. */
+    private List<PredVector> applyCamelRefusal(CultPlayer player, List<PredVector> input) {
+        if (!(simulationContext.getVehicle() instanceof PacketEntityCamel camel)
+                || !player.packetStateData.isVehicleMovementFromClientTick()
+                || !camel.refuseToMove(player.compensatedWorld.clientGameTime())) {
+            return input;
+        }
+
+        List<PredVector> refused = new ArrayList<>(input.size() * 2);
+        for (PredVector vector : input) {
+            for (boolean onGround : simulationContext.getLastOnGround().getStates()) {
+                addDistinctPredVector(
+                        refused, onGround ? vector.withXYZ(0.0D, vector.y, 0.0D, "camel refuses to move") : vector);
+            }
+        }
+        return refused;
+    }
+
     private List<PredVector> applyRideableInput(CultPlayer player, List<PredVector> input) {
         PacketEntity vehicle = simulationContext.getVehicle();
-        // LivingEntity#aiStep runs travelRidden only while the root isAlive(); a dead root travels on its
-        // immobile self input (LivingEntity#isImmobile, AbstractHorse#isImmobile), which is zero.
+        // LivingEntity#aiStep runs travelRidden only while the root isAlive() (health > 0, not the dead
+        // flag); otherwise it travels on its immobile self input (LivingEntity#isImmobile), which is zero.
         if (vehicle == null
                 || input.isEmpty()
-                || vehicle.isDead
+                || !vehicle.actionAlive
                 || !player.packetStateData.isVehicleMovementFromClientTick()
                 || !canUseItemControlledMovement(player, vehicle)
                 || EntityTypeUtil.isBoat(vehicle.type)) {
@@ -274,6 +356,12 @@ public class VelocityTransformer {
         PacketEntityHorse horse = simulationContext.getVehicle() instanceof PacketEntityHorse packetEntityHorse
                 ? packetEntityHorse
                 : null;
+        // Camel#getRiddenInput runs before Camel#tickRidden can stand the camel up.
+        if (horse instanceof PacketEntityCamel camel && camel.refuseToMove(player.compensatedWorld.clientGameTime())) {
+            addDistinctInputVector(vectors, Vec3.ZERO);
+            return vectors;
+        }
+
         boolean standingHorseCanZeroInput = standingHorseCanZeroInput(horse);
         boolean standingHorseCanUseNormalInput = standingHorseCanUseNormalInput(horse);
 
@@ -285,45 +373,56 @@ public class VelocityTransformer {
             return vectors;
         }
 
-        for (boolean water : simulationContext.getWorldData().getInWater().getStates()) {
-            if (water) {
-                addDistinctInputVector(
-                        vectors,
-                        inputVectorForSpeed(
-                                player,
-                                riddenInput,
-                                simulationContext.getMoveRelativeSpeed(player, false, true, false)));
+        // Camel#getRiddenSpeed reads the controller's sprint flag, which an attack this tick may have reset.
+        List<Boolean> riderSprintStates = horse instanceof PacketEntityCamel
+                ? simulationContext.getCamelRiderSprinting(player).getStates()
+                : List.of(true);
+        for (boolean riderSprinting : riderSprintStates) {
+            for (boolean water : simulationContext.getWorldData().getInWater().getStates()) {
+                if (water) {
+                    addDistinctInputVector(
+                            vectors,
+                            inputVectorForSpeed(
+                                    player,
+                                    riddenInput,
+                                    simulationContext.getMoveRelativeSpeed(
+                                            player, false, true, false, riderSprinting)));
+                }
             }
-        }
 
-        for (boolean lava : simulationContext.getWorldData().getInLava().getStates()) {
-            if (lava) {
-                addDistinctInputVector(
-                        vectors,
-                        inputVectorForSpeed(
-                                player,
-                                riddenInput,
-                                simulationContext.getMoveRelativeSpeed(player, false, false, true)));
+            for (boolean lava : simulationContext.getWorldData().getInLava().getStates()) {
+                if (lava) {
+                    addDistinctInputVector(
+                            vectors,
+                            inputVectorForSpeed(
+                                    player,
+                                    riddenInput,
+                                    simulationContext.getMoveRelativeSpeed(
+                                            player, false, false, true, riderSprinting)));
+                }
             }
-        }
 
-        boolean canBeNonFluid = simulationContext
-                        .getWorldData()
-                        .getInWater()
-                        .getStates()
-                        .contains(false)
-                && simulationContext.getWorldData().getInLava().getStates().contains(false);
-        if (canBeNonFluid) {
-            // LivingEntity#travelInFluid branches on exact isInWater()/isInLava(). When Cult can
-            // only narrow the mount to maybe-fluid, preserve the non-fluid travel branch too.
-            for (boolean onGround :
-                    simulationContext.getWorldData().getLastOnGround().getStates()) {
-                addDistinctInputVector(
-                        vectors,
-                        inputVectorForSpeed(
-                                player,
-                                riddenInput,
-                                simulationContext.getMoveRelativeSpeed(player, onGround, false, false)));
+            boolean canBeNonFluid = simulationContext
+                            .getWorldData()
+                            .getInWater()
+                            .getStates()
+                            .contains(false)
+                    && simulationContext.getWorldData().getInLava().getStates().contains(false);
+            if (canBeNonFluid) {
+                // LivingEntity#travelInFluid branches on exact isInWater()/isInLava(). When Cult can
+                // only narrow the mount to maybe-fluid, preserve the non-fluid travel branch too.
+                for (boolean onGround :
+                        simulationContext.getWorldData().getLastOnGround().getStates()) {
+                    // A grounded camel's dash sets its cooldown in tickRidden before getRiddenSpeed reads it.
+                    boolean dashes = onGround && horse instanceof PacketEntityCamel && horse.horseJump > 0.0F;
+                    addDistinctInputVector(
+                            vectors,
+                            inputVectorForSpeed(
+                                    player,
+                                    riddenInput,
+                                    simulationContext.getMoveRelativeSpeed(
+                                            player, onGround, false, false, riderSprinting && !dashes)));
+                }
             }
         }
 
@@ -379,7 +478,11 @@ public class VelocityTransformer {
     private Vec3 getExactHorseFamilyRiddenInput(Vec3 rawInputState) {
         // KeyboardInput#tick normalizes key impulses, LocalPlayer#applyInput stores modifyInput(...)
         // into xxa/zza, and AbstractHorse#getRiddenInput maps that exact pair to ridden Vec3.
-        Vec3 modifiedInput = getExactControllerModifiedInput(rawInputState);
+        // Before 1.21.5, LocalPlayer#serverAiStep stores the raw impulses and LivingEntity#aiStep
+        // scales them by 0.98.
+        Vec3 modifiedInput = simulationContext.getVersion().isOlderThan(ClientVersion.V_1_21_5)
+                ? new Vec3((float) rawInputState.x * 0.98F, 0.0D, (float) rawInputState.z * 0.98F)
+                : getExactControllerModifiedInput(rawInputState);
         float modifiedX = (float) modifiedInput.x;
         float modifiedZ = (float) modifiedInput.z;
         if (modifiedInput.lengthSqr() < 1.0E-7D) {
@@ -400,6 +503,17 @@ public class VelocityTransformer {
     }
 
     private static Vec3 getExactControllerModifiedInputStatic(Vec3 rawInputState) {
+        return getExactControllerModifiedInputStatic(rawInputState, 1.0F);
+    }
+
+    /** LocalPlayer#modifyInput with no item in use; {@code movingSlowlyFactor} is LocalPlayer#isMovingSlowly's scale. */
+    public static Vec3 getExactControllerModifiedInputStatic(Vec3 rawInputState, float movingSlowlyFactor) {
+        return getExactControllerModifiedInputStatic(rawInputState, 1.0F, movingSlowlyFactor);
+    }
+
+    /** LocalPlayer#modifyInput, scaling by {@code itemUseMultiplier} for an item in use before the slow factor. */
+    public static Vec3 getExactControllerModifiedInputStatic(
+            Vec3 rawInputState, float itemUseMultiplier, float movingSlowlyFactor) {
         float xxa = (float) rawInputState.x;
         float zza = (float) rawInputState.z;
         float rawLengthSqr = xxa * xxa + zza * zza;
@@ -411,12 +525,13 @@ public class VelocityTransformer {
         float normalizedX = xxa / rawLength;
         float normalizedZ = zza / rawLength;
 
-        float modifiedX = normalizedX * 0.98F;
-        float modifiedZ = normalizedZ * 0.98F;
+        float modifiedX = normalizedX * 0.98F * itemUseMultiplier * movingSlowlyFactor;
+        float modifiedZ = normalizedZ * 0.98F * itemUseMultiplier * movingSlowlyFactor;
         float modifiedLength = CultMath.sqrt(modifiedX * modifiedX + modifiedZ * modifiedZ);
         if (modifiedLength > 0.0F) {
-            float unitX = modifiedX / modifiedLength;
-            float unitZ = modifiedZ / modifiedLength;
+            float inverseLength = 1.0F / modifiedLength;
+            float unitX = modifiedX * inverseLength;
+            float unitZ = modifiedZ * inverseLength;
             float absX = Math.abs(unitX);
             float absZ = Math.abs(unitZ);
             float ratio = absZ > absX ? absX / absZ : absZ / absX;
@@ -518,13 +633,14 @@ public class VelocityTransformer {
 
     private List<PredVector> applyJumps(CultPlayer player, List<PredVector> velocities) {
         boolean canPlayerJump = simulationContext.getWorldData().isCanJump();
-        // AbstractHorse#tickRidden and AbstractNautilus#tickRidden run the rider's jump inside travelRidden.
+        // AbstractHorse#tickRidden and AbstractNautilus#tickRidden run the rider's jump inside travelRidden,
+        // which LivingEntity#aiStep gates on isAlive().
         boolean canHorseJump = simulationContext.getVehicle() instanceof PacketEntityHorse horse
-                && !horse.isDead
+                && horse.actionAlive
                 && horse.horseJump > 0.0F
                 && simulationContext.getLastOnGround().determineOptimistically();
         boolean canNautilusDash = simulationContext.getVehicle() instanceof PacketEntityNautilus nautilus
-                && !nautilus.isDead
+                && nautilus.actionAlive
                 && nautilus.pendingJumpScale > 0.0D;
         if (!canPlayerJump && !canHorseJump && !canNautilusDash) return velocities;
 
@@ -544,6 +660,7 @@ public class VelocityTransformer {
 
         for (PredVector vectorData : velocities) {
             // TODO: Restrict this for not being in shallow water (above some level submerged)
+            if (Riptide.pushed(simulationContext, vectorData)) continue;
             outputs.addAll(applyPossibleJumpStates(player, vectorData));
         }
 
@@ -598,7 +715,7 @@ public class VelocityTransformer {
 
             final double blockSpeedFactor = CultMath.lerp(
                     (float) horse.movementEfficiency,
-                    BlockProperties.getBlockSpeedFactor(
+                    BlockProperties.getEntityBlockSpeedFactor(
                             player,
                             simulationContext.getLastTickMainSupportingBlockData(),
                             simulationContext.getStart()),
@@ -631,7 +748,7 @@ public class VelocityTransformer {
             for (boolean isSprinting : simulationContext.getIsSprinting().getStates()) {
                 // To keep shit clean, we'll just do horse jumping separately
                 final PacketEntity vehicle = simulationContext.getVehicle();
-                if (vehicle instanceof PacketEntityHorse && vehicle.isDead) continue;
+                if (vehicle instanceof PacketEntityHorse && !vehicle.actionAlive) continue;
                 if (vehicle instanceof PacketEntityCamel) {
                     final PredVector dashed = applyCamelDash(player, vector, onHoney ? 0.5 : 1);
                     if (dashed != vector) outputs.add(dashed);
@@ -643,11 +760,7 @@ public class VelocityTransformer {
                 }
                 PredVector modified;
 
-                float jumpPower = (float) player.compensatedEntities.getSelf().jumpStrength * (onHoney ? 0.5f : 1.0f);
-
-                if (simulationContext.getJumpAmplifier() != null) {
-                    jumpPower += 0.1f * (simulationContext.getJumpAmplifier() + 1);
-                }
+                float jumpPower = jumpPower(player, onHoney);
 
                 // LivingEntity#jumpFromGround does nothing at or below 1.0E-5F.
                 if (jumpPower <= 1.0E-5F) continue;
@@ -685,7 +798,7 @@ public class VelocityTransformer {
         Vec3 look = getExactNautilusDashLook(player.xRot, player.yRot);
         float blockSpeedFactor = CultMath.lerp(
                 (float) nautilus.movementEfficiency,
-                BlockProperties.getBlockSpeedFactor(
+                BlockProperties.getEntityBlockSpeedFactor(
                         player, simulationContext.getLastTickMainSupportingBlockData(), simulationContext.getStart()),
                 1.0F);
         double waterMultiplier = inWater ? 1.2F : 0.5F;

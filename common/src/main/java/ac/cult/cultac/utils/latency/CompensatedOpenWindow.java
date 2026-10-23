@@ -1,5 +1,8 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.cultac.checks.type.CheckListener;
+import ac.cult.cultac.checks.type.ClientTickEndListener;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
@@ -9,8 +12,7 @@ import lombok.Getter;
 import org.jetbrains.annotations.Nullable;
 
 /** Split-state window tracking ported from Grim PR #2848 by ManInMyVan. */
-public final class CompensatedOpenWindow
-        implements ac.cult.cultac.checks.type.CheckListener, ac.cult.cultac.checks.type.ClientTickEndListener {
+public final class CompensatedOpenWindow implements CheckListener, ClientTickEndListener {
     private static final Window PLAYER_INVENTORY = new Window(0, Long.MIN_VALUE, null);
     private final CultPlayer player;
     private final Set<@Nullable Window> possibleOpenWindows = new HashSet<>(2);
@@ -48,6 +50,7 @@ public final class CompensatedOpenWindow
         // before a client tick, so no ping is inserted midway through a bundle.
         event.getWritesBeforeSend().add(before.packet());
         event.getWritesAfterSend().add(after.packet());
+        event.receiptProof(after.transaction());
         event.getTasksAfterSend().add(() -> {
             player.markTrackedTransactionPacketSent(before);
             player.markTrackedTransactionPacketSent(after);
@@ -87,7 +90,7 @@ public final class CompensatedOpenWindow
     }
 
     @Override
-    public void onPlayerTickEnd(ac.cult.cultac.network.event.PacketReceiveEvent event) {
+    public void onPlayerTickEnd(PacketReceiveEvent event) {
         if (!player.isBedrockMovement()) onClientTick();
     }
 

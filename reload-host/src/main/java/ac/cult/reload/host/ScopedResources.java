@@ -1,14 +1,23 @@
 package ac.cult.reload.host;
 
 import ac.cult.reload.api.ResourceScope;
-import java.util.ArrayDeque;
+import java.lang.ref.Reference;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /** One lifetime for calls, callbacks, accepted queued work, and registration cleanup. */
 public final class ScopedResources implements ResourceScope {
-    private final ArrayDeque<Runnable> cleanup = new ArrayDeque<>();
+    /** What close releases, newest first. */
+    private final LinkedHashSet<Runnable> cleanup = new LinkedHashSet<>();
+    /** Guards whose task was collected, so their entries can leave {@link #cleanup}. */
+    private final ReferenceQueue<GuardedTask> collected = new ReferenceQueue<>();
+
     private final CompletableFuture<Void> stopped = new CompletableFuture<>();
     private boolean closing;
     private int inFlight;
@@ -78,20 +87,37 @@ public final class ScopedResources implements ResourceScope {
 
     @Override
     public <T> T track(T value, Runnable release) {
-        synchronized (this) {
-            if (!closing) {
-                cleanup.push(release);
-                return value;
-            }
-        }
+        if (register(release)) return value;
         release.run();
         throw RuntimeFailures.ended();
     }
 
+    /**
+     * The guard's entry holds it weakly. A native scheduler holding a pending or repeating task keeps it reachable, so
+     * close still disarms it, while a task nothing holds any more, run or cancelled, is collected with its callback.
+     */
     @Override
     public Runnable guard(Runnable callback) {
         var guarded = new GuardedTask(callback);
-        return track(guarded, () -> guarded.callback = null);
+        if (register(new Disarm(guarded, collected))) return guarded;
+        throw RuntimeFailures.ended();
+    }
+
+    private synchronized boolean register(Runnable release) {
+        if (closing) return false;
+        forgetCollected();
+        cleanup.add(release);
+        return true;
+    }
+
+    /** Entries close would release, after collected guards leave. */
+    synchronized int registrations() {
+        forgetCollected();
+        return cleanup.size();
+    }
+
+    private void forgetCollected() {
+        for (Reference<?> gone; (gone = collected.poll()) != null; ) cleanup.remove(gone);
     }
 
     @Override
@@ -124,13 +150,13 @@ public final class ScopedResources implements ResourceScope {
 
     @Override
     public CompletionStage<Void> close() {
-        ArrayDeque<Runnable> releases;
+        List<Runnable> releases;
         Lease cancellation;
         synchronized (this) {
             if (closing) return stopped.minimalCompletionStage();
             closing = true;
             cancellation = reserve();
-            releases = new ArrayDeque<>(cleanup);
+            releases = new ArrayList<>(cleanup.reversed());
             cleanup.clear();
         }
         try (cancellation) {
@@ -177,6 +203,18 @@ public final class ScopedResources implements ResourceScope {
         public void run() {
             var action = callback;
             if (action != null) ScopedResources.this.run(action);
+        }
+    }
+
+    /** A guard's entry: clears the task's callback at close if anything still holds the task. */
+    private static final class Disarm extends WeakReference<GuardedTask> implements Runnable {
+        Disarm(GuardedTask task, ReferenceQueue<GuardedTask> queue) {
+            super(task, queue);
+        }
+
+        public void run() {
+            var task = get();
+            if (task != null) task.callback = null;
         }
     }
 

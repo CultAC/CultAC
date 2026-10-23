@@ -1,16 +1,13 @@
 package ac.cult.cultac.events.packets.listeners;
 
-import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 
 public class PacketPlayerSteer {
     // LOW
@@ -50,8 +47,8 @@ public class PacketPlayerSteer {
         Integer serverVehicleId = player.compensatedEntities.vehicles.serverPlayerVehicle;
         PacketEntity serverVehicle =
                 serverVehicleId == null ? null : player.compensatedEntities.getEntity(serverVehicleId);
-        boolean ridingAuthoritativeVehicle = usesStagedMoveVehicleInput(riding);
-        boolean observedAuthoritativeVehicle = usesStagedMoveVehicleInput(serverVehicle);
+        boolean ridingAuthoritativeVehicle = VehiclePredictionRunner.usesStagedVehicleInput(riding);
+        boolean observedAuthoritativeVehicle = VehiclePredictionRunner.usesStagedVehicleInput(serverVehicle);
         // MCP-Reborn ClientLevel#tickNonPassenger moves local-authoritative
         // rideable roots before ClientLevel#tickPassenger runs
         // LocalPlayer#rideTick. A raw input packet in the same client tick
@@ -64,18 +61,5 @@ public class PacketPlayerSteer {
             player.boatData.vehicleJump = vehicleJump;
             player.boatData.vehicleKeys = vehicleKeys;
         }
-    }
-
-    private boolean usesStagedMoveVehicleInput(PacketEntity vehicle) {
-        if (vehicle == null) {
-            return false;
-        }
-
-        return EntityTypeUtil.isBoat(vehicle.type)
-                || EntityTypeUtil.isHorseFamily(vehicle.type)
-                || vehicle.type == EntityTypeIds.PIG
-                || vehicle.type == EntityTypeIds.STRIDER
-                || vehicle instanceof PacketEntityHappyGhast
-                || vehicle instanceof PacketEntityNautilus;
     }
 }

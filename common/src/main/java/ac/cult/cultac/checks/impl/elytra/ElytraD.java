@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.elytra;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.PostPredictionListener;
@@ -10,6 +11,8 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.inventory.ClientGlider;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 
 @CheckData(
@@ -47,9 +50,8 @@ public class ElytraD extends Check implements PostPredictionListener {
 
     private boolean canGlide() {
         // don't check the client/server version, this is relevant for all
-        final ac.cult.blocksim.engine.SimItemStack chestPlate =
-                player.getInventory().getChestplate();
-        if (chestPlate.getItem() == ac.cult.cultac.utils.inventory.ItemTypes.ELYTRA
+        final SimItemStack chestPlate = player.getInventory().getChestplate();
+        if (chestPlate.getItem() == ItemTypes.ELYTRA
                 && ItemUtil.getDamageValue(chestPlate) < ItemUtil.getMaxDamage(chestPlate) - 1) return true;
 
         return isGlider(player.getInventory().getHelmet(), EquipmentSlot.HEAD)
@@ -59,7 +61,7 @@ public class ElytraD extends Check implements PostPredictionListener {
                 || isGlider(player.getInventory().getOffHand(), EquipmentSlot.OFFHAND);
     }
 
-    private static boolean isGlider(ac.cult.blocksim.engine.SimItemStack stack, EquipmentSlot slot) {
-        return ac.cult.cultac.utils.inventory.ClientGlider.canUse(stack, slot);
+    private static boolean isGlider(SimItemStack stack, EquipmentSlot slot) {
+        return ClientGlider.canUse(stack, slot);
     }
 }

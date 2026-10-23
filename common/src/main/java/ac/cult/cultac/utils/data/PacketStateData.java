@@ -17,6 +17,20 @@ public class PacketStateData {
     public boolean receivedMovementThisClientTick = false;
     // A flight stop LocalPlayer#aiStep may have sent after travel on landing; that tick still travelled flying.
     public boolean flyingStopAfterTravel = false;
+    // A flight start LocalPlayer#aiStep sent this client tick, ahead of its player_input and move.
+    public boolean flyingStartBeforeTravel = false;
+    // A flight stop this client tick's player_abilities sent.
+    public boolean flightStopThisClientTick = false;
+    // LocalPlayer#updateAutoJump can have set autoJumpTime for the next client tick.
+    public boolean autoJumpPossible = false;
+    // The jump key of the last client tick LocalPlayer#aiStep ran.
+    public boolean lastTickJump = false;
+    // Bit t: Player#jumpTriggerTime can be t at the next LocalPlayer#aiStep flight toggle check.
+    public int jumpTriggerTimes = 1;
+    // Entity#isSwimming can be true from the last client tick's baseTick on; the server's entity data overwrites it.
+    public boolean swimmingPossible = false;
+    // Entity#wasEyeInWater at the next client tick's baseTick: the eye fluid at the last client tick's start.
+    public boolean eyeInWaterBeforeTick = false;
     // Geyser forwards each auth frame before its movement. A horse move
     // precedes the rider's rotation; tick-end closes frames without movement.
     public final BedrockTranslatedMovementGate bedrockTranslatedMovement = new BedrockTranslatedMovementGate();
@@ -37,6 +51,7 @@ public class PacketStateData {
     private int slowedByUsingItemSlot = Integer.MIN_VALUE;
     public KnownInput knownInput = KnownInput.DEFAULT;
     public int riptideLevel = 0;
+    public boolean riptideReleaseCertain = false;
     public int acceptedClientTick = 0;
     public int riptideUseStartClientTick = Integer.MIN_VALUE;
     public Hand riptideUseHand = null;
@@ -52,6 +67,14 @@ public class PacketStateData {
     public Vec3 clientSidePosition = new Vec3(0, 0, 0);
     // LocalPlayer#xLast: the position of the client's last tick movement packet, unknown until one arrives.
     public Vec3 lastSentTickPosition = null;
+    // The rotation of the client's last tick movement packet that carried one, NaN while unknown. A new LocalPlayer
+    // starts LocalPlayer#yRotLast and xRotLast at zero.
+    public float lastSentTickYaw = Float.NaN;
+    public float lastSentTickPitch = Float.NaN;
+    // LocalPlayer#yRotLast and xRotLast, written only by sendPosition: the rotation of the last tick movement packet
+    // that carried one outside passenger Rot, NaN while unknown.
+    public float lastSendPositionYaw = Float.NaN;
+    public float lastSendPositionPitch = Float.NaN;
     // LocalPlayer#tick emits passenger Rot immediately before MoveVehicle; packet-handler echoes send MoveVehicle
     // alone.
     private boolean awaitingVehicleMoveAfterPassengerRotation = false;
@@ -61,6 +84,7 @@ public class PacketStateData {
     public int clientTickVehicleMovePacketsThisClientTick = 0;
     public int localAuthoritativeVehicleMovePacketsThisClientTick = 0;
     public boolean carriedItemChangedThisClientTick = false;
+    public boolean carriedItemClaimedThisClientTick = false;
     public boolean vehicleMovementStartOnGround = false;
     // Original-client-reported ground, excluding fields synthesized by protocol translation.
     public boolean vehicleMovementOnGroundPresent = true;

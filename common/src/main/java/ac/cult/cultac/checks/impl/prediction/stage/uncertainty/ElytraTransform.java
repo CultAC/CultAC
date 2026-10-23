@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
@@ -11,6 +12,12 @@ import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 
 public class ElytraTransform implements UncertaintyHandler {
+    /** Holds for a start trace, whose pre-collision velocity is its position: the pipeline runs this first. */
+    @Override
+    public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        return !context.usesFallFlyingMovement() || context.getWorldData().mustBeInLiquid();
+    }
+
     @Override
     public MovementTrace handleMovementTrace(
             CultPlayer player,
@@ -49,37 +56,105 @@ public class ElytraTransform implements UncertaintyHandler {
         // LivingEntity#aiStep applies bubble callbacks after travel. Their existing
         // Y range is therefore input to the next tick's elytra transform, including X/Z.
         PredVector minStart = start, maxStart = start;
-        if (BubbleColumn.beforeElytra(context) && !start.hasReason("Velocity")) {
+        // A server velocity set replaces the stored velocity; a grounded riptide lift that consumes a stuck
+        // multiplier zeroes it.
+        boolean replaced = start.hasReason("Velocity") || context.getRiptideLiftStuck() != null;
+        if (BubbleColumn.beforeElytra(context) && !replaced) {
             minStart = BubbleColumn.apply(context, lastResult, start, Double.NEGATIVE_INFINITY);
             maxStart = BubbleColumn.apply(context, lastResult, start, Double.POSITIVE_INFINITY);
         }
-        SimpleCollisionBox allowed = null;
-
-        // Don't require the player to have elytra if they MIGHT be in water
-        if (context.getWorldData().maybeInLiquid()) {
-            allowed = new SimpleCollisionBox(minStart, maxStart);
-        }
-
-        for (int loopFastmath = 0; loopFastmath < 2; loopFastmath++) {
-            for (double gravity : result.getPossibleGravity()) {
-                Vec3 elytraResult = transformElytra(player, context, minStart, gravity);
-                Vec3 maxElytraResult =
-                        minStart.y == maxStart.y ? elytraResult : transformElytra(player, context, maxStart, gravity);
-                if (allowed == null) {
-                    allowed = new SimpleCollisionBox(elytraResult, maxElytraResult).sort();
-                } else {
-                    allowed = allowed.union(new SimpleCollisionBox(elytraResult, maxElytraResult).sort());
-                }
+        // FireworkRocketEntity#tick runs after the LocalPlayer's tick and boosts the stored velocity once per
+        // attached rocket with that tick's look; a server velocity set is handled after it and replaces it.
+        int fireworks = replaced ? 0 : player.compensatedFireworks.getMaxFireworksAppliedPossible();
+        // That boost precedes this tick's TridentItem#releaseUsing push and LivingEntity#aiStep's 0.003 cut.
+        Riptide.Pushed pushed = fireworks == 0 ? null : Riptide.pushOf(context, start);
+        PredVector minCarried = minStart, maxCarried = maxStart;
+        if (pushed != null) {
+            minCarried = maxCarried = pushed.carried;
+            if (BubbleColumn.beforeElytra(context)) {
+                minCarried = BubbleColumn.apply(context, lastResult, pushed.carried, Double.NEGATIVE_INFINITY);
+                maxCarried = BubbleColumn.apply(context, lastResult, pushed.carried, Double.POSITIVE_INFINITY);
             }
-            player.trigHandler.toggleShitMath();
         }
-        player.trigHandler.toggleShitMath();
+        Vec3[] boostedMin = {minCarried, minCarried};
+        Vec3[] boostedMax = {maxCarried, maxCarried};
+        Vec3 cut = null;
+        double closest = Double.POSITIVE_INFINITY;
+        for (int boosts = 0; boosts <= fireworks; boosts++) {
+            SimpleCollisionBox allowed = null;
 
-        assert allowed != null;
-        allowed.expand(0, yUncertainty, 0);
+            // Don't require the player to have elytra if they MIGHT be in water
+            if (boosts == 0 && context.getWorldData().maybeInLiquid()) {
+                allowed = new SimpleCollisionBox(minStart, maxStart);
+            }
 
-        Vec3 cut = VectorUtils.cutBoxToVector(end, allowed);
+            for (int loopFastmath = 0; loopFastmath < 2; loopFastmath++) {
+                if (boosts > 0) {
+                    Vector3dm look = ReachUtils.getLook(player, context.getLastXRot(), context.getLastYRot());
+                    boostedMin[loopFastmath] = boostFirework(boostedMin[loopFastmath], look);
+                    boostedMax[loopFastmath] = minCarried == maxCarried
+                            ? boostedMin[loopFastmath]
+                            : boostFirework(boostedMax[loopFastmath], look);
+                }
+                Vec3 min = boosts == 0 ? minStart : launch(context, pushed, boostedMin[loopFastmath]);
+                Vec3 max = boosts == 0 ? maxStart : launch(context, pushed, boostedMax[loopFastmath]);
+                // LivingEntity#updateFallFlyingMovement reads the gravity from the velocity it starts from.
+                allowed = glide(player, result, context, allowed, min);
+                if (min.y != max.y) {
+                    allowed = glide(player, result, context, allowed, max);
+                    if (Math.min(min.y, max.y) <= 0 && Math.max(min.y, max.y) > 0) {
+                        // LivingEntity#getEffectiveGravity switches at a y of zero; on either side the glide is
+                        // monotonic in y, so each side's ends bound it.
+                        allowed = glide(player, result, context, allowed, new Vec3(min.x, 0, min.z));
+                        allowed = glide(player, result, context, allowed, new Vec3(min.x, Double.MIN_VALUE, min.z));
+                    }
+                }
+                player.trigHandler.toggleShitMath();
+            }
+
+            assert allowed != null;
+            allowed.expand(0, yUncertainty, 0);
+
+            Vec3 candidate = VectorUtils.cutBoxToVector(end, allowed);
+            double distance = candidate.distanceToSqr(end);
+            if (distance < closest) {
+                closest = distance;
+                cut = candidate;
+            }
+        }
+
         return start.withXYZ(cut.x, cut.y, cut.z, "elytra");
+    }
+
+    /** TridentItem#releaseUsing's push on a boosted velocity, then LivingEntity#aiStep's 0.003 cut. */
+    private static Vec3 launch(SimulationContext context, Riptide.Pushed pushed, Vec3 boosted) {
+        if (pushed == null) return boosted;
+        return VelocityTransformer.applyMovementThreshold(
+                new PredVector(boosted.add(pushed.push)), context.getVersion(), true);
+    }
+
+    private SimpleCollisionBox glide(
+            CultPlayer player,
+            PredictionResult result,
+            SimulationContext context,
+            SimpleCollisionBox allowed,
+            Vec3 velocity) {
+        for (double gravity : result.getPossibleGravity(velocity.y, velocity.y)) {
+            allowed = union(allowed, transformElytra(player, context, velocity, gravity));
+        }
+        return allowed;
+    }
+
+    private static SimpleCollisionBox union(SimpleCollisionBox allowed, Vec3 movement) {
+        SimpleCollisionBox box = new SimpleCollisionBox(movement, movement);
+        return allowed == null ? box : allowed.union(box);
+    }
+
+    private static Vec3 boostFirework(Vec3 velocity, Vector3dm look) {
+        return velocity.add(
+                look.getX() * 0.1 + (look.getX() * 1.5 - velocity.x) * 0.5,
+                look.getY() * 0.1 + (look.getY() * 1.5 - velocity.y) * 0.5,
+                look.getZ() * 0.1 + (look.getZ() * 1.5 - velocity.z) * 0.5);
     }
 
     public Vec3 transformElytra(CultPlayer player, SimulationContext context, Vec3 start, double gravity) {

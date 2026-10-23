@@ -5,12 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
+import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
@@ -20,12 +22,16 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
+import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.Mockito;
 
 /** A dead client sends no movement, and a respawn places a new player. */
 class DeadPlayerSetbackTest {
@@ -128,10 +134,71 @@ class DeadPlayerSetbackTest {
         }
     }
 
+    /**
+     * ClientPacketListener#handleRespawn hands the old LocalPlayer's motion to the new one only with KEEP_ENTITY_DATA,
+     * and only a placement keeping the delta keeps it for the first move after the level loads.
+     */
+    @ParameterizedTest(name = "keep entity data {0}, dimension change {1}, relative delta {2}")
+    @CsvSource({
+        "true, false, true",
+        "true, true, true",
+        "false, false, true",
+        "false, true, true",
+        "true, false, false",
+        "false, false, false"
+    })
+    void onlyAKeptPlayerCarriesMovesSentBeforeTheRespawnIsReadIntoARelativeDeltaPlacement(
+            boolean keep, boolean dimensionChange, boolean relativeDelta) throws Exception {
+        try (var f = fallingPlayer()) {
+            f.player.sendTransaction();
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertFalse(f.player.getSetbackTeleportUtil().insideUnloadedChunk());
+            String dimension = dimensionChange
+                    ? "minecraft:the_end"
+                    : f.player.compensatedWorld.getLastClientboundDimension().dimension();
+            respawn(f, keep ? ClientboundRespawn.KEEP_ENTITY_DATA : 0, dimension);
+            int respawnRead = f.player.lastTransactionSent.get();
+
+            // The old LocalPlayer ticks on until the client reads the respawn.
+            double motion = FALL_VELOCITY.y;
+            Vec3 position = FALLING;
+            for (int tick = 0; tick < 2; tick++) {
+                position = position.add(0, motion, 0);
+                assertExact(f.tick(position, false));
+                motion = (motion - 0.08) * 0.98F;
+            }
+
+            f.pongThrough(respawnRead);
+            Vec3 placed = new Vec3(SPAWN.x, SPAWN.y + 10, SPAWN.z);
+            placeAt(f, placed, relativeDelta ? Set.of(Relative.DELTA_X, Relative.DELTA_Y, Relative.DELTA_Z) : Set.of());
+            acceptInOrder(f);
+            f.player.packetStateData.playerLoadedIntoLevel = true;
+
+            assertExact(f.tick(placed.add(0, keep && relativeDelta ? motion : 0, 0), false));
+        }
+    }
+
+    @Test
+    void aMoveAfterTheRespawnIsReadWaitsForThePlacement() throws Exception {
+        try (var f = fallingPlayer()) {
+            respawn(f);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            placeAt(f, SPAWN);
+
+            assertFalse(f.player.getSetbackTeleportUtil().insideUnloadedChunk());
+            assertTrue(f.move(FALLING.add(FALL_VELOCITY), false).isCancelled());
+        }
+    }
+
+    private static void assertExact(PredictionResult result) {
+        assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
+    }
+
     /** A client falling past its freeze time: it last moved six seconds ago and must still be moving. */
     private static JavaTickFixture fallingPlayer() throws Exception {
         var f = new JavaTickFixture();
         f.player.nettyScheduler.removeScheduler();
+        Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
         f.place(FALLING, FALL_VELOCITY);
         f.player.getSetbackTeleportUtil().lastKnownGoodPosition = new SetbackPosWithVector(FALLING, FALL_VELOCITY, 0);
         f.player.checkManager.getSimulationProcessor().getLastMovementTime().add(System.nanoTime() - 6_000_000_000L);
@@ -140,11 +207,15 @@ class DeadPlayerSetbackTest {
 
     /** The server's respawn, not yet answered by the client. */
     private static void respawn(JavaTickFixture f) {
+        respawn(f, 0, f.player.compensatedWorld.getLastClientboundDimension().dimension());
+    }
+
+    private static void respawn(JavaTickFixture f, int dataToKeep, String dimension) {
         var spawnInfo = new PlayerSpawnInfo(
                 ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:the_end"),
-                f.player.compensatedWorld.getLastClientboundDimension().dimension(),
+                dimension,
                 GameMode.SURVIVAL);
-        var packet = new ClientboundRespawn(spawnInfo, (byte) 0);
+        var packet = new ClientboundRespawn(spawnInfo, (byte) dataToKeep);
         var event =
                 new PacketSendEvent<>(f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.RESPAWN, packet, false);
         new PacketPlayerRespawn().onRespawn(event, f.player, packet);
@@ -153,9 +224,13 @@ class DeadPlayerSetbackTest {
 
     /** The server's teleport placing the respawned player, not yet answered; its id. */
     private static int placeAt(JavaTickFixture f, Vec3 target) {
+        return placeAt(f, target, Set.of());
+    }
+
+    private static int placeAt(JavaTickFixture f, Vec3 target, Set<Relative> relatives) {
         int id = 1000;
         var packet = new ClientboundPlayerPosition(
-                id, new Vec3d(target.x, target.y, target.z), new Vec3d(0, 0, 0), 0, 0, Set.of());
+                id, new Vec3d(target.x, target.y, target.z), new Vec3d(0, 0, 0), 0, 0, relatives);
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.PLAYER_POSITION, packet, false);
         new PacketServerTeleport().onPlayerPosition(event, f.player, packet);

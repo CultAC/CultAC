@@ -3,6 +3,7 @@ package ac.cult.cultac.utils.latency;
 import ac.cult.blocksim.SimAction;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
@@ -17,6 +18,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 /** Reject client actions without admitting their writes to the simulation world. Owner-thread only. */
 public final class BlockActionReconciler {
@@ -24,6 +26,7 @@ public final class BlockActionReconciler {
     private final ArrayDeque<Correction> pending = new ArrayDeque<>();
     private int lastForwarded = -1;
     private int lastConfirmedServerAck = -1;
+    private @Nullable BlockPos serverDestroyPos;
 
     public BlockActionReconciler(CultPlayer player) {
         this.player = player;
@@ -72,7 +75,37 @@ public final class BlockActionReconciler {
         enqueue(correction);
     }
 
+    /**
+     * Tracks ServerPlayerGameMode#destroyPos: a START_DESTROY_BLOCK sets it, a STOP_DESTROY_BLOCK at that position or
+     * any ABORT_DESTROY_BLOCK ends the session.
+     */
+    public void digReachedServer(ServerboundPlayerAction packet) {
+        switch (packet.action()) {
+            case START_DESTROY_BLOCK -> serverDestroyPos = packet.position();
+            case STOP_DESTROY_BLOCK -> {
+                if (packet.position().equals(serverDestroyPos)) serverDestroyPos = null;
+            }
+            case ABORT_DESTROY_BLOCK -> serverDestroyPos = null;
+            default -> {}
+        }
+    }
+
+    /**
+     * ServerPlayerGameMode#tick sends level events 2019 and 2020 for the destroy session each tick, and only a STOP at
+     * ServerPlayerGameMode#destroyPos or an ABORT ends it. A STOP the server must not receive at that position is sent
+     * as an ABORT with its sequence, which ends the session without destroying the block and acknowledges the sequence.
+     */
+    public void abortServerDestroy(PacketReceiveEvent<ServerboundPlayerAction> event, ServerboundPlayerAction packet) {
+        if (player.isBedrockMovement() || CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
+        if (packet.action() != PlayerAction.STOP_DESTROY_BLOCK
+                || !packet.position().equals(serverDestroyPos)) return;
+        event.setCancelled(false);
+        event.replace(new ServerboundPlayerAction(
+                PlayerAction.ABORT_DESTROY_BLOCK, packet.position(), packet.direction(), packet.sequence()));
+    }
+
     public void rejectDig(ServerboundPlayerAction packet) {
+        if (player.isBedrockMovement()) return;
         if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
             forwarded(packet.sequence());
             return;
@@ -142,6 +175,7 @@ public final class BlockActionReconciler {
         pending.clear();
         lastForwarded = -1;
         lastConfirmedServerAck = -1;
+        serverDestroyPos = null;
     }
 
     private static boolean isPredictedDig(PlayerAction action) {

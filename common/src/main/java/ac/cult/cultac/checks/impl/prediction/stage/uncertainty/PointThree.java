@@ -5,12 +5,14 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
+import ac.cult.cultac.utils.nmsutil.Friction;
 
 public class PointThree implements UncertaintyHandler {
 
@@ -56,20 +58,17 @@ public class PointThree implements UncertaintyHandler {
             result.getValidMovements().setControlsVerticalMovement(true);
         }
 
-        if (controlsVerticalMovement && start.isKnockback() && !start.isTickSkip()) {
-            start = UncertaintyHelper.handleVertical(start, end, threshold);
-        } else if (canVerticalTickSkip && end.y < start.y) { // we want to go down
+        if (canVerticalTickSkip && end.y < start.y) { // we want to go down
             SimpleCollisionBox box = new SimpleCollisionBox(start, start);
             // Maximum amount skipped when falling
             double gravity = player.compensatedEntities.getEntityInControl().gravity;
             if (start.y <= 0.0D && context.getEntities().getSlowFallingAmplifier() != null) {
                 gravity = Math.min(gravity, 0.01D);
             }
-            double verticalDrag =
-                    player.getClientVersion().isNewerThanOrEquals(ac.cult.cultac.network.protocol.ClientVersion.V_26_2)
-                            ? ac.cult.cultac.utils.nmsutil.Friction.computeModifiedFriction(
-                                    0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier)
-                            : 0.98F;
+            double verticalDrag = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)
+                    ? Friction.computeModifiedFriction(
+                            0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier)
+                    : 0.98F;
             box.unionY((-gravity - threshold * 2) * verticalDrag);
             start = start.with(VectorUtils.cutBoxToVector(end, box), "gravity missing");
 
@@ -91,8 +90,6 @@ public class PointThree implements UncertaintyHandler {
     }
 
     private boolean controlsVerticalMovement(CultPlayer player, PredictionResult result) {
-        if (result == null) return false;
-
         WorldData data = result.getSimulationContext().getWorldData();
         boolean isBounce =
                 BlockIds.is(data.getOnBlock(), BlockIds.SLIME_BLOCK) || ClientBlockProperties.isBed(data.getOnBlock());

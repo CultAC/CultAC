@@ -46,9 +46,9 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             int entityId,
             List<Vec3> fromCandidates,
             SimpleCollisionBox targetBox,
+            Vec3 targetSize,
             int type,
-            boolean livingEntity,
-            boolean exempt,
+            boolean enforced,
             AttackReach reach) {}
 
     /**
@@ -59,18 +59,21 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     public record MeasuredAttack(
             int index, int entityId, int type, SimpleCollisionBox box, List<Vec3> origins, double reach) {}
 
+    private static final String MISSED_HITBOX = "Missed hitbox";
     // CultPlayer#getPossibleEyeHeights at scale 1.
     private static final double[] EYE_HEIGHTS = {0.4, 1.27, 1.62};
     private final ClientVisibilityProcessor visibility;
     // The looks measureBest tries, three components each.
     private final double[] looks = new double[15];
-    // The least-flagging measured distance and the bounds vanilla allows it.
-    private double bestDistance, bestMin, bestMax;
+    // The least-flagging measured distance, the farthest a possible target box is entered along the same ray, and the
+    // bounds vanilla allows it.
+    private double bestDistance, bestFar, bestMin, bestMax;
+    // At most the size of each possible box within the target box measureBest measures.
+    private Vec3 targetSize;
     // The location hitAlong found.
     private double hitX, hitY, hitZ;
     private final List<QueuedAttack> playerAttackQueue = new ArrayList<>();
     private final List<QueuedAttack> measuredAttacks = new ArrayList<>();
-    private static final List<Integer> blacklisted = Arrays.asList(EntityTypeIds.SHULKER);
 
     private boolean cancelImpossibleHits;
     private double threshold;
@@ -138,12 +141,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 return;
             }
 
-            // Dead entities cause false flags (https://github.com/GrimAnticheat/Grim/issues/546)
-            if (entity.isDead) return;
-
-            if (entity.type == EntityTypeIds.ARMOR_STAND) return;
-
-            if (player.gamemode == GameMode.SPECTATOR) return;
+            if (!measured(entity)) return;
 
             AttackReach reach = AttackReach.capture(player, visibility);
             boolean tooManyAttacks = playerAttackQueue.size() > 10;
@@ -156,9 +154,9 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                         action.entityId(),
                         getAttackOrigins(),
                         getReachBox(entity),
+                        getReachSize(entity),
                         entity.type,
-                        entity.isLivingEntity(),
-                        isReachExempt(entity),
+                        isEnforced(entity),
                         reach));
             }
 
@@ -192,7 +190,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         if (measuredAttacks.isEmpty()) return List.of();
         List<MeasuredAttack> measured = new ArrayList<>(measuredAttacks.size());
         for (QueuedAttack attack : measuredAttacks) {
-            measureBest(attack.targetBox(), attack.fromCandidates(), attack.reach(), false);
+            measureBest(attack.targetBox(), attack.targetSize(), attack.fromCandidates(), attack.reach(), false);
             measured.add(new MeasuredAttack(
                     attack.index(),
                     attack.entityId(),
@@ -213,9 +211,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     //
     // Meaning that the other check should be the only one that flags.
     private boolean isKnownInvalid(PacketEntity reachEntity, AttackReach reach) {
-        // If the entity doesn't exist, or if it is exempt, or if it is dead
-        if ((isReachExempt(reachEntity) || !reachEntity.isLivingEntity())
-                && reachEntity.type != EntityTypeIds.END_CRYSTAL) return false; // exempt
+        if (!isEnforced(reachEntity)) return false;
 
         // Filter out what we assume to be cheats
         if (cancelBuffer != 0) {
@@ -230,21 +226,24 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         for (QueuedAttack attack : playerAttackQueue) {
             String result = checkReach(
                     attack.targetBox(),
+                    attack.targetSize(),
                     attack.type(),
-                    attack.livingEntity(),
-                    attack.exempt(),
+                    attack.enforced(),
                     attack.fromCandidates(),
                     attack.reach(),
                     false);
-            if (result != null) {
+            if (MISSED_HITBOX.equals(result)) {
+                player.checkManager
+                        .getCheck(hitboxes())
+                        .flag(
+                                attack.type() == EntityTypeIds.PLAYER
+                                        ? ""
+                                        : "type=" + EntityTypeUtil.getKey(attack.type()));
+            } else if (result != null) {
                 if (attack.type() != EntityTypeIds.PLAYER) {
                     result += " type=" + EntityTypeUtil.getKey(attack.type()).getPath();
                 }
-                if (result.startsWith("Missed hitbox")) {
-                    player.checkManager.getCheck(hitboxes()).flag(result);
-                } else {
-                    flag(result);
-                }
+                flag(result);
             }
         }
 
@@ -285,9 +284,9 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             PacketEntity reachEntity, List<Vec3> fromCandidates, AttackReach reach, boolean isPrediction) {
         return checkReach(
                 getReachBox(reachEntity),
+                getReachSize(reachEntity),
                 reachEntity.type,
-                reachEntity.isLivingEntity(),
-                isReachExempt(reachEntity),
+                isEnforced(reachEntity),
                 fromCandidates,
                 reach,
                 isPrediction);
@@ -300,7 +299,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                     reachEntity.desyncClientPos.subtract(1, 0, 1), reachEntity.desyncClientPos.add(1, 2, 1));
         }
 
-        SimpleCollisionBox movementBox = reachEntity.getPossibleCollisionBoxes();
+        SimpleCollisionBox movementBox = reachEntity.toBoundingBox(player, reachEntity.getPossibleCollisionBoxes());
         float movementWidth = BoundingBoxSize.getWidth(player, reachEntity);
         float movementHeight = BoundingBoxSize.getHeight(player, reachEntity);
         float reachWidth = BoundingBoxSize.getReachWidth(player, reachEntity);
@@ -313,29 +312,47 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         return reachBox;
     }
 
+    // The size of each possible box getReachBox spans, at most its real size.
+    private Vec3 getReachSize(PacketEntity reachEntity) {
+        if (reachEntity.type == EntityTypeIds.END_CRYSTAL) return new Vec3(2, 2, 2);
+        if (reachEntity.isAvatar()) {
+            double width = reachEntity.leastPoseWidth();
+            return new Vec3(width, reachEntity.leastPoseHeight(), width);
+        }
+        // BoundingBoxSize scales linearly; the camel's sitting, the goat's long jump and the warden's digging and
+        // emerging poses still take the standing size.
+        double least = reachEntity.leastScale() / reachEntity.scale;
+        double width = least
+                * Math.max(
+                        BoundingBoxSize.getWidth(player, reachEntity),
+                        BoundingBoxSize.getReachWidth(player, reachEntity));
+        double height = least
+                * Math.max(
+                        BoundingBoxSize.getHeight(player, reachEntity),
+                        BoundingBoxSize.getReachHeight(player, reachEntity));
+        return new Vec3(width, height, width);
+    }
+
     private String checkReach(
             SimpleCollisionBox targetBox,
+            Vec3 targetSize,
             int type,
-            boolean livingEntity,
-            boolean exempt,
+            boolean enforced,
             List<Vec3> fromCandidates,
             AttackReach reach,
             boolean isPrediction) {
-        targetBox = targetBox.copy();
-        targetBox.expand(threshold);
-        targetBox.expand(player.getMovementThreshold());
+        targetBox = measuredBox(targetBox);
 
-        measureBest(targetBox, fromCandidates, reach, isPrediction);
+        measureBest(targetBox, targetSize, fromCandidates, reach, isPrediction);
 
-        // if the entity is not exempt and the entity is alive
-        if ((!exempt && livingEntity) || type == EntityTypeIds.END_CRYSTAL) {
+        if (enforced) {
             if (bestDistance == Double.POSITIVE_INFINITY) {
                 cancelBuffer = 1;
-                return "Missed hitbox";
+                return MISSED_HITBOX;
             } else if (excess() > 0) {
                 cancelBuffer = 1;
-                return bestDistance < bestMin
-                        ? String.format("%.5f blocks, min=%.5f", bestDistance, bestMin)
+                return bestFar < bestMin
+                        ? String.format("%.5f blocks, min=%.5f", bestFar, bestMin)
                         : String.format("%.5f blocks, max=%.5f", bestDistance, bestMax);
             } else {
                 cancelBuffer = Math.max(0, cancelBuffer - 0.25);
@@ -347,8 +364,14 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     /** Measures the least-flagging selection of the look at {@code targetBox} from the eyes at {@code fromCandidates}. */
     private void measureBest(
-            SimpleCollisionBox targetBox, List<Vec3> fromCandidates, AttackReach reach, boolean isPrediction) {
+            SimpleCollisionBox targetBox,
+            Vec3 targetSize,
+            List<Vec3> fromCandidates,
+            AttackReach reach,
+            boolean isPrediction) {
+        this.targetSize = targetSize;
         bestDistance = Double.POSITIVE_INFINITY;
+        bestFar = Double.POSITIVE_INFINITY;
         bestMin = Double.NEGATIVE_INFINITY;
         bestMax = 0;
 
@@ -376,9 +399,6 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             double lookZ = looks[look * 3 + 2];
             for (int candidate = 0; candidate < fromCandidates.size(); candidate++) {
                 Vec3 from = fromCandidates.get(candidate);
-                if (from == null) {
-                    continue;
-                }
                 for (double height : EYE_HEIGHTS) {
                     double eyeY = from.y + height * scale;
                     if (look < viewLooks) {
@@ -402,9 +422,6 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         float length = player.headArcLength;
         for (int candidate = 0; candidate < fromCandidates.size(); candidate++) {
             Vec3 eye = fromCandidates.get(candidate);
-            if (eye == null) {
-                continue;
-            }
             float aim = (float) Math.toDegrees(Math.atan2(eye.x - centerX, centerZ - eye.z));
             float into = aim - from;
             into -= 360.0F * (float) Math.floor(into / 360.0F);
@@ -424,20 +441,22 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     private int addLook(int count, float yaw, float pitch) {
         float pitchRadians = pitch * ((float) Math.PI / 180F);
         float yawRadians = -yaw * ((float) Math.PI / 180F);
-        float cosPitch = player.trigHandler.cos(pitchRadians);
-        looks[count * 3] = player.trigHandler.sin(yawRadians) * cosPitch;
-        looks[count * 3 + 1] = -player.trigHandler.sin(pitchRadians);
-        looks[count * 3 + 2] = player.trigHandler.cos(yawRadians) * cosPitch;
+        float cosPitch = player.trigHandler.clientCos(pitchRadians);
+        looks[count * 3] = player.trigHandler.clientSin(yawRadians) * cosPitch;
+        looks[count * 3 + 1] = -player.trigHandler.clientSin(pitchRadians);
+        looks[count * 3 + 2] = player.trigHandler.clientCos(yawRadians) * cosPitch;
         return count + 1;
     }
 
     private double excess() {
-        return Math.max(bestDistance - bestMax, bestMin - bestDistance);
+        return Math.max(bestDistance - bestMax, bestMin - bestFar);
     }
 
-    private void consider(double distance, double min, double max) {
-        if (Math.max(distance - max, min - distance) < excess()) {
+    // The maximum bounds the nearest possible hit and the minimum the farthest.
+    private void consider(double distance, double far, double min, double max) {
+        if (Math.max(distance - max, min - far) < excess()) {
             bestDistance = distance;
+            bestFar = far;
             bestMin = min;
             bestMax = max;
         }
@@ -462,10 +481,11 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         double hit = contains(box, eyeX, eyeY, eyeZ) ? 0 : clip(box, 0, eyeX, eyeY, eyeZ, dx, dy, dz);
         if (Double.isNaN(hit)) return;
         double distance = distance(eyeX, eyeY, eyeZ, eyeX + hit * dx, eyeY + hit * dy, eyeZ + hit * dz);
+        double far = farthest(box, distance, eyeX, eyeY, eyeZ, eyeX, eyeY, eyeZ, dx, dy, dz);
         if (reach.hasItemLimit()) {
-            consider(distance, reach.itemMin(), Math.min(reach.entityRange(), reach.itemLimit()));
+            consider(distance, far, reach.itemMin(), Math.min(reach.entityRange(), reach.itemLimit()));
         } else {
-            consider(distance, Double.NEGATIVE_INFINITY, reach.entityRange());
+            consider(distance, far, Double.NEGATIVE_INFINITY, reach.entityRange());
         }
     }
 
@@ -490,7 +510,23 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             double fromY = eyeY + lookY * pick.rayStart();
             double fromZ = eyeZ + lookZ * pick.rayStart();
             if (contains(box, fromX, fromY, fromZ)) {
-                consider(distance(eyeX, eyeY, eyeZ, fromX, fromY, fromZ), min, max);
+                double distance = distance(eyeX, eyeY, eyeZ, fromX, fromY, fromZ);
+                double length = pick.rayEnd() - pick.rayStart();
+                measureHit(
+                        box,
+                        pick.hitboxMargin(),
+                        distance,
+                        eyeX,
+                        eyeY,
+                        eyeZ,
+                        fromX,
+                        fromY,
+                        fromZ,
+                        lookX * length,
+                        lookY * length,
+                        lookZ * length,
+                        min,
+                        max);
                 continue;
             }
 
@@ -498,21 +534,119 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             for (int m = 0; m < movements.length; m += 3) {
                 double along = movements[m] * lookX + movements[m + 1] * lookY + movements[m + 2] * lookZ;
                 double end = pick.rayEnd() + Math.max(0.0, along);
-                if (hitAlong(
-                        box,
-                        pick.hitboxMargin(),
-                        fromX,
-                        fromY,
-                        fromZ,
-                        eyeX + lookX * end - fromX,
-                        eyeY + lookY * end - fromY,
-                        eyeZ + lookZ * end - fromZ)) {
-                    consider(distance(eyeX, eyeY, eyeZ, hitX, hitY, hitZ), min, max);
-                } else {
+                double dx = eyeX + lookX * end - fromX;
+                double dy = eyeY + lookY * end - fromY;
+                double dz = eyeZ + lookZ * end - fromZ;
+                if (hitAlong(box, pick.hitboxMargin(), fromX, fromY, fromZ, dx, dy, dz)) {
+                    double distance = distance(eyeX, eyeY, eyeZ, hitX, hitY, hitZ);
+                    measureHit(
+                            box,
+                            pick.hitboxMargin(),
+                            distance,
+                            eyeX,
+                            eyeY,
+                            eyeZ,
+                            fromX,
+                            fromY,
+                            fromZ,
+                            dx,
+                            dy,
+                            dz,
+                            min,
+                            max);
+                } else if (!measureInsideMargin(
+                        box, pick.hitboxMargin(), eyeX, eyeY, eyeZ, fromX, fromY, fromZ, dx, dy, dz, min, max)) {
                     measureShort(box, pick, fromX, fromY, fromZ, eyeX, eyeY, eyeZ, lookX, lookY, lookZ, end);
                 }
             }
         }
+    }
+
+    // The move's hit at distance on box. A move meeting every box of targetSize within box hits the target directly, no
+    // nearer than distance and no farther than its latest entry into one. Otherwise the target may be reached only
+    // through its margin, by a projected hit within box, which box's nearest point and farthest corner bound.
+    private void measureHit(
+            SimpleCollisionBox box,
+            float margin,
+            double distance,
+            double eyeX,
+            double eyeY,
+            double eyeZ,
+            double x,
+            double y,
+            double z,
+            double dx,
+            double dy,
+            double dz,
+            double min,
+            double max) {
+        if (margin > 0 && !meetsEveryBox(box, x, y, z, dx, dy, dz)) {
+            consider(nearest(box, eyeX, eyeY, eyeZ), farthestCorner(box, eyeX, eyeY, eyeZ), min, max);
+        } else {
+            consider(distance, farthest(box, distance, eyeX, eyeY, eyeZ, x, y, z, dx, dy, dz), min, max);
+        }
+    }
+
+    // Whether the move meets the part of box that every box of targetSize within it holds.
+    private boolean meetsEveryBox(
+            SimpleCollisionBox box, double x, double y, double z, double dx, double dy, double dz) {
+        double enter = 0;
+        double exit = 1;
+        for (int axis = 0; axis < 3; axis++) {
+            double size = axis(axis, targetSize.x, targetSize.y, targetSize.z);
+            double low = axis(axis, box.maxX, box.maxY, box.maxZ) - size;
+            double high = axis(axis, box.minX, box.minY, box.minZ) + size;
+            double from = axis(axis, x, y, z);
+            double move = axis(axis, dx, dy, dz);
+            if (low > high) return false;
+            if (Math.abs(move) <= 1.0E-7) {
+                if (from < low || from > high) return false;
+                continue;
+            }
+            double a = (low - from) / move;
+            double b = (high - from) / move;
+            enter = Math.max(enter, Math.min(a, b));
+            exit = Math.min(exit, Math.max(a, b));
+        }
+        return enter <= exit;
+    }
+
+    // A move starting within margin of box but outside it can still enter the margin of a box of targetSize within box
+    // and hit it by projection: such a hit lies in box, so box's nearest point and farthest corner bound it.
+    private boolean measureInsideMargin(
+            SimpleCollisionBox box,
+            float margin,
+            double eyeX,
+            double eyeY,
+            double eyeZ,
+            double x,
+            double y,
+            double z,
+            double dx,
+            double dy,
+            double dz,
+            double min,
+            double max) {
+        if (margin <= 0 || !contains(box.copy().expand(margin), x, y, z)) return false;
+        if (Double.isNaN(farthestEntry(box, margin, x, y, z, dx, dy, dz))) return false;
+        consider(nearest(box, eyeX, eyeY, eyeZ), farthestCorner(box, eyeX, eyeY, eyeZ), min, max);
+        return true;
+    }
+
+    // The distance from the eye to box's nearest point.
+    private static double nearest(SimpleCollisionBox box, double eyeX, double eyeY, double eyeZ) {
+        double nearX = Math.max(box.minX, Math.min(eyeX, box.maxX));
+        double nearY = Math.max(box.minY, Math.min(eyeY, box.maxY));
+        double nearZ = Math.max(box.minZ, Math.min(eyeZ, box.maxZ));
+        return distance(eyeX, eyeY, eyeZ, nearX, nearY, nearZ);
+    }
+
+    // The distance from the eye to box's farthest corner.
+    private static double farthestCorner(SimpleCollisionBox box, double eyeX, double eyeY, double eyeZ) {
+        double x = Math.max(Math.abs(box.minX - eyeX), Math.abs(box.maxX - eyeX));
+        double y = Math.max(Math.abs(box.minY - eyeY), Math.abs(box.maxY - eyeY));
+        double z = Math.max(Math.abs(box.minZ - eyeZ), Math.abs(box.maxZ - eyeZ));
+        return Math.sqrt(x * x + y * y + z * z);
     }
 
     // A hit just past the end of a segment that missed measures how far the segment fell short.
@@ -542,7 +676,64 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         if (Double.isNaN(scale)) return;
         double lookLength = Math.sqrt(lookX * lookX + lookY * lookY + lookZ * lookZ);
         double along = pick.rayStart() + scale * (past - pick.rayStart());
-        consider(lookLength * along, Double.NEGATIVE_INFINITY, lookLength * end);
+        consider(lookLength * along, lookLength * along, Double.NEGATIVE_INFINITY, lookLength * end);
+    }
+
+    // The farthest from the eye that the move directly hits a box of targetSize within box, and at least distance.
+    private double farthest(
+            SimpleCollisionBox box,
+            double distance,
+            double eyeX,
+            double eyeY,
+            double eyeZ,
+            double x,
+            double y,
+            double z,
+            double dx,
+            double dy,
+            double dz) {
+        double scale = farthestEntry(box, 0, x, y, z, dx, dy, dz);
+        if (Double.isNaN(scale)) return distance;
+        return Math.max(distance, distance(eyeX, eyeY, eyeZ, x + scale * dx, y + scale * dy, z + scale * dz));
+    }
+
+    // The latest fraction of the move at which it enters a box of targetSize, both grown by margin, that lies within
+    // box grown by margin; NaN when it enters none. The face it enters through lies between the near side and the size
+    // short of the far side.
+    private double farthestEntry(
+            SimpleCollisionBox box, double margin, double x, double y, double z, double dx, double dy, double dz) {
+        double latest = Double.NaN;
+        for (int entering = 0; entering < 3; entering++) {
+            if (Math.abs(axis(entering, dx, dy, dz)) <= 1.0E-7) continue;
+            double enter = 0;
+            double exit = 1;
+            for (int axis = 0; axis < 3 && enter <= exit; axis++) {
+                double low = axis(axis, box.minX, box.minY, box.minZ) - margin;
+                double high = axis(axis, box.maxX, box.maxY, box.maxZ) + margin;
+                double from = axis(axis, x, y, z);
+                double move = axis(axis, dx, dy, dz);
+                if (axis == entering) {
+                    double size = axis(axis, targetSize.x, targetSize.y, targetSize.z) + 2 * margin;
+                    double inset = Math.min(size, high - low);
+                    if (move > 0) high -= inset;
+                    else low += inset;
+                }
+                if (Math.abs(move) <= 1.0E-7) {
+                    if (from < low || from > high) enter = Double.POSITIVE_INFINITY;
+                    continue;
+                }
+                double a = (low - from) / move;
+                double b = (high - from) / move;
+                enter = Math.max(enter, Math.min(a, b));
+                exit = Math.min(exit, Math.max(a, b));
+            }
+            if (enter <= exit && !(latest >= exit)) latest = exit;
+        }
+        return latest;
+    }
+
+    private static double axis(int axis, double x, double y, double z) {
+        return axis == 0 ? x : axis == 1 ? y : z;
     }
 
     // ProjectileUtil#getManyEntityHitResult: the box's entry, or else the margin's entry projected toward the box's
@@ -643,8 +834,69 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
-    private boolean isReachExempt(PacketEntity reachEntity) {
-        return blacklisted.contains(reachEntity.type) || EntityTypeUtil.isBoat(reachEntity.type);
+    /**
+     * Whether this check measures this player's attack on the target sent now and flags it when beyond reach, on
+     * itself or, for a missed hitbox, on its hitboxes check; it also cancels it as Reach.block-impossible-hits and
+     * packet modification allow.
+     */
+    public boolean enforcesReach(PacketEntity target) {
+        return isEnabled()
+                && !isExemptPermission()
+                && !player.checkManager.getCheck(hitboxes()).isExemptPermission()
+                && !player.isDisabled()
+                && targets(target.type)
+                && playerAttackQueue.size() <= 10
+                && measured(target)
+                && isEnforced(target);
+    }
+
+    /**
+     * Whether the attack on the target sent now lies beyond reach from every attack origin and eye: the box the tick
+     * end measures is farther from each than any range the client's picks allow, so that measurement flags it as
+     * beyond reach or as a missed hitbox.
+     */
+    public boolean measuresBeyondReach(PacketEntity target) {
+        SimpleCollisionBox box = measuredBox(target);
+        double max = AttackReach.capture(player, visibility).maxClosestDistance();
+        double scale = player.getScale();
+        for (Vec3 from : getAttackOrigins()) {
+            for (double height : EYE_HEIGHTS) {
+                if (nearest(box, from.x, from.y + height * scale, from.z) <= max) return false;
+            }
+        }
+        return true;
+    }
+
+    /** The target's reach box grown by the threshold, as this check measures attacks on it. */
+    public SimpleCollisionBox measuredBox(PacketEntity target) {
+        return measuredBox(getReachBox(target));
+    }
+
+    private SimpleCollisionBox measuredBox(SimpleCollisionBox reachBox) {
+        SimpleCollisionBox box = reachBox.copy();
+        box.expand(threshold);
+        box.expand(player.getMovementThreshold());
+        return box;
+    }
+
+    private boolean measured(PacketEntity entity) {
+        // Dead entities cause false flags (https://github.com/GrimAnticheat/Grim/issues/546)
+        if (entity.isDead) return false;
+
+        if (entity.type == EntityTypeIds.ARMOR_STAND) return false;
+
+        // Riders outside the local player's own riding tree have no simulated position.
+        if (player.compensatedEntities.isUntrackedRider(entity)) return false;
+
+        return player.gamemode != GameMode.SPECTATOR;
+    }
+
+    // The targets whose picked box Cult models: living entities but shulkers, end crystals, and a Java client's boats,
+    // which AbstractBoat moves only by LinearInterpolationHandler's 3 steps to the position the server sent.
+    private boolean isEnforced(PacketEntity reachEntity) {
+        if (reachEntity.type == EntityTypeIds.END_CRYSTAL) return true;
+        if (reachEntity.isBoat()) return !player.isBedrockMovement();
+        return reachEntity.isLivingEntity() && reachEntity.type != EntityTypeIds.SHULKER;
     }
 
     @Override

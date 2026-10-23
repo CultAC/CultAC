@@ -8,6 +8,11 @@ import ac.cult.cultac.utils.math.Vec3;
 
 public class PointThreeTesting implements UncertaintyHandler {
     @Override
+    public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        return !context.isTestingPointThree();
+    }
+
+    @Override
     public PredVector handleUncertainty(
             CultPlayer player,
             ValidMovements valid,

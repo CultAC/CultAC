@@ -148,7 +148,7 @@ class ProtocolCodecsTest {
                     assertEquals(1, metadata.size());
                     assertEquals(9, metadata.get(0).index());
                     assertEquals(1.25f, metadata.get(0).value());
-                    assertEquals(6, metadata.get(0).bytes().length);
+                    assertEquals(6, metadata.get(0).length());
                     assertFalse(input.isReadable());
                 } finally {
                     input.release();

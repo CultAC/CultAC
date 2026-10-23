@@ -5,7 +5,11 @@ import ac.cult.blocksim.data.InteractionRegistries;
 import ac.cult.blocksim.data.nbt.NbtJson;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.engine.BlockEntityData;
+import ac.cult.cultac.utils.inventory.ItemUtil;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonPrimitive;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Record identity and playback signal only; other item components stay uninterpreted. */
@@ -25,11 +29,11 @@ final class ClientJukeboxFields {
                                 .get("id")
                                 .equals(item.values().get("id"))
                         || !components((NbtValue.Compound) before).equals(components));
-        var fields = new HashMap<String, com.google.gson.JsonElement>();
-        fields.put("song_playing", new com.google.gson.JsonPrimitive(false));
+        var fields = new HashMap<String, JsonElement>();
+        fields.put("song_playing", new JsonPrimitive(false));
         // A load with no usable timer does not replace an already playing song.
         if (!stopped && previous.data().get("song_playing").getAsBoolean()) {
-            for (String key : java.util.List.of("song_playing", "song_end_tick", "ticks_since_song_started"))
+            for (String key : List.of("song_playing", "song_end_tick", "ticks_since_song_started"))
                 fields.put(key, previous.data().get(key));
             saved.put("ticks_since_song_started", previous.savedData().values().get("ticks_since_song_started"));
         }
@@ -43,9 +47,9 @@ final class ClientJukeboxFields {
                     registries.resolve("jukebox_song", NbtJson.encode(playable)).getAsJsonObject();
             int end = (int) Math.ceil(song.get("length_in_seconds").getAsFloat() * 20.0F) + 20;
             if (elapsed < end) {
-                fields.put("song_playing", new com.google.gson.JsonPrimitive(true));
-                fields.put("song_end_tick", new com.google.gson.JsonPrimitive(end));
-                fields.put("ticks_since_song_started", new com.google.gson.JsonPrimitive(elapsed));
+                fields.put("song_playing", new JsonPrimitive(true));
+                fields.put("song_end_tick", new JsonPrimitive(end));
+                fields.put("ticks_since_song_started", new JsonPrimitive(elapsed));
                 saved.put("ticks_since_song_started", new NbtValue.Numeric(NbtValue.Kind.LONG, elapsed));
             }
         }
@@ -65,7 +69,7 @@ final class ClientJukeboxFields {
 
     private static Map<String, NbtValue> components(NbtValue.Compound item) {
         if (item == null) return Map.of();
-        var values = new HashMap<>(ac.cult.cultac.utils.inventory.ItemUtil.modelItems()
+        var values = new HashMap<>(ItemUtil.modelItems()
                 .defaults(((NbtValue.Text) item.values().get("id")).value())
                 .encodedNbt()
                 .values());

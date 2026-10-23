@@ -3,18 +3,18 @@ package ac.cult.cultac.checks.impl.prediction;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VehicleOffset;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.api.event.events.CompletePredictionEvent;
 import ac.grim.grimac.api.storage.verbose.Verbose;
-import lombok.Getter;
 
-// @CheckData(name = "Simulation", configName = "Simulation", decay = 0.02)
 public class OffsetHandler extends Check implements PostPredictionListener {
     private static final Verbose V = Verbose.of("{offset}");
     private static final CompletePredictionEvent.Channel COMPLETE_PREDICTION_CHANNEL =
@@ -27,7 +27,6 @@ public class OffsetHandler extends Check implements PostPredictionListener {
     double maxCeiling;
 
     // Current advantage gained
-    @Getter
     double advantageGained = 0;
 
     public OffsetHandler(CultPlayer cultPlayer) {
@@ -57,12 +56,9 @@ public class OffsetHandler extends Check implements PostPredictionListener {
 
         double offset = setbackOffset(predictionResult);
 
-        // The pinned API artifact exposes CompletePredictionEvent through Cult's event bus
-        // rather than as a Bukkit event; fire() returns true when a handler cancelled it.
+        // fire() returns true when a handler cancelled the event.
         if (COMPLETE_PREDICTION_CHANNEL.fire(
-                ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(getPlayer()),
-                ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(this),
-                offset)) return;
+                RuntimeEnvironment.outwardUser(getPlayer()), RuntimeEnvironment.outwardCheck(this), offset)) return;
 
         // Short circuit out flag call
         if ((offset >= threshold || offset >= immediateSetbackThreshold)
@@ -87,7 +83,10 @@ public class OffsetHandler extends Check implements PostPredictionListener {
         double offset = predictionResult.getOffset();
         for (PredictionResult.Flag flag : predictionResult.getFlags()) {
             Check check = flag.getCheck();
-            if (check instanceof Speed || check instanceof Strafe || check instanceof VehicleOffset) {
+            if (check instanceof Speed
+                    || check instanceof Strafe
+                    || check instanceof VehicleOffset
+                    || check instanceof InputKeys) {
                 offset = Math.max(offset, flag.getSeverity());
             }
         }

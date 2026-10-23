@@ -11,25 +11,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
-import ac.cult.cultac.network.event.PacketSendEvent;
-import ac.cult.cultac.protocol.ConnectionPhase;
-import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.IntSupplier;
 import org.junit.jupiter.api.Test;
 
 /**
- * A velocity the server sends for the local player after emptying its vehicle and before the client confirms that
- * dismount: ClientPacketListener#handleSetEntityPassengersPacket ejects the player first, so handleSetEntityMotion
- * sets the player's own delta movement for its next free tick.
+ * A velocity or explosion the server sends for the local player after emptying its vehicle and before the client
+ * confirms that dismount: ClientPacketListener#handleSetEntityPassengersPacket ejects the player first, so
+ * handleSetEntityMotion or handleExplosion changes the player's own delta movement for its next free tick.
  */
 class KnockbackDuringPendingDismountTest {
     private static final ServerboundPlayerInput NONE =
@@ -37,6 +33,7 @@ class KnockbackDuringPendingDismountTest {
     private static final int VEHICLE = 100;
     private static final Vec3 SEAT = new Vec3(0.5, FLOOR_Y, 0.5);
     private static final Vec3 KNOCKBACK = new Vec3(0.21113349203442588, -0.0783739241897089, -0.3397424159189404);
+    private static final Vec3 EXPLOSION = new Vec3(0.4244531692259865, 0.6226195093495551, -0.033498661089047324);
 
     @Test
     void aVelocitySentBeforeTheClientConfirmsTheDismountMovesThePlayer() throws Exception {
@@ -46,6 +43,16 @@ class KnockbackDuringPendingDismountTest {
             PredictionResult result = f.tick(new Vec3(SEAT.x + KNOCKBACK.x, FLOOR_Y, SEAT.z + KNOCKBACK.z), true);
             assertTrue(exact(result), describe(result));
             assertEquals(0.0, f.player.checkManager.getKnockbackHandler().violations, "the client took the velocity");
+        }
+    }
+
+    /** ClientPacketListener#handleExplosion pushes the player the client ejected first. */
+    @Test
+    void anExplosionSentBeforeTheClientConfirmsTheDismountMovesThePlayer() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            dismountThen(f, () -> f.explode(EXPLOSION));
+            PredictionResult result = f.tick(SEAT.add(EXPLOSION), false);
+            assertTrue(exact(result), describe(result));
         }
     }
 
@@ -63,19 +70,24 @@ class KnockbackDuringPendingDismountTest {
 
     /** Seated on an armor stand, then set_passengers empties it and a velocity follows before any ping returns. */
     private static void dismountThenKnockback(JavaTickFixture f) {
+        dismountThen(f, () -> f.velocity(KNOCKBACK));
+    }
+
+    /** Seated on an armor stand, then set_passengers empties it and {@code impulse} follows before any ping returns. */
+    private static void dismountThen(JavaTickFixture f, IntSupplier impulse) {
         f.place(SEAT, Vec3.ZERO);
         f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.ARMOR_STAND, SEAT, 0, 0, 0);
-        setPassengers(f, List.of(f.player.entityID));
+        f.setPassengers(VEHICLE, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
         f.input(NONE);
-        rideTick(f);
-        rideTick(f);
+        f.rideTick();
+        f.rideTick();
 
         List<Integer> before = teleportIds(f);
-        setPassengers(f, List.of());
+        f.setPassengers(VEHICLE, List.of());
         assertTrue(f.player.compensatedEntities.vehicles.hasPendingServerDismount());
-        int proof = f.velocity(KNOCKBACK);
-        assertNotEquals(-1, proof, "the velocity was taken for the vehicle's");
+        int proof = impulse.getAsInt();
+        assertNotEquals(-1, proof, "the impulse was taken for the vehicle's");
 
         f.pongThrough(proof);
         for (TeleportData teleport : f.player.getSetbackTeleportUtil().pendingTeleports) {
@@ -99,20 +111,5 @@ class KnockbackDuringPendingDismountTest {
             ids.add(teleport.getTeleportId());
         }
         return ids;
-    }
-
-    private static void setPassengers(JavaTickFixture f, List<Integer> passengers) {
-        var packet = new ClientboundSetPassengers(VEHICLE, passengers);
-        var event = new PacketSendEvent<>(
-                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false);
-        f.player.packetEntityReplication.onSetPassengers(event, f.player, packet);
-        event.tasksAfter().forEach(Runnable::run);
-    }
-
-    /** A passenger tick on a vehicle the client does not control: LocalPlayer#sendPosition's Rot and the tick end. */
-    private static void rideTick(JavaTickFixture f) {
-        var rot = new ServerboundMovePlayer(0, 0, 0, f.player.xRot, f.player.yRot, true, false, false, true);
-        f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
-        f.tickEnd();
     }
 }

@@ -12,6 +12,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
+import org.jetbrains.annotations.Nullable;
 
 @CheckData(
         name = "MultiActionsE",
@@ -20,6 +21,7 @@ import ac.cult.cultac.protocol.value.PlayerAction;
         experimental = true)
 public class MultiActionsE extends Check implements CheckListener {
     private boolean dropping;
+    private @Nullable Hand useSwingHand;
 
     public MultiActionsE(CultPlayer player) {
         super(player);
@@ -30,8 +32,10 @@ public class MultiActionsE extends Check implements CheckListener {
         // A drop exempts only the one swing that follows it.
         boolean droppedBeforeSwing = dropping;
         dropping = false;
+        boolean usedBeforeSwing = packet.hand() == useSwingHand;
+        useSwingHand = null;
 
-        if (!droppedBeforeSwing && isActivelyUsingItem()) {
+        if (!droppedBeforeSwing && !usedBeforeSwing && isActivelyUsingItem()) {
             if (flag() && shouldModifyPackets()) {
                 event.setCancelled(true);
                 player.onPacketCancel();
@@ -48,22 +52,29 @@ public class MultiActionsE extends Check implements CheckListener {
         dropping = action == PlayerAction.DROP_ITEM || action == PlayerAction.DROP_ALL_ITEMS;
     }
 
-    // The drop and its swing are sent before the tick's movement packet and tick end.
+    /**
+     * Minecraft#startUseItem swings the used hand when MultiPlayerGameMode#useItem succeeds with a client-side swing,
+     * as BundleItem#use does after Player#startUsingItem.
+     */
+    public void onPredictedUseSwing(Hand hand) {
+        useSwingHand = hand;
+    }
+
+    // The drop or use and its swing are sent before the tick's movement packet and tick end.
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         dropping = false;
+        useSwingHand = null;
     }
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
         dropping = false;
+        useSwingHand = null;
     }
 
     private boolean isActivelyUsingItem() {
-        return player.isClientUsingItem()
-                && (player.usesModernJavaItemUse()
-                        || player.packetStateData.lastSlotSelected == player.packetStateData.getSlowedByUsingItemSlot()
-                        || player.getClientItemUseHand() == Hand.OFF_HAND);
+        return MultiActionsA.isActivelyUsingItem(player);
     }
 }

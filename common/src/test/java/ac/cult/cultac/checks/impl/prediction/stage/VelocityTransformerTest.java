@@ -64,6 +64,38 @@ public class VelocityTransformerTest {
                 26.299835F);
     }
 
+    @Test
+    public void crouchingInputMatchesLocalPlayerModifyInput() {
+        for (float slow : new float[] {1.0F, 0.3F, 0.65F, 1.0F / 3.0F}) {
+            for (int strafe = -1; strafe <= 1; strafe++) {
+                for (int forward = -1; forward <= 1; forward++) {
+                    Vec3 modified = VelocityTransformer.getExactControllerModifiedInputStatic(
+                            new Vec3(strafe, 0, forward), slow);
+                    float[] expected = vanillaModifyInput(strafe, forward, slow);
+                    assertEquals(slow + " " + strafe + " " + forward, expected[0], (float) modified.x, 0.0F);
+                    assertEquals(slow + " " + strafe + " " + forward, expected[1], (float) modified.z, 0.0F);
+                }
+            }
+        }
+    }
+
+    /** KeyboardInput#tick's Vec2#normalized, then LocalPlayer#modifyInput and #modifyInputSpeedForSquareMovement. */
+    private static float[] vanillaModifyInput(float x, float y, float slow) {
+        float length = (float) Math.sqrt(x * x + y * y);
+        if (length < 1.0E-4F) return new float[] {0.0F, 0.0F};
+        x = x / length * 0.98F * slow;
+        y = y / length * 0.98F * slow;
+        float scaled = (float) Math.sqrt(x * x + y * y);
+        float inverse = 1.0F / scaled;
+        float directionX = x * inverse;
+        float directionY = y * inverse;
+        float absX = Math.abs(directionX);
+        float absY = Math.abs(directionY);
+        float tan = absY > absX ? absX / absY : absY / absX;
+        float modifiedLength = Math.min(scaled * (float) Math.sqrt(1.0F + tan * tan), 1.0F);
+        return new float[] {directionX * modifiedLength, directionY * modifiedLength};
+    }
+
     private static void assertGlideEntry(Vec3 carried, Vec3 expected, float yaw, float pitch) {
         CultPlayer player = mock(CultPlayer.class);
         when(player.getClientVersion()).thenReturn(ClientVersion.V_1_21_2);

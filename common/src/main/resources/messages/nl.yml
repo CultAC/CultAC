@@ -1,5 +1,6 @@
 # \u00BB is » (double >>), ANSI en UTF-8 interpreteren dit anders... je kunt zelfs "?" zien als gevolg hiervan
 prefix: "&bCult &8\u00BB"
+command-aliases: [cult, cultac, grim, grimac]
 
 alerts-enabled: "%prefix% &fMeldingen ingeschakeld"
 alerts-disabled: "%prefix% &fMeldingen uitgeschakeld"
@@ -14,7 +15,7 @@ reloaded: "%prefix% &fConfig has been reloaded."
 reload-failed: "%prefix% &cFailed to reload config."
 player-not-found: "%prefix% &cSpeler is vrijgesteld of offline!"
 sender-not-found: "%prefix% &cJe kunt dit commando niet gebruiken als je vrijgesteld bent!"
-spectate-return: "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &fKlik hier om terug te keren naar de vorige locatie\n</hover></click>"
+spectate-return: "<click:run_command:/%command% stopspectating><hover:show_text:\"/%command% stopspectating\">\n%prefix% &fKlik hier om terug te keren naar de vorige locatie\n</hover></click>"
 cannot-spectate-return: "%prefix% &cJe kunt dit alleen doen nadat je een speler hebt bekeken"
 cannot-run-on-self: "%prefix% &cJe kunt dit commando niet op jezelf gebruiken!"
 upload-log: "%prefix% &fDebug geüpload naar: %url%"
@@ -46,7 +47,7 @@ experimental-symbol: "*"
 
 profile:
     - "&7======================"
-    - "%prefix% &bProfiel voor &f%player%"
+    - "&bProfiel voor &f%player%"
     - "&bPing: &f%ping%"
     - "&bVersie: &f%version%"
     - "&bClient Merk: &f%brand%"
@@ -56,24 +57,25 @@ profile:
     - "&7======================"
 help:
     - "&7======================"
-    - "/cult alerts &f- &7Meldingen inschakelen"
-    - "/cult brands &f- &7Toggle brands"
-    - "/cult profile <player> &f- &7Bekijk speler info"
-    - "/cult help &f- &7Bekijk dit helpbericht"
-    - "/cult debug <player> &f- &7Voorspellingsuitvoer ontwikkelaar"
-    - "/cult perf &f- &7Ontwikkelaar ms/voorspelling"
-    - "/cult reload &f- &7Laadt de configuratie opnieuw"
-    - "/cult spectate <player> &f- &7Een speler bekijken"
-    - "/cult verbose &f- &7Toont elke flag, zonder buffers"
-    - "/cult log [0-255] &f- &7Uploadt een debug-log voor voorspellings-flaggen"
-    - "/cult history <player> &f- &7Sessielijst (nieuwste eerst)"
-    - "/cult history <player> page <N> &f- &7Spring naar pagina N van de sessielijst"
-    - "/cult history <player> session <N|latest> [-d] [-v] &f- &7Sessiedetail (nieuwste overtredingen eerst)"
-    - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7Sessiedetail, overtredingenpagina N"
-    - "/cult cloud &f- &7Status van de cloud-upload: sockets, vastgehouden frames en tellers"
-    - "/cult findings <player> [count] &f- &7Nieuwste cloudbevindingen van een speler"
-    - "/cult top [check] [minutes] &f- &7Spelers met de zekerste cloudbevindingen"
-    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Label een speler in het labelregister van de cloud (ook list, revoke)"
+    - "/%command% alerts &f- &7Meldingen inschakelen"
+    - "/%command% brands &f- &7Toggle brands"
+    - "/%command% profile <player> &f- &7Bekijk speler info"
+    - "/%command% help &f- &7Bekijk dit helpbericht"
+    - "/%command% debug <player> &f- &7Voorspellingsuitvoer ontwikkelaar"
+    - "/%command% perf &f- &7Ontwikkelaar ms/voorspelling"
+    - "/%command% reload &f- &7Laadt de configuratie opnieuw"
+    - "/%command% observe [on|off] &f- &7Toon of wissel de observe-only-modus"
+    - "/%command% spectate <player> &f- &7Een speler bekijken"
+    - "/%command% verbose &f- &7Toont elke flag, zonder buffers"
+    - "/%command% log [0-255] &f- &7Uploadt een debug-log voor voorspellings-flaggen"
+    - "/%command% history <player> &f- &7Sessielijst (nieuwste eerst)"
+    - "/%command% history <player> page <N> &f- &7Spring naar pagina N van de sessielijst"
+    - "/%command% history <player> session <N|latest> [-d] [-v] &f- &7Sessiedetail (nieuwste overtredingen eerst)"
+    - "/%command% history <player> session <N|latest> page <N> [-d] [-v] &f- &7Sessiedetail, overtredingenpagina N"
+    - "/%command% cloud &f- &7Status van de cloud-upload: sockets, vastgehouden frames en tellers"
+    - "/%command% findings <player> [count] &f- &7Nieuwste cloudbevindingen van een speler"
+    - "/%command% top [check] [minutes] &f- &7Spelers met de zekerste cloudbevindingen"
+    - "/%command% label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Label een speler in het labelregister van de cloud (ook list, revoke)"
     - "&7======================"
 
 # === /cult history ===
@@ -135,4 +137,4 @@ cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
 # Schemamarkers — zie de header-comment in config.yml.
 config-flavor: V2
-config-version: 2
+config-version: 3

@@ -28,18 +28,26 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult.Flag;
 import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext.SpinRebound;
 import ac.cult.cultac.checks.impl.prediction.checks.PredCheckRunner;
+import ac.cult.cultac.checks.impl.prediction.checks.StepCollisionMemo;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfile;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.PositionListener;
@@ -58,6 +66,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.anticheat.update.RotationUpdate;
 import ac.cult.cultac.utils.anticheat.update.VehiclePositionUpdate;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.HeadRotation;
 import ac.cult.cultac.utils.data.LastInstance;
@@ -66,6 +75,7 @@ import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
@@ -77,18 +87,19 @@ import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
+import ac.cult.cultac.utils.nmsutil.PassengerRideTick;
 import ac.cult.cultac.utils.nmsutil.ReusableVelocitySet;
+import ac.cult.cultac.utils.nmsutil.RideTickStuckContact;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import lombok.Generated;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.jetbrains.annotations.Nullable;
@@ -107,6 +118,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     boolean couldPotentiallyTickSkip = false;
     Set<Vec3> validPlayerStartingVels = new HashSet<>();
     PredictionResult lastPrediction = null;
+    /** The committed tick's LivingEntity#checkAutoSpinAttack certainly hit, so the next tick starts from the rebound. */
+    private boolean certainSpinHit;
+
+    boolean lastWorldEyeInWater = false;
     PredCheckRunner flagger = new PredCheckRunner(this.player);
     DesyncStatus lastOnGround = DesyncStatus.FALSE;
     LastInstance lastFlying = new LastInstance(this.player);
@@ -119,13 +134,31 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     SimpleCollisionBox pushesWhileLoadingLevel = null;
     int ticksWhileLoadingLevel = 0;
     PredictionCarry profileCarry;
+    /** The carry a stuck-speed block changed on along its move, re-resolved once the world holds the change. */
+    @Nullable
+    private JavaPredictionCarry carryWithChangedStuckBlock;
+    /** Whether the last client tick ended with the local player a passenger. */
+    private boolean rideTicked;
+    /** The on-foot candidates a mount temporarily replaces before the first actual passenger tick. */
+    @Nullable
+    private Set<Vec3> startingVelsBeforeRide;
+    /** The multipliers that ride tick can have left, as RideTickStuckContact bits. */
+    private int rideTickStuckSpeeds;
+    /** Whether a dismount after a passenger tick precedes the next prediction. */
+    private boolean rideTicksSinceLastPrediction;
+    /** The multipliers the first move after that dismount can take, as RideTickStuckContact bits. */
+    private int dismountStuckSpeeds = RideTickStuckContact.ANY;
+
+    private final RideTickStuckContact rideTickStuckContact = new RideTickStuckContact();
+    private final PassengerRideTick passengerRideTick = new PassengerRideTick();
+
     private boolean bedrockSleepingStateObserved;
     private TeleportData bedrockTeleport;
     private PredictionSetbackState activeBedrockSetbackState;
     private final WorldStageBuilder worldStageBuilder = new WorldStageBuilder();
     private final CollisionModifier collisionProbe = new CollisionModifier();
-    private final Map<CollisionProbeKey, CollideAxisData> collisionProbeCache = new HashMap<>();
     private final NextTickVelocityDeriver.Scratch velocityScratch = new NextTickVelocityDeriver.Scratch();
+    private final StepCollisionMemo stepCollisionMemo = new StepCollisionMemo();
 
     public SimulationProcessor(CultPlayer playerData) {
         super(playerData);
@@ -133,6 +166,21 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     public NextTickVelocityDeriver.Scratch velocityScratch() {
         return this.velocityScratch;
+    }
+
+    /** Entity#checkSupportingBlock after a move of {@code movement} that ended with the box {@code box}. */
+    public MainSupportingBlockData mainSupportingBlockAfter(SimpleCollisionBox box, Vec3 movement, boolean onGround) {
+        return this.worldStageBuilder.findMainSupportingBlockPos(
+                player,
+                this.lastPrediction == null ? null : this.lastPrediction.getSimulationContext(),
+                movement.x,
+                movement.z,
+                box,
+                onGround);
+    }
+
+    public StepCollisionMemo getStepCollisionMemo() {
+        return this.stepCollisionMemo;
     }
 
     public Set<Vec3> getValidPlayerStartingVels() {
@@ -271,7 +319,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 && (this.player.packetStateData.hasPassengerRotationThisClientTick()
                         || this.player.compensatedEntities.getSelf().inVehicle()
                         || this.player.compensatedEntities.vehicles.hasClientObservedServerVehicle()
-                        || this.player.compensatedEntities.vehicles.hasPlayerPassengerState());
+                        || this.player.compensatedEntities.vehicles.hasClientPlayerPassengerState());
     }
 
     private boolean isPacketHandlerRotationTeleport(ServerboundMovePlayer packet) {
@@ -279,9 +327,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     public void onPlayerTickEnd(PacketReceiveEvent event) {
-        if (!this.player.compensatedEntities.vehicles.hasPlayerPassengerState()
-                && !this.player.packetStateData.hasPassengerRotationThisClientTick()) {
-            if (!this.player.isBedrockMovement()) {
+        if (!this.player.isBedrockMovement()) {
+            if (!this.player.compensatedEntities.vehicles.hasClientPlayerPassengerState()
+                    && !this.player.packetStateData.hasPassengerRotationThisClientTick()) {
                 if (!this.player.packetStateData.receivedMovementThisClientTick) {
                     if (CheckManagerListener.localPlayerTicked(this.player)) {
                         PredictionResult result = this.advanceNoPositionClientTick(
@@ -355,6 +403,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                 this.lastOnGroundSkip.reset();
                             }
                         }
+                    } else {
+                        // PlayerInput precedes the passenger Rot each riding tick, even
+                        // when this passenger never commits a vehicle prediction.
+                        this.lastSneaking = this.player.isSneaking;
                     }
                 }
             }
@@ -448,6 +500,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     && !teleportAcceptData.getSetback().isPlugin();
         }
         this.couldPotentiallyTickSkip = false;
+        this.certainSpinHit = false;
+        this.player.riptideSpinCertain = false;
         if (!this.player.isBedrockMovement()
                 && teleportAcceptData.getSetback() != null
                 && teleportAcceptData.getSetback().getVelocity() != null) {
@@ -462,12 +516,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.profileCarry = null;
             }
         }
-    }
-
-    public void applyAcceptedJavaTeleport(TeleportAcceptData accepted) {
-        if (accepted == null || !accepted.isTeleport() || accepted.getTeleportData() == null) return;
-        this.handleTeleport(accepted);
-        this.commitPlayerPosition(accepted.getTeleportData().getLocation());
     }
 
     public void applyAcceptedBedrockTeleport(TeleportAcceptData teleportAcceptData) {
@@ -616,6 +664,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 frame,
                 profile,
                 false,
+                null,
                 null);
         this.applyProfileCommit(
                 BedrockMovementEngine.INSTANCE.advancePassenger(this.player, this.profileCarry, context));
@@ -951,17 +1000,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             boolean createProfileVerboseLog = movementProfile.shouldCreateVerboseLog(this.player, result);
             boolean recordProfileDebug = BedrockPredictionDebug.shouldRecordMovementDebug(this.player, result);
             this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(result);
-            if (!result.isExempt() && result.getFlagSeverity() > 0.0) {
-                this.dumpRecentFlagsWhenDebugging(result);
-                if (!CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
-                    this.player.getSetbackTeleportUtil().resyncWorld();
-                }
-                boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);
-                if (this.player.shouldEnforceMovementSetbacks() || createProfileVerboseLog || bedrockMovementFlag) {
-                    result.setIdentifier(nextDebugIdentifier());
-                    result.setProfileVerboseLog(createProfileVerboseLog);
-                }
-            }
+            this.prepareFlaggedPrediction(result, createProfileVerboseLog);
 
             if (result.getIdentifier() == 0 && (createProfileVerboseLog || recordProfileDebug)) {
                 result.setIdentifier(nextDebugIdentifier());
@@ -984,7 +1023,14 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.player.getSetbackTeleportUtil().executeNonSimulatingSetback();
             }
 
-            this.commitPredictionState(result, to, diff, xRot, yRot, movementProfile, preparedCommit);
+            this.commitPredictionState(
+                    result,
+                    to,
+                    this.player.compensatedEntities.vehicles.committedVehicleMovement(result, diff),
+                    xRot,
+                    yRot,
+                    movementProfile,
+                    preparedCommit);
             if (flyingThroughTravel) {
                 this.stopFlyingAfterTravel();
             }
@@ -992,6 +1038,19 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             long took = System.nanoTime() - start;
             computeTimeNS = (long) (computeTimeNS * 499L / 500.0 + took / 500.0);
             return result;
+        }
+    }
+
+    private void prepareFlaggedPrediction(PredictionResult result, boolean createProfileVerboseLog) {
+        if (result.isExempt() || result.getFlagSeverity() <= 0.0) return;
+        this.dumpRecentFlagsWhenDebugging(result);
+        if (!CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            this.player.getSetbackTeleportUtil().resyncWorld();
+        }
+        boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);
+        if (this.player.shouldEnforceMovementSetbacks() || createProfileVerboseLog || bedrockMovementFlag) {
+            result.setIdentifier(nextDebugIdentifier());
+            result.setProfileVerboseLog(createProfileVerboseLog);
         }
     }
 
@@ -1038,10 +1097,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             }
             this.lastPrediction = result;
             this.carriedPush = CarriedPush.IDENTITY;
+            this.rideTicksSinceLastPrediction = false;
             this.pushesWhileLoadingLevel = null;
             this.ticksWhileLoadingLevel = 0;
             this.lastXRot = xRot;
             this.lastYRot = yRot;
+            this.commitSprintOutcomes(result);
             this.player.minPlayerAttackSlow = 0;
             this.player.maxPlayerAttackSlow = 0;
             if (this.player.isFlying) {
@@ -1050,14 +1111,107 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
             this.lastSneaking = this.player.isSneaking;
             this.lastGliding = this.player.isGliding;
+            if (!this.player.isBedrockMovement()) this.endSpinAttack(result);
             this.player.packetStateData.riptideLevel = 0;
+            this.player.packetStateData.riptideReleaseCertain = false;
             this.player.riptideSpinAttackTicks = Math.max(0, this.player.riptideSpinAttackTicks - 1);
             this.couldPotentiallyTickSkip = false;
             this.player.compensatedEntities.fishingRodPulls.clear();
+            if (!this.player.isBedrockMovement()) {
+                this.player.swimState.onClientTick(
+                        result.getSimulationContext().getWorldData().isSwimming(), this.player.isFlying);
+            }
             this.player.refreshPlayerPose();
         } else {
             this.applyProfileCommit(preparedCommit);
         }
+    }
+
+    /**
+     * Ends the spin where LivingEntity#checkAutoSpinAttack sets autoSpinAttackTicks to 0. A tick that starts from the
+     * rebound ran no check, as the last tick's hit ended the spin. A hit on a LivingEntity the travel certainly
+     * touched ends it now and leaves the next tick only the rebound.
+     */
+    private void endSpinAttack(PredictionResult result) {
+        this.certainSpinHit = false;
+        if (this.player.riptideSpinAttackTicks <= 0) return;
+        SimulationContext context = result.getSimulationContext();
+        boolean spinStarted = this.player.packetStateData.riptideLevel > 0;
+        PredVector start = result.getInitialStartingVel();
+        if (!spinStarted
+                && (context.getSpinRebound() == SpinRebound.ONLY
+                        || start != null && start.hasReason(MovementModifiers.RIPTIDE_ATTACK))) {
+            this.player.riptideSpinAttackTicks = 0;
+        } else if (this.player.riptideSpinCertain && WorldStageBuilder.certainlySpinAttacks(this.player, context)) {
+            this.player.riptideSpinAttackTicks = 0;
+            this.certainSpinHit = true;
+        } else if (context.getWorldData().isSpinAttackTarget() || !this.certainlyMissesWalls(result)) {
+            this.player.riptideSpinCertain = false;
+        }
+    }
+
+    private boolean certainlyMissesWalls(PredictionResult result) {
+        CollideAxisData collide = result.getCollideAxisData();
+        return !result.getSimulationContext().isTestingPointThree()
+                && this.player.isTickingReliablyFor(1)
+                && collide != null
+                && collide.getX() != null
+                && collide.getZ() != null
+                && !collide.couldCollideHorizontally();
+    }
+
+    /**
+     * Keeps the sprint modifiers of the movement this commit carries on; a setback this tick returns to its anchor's
+     * instead.
+     */
+    private void commitSprintOutcomes(PredictionResult result) {
+        ClientSprintState state = this.player.sprintState;
+        SetbackTeleportUtil setbacks = this.player.getSetbackTeleportUtil();
+        if (setbacks.isPendingSetback() && setbacks.lastKnownGoodPosition != null) {
+            state.restore(setbacks.lastKnownGoodPosition.getSprintOutcomes());
+            state.settleReset();
+            return;
+        }
+        if (!state.outcomeOpen()) return;
+        state.commit(sprintOutcomesAfter(this.player, result));
+    }
+
+    /**
+     * The sprint modifier state after committing {@code result}: the modifiers its accepted candidates moved with, or,
+     * when none was accepted, the one the committed candidate moved with.
+     */
+    public static ClientSprintState.Outcomes sprintOutcomesAfter(CultPlayer player, PredictionResult result) {
+        ClientSprintState state = player.sprintState;
+        if (result == null || !state.outcomeOpen()) return state.outcomes();
+        boolean[] used = new boolean[2];
+        for (PredictionResult reality : result.getRealities()) {
+            if (reality.getFlagSeverity() == 0.0) addSprintOutcome(player, reality, used);
+        }
+        if (!used[0] && !used[1]) addSprintOutcome(player, result, used);
+        if (!used[0] && !used[1]) return state.outcomes();
+        return state.outcomesAfter(used[0], used[1]);
+    }
+
+    private static void addSprintOutcome(CultPlayer player, PredictionResult candidate, boolean[] used) {
+        if (candidate.getInitialStartingVel() == null || candidate.getSimulationContext() == null) return;
+        switch (candidate.getSimulationContext().getSprintOutcome(player, candidate.getInitialStartingVel())) {
+            case CANONICAL -> used[0] = true;
+            case HELD -> used[1] = true;
+            default -> used[0] = used[1] = true;
+        }
+    }
+
+    /** Each candidate once per sprint modifier it can travel with while a possible attack reset leaves it open. */
+    private static List<PredVector> withSprintOutcomes(
+            CultPlayer player, SimulationContext context, List<PredVector> candidates) {
+        if (context.getVehicle() != null || !player.sprintState.outcomeOpen()) return candidates;
+        List<PredVector> split = new ArrayList<>(candidates.size() * 2);
+        for (PredVector candidate : candidates) {
+            for (ClientSprintState.Outcome outcome : player.sprintState.outcomesFor(candidate.getAttackSlows())) {
+                split.add(candidate.withSprintOutcome(outcome));
+            }
+        }
+        return split;
     }
 
     private void applyProfileCommit(PredictionCommit commit) {
@@ -1084,6 +1238,83 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     public void seedStartingVelocities(Collection<Vec3> velocities) {
         this.validPlayerStartingVels = new HashSet<>(velocities);
+    }
+
+    /** A passenger packet changes the simulated actor, but does not consume the player's on-foot motion. */
+    public void beginRide() {
+        this.startingVelsBeforeRide = new HashSet<>(this.validPlayerStartingVels);
+    }
+
+    /** Records whether this client tick ran the local player's Entity#rideTick. */
+    public void recordRideTick() {
+        this.rideTicked =
+                !this.player.isBedrockMovement() && this.player.compensatedEntities.playerEntity.getRiding() != null;
+        if (!this.rideTicked) {
+            this.rideTickStuckSpeeds = 0;
+            this.passengerRideTick.clearBoat();
+            return;
+        }
+        this.startingVelsBeforeRide = null;
+        this.player.riptideSpinCertain = false;
+        Vec3 seat = this.player.compensatedEntities.lastRideTickSeat();
+        if (seat == null) {
+            this.passengerRideTick.record(this.player, this.player.x, this.player.y, this.player.z, true);
+        } else {
+            this.passengerRideTick.record(
+                    this.player, seat.x, seat.y, seat.z, this.rideTickStuckContact.touchedPowderSnow());
+        }
+        this.rideTickStuckSpeeds = this.rideTickStuckContact.scan(
+                this.player,
+                this.player.compensatedEntities.playerEntity.getRiding(),
+                seat,
+                this.passengerRideTick.inFluid());
+    }
+
+    /** Whether the current ride has executed Entity#rideTick, rather than only passenger packet handlers. */
+    public boolean hasRideTick() {
+        return this.rideTicked;
+    }
+
+    /** A set_entity_motion of the local passenger after its last Entity#rideTick sets the delta a dismount keeps. */
+    public void replaceRideTickVelocity(Vec3 velocity) {
+        if (this.rideTicked) this.passengerRideTick.setMotion(velocity);
+    }
+
+    /** Seeds the delta movements the last Entity#rideTick can have left, which a dismount with no velocity resync keeps. */
+    public void seedRideTickVelocity() {
+        if (!this.rideTicked) {
+            if (this.startingVelsBeforeRide != null) this.seedStartingVelocities(this.startingVelsBeforeRide);
+            return;
+        }
+        List<Vec3> velocities = this.passengerRideTick.velocities();
+        if (velocities.isEmpty()) return;
+        this.player.compensatedEntities.playerEntity.deltaMovement = velocities.get(0);
+        this.seedStartingVelocities(velocities);
+    }
+
+    /** Carries what the last ride tick can have left once the player leaves its vehicle; with none, the on-foot carry stays. */
+    public void endRide() {
+        this.startingVelsBeforeRide = null;
+        if (!this.rideTicked) return;
+        this.rideTicked = false;
+        this.rideTicksSinceLastPrediction = true;
+        this.dismountStuckSpeeds = this.rideTickStuckSpeeds;
+        if (this.profileCarry instanceof JavaPredictionCarry carry) {
+            // LivingEntity#rideTick resets the fall distance after every passenger tick.
+            List<JavaPredictionCarry.State> states = new ArrayList<>();
+            if (!carry.states().isEmpty()) {
+                for (Vec3 velocity : this.validPlayerStartingVels) {
+                    states.add(new JavaPredictionCarry.State(velocity, 0.0D, null));
+                    for (int i = 0; i < Collisions.PLAYER_STUCK_SPEEDS.size(); i++) {
+                        if ((this.dismountStuckSpeeds & (1 << i)) == 0) continue;
+                        states.add(
+                                new JavaPredictionCarry.State(velocity, 0.0D, Collisions.PLAYER_STUCK_SPEEDS.get(i)));
+                    }
+                }
+            }
+            this.profileCarry = new JavaPredictionCarry(this.player.compensatedEntities.getSelf(), 0.0D, states);
+            this.carryWithChangedStuckBlock = null;
+        }
     }
 
     public static int nextDebugIdentifier() {
@@ -1142,6 +1373,30 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         result.setRealitiesExtent(valid);
     }
 
+    /**
+     * The accepted travel that ends within LocalPlayer#sendPosition's movement threshold of xLast, the best one if it
+     * does, else the one ending nearest; a travel ending farther away would have sent its position.
+     */
+    static PredictionResult travelWithinMovementThreshold(
+            PredictionResult travelled, Vec3 position, Vec3 sent, double threshold) {
+        double nearestSqr = threshold * threshold;
+        if (sent.distanceToSqr(position.add(travelled.getAcceptedClosestToTarget())) <= nearestSqr) {
+            return travelled;
+        }
+        PredictionResult nearest = null;
+        List<PredictionResult> realities = travelled.getRealities();
+        for (int i = 0, size = realities.size(); i < size; i++) {
+            PredictionResult reality = realities.get(i);
+            if (reality.getFlagSeverity() != 0.0) continue;
+            double distanceSqr = sent.distanceToSqr(position.add(reality.getAcceptedClosestToTarget()));
+            if (distanceSqr <= nearestSqr) {
+                nearestSqr = distanceSqr;
+                nearest = reality;
+            }
+        }
+        return nearest;
+    }
+
     public PredictionResult tryToAchievePointThree(Vec3 withPos, float xRot, float yRot) {
         return this.callPrediction(
                 Vec3.ZERO, withPos, withPos, true, xRot, yRot, null, MovementProfiles.forPlayer(this.player));
@@ -1165,16 +1420,30 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 // The withheld position lies anywhere within the threshold; the client is where it travelled.
                 PredictionResult travelled =
                         this.callPrediction(movement, position, end, false, xRot, yRot, null, movementProfile);
-                if (travelled.getFlags().isEmpty() && !travelled.isExempt()) {
-                    this.handlePossibleRealities(travelled);
-                    committed = travelled;
-                    movement = travelled.getAcceptedClosestToTarget();
+                PredictionResult withheld = travelled.getFlags().isEmpty() && !travelled.isExempt()
+                        ? travelWithinMovementThreshold(travelled, position, sent, this.player.getMovementThreshold())
+                        : null;
+                if (withheld != null) {
+                    this.handlePossibleRealities(withheld);
+                    committed = withheld;
+                    movement = withheld.getAcceptedClosestToTarget();
                     end = position.add(movement);
                 }
                 this.commitPlayerPosition(end);
             }
             this.callPredictionEndListeners(committed, null);
             this.commitPredictionState(committed, end, movement, xRot, yRot, movementProfile);
+        } else if (!result.isExempt() && result.hasFlag(InputKeys.class)) {
+            // LocalPlayer#sendPosition withholds a position only within 2.0E-4 of xLast and before the 20th tick, so
+            // this tick ended there; the reported keys cannot leave the client there. Judge it like a sent move.
+            if (end != position) this.commitPlayerPosition(end);
+            this.prepareFlaggedPrediction(result, movementProfile.shouldCreateVerboseLog(this.player, result));
+            this.callPredictionEndListeners(result, null);
+            this.commitPredictionState(result, end, movement, xRot, yRot, movementProfile);
+        } else if (result.isExempt()) {
+            // LocalPlayer#aiStep crouches the next tick from this tick's shift, whether or not it sends a position.
+            this.lastSneaking = this.player.isSneaking;
+            this.player.checkManager.getListener(JavaAutoJump.class).onExemptNoPositionTick(result);
         }
         if (flyingThroughTravel) {
             this.stopFlyingAfterTravel();
@@ -1183,10 +1452,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return result;
     }
 
-    // LocalPlayer#aiStep stops flight after a grounded travel; an airborne stop is the double-jump toggle.
+    // LocalPlayer#aiStep stops flight after a grounded travel; any other stop is the double-jump toggle before it.
     private boolean keepsFlyingThroughTravel(boolean onGround) {
         if (!this.player.packetStateData.flyingStopAfterTravel) return false;
-        if (onGround) return true;
+        if (onGround && !FlightToggle.stopsBeforeTravel(this.player)) return true;
         this.player.packetStateData.flyingStopAfterTravel = false;
         this.player.isFlying = false;
         return false;
@@ -1366,13 +1635,47 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             float yRot,
             AuthoredMovementFrame authoredMovementFrame,
             MovementProfile movementProfile) {
+        // A time-based border lerp makes every collision read the clock, so a memoised one could go stale.
+        stepCollisionMemo.open(!player.isBedrockMovement()
+                && player.checkManager.getWorldBorder().hasClockIndependentDiameter());
+        try {
+            return predict(
+                    player,
+                    startingVel,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    lastTickSkip,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile);
+        } finally {
+            stepCollisionMemo.close();
+        }
+    }
+
+    private PredictionResult predict(
+            CultPlayer player,
+            Set<Vec3> startingVel,
+            PredictionResult lastPrediction,
+            Vec3 target,
+            Vec3 start,
+            Vec3 end,
+            LastInstance lastTickSkip,
+            boolean testing,
+            float xRot,
+            float yRot,
+            AuthoredMovementFrame authoredMovementFrame,
+            MovementProfile movementProfile) {
         List<PredictionResult> alternativeRealities = new ArrayList<>();
         List<PredictionResult> invalidOrValidRealities = new ArrayList<>();
         List<ValidMovements> valid = new ArrayList<>();
         MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
-        collisionProbeCache.clear();
 
-        for (SimulationContext curSimulationContext : this.createSimulationContexts(
+        for (SimulationContext curSimulationContext : this.createReleaseSimulationContexts(
                 player,
                 lastPrediction,
                 target,
@@ -1391,14 +1694,24 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     curSimulationContext,
                     lastPrediction,
                     this.couldPotentiallyTickSkip);
-            List<PredVector> validInitialVelocities = engine.startingVelocities(
-                    new VelocityTransformer(curSimulationContext), player, contextPacketStart, curSimulationContext);
-            SimulationContext sortContext = curSimulationContext;
+            List<PredVector> validInitialVelocities = withSprintOutcomes(
+                    player,
+                    curSimulationContext,
+                    engine.startingVelocities(
+                            new VelocityTransformer(curSimulationContext),
+                            player,
+                            contextPacketStart,
+                            curSimulationContext));
+            Vec3 sortTarget = curSimulationContext.getTarget();
+            boolean java = !player.isBedrockMovement();
+            TransactionVel receivedVelocity =
+                    java ? unread(player.checkManager.getKnockbackHandler().secondBread) : null;
+            TransactionVel receivedExplosion =
+                    java ? unread(player.checkManager.getExplosionHandler().secondBread) : null;
             // Empty or single-candidate lists need no ordering and may be immutable.
             if (validInitialVelocities.size() > 1)
-                validInitialVelocities.sort(Comparator.comparingInt(PredVector::tickSkippingComparator)
-                        .thenComparingInt(PredVector::packetModifiersLength)
-                        .thenComparingDouble(predVector -> predVector.distanceToSqr(sortContext.getTarget())));
+                validInitialVelocities.sort((first, second) ->
+                        compareStartingVelocities(first, second, sortTarget, receivedVelocity, receivedExplosion));
 
             for (int i = 0, size = validInitialVelocities.size(); i < size; i++) {
                 PredVector initialStartingVel = validInitialVelocities.get(i);
@@ -1429,21 +1742,51 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 boolean useSelectedMovement = engine == JavaMovementEngine.INSTANCE
                         && !validMovements.isCanStep()
                         && !thisResult.getSimulationContext().isTestingPointThree();
+                // Entity#collide resolves a step's X/Z on the grounded box raised to the step height.
+                boolean probeAtStepHeight = engine == JavaMovementEngine.INSTANCE && validMovements.isCanStep();
                 Vec3 collisionTarget = useSelectedMovement
                         ? validMovements.computeCollisionIgnoredMovement(lastPrediction)
-                        : thisResult.getSimulationContext().getTarget();
-                CollideAxisData collisionData = probeCollisionsCached(
-                        player, engine, thisResult, attemptedExtents, collisionTarget, validMovements.isCanStep());
+                        : probeAtStepHeight
+                                ? stepHeightCollisionTarget(
+                                        player,
+                                        thisResult,
+                                        attemptedExtents,
+                                        stepHorizontal(validMovements, lastPrediction))
+                                : thisResult.getSimulationContext().getTarget();
+                CollideAxisData collisionData = probeCollisions(
+                        player,
+                        engine,
+                        thisResult,
+                        attemptedExtents,
+                        collisionTarget,
+                        validMovements.isCanStep() && !probeAtStepHeight);
 
                 thisResult.setCollideAxisData(collisionData);
                 if (useSelectedMovement) {
                     validMovements.applyCollisionsToSelectedMovement(lastPrediction);
+                    reselectPastClippedAxes(player, engine, validMovements, attemptedExtents, lastPrediction);
+                    probeOtherAxisOrder(
+                            player, engine, validMovements, attemptedExtents, collisionTarget, lastPrediction, false);
                 } else {
                     validMovements.computeClosest(lastPrediction);
+                    if (probeAtStepHeight) {
+                        probeOtherAxisOrder(
+                                player,
+                                engine,
+                                validMovements,
+                                attemptedExtents,
+                                collisionTarget,
+                                lastPrediction,
+                                true);
+                    }
                 }
                 engine.evaluateCandidate(player, thisResult);
                 this.flagger.handleResult(thisResult, lastPrediction);
-                bestResult = engine.isBetterCandidate(thisResult, bestResult) ? thisResult : bestResult;
+                // A multiplier the first move after a dismount can take is chosen only when it explains the move.
+                boolean selectable = !this.rideTicksSinceLastPrediction
+                        || thisResult.getFlagSeverity() == 0.0
+                        || thisResult.getSimulationContext().getRequiredCurrentMoveStuckSpeed() == null;
+                bestResult = selectable && engine.isBetterCandidate(thisResult, bestResult) ? thisResult : bestResult;
                 if (thisResult.getFlagSeverity() == 0.0) {
                     alternativeRealities.add(thisResult);
                 }
@@ -1470,7 +1813,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     // must not replace the ordinary move's collision/velocity state.
                     CollideAxisData stepEligibility = probedCollisions;
                     if (engine == JavaMovementEngine.INSTANCE && !stepEligibility.couldCollideHorizontally()) {
-                        stepEligibility = probeCollisionsCached(
+                        stepEligibility = probeCollisions(
                                 player,
                                 engine,
                                 thisResult,
@@ -1506,7 +1849,164 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return bestResult;
     }
 
-    private CollideAxisData probeCollisionsCached(
+    private static int compareStartingVelocities(
+            PredVector first, PredVector second, Vec3 target, TransactionVel velocity, TransactionVel explosion) {
+        int order = Integer.compare(first.tickSkippingComparator(), second.tickSkippingComparator());
+        if (order != 0) return order;
+        order = Integer.compare(missing(first, velocity, explosion), missing(second, velocity, explosion));
+        if (order != 0) return order;
+        order = Integer.compare(first.packetModifiersLength(), second.packetModifiersLength());
+        if (order != 0) return order;
+        return Double.compare(first.distanceToSqr(target), second.distanceToSqr(target));
+    }
+
+    /** The bundled proof transaction precedes the next client tick, so that tick starts from the confirmed motion. */
+    private static TransactionVel unread(TransactionVel confirmed) {
+        return confirmed == null || confirmed.isConsumed() ? null : confirmed;
+    }
+
+    private static int missing(PredVector vector, TransactionVel velocity, TransactionVel explosion) {
+        return (velocity != null && !vector.hasPacketModifier(velocity) ? 1 : 0)
+                + (explosion != null && !vector.hasPacketModifier(explosion) ? 1 : 0);
+    }
+
+    /**
+     * The movement whose X and Z order a step probe's horizontal axes. Entity#collide orders a step by the move
+     * before collision.
+     */
+    private static Vec3 stepHorizontal(ValidMovements validMovements, PredictionResult lastPrediction) {
+        PredictionResult result = validMovements.getResult();
+        return !CollisionModifier.isJavaVehicleMove(result.getSimulationContext())
+                ? result.getSimulationContext().getTarget()
+                : validMovements.computeCollisionIgnoredMovement(lastPrediction);
+    }
+
+    /**
+     * {@code horizontal} with its Y replaced by {@link #stepHeightProbeY}; probing with it moves the box to the step
+     * height before the horizontal axes.
+     */
+    private static Vec3 stepHeightCollisionTarget(
+            CultPlayer player, PredictionResult result, SimpleCollisionBox attemptedExtents, Vec3 horizontal) {
+        SimulationContext context = result.getSimulationContext();
+        double probeY = stepHeightProbeY(
+                context.getTarget().y,
+                attemptedExtents.minY,
+                context.getLastStuckSpeed().y,
+                result.getInitialStartingVel().maxUpStep(player));
+        return new Vec3(horizontal.x, probeY, horizontal.z);
+    }
+
+    /**
+     * {@code targetY} and {@code attemptedMinY} are pre-stuck (the probe multiplies by {@code stuckY}); the step
+     * height is post-stuck movement, bounded like StepTransform's step candidate by the unscaled max up step.
+     * Returns the pre-stuck Y whose scaled value is that bounded step height.
+     */
+    static double stepHeightProbeY(double targetY, double attemptedMinY, double stuckY, double maxUpStep) {
+        double stepY = CultMath.clamp(targetY * stuckY, Math.min(0.0D, attemptedMinY * stuckY), maxUpStep);
+        return stepY / stuckY;
+    }
+
+    /**
+     * Reselects the collision-ignored movement towards {@link ValidMovements#targetPastClippedAxes}, probes
+     * collisions for it, and keeps whichever clipped movement ends nearer the target.
+     */
+    private void reselectPastClippedAxes(
+            CultPlayer player,
+            MovementEngine engine,
+            ValidMovements validMovements,
+            SimpleCollisionBox attemptedExtents,
+            PredictionResult lastPrediction) {
+        PredictionResult result = validMovements.getResult();
+        Vec3 retarget = validMovements.targetPastClippedAxes();
+        if (retarget == result.getTarget()) return;
+
+        // Entity#collideWithShapes orders X and Z by magnitude, so the reselected movement needs its own probe.
+        keepNearerReselection(validMovements, retarget, lastPrediction, reselected -> {
+            result.setCollideAxisData(probeCollisions(player, engine, result, attemptedExtents, reselected, false));
+            validMovements.applyCollisionsToSelectedMovement(lastPrediction);
+        });
+    }
+
+    /**
+     * Entity#collide moves X and Z in Direction#axisStepOrder of the move before collision. When a vehicle's
+     * collision-ignored extents hold moves of both orders, selects a move of the order {@code selected} does not
+     * take, probes collisions for it, and keeps whichever clipped movement ends nearer the target.
+     */
+    private void probeOtherAxisOrder(
+            CultPlayer player,
+            MovementEngine engine,
+            ValidMovements validMovements,
+            SimpleCollisionBox attemptedExtents,
+            Vec3 selected,
+            PredictionResult lastPrediction,
+            boolean step) {
+        PredictionResult result = validMovements.getResult();
+        if (!CollisionModifier.isJavaVehicleMove(result.getSimulationContext())
+                || !holdsBothAxisOrders(attemptedExtents)) {
+            return;
+        }
+        Vec3 retarget = otherAxisOrderTarget(result.getTarget(), selected, attemptedExtents);
+        if (retarget == null) return;
+
+        keepNearerReselection(validMovements, retarget, lastPrediction, reselected -> {
+            if (step) {
+                Vec3 stepTarget = stepHeightCollisionTarget(player, result, attemptedExtents, reselected);
+                result.setCollideAxisData(probeCollisions(player, engine, result, attemptedExtents, stepTarget, false));
+                validMovements.computeClosest(lastPrediction);
+            } else {
+                result.setCollideAxisData(probeCollisions(player, engine, result, attemptedExtents, reselected, false));
+                validMovements.applyCollisionsToSelectedMovement(lastPrediction);
+            }
+        });
+    }
+
+    /**
+     * Selects the collision-ignored movement towards {@code retarget}, has {@code clip} probe and clip it, and keeps
+     * whichever clipped movement ends nearer the target.
+     */
+    private static void keepNearerReselection(
+            ValidMovements validMovements, Vec3 retarget, PredictionResult lastPrediction, Consumer<Vec3> clip) {
+        MovementTrace firstTrace = validMovements.getClosestTrace();
+        CollideAxisData firstCollisions = validMovements.getResult().getCollideAxisData();
+        clip.accept(validMovements.computeCollisionIgnoredMovement(retarget, lastPrediction));
+        validMovements.keepNearerToTarget(firstTrace, firstCollisions);
+    }
+
+    /** Whether {@code extents} holds a move with |x| < |z| and one without. */
+    private static boolean holdsBothAxisOrders(SimpleCollisionBox extents) {
+        if (extents == null) return false;
+        return nearestToZero(extents.minX, extents.maxX) < farthestFromZero(extents.minZ, extents.maxZ)
+                && farthestFromZero(extents.minX, extents.maxX) >= nearestToZero(extents.minZ, extents.maxZ);
+    }
+
+    private static double nearestToZero(double min, double max) {
+        return min <= 0.0D && max >= 0.0D ? 0.0D : Math.min(Math.abs(min), Math.abs(max));
+    }
+
+    private static double farthestFromZero(double min, double max) {
+        return Math.max(Math.abs(min), Math.abs(max));
+    }
+
+    /**
+     * {@code target} with the axis {@code selected} moves second carried to the edge of {@code extents} in its
+     * direction, where that axis moves first; null when that edge does not reverse the order.
+     */
+    private static Vec3 otherAxisOrderTarget(Vec3 target, Vec3 selected, SimpleCollisionBox extents) {
+        boolean xFirst = Math.abs(selected.x) >= Math.abs(selected.z);
+        if (xFirst) {
+            double z = farEdge(target.z, selected.z, extents.minZ, extents.maxZ);
+            return Math.abs(target.x) < Math.abs(z) ? new Vec3(target.x, target.y, z) : null;
+        }
+        double x = farEdge(target.x, selected.x, extents.minX, extents.maxX);
+        return Math.abs(x) >= Math.abs(target.z) && x != 0.0D ? new Vec3(x, target.y, target.z) : null;
+    }
+
+    private static double farEdge(double target, double selected, double min, double max) {
+        double side = target != 0.0D ? target : selected;
+        return side > 0.0D ? max : side < 0.0D ? min : 0.0D;
+    }
+
+    private CollideAxisData probeCollisions(
             CultPlayer player,
             MovementEngine engine,
             PredictionResult result,
@@ -1514,7 +2014,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             Vec3 collisionTarget,
             boolean canStep) {
         SimulationContext context = result.getSimulationContext();
-        CollisionProbeKey key = new CollisionProbeKey(
+        return engine.probeCollisions(
+                collisionProbe,
+                player,
                 context,
                 attemptedExtents.minY,
                 collisionTarget,
@@ -1522,21 +2024,157 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 result.getInitialStartingVel(),
                 attemptedExtents,
                 canStep);
-        CollideAxisData collisions = collisionProbeCache.get(key);
-        if (collisions == null) {
-            collisions = engine.probeCollisions(
-                    collisionProbe,
+    }
+
+    /**
+     * The carried contexts, each split by TridentItem#releaseUsing's outcome on a release tick: the release spins
+     * only when Entity#isInWaterOrRain holds, and a spin leaves onGround false for the tick's LivingEntity#aiStep.
+     */
+    private List<SimulationContext> createReleaseSimulationContexts(
+            CultPlayer player,
+            PredictionResult lastPrediction,
+            Vec3 target,
+            Vec3 start,
+            Vec3 end,
+            LastInstance lastTickSkip,
+            boolean testing,
+            float xRot,
+            float yRot,
+            AuthoredMovementFrame authoredMovementFrame,
+            MovementProfile movementProfile) {
+        List<SimulationContext> contexts = this.createSimulationContexts(
+                player,
+                lastPrediction,
+                target,
+                start,
+                end,
+                lastTickSkip,
+                testing,
+                xRot,
+                yRot,
+                authoredMovementFrame,
+                movementProfile);
+        if (player.packetStateData.riptideLevel == 0
+                || player.isBedrockMovement()
+                || this.currentPredictionVehicle() != null) {
+            return this.withEndedSpinContexts(
+                    contexts,
                     player,
-                    context,
-                    attemptedExtents.minY,
-                    collisionTarget,
-                    context.getStart(),
-                    result.getInitialStartingVel(),
-                    attemptedExtents,
-                    canStep);
-            collisionProbeCache.put(key, collisions);
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    lastTickSkip,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile);
         }
-        return collisions;
+        boolean certain = player.packetStateData.riptideReleaseCertain;
+        List<SimulationContext> released = new ArrayList<>(contexts.size() * 2);
+        if (!certain) {
+            for (SimulationContext context : contexts) context.setRiptideLevel(0);
+            released.addAll(contexts);
+        }
+        // A spin context builds its own world: the spin leaves onGround false for the tick's LivingEntity#aiStep.
+        player.packetStateData.riptideReleaseCertain = true;
+        try {
+            List<SimulationContext> spins = certain
+                    ? contexts
+                    : this.createSimulationContexts(
+                            player,
+                            lastPrediction,
+                            target,
+                            start,
+                            end,
+                            lastTickSkip,
+                            testing,
+                            xRot,
+                            yRot,
+                            authoredMovementFrame,
+                            movementProfile);
+            for (SimulationContext spin : spins) {
+                spin.setWaterMovementEfficiency(
+                        getWaterMovementEfficiency(player.compensatedEntities.getSelf(), DesyncStatus.FALSE));
+                released.add(spin);
+                if (!spin.consumesStuckSpeed()
+                        || !spin.getWorldData().getCarriedOnGround().getStates().contains(true)) continue;
+                SimulationContext lift = this.createSimulationContext(
+                        player,
+                        lastPrediction,
+                        target,
+                        start,
+                        end,
+                        lastTickSkip,
+                        testing,
+                        xRot,
+                        yRot,
+                        authoredMovementFrame,
+                        movementProfile,
+                        false,
+                        null,
+                        null);
+                lift.setProfileCarry(spin.getProfileCarry());
+                lift.setRiptideLiftStuck(spin.getLastStuckSpeed());
+                lift.setWaterMovementEfficiency(spin.getWaterMovementEfficiency());
+                released.add(lift);
+            }
+        } finally {
+            player.packetStateData.riptideReleaseCertain = certain;
+        }
+        return released;
+    }
+
+    /**
+     * The contexts, split where the last tick's LivingEntity#checkAutoSpinAttack may have hit and this tick's may hit
+     * too: a hit sets autoSpinAttackTicks to 0, so the rebound tick runs no spin check and travels with the sprint flag
+     * the client sent, while a spin that hit nothing starts without the rebound and may hit this tick.
+     */
+    private List<SimulationContext> withEndedSpinContexts(
+            List<SimulationContext> contexts,
+            CultPlayer player,
+            PredictionResult lastPrediction,
+            Vec3 target,
+            Vec3 start,
+            Vec3 end,
+            LastInstance lastTickSkip,
+            boolean testing,
+            float xRot,
+            float yRot,
+            AuthoredMovementFrame authoredMovementFrame,
+            MovementProfile movementProfile) {
+        if (player.isBedrockMovement()
+                || lastPrediction == null
+                || !lastPrediction.getSimulationContext().getWorldData().isSpinAttackTarget()) return contexts;
+        List<SimulationContext> split = new ArrayList<>(contexts.size() * 2);
+        for (SimulationContext context : contexts) {
+            if (!context.getWorldData().isSpinAttackTarget()) continue;
+            context.setSpinRebound(SpinRebound.NONE);
+            split.add(context);
+        }
+        if (split.isEmpty()) return contexts;
+        int spinTicks = player.riptideSpinAttackTicks;
+        player.riptideSpinAttackTicks = 0;
+        try {
+            List<SimulationContext> rebounds = this.createSimulationContexts(
+                    player,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    lastTickSkip,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile);
+            for (SimulationContext context : rebounds) context.setSpinRebound(SpinRebound.ONLY);
+            split.addAll(rebounds);
+        } finally {
+            player.riptideSpinAttackTicks = spinTicks;
+        }
+        return split;
     }
 
     private List<SimulationContext> createSimulationContexts(
@@ -1560,8 +2198,18 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         == (currentPredictionVehicle() == null
                                 ? player.compensatedEntities.getSelf()
                                 : currentPredictionVehicle())) {
+            JavaPredictionCarry carried = carry;
+            if (carried == this.carryWithChangedStuckBlock && lastPrediction != null) {
+                carried = JavaMovementEngine.withStuckStatesFromCurrentWorld(player, lastPrediction, carried);
+                if (!testing) {
+                    this.profileCarry = carried;
+                    this.carryWithChangedStuckBlock = null;
+                }
+            }
             List<SimulationContext> contexts = new ArrayList<>();
-            for (var state : carry.states()) {
+            // Every state's context is built from the same inputs before the state is applied to it.
+            CarryWorld world = null;
+            for (var state : carried.states()) {
                 SimulationContext context = this.createSimulationContext(
                         player,
                         lastPrediction,
@@ -1574,7 +2222,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         yRot,
                         authoredMovementFrame,
                         movementProfile,
-                        false);
+                        false,
+                        this.currentPredictionVehicle(),
+                        world);
+                if (world == null && carried.states().size() > 1) world = CarryWorld.of(context);
                 context.setProfileCarry(new ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry(
                         carry.actor(), state.fallDistance(), List.of(state)));
                 Vec3 stuck =
@@ -1600,11 +2251,42 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 authoredMovementFrame,
                 movementProfile,
                 carryLastRequiredStuckSpeed);
-        return List.of(primary);
+        if (!this.rideTicksSinceLastPrediction || !movementProfile.usesJavaEntityMoveStuckSpeed(player))
+            return List.of(primary);
+        // The first move after a dismount consumes no multiplier or one the last ride tick's blocks can have given.
+        List<SimulationContext> contexts = new ArrayList<>(1 + Collisions.PLAYER_STUCK_SPEEDS.size());
+        contexts.add(primary);
+        CarryWorld world = CarryWorld.of(primary);
+        for (int i = 0; i < Collisions.PLAYER_STUCK_SPEEDS.size(); i++) {
+            if ((this.dismountStuckSpeeds & (1 << i)) == 0) continue;
+            Vec3 stuckSpeed = Collisions.PLAYER_STUCK_SPEEDS.get(i);
+            SimulationContext context = this.createSimulationContext(
+                    player,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    lastTickSkip,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile,
+                    false,
+                    this.currentPredictionVehicle(),
+                    world);
+            Vec3 stuck = player.boatData.adjustStuckSpeedMultiplierForCurrentTick(player, context, stuckSpeed);
+            context.setRequiredCurrentMoveStuckSpeed(stuck);
+            context.handleLastRequiredStuckSpeed(stuck);
+            contexts.add(context);
+        }
+        return contexts;
     }
 
     private boolean shouldCarryLastRequiredStuckSpeed(PredictionResult lastPrediction) {
-        if (lastPrediction != null && lastPrediction.getSimulationContext() != null) {
+        if (this.rideTicksSinceLastPrediction) {
+            return false;
+        } else if (lastPrediction != null && lastPrediction.getSimulationContext() != null) {
             PacketEntity lastVehicle = lastPrediction.getSimulationContext().getVehicle();
             PacketEntity currentVehicle = this.currentPredictionVehicle();
             return lastVehicle != null && currentVehicle != null
@@ -1641,24 +2323,26 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 authoredMovementFrame,
                 movementProfile,
                 applyLastRequiredStuckSpeed,
-                this.currentPredictionVehicle());
+                this.currentPredictionVehicle(),
+                null);
     }
 
     /**
      * LocalPlayer#aiStep updates the sprint flag before LivingEntity#travel, and LocalPlayer#sendPosition sends
      * the resulting START/STOP_SPRINTING before the movement, so the client's last START/STOP is the travel flag.
      * LivingEntity#checkAutoSpinAttack runs after travel and can reach Player#causeExtraKnockback ->
-     * setSprinting(false) before that START/STOP, so a riptide spin keeps both states.
+     * setSprinting(false) before that START/STOP when it hits a RemotePlayer, so a tick whose spin may hit one keeps
+     * both states.
      */
     private DesyncStatus sprintingAtTravel(CultPlayer player, @Nullable PacketEntity riding) {
         if (riding != null) return DesyncStatus.FALSE;
-        if (player.isBedrockMovement() || player.riptideSpinAttackTicks > 0) return DesyncStatus.UNKNOWN;
+        if (player.isBedrockMovement()) return DesyncStatus.UNKNOWN;
         return DesyncStatus.fromBoolean(player.isSprinting);
     }
 
     // The tick's START/STOP and movement have already reconciled ClientSprintState to post-aiStep.
     private boolean sprintModifierAtTravel(CultPlayer player, @Nullable PacketEntity riding) {
-        if (riding != null || player.isBedrockMovement() || player.riptideSpinAttackTicks > 0) return true;
+        if (riding != null || player.isBedrockMovement()) return true;
         return player.sprintState.modifier();
     }
 
@@ -1675,7 +2359,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             AuthoredMovementFrame authoredMovementFrame,
             MovementProfile movementProfile,
             boolean applyLastRequiredStuckSpeed,
-            @Nullable PacketEntity riding) {
+            @Nullable PacketEntity riding,
+            @Nullable CarryWorld world) {
         Vec3 vehicleInputs = Float.floatToRawIntBits(player.boatData.vehicleHoriz) == 0
                         && Float.floatToRawIntBits(player.boatData.vehicleForward) == 0
                 ? Vec3.ZERO
@@ -1712,7 +2397,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         ? new MainSupportingBlockData(null, false)
                         : lastPrediction.getSimulationContext().getWorldData().getMainSupportingBlockPos(),
                 player.pose,
-                player.getScale());
+                player.dimensionScale);
         if (player.usesModernJavaItemUse()) {
             context.setItemUse(ac.cult.cultac.utils.data.ItemUseInventory.prepare(player));
             context.setServerUseTracked(player.itemUseBurst.tracking());
@@ -1729,12 +2414,23 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         PacketEntity traveller = riding == null ? player.compensatedEntities.getSelf() : riding;
         context.setWaterMovementEfficiency(getWaterMovementEfficiency(traveller, contextLastOnGround));
         context.setBoatInputs(player.boatData.vehicleKeys);
+        context.setRiptideReleaseCertain(player.packetStateData.riptideReleaseCertain);
         context.setProfileCarry(this.profileCarry);
         context.setBedrockTeleport(player.isBedrockMovement() ? this.bedrockTeleport : null);
         context = movementProfile.createContext(player, context, authoredMovementFrame);
-        MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
-        context.setWorldData(
-                engine.buildWorld(this.worldStageBuilder, player, context, lastPrediction, contextLastOnGround));
+        if (world == null) {
+            MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
+            context.setWorldData(
+                    engine.buildWorld(this.worldStageBuilder, player, context, lastPrediction, contextLastOnGround));
+            this.lastWorldEyeInWater = context.getWorldData().isEyeInWater();
+        } else {
+            world.attachTo(context);
+        }
+        if (context.getWorldData().isSpinAttackPlayer()) {
+            context.setIsSprinting(DesyncStatus.UNKNOWN);
+            context.setSprintModifier(true);
+        }
+        if (this.certainSpinHit && riding == null) context.setSpinRebound(SpinRebound.ONLY);
         if (applyLastRequiredStuckSpeed && lastPrediction != null) {
             Vec3 lastRequiredStuckSpeed = lastPrediction
                     .getSimulationContext()
@@ -1844,6 +2540,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     .getWorldData()
                                     .setStuckSpeed(new StuckSpeedData(null, stuckSpeed));
                             this.validPlayerStartingVels.add(Vec3.ZERO);
+                            if (JavaMovementEngine.contextUsesExactEffects(context)
+                                    && !this.player.isBedrockMovement()
+                                    && this.profileCarry instanceof JavaPredictionCarry carry
+                                    && carry.actor() == this.player.compensatedEntities.getSelf()) {
+                                this.carryWithChangedStuckBlock = carry;
+                            }
                         }
                     }
                 }
@@ -1895,6 +2597,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return this.lastPrediction;
     }
 
+    /** The eye fluid of the last simulated movement start, whether or not its prediction was committed. */
+    public boolean isLastWorldEyeInWater() {
+        return this.lastWorldEyeInWater;
+    }
+
     public CarriedPush getCarriedPush() {
         return this.carriedPush;
     }
@@ -1922,80 +2629,30 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     @Generated
+    public DesyncStatus getLastOnGround() {
+        return this.lastOnGround;
+    }
+
     public void setLastOnGround(DesyncStatus lastOnGround) {
         this.lastOnGround = lastOnGround;
     }
 
-    private static final class CollisionProbeKey {
-        private final SimulationContext context;
-        private final long minY;
-        private final Vec3 target;
-        private final Vec3 playerPos;
-        private final PredVector initialStartingVelocity;
-        private final long attemptedMinX;
-        private final long attemptedMinY;
-        private final long attemptedMinZ;
-        private final long attemptedMaxX;
-        private final long attemptedMaxY;
-        private final long attemptedMaxZ;
-        private final boolean canStep;
-
-        private CollisionProbeKey(
-                SimulationContext context,
-                double minY,
-                Vec3 target,
-                Vec3 playerPos,
-                PredVector initialStartingVelocity,
-                SimpleCollisionBox attemptedMovementExtents,
-                boolean canStep) {
-            this.context = context;
-            this.minY = Double.doubleToLongBits(minY);
-            this.target = target;
-            this.playerPos = playerPos;
-            this.initialStartingVelocity = initialStartingVelocity;
-            this.attemptedMinX = Double.doubleToLongBits(attemptedMovementExtents.minX);
-            this.attemptedMinY = Double.doubleToLongBits(attemptedMovementExtents.minY);
-            this.attemptedMinZ = Double.doubleToLongBits(attemptedMovementExtents.minZ);
-            this.attemptedMaxX = Double.doubleToLongBits(attemptedMovementExtents.maxX);
-            this.attemptedMaxY = Double.doubleToLongBits(attemptedMovementExtents.maxY);
-            this.attemptedMaxZ = Double.doubleToLongBits(attemptedMovementExtents.maxZ);
-            this.canStep = canStep;
+    /** The world one carry state's context built, as it stood before that state was applied. */
+    private record CarryWorld(
+            WorldData world,
+            List<SimpleCollisionBox> entityCollisionBoxes,
+            List<HardCollidingEntityCollision> hardCollidingEntityCollisions) {
+        private static CarryWorld of(SimulationContext built) {
+            return new CarryWorld(
+                    built.getWorldData().copy(),
+                    built.getEntityCollisionBoxesForMovementTick(),
+                    built.getHardCollidingEntityCollisionsForMovementTick());
         }
 
-        @Override
-        public boolean equals(Object other) {
-            if (this == other) {
-                return true;
-            }
-            return other instanceof CollisionProbeKey key
-                    && context == key.context
-                    && minY == key.minY
-                    && target.equals(key.target)
-                    && playerPos.equals(key.playerPos)
-                    && initialStartingVelocity == key.initialStartingVelocity
-                    && attemptedMinX == key.attemptedMinX
-                    && attemptedMinY == key.attemptedMinY
-                    && attemptedMinZ == key.attemptedMinZ
-                    && attemptedMaxX == key.attemptedMaxX
-                    && attemptedMaxY == key.attemptedMaxY
-                    && attemptedMaxZ == key.attemptedMaxZ
-                    && canStep == key.canStep;
-        }
-
-        @Override
-        public int hashCode() {
-            int result = System.identityHashCode(context);
-            result = 31 * result + Long.hashCode(minY);
-            result = 31 * result + target.hashCode();
-            result = 31 * result + playerPos.hashCode();
-            result = 31 * result + System.identityHashCode(initialStartingVelocity);
-            result = 31 * result + Long.hashCode(attemptedMinX);
-            result = 31 * result + Long.hashCode(attemptedMinY);
-            result = 31 * result + Long.hashCode(attemptedMinZ);
-            result = 31 * result + Long.hashCode(attemptedMaxX);
-            result = 31 * result + Long.hashCode(attemptedMaxY);
-            result = 31 * result + Long.hashCode(attemptedMaxZ);
-            return 31 * result + Boolean.hashCode(canStep);
+        private void attachTo(SimulationContext context) {
+            context.setWorldData(world.copy());
+            context.cacheEntityCollisionBoxesForMovementTick(entityCollisionBoxes);
+            context.cacheHardCollidingEntityCollisionsForMovementTick(hardCollidingEntityCollisions);
         }
     }
 }

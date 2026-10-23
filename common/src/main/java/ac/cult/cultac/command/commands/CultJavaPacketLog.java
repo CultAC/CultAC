@@ -12,7 +12,7 @@ import org.incendo.cloud.parser.standard.StringParser;
 public final class CultJavaPacketLog implements BuildableCommand {
     @Override
     public void register(CommandManager<Sender> manager, CloudPlatformCommandArguments arguments) {
-        manager.command(manager.commandBuilder("cult", "cultac", "grim", "grimac")
+        manager.command(BuildableCommand.root(manager)
                 .literal("debug")
                 .literal("javapacketlog")
                 .permission("cult.debug")

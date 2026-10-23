@@ -24,6 +24,9 @@ import lombok.ToString;
 
 @ToString
 public class PacketModHandler extends Check implements EngineCheck, PostPredictionListener {
+    /** A later velocity replaces the client's delta movement, so only the newest overridden ones stay candidates. */
+    static final int MAX_OVERRIDDEN_VELS = 16;
+
     double offsetToFlag;
     double maxAdvantage, immediate, ceiling, multiplier;
 
@@ -98,10 +101,6 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
         this.wasExempt = false;
-        if (!MovementProfiles.forPlayer(player).usesPacketVelocityModifiers(player)) {
-            handleAllDoneWithVels();
-            return;
-        }
         if (predictionComplete.isTeleport() && player.isBedrockMovement()) {
             TeleportData teleport = predictionComplete.getPredictionResult().getSetBackData();
             // The Bedrock wire order, not the eventual auth-input arrival, determines
@@ -175,7 +174,6 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
                 String offsetDescription =
                         offset == Double.MAX_VALUE ? "ignored" : NumFormatter.formatNumberStandard(offset);
                 flag("offset=" + offsetDescription + " threshold=" + NumFormatter.formatNumberStandard(threshold));
-                //
                 if (offset >= immediate || threshold >= maxAdvantage) {
                     setbackIfAboveSetbackVL();
                 }
@@ -200,12 +198,10 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         return null;
     }
 
-    // TODO: OOP
     public void exempt() {
         handleTeleport(null);
     }
 
-    @Getter
     private boolean wasExempt = false;
 
     private void markVelocityOverriddenByTeleport() {
@@ -291,7 +287,8 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
 
     protected int registerTransactionSandwich(Vec3 playerVelocity, boolean isVel, int sourceEntityId) {
         int transaction = player.lastTransactionSent.get();
-        TransactionVel velocity = new TransactionVel(playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId);
+        TransactionVel velocity = new TransactionVel(
+                playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId, player.nextImpulseSequence());
         lastSent = velocity;
         player.latencyUtils.addRealTimeTaskWithNextTransaction(
                 transaction,
@@ -301,8 +298,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     }
 
     protected void makeVelocityPossible(TransactionVel velocity, Vec3 originalVelocity) {
-        if (!velocity.isVelocity()
-                && shouldCarryPreviousPacketModifier(secondBread, false, velocity.getTransaction())) {
+        if (!velocity.isVelocity() && shouldCarryPreviousPacketModifier(secondBread, false, velocity)) {
             velocity.setVel(originalVelocity.add(secondBread.getVel()));
         }
         firstBread = velocity;
@@ -313,12 +309,13 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         if (velocity.isConsumed()) return;
         if (secondBread != null
                 && velocity.isVelocity()
-                && shouldCarryPreviousPacketModifier(secondBread, true, velocity.getTransaction())) {
+                && shouldCarryPreviousPacketModifier(secondBread, true, velocity)) {
+            if (overriddenVels.size() >= MAX_OVERRIDDEN_VELS) overriddenVels.remove(0);
             overriddenVels.add(secondBread);
         }
         if (!velocity.isVelocity()) {
             velocity.setVel(
-                    shouldCarryPreviousPacketModifier(secondBread, false, velocity.getTransaction())
+                    shouldCarryPreviousPacketModifier(secondBread, false, velocity)
                             ? originalVelocity.add(secondBread.getVel())
                             : originalVelocity);
         }
@@ -329,13 +326,14 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     protected void handleEventAfterTransaction(
             Vec3 playerVelocity, boolean isVel, int transaction, int sourceEntityId) {
         if (transaction <= 0) return;
-        TransactionVel velocity = new TransactionVel(playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId);
+        TransactionVel velocity = new TransactionVel(
+                playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId, player.nextImpulseSequence());
         lastSent = velocity;
         player.latencyUtils.addRealTimeTask(transaction, () -> confirmVelocity(velocity, playerVelocity));
     }
 
     private boolean shouldCarryPreviousPacketModifier(
-            TransactionVel previous, boolean currentIsVelocity, int currentTransaction) {
+            TransactionVel previous, boolean currentIsVelocity, TransactionVel current) {
         if (previous == null) {
             return false;
         }
@@ -352,21 +350,21 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         // packet after an explosion replaces the earlier explosion delta. Do not
         // fold that earlier explosion into the next explosion; MovementModifiers
         // will apply the newer velocity as the replacement state.
-        return currentIsVelocity || !hasVelocityOverrideBetween(previous, currentTransaction);
+        return currentIsVelocity || !hasVelocityOverrideBetween(previous, current);
     }
 
-    private boolean hasVelocityOverrideBetween(TransactionVel previous, int currentTransaction) {
+    private boolean hasVelocityOverrideBetween(TransactionVel previous, TransactionVel current) {
         KnockbackHandler knockbackHandler = player.checkManager.getKnockbackHandler();
-        return isVelocityOverrideBetween(previous, knockbackHandler.firstBread, currentTransaction)
-                || isVelocityOverrideBetween(previous, knockbackHandler.secondBread, currentTransaction);
+        return isVelocityOverrideBetween(previous, knockbackHandler.firstBread, current)
+                || isVelocityOverrideBetween(previous, knockbackHandler.secondBread, current);
     }
 
     private boolean isVelocityOverrideBetween(
-            TransactionVel previous, TransactionVel velocity, int currentTransaction) {
+            TransactionVel previous, TransactionVel velocity, TransactionVel current) {
         return velocity != null
                 && velocity.isVelocity()
-                && velocity.getTransaction() > previous.getTransaction()
-                && velocity.getTransaction() <= currentTransaction;
+                && velocity.getOutboundSequence() > previous.getOutboundSequence()
+                && velocity.getOutboundSequence() <= current.getOutboundSequence();
     }
 
     public boolean hasPacketVelocity() {
@@ -385,19 +383,5 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             lastSent = null;
         }
         overriddenVels.removeIf(vel -> vel.getSourceEntityId() == entityId);
-    }
-
-    public void keepOnlyVelocitiesFromSourceEntity(int entityId) {
-        if (firstBread != null && firstBread.getSourceEntityId() != entityId) {
-            firstBread.setConsumed(true);
-            firstBread = null;
-        }
-        if (secondBread != null && secondBread.getSourceEntityId() != entityId) {
-            secondBread = null;
-        }
-        if (lastSent != null && lastSent.getSourceEntityId() != entityId) {
-            lastSent = null;
-        }
-        overriddenVels.removeIf(vel -> vel.getSourceEntityId() != entityId);
     }
 }

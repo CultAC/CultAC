@@ -40,9 +40,9 @@ spectators:
 # Сколько времени должно быть у игроков, пока мы не выкинем их за тайм-аут? По умолчанию = 60 секунд
 max-transaction-time: 60
 
-# Если сбоит сам CultAC (не удаётся подключиться к игроку, версия клиента не поддерживается или ни один
-# пинг не получил ответа за max-transaction-time), игрок продолжает играть без проверки, а не отключается.
-# Кики за флуд пакетами и краш-эксплойты по-прежнему действуют.
+# Если сбоит сам CultAC (не удаётся подключиться к игроку или версия клиента не поддерживается), игрок
+# продолжает играть без проверки, а не отключается. Кики за флуд пакетами, краш-эксплойты и пинги без ответа
+# за max-transaction-time по-прежнему действуют.
 launch-safety:
   fail-open: true
 
@@ -265,6 +265,14 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
+  # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
+  # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
+  perf: false
+  # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
+  # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
+  # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
+  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  team-sync: false
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.

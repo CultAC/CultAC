@@ -6,6 +6,8 @@ import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.BlockTags;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.cultac.events.packets.PacketWorldBorder;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -13,7 +15,9 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
+import ac.cult.cultac.utils.collisions.datatypes.CollisionBoxPool;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.math.CultMath;
@@ -23,6 +27,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.IntPredicate;
 
 public class Collisions {
@@ -33,6 +38,9 @@ public class Collisions {
     private static final Vec3 WEAVING_COBWEB_STUCK_SPEED = new Vec3(0.5, 0.25, 0.5);
     private static final Vec3 SWEET_BERRY_BUSH_STUCK_SPEED = new Vec3(0.800000011920929, 0.75, 0.800000011920929);
     private static final Vec3 POWDER_SNOW_STUCK_SPEED = new Vec3(0.8999999761581421, 1.5, 0.8999999761581421);
+    /** Every Entity#stuckSpeedMultiplier a block's entityInside gives the local player. */
+    public static final List<Vec3> PLAYER_STUCK_SPEEDS = List.of(
+            COBWEB_STUCK_SPEED, WEAVING_COBWEB_STUCK_SPEED, SWEET_BERRY_BUSH_STUCK_SPEED, POWDER_SNOW_STUCK_SPEED);
 
     private static final boolean IS_FOURTEEN = true; // Current runtime is newer than 1.14.
 
@@ -43,6 +51,51 @@ public class Collisions {
     public static Vec3 collide(
             CultPlayer player, SimpleCollisionBox box, double desiredX, double desiredY, double desiredZ) {
         return collide(player, box, desiredX, desiredY, desiredZ, getAxisStepOrder(desiredX, desiredZ), true);
+    }
+
+    /** {@code onGroundForStep} is Entity#onGround at the move's start, which lets Entity#collide step upwards. */
+    public static Vec3 collide(
+            CultPlayer player,
+            SimpleCollisionBox box,
+            double desiredX,
+            double desiredY,
+            double desiredZ,
+            boolean onGroundForStep) {
+        return collide(
+                player,
+                box,
+                desiredX,
+                desiredY,
+                desiredZ,
+                getAxisStepOrder(desiredX, desiredZ),
+                true,
+                box.minY,
+                null,
+                onGroundForStep,
+                null);
+    }
+
+    /** {@link #collide(CultPlayer, SimpleCollisionBox, double, double, double, boolean)} with more colliders. */
+    public static Vec3 collideWithAdditionalCollisionBoxes(
+            CultPlayer player,
+            SimpleCollisionBox box,
+            double desiredX,
+            double desiredY,
+            double desiredZ,
+            List<SimpleCollisionBox> additionalCollisionBoxes,
+            boolean onGroundForStep) {
+        return collide(
+                player,
+                box,
+                desiredX,
+                desiredY,
+                desiredZ,
+                getAxisStepOrder(desiredX, desiredZ),
+                true,
+                box.minY,
+                additionalCollisionBoxes,
+                onGroundForStep,
+                null);
     }
 
     public static Vec3 collideWithAdditionalCollisionBoxes(
@@ -84,8 +137,38 @@ public class Collisions {
                 allowStepping,
                 box.minY,
                 additionalCollisionBoxes,
-                onGroundForStep);
+                onGroundForStep,
+                null);
     }
+
+    /** The stepping collision and the same query's pre-step result, which equals a non-stepping call. */
+    public static SteppedCollision collideWithStepComparison(
+            CultPlayer player,
+            SimpleCollisionBox box,
+            double desiredX,
+            double desiredY,
+            double desiredZ,
+            List<Axis> order,
+            List<SimpleCollisionBox> additionalCollisionBoxes,
+            boolean onGroundForStep) {
+        if (player.isBedrockMovement()) throw new IllegalStateException("Bedrock step queries depend on allowStepping");
+        Vec3[] withoutStep = new Vec3[1];
+        Vec3 movement = collide(
+                player,
+                box,
+                desiredX,
+                desiredY,
+                desiredZ,
+                order,
+                true,
+                box.minY,
+                additionalCollisionBoxes,
+                onGroundForStep,
+                withoutStep);
+        return new SteppedCollision(movement, withoutStep[0]);
+    }
+
+    public record SteppedCollision(Vec3 movement, Vec3 withoutStep) {}
 
     public static Vec3 collide(
             CultPlayer player,
@@ -130,7 +213,8 @@ public class Collisions {
                 allowStepping,
                 entityBottom,
                 additionalCollisionBoxes,
-                player.lastOnGround);
+                player.lastOnGround,
+                null);
     }
 
     private static Vec3 collide(
@@ -143,9 +227,48 @@ public class Collisions {
             boolean allowStepping,
             double entityBottom,
             List<SimpleCollisionBox> additionalCollisionBoxes,
-            boolean onGroundForStep) {
-        if (desiredX == 0 && desiredY == 0 && desiredZ == 0) return Vec3.ZERO;
+            boolean onGroundForStep,
+            Vec3[] withoutStep) {
+        if (desiredX == 0 && desiredY == 0 && desiredZ == 0) {
+            if (withoutStep != null) withoutStep[0] = Vec3.ZERO;
+            return Vec3.ZERO;
+        }
 
+        CollisionBoxPool pool = CollisionBoxPool.current();
+        int mark = pool.mark();
+        try {
+            return collide(
+                    player,
+                    box,
+                    desiredX,
+                    desiredY,
+                    desiredZ,
+                    order,
+                    allowStepping,
+                    entityBottom,
+                    additionalCollisionBoxes,
+                    onGroundForStep,
+                    withoutStep,
+                    pool);
+        } finally {
+            pool.release(mark);
+        }
+    }
+
+    /** Native colliders come from {@code pool}; none of them outlives this call. */
+    private static Vec3 collide(
+            CultPlayer player,
+            SimpleCollisionBox box,
+            double desiredX,
+            double desiredY,
+            double desiredZ,
+            List<Axis> order,
+            boolean allowStepping,
+            double entityBottom,
+            List<SimpleCollisionBox> additionalCollisionBoxes,
+            boolean onGroundForStep,
+            Vec3[] withoutStep,
+            CollisionBoxPool pool) {
         SimpleCollisionBox grabBoxesBB = box.copy();
         double stepUpHeight = player.getMaxUpStep();
         boolean separateStepQuery = !player.isBedrockMovement();
@@ -171,7 +294,7 @@ public class Collisions {
         }
 
         List<SimpleCollisionBox> desiredMovementCollisionBoxes = new ArrayList<>();
-        getCollisionBoxes(player, grabBoxesBB, desiredMovementCollisionBoxes, false, entityBottom);
+        getCollisionBoxes(player, grabBoxesBB, desiredMovementCollisionBoxes, false, entityBottom, CURRENT_ACTOR, pool);
         addAdditionalCollisionBoxes(grabBoxesBB, desiredMovementCollisionBoxes, additionalCollisionBoxes);
 
         SimpleCollisionBox moved = new SimpleCollisionBox();
@@ -184,6 +307,7 @@ public class Collisions {
                 order,
                 SimpleCollisionBox.AxisEpsilon.JAVA,
                 moved);
+        if (withoutStep != null) withoutStep[0] = collisionResult;
 
         // While running up stairs and holding space, the player activates the "lastOnGround" part without otherwise
         // being able to step
@@ -210,7 +334,7 @@ public class Collisions {
             }
 
             List<SimpleCollisionBox> stepCollisionBoxes = new ArrayList<>();
-            getCollisionBoxes(player, stepSearchBox, stepCollisionBoxes, false, entityBottom);
+            getCollisionBoxes(player, stepSearchBox, stepCollisionBoxes, false, entityBottom, CURRENT_ACTOR, pool);
             addAdditionalCollisionBoxes(stepSearchBox, stepCollisionBoxes, additionalCollisionBoxes);
             for (double candidateHeight :
                     collectCandidateStepUpHeights(stepStartBox, stepCollisionBoxes, stepUpHeight, collisionResult.y)) {
@@ -322,7 +446,7 @@ public class Collisions {
         // Both 26.2 and 26.3 still add the border in the Entity overload of
         // collectCollidersIgnoringWorldBorder. Only its CollisionContext
         // overload omits it; ordinary entity travel uses the former.
-        final PacketWorldBorder border = player.checkManager.getListener(PacketWorldBorder.class);
+        final PacketWorldBorder border = player.checkManager.getWorldBorder();
         double centerX = border.getCenterX();
         double centerZ = border.getCenterZ();
 
@@ -392,9 +516,11 @@ public class Collisions {
             List<SimpleCollisionBox> listOfBlocks,
             boolean onlyCheckCollide,
             double entityBottom) {
-        return getCollisionBoxes(
-                player, wantedBB, listOfBlocks, onlyCheckCollide, entityBottom, JavaCollisionState.current(player));
+        return getCollisionBoxes(player, wantedBB, listOfBlocks, onlyCheckCollide, entityBottom, CURRENT_ACTOR);
     }
+
+    // Resolved to JavaCollisionState.current at the first powder snow block, the only block whose shape reads it.
+    private static final JavaCollisionState CURRENT_ACTOR = new JavaCollisionState(0.0, false, false, false);
 
     public static boolean getCollisionBoxes(
             CultPlayer player,
@@ -403,11 +529,28 @@ public class Collisions {
             boolean onlyCheckCollide,
             double entityBottom,
             JavaCollisionState actor) {
+        return getCollisionBoxes(player, wantedBB, listOfBlocks, onlyCheckCollide, entityBottom, actor, null);
+    }
+
+    /**
+     * With a {@code pool}, native colliders come from it: the caller holds a mark on it and reads no collider added to
+     * {@code listOfBlocks} after releasing that mark.
+     */
+    public static boolean getCollisionBoxes(
+            CultPlayer player,
+            SimpleCollisionBox wantedBB,
+            List<SimpleCollisionBox> listOfBlocks,
+            boolean onlyCheckCollide,
+            double entityBottom,
+            JavaCollisionState actor,
+            CollisionBoxPool pool) {
         boolean modernJava = !player.isBedrockMovement();
         if (modernJava)
             ac.cult.blocksim.data.Box.validateBounds(
                     wantedBB.minX, wantedBB.minY, wantedBB.minZ, wantedBB.maxX, wantedBB.maxY, wantedBB.maxZ);
-        ac.cult.blocksim.engine.shapes.VoxelShape queryShape = null;
+        boolean resolvedDirect = false;
+        boolean direct = false;
+        var registry = DataTables.defaults().registry();
 
         boolean collided = addWorldBorder(player, wantedBB, listOfBlocks, onlyCheckCollide);
         if (onlyCheckCollide && collided) return true;
@@ -464,9 +607,7 @@ public class Collisions {
                             int z = currZ | chunkZGlobalPos;
 
                             int data = section.getStateId(CachedChunk.index(x & 0xF, y & 0xF, z & 0xF));
-                            var facts = ac.cult.blocksim.data.DataTables.defaults()
-                                    .registry()
-                                    .facts(data);
+                            var facts = registry.facts(data);
                             if (facts.has(ac.cult.blocksim.data.StateFacts.AIR)) continue;
                             // Thanks SpottedLeaf for this optimization, I took edgeCount from Tuinity
                             int edgeCount = ((x == minBlockX || x == maxBlockX) ? 1 : 0)
@@ -481,10 +622,15 @@ public class Collisions {
                                                     modernJava
                                                             ? ac.cult.blocksim.data.BlockIds.MOVING_PISTON
                                                             : ac.cult.blocksim.data.BlockIds.PISTON_HEAD))) {
+                                // Scans that reach no shape lookup never read the client version.
+                                if (!resolvedDirect) {
+                                    direct = !ClientBlockShapes.hasMovementAlternatives(player);
+                                    resolvedDirect = true;
+                                }
                                 if (modernJava
                                         && onlyCheckCollide
                                         && ClientBlockShapes.hasStaticFullMovement(
-                                                player, data, x, y, z, entityBottom)) {
+                                                player, data, x, y, z, entityBottom, direct)) {
                                     // Paper's check-only scan: no collider, translation or query shape is needed.
                                     if (wantedBB.minX < x + 1.0
                                             && wantedBB.maxX > x
@@ -494,23 +640,52 @@ public class Collisions {
                                             && wantedBB.maxZ > z) return true;
                                     continue;
                                 }
-                                CollisionBox collisionBox =
-                                        ClientBlockShapes.movement(player, data, x, y, z, entityBottom, actor);
-                                if (collisionBox.isNull()) continue;
-                                if (modernJava
-                                        && queryShape == null
-                                        && collisionBox
-                                                instanceof
-                                                ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox voxel
-                                        && !voxel.usesStrictFullBlockIntersection()) {
-                                    queryShape = ac.cult.blocksim.engine.shapes.Shapes.create(
-                                            wantedBB.minX,
-                                            wantedBB.minY,
-                                            wantedBB.minZ,
-                                            wantedBB.maxX,
-                                            wantedBB.maxY,
-                                            wantedBB.maxZ);
+                                if (actor == CURRENT_ACTOR && BlockIds.is(data, BlockIds.POWDER_SNOW))
+                                    actor = JavaCollisionState.current(player);
+                                VoxelShape shape = null;
+                                Optional<CollisionBox> alternative = null;
+                                if (modernJava) {
+                                    shape = NativeBlockCollisionHelper.getCollisionShape(
+                                            player, data, x, y, z, entityBottom, actor);
+                                    if (!direct)
+                                        alternative = ClientBlockShapes.movementAlternative(
+                                                player, data, x, y, z, entityBottom);
                                 }
+                                if (modernJava && (direct || alternative.isEmpty())) {
+                                    // Must match NativeBlockCollisionHelper.getCollisionBox bit for bit.
+                                    if (shape.isEmpty()) continue;
+                                    boolean fullBlock = shape == Shapes.block();
+                                    if (fullBlock
+                                            ? !(wantedBB.minX < 1.0 + x
+                                                    && wantedBB.maxX > 0.0 + x
+                                                    && wantedBB.minY < 1.0 + y
+                                                    && wantedBB.maxY > 0.0 + y
+                                                    && wantedBB.minZ < 1.0 + z
+                                                    && wantedBB.maxZ > 0.0 + z)
+                                            : !shape.intersectsAabb(
+                                                    wantedBB.minX,
+                                                    wantedBB.minY,
+                                                    wantedBB.minZ,
+                                                    wantedBB.maxX,
+                                                    wantedBB.maxY,
+                                                    wantedBB.maxZ,
+                                                    x,
+                                                    y,
+                                                    z,
+                                                    true)) continue;
+                                    if (onlyCheckCollide) return true;
+                                    VoxelShapeCollisionBox collider = pool == null
+                                            ? new VoxelShapeCollisionBox(shape, fullBlock)
+                                            : pool.voxel(shape, fullBlock);
+                                    listOfBlocks.add(collider.offset(x, y, z));
+                                    continue;
+                                }
+                                CollisionBox collisionBox = alternative == null
+                                        ? ClientBlockShapes.movement(player, data, x, y, z, entityBottom, actor, direct)
+                                        : ClientBlockShapes.selectIfDifferent(
+                                                NativeBlockCollisionHelper.collider(player, shape, x, y, z),
+                                                alternative);
+                                if (collisionBox.isNull()) continue;
                                 // Vanilla BlockCollisions filters the swept query before axis clipping
                                 // or collecting step heights. The full-block path deliberately uses
                                 // strict AABB intersection; other voxel shapes use Shapes AND.
@@ -519,7 +694,7 @@ public class Collisions {
                                                         instanceof
                                                         ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox
                                                                 voxel
-                                                ? voxel.intersectsQuery(wantedBB, queryShape)
+                                                ? voxel.intersectsQuery(wantedBB)
                                                 : collisionBox.isIntersected(wantedBB))) continue;
                                 // Don't add to a list if we only care if the player intersects with the block
                                 if (!onlyCheckCollide) {
@@ -620,8 +795,9 @@ public class Collisions {
             double z = vec3.getZ();
 
             double maxStepDown = -player.getMaxUpStep();
+            SimpleCollisionBox probe = player.boundingBox.copy();
 
-            while (x != 0.0 && isEmpty(player, player.boundingBox.copy().offset(x, maxStepDown, 0.0))) {
+            while (x != 0.0 && isEmpty(player, probe.set(player.boundingBox).offset(x, maxStepDown, 0.0))) {
                 if (x < 0.05D && x >= -0.05D) {
                     x = 0.0D;
                 } else if (x > 0.0D) {
@@ -630,7 +806,7 @@ public class Collisions {
                     x += 0.05D;
                 }
             }
-            while (z != 0.0 && isEmpty(player, player.boundingBox.copy().offset(0.0, maxStepDown, z))) {
+            while (z != 0.0 && isEmpty(player, probe.set(player.boundingBox).offset(0.0, maxStepDown, z))) {
                 if (z < 0.05D && z >= -0.05D) {
                     z = 0.0D;
                 } else if (z > 0.0D) {
@@ -641,7 +817,7 @@ public class Collisions {
             }
             while (x != 0.0
                     && z != 0.0
-                    && isEmpty(player, player.boundingBox.copy().offset(x, maxStepDown, z))) {
+                    && isEmpty(player, probe.set(player.boundingBox).offset(x, maxStepDown, z))) {
                 if (x < 0.05D && x >= -0.05D) {
                     x = 0.0D;
                 } else if (x > 0.0D) {
@@ -805,6 +981,170 @@ public class Collisions {
         }
 
         return stuckSpeed;
+    }
+
+    /**
+     * Replays {@code Entity#checkInsideBlocks} for 1.21.2-1.21.8 clients. Each movement segment visits the blocks of
+     * the entity box at the segment end, through {@code BlockGetter#boxTraverseBlocks} up to 1.21.4 and
+     * {@code BlockGetter#forEachBlockIntersectedBetween} from 1.21.5; one visited set spans the segments, and the last
+     * stuck block visited sets {@code Entity#stuckSpeedMultiplier}. 1.21.5-1.21.8 split the movement into axis steps
+     * in {@code Entity#axisStepOrder}; 1.21.2 and 1.21.3 extend the travel ray by 1.0E-7 at both ends.
+     */
+    public static Vec3 checkStuckSpeedAlongMovementBefore1Dot21Dot9(
+            CultPlayer player,
+            SimpleCollisionBox fromAabb,
+            SimpleCollisionBox toAabb,
+            boolean axisSteps,
+            boolean nudgedTravel,
+            boolean powderSnowCanApply) {
+        int minX = CultMath.floor(Math.min(fromAabb.minX, toAabb.minX));
+        int minY = CultMath.floor(Math.min(fromAabb.minY, toAabb.minY));
+        int minZ = CultMath.floor(Math.min(fromAabb.minZ, toAabb.minZ));
+        int maxX = CultMath.floor(Math.max(fromAabb.maxX, toAabb.maxX));
+        int maxY = CultMath.floor(Math.max(fromAabb.maxY, toAabb.maxY));
+        int maxZ = CultMath.floor(Math.max(fromAabb.maxZ, toAabb.maxZ));
+        if (CheckIfChunksLoaded.isChunksUnloadedAt(player, minX, minY, minZ, maxX, maxY, maxZ)) {
+            return null;
+        }
+
+        return resolveStuckSpeedBefore1Dot21Dot9(
+                fromAabb,
+                toAabb,
+                axisSteps,
+                nudgedTravel,
+                (x, y, z) -> getStuckSpeedForBlock(
+                        player, player.compensatedWorld.getBlockStateIdAt(x, y, z), powderSnowCanApply));
+    }
+
+    static Vec3 resolveStuckSpeedBefore1Dot21Dot9(
+            SimpleCollisionBox fromAabb,
+            SimpleCollisionBox toAabb,
+            boolean axisSteps,
+            boolean nudgedTravel,
+            StuckSpeedLookup lookup) {
+        LongSet visited = new LongOpenHashSet();
+        Vec3[] result = new Vec3[1];
+        BlockVisitor visitor = (x, y, z) -> {
+            Vec3 speed = lookup.get(x, y, z);
+            if (speed != null && visited.add(BlockPos.asLong(x, y, z))) result[0] = speed;
+        };
+        Vec3 delta = boxCenter(toAabb).subtract(boxCenter(fromAabb));
+        if (axisSteps && delta.lengthSqr() > 0.0) {
+            Vec3 remaining = delta;
+            for (Axis axis : getAxisStepOrder(delta)) {
+                double amount = getAxisValue(delta, axis);
+                if (amount == 0.0) continue;
+                Vec3 step = switch (axis) {
+                    case X -> new Vec3(amount, 0.0, 0.0);
+                    case Y -> new Vec3(0.0, amount, 0.0);
+                    case Z -> new Vec3(0.0, 0.0, amount);
+                };
+                remaining = remaining.subtract(step);
+                SimpleCollisionBox stepEnd = toAabb.move(-remaining.x, -remaining.y, -remaining.z);
+                boxTraverseBlocks(step, stepEnd.deflate(1.0E-5F), nudgedTravel, visitor);
+            }
+        } else {
+            boxTraverseBlocks(delta, toAabb.deflate(1.0E-5F), nudgedTravel, visitor);
+        }
+        return result[0];
+    }
+
+    /** The block traversal before 1.21.9: a movement shorter than 0.99999 visits only the end box. */
+    private static void boxTraverseBlocks(
+            Vec3 travel, SimpleCollisionBox endBox, boolean nudgedTravel, BlockVisitor visitor) {
+        int minX = CultMath.floor(endBox.minX);
+        int minY = CultMath.floor(endBox.minY);
+        int minZ = CultMath.floor(endBox.minZ);
+        int maxX = CultMath.floor(endBox.maxX);
+        int maxY = CultMath.floor(endBox.maxY);
+        int maxZ = CultMath.floor(endBox.maxZ);
+        if (travel.lengthSqr() < CultMath.square(0.99999F)) {
+            for (int z = minZ; z <= maxZ; z++) {
+                for (int y = minY; y <= maxY; y++) {
+                    for (int x = minX; x <= maxX; x++) visitor.visit(x, y, z);
+                }
+            }
+            return;
+        }
+
+        LongSet traversed = new LongOpenHashSet();
+        Vec3 end = new Vec3(endBox.minX, endBox.minY, endBox.minZ);
+        Vec3 start = end.subtract(travel);
+        if (nudgedTravel) {
+            Vec3 nudge = travel.normalize().scale(1.0E-7);
+            end = end.add(nudge);
+            start = start.subtract(nudge);
+        }
+        addCollisionsAlongTravel(traversed, start, end, endBox, visitor);
+        for (int z = minZ; z <= maxZ; z++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int x = minX; x <= maxX; x++) {
+                    if (traversed.add(BlockPos.asLong(x, y, z))) visitor.visit(x, y, z);
+                }
+            }
+        }
+    }
+
+    private static void addCollisionsAlongTravel(
+            LongSet traversed, Vec3 from, Vec3 to, SimpleCollisionBox box, BlockVisitor visitor) {
+        Vec3 travel = to.subtract(from);
+        int x = CultMath.floor(from.x);
+        int y = CultMath.floor(from.y);
+        int z = CultMath.floor(from.z);
+        int signX = (int) Math.signum(travel.x);
+        int signY = (int) Math.signum(travel.y);
+        int signZ = (int) Math.signum(travel.z);
+        double stepX = signX == 0 ? Double.MAX_VALUE : signX / travel.x;
+        double stepY = signY == 0 ? Double.MAX_VALUE : signY / travel.y;
+        double stepZ = signZ == 0 ? Double.MAX_VALUE : signZ / travel.z;
+        double tX = stepX * (signX > 0 ? 1.0 - CultMath.frac(from.x) : CultMath.frac(from.x));
+        double tY = stepY * (signY > 0 ? 1.0 - CultMath.frac(from.y) : CultMath.frac(from.y));
+        double tZ = stepZ * (signZ > 0 ? 1.0 - CultMath.frac(from.z) : CultMath.frac(from.z));
+        int iterations = 0;
+
+        while (tX <= 1.0 || tY <= 1.0 || tZ <= 1.0) {
+            if (tX < tY) {
+                if (tX < tZ) {
+                    x += signX;
+                    tX += stepX;
+                } else {
+                    z += signZ;
+                    tZ += stepZ;
+                }
+            } else if (tY < tZ) {
+                y += signY;
+                tY += stepY;
+            } else {
+                z += signZ;
+                tZ += stepZ;
+            }
+
+            if (iterations++ > 16) break;
+
+            Optional<Vec3> hit = SimpleCollisionBox.clip(x, y, z, x + 1, y + 1, z + 1, from, to);
+            if (hit.isEmpty()) continue;
+            Vec3 point = hit.get();
+            double clampedX = CultMath.clamp(point.x, x + 1.0E-5F, x + 1.0 - 1.0E-5F);
+            double clampedY = CultMath.clamp(point.y, y + 1.0E-5F, y + 1.0 - 1.0E-5F);
+            double clampedZ = CultMath.clamp(point.z, z + 1.0E-5F, z + 1.0 - 1.0E-5F);
+            int lastX = CultMath.floor(clampedX + (box.maxX - box.minX));
+            int lastY = CultMath.floor(clampedY + (box.maxY - box.minY));
+            int lastZ = CultMath.floor(clampedZ + (box.maxZ - box.minZ));
+            for (int blockX = x; blockX <= lastX; blockX++) {
+                for (int blockY = y; blockY <= lastY; blockY++) {
+                    for (int blockZ = z; blockZ <= lastZ; blockZ++) {
+                        if (traversed.add(BlockPos.asLong(blockX, blockY, blockZ))) {
+                            visitor.visit(blockX, blockY, blockZ);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @FunctionalInterface
+    private interface BlockVisitor {
+        void visit(int x, int y, int z);
     }
 
     /**
@@ -1445,7 +1785,8 @@ public class Collisions {
         }
 
         if (BlockFamilies.SWEET_BERRY_BUSH.test(state)) {
-            return SWEET_BERRY_BUSH_STUCK_SPEED;
+            return getSweetBerryBushStuckSpeed(
+                    player.compensatedEntities.getEntityInControl().isLivingEntity());
         }
 
         if (BlockFamilies.POWDER_SNOW.test(state)) {
@@ -1462,6 +1803,11 @@ public class Collisions {
 
     static Vec3 getCobwebStuckSpeed(boolean living, boolean weaving) {
         return living && weaving ? WEAVING_COBWEB_STUCK_SPEED : COBWEB_STUCK_SPEED;
+    }
+
+    /** SweetBerryBushBlock#entityInside slows only a LivingEntity. */
+    public static Vec3 getSweetBerryBushStuckSpeed(boolean living) {
+        return living ? SWEET_BERRY_BUSH_STUCK_SPEED : null;
     }
 
     public static boolean suffocatesAt(CultPlayer player, SimpleCollisionBox playerBB) {

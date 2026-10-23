@@ -3,6 +3,7 @@ package ac.cult.cultac.utils.data;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -35,7 +36,37 @@ public class BoatData {
     public float deltaRotation = 0f;
     public SimpleCollisionBox fluidInteractionBox;
     public boolean oldStatusMayBeInAir;
-    private int controlledBoatEntityId = Integer.MIN_VALUE;
+    private PacketEntity controlledBoat;
+
+    /** A new LocalPlayer's keys: Input.EMPTY until its first PLAYER_INPUT. */
+    public void clearInput() {
+        nextVehicleHoriz = vehicleHoriz = 0f;
+        nextVehicleForward = vehicleForward = 0f;
+        nextVehicleJump = vehicleJump = false;
+        nextVehicleKeys = vehicleKeys = KnownInput.DEFAULT;
+    }
+
+    /**
+     * The deltaRotation a client before 26.3 holds on {@code boat}: AbstractBoat#tick only decays and steers it on a
+     * tick the client's instance controls the boat, so each boat instance keeps the one its last controlled tick left,
+     * 0 from its spawn.
+     */
+    public float deltaRotationOf(PacketEntity boat) {
+        return boat == controlledBoat ? deltaRotation : boat.boatDeltaRotation;
+    }
+
+    /**
+     * Runs at the end of each client tick. From 26.3 AbstractBoat#tick zeroes deltaRotation on every tick the client's
+     * instance does not control the boat.
+     */
+    public void onClientTickEnd(CultPlayer player) {
+        if (controlledBoat == null || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) return;
+        if (!controlledBoat.passengers.isEmpty()
+                && controlledBoat.passengers.get(0) == player.compensatedEntities.getSelf()) {
+            return;
+        }
+        deltaRotation = 0f;
+    }
 
     public void useNextInputForBoatTick() {
         vehicleHoriz = nextVehicleHoriz;
@@ -79,11 +110,13 @@ public class BoatData {
             SimpleCollisionBox boatBox = getControlledBoatCurrentBox(player, vehicle);
             fluidInteractionBox = boatBox.copy();
             int boatEntityId = vehicle.getEntityId();
-            if (controlledBoatEntityId != boatEntityId) {
+            if (controlledBoat != vehicle) {
                 // MCP-Reborn AbstractBoat stores deltaRotation, status, oldStatus,
                 // waterLevel, landFriction, and lastYd on the boat entity. When
                 // local control switches to a different boat, none of those fields
-                // can leak from the old controlled boat.
+                // can leak from the old controlled boat. Before 26.3 a boat keeps
+                // its deltaRotation on the ticks the client's instance does not
+                // control it; from 26.3 AbstractBoat#tick zeroes it on those ticks.
                 //
                 // MCP-Reborn LocalPlayer#tick sends ServerboundMoveVehiclePacket
                 // from the controlled root before ClientLevel#tickPassenger runs
@@ -92,8 +125,10 @@ public class BoatData {
                 // mounted/switched boat therefore still uses that boat's exact
                 // pre-switch current input state, not the latest staged raw
                 // key bitset.
-                controlledBoatEntityId = boatEntityId;
-                deltaRotation = 0f;
+                if (controlledBoat != null) controlledBoat.boatDeltaRotation = deltaRotation;
+                controlledBoat = vehicle;
+                deltaRotation =
+                        player.getClientVersion().isOlderThan(ClientVersion.V_26_3) ? vehicle.boatDeltaRotation : 0f;
                 status = vehicle.boatStatus;
                 oldStatus = null;
                 waterLevel = 0.0D;

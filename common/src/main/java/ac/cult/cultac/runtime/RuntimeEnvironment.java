@@ -1,7 +1,14 @@
 package ac.cult.cultac.runtime;
 
+import ac.cult.cultac.checks.Check;
 import ac.cult.reload.api.HostContext;
+import ac.cult.reload.host.HttpClients;
+import ac.grim.grimac.api.AbstractCheck;
+import ac.grim.grimac.api.GrimUser;
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Supplier;
 
 /** This class is private to each generation; offline fixtures have no host context. */
 public final class RuntimeEnvironment {
@@ -22,10 +29,6 @@ public final class RuntimeEnvironment {
         return context == null || context.owns(session);
     }
 
-    public static boolean pin(Object session) {
-        return context == null || context.pin(session);
-    }
-
     public static void release(Object session, CompletionStage<Void> cleanup) {
         if (context != null) context.release(session, cleanup);
     }
@@ -42,30 +45,25 @@ public final class RuntimeEnvironment {
         return context == null ? task : context.resources().once(task);
     }
 
-    public static <A, B> java.util.function.BiConsumer<A, B> completion(java.util.function.BiConsumer<A, B> callback) {
-        return context == null ? callback : ac.cult.reload.host.Callbacks.guard(context.resources(), callback);
-    }
-
-    public static java.net.http.HttpClient http(java.time.Duration timeout) {
+    public static HttpClient http(Duration timeout) {
         var client = context == null
-                ? java.net.http.HttpClient.newBuilder().connectTimeout(timeout).build()
-                : ac.cult.reload.host.HttpClients.create(timeout);
+                ? HttpClient.newBuilder().connectTimeout(timeout).build()
+                : HttpClients.create(timeout);
         return track(client, client::close);
     }
 
-    public static ac.grim.grimac.api.GrimUser outwardUser(ac.grim.grimac.api.GrimUser user) {
-        return context == null ? user : (ac.grim.grimac.api.GrimUser) context.wrap(user, user);
+    public static GrimUser outwardUser(GrimUser user) {
+        return context == null ? user : (GrimUser) context.wrap(user, user);
     }
 
-    public static ac.grim.grimac.api.AbstractCheck outwardCheck(ac.grim.grimac.api.AbstractCheck check) {
+    public static AbstractCheck outwardCheck(AbstractCheck check) {
         return context == null
                 ? check
-                : (ac.grim.grimac.api.AbstractCheck) context.wrap(
-                        check, check instanceof ac.cult.cultac.checks.Check impl ? impl.getPlayer() : null);
+                : (AbstractCheck) context.wrap(check, check instanceof Check impl ? impl.getPlayer() : null);
     }
 
     @SuppressWarnings("unchecked")
-    public static java.util.function.Supplier<String> outwardVerbose(java.util.function.Supplier<String> supplier) {
-        return context == null ? supplier : (java.util.function.Supplier<String>) context.wrap(supplier);
+    public static Supplier<String> outwardVerbose(Supplier<String> supplier) {
+        return context == null ? supplier : (Supplier<String>) context.wrap(supplier);
     }
 }

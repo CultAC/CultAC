@@ -1,5 +1,6 @@
 # » è » (doppia >>), ANSI e UTF-8 lo interpretano in modo diverso... si può anche vedere ? A causa di ciò
 prefix: "&bCult &8\u00BB"
+command-aliases: [cult, cultac, grim, grimac]
 
 alerts-enabled: "%prefix% &fAlerts abilitati"
 alerts-disabled: "%prefix% &fAlerts disabilitati"
@@ -14,7 +15,7 @@ reloaded: "%prefix% &fConfig has been reloaded."
 reload-failed: "%prefix% &cFailed to reload config."
 player-not-found: "%prefix% &cIl giocatore è esente o offline!"
 sender-not-found: "%prefix% &cNon puoi usare questo comando se sei esente!"
-spectate-return: "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &fClicca qui per tornare alla posizione precedente\n</hover></click>"
+spectate-return: "<click:run_command:/%command% stopspectating><hover:show_text:\"/%command% stopspectating\">\n%prefix% &fClicca qui per tornare alla posizione precedente\n</hover></click>"
 cannot-spectate-return: "%prefix% &cPuoi farlo solo dopo aver osservato un giocatore"
 cannot-run-on-self: "%prefix% &cNon puoi usare questo comando su te stesso!"
 upload-log: "%prefix% &fDebug caricato su: %url%"
@@ -38,7 +39,7 @@ experimental-symbol: "*"
 
 profile:
     - "&7======================"
-    - "%prefix% &bProfilo per &f%player%"
+    - "&bProfilo per &f%player%"
     - "&bPing: &f%ping%"
     - "&bVersione: &f%version%"
     - "&bBrand del Client: &f%brand%"
@@ -48,24 +49,25 @@ profile:
     - "&7======================"
 help:
     - "&7======================"
-    - "/cult alerts &f- &7Attiva/disattiva gli alerts"
-    - "/cult brands &f- &7Toggle brands"
-    - "/cult profile <giocatore> &f- &7Visualizza le informazioni del giocatore"
-    - "/cult help &f- &7Visualizza questo messaggio di aiuto"
-    - "/cult debug <giocatore> &f- &7Output di previsione dello sviluppatore"
-    - "/cult perf &f- &7Ms/predizione dello sviluppatore"
-    - "/cult reload &f- &7Ricarica la configurazione"
-    - "/cult spectate <giocatore> &f- &7Osserva un giocatore"
-    - "/cult verbose &f- &7Mostra ogni segnalazione a te, senza buffer"
-    - "/cult log [0-255] &f- &7Carica un registro di debug per le segnalazioni di previsione"
-    - "/cult history <player> &f- &7Lista delle sessioni (più recenti prima)"
-    - "/cult history <player> page <N> &f- &7Salta alla pagina N della lista delle sessioni"
-    - "/cult history <player> session <N|latest> [-d] [-v] &f- &7Dettaglio della sessione (violazioni più recenti prima)"
-    - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7Dettaglio della sessione, pagina N delle violazioni"
-    - "/cult cloud &f- &7Stato del caricamento sul cloud: socket, frame trattenuti e contatori"
-    - "/cult findings <player> [count] &f- &7Ultimi risultati del cloud per un giocatore"
-    - "/cult top [check] [minutes] &f- &7Giocatori con i risultati del cloud più sicuri"
-    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Etichetta un giocatore nel registro delle etichette del cloud (anche list, revoke)"
+    - "/%command% alerts &f- &7Attiva/disattiva gli alerts"
+    - "/%command% brands &f- &7Toggle brands"
+    - "/%command% profile <giocatore> &f- &7Visualizza le informazioni del giocatore"
+    - "/%command% help &f- &7Visualizza questo messaggio di aiuto"
+    - "/%command% debug <giocatore> &f- &7Output di previsione dello sviluppatore"
+    - "/%command% perf &f- &7Ms/predizione dello sviluppatore"
+    - "/%command% reload &f- &7Ricarica la configurazione"
+    - "/%command% observe [on|off] &f- &7Mostra o cambia la modalità observe-only"
+    - "/%command% spectate <giocatore> &f- &7Osserva un giocatore"
+    - "/%command% verbose &f- &7Mostra ogni segnalazione a te, senza buffer"
+    - "/%command% log [0-255] &f- &7Carica un registro di debug per le segnalazioni di previsione"
+    - "/%command% history <player> &f- &7Lista delle sessioni (più recenti prima)"
+    - "/%command% history <player> page <N> &f- &7Salta alla pagina N della lista delle sessioni"
+    - "/%command% history <player> session <N|latest> [-d] [-v] &f- &7Dettaglio della sessione (violazioni più recenti prima)"
+    - "/%command% history <player> session <N|latest> page <N> [-d] [-v] &f- &7Dettaglio della sessione, pagina N delle violazioni"
+    - "/%command% cloud &f- &7Stato del caricamento sul cloud: socket, frame trattenuti e contatori"
+    - "/%command% findings <player> [count] &f- &7Ultimi risultati del cloud per un giocatore"
+    - "/%command% top [check] [minutes] &f- &7Giocatori con i risultati del cloud più sicuri"
+    - "/%command% label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Etichetta un giocatore nel registro delle etichette del cloud (anche list, revoke)"
     - "&7======================"
 
 # === /cult history ===
@@ -127,4 +129,4 @@ cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
 # Marcatori di schema — vedi il commento di intestazione in config.yml.
 config-flavor: V2
-config-version: 2
+config-version: 3

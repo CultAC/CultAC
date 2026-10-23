@@ -5,7 +5,6 @@ import ac.grim.grimac.api.storage.DataStore;
 import ac.grim.grimac.api.storage.backend.Backend;
 import ac.grim.grimac.api.storage.backend.BackendConfig;
 import ac.grim.grimac.api.storage.backend.BackendContext;
-import ac.grim.grimac.api.storage.backend.BackendException;
 import ac.grim.grimac.api.storage.backend.BackendRegistry;
 import ac.grim.grimac.api.storage.backend.BackendV2;
 import ac.grim.grimac.api.storage.category.Categories;
@@ -52,8 +51,6 @@ import ac.grim.grimac.internal.storage.identity.NameResolverChain;
 import ac.grim.grimac.internal.storage.identity.OfflineModeUuidLink;
 import ac.grim.grimac.internal.storage.identity.PlayerIdentityService;
 import ac.grim.grimac.internal.storage.instance.HeartbeatScheduler;
-import ac.grim.grimac.internal.storage.migrate.LegacyMigrator;
-import ac.grim.grimac.internal.storage.migrate.V0Reader;
 import ac.grim.grimac.internal.storage.retention.RetentionSweeper;
 import ac.grim.grimac.internal.storage.submit.ViolationSinkImpl;
 import ac.grim.grimac.internal.storage.verbose.VerboseManifest;
@@ -77,7 +74,10 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.sql.DataSource;
@@ -103,7 +103,6 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
     private ConfigManager sourceConfig;
     private String runtimeVersion, serverVersion;
     private Runnable fatalShutdown;
-    private java.util.function.Function<String, Integer> legacyVersion;
     private final Logger logger;
     private final BackendRegistry backendRegistry;
 
@@ -150,7 +149,7 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
             String build,
             String hostVersion,
             Runnable shutdown,
-            java.util.function.Function<String, Integer> legacyResolver,
+            Function<String, Integer> legacyResolver,
             boolean reload) {
         if (!reload && (loaded || checkRegistry != null)) return;
         var thread = Thread.currentThread();
@@ -160,14 +159,12 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
         runtimeVersion = build;
         serverVersion = hostVersion;
         fatalShutdown = shutdown;
-        legacyVersion = legacyResolver;
         try {
             if (reload) close();
             startInternal();
         } finally {
             sourceConfig = null;
             fatalShutdown = null;
-            legacyVersion = null;
             thread.setContextClassLoader(previous);
         }
     }
@@ -341,7 +338,7 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
     }
 
     static void hostReaderThreads(DataStoreImpl store) {
-        var readers = (java.util.concurrent.ThreadPoolExecutor) store.readerExecutor();
+        var readers = (ThreadPoolExecutor) store.readerExecutor();
         var factory = readers.getThreadFactory();
         // Readers start lazily, including when a retiring runtime submits a read.
         readers.setThreadFactory(task -> {
@@ -614,7 +611,7 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
         }
 
         VerboseRegistry manifestRegistry = this.verboseRegistry;
-        java.util.function.Supplier<byte[]> verboseManifest = () -> manifestRegistry == null
+        Supplier<byte[]> verboseManifest = () -> manifestRegistry == null
                 ? VerboseManifest.textOnly(VerboseManifest.FLAVOR_V2_PUBLIC)
                 : VerboseManifest.encode(
                         VerboseManifest.FLAVOR_V2_PUBLIC, manifestRegistry.checkIdVersions(checkRegistry));
@@ -902,6 +899,7 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
         retentionSweeper = null;
         sessionTracker = SessionTracker.NOOP;
         liveWriteHooks = StorageWriteHooks.NOOP;
+        playerToggleStore.shutdown();
         playerToggleStore = PlayerToggleStore.NOOP;
         instanceRegistry = null;
         verboseRegistry = null;
@@ -962,7 +960,7 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
                 Document first = db.getCollection(coll).find().limit(1).first();
                 if (first == null) continue;
                 Object id = first.get("_id");
-                if (id instanceof java.util.UUID) continue;
+                if (id instanceof UUID) continue;
                 if (id instanceof Binary b
                         && (b.getType() == BsonBinarySubType.BINARY.getValue()
                                 || b.getType() == BsonBinarySubType.UUID_STANDARD.getValue())
@@ -1011,40 +1009,6 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
             }
         }
         return new NameResolverChain(links);
-    }
-
-    private void maybeMigrateLegacy(Path dataFolder, SqliteBackend sqliteBackend) {
-        if (sqliteBackend == null) return;
-        if (config.migration().skip()) {
-            logger.info("[cult-datastore] migration.skip=true; leaving legacy v0 un-migrated");
-            return;
-        }
-        V0Sources.V0Source source = V0Sources.detect(dataFolder, sourceConfig);
-        if (source == null) {
-            logger.info("[cult-datastore] no legacy v0 store detected; nothing to migrate");
-            return;
-        }
-        logger.info("[cult-datastore] legacy v0 source: " + source.summary());
-        V0Reader reader = new V0Reader(source.jdbcUrl(), source.username(), source.password());
-        LegacyMigrator migrator = new LegacyMigrator(
-                reader,
-                sqliteBackend,
-                checkRegistry,
-                legacyVersion::apply,
-                config.session().gapMs(),
-                logger);
-        long startMs = System.currentTimeMillis();
-        try {
-            LegacyMigrator.Result result = migrator.run(count -> {
-                if (count % 5000 == 0) logger.info("[cult-datastore] migrated " + count + " violations so far");
-            });
-            long elapsed = System.currentTimeMillis() - startMs;
-            logger.info("[cult-datastore] legacy migration: " + result.sessionsWritten() + " sessions, "
-                    + result.violationsWritten() + " violations, " + elapsed + "ms"
-                    + (result.resumed() ? " (resumed)" : ""));
-        } catch (BackendException e) {
-            logger.log(Level.SEVERE, "[cult-datastore] legacy migration failed", e);
-        }
     }
 
     public void stop() {
@@ -1129,6 +1093,7 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
         stopRecoverySweep();
         sessionTracker = SessionTracker.NOOP;
         liveWriteHooks = StorageWriteHooks.NOOP;
+        playerToggleStore.shutdown();
         playerToggleStore = PlayerToggleStore.NOOP;
         if (violationSink != null) {
             violationSink.shutDown();

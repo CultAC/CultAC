@@ -36,7 +36,7 @@ public class MultiBreak extends Check implements BlockBreakListener {
             hasBroken = false;
         }
 
-        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) { // PE DiggingAction.CANCELLED_DIGGING
+        if (blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) {
             return;
         }
 

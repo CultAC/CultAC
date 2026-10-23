@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 
-// @CheckData(name = "NoSneakSlow")
 public class NoSneakSlow extends Check implements PostPredictionListener {
     public NoSneakSlow(CultPlayer cultPlayer) {
         super(cultPlayer, CheckInfo.builder().name("NoSneakSlow").build());

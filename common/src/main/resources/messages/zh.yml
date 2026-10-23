@@ -1,5 +1,6 @@
 # \u00BB 表示 » (相当于缩小版的 >>), ANSI和UTF-8的显示方式有所不同,有时你甚至可以看到乱码.
 prefix: "&bCult &8\u00BB"
+command-aliases: [cult, cultac, grim, grimac]
 
 alerts-enabled: "%prefix% &f警报 已开启"
 alerts-disabled: "%prefix% &f警报 已禁用"
@@ -14,7 +15,7 @@ reloaded: "%prefix% &f配置已经重载完毕."
 reload-failed: "%prefix% &c重载配置失败."
 player-not-found: "%prefix% &c指定玩家不存在或离线!"
 sender-not-found: "%prefix% &c如果你被豁免，则无法使用此命令！"
-spectate-return: "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &f点击这里返回之前的位置\n</hover></click>"
+spectate-return: "<click:run_command:/%command% stopspectating><hover:show_text:\"/%command% stopspectating\">\n%prefix% &f点击这里返回之前的位置\n</hover></click>"
 cannot-spectate-return: "%prefix% &c您只能在观看玩家后执行此操作"
 cannot-run-on-self: "%prefix% &c你不能对自己使用此命令!"
 upload-log: "%prefix% &f已经将日志文件上传至: %url%"
@@ -46,7 +47,7 @@ experimental-symbol: "*"
 
 profile:
     - "&7======================"
-    - "%prefix% &f%player% &b 的信息"
+    - "&f%player% &b 的信息"
     - "&b延迟: &f%ping%"
     - "&b版本: &f%version%"
     - "&b客户端型号: &f%brand%"
@@ -56,24 +57,25 @@ profile:
     - "&7======================"
 help:
     - "&7======================"
-    - "/cult alerts &f- &7显示/隐藏 警报"
-    - "/cult brands &f- &7显示/隐藏 客户端名牌"
-    - "/cult profile <player> &f- &7查看玩家信息"
-    - "/cult help &f- &7查看此帮助消息"
-    - "/cult debug <player> &f- &7开发者预测输出"
-    - "/cult perf &f- &7开发者毫秒预测"
-    - "/cult reload &f- &7重新加载配置"
-    - "/cult spectate <player> &f- &7观看玩家"
-    - "/cult verbose &f- &7显示无缓冲区的每个拉回"
-    - "/cult log [1-999] &f- &7预测标志的调试日志"
-    - "/cult history <player> &f- &7查看会话列表（最新优先）"
-    - "/cult history <player> page <N> &f- &7跳转到会话列表的第 N 页"
-    - "/cult history <player> session <N|latest> [-d] [-v] &f- &7查看某次会话详情（最新违规优先）"
-    - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7查看会话详情的第 N 页违规"
-    - "/cult cloud &f- &7云上传状态：套接字、暂存的帧和计数器"
-    - "/cult findings <player> [count] &f- &7玩家最新的云端检测结果"
-    - "/cult top [check] [minutes] &f- &7云端检测结果置信度最高的玩家"
-    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7在云端标签账本中标记玩家（也可 list、revoke）"
+    - "/%command% alerts &f- &7显示/隐藏 警报"
+    - "/%command% brands &f- &7显示/隐藏 客户端名牌"
+    - "/%command% profile <player> &f- &7查看玩家信息"
+    - "/%command% help &f- &7查看此帮助消息"
+    - "/%command% debug <player> &f- &7开发者预测输出"
+    - "/%command% perf &f- &7开发者毫秒预测"
+    - "/%command% reload &f- &7重新加载配置"
+    - "/%command% observe [on|off] &f- &7查看或切换 observe-only 模式"
+    - "/%command% spectate <player> &f- &7观看玩家"
+    - "/%command% verbose &f- &7显示无缓冲区的每个拉回"
+    - "/%command% log [1-999] &f- &7预测标志的调试日志"
+    - "/%command% history <player> &f- &7查看会话列表（最新优先）"
+    - "/%command% history <player> page <N> &f- &7跳转到会话列表的第 N 页"
+    - "/%command% history <player> session <N|latest> [-d] [-v] &f- &7查看某次会话详情（最新违规优先）"
+    - "/%command% history <player> session <N|latest> page <N> [-d] [-v] &f- &7查看会话详情的第 N 页违规"
+    - "/%command% cloud &f- &7云上传状态：套接字、暂存的帧和计数器"
+    - "/%command% findings <player> [count] &f- &7玩家最新的云端检测结果"
+    - "/%command% top [check] [minutes] &f- &7云端检测结果置信度最高的玩家"
+    - "/%command% label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7在云端标签账本中标记玩家（也可 list、revoke）"
     - "&7======================"
 
 # === /cult history ===
@@ -130,4 +132,4 @@ cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
 # 模式标记 — 参见 config.yml 顶部的注释。
 config-flavor: V2
-config-version: 2
+config-version: 3

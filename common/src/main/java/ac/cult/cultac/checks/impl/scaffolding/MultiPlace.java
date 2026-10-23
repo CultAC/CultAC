@@ -59,7 +59,7 @@ public class MultiPlace extends BlockPlaceCheck {
         hasPlaced = true;
     }
 
-    // isTickPacket (guide §"Removed Check helpers"): a non-teleport movement packet ends the client tick
+    // isTickPacket: a non-teleport movement packet ends the client tick
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {

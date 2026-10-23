@@ -29,10 +29,6 @@ public final class SmoketestPredictionSafety {
         violation("bukkit-event", eventName);
     }
 
-    public static void forbiddenAccess(String capability) {
-        if (ENABLED && PHASE.get() != null) violation("forbidden-access", capability);
-    }
-
     public static void detachedAdapter(Object adapter) {
         if (!ENABLED || PHASE.get() == null) return;
         ADAPTERS.increment();

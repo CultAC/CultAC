@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
@@ -27,7 +28,9 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundExplode;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
@@ -38,10 +41,16 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
+import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.lang.reflect.Field;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import org.mockito.Mockito;
 
 /** A 26.3 survival client over a stone floor at {@link #FLOOR_Y}, fed packets through the receive listeners. */
@@ -74,6 +83,11 @@ final class JavaTickFixture implements AutoCloseable {
         // Let the block-change timing uncertainty expire at client tick boundaries.
         for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
         player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        resetTimerBalances();
+    }
+
+    /** Gives the timer checks ten seconds of client ticks ahead of the wall clock. */
+    void resetTimerBalances() throws Exception {
         // These synchronous fixtures exercise packet ordering, not wall-clock pacing.
         setField(
                 AbstractTimerCheck.class,
@@ -95,6 +109,20 @@ final class JavaTickFixture implements AutoCloseable {
         player.lastOnGround = onGround;
         player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.fromBoolean(onGround));
         player.checkManager.getSimulationProcessor().seedStartingVelocity(velocity);
+    }
+
+    /** Adds a remote player whose PlayerInfo gives it {@code mode}. */
+    void addRemotePlayer(int id, Vec3 at, GameMode mode) {
+        UUID profile = UUID.randomUUID();
+        var info = new ClientboundPlayerInfoUpdate(
+                EnumSet.of(
+                        ClientboundPlayerInfoUpdate.Action.ADD_PLAYER,
+                        ClientboundPlayerInfoUpdate.Action.UPDATE_GAME_MODE),
+                List.of(new ClientboundPlayerInfoUpdate.Entry(profile, mode, Map.of())));
+        CompensatedEntities entities = player.compensatedEntities;
+        entities.clientPlayerModes.update(info, Set.of(profile), entities.entityMap.values());
+        entities.addEntity(id, EntityTypeIds.PLAYER, at, 0, 0, 0);
+        ((PacketEntityPlayer) entities.getEntity(id)).profile = profile;
     }
 
     void input(ServerboundPlayerInput input) {
@@ -135,6 +163,29 @@ final class JavaTickFixture implements AutoCloseable {
         return result;
     }
 
+    /** A passive passenger tick: LocalPlayer sends Rot even when the root is not locally controlled. */
+    void rideTick() {
+        var rot = new ServerboundMovePlayer(0, 0, 0, player.xRot, player.yRot, player.onGround, false, false, true);
+        listener.onMovePlayer(event(ServerboundPackets.MOVE_PLAYER, rot), player, rot);
+        tickEnd();
+    }
+
+    /** A client tick that sends StatusOnly: LocalPlayer#sendPosition withheld the position and rotation. */
+    void statusTick(boolean onGround, boolean horizontalCollision) {
+        var status = new ServerboundMovePlayer(
+                0, 0, 0, player.xRot, player.yRot, onGround, horizontalCollision, false, false);
+        listener.onMovePlayer(event(ServerboundPackets.MOVE_PLAYER, status), player, status);
+        tickEnd();
+    }
+
+    void setPassengers(int vehicle, List<Integer> passengers) {
+        var packet = new ClientboundSetPassengers(vehicle, passengers);
+        var event = new PacketSendEvent<>(
+                fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false);
+        player.packetEntityReplication.onSetPassengers(event, player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+    }
+
     void tickEnd() {
         listener.processClientTickEndReceive(
                 event(ServerboundPackets.CLIENT_TICK_END, ServerboundPackets.CLIENT_TICK_END.opaqueValue()), player);
@@ -152,13 +203,20 @@ final class JavaTickFixture implements AutoCloseable {
 
     /** An explosion knocking the player by {@code knockback}, answered through its trailing ping. */
     void explosion(Vec3 knockback) {
+        explode(knockback);
+        pongThrough(player.lastTransactionSent.get());
+    }
+
+    /** An unanswered explosion knocking the player by {@code knockback}; its proof, or -1 when none was sent. */
+    int explode(Vec3 knockback) {
         var packet = new ClientboundExplode(
                 new Vec3d(player.x, player.y, player.z), new Vec3d(knockback.x, knockback.y, knockback.z));
         var event =
                 new PacketSendEvent<>(fixture.user, ConnectionPhase.PLAY, ClientboundPackets.EXPLODE, packet, false);
+        int sent = player.lastTransactionSent.get();
         player.checkManager.getExplosionHandler().onExplode(event, player, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
-        pongThrough(player.lastTransactionSent.get());
+        return player.lastTransactionSent.get() > sent ? player.lastTransactionSent.get() : -1;
     }
 
     /** A teleport after a leading ping, answered by the client with a 26.3 acceptance at {@code target}. */
@@ -252,6 +310,17 @@ final class JavaTickFixture implements AutoCloseable {
                 result.getFlags().stream()
                         .anyMatch(flag -> flag.getCheck().getCheckName().equals(check)),
                 describe(result));
+    }
+
+    /** VehicleOffset's own comparison: the reported move against the closest simulated one, input included. */
+    static void assertVehicleExact(PredictionResult result, int tick) {
+        double offset = result.getTarget().subtract(result.getAcceptedClosestToTarget()).length();
+        StringBuilder report =
+                new StringBuilder("tick " + tick + " vehicle offset " + offset + " ").append(describe(result));
+        for (PredictionResult.Flag flag : result.getFlags()) {
+            report.append(' ').append(flag.getVerbose().getString());
+        }
+        assertTrue(offset < 1.0E-5 && result.getFlags().isEmpty() && !result.isExempt(), report.toString());
     }
 
     static void setField(Class<?> owner, Object value, String name, Object setting) throws Exception {

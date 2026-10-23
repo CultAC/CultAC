@@ -11,6 +11,7 @@ import ac.cult.cultac.utils.common.arguments.CommonCultArguments;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -21,6 +22,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
@@ -29,6 +31,17 @@ import org.incendo.cloud.parser.standard.IntegerParser;
 import org.jetbrains.annotations.NotNull;
 
 public class CultLog implements BuildableCommand {
+    // pastes.dev requires a User-Agent naming the app and a contact.
+    private static final String CONTACT = "github.com/CultAC/CultAC";
+
+    public static Component uploadedMessage(Sender sender, String template, String url) {
+        String message = MessageUtil.replacePlaceholders(sender, template.replace("%url%", "<url>"));
+        Component link = Component.text(url)
+                .clickEvent(ClickEvent.openUrl(url))
+                .hoverEvent(HoverEvent.showText(Component.text("Click to open", NamedTextColor.GRAY)));
+        return MessageUtil.miniMessage(message, Placeholder.component("url", link));
+    }
+
     public static void sendLogAsync(Sender sender, String log, Consumer<String> consumer, String type) {
         String success = CultAPI.INSTANCE
                 .getConfigManager()
@@ -60,7 +73,9 @@ public class CultLog implements BuildableCommand {
     private static void sendLog(
             Sender sender, String log, String success, String failure, Consumer<String> consumer, String type)
             throws IOException {
-        URL mUrl = new URL(CommonCultArguments.PASTE_URL.value() + "data/post");
+        byte[] body = log.getBytes(StandardCharsets.UTF_8);
+        URL mUrl =
+                URI.create(CommonCultArguments.PASTE_API_URL.value() + "post").toURL();
         HttpURLConnection urlConn = (HttpURLConnection) mUrl.openConnection();
         try {
             urlConn.setDoOutput(true);
@@ -68,19 +83,20 @@ public class CultLog implements BuildableCommand {
             urlConn.setConnectTimeout(CommonCultArguments.URL_TIMEOUT.value());
             urlConn.setReadTimeout(CommonCultArguments.URL_TIMEOUT.value());
             urlConn.addRequestProperty(
-                    "User-Agent", "CultAC/" + CultAPI.INSTANCE.getExternalAPI().getGrimVersion());
-            urlConn.addRequestProperty("Content-Type", type); // Not really yaml, but looks nicer than plaintext
-            urlConn.setRequestProperty("Content-Length", Integer.toString(log.length()));
+                    "User-Agent",
+                    "CultAC/" + CultAPI.INSTANCE.getExternalAPI().getGrimVersion() + " (" + CONTACT + ")");
+            urlConn.addRequestProperty("Content-Type", type);
+            urlConn.setFixedLengthStreamingMode(body.length);
             try (OutputStream stream = urlConn.getOutputStream()) {
-                stream.write(log.getBytes(StandardCharsets.UTF_8));
+                stream.write(body);
             }
             final int response = urlConn.getResponseCode();
             if (response == HttpURLConnection.HTTP_CREATED) {
-                String responseURL = urlConn.getHeaderField("Location");
-                String message = success.replace("%url%", CommonCultArguments.PASTE_URL.value() + responseURL);
-                consumer.accept(message);
-                message = MessageUtil.replacePlaceholders(sender, message);
-                sender.sendMessage(MessageUtil.miniMessage(message));
+                String location = urlConn.getHeaderField("Location");
+                String key = location.substring(location.lastIndexOf('/') + 1);
+                String url = CommonCultArguments.PASTE_URL.value() + key;
+                consumer.accept(url);
+                sender.sendMessage(uploadedMessage(sender, success, url));
             } else {
                 String message = MessageUtil.replacePlaceholders(sender, failure);
                 sender.sendMessage(MessageUtil.miniMessage(message));
@@ -93,8 +109,7 @@ public class CultLog implements BuildableCommand {
 
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        Command<Sender> command = commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        Command<Sender> command = BuildableCommand.root(commandManager)
                 .literal("log", "logs")
                 .permission("cult.log")
                 .required("flagId", IntegerParser.integerParser())

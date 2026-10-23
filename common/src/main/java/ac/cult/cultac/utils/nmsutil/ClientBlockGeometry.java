@@ -1,19 +1,29 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.behavior.BehaviorRegistry;
+import ac.cult.blocksim.behavior.BlockBehavior;
 import ac.cult.blocksim.data.Box;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.BlockRaycast;
 import ac.cult.blocksim.engine.EntityCollisionContext;
+import ac.cult.blocksim.engine.MovingPistonShape;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.SimPlayer;
 import ac.cult.blocksim.engine.SimWorldView;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
+import ac.cult.blocksim.entity.EntityTypes;
+import ac.cult.blocksim.entity.PaintingSize;
 import ac.cult.blocksim.interaction.BlockHit;
+import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
+import com.google.gson.JsonElement;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Set;
 import java.util.function.IntPredicate;
 
 /** Read-only shape view of the compensated world, with the existing BlockGetter semantics. */
@@ -29,7 +39,7 @@ public final class ClientBlockGeometry {
             var result = new boolean[blocks.size()];
             // Resolve dispatch once, including overrides of either overload. This is
             // fixed registry metadata; no world or actor result is retained.
-            var classes = new java.util.IdentityHashMap<Class<?>, Boolean>();
+            var classes = new IdentityHashMap<Class<?>, Boolean>();
             for (int index = 0; index < blocks.size(); index++) {
                 var type = BEHAVIORS.apply(blocks.get(index).defaultState()).getClass();
                 result[index] = classes.computeIfAbsent(type, ClientBlockGeometry::inheritsStateOnlyCollision);
@@ -63,7 +73,7 @@ public final class ClientBlockGeometry {
 
     static boolean inheritsStateOnlyCollision(Class<?> type) {
         try {
-            var base = ac.cult.blocksim.behavior.BlockBehavior.class;
+            var base = BlockBehavior.class;
             return type.getMethod("collisionShape", SimLevel.class, int.class, BlockPos.class)
                                     .getDeclaringClass()
                             == base
@@ -83,7 +93,7 @@ public final class ClientBlockGeometry {
     public VoxelShape collision(int state, ac.cult.cultac.protocol.value.BlockPos pos) {
         // PistonMovingBlockEntity queries both moved collision and shove geometry with
         // CollisionContext.empty(), using that client's block implementation.
-        return ac.cult.cultac.utils.collisions.ClientBlockShapes.versionedMovementShape(
+        return ClientBlockShapes.versionedMovementShape(
                 world.player, state, level.behavior(state).collisionShape(level, state, position(pos)));
     }
 
@@ -94,7 +104,7 @@ public final class ClientBlockGeometry {
             boolean extending,
             boolean source,
             float progress) {
-        return ac.cult.blocksim.engine.MovingPistonShape.collision(
+        return MovingPistonShape.collision(
                 movedState,
                 Rules.DIRECTIONS[facing.ordinal()],
                 extending,
@@ -104,23 +114,8 @@ public final class ClientBlockGeometry {
                 state -> collision(state, pos));
     }
 
-    public boolean collisionFull(int state, ac.cult.cultac.protocol.value.BlockPos pos) {
-        var facts = Rules.DATA.registry().facts(state);
-        return (facts.dynamicBits() & ac.cult.blocksim.data.StateFacts.DYNAMIC_COLLISION) == 0
-                ? facts.has(ac.cult.blocksim.data.StateFacts.FULL_COLLISION)
-                : level.collisionShapeFullBlock(state, position(pos));
-    }
-
-    public VoxelShape outline(int state, ac.cult.cultac.protocol.value.BlockPos pos, EntityCollisionContext context) {
-        return outline(state, position(pos), context);
-    }
-
     public VoxelShape outline(int state, BlockPos pos, EntityCollisionContext context) {
         return level.behavior(state).outlineShape(level, state, pos, context);
-    }
-
-    public VoxelShape support(int state, ac.cult.cultac.protocol.value.BlockPos pos) {
-        return level.behavior(state).supportShape(level, state, position(pos));
     }
 
     public boolean isFaceSturdy(
@@ -135,14 +130,19 @@ public final class ClientBlockGeometry {
     public BlockHit clipOutline(
             ac.cult.cultac.utils.math.Vec3 from,
             ac.cult.cultac.utils.math.Vec3 to,
-            ac.cult.cultac.player.CultPlayer player,
+            CultPlayer player,
             IntPredicate pickFluid) {
         return clip(
                 from,
                 to,
-                (state, pos) -> ac.cult.cultac.utils.collisions.ClientBlockShapes.visualShape(
-                        player, state, pos.x(), pos.y(), pos.z()),
+                (state, pos) -> ClientBlockShapes.visualShape(player, state, pos.x(), pos.y(), pos.z()),
                 pickFluid);
+    }
+
+    /** {@code BlockGetter#clip} with {@code ClipContext.Fluid.NONE} and {@code blocks} as the block shape. */
+    public BlockHit clipBlocks(
+            ac.cult.cultac.utils.math.Vec3 from, ac.cult.cultac.utils.math.Vec3 to, BlockRaycast.ShapeQuery blocks) {
+        return clip(from, to, blocks, state -> false);
     }
 
     public BlockHit clipResetting(
@@ -246,12 +246,12 @@ public final class ClientBlockGeometry {
         }
 
         @Override
-        public java.util.Set<String> recipeInputs(String key) {
+        public Set<String> recipeInputs(String key) {
             throw new UnsupportedOperationException("Level action on geometry view");
         }
 
         @Override
-        public boolean canSpawn(ac.cult.blocksim.entity.EntityTypes.Type type) {
+        public boolean canSpawn(EntityTypes.Type type) {
             throw new UnsupportedOperationException("Level action on geometry view");
         }
 
@@ -261,12 +261,12 @@ public final class ClientBlockGeometry {
         }
 
         @Override
-        public java.util.List<ac.cult.blocksim.entity.PaintingSize> placeablePaintings() {
+        public List<PaintingSize> placeablePaintings() {
             throw new UnsupportedOperationException("Level action on geometry view");
         }
 
         @Override
-        public ac.cult.blocksim.entity.PaintingSize paintingSize(com.google.gson.JsonElement holder) {
+        public PaintingSize paintingSize(JsonElement holder) {
             throw new UnsupportedOperationException("Level action on geometry view");
         }
 

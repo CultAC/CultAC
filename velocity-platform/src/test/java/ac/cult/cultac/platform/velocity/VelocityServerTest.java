@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.velocity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -73,6 +74,9 @@ class VelocityServerTest {
 
             @Override
             public void addListener(BridgeMessageListener listener) {}
+
+            @Override
+            public void removeListener(BridgeMessageListener listener) {}
         });
     }
 
@@ -96,6 +100,17 @@ class VelocityServerTest {
         ArgumentCaptor<IntFunction<BridgeMessage>> request = ArgumentCaptor.forClass(IntFunction.class);
         verify(session).exchange(request.capture(), anyLong());
         return request.getValue().apply(requestId);
+    }
+
+    @Test
+    void velocityHasNoTickTimes() {
+        assertNull(server.recentTickNanos());
+    }
+
+    @Test
+    void velocityCountsProxyPlayers() {
+        when(proxy.getPlayerCount()).thenReturn(3);
+        assertEquals(3, server.onlinePlayers());
     }
 
     @Test
