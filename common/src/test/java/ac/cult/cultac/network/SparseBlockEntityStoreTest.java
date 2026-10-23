@@ -67,6 +67,22 @@ class SparseBlockEntityStoreTest {
     }
 
     @Test
+    void clearingTheLevelForgetsTheLastTicksShulkerShoves() {
+        var entities = new CompensatedBlockEntities(InteractionRegistries::defaults);
+        int shulker =
+                DataTables.defaults().registry().block("minecraft:shulker_box").defaultState();
+        entities.blockEvent(new BlockPos(3, 64, 3), shulker, 1, 1);
+        entities.tick();
+        var shoves = new java.util.ArrayList<CompensatedBlockEntities.ShulkerShove>();
+        entities.shulkerShoves(false, true, shoves);
+        assertFalse(shoves.isEmpty());
+        entities.clear();
+        shoves.clear();
+        entities.shulkerShoves(false, true, shoves);
+        assertTrue(shoves.isEmpty());
+    }
+
+    @Test
     void settledAnimationsResumeAfterEveryWritePath() {
         var entities = new CompensatedBlockEntities(InteractionRegistries::defaults);
         var registry = DataTables.defaults().registry();

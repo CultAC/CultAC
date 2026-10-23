@@ -13,6 +13,7 @@
 package ac.cult.cultac.network.codec;
 
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.packet.RegistryData;
 import ac.cult.cultac.network.packet.RegistryTags;
@@ -298,14 +299,15 @@ public final class ClientPacketCodecs {
                     var registries = worldRegistries.apply(context);
                     return registries == null ? null : registries.painting(name);
                 });
-                return values.read(input);
+                return values.read(
+                        input, context.state() instanceof FrameLease.Source lender ? lender.lease(input) : null);
             }
 
             @Override
             public void write(ByteBuf output, ProtocolContext context, EntityMetadata packet) {
                 requireModelWire(context);
                 Wire.writeVarInt(output, packet.id());
-                for (var entry : packet.packedItems()) output.writeBytes(entry.bytes());
+                for (var entry : packet.packedItems()) entry.writeTo(output);
                 output.writeByte(255);
             }
         };

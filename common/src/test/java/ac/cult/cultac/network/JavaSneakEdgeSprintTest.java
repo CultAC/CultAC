@@ -188,13 +188,14 @@ class JavaSneakEdgeSprintTest {
     }
 
     /**
-     * A riptide spin with a RemotePlayer in reach can reset sprinting after travel through Player#causeExtraKnockback,
-     * so its tick carries no sprint input the edge hides. Player#attack reaches that reset only through a hit that
-     * hurts, and no other LivingEntity's Entity#hurtClient returns true, so an armor stand leaves the input carried.
+     * A riptide spin leaves the travel's sprint flag open, but only the sprint speed reproduces this move. A hit on a
+     * RemotePlayer resets sprinting through Player#causeExtraKnockback only after travel, and an armor stand's
+     * Entity#hurtClient never reaches that reset. Either way the delta the edge withheld stays in deltaMovement, which
+     * the next tick's spin rebound and attack damping scale, so the sprint input the edge hides is carried.
      */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void onlyARemotePlayerInReachDropsTheSprintInputTheEdgeHides(boolean player) throws Exception {
+    void aRiptideSpinCarriesTheSprintInputTheEdgeHidesWhateverItMayHit(boolean player) throws Exception {
         try (var f = new JavaTickFixture()) {
             drop(f);
             float yaw = 717.3444213867188F;
@@ -223,12 +224,12 @@ class JavaSneakEdgeSprintTest {
             PredictionResult result = f.tick(position, true);
             double carriedX = delta.x * friction;
             double carriedZ = delta.z * friction;
-            assertEquals(
-                    !player,
+            assertTrue(exact(result), describe(result));
+            assertTrue(
                     f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels().stream()
                             .anyMatch(next -> Math.abs(next.x - carriedX) < 1.0E-7
                                     && Math.abs(next.z - carriedZ) < 1.0E-7),
-                    "the hidden sprint input: " + describe(result));
+                    "dropped the hidden sprint input: " + describe(result));
         }
     }
 

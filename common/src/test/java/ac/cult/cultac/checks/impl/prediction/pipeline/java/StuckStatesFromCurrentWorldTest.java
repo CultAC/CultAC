@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.network.TestUsers;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
@@ -69,6 +70,7 @@ class StuckStatesFromCurrentWorldTest {
     private static PredictionResult lastMove(CultPlayer player) {
         SimulationContext context = mock(SimulationContext.class);
         when(context.getVehicle()).thenReturn(null);
+        when(context.getVersion()).thenReturn(ClientVersion.V_26_3);
         when(context.getEntities()).thenReturn(player.compensatedEntities);
         when(context.getStart()).thenReturn(END.subtract(MOVEMENT));
         when(context.getEnd()).thenReturn(END);

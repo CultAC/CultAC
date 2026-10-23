@@ -440,6 +440,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         SimItemStack clickedSource = click.slot() >= 0 && click.slot() < beforeSlots.size()
                 ? beforeSlots.get(click.slot())
                 : SimItemStack.EMPTY;
+        Map<Integer, SimItemStack> swapped = swappedStacks(click, beforeSlots, beforeCarried);
         for (Map.Entry<Integer, SimItemStack> entry : click.changedSlots().entrySet()) {
             int slot = entry.getKey();
             if (slot < 0 || slot >= afterSlots.size()) {
@@ -447,6 +448,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             }
             SimItemStack resolved = resolveClaimedStack(
                     entry.getValue(),
+                    swapped.get(slot),
                     beforeSlots.get(slot),
                     beforeSlots,
                     clickedSource,
@@ -468,6 +470,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 : SimItemStack.EMPTY;
         return resolveClaimedStack(
                 click.carriedItem(),
+                swappedStacks(click, beforeSlots, beforeCarried).get(-1),
                 beforeCarried,
                 beforeSlots,
                 clickedSource,
@@ -477,6 +480,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
 
     private SimItemStack resolveClaimedStack(
             SimItemStack claim,
+            SimItemStack swapped,
             SimItemStack previous,
             List<SimItemStack> beforeSlots,
             SimItemStack primarySource,
@@ -486,7 +490,7 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
             return SimItemStack.EMPTY;
         }
 
-        for (SimItemStack candidate : new SimItemStack[] {previous, primarySource, secondarySource}) {
+        for (SimItemStack candidate : new SimItemStack[] {swapped, previous, primarySource, secondarySource}) {
             SimItemStack resolved = copyWithAmountIfMaterialMatches(candidate, claim.getItem(), claim.getCount());
             if (!resolved.isEmpty() && matches.test(resolved)) {
                 return resolved;
@@ -501,6 +505,69 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         }
 
         return matches.test(claim) ? ItemUtil.copy(claim) : null;
+    }
+
+    /**
+     * The stacks a swap moved whole, keyed by the menu slot they moved into (-1 is the cursor).
+     * A swap is the only click that leaves a stack of the same item with other components where one
+     * was, and a claim is matched by item and count (hashed claims carry no components), so these
+     * sources are derived from AbstractContainerMenu#doClick and tried before the place's own stack.
+     */
+    private Map<Integer, SimItemStack> swappedStacks(
+            InventoryClick click, List<SimItemStack> beforeSlots, SimItemStack beforeCarried) {
+        int index = click.slot();
+        // MultiPlayerGameMode#handleContainerInput claims only slots that no longer match their stack.
+        if (index < 0 || index >= beforeSlots.size() || !click.changedSlots().containsKey(index)) {
+            return Map.of();
+        }
+        SimItemStack clicked = beforeSlots.get(index);
+        if (click.clickType() == WindowClickType.PICKUP && (click.button() == 0 || click.button() == 1)) {
+            // Bundles take the click through tryItemClickBehaviourOverride. Otherwise a carried stack that
+            // cannot merge into the clicked one swaps with it, the only change this click makes to the slot.
+            if (clicked.isEmpty()
+                    || beforeCarried.isEmpty()
+                    || isBundle(clicked)
+                    || isBundle(beforeCarried)
+                    || ItemUtil.isSameItemSameTags(clicked, beforeCarried)) {
+                return Map.of();
+            }
+            return Map.of(index, beforeCarried, -1, clicked);
+        }
+        if (click.clickType() != WindowClickType.SWAP
+                || (click.button() < 0 || click.button() >= 9) && click.button() != NMS_OFFHAND_SWAP_BUTTON) {
+            return Map.of();
+        }
+        int storageSlot = directPlayerInventorySlotToStorageSlot(click.button());
+        SimItemStack source = inventory.getInventoryStorage().getItem(storageSlot);
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        Map<Integer, SimItemStack> swapped = new java.util.HashMap<>();
+        // The slot receives the source, or the part of it that fits.
+        swapped.put(index, source);
+        // A source that fits whole trades places with the slot's stack; a split one keeps its remainder.
+        int sourceSlot = menuSlotOf(storageSlot);
+        SimItemStack claimed = click.changedSlots().get(index);
+        if (!clicked.isEmpty()
+                && sourceSlot >= 0
+                && sourceSlot != index
+                && claimed != null
+                && claimed.getCount() == source.getCount()) {
+            swapped.put(sourceSlot, clicked);
+        }
+        return swapped;
+    }
+
+    private int menuSlotOf(int storageSlot) {
+        for (int index = 0; index < menu.getSlots().size(); index++) {
+            Slot slot = menu.getSlot(index);
+            if (slot != null
+                    && slot.isBackedBy(inventory.getInventoryStorage())
+                    && slot.getContainerSlot() == storageSlot) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private static SimItemStack copyWithAmountIfMaterialMatches(
@@ -993,7 +1060,10 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     }
 
     public void setCreativeSlot(int slot, SimItemStack stack) {
-        if (player.gamemode == GameMode.CREATIVE && player.serverGamemode == GameMode.CREATIVE && slot >= 1 && slot <= 45) {
+        if (player.gamemode == GameMode.CREATIVE
+                && player.serverGamemode == GameMode.CREATIVE
+                && slot >= 1
+                && slot <= 45) {
             inventory.getSlot(slot).set(ItemUtil.copy(stack));
             // ServerGamePacketListenerImpl#handleSetCreativeModeSlot sets the remote slot without echoing.
             observeServerSlot(false, slot, inventory.getSlot(slot), stack);

@@ -65,6 +65,8 @@ public class PacketEntity {
     // The tracker whose entityMap holds this entity; null while untracked.
     private @Nullable CompensatedEntities tracker;
     public boolean isDead = false;
+    // Entity#firstTick: true until the client first ticks the entity, so its spawn metadata precedes it.
+    public boolean firstTick = true;
     public boolean isBaby = false;
     public boolean hasGravity = true;
     public double gravity = 0.08D;
@@ -984,12 +986,16 @@ public class PacketEntity {
     public void setPositionRaw(SimpleCollisionBox box) {
         // The client snaps ridden/attached entities straight onto the packet
         // position, desync be damned — mirror that flawed client-sided logic.
-        Vec3 snappedPosition = positionFromCollisionBox(box);
+        Vec3 snappedPosition = positionFromCollisionBox(box, clientPhysicalPosition);
         this.desyncClientPos = snappedPosition;
         this.clientPhysicalPosition = snappedPosition;
         this.clientPhysicalPositionExact = true;
         // Snapping to an exact position means interpolation is disabled
-        this.newPacketLocation = new ReachInterpolationData(box);
+        if (newPacketLocation == null
+                || newPacketLocation == oldPacketLocation
+                || !newPacketLocation.resetFinished(box)) {
+            this.newPacketLocation = new ReachInterpolationData(box);
+        }
         keepPositionCertainty();
     }
 
@@ -1002,7 +1008,8 @@ public class PacketEntity {
         }
         // Entity#positionRider uses setPos, not snapTo: neither the codec nor
         // the pending interpolation path is replaced by the attachment position.
-        passengerPhysicalBox = box.copy();
+        if (passengerPhysicalBox == null) passengerPhysicalBox = box.copy();
+        else passengerPhysicalBox.set(box);
         clientPhysicalPosition = positionFromCollisionBox(box);
         clientPhysicalPositionExact = true;
     }

@@ -1,6 +1,8 @@
 package ac.cult.reload.host;
 
 import ac.cult.reload.api.ResourceScope;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
@@ -10,9 +12,13 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** One lifetime for calls, callbacks, accepted queued work, and registration cleanup. */
 public final class ScopedResources implements ResourceScope {
+    /** Set in {@link #leases} once close begins; no lease is reserved after it. */
+    private static final int CLOSING = 1 << 31;
+
     /** What close releases, newest first. */
     private final LinkedHashSet<Runnable> cleanup = new LinkedHashSet<>();
     /** Guards whose task was collected, so their entries can leave {@link #cleanup}. */
@@ -20,7 +26,11 @@ public final class ScopedResources implements ResourceScope {
 
     private final CompletableFuture<Void> stopped = new CompletableFuture<>();
     private boolean closing;
-    private int inFlight;
+    /**
+     * The number of open leases, with {@link #CLOSING}. Every event loop reserves leases for its queued work, so this
+     * is lock-free: a shared monitor here serializes all of them.
+     */
+    private final AtomicInteger leases = new AtomicInteger();
     private Throwable failure;
     private volatile ClassLoader owner;
 
@@ -31,18 +41,24 @@ public final class ScopedResources implements ResourceScope {
     }
 
     @Override
-    public synchronized Lease acquire() {
-        if (closing) throw RuntimeFailures.ended();
-        return reserve();
+    public Lease acquire() {
+        Lease ticket = tryReserve();
+        if (ticket == null) throw RuntimeFailures.ended();
+        return ticket;
     }
 
-    private Lease reserve() {
-        inFlight++;
-        return new Ticket();
+    /** A new lease, or null once close has begun. */
+    private Lease tryReserve() {
+        for (int state = leases.get(); ; ) {
+            if ((state & CLOSING) != 0) return null;
+            int witness = leases.compareAndExchange(state, state + 1);
+            if (witness == state) return new Ticket();
+            state = witness;
+        }
     }
 
-    public synchronized int inFlight() {
-        return inFlight;
+    public int inFlight() {
+        return leases.get() & ~CLOSING;
     }
 
     public <T> T call(Callable<T> action) throws Exception {
@@ -122,12 +138,8 @@ public final class ScopedResources implements ResourceScope {
 
     @Override
     public void run(Runnable callback) {
-        Lease ticket;
-        synchronized (this) {
-            if (closing) return;
-            ticket = reserve();
-        }
-        runAccepted(ticket, callback);
+        Lease ticket = tryReserve();
+        if (ticket != null) runAccepted(ticket, callback);
     }
 
     private void runAccepted(Lease ticket, Runnable callback) {
@@ -155,7 +167,9 @@ public final class ScopedResources implements ResourceScope {
         synchronized (this) {
             if (closing) return stopped.minimalCompletionStage();
             closing = true;
-            cancellation = reserve();
+            // The cancellation lease keeps the count above zero until every release has run.
+            leases.getAndUpdate(state -> (state | CLOSING) + 1);
+            cancellation = new Ticket();
             releases = new ArrayList<>(cleanup.reversed());
             cleanup.clear();
         }
@@ -175,16 +189,26 @@ public final class ScopedResources implements ResourceScope {
     }
 
     private final class Ticket implements Lease {
-        private boolean released;
+        private static final VarHandle RELEASED;
+
+        static {
+            try {
+                RELEASED = MethodHandles.lookup().findVarHandle(Ticket.class, "released", boolean.class);
+            } catch (ReflectiveOperationException e) {
+                throw new ExceptionInInitializerError(e);
+            }
+        }
+
+        @SuppressWarnings("unused") // Accessed through RELEASED.
+        private volatile boolean released;
 
         @Override
         public void close() {
+            if (!RELEASED.compareAndSet(this, false, true)) return;
+            // No lease is reserved after CLOSING, so the count reaches zero with it set exactly once.
+            if (leases.decrementAndGet() != CLOSING) return;
             Throwable error;
             synchronized (ScopedResources.this) {
-                if (released) return;
-                released = true;
-                inFlight--;
-                if (!closing || inFlight != 0) return;
                 error = failure;
                 if (error == null) owner = null;
             }

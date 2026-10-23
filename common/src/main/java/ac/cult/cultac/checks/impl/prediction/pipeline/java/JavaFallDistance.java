@@ -109,7 +109,8 @@ public final class JavaFallDistance {
         return afterMove(distance, dy, water, landed);
     }
 
-    private static boolean touchesWater(CultPlayer player, SimulationContext context, Vec3 end) {
+    /** LivingEntity#checkFallDamage's fluid refresh after the move: the actor's box at {@code end} touches water. */
+    public static boolean touchesWater(CultPlayer player, SimulationContext context, Vec3 end) {
         return touchesWater(player, context.getToActualPose().copy().offset(end.subtract(context.getEnd())));
     }
 
@@ -126,27 +127,6 @@ public final class JavaFallDistance {
                         return true;
                 }
         return false;
-    }
-
-    public static JavaPredictionCarry commit(CultPlayer player, PredictionResult result, Vec3 acceptedDiff) {
-        SimulationContext context = result.getSimulationContext();
-        double distance =
-                beforeMove(player, context, result.getInitialStartingVel()).fallDistance();
-        // Rejected packet endpoints must not manufacture a fall-distance reset.
-        Vec3 movement = movement(result, acceptedDiff);
-        var world = context.getWorldData();
-        boolean water = world.getInWater().determinePessimistically();
-        var down = result.getCollideAxisData().getYNeg();
-        boolean landed = landsOnClip(down, movement.y, context.getLastStuckSpeed().y);
-        // Entity#move's fall-damage-reset ray is after collision, before checkFallDamage.
-        if (distance != 0.0 && movement.lengthSqr() >= 1.0 && crossesResetBlock(player, context, movement))
-            distance = 0.0;
-        distance = afterMove(distance, movement.y, water, landed);
-        // entityInside -> makeStuckInBlock and the bubble/honey callbacks occur after landing.
-        if (world.getStuckSpeed().getStuckSpeedMultiplier() != null
-                || world.getBubbleColumn().hasBubbleColumn()
-                || world.getHoneySlide().determinePessimistically()) distance = 0.0;
-        return new JavaPredictionCarry(actor(player, context), storedDistance(context.getVersion(), distance));
     }
 
     static double storedDistance(ClientVersion version, double distance) {

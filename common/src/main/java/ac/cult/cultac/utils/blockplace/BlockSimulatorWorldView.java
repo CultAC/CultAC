@@ -41,7 +41,7 @@ public final class BlockSimulatorWorldView implements SimWorldView {
     public String biomeKeyAt(BlockPos pos) {
         return world.clientBiomeKeyAt(new ac.cult.cultac.protocol.value.BlockPos(pos.x(), pos.y(), pos.z()));
     }
-    /** BlockItem uses a placement context; standing/wall items use the empty context. */
+    /** BlockItem uses the player's (1.21.5+: placement) context; standing/wall items use the empty context. */
     public static boolean placementUnobstructed(
             PlacementContext context, int state, PlacementObstruction.CollisionContext kind) {
         var level = context.level();
@@ -61,7 +61,7 @@ public final class BlockSimulatorWorldView implements SimWorldView {
                             facts.descending(),
                             facts.fallDistance(),
                             facts.powderSnowWalkable(),
-                            true));
+                            kind == ac.cult.blocksim.interaction.PlacementObstruction.CollisionContext.PLACEMENT));
         }
         return level.isUnobstructed(shape.move(pos.x(), pos.y(), pos.z()));
     }

@@ -32,9 +32,9 @@ public class PredVector extends Vec3 {
     @Getter
     boolean isBoundedStep = false;
 
+    // The movement already holds LivingEntity#moveRelative's input, so no input allowance is added around it.
     @Getter
-    @Setter
-    boolean isTickSkip = false;
+    boolean isInputApplied = false;
 
     // Player#causeExtraKnockback 0.6 X/Z dampings applied to this starting velocity
     @Getter
@@ -44,6 +44,10 @@ public class PredVector extends Vec3 {
     // The minecraft:sprinting modifier this candidate travels with while a possible attack reset leaves it open
     @Getter
     ClientSprintState.Outcome sprintOutcome = ClientSprintState.Outcome.ANY;
+
+    // Entity#isSwimming this candidate travels with while WorldData#isSwimmingOpen; null where WorldData decides it
+    @Getter
+    Boolean swimming = null;
 
     List<TransactionVel> packetModifiers = null;
 
@@ -58,9 +62,10 @@ public class PredVector extends Vec3 {
         this.isKnockback = lastVector.isKnockback;
         this.isEntityMotion = lastVector.isEntityMotion;
         this.isBoundedStep = lastVector.isBoundedStep;
-        this.isTickSkip = lastVector.isTickSkip;
+        this.isInputApplied = lastVector.isInputApplied;
         this.attackSlows = lastVector.attackSlows;
         this.sprintOutcome = lastVector.sprintOutcome;
+        this.swimming = lastVector.swimming;
         this.reason = reason;
         this.packetModifiers = lastVector.packetModifiers;
     }
@@ -76,9 +81,19 @@ public class PredVector extends Vec3 {
         return candidate;
     }
 
+    /** This candidate travelling with Entity#isSwimming {@code swimming}. */
+    public PredVector withSwimming(boolean swimming) {
+        PredVector candidate = new PredVector(this, this, "swimming");
+        candidate.swimming = swimming;
+        return candidate;
+    }
+
     public static PredVector fromStartingVector(Vec3 input) {
         if (input instanceof PredVector predVector) {
-            return new PredVector(predVector, predVector, "starting velocity");
+            PredVector start = new PredVector(predVector, predVector, "starting velocity");
+            // Each tick's Entity#updateSwimming decides its own swim state.
+            start.swimming = null;
+            return start;
         }
         return new PredVector(input);
     }
@@ -217,21 +232,22 @@ public class PredVector extends Vec3 {
         return packetModifiers == null ? List.of() : Collections.unmodifiableList(packetModifiers);
     }
 
-    /** Same tick-skip state and the same packet velocities, the keys the start-velocity sort orders by first. */
+    /** The same packet velocities, the key the start-velocity sort orders by first. */
     public boolean hasSameStartAs(PredVector other) {
-        if (isTickSkip != other.isTickSkip || packetModifiersLength() != other.packetModifiersLength()) return false;
+        if (packetModifiersLength() != other.packetModifiersLength()) return false;
         for (int i = 0, size = packetModifiersLength(); i < size; i++) {
             if (!other.packetModifiers.contains(packetModifiers.get(i))) return false;
         }
         return true;
     }
 
-    public int tickSkippingComparator() {
-        return isTickSkip ? 0 : 1;
-    }
-
     public void setJump() {
         this.isJump = true;
+    }
+
+    public PredVector markInputApplied() {
+        this.isInputApplied = true;
+        return this;
     }
 
     public PredVector markBoundedStep() {
@@ -328,8 +344,7 @@ public class PredVector extends Vec3 {
                 + z + ", reason='"
                 + reason + '\'' + ", isJump="
                 + isJump + ", isKnockback="
-                + isKnockback + ", isTickSkip="
-                + isTickSkip + ", packetModifiers="
+                + isKnockback + ", packetModifiers="
                 + packetModifiers + ", lastVector="
                 + lastVector + '}';
     }

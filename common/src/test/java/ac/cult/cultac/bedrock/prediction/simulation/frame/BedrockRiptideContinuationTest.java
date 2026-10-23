@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
+import ac.cult.cultac.bedrock.prediction.model.BedrockBoundingBoxMode;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
@@ -30,7 +31,9 @@ import org.junit.Test;
 
 public final class BedrockRiptideContinuationTest {
     @Test
-    public void localSpinPoseResizesBeforeWaterSensingAndTravelSelection() {
+    public void carriedSpinPoseBoxDrivesWaterSensingAndTravelSelection() {
+        // Liquid sensing uses the carried box, before this tick's pose-driven resize. A spin that was already active
+        // last tick resized the carried box to the spin pose then, so that box is the one that senses the water.
         Vec3d carriedVelocity = new Vec3d(-0.1572998046875D, 0.22865478515625D, -0.9177398681640625D);
         BedrockMovementState state = activeSpinState(
                 new Vec3d(257.4089660644531D, 82.6134033203125D, -51.02273941040039D),
@@ -99,8 +102,8 @@ public final class BedrockRiptideContinuationTest {
                         velocity,
                         BedrockInputFrame.idle(2L),
                         BedrockCollisionFlags.AIR,
-                        initial.boundingBoxMode(),
-                        initial.playerDimensions(),
+                        BedrockBoundingBoxMode.HORIZONTAL,
+                        new PlayerDimensionsState(initial.playerDimensions().width(), 0.6F),
                         0.0F,
                         0L,
                         new BedrockMovementUpdate.Glide(false, false),

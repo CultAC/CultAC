@@ -5,6 +5,7 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.ItemRegistry;
 import ac.cult.blocksim.engine.BlockEntityComponentWriter;
 import ac.cult.blocksim.engine.BlockRaycast;
+import ac.cult.blocksim.engine.BlockSimClientVersion;
 import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.interaction.BlockHit;
 import ac.cult.blocksim.interaction.PlacementContext;
@@ -107,8 +108,11 @@ public final class BlockItemBehavior implements ItemBehavior {
     }
 
     private boolean canPlace(PlacementContext context, int state) {
+        // BlockItem#canPlace tests the player's ordinary collision context before 1.21.5.
+        var collision = context.level().clientVersion().atLeast(BlockSimClientVersion.V1_21_5)
+            ? PlacementObstruction.CollisionContext.PLACEMENT : PlacementObstruction.CollisionContext.ENTITY;
         return (kind == Kind.SCAFFOLDING || context.level().behavior(state).canSurvive(context.level(), state, context.clickedPos()))
-            && obstruction.isUnobstructed(context, state, PlacementObstruction.CollisionContext.PLACEMENT);
+            && obstruction.isUnobstructed(context, state, collision);
     }
 
     private int standingOrWallState(PlacementContext context) {

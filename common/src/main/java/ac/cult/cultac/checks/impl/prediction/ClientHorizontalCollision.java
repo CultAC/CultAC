@@ -39,8 +39,7 @@ public final class ClientHorizontalCollision {
         if (context == null
                 || context.getVehicle() != null
                 || result.getValidMovements() == null
-                || result.getCollideAxisData() == null
-                || result.getInitialStartingVel().isTickSkip()) return DesyncStatus.UNKNOWN;
+                || result.getCollideAxisData() == null) return DesyncStatus.UNKNOWN;
         MovementTrace trace = result.getValidMovements().getClosestTrace();
         if (trace == null) return DesyncStatus.UNKNOWN;
 
@@ -177,7 +176,10 @@ public final class ClientHorizontalCollision {
             double length = Math.sqrt(strafe * strafe + forward * forward);
             if (length == 0) return false;
             return isMinor(
-                    (strafe * cos - forward * sin) / length, (forward * cos + strafe * sin) / length, target.x, target.z);
+                    (strafe * cos - forward * sin) / length,
+                    (forward * cos + strafe * sin) / length,
+                    target.x,
+                    target.z);
         }
     }
 

@@ -98,17 +98,19 @@ class UseLegalityTransitionTest {
     }
 
     @Test
-    void aBundledRespawnIntoSurvivalAppliesItsAbilitiesAndFoodAtItsProof() {
+    void aStandaloneRespawnIntoSurvivalRefusesStartsAtOnceAndAppliesItsAbilitiesAndFoodAtItsProof() {
         try (var fixture = fixture()) {
             var player = survival(fixture, item("minecraft:bread", 2));
             acknowledge(player, login(player, GameMode.CREATIVE));
             setOffhand(player, item("minecraft:bread", 2));
             player.food = 10;
 
+            // PacketBundlePolicy keeps a respawn outside bundles. Its trailing ping follows it in FIFO order but
+            // is not handled in the same task, so the client may be the new survival LocalPlayer before the pong.
             int proof = respawn(player, "minecraft:overworld", GameMode.SURVIVAL);
-            assertTrue(player.isInvulnerable);
-            assertTrue(player.canInstabuild);
-            assertEquals(10, player.food);
+            assertFalse(player.isInvulnerable);
+            assertFalse(player.canInstabuild);
+            assertEquals(20, player.food);
 
             acknowledge(player, proof);
             assertFalse(player.isInvulnerable);

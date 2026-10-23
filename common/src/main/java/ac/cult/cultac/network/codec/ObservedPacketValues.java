@@ -102,7 +102,8 @@ public final class ObservedPacketValues implements PacketValueAdapter {
                         : RegistryTagValues.readProjected(input, version, names);
             case "minecraft:set_time" -> ClientMetadataValues.time(input, version, names::name);
             case "minecraft:update_recipes" -> ClientMetadataValues.recipes(input, names::name);
-            case "minecraft:set_entity_data" -> metadata.read(input);
+            case "minecraft:set_entity_data" ->
+                metadata.read(input, context.state() instanceof FrameLease.Source lender ? lender.lease(input) : null);
             case "minecraft:add_entity" -> {
                 var packet = new AddEntityCodec().read(input, context);
                 var sourceTypes = ModelRegistryData.load(version).registry("minecraft:entity_type");
@@ -160,7 +161,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
             inventory.writeCursor(output, cursor);
         } else if (packet instanceof EntityMetadata metadata) {
             Wire.writeVarInt(output, metadata.id());
-            metadata.packedItems().forEach(entry -> output.writeBytes(entry.bytes()));
+            for (var entry : metadata.packedItems()) entry.writeTo(output);
             output.writeByte(255);
         } else throw new UnsupportedOnVersionException("No older wire writer for " + context.type());
     }

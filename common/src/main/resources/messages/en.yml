@@ -86,6 +86,8 @@ help:
     - "/%command% profile <player> &f- &7View player info"
     - "/%command% help &f- &7View this help message"
     - "/%command% debug <player> &f- &7Developer Prediction output"
+    - "/%command% debug channels <player> &f- &7Plugin channels the client opened"
+    - "/%command% debug mods <player> &f- &7Lunar Client mods reported through Apollo"
     - "/%command% perf &f- &7Developer ms/prediction"
     - "/%command% reload &f- &7Reloads the config"
     - "/%command% observe [on|off] &f- &7Show or switch observe-only mode"

@@ -84,9 +84,10 @@ class FlushProofRegressionTest {
     @Test
     void aSetbackCarriesAnExplosionSentAfterAMotionInTheSameFlush() throws Exception {
         // ClientPacketListener#handleExplosion pushes onto the motion before it, though one ping proves both.
+        // set_entity_motion carries an LpVec3, so the motions are exact on its grid: 1 and 2 (scale 2).
         assertEquals(
-                setbackVelocityAfter(new Vec3d(.7, 0, 0), null),
-                setbackVelocityAfter(new Vec3d(.5, 0, 0), new Vec3d(.2, 0, 0)));
+                setbackVelocityAfter(new Vec3d(2, 0, 0), null),
+                setbackVelocityAfter(new Vec3d(1, 0, 0), new Vec3d(1, 0, 0)));
     }
 
     private static Vec3 setbackVelocityAfter(Vec3d motion, Vec3d explosion) throws Exception {
@@ -100,8 +101,16 @@ class FlushProofRegressionTest {
             if (explosion != null) {
                 send(f.fixture, new ClientboundExplode(Vec3d.ZERO, explosion));
                 assertEquals(
-                        f.player.checkManager.getKnockbackHandler().getLastSent().getTransaction(),
-                        f.player.checkManager.getExplosionHandler().getLastSent().getTransaction());
+                        f.player
+                                .checkManager
+                                .getKnockbackHandler()
+                                .getLastSent()
+                                .getTransaction(),
+                        f.player
+                                .checkManager
+                                .getExplosionHandler()
+                                .getLastSent()
+                                .getTransaction());
             }
             // The client has the chunk it stands in once it answers a ping sent after it.
             f.pongThrough(f.player.sendTrailingTransaction());
@@ -220,7 +229,11 @@ class FlushProofRegressionTest {
             f.fixture.channel.releaseOutbound();
             open(f.fixture);
             send(f.fixture, new ClientboundMoveVehicle(new Vec3d(8.5, 64, .5), 0, 0));
-            send(f.fixture, new ClientboundSetPassengers(100, java.util.List.of()));
+            // Cult never authors set_passengers; the dismount is a host frame.
+            var dismount = f.fixture.id(ClientboundPackets.SET_PASSENGERS, "set_passengers");
+            Wire.writeVarInt(dismount, 100);
+            Wire.writeVarInt(dismount, 0);
+            f.fixture.channel.write(dismount);
             // ClientPacketListener#handleMoveVehicle sends the echo before the client handles any later packet.
             answerPingsBefore(f.fixture, "minecraft:move_vehicle");
             var echo = new ServerboundMoveVehicle(new Vec3d(8.5, 64, .5), 0, 0, false, false);
@@ -278,9 +291,8 @@ class FlushProofRegressionTest {
             routes.send(
                     ClientboundPackets.MOVE_VEHICLE,
                     PacketListenerPriority.LOW,
-                    (event, player, packet) ->
-                            new ac.cult.cultac.events.packets.listeners.PacketServerTeleport()
-                                    .onMoveVehicle(event, player, packet));
+                    (event, player, packet) -> new ac.cult.cultac.events.packets.listeners.PacketServerTeleport()
+                            .onMoveVehicle(event, player, packet));
             routes.send(
                     ClientboundPackets.SET_PASSENGERS,
                     PacketListenerPriority.LOW,

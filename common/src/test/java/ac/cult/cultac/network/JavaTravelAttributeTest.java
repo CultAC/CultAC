@@ -63,7 +63,7 @@ class JavaTravelAttributeTest {
     private static final double SPRINT = (double) 0.98F * (double) 0.13F;
     // JavaTickFixture's floor ends at x = 9; the player's box overhangs it by 0.27.
     private static final double EDGE_X = 9.27;
-    // Sneaking hides 0.047 of edge velocity at sneaking_speed 0.3 and 0.156 at 1.0, on top of the sneaking input.
+    // More than any edge back-off leaves to carry.
     private static final double EDGE_SNEAK = 0.2;
     // LivingEntity#travelRidden: the 0.98F forward input at a horse's getRiddenSpeed, its movement_speed 0.225.
     private static final double RIDDEN_WALK = (double) 0.98F * (double) 0.225F;
@@ -138,6 +138,27 @@ class JavaTravelAttributeTest {
             f.input(SPRINT_FORWARD);
             // LivingEntity#travelInWater lerps the 0.02F fluid speed to getSpeed(), which carries the sprint modifier.
             assertExact(f.tick(new Vec3(0.5, FLOOR_Y, 0.5 + SPRINT), true));
+        }
+    }
+
+    @Test
+    void aServerSprintModifierKeepsItsAmountWhileTheClientSprints() throws Exception {
+        try (var f = inWater()) {
+            attribute(f, "minecraft:water_movement_efficiency", 0.0, 1.0);
+            f.player.isSprinting = true;
+            f.player.sprintState.onClientTick(true);
+            // A plugin's 1.0 total minecraft:sprinting: getSpeed() is 0.2 until setSprinting(true) replaces it.
+            f.player.compensatedEntities.updateAttributes(
+                    f.player.entityID,
+                    List.of(new AttributeSnapshot(
+                            "minecraft:movement_speed",
+                            0.1,
+                            List.of(new AttributeModifier(
+                                    "minecraft:sprinting", 1.0, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL)))));
+
+            f.input(SPRINT_FORWARD);
+            float swimSpeed = 0.02F + (0.2F - 0.02F) * 1.0F;
+            assertExact(f.tick(new Vec3(0.5, FLOOR_Y, 0.5 + (double) 0.98F * (double) swimSpeed), true));
         }
     }
 
@@ -311,14 +332,16 @@ class JavaTravelAttributeTest {
     }
 
     @Test
-    void sneakingSpeedAttributeSetsTheEdgeSneakVelocity() throws Exception {
+    void sneakingSpeedAttributeSetsTheEdgeSneakInput() throws Exception {
         try (var f = new JavaTickFixture()) {
-            attribute(f, "minecraft:sneaking_speed", 0.3, 0.7);
+            attribute(f, "minecraft:sneaking_speed", 0.3, 0.4);
             f.place(new Vec3(EDGE_X, FLOOR_Y, 0.5), new Vec3(0, -0.0784000015258789, 0.1));
 
             f.input(SNEAK);
             assertExact(f.tick(new Vec3(EDGE_X, FLOOR_Y, 0.6), true));
-            assertExact(f.tick(new Vec3(EDGE_X, FLOOR_Y, 0.6 + 0.1 * GROUND_FRICTION + EDGE_SNEAK), true));
+            // Along the edge nothing backs off; the crouch scales the input by the attribute.
+            f.input(SNEAK_FORWARD);
+            assertExact(f.tick(new Vec3(EDGE_X, FLOOR_Y, 0.6 + 0.1 * GROUND_FRICTION + sneakInput(0.7F)), true));
         }
     }
 
@@ -614,7 +637,6 @@ class JavaTravelAttributeTest {
                 0,
                 0,
                 0,
-                null,
                 false,
                 null,
                 false,
@@ -682,6 +704,15 @@ class JavaTravelAttributeTest {
                 name,
                 base,
                 List.of(new AttributeModifier("test:modifier", added, AttributeModifier.Operation.ADD_VALUE)));
+    }
+
+    /** LocalPlayer#modifyInput for crouched forward at {@code sneakingSpeed}, through getInputVector at 0.1. */
+    private static double sneakInput(float sneakingSpeed) {
+        float zza = 0.98F * sneakingSpeed;
+        // modifyInputSpeedForSquareMovement on a single axis.
+        float length = (float) Math.sqrt(zza * zza);
+        zza = zza * (1.0F / length) * Math.min(length * (float) Math.sqrt(1.0F), 1.0F);
+        return (double) zza * 0.1F;
     }
 
     private static void attribute(JavaTickFixture f, String name, double base, double added) {

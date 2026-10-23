@@ -190,7 +190,6 @@ public class ClippedAxisReselectTest {
                 0,
                 0,
                 0,
-                null,
                 false,
                 null,
                 false,

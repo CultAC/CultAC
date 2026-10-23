@@ -26,40 +26,23 @@ public class MovementModifiers {
     private static final double RIDDEN_FLUID_HOP_Y = FLUID_HOP_Y + RIDDEN_FLUID_HOP_ADDEND;
 
     public List<PredVector> applyModifers(
-            CultPlayer player,
-            Set<Vec3> initial,
-            SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip) {
-        return applyModifers(player, initial, state, lastResult, canTickSkip, FluidHopMode.INCLUDE);
+            CultPlayer player, Set<Vec3> initial, SimulationContext state, PredictionResult lastResult) {
+        return applyModifers(player, initial, state, lastResult, FluidHopMode.INCLUDE);
     }
 
     public List<PredVector> applyWithoutFluidHop(
-            CultPlayer player,
-            Set<Vec3> initial,
-            SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip) {
-        return applyWithoutJavaFluidHop(player, initial, state, lastResult, canTickSkip);
+            CultPlayer player, Set<Vec3> initial, SimulationContext state, PredictionResult lastResult) {
+        return applyWithoutJavaFluidHop(player, initial, state, lastResult);
     }
 
     public List<PredVector> applyWithoutJavaFluidHop(
-            CultPlayer player,
-            Set<Vec3> initial,
-            SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip) {
-        return applyModifers(player, initial, state, lastResult, canTickSkip, FluidHopMode.EXCLUDE);
+            CultPlayer player, Set<Vec3> initial, SimulationContext state, PredictionResult lastResult) {
+        return applyModifers(player, initial, state, lastResult, FluidHopMode.EXCLUDE);
     }
 
     public List<PredVector> applyBedrockModifiers(
-            CultPlayer player,
-            Set<Vec3> initial,
-            SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip) {
-        List<PredVector> vectors =
-                applyModifers(player, initial, state, lastResult, canTickSkip, FluidHopMode.EXCLUDE, false);
+            CultPlayer player, Set<Vec3> initial, SimulationContext state, PredictionResult lastResult) {
+        List<PredVector> vectors = applyModifers(player, initial, state, lastResult, FluidHopMode.EXCLUDE, false);
         TransactionVel receivedMotion = player.checkManager.getKnockbackHandler().secondBread;
         if (state.isBedrockTeleportTick() && receivedMotion != null) {
             // Travel is suppressed, so displacement cannot select the applied motion.
@@ -74,9 +57,8 @@ public class MovementModifiers {
             Set<Vec3> initial,
             SimulationContext state,
             PredictionResult lastResult,
-            boolean canTickSkip,
             FluidHopMode fluidHopMode) {
-        return applyModifers(player, initial, state, lastResult, canTickSkip, fluidHopMode, true);
+        return applyModifers(player, initial, state, lastResult, fluidHopMode, true);
     }
 
     private List<PredVector> applyModifers(
@@ -84,7 +66,6 @@ public class MovementModifiers {
             Set<Vec3> initial,
             SimulationContext state,
             PredictionResult lastResult,
-            boolean canTickSkip,
             FluidHopMode fluidHopMode,
             boolean includeSlimePistonLaunches) {
         List<PredVector> start = new ArrayList<>(initial.size() + 10);
@@ -95,7 +76,7 @@ public class MovementModifiers {
         }
 
         boolean canStartWithFluidHop =
-                fluidHopMode == FluidHopMode.INCLUDE && canStartWithFluidHop(state, lastResult, canTickSkip);
+                fluidHopMode == FluidHopMode.INCLUDE && state.getWorldData().isCanFluidHop();
         boolean canStartWithRiddenFluidHopFloat = canStartWithRiddenFluidHopFloat(lastResult);
         Set<Vec3> unrebounded = state.getSpinRebound() == SpinRebound.ONLY ? Set.of() : initial;
         if (canStartWithFluidHop) {
@@ -158,28 +139,11 @@ public class MovementModifiers {
         // To prevent trying to add a million vectors, we limit the overridden vels
         for (TransactionVel order : player.checkManager.getKnockbackHandler().overriddenVels) {
             PredVector overriddenVel = new PredVector(order.getVel());
-            overriddenVel.setTickSkip(canTickSkip);
             overriddenVel.setEntityMotion(true);
             start.add(overriddenVel);
         }
 
-        if (canTickSkip) {
-            PredVector pointThree = new PredVector(Vec3.ZERO);
-            pointThree.setTickSkip(true);
-            start.add(pointThree);
-
-            if (canStartWithFluidHop) {
-                addFluidHopCandidates(start, pointThree, canStartWithRiddenFluidHopFloat);
-                for (Vec3 vector : unrebounded) {
-                    PredVector skippedVector = PredVector.fromStartingVector(vector);
-                    skippedVector.setTickSkip(true);
-                    addFluidHopCandidates(start, skippedVector, canStartWithRiddenFluidHopFloat);
-                }
-            }
-        }
-
         // TODO: This is too brute forcey, we don't need duplicates in certain situations.
-        // TODO: This should just be refactored for 1.20.4+ clients with tick end and bundle packet!
         for (int eventIndex = 0, eventCount = packetEventsInOrder.size(); eventIndex < eventCount; eventIndex++) {
             TransactionVel vel = packetEventsInOrder.get(eventIndex);
             for (PredVector vector : new ArrayList<>(start)) {
@@ -223,22 +187,6 @@ public class MovementModifiers {
         if (canStartWithRiddenFluidHopFloat) {
             start.add(fluidHop.withY(RIDDEN_FLUID_HOP_Y, "ridden water float"));
         }
-    }
-
-    private boolean canStartWithFluidHop(SimulationContext state, PredictionResult lastResult, boolean canTickSkip) {
-        if (state.getWorldData().isCanFluidHop()) {
-            return true;
-        }
-
-        if (!canTickSkip || lastResult == null || lastResult.getSimulationContext() == null) {
-            return false;
-        }
-
-        // MCP-Reborn LivingEntity#travelInWater/#travelInLava call jumpOutOfFluid after
-        // movement, so the resulting 0.3 Y velocity is a carried start candidate for the
-        // following simulated client tick. Tick-skipped packets can span that exact tick.
-        return lastResult.getSimulationContext().getWorldData().isCanFluidHop()
-                && lastResult.getSimulationContext().getWorldData().maybeInLiquid();
     }
 
     private boolean canStartWithRiddenFluidHopFloat(PredictionResult lastResult) {

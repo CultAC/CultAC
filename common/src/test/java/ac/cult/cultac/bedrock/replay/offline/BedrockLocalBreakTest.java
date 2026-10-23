@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
+import ac.cult.cultac.checks.impl.prediction.checks.Phase;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -78,6 +79,7 @@ public class BedrockLocalBreakTest {
                     assertEquals(-0.053508, state.velocity().x(), 0.001);
                     assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
                     assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+                    assertEquals(0, player.checkManager.getCheck(Phase.class).violations, 0);
                     player.compensatedWorld.updateBlock(
                             2,
                             64,
@@ -99,9 +101,11 @@ public class BedrockLocalBreakTest {
                                     .defaultState(),
                             player.compensatedWorld.getBlockStateIdAt(WALL));
                 } else {
-                    assertTrue(state == null
-                            || Math.abs(state.physicalFeetPosition().x() - input.getPosition().x) > 0.001
-                            || player.checkManager.getListener(BedrockMovement.class).violations > 0);
+                    // The shared CollisionModifier accepts a target between the candidate's uncollided movement and
+                    // its collision, as it does for Java; moving into the unbroken wall is Phase's rejection.
+                    assertTrue(
+                            "the unbroken wall must reject the move",
+                            player.checkManager.getCheck(Phase.class).violations > 0);
                 }
                 assertEquals(
                         PlayerActionType.BLOCK_CONTINUE_DESTROY,

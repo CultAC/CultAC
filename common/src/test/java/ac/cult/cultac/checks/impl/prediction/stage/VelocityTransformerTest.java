@@ -39,6 +39,23 @@ public class VelocityTransformerTest {
     }
 
     @Test
+    public void legacyHorseDiagonalKeepsTheRawImpulsesTimesNinetyEightHundredths() {
+        // 1.21.2-1.21.4: xxa/zza = +-1 * 0.98F, AbstractHorse#getRiddenInput halves xxa.
+        for (ClientVersion version : List.of(ClientVersion.V_1_21_2, ClientVersion.V_1_21_4)) {
+            assertEquals(
+                    new Vec3(0.49F, 0, 0.98F),
+                    VelocityTransformer.getExactHorseFamilyRiddenInput(version, new Vec3(1, 0, 1)));
+            assertEquals(
+                    new Vec3(-0.49F, 0, -0.98F * 0.25F),
+                    VelocityTransformer.getExactHorseFamilyRiddenInput(version, new Vec3(-1, 0, -1)));
+        }
+        // 1.21.5+ LocalPlayer#modifyInputSpeedForSquareMovement keeps the diagonal on the unit square.
+        Vec3 modern = VelocityTransformer.getExactHorseFamilyRiddenInput(ClientVersion.V_1_21_5, new Vec3(1, 0, 1));
+        assertEquals(0.70710677F * 0.5F, modern.x, 1.0E-7);
+        assertEquals(0.70710677F, modern.z, 1.0E-7);
+    }
+
+    @Test
     public void strictBoundaryIsPreserved() {
         Vec3 boundary = new Vec3(0.003, -0.003, 0.003);
         assertEquals(boundary, threshold(ClientVersion.V_1_21_4, true, boundary));

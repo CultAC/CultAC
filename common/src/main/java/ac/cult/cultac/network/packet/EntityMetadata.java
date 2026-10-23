@@ -2,6 +2,8 @@ package ac.cult.cultac.network.packet;
 
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Objects;
@@ -14,12 +16,15 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
 
     /**
      * One entry. A null value means the payload was traversed but is not consumed by the anticheat. Its bytes are a
-     * range of a read-only payload whose position and limit are never moved, so views are cut on demand.
+     * range of a read-only payload, of an array, or of a lent frame, whose position and limit are never moved, so
+     * views are cut on demand. Bytes of a lent frame are readable only until its lease ends; a holder that keeps the
+     * entry past its frame and needs the bytes keeps {@link #detach()} instead.
      */
     public static final class Entry {
         private final int id;
         private final Object value;
-        private final ByteBuffer payload;
+        /** A read-only {@link ByteBuffer}, a {@code byte[]} or a {@link FrameLease}. */
+        private final Object payload;
         private final int offset;
         private final int length;
 
@@ -28,7 +33,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
             this(id, value, bytes.asReadOnlyBuffer(), bytes.position(), bytes.remaining());
         }
 
-        private Entry(int id, Object value, ByteBuffer payload, int offset, int length) {
+        private Entry(int id, Object value, Object payload, int offset, int length) {
             this.id = id;
             this.value = value;
             this.payload = payload;
@@ -46,6 +51,24 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
             return new Entry(id, value, payload, offset, length);
         }
 
+        /**
+         * An entry whose bytes are {@code length} bytes of {@code payload} from index {@code offset}. The entry keeps
+         * the array: nothing may change its contents afterwards.
+         */
+        public static Entry of(int id, Object value, byte[] payload, int offset, int length) {
+            Objects.checkFromIndexSize(offset, length, payload.length);
+            return new Entry(id, value, payload, offset, length);
+        }
+
+        /**
+         * An entry whose bytes are {@code length} bytes of {@code lease}'s frame from absolute index {@code offset},
+         * readable while the lease lasts. Nothing may change those bytes while it does.
+         */
+        public static Entry of(int id, Object value, FrameLease lease, int offset, int length) {
+            Objects.checkFromIndexSize(offset, length, lease.frame().writerIndex());
+            return new Entry(id, value, lease, offset, length);
+        }
+
         public int id() {
             return id;
         }
@@ -54,9 +77,42 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
             return value;
         }
 
-        /** A fresh read-only view of the entry's bytes, at position 0. */
+        /**
+         * A fresh read-only view of the entry's bytes, at position 0.
+         *
+         * @throws IllegalStateException when the bytes were borrowed from a frame that has since been released
+         */
         public ByteBuffer bytes() {
-            return payload.slice(offset, length);
+            if (payload instanceof ByteBuffer buffer) return buffer.slice(offset, length);
+            if (payload instanceof FrameLease lease)
+                return ByteBuffer.wrap(ByteBufUtil.getBytes(lease.frame(), offset, length))
+                        .asReadOnlyBuffer();
+            return ByteBuffer.wrap((byte[]) payload, offset, length).slice().asReadOnlyBuffer();
+        }
+
+        /**
+         * Writes the entry's bytes to {@code output}.
+         *
+         * @throws IllegalStateException when the bytes were borrowed from a frame that has since been released
+         */
+        public void writeTo(ByteBuf output) {
+            if (payload instanceof FrameLease lease) {
+                ByteBuf frame = lease.frame();
+                // Netty copies out of a direct buffer it cannot address through a fresh duplicate per call.
+                if (!frame.hasArray() && frame.nioBufferCount() == 1)
+                    output.writeBytes(frame.internalNioBuffer(offset, length));
+                else output.writeBytes(frame, offset, length);
+            } else if (payload instanceof byte[] array) output.writeBytes(array, offset, length);
+            else output.writeBytes(((ByteBuffer) payload).slice(offset, length));
+        }
+
+        /**
+         * This entry with bytes of its own: itself unless its bytes are borrowed from a frame, which must still be
+         * live.
+         */
+        public Entry detach() {
+            if (!(payload instanceof FrameLease lease)) return this;
+            return new Entry(id, value, ByteBufUtil.getBytes(lease.frame(), offset, length), 0, length);
         }
 
         /** EntityDataSerializers.BYTE is serializer 0 in every supported observed version. */
@@ -101,7 +157,8 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
 
         @Override
         public String toString() {
-            return "Entry[id=" + id + ", value=" + value + ", bytes=" + bytes() + "]";
+            boolean released = payload instanceof FrameLease lease && !lease.live();
+            return "Entry[id=" + id + ", value=" + value + ", bytes=" + (released ? "<released frame>" : bytes()) + "]";
         }
     }
 }

@@ -858,7 +858,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.boatData.tick(player);
         }
         Vec3 physicalMovementStart = oldPosition;
-        float physicalYaw = player.compensatedEntities.vehicles.saddleHandOverTravelYaw(packetRoot, vehiclePacket.yaw());
+        float physicalYaw =
+                player.compensatedEntities.vehicles.saddleHandOverTravelYaw(packetRoot, vehiclePacket.yaw());
         float physicalPitch = vehiclePacket.pitch();
         Vec3 physicalNewPos = newPos;
         player.packetStateData.lastPacketProvenVehiclePhysicalMovement =

@@ -29,7 +29,6 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
-import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
@@ -61,8 +60,6 @@ public class WorldStageBuilder {
     };
     private static final List<Direction.Axis> Y_Z_X = List.of(Direction.Axis.Y, Direction.Axis.Z, Direction.Axis.X);
     private static final List<Direction.Axis> Y_X_Z = List.of(Direction.Axis.Y, Direction.Axis.X, Direction.Axis.Z);
-    /** Never written: StuckEdgeData has no mutating caller. */
-    private static final StuckEdgeData NOT_ON_EDGE = new StuckEdgeData(false, false, false, false, false);
 
     private final SupportScan supportScan = new SupportScan();
     private int collidingTickingBeforePlayer;
@@ -182,9 +179,6 @@ public class WorldStageBuilder {
         int numPushing = (pushable ? collidingTickingBeforePlayer : 0) + numCarriedPushing;
         int onBlock = BlockProperties.getOnPos(player, mainSupportingBlockData, to);
 
-        SimpleCollisionBox minExtent = simulationContext.getFromMinimumExtent();
-        StuckEdgeData stuckEdgeData = couldBeOnStuckEdge(
-                player, simulationContext.getTarget(), lastOnGround.determineOptimistically(), minExtent);
         // If the player isn't in water, then they aren't in a bubble column
         final BubbleColumnData bubble = computeBubbleColumns(player, to, simulationContext);
 
@@ -285,7 +279,6 @@ public class WorldStageBuilder {
                 carriedPush,
                 pushable,
                 onBlock,
-                stuckEdgeData,
                 bubble,
                 push,
                 stuckSpeedData,
@@ -842,42 +835,6 @@ public class WorldStageBuilder {
         return entity.type == EntityTypeIds.STRIDER || entity.isHappyGhast();
     }
 
-    private StuckEdgeData couldBeOnStuckEdge(
-            CultPlayer player, Vec3 target, boolean lastOnGround, SimpleCollisionBox playerBB) {
-        if (!player.isFlying
-                && player.isSneaking
-                && Collisions.isAboveGround(player, lastOnGround, playerBB)
-                && !player.compensatedEntities.getSelf().inVehicle()) {
-            // 16 - Magic number to stop people from crashing the server
-            // 0.05 - Mojang's magic value that they use to calculate precision of sneaking
-            // They move the position back by 0.05 blocks repeatedly until they are above ground
-            // So by going forwards 0.05 blocks, we can determine if the player was influenced by this
-            double posX = Math.max(0.05, CultMath.clamp(target.x, -16, 16) + 0.05);
-            double posZ = Math.max(0.05, CultMath.clamp(target.z, -16, 16) + 0.05);
-            double negX = Math.min(-0.05, CultMath.clamp(target.x, -16, 16) - 0.05);
-            double negZ = Math.min(-0.05, CultMath.clamp(target.z, -16, 16) - 0.05);
-
-            Vector3dm NE =
-                    Collisions.maybeBackOffFromEdge(new Vector3dm(posX, 0, negZ), player, lastOnGround, playerBB, true);
-            Vector3dm NW =
-                    Collisions.maybeBackOffFromEdge(new Vector3dm(negX, 0, negZ), player, lastOnGround, playerBB, true);
-            Vector3dm SE =
-                    Collisions.maybeBackOffFromEdge(new Vector3dm(posX, 0, posZ), player, lastOnGround, playerBB, true);
-            Vector3dm SW =
-                    Collisions.maybeBackOffFromEdge(new Vector3dm(negX, 0, posZ), player, lastOnGround, playerBB, true);
-
-            boolean isEast = NE.getX() != posX || SE.getX() != posX;
-            boolean isWest = NW.getX() != negX || SW.getX() != negX;
-            boolean isNorth = NE.getZ() != negZ || NW.getZ() != negZ;
-            boolean isSouth = SE.getZ() != posZ || SW.getZ() != posZ;
-
-            boolean zeroHorizBug = target.x == 0 && target.z == 0 && (isEast || isWest || isNorth || isSouth);
-
-            return new StuckEdgeData(isNorth, isSouth, isEast, isWest, zeroHorizBug);
-        }
-        return NOT_ON_EDGE;
-    }
-
     BubbleColumnData computeBubbleColumns(CultPlayer player, Vec3 to, SimulationContext context) {
         Vec3 from = context.getStart();
 
@@ -981,6 +938,12 @@ public class WorldStageBuilder {
         SimpleCollisionBox sweptBox = fromBox.copy().union(toBox);
         double dx = toX - fromX, dy = toY - fromY, dz = toZ - fromZ;
         boolean longMove = dx * dx + dy * dy + dz * dz > 0.9999900000002526D * 0.9999900000002526D;
+        // 1.21.9 BubbleColumnBlock#entityInside acts on any swept contact; the precise endpoint gate is 1.21.10's,
+        // and 1.21.10 shares protocol 773. Counting the contact there keeps both clients inside BubbleColumn's range.
+        boolean sweptContactActs = !player.isBedrockMovement() && context.getVersion() == ClientVersion.V_1_21_9;
+        // Before 1.21.5, BubbleColumnBlock#entityInside's surface test is BlockState#isAir on the block above.
+        boolean airSurfaceTest =
+                !player.isBedrockMovement() && context.getVersion().isOlderThan(ClientVersion.V_1_21_5);
 
         Collisions.hasState(player, sweptBox, state -> BlockIds.is(state, BlockIds.BUBBLE_COLUMN), (state, pos) -> {
             if (!BlockIds.is(state, BlockIds.BUBBLE_COLUMN)) {
@@ -990,18 +953,20 @@ public class WorldStageBuilder {
             boolean preciseIntersection = longMove || intersectsBlock(toBox, 1.0E-5F, pos);
             boolean pathTouches = preciseIntersection
                     || Collisions.sweptFullBlockEntityInside(fromBox, toBox, pos.getX(), pos.getY(), pos.getZ());
-            if (!pathTouches || !preciseIntersection || !visitedBlocks.add(pos.asLong())) {
+            if (!pathTouches || !(preciseIntersection || sweptContactActs) || !visitedBlocks.add(pos.asLong())) {
                 return false;
             }
 
             int blockAbove = player.compensatedWorld.getBlockStateIdAt(pos.getX(), pos.getY() + 1, pos.getZ());
             boolean isDown = BlockProps.DRAG.has(state) && BlockProps.DRAG.booleanValue(state);
-            boolean airAbove = player.compensatedWorld
-                            .geometry()
-                            .collision(blockAbove, pos)
-                            .isEmpty()
-                    && ac.cult.cultac.utils.nmsutil.ClientFluidQueries.modelFluid(blockAbove)
-                            .isEmpty();
+            boolean airAbove = airSurfaceTest
+                    ? DataTables.defaults().registry().facts(blockAbove).has(StateFacts.AIR)
+                    : player.compensatedWorld
+                                    .geometry()
+                                    .collision(blockAbove, pos)
+                                    .isEmpty()
+                            && ac.cult.cultac.utils.nmsutil.ClientFluidQueries.modelFluid(blockAbove)
+                                    .isEmpty();
             if (isDown) {
                 if (airAbove) airDownwards[0]++;
                 else pushDownwards[0]++;
@@ -1062,7 +1027,7 @@ public class WorldStageBuilder {
         boolean inVehicle = context.getVehicle() != null;
         SimpleCollisionBox primaryFrom = inVehicle ? context.getFromMaximumExtent() : context.getFromMinimumExtent();
         SimpleCollisionBox primaryTo = inVehicle ? context.getToMaximumExtent() : context.getToMinimumExtent();
-        boolean powderSnowCanApply = powderSnowCanApplyToRootEntity(player, context);
+        boolean powderSnowCanApply = powderSnowCanApplyToRootEntity(player, context, context.getEnd());
         Vec3 required = resolveStuckSpeedForExtent(player, context, primaryFrom, primaryTo, powderSnowCanApply);
         Vec3 optional = inVehicle
                 ? null
@@ -1091,7 +1056,17 @@ public class WorldStageBuilder {
         return new StuckSpeedData(required, optional);
     }
 
-    private Vec3 resolveStuckSpeedForExtent(
+    /**
+     * The Entity#stuckSpeedMultiplier the inside-block pass of a move of the root entity from {@code from} to
+     * {@code to}, ending at {@code end}, leaves; null for none.
+     */
+    public static Vec3 stuckSpeedAlong(
+            CultPlayer player, SimulationContext context, SimpleCollisionBox from, SimpleCollisionBox to, Vec3 end) {
+        return resolveStuckSpeedForExtent(
+                player, context, from, to, powderSnowCanApplyToRootEntity(player, context, end));
+    }
+
+    private static Vec3 resolveStuckSpeedForExtent(
             CultPlayer player,
             SimulationContext context,
             SimpleCollisionBox from,
@@ -1110,6 +1085,13 @@ public class WorldStageBuilder {
                     powderSnowCanApply);
         }
         Vec3 endpoint = Collisions.checkStuckSpeed(player, to, powderSnowCanApply);
+        // Before 1.21.9, BlockGetter#boxTraverseBlocks and #forEachBlockIntersectedBetween visit only the
+        // destination box for a move shorter than 0.99999, so a departed block applies nothing.
+        if (player.bedrockState == null
+                && player.getClientVersion().isOlderThan(ClientVersion.V_1_21_9)
+                && centerDistanceSqr(from, to) < 0.99999F * 0.99999F) {
+            return endpoint;
+        }
         boolean ordered =
                 player.bedrockState == null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
         Vec3 path = ordered
@@ -1120,7 +1102,14 @@ public class WorldStageBuilder {
         return ordered ? firstKnownStuckSpeed(path, endpoint) : firstKnownStuckSpeed(endpoint, path);
     }
 
-    private boolean powderSnowCanApplyToRootEntity(CultPlayer player, SimulationContext context) {
+    private static double centerDistanceSqr(SimpleCollisionBox from, SimpleCollisionBox to) {
+        double dx = (to.minX + to.maxX - from.minX - from.maxX) / 2.0;
+        double dy = (to.minY + to.maxY - from.minY - from.maxY) / 2.0;
+        double dz = (to.minZ + to.maxZ - from.minZ - from.maxZ) / 2.0;
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    private static boolean powderSnowCanApplyToRootEntity(CultPlayer player, SimulationContext context, Vec3 end) {
         PacketEntity rootVehicle = context.getVehicle();
         if (rootVehicle != null && !rootVehicle.isLivingEntity()) {
             return true;
@@ -1130,13 +1119,12 @@ public class WorldStageBuilder {
         // LivingEntity when entity.getInBlockState().is(this). Entity#getInBlockState
         // is the block at the root entity's current blockPosition, not every block
         // intersected by its body AABB during Entity#checkInsideBlocks.
-        Vec3 end = context.getEnd();
         return BlockIds.is(
                 player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(end.x, end.y, end.z)),
                 BlockIds.POWDER_SNOW);
     }
 
-    private Vec3 firstKnownStuckSpeed(Vec3 primary, Vec3 swept) {
+    private static Vec3 firstKnownStuckSpeed(Vec3 primary, Vec3 swept) {
         return primary != null ? primary : swept;
     }
 

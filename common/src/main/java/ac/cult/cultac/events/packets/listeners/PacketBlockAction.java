@@ -28,15 +28,15 @@ public class PacketBlockAction {
         // The client ignores the state sent to the client.
         player.latencyUtils.addRealTimeTaskNow(() -> {
             int existing = player.compensatedWorld.getBlockStateIdAt(blockPos);
-            if (ClientBlockProperties.isShulkerBox(existing)) {
-                // Param is the number of viewers of the shulker box.
+            // ShulkerBoxBlockEntity#triggerEvent: event type 1 carries the viewer count.
+            if (ClientBlockProperties.isShulkerBox(existing) && packet.action() == 1) {
                 // Hashset with .equals() set to be position
-                int action = packet.action();
-                if (action == 1) {
+                int viewers = packet.parameter();
+                if (viewers == 1) {
                     final ShulkerData openedBox = new ShulkerData(blockPos, player.lastTransactionSent.get(), false);
                     player.compensatedWorld.openShulkerBoxes.remove(openedBox);
                     player.compensatedWorld.openShulkerBoxes.add(openedBox);
-                } else if (action == 0) {
+                } else if (viewers == 0) {
                     // The shulker box is closing
                     final ShulkerData closingBox = new ShulkerData(blockPos, player.lastTransactionSent.get(), true);
                     player.compensatedWorld.openShulkerBoxes.remove(closingBox);

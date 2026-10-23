@@ -16,7 +16,6 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.data.BubbleColumnData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -38,17 +37,21 @@ class ElytraTransformGravityTest {
     @Test
     void eachStartingYGlidesWithItsOwnGravity() {
         withPlayer(player -> {
-            for (Vec3 legit : new Vec3[] {
-                glide(player, VELOCITY.y, SLOW_FALLING),
-                glide(player, 0.0D, SLOW_FALLING),
-                glide(player, 0.0D, GRAVITY),
-                glide(player, PUSHED_Y, GRAVITY)
-            }) {
-                assertEquals(0.0D, legit.distanceTo(transform(player, legit)), 1.0E-9D);
-            }
-            for (Vec3 swapped :
-                    new Vec3[] {glide(player, VELOCITY.y, GRAVITY), glide(player, PUSHED_Y, SLOW_FALLING)}) {
-                double offset = swapped.distanceTo(transform(player, swapped));
+            // A falling start glides with slow falling's gravity, a rising one (such as one a bubble column pushed
+            // up last tick) with the full gravity.
+            assertEquals(
+                    0.0D,
+                    glide(player, VELOCITY.y, SLOW_FALLING)
+                            .distanceTo(transform(player, VELOCITY.y, glide(player, VELOCITY.y, SLOW_FALLING))),
+                    1.0E-9D);
+            assertEquals(
+                    0.0D,
+                    glide(player, PUSHED_Y, GRAVITY)
+                            .distanceTo(transform(player, PUSHED_Y, glide(player, PUSHED_Y, GRAVITY))),
+                    1.0E-9D);
+            for (double startY : new double[] {VELOCITY.y, PUSHED_Y}) {
+                Vec3 swapped = glide(player, startY, startY > 0.0D ? SLOW_FALLING : GRAVITY);
+                double offset = swapped.distanceTo(transform(player, startY, swapped));
                 assertTrue(offset > 0.01D, () -> "accepted " + swapped + " at " + offset);
             }
         });
@@ -59,7 +62,7 @@ class ElytraTransformGravityTest {
                 player, new Vec3(VELOCITY.x, y, VELOCITY.z), ReachUtils.getLook(player, YAW, PITCH), PITCH, gravity);
     }
 
-    private static Vec3 transform(CultPlayer player, Vec3 end) {
+    private static Vec3 transform(CultPlayer player, double startY, Vec3 end) {
         WorldData worldData = mock(WorldData.class);
         SimulationContext context = mock(SimulationContext.class);
         when(context.usesFallFlyingMovement()).thenReturn(true);
@@ -75,16 +78,17 @@ class ElytraTransformGravityTest {
             return List.of(max <= 0.0D ? SLOW_FALLING : GRAVITY);
         });
 
-        WorldData lastWorldData = mock(WorldData.class);
-        when(lastWorldData.getBubbleColumn()).thenReturn(new BubbleColumnData(1, 0, 0, 0));
-        SimulationContext lastContext = mock(SimulationContext.class);
-        when(lastContext.getWorldData()).thenReturn(lastWorldData);
         PredictionResult lastResult = mock(PredictionResult.class);
-        when(lastResult.getSimulationContext()).thenReturn(lastContext);
 
         return new ElytraTransform()
                 .handleUncertainty(
-                        player, mock(ValidMovements.class), result, context, lastResult, new PredVector(VELOCITY), end);
+                        player,
+                        mock(ValidMovements.class),
+                        result,
+                        context,
+                        lastResult,
+                        new PredVector(new Vec3(VELOCITY.x, startY, VELOCITY.z)),
+                        end);
     }
 
     private static void withPlayer(Consumer<CultPlayer> test) {

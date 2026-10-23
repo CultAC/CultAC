@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.prediction.runner;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,9 +9,12 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.network.TestUsers;
@@ -22,10 +26,12 @@ import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -105,13 +111,18 @@ class ScaledPlayerCollisionTest {
                 50.619778F,
                 true));
         // Z moves first as |z| > |x|; the box's north face stops at the block face z = -35, 0.6 from the centre.
-        assertExact(tick(
+        PredictionResult blocked = tick(
                 player,
                 null,
                 new Vec3(19004.0574273916, 63.41999998688698, -34.39999997615814),
                 522.4961F,
                 50.3948F,
-                false));
+                false);
+        assertExact(blocked);
+        // The collision is hard, so LocalPlayer#aiStep stops the sprint and sends STOP_SPRINTING before the next
+        // position; that tick moves by the walking Player#getFlyingSpeed.
+        assertEquals(DesyncStatus.TRUE, ClientHorizontalCollision.hard(blocked));
+        stopSprinting(player);
         assertExact(tick(
                 player,
                 null,
@@ -282,6 +293,12 @@ class ScaledPlayerCollisionTest {
         PredictionResult result = player.checkManager.getSimulationProcessor().getLastPrediction();
         assertNotNull(result);
         return result;
+    }
+
+    private static void stopSprinting(CultPlayer player) {
+        var command = new ServerboundPlayerCommand(player.entityID, PlayerCommandAction.STOP_SPRINTING, 0);
+        new PacketEntityAction()
+                .onPlayerCommand(event(player, ServerboundPackets.PLAYER_COMMAND, command), player, command);
     }
 
     /** The recording's state after its tick 1467: sprinting, falling onto the floor. */

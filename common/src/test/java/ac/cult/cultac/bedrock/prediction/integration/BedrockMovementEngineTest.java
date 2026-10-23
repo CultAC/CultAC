@@ -44,7 +44,7 @@ public final class BedrockMovementEngineTest {
     public void bedrockUsesModifierPathWithoutJavaFluidHopOrGenericSlimeCandidates() {
         RecordingModifiers modifiers = new RecordingModifiers();
 
-        BedrockMovementEngine.INSTANCE.applyModifiers(modifiers, null, Set.of(Vec3.ZERO), null, null, false);
+        BedrockMovementEngine.INSTANCE.applyModifiers(modifiers, null, Set.of(Vec3.ZERO), null, null);
 
         assertTrue(modifiers.bedrockModifiersCalled);
         assertFalse(modifiers.defaultModifiersCalled);
@@ -172,22 +172,14 @@ public final class BedrockMovementEngineTest {
 
         @Override
         public List<PredVector> applyModifers(
-                CultPlayer player,
-                Set<Vec3> initial,
-                SimulationContext state,
-                PredictionResult lastResult,
-                boolean canTickSkip) {
+                CultPlayer player, Set<Vec3> initial, SimulationContext state, PredictionResult lastResult) {
             defaultModifiersCalled = true;
             return List.of();
         }
 
         @Override
         public List<PredVector> applyBedrockModifiers(
-                CultPlayer player,
-                Set<Vec3> initial,
-                SimulationContext state,
-                PredictionResult lastResult,
-                boolean canTickSkip) {
+                CultPlayer player, Set<Vec3> initial, SimulationContext state, PredictionResult lastResult) {
             bedrockModifiersCalled = true;
             return List.of();
         }

@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -30,10 +31,7 @@ public class BlockBreakSpeed {
     /** BlockBehaviour#getDestroyProgress with the bundled simulator's Player#getDestroySpeed. */
     public static double getBlockDamage(CultPlayer player, SimItemStack tool, int block) {
         if (player.gamemode == GameMode.CREATIVE) {
-            if (tool != null && ItemUtil.isSword(tool.getItem())) {
-                return 0;
-            }
-            return 1;
+            return tool != null && refusesCreativeBreak(player, tool) ? 0 : 1;
         }
 
         var binding = ClientBlockActions.binding(player);
@@ -44,5 +42,15 @@ public class BlockBreakSpeed {
                         binding.states().toModel(block),
                         ClientMiningState.of(player),
                         ClientMiningState.fatigueForm(player, binding));
+    }
+
+    /**
+     * Item#canDestroyBlock reads the held stack's own TOOL from 1.21.5. Older clients refuse by item
+     * class (SwordItem, TridentItem and MaceItem#canAttackBlock), which the type's default TOOL identifies.
+     */
+    private static boolean refusesCreativeBreak(CultPlayer player, SimItemStack tool) {
+        return !player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)
+                ? ItemUtil.refusesCreativeBreak(tool)
+                : ItemUtil.isSword(tool.getItem());
     }
 }

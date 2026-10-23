@@ -12,7 +12,6 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.KnownInput;
-import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TeleportData;
@@ -25,6 +24,7 @@ import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.Friction;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -97,6 +97,7 @@ public class SimulationContext {
     // Whether movement_speed may carry minecraft:sprinting during travel
     @Setter
     boolean sprintModifier = true;
+
     private float[][] groundMoveRelativeSpeeds;
     // The movement_efficiency attribute during travel; LivingEntity#getBlockSpeedFactor lerps the block's factor to 1
     @Setter
@@ -132,8 +133,6 @@ public class SimulationContext {
     /** The starts the last tick's LivingEntity#checkAutoSpinAttack leaves this tick. */
     @Setter
     SpinRebound spinRebound = SpinRebound.OPTIONAL;
-
-    LastInstance lastTickSkip;
     boolean isTestingPointThree;
     Vec3 lastStuckSpeed = NO_STUCK_SPEED;
     Vec3 horseInputs;
@@ -198,7 +197,6 @@ public class SimulationContext {
             int minAttackSlow,
             int maxAttackSlow,
             int riptideLevel,
-            LastInstance lastTickSkip,
             boolean isTestingPointThree,
             Vec3 horseInputs,
             boolean clientMovementInputKnown,
@@ -228,7 +226,6 @@ public class SimulationContext {
         this.minAttackSlow = minAttackSlow;
         this.maxAttackSlow = maxAttackSlow;
         this.riptideLevel = riptideLevel;
-        this.lastTickSkip = lastTickSkip;
         this.isTestingPointThree = isTestingPointThree;
         this.horseInputs = horseInputs;
         this.lastTickMainSupportingBlockData = lastTickMainSupportingBlockData;
@@ -480,6 +477,41 @@ public class SimulationContext {
         return cached;
     }
 
+    /**
+     * Every LivingEntity#moveRelative speed the client's travel state permits for {@code candidate}, with the sprint
+     * states {@link #getMaxSprintInputSpeed} allows.
+     */
+    public List<Double> getMoveRelativeInputSpeeds(CultPlayer player, PredVector candidate) {
+        ClientSprintState.Outcome outcome = getSprintOutcome(player, candidate);
+        float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
+        List<Double> speeds = new ArrayList<>(4);
+        for (boolean onGround : worldData.getLastOnGround().getStates()) {
+            for (boolean water : worldData.getInWater().getStates()) {
+                for (boolean lava : worldData.getInLava().getStates()) {
+                    if (groundSprintSpeed(player, onGround, water || lava)) {
+                        for (float speed : getGroundMoveRelativeSpeeds(player, outcome)) addDistinct(speeds, speed);
+                        continue;
+                    }
+                    float speed = getFrictionInfluencedSpeed(blockUnderPlayer, player, onGround, water, lava, outcome);
+                    if (vehicle != null || player.isFlying) {
+                        addDistinct(speeds, speed);
+                        addDistinct(speeds, speed * 1.3D);
+                    } else if (water || lava || onGround) {
+                        addDistinct(speeds, speed);
+                    } else {
+                        for (boolean sprinting : isSprinting.getStates())
+                            addDistinct(speeds, sprinting ? speed * 1.3D : speed);
+                    }
+                }
+            }
+        }
+        return speeds;
+    }
+
+    private static void addDistinct(List<Double> speeds, double speed) {
+        if (!speeds.contains(speed)) speeds.add(speed);
+    }
+
     private double sprintSpeedMultiplier(CultPlayer player, boolean onGround, boolean fluid) {
         // Creative flight and vehicle travel keep their existing allowance.
         if (vehicle != null || player.isFlying) return 1.3D;
@@ -637,8 +669,7 @@ public class SimulationContext {
      * passenger's LocalPlayer#aiStep then re-sprints before sendIsSprintingIfNeeded, so no STOP_SPRINTING is sent.
      */
     public DesyncStatus getCamelRiderSprinting(CultPlayer player) {
-        if (player.vehicleData.camelSprintingState == SprintingState.STOPPED
-                || minAttackSlow > 0) {
+        if (player.vehicleData.camelSprintingState == SprintingState.STOPPED || minAttackSlow > 0) {
             return DesyncStatus.FALSE;
         }
         return maxAttackSlow > 0 ? DesyncStatus.UNKNOWN : DesyncStatus.TRUE;

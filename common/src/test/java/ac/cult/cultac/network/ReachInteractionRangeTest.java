@@ -1455,6 +1455,32 @@ class ReachInteractionRangeTest {
             rotate(yaw, 0);
         }
 
+        // A client tick at this yaw that travels on the delta movement the last tick left: Minecraft#handleKeybinds
+        // attacks before LivingEntity#travel, and LocalPlayer#sendPosition sends the end unless within 2.0E-4.
+        void travel(float yaw) {
+            Set<Vec3> next = player.checkManager.getSimulationProcessor().getLastDerivedNextTickVelocities();
+            // Alternatives the client may have travelled on leave the tick's end open; only one known delta decides it.
+            Vec3 delta = next.isEmpty() ? Vec3.ZERO : next.iterator().next();
+            for (Vec3 alternative : next) {
+                if (alternative.distanceToSqr(delta) > 1.0E-18) delta = Vec3.ZERO;
+            }
+            if (delta.lengthSqr() <= 2.0E-4 * 2.0E-4) {
+                rotate(yaw);
+                return;
+            }
+            player.lastX = player.x;
+            player.lastY = player.y;
+            player.lastZ = player.z;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, player.x, player.y, player.z);
+            var packet = new ServerboundMovePlayer(
+                    player.x + delta.x, player.y + delta.y, player.z + delta.z, yaw, 0, false, false, true, true);
+            listener.onMovePlayer(
+                    new PacketReceiveEvent<>(
+                            fixture.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, packet),
+                    player,
+                    packet);
+        }
+
         void rotate(float yaw, float pitch) {
             var packet = new ServerboundMovePlayer(0, 0, 0, yaw, pitch, false, false, false, true);
             listener.onMovePlayer(
@@ -2115,7 +2141,7 @@ class ReachInteractionRangeTest {
 
         // One client tick attacking a player whose hitbox face is this far along a look of this yaw from the seat.
         List<String> attackAlong(float lookYaw, double distance, float yaw) {
-            return attackAlong(lookYaw, distance, () -> rotate(yaw));
+            return attackAlong(lookYaw, distance, () -> travel(yaw));
         }
 
         // One client tick attacking a player whose hitbox face is this far along a look of this yaw, then this
@@ -2156,7 +2182,7 @@ class ReachInteractionRangeTest {
         }
 
         private List<String> attackAt(Vec3 position, float yaw) {
-            return attackAt(position, () -> rotate(yaw));
+            return attackAt(position, () -> travel(yaw));
         }
 
         private List<String> attackAt(Vec3 position, Runnable movement) {

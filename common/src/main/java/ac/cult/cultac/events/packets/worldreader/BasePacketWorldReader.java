@@ -197,17 +197,19 @@ public class BasePacketWorldReader {
             if (transaction > 0) {
                 if (blockChange != event.getOriginalPacket()) event.replace(blockChange);
                 player.compensatedWorld.queueServerBlockUpdate(
-                        blockPosition.getX(), blockPosition.getY(), blockPosition.getZ(), state, transaction);
+                        blockPosition.getX(), blockPosition.getY(), blockPosition.getZ(), state, transaction, true);
                 return;
             }
         }
 
+        // The last ping already sent only bounds the update from below.
         player.compensatedWorld.queueServerBlockUpdate(
                 blockPosition.getX(),
                 blockPosition.getY(),
                 blockPosition.getZ(),
                 state,
-                player.lastTransactionSent.get());
+                player.lastTransactionSent.get(),
+                false);
     }
 
     public void handleBlockEvent(
@@ -271,12 +273,12 @@ public class BasePacketWorldReader {
         if (nearPlayer) {
             int transaction = player.appendFlushProofTransaction(event);
             if (transaction > 0) {
-                player.compensatedWorld.queueServerBlockUpdates(multiBlockChange, transaction);
+                player.compensatedWorld.queueServerBlockUpdates(multiBlockChange, transaction, true);
                 return;
             }
         }
 
-        player.compensatedWorld.queueServerBlockUpdates(multiBlockChange, player.lastTransactionSent.get());
+        player.compensatedWorld.queueServerBlockUpdates(multiBlockChange, player.lastTransactionSent.get(), false);
     }
 
     private boolean isNearPlayer(CultPlayer player, BlockPos pos, int range) {

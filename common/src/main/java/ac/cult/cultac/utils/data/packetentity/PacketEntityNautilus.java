@@ -30,8 +30,9 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
         }
     }
 
+    /** AbstractNautilus#onSyncedDataUpdated restarts an idle cooldown on every DASH value after the first tick. */
     public void setDashingFromMetadata(boolean dashing) {
-        if (this.dashing != dashing && dashCooldown == 0) {
+        if (!firstTick && dashCooldown == 0) {
             dashCooldown = 40;
         }
         this.dashing = dashing;

@@ -4,7 +4,6 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.*;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class UncertaintyPipeline {
     // Please don't write stateful code - variables that affect subsequent simulations
@@ -16,25 +15,16 @@ public class UncertaintyPipeline {
             new FluidPush(true),
             new CollisionModifier(),
             new StepTransform(), // Relies on collisions
-            new Honey(), // This fucks up elytras.
-            new BouncyBlock(), // Although elytra is technically after this, +Y movements don't affect XZ with elytra
             new Ladder(), // No climbing while using an elytra
             new FishingRod(), // No clue where this goes, but it's pre-tick, so I'll throw it here.
-            new PointThree(),
-            new Sneaking(),
-            new StuckSpeed(),
-            new BubbleColumn(),
-            new SwimSpaceShift(),
-            new AquaticUpdateSwim(),
+            // LocalPlayer#aiStep's goDownInWater and Player#travel's swim pull precede Entity#move's back-off.
+            new SwimInput(),
+            new SneakEdge(), // Player#maybeBackOffFromEdge
             new Fireworks(),
             new FluidPush(),
             new InsideBlock(),
             new EntityPush(),
             new Riptide(),
-            new PointThreeTesting() // We want to be within 0.03 of the target, not exact
+            new PointThreeTesting() // A withheld position is within the movement threshold of the target
             ));
-
-    public static final List<UncertaintyHandler> MODIFIERS_FOR_SETBACKS = MODIFIERS.stream()
-            .filter(modifier -> !(modifier instanceof PointThree))
-            .collect(Collectors.toList());
 }

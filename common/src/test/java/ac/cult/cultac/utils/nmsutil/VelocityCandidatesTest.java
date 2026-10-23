@@ -18,7 +18,6 @@ class VelocityCandidatesTest {
     @Test
     void candidatesDropStartingVelocityFlags() {
         PredVector start = new PredVector(new Vec3(0.1, -0.078, 0.2));
-        start.setTickSkip(true);
         start.addPacketModifier(new TransactionVel(new Vec3(0.1, 0.4, 0.2), 0, true, false));
         assertTrue(start.isKnockback());
 

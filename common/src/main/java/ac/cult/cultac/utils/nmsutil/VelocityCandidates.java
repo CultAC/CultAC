@@ -55,17 +55,7 @@ public final class VelocityCandidates {
 
         CultPlayer player = result.getPlayer();
         if (player != null) {
-            Vec3 moved = diff;
             diff = applyPostMoveLivingFluidCurrent(player, result, diff);
-            Vec3 edge = moved.equals(diff)
-                            && !hasUnknownStuckSpeed(lastPrediction)
-                            && !consumedRequiredStuckSpeedThisMove(result)
-                    ? SneakEdgeBackoff.deltaMovement(result, diff)
-                    : null;
-            if (edge != null) {
-                validPlayerStartingVels.add(edge);
-                return validPlayerStartingVels;
-            }
         }
 
         boolean isX = result.getCollideAxisData().getX().isLikelyCollide();
@@ -76,8 +66,6 @@ public final class VelocityCandidates {
                 || result.getValidMovements().isCanStep();
         boolean isZ = result.getCollideAxisData().getZ().isLikelyCollide();
 
-        // Before 1.21.2, BouncyBlock handles vertical bounce uncertainty. Do not
-        // replace its falling/zero carry with a mandatory bounce from a probe.
         OptionalDouble requiredPostCollisionY =
                 player != null ? requiredPacketVisibleSlimeBounceY(result, collisionMovementY) : OptionalDouble.empty();
         if (requiredPostCollisionY.isPresent()) {
@@ -275,6 +263,9 @@ public final class VelocityCandidates {
 
     private static Vec3 preCollisionVelocity(PredictionResult result) {
         CultPlayer player = result.getPlayer();
+        var trace = result.getValidMovements().getClosestTrace();
+        // A movement holding its moveRelative input knows the whole Entity#move delta.
+        if (trace != null && trace.position().isInputApplied()) return trace.preCollisionVelocity();
         if (player == null || player.getClientVersion().isOlderThan(ClientVersion.V_26_1)) {
             return result.getInitialStartingVel();
         }
@@ -564,12 +555,14 @@ public final class VelocityCandidates {
         }
 
         if (deltaY < 0.0D) {
+            // SlimeBlock#bounceUp and BedBlock#bounceUp: non-living entities keep 0.8 of the bounce.
+            double factor = living ? 1.0D : 0.8D;
             if (BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)) {
-                return -deltaY;
+                return -deltaY * factor;
             }
 
             if (ClientBlockProperties.isBed(onBlock)) {
-                return -deltaY * 0.66F;
+                return -deltaY * 0.66F * factor;
             }
         }
 

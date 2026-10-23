@@ -60,14 +60,6 @@ public class ValidMovements {
     @Setter
     boolean canStep;
 
-    @Getter
-    @Setter
-    boolean controlsVerticalMovement;
-
-    @Getter
-    @Setter
-    boolean didTickSkipGravity;
-
     private final List<UncertaintyHandler> uncertaintyHandlers;
 
     @ToString.Exclude

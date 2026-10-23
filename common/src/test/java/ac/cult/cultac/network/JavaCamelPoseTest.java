@@ -50,6 +50,52 @@ class JavaCamelPoseTest {
     private static final double LAND_INPUT = (double) 0.98F * (double) (0.09F * (0.21600002F / (0.6F * 0.6F * 0.6F)));
     /** A move up and forward that a camel's riding jump could make. */
     private static final Vec3 HOP = new Vec3(SEAT.x, SEAT.y + 0.16, SEAT.z + 0.8);
+    /** Camel#isInPoseTransition: standing up takes 52 ticks. */
+    private static final int STAND_UP_TICKS = 52;
+
+    @Test
+    void aSittingCamelDoesNotMoveOnItsRidersInput() throws Exception {
+        try (var f = sitting()) {
+            f.input(FORWARD);
+            // AbstractHorse#tick runs before LocalPlayer#rideTick hands it this tick's keys.
+            assertTrue(exact(f.rideTick(SEAT, true)));
+            for (int tick = 0; tick < STAND_UP_TICKS; tick++) {
+                PredictionResult still = f.rideTick(SEAT, true);
+                assertTrue(exact(still), "tick " + tick + ": " + describe(still));
+            }
+        }
+    }
+
+    @Test
+    void theRidersClientStandsTheCamelUpAndThenItMoves() throws Exception {
+        try (var f = sitting()) {
+            PacketEntityCamel camel = camel(f);
+            f.input(FORWARD);
+            assertTrue(exact(f.rideTick(SEAT, true)));
+            long standUpTime = f.player.compensatedWorld.clientGameTime();
+            assertTrue(exact(f.rideTick(SEAT, true)));
+
+            assertFalse(camel.isCamelSitting());
+            assertEquals(EntityPose.STANDING, camel.actionPose);
+            assertEquals(standUpTime, camel.lastPoseChangeTick);
+
+            while (camel.refuseToMove(f.player.compensatedWorld.clientGameTime())) {
+                assertTrue(exact(f.rideTick(SEAT, true)));
+            }
+            PredictionResult still = f.rideTick(SEAT, true);
+            assertFalse(exact(still), describe(still));
+        }
+    }
+
+    @Test
+    void aStandingCamelMovesOnItsRidersInput() throws Exception {
+        try (var f = ridden()) {
+            f.input(FORWARD);
+            assertTrue(exact(f.rideTick(SEAT, true)));
+            PredictionResult still = f.rideTick(SEAT, true);
+            assertFalse(exact(still), describe(still));
+        }
+    }
 
     @Test
     void aSittingCamelInWaterStandsUpBeforeItsRiderReleasesAJump() throws Exception {

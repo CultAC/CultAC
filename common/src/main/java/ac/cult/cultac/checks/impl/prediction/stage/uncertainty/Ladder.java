@@ -14,6 +14,7 @@ import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FluidFallingAdjustedMovement;
+import ac.cult.cultac.utils.nmsutil.Friction;
 
 public class Ladder implements UncertaintyHandler {
     @Override
@@ -75,7 +76,8 @@ public class Ladder implements UncertaintyHandler {
                     maximumPossibleY = Math.max(maximumPossibleY, carried);
                     minimumPossibleY = Math.min(minimumPossibleY, carried);
                 } else if (!lastResult.getSimulationContext().getWorldData().mustBeInLiquid()) {
-                    double carried = afterPacketsThisTick(player, start, (0.2D - grav) * 0.98F);
+                    // LivingEntity#travelInAir: levitation or gravity, then the air drag, after the 0.2 climb.
+                    double carried = afterPacketsThisTick(player, start, Friction.travelInAirY(player, 0.2D, grav));
                     maximumPossibleY = Math.max(maximumPossibleY, carried);
                     minimumPossibleY = Math.min(minimumPossibleY, carried);
                 }

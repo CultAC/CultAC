@@ -63,8 +63,6 @@ public class VelocityTransformer {
             return applyCamelRefusal(player, applyJumps(player, input));
         }
 
-        input = applyRideableInput(player, input);
-
         // MCP-Reborn LivingEntity#handleRelativeFrictionAndCalculateMovement moves
         // using the current deltaMovement first, and LivingEntity#travelInAir /
         // #travelInWater / #travelInLava only apply friction to the stored
@@ -74,7 +72,7 @@ public class VelocityTransformer {
         // the exact carried deltaMovement, not from an extra pre-move 0.98 scale.
         //
         // The corresponding next-tick friction still belongs in
-        // utils.nmsutil.NextTickVelocityDeriver.findVelocitiesForNextTick(...), which derives
+        // utils.nmsutil.NextTickVelocityDeriver.beforeBlockEffects(...), which derives
         // the carried delta from the accepted packet movement after the move.
 
         boolean abilityFlying = simulationContext.getVehicle() == null && player.isFlying;
@@ -82,9 +80,12 @@ public class VelocityTransformer {
             input = applyFlightTakeoff(player, input);
             input = applyFlightInput(player, input);
         }
+        // LivingEntity#aiStep applies the 0.003 threshold before travelRidden, whose tickRidden runs a
+        // nautilus dash and whose travel then adds the controller input.
         input = applyMovementThreshold(input, simulationContext.getVersion(), simulationContext.getVehicle() == null);
         // Player#isAffectedByFluids is false in flight, so LivingEntity#aiStep runs neither jump.
-        return abilityFlying ? input : applyJumps(player, input);
+        if (!abilityFlying) input = applyJumps(player, input);
+        return applyRideableInput(player, input);
     }
 
     /**
@@ -287,8 +288,14 @@ public class VelocityTransformer {
             return new Vec3(0.0D, 0.0D, 1.0D);
         }
 
+        if (vehicle instanceof PacketEntityCamel camel
+                && camel.refuseToMove(player.compensatedWorld.clientGameTime())) {
+            // Camel#getRiddenInput returns zero while refuseToMove(), before Camel#tickRidden can stand it up.
+            return Vec3.ZERO;
+        }
+
         if (vehicle instanceof PacketEntityHorse) {
-            return getExactHorseFamilyRiddenInput(simulationContext.getHorseInputs());
+            return getExactHorseFamilyRiddenInput(simulationContext.getVersion(), simulationContext.getHorseInputs());
         }
 
         if (vehicle instanceof PacketEntityHappyGhast happyGhast) {
@@ -306,9 +313,10 @@ public class VelocityTransformer {
     private List<Vec3> exactRideableInputVectors(CultPlayer player, Vec3 riddenInput) {
         List<Vec3> vectors = new ArrayList<>(6);
         if (simulationContext.getVehicle() instanceof PacketEntityHappyGhast happyGhast) {
-            // HappyGhast#tickRidden turns the root 8% toward the controller before LivingEntity#travel.
-            float travelYaw = happyGhast.getRiddenTickYaw(simulationContext.getXRot());
-            addDistinctInputVector(vectors, happyGhast.getTravelInputVector(player, riddenInput, travelYaw));
+            // HappyGhast#tickRidden turns the root 8% toward the controller before LivingEntity#travel,
+            // and LocalPlayer#tick sends that turned root yaw in the MoveVehicle this context carries.
+            addDistinctInputVector(
+                    vectors, happyGhast.getTravelInputVector(player, riddenInput, simulationContext.getXRot()));
             return vectors;
         }
 
@@ -475,14 +483,12 @@ public class VelocityTransformer {
         return horse.isRearing && horse.horseJump <= 0.0D && !horse.allowStandSliding;
     }
 
-    private Vec3 getExactHorseFamilyRiddenInput(Vec3 rawInputState) {
+    static Vec3 getExactHorseFamilyRiddenInput(ClientVersion version, Vec3 rawInputState) {
         // KeyboardInput#tick normalizes key impulses, LocalPlayer#applyInput stores modifyInput(...)
         // into xxa/zza, and AbstractHorse#getRiddenInput maps that exact pair to ridden Vec3.
-        // Before 1.21.5, LocalPlayer#serverAiStep stores the raw impulses and LivingEntity#aiStep
-        // scales them by 0.98.
-        Vec3 modifiedInput = simulationContext.getVersion().isOlderThan(ClientVersion.V_1_21_5)
-                ? new Vec3((float) rawInputState.x * 0.98F, 0.0D, (float) rawInputState.z * 0.98F)
-                : getExactControllerModifiedInput(rawInputState);
+        Vec3 modifiedInput = version.isOlderThan(ClientVersion.V_1_21_5)
+                ? getLegacyControllerInput(rawInputState)
+                : getExactControllerModifiedInputStatic(rawInputState);
         float modifiedX = (float) modifiedInput.x;
         float modifiedZ = (float) modifiedInput.z;
         if (modifiedInput.lengthSqr() < 1.0E-7D) {
@@ -498,8 +504,12 @@ public class VelocityTransformer {
         return new Vec3(riddenX, 0.0D, riddenZ);
     }
 
-    private Vec3 getExactControllerModifiedInput(Vec3 rawInputState) {
-        return getExactControllerModifiedInputStatic(rawInputState);
+    private static Vec3 getLegacyControllerInput(Vec3 rawInputState) {
+        // 1.21.2-1.21.4 LocalPlayer#serverAiStep copies KeyboardInput's raw +-1 impulses into
+        // xxa/zza (a passenger never crouches and its item use never slows it), and
+        // LivingEntity#aiStep scales both by 0.98F. There is no normalization or square reshaping;
+        // LivingEntity#getInputVector normalizes the resulting ridden diagonal instead.
+        return new Vec3((float) rawInputState.x * 0.98F, 0.0D, (float) rawInputState.z * 0.98F);
     }
 
     private static Vec3 getExactControllerModifiedInputStatic(Vec3 rawInputState) {

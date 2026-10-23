@@ -12,7 +12,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -634,8 +633,8 @@ class DismountRideStateTest {
         assertTrue(exact(standing), describe(standing));
         var add = new ClientboundAddEntity(
                 VEHICLE, "minecraft:phantom", new Vec3d(phantom.x, phantom.y, phantom.z), 0, 0, 0);
-        var addEvent = new PacketSendEvent<>(
-                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, add, false);
+        var addEvent =
+                new PacketSendEvent<>(f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, add, false);
         f.player.packetEntityReplication.onAddEntity(addEvent, f.player, add);
         addEvent.tasksAfter().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());
@@ -729,7 +728,6 @@ class DismountRideStateTest {
     }
 
     private static void assertCarriedStuckSpeed(JavaTickFixture f, ClientVersion version, Vec3 expected) {
-        if (!JavaMovementEngine.supportsExactEffects(version)) return;
         JavaPredictionCarry carry = carry(f);
         assertFalse(carry.states().isEmpty(), "the dismount carries no state");
         for (var state : carry.states()) {
@@ -740,7 +738,6 @@ class DismountRideStateTest {
 
     /** The carried states take no multiplier or one of {@code stuckSpeeds}, and each of those is carried. */
     private static void assertCarriedStuckCandidates(JavaTickFixture f, ClientVersion version, Vec3... stuckSpeeds) {
-        if (!JavaMovementEngine.supportsExactEffects(version)) return;
         var expected = new HashSet<Vec3>(List.of(stuckSpeeds));
         expected.add(null);
         var carried = new HashSet<Vec3>();

@@ -10,6 +10,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -69,35 +70,44 @@ public final class Friction {
 
         // Lava friction applies a stronger lateral slowdown before fluid falling is applied.
         if (inLava && fluidTravel) {
-            Vec3 withSomeFriction = playerVelocity.multiply(0.5, 0.8f, 0.5).add(0, -gravity / 4, 0);
+            // LivingEntity#travelInLava subtracts gravity / 4 after the shallow lava fluid-falling adjustment.
+            int shallow = out.size();
             addFluidFallingAdjustedMovement(
-                    player, context, out, out.size(), false, gravity, falling, withSomeFriction);
+                    player, context, out, shallow, false, gravity, falling, playerVelocity.multiply(0.5, 0.8f, 0.5));
+            for (int i = shallow, size = out.size(); i < size; i++)
+                out.set(i, out.get(i).add(0, -gravity / 4, 0));
             out.add(playerVelocity.scale(0.5).add(0, -gravity / 4, 0));
             return;
         }
 
         // Normal friction is this well known formula, account for slow falling, has lowest priority
-        boolean use26Dot2 = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
         float frictionUnderPlayer =
                 getPlayerFriction(player, from, context.getLastTickMainSupportingBlockData(), onGround);
         double x = playerVelocity.x * frictionUnderPlayer;
-        double y = applyAirGravity(player, playerVelocity.y, gravity);
         double z = playerVelocity.z * frictionUnderPlayer;
+        out.add(new Vec3(x, travelInAirY(player, playerVelocity.y, gravity), z));
+    }
 
+    /** LivingEntity#travelInAir's vertical end of tick: levitation, otherwise gravity, then the vertical air drag. */
+    public static double travelInAirY(CultPlayer player, double y, double gravity) {
+        y = applyAirGravity(player, y, gravity);
         // MCP-Reborn 26.2 LivingEntity#travelInAir applies the vertical air drag
         // through the air_drag_modifier attribute instead of the raw 0.98 constant.
-        double verticalDrag = use26Dot2
+        double verticalDrag = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)
                 ? computeModifiedFriction(
                         0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier)
                 : 0.98F;
-        out.add(new Vec3(x, y * verticalDrag, z));
+        return y * verticalDrag;
     }
 
     /** LivingEntity#travelInAir: the moved vertical velocity before vertical drag; levitation replaces gravity. */
     public static double applyAirGravity(CultPlayer player, double y, double gravity) {
         Integer levitation = player.compensatedEntities.getLevitationAmplifier();
-        // This supports both positive and negative levitation
-        return levitation != null ? y + (0.05 * (levitation + 1) - y) * 0.2 : y - gravity;
+        if (levitation != null) {
+            // This supports both positive and negative levitation
+            return y + (0.05 * (levitation + 1) - y) * 0.2;
+        }
+        return player.compensatedEntities.getEntityInControl().hasGravity ? y - gravity : y;
     }
 
     // MCP-Reborn 26.2 LivingEntity#computeModifiedFriction
@@ -124,14 +134,12 @@ public final class Friction {
         }
 
         // MCP-Reborn LivingEntity#getFluidFallingAdjustedMovement subtracts
-        // gravity / 16 only when the entity is not sprinting. Use the frozen
-        // SimulationContext sprint candidates for this simulated client tick;
-        // mutable CultPlayer sprint state may already reflect a later packet.
+        // gravity / 16 only when the travelling entity, a ridden root included, is
+        // not sprinting. Use the frozen SimulationContext sprint candidates for this
+        // simulated client tick; mutable sprint state may reflect a later packet.
         List<Boolean> sprintingStates = context.getIsSprinting().getStates();
         for (int i = 0, size = sprintingStates.size(); i < size; i++) {
-            Vec3 candidate = sprintingStates.get(i) && context.getVehicle() == null
-                    ? movement
-                    : applyFluidGravity(gravity, falling, movement);
+            Vec3 candidate = sprintingStates.get(i) ? movement : applyFluidGravity(gravity, falling, movement);
             if (!finiteOnly || isFinite(candidate)) addDistinct(results, from, candidate);
         }
     }
@@ -148,8 +156,16 @@ public final class Friction {
         boolean skeletonHorse =
                 context.getVehicle() != null && context.getVehicle().type == EntityTypeIds.SKELETON_HORSE;
         boolean dolphinsGrace = context.getEntities().getPotionLevelForPlayer(MovementEffect.DOLPHINS_GRACE) != null;
-        List<Double> frictions = getSwimFriction(skeletonHorse, dolphinsGrace, context.getWaterMovementEfficiency());
         List<Boolean> sprinting = context.getIsSprinting().getStates();
+        if (skeletonHorse && !dolphinsGrace) {
+            // LivingEntity#travelInWater takes 0.9F over SkeletonHorse#getWaterSlowDown for a sprinting root.
+            List<Double> frictions = new ArrayList<>(sprinting.size());
+            for (boolean sprint : sprinting) {
+                frictions.add(applyWaterMovementEfficiency(context.getWaterMovementEfficiency(), sprint ? 0.9 : 0.96));
+            }
+            return frictions;
+        }
+        List<Double> frictions = getSwimFriction(skeletonHorse, dolphinsGrace, context.getWaterMovementEfficiency());
         if (context.getVehicle() != null || frictions.size() != 2 || sprinting.size() != 1) return frictions;
         // LivingEntity#travelInWater slows a player sprinting at travel by 0.9F and any other by 0.8F.
         return Collections.singletonList(frictions.get(sprinting.getFirst() ? 0 : 1));

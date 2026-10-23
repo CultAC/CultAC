@@ -258,7 +258,7 @@ class FastBreakClientTickTest {
             tickEnd();
             int transaction = player.lastTransactionSent.incrementAndGet();
             player.compensatedWorld.queueServerBlockUpdate(
-                    TARGET.getX(), TARGET.getY(), TARGET.getZ(), serverBlock, transaction);
+                    TARGET.getX(), TARGET.getY(), TARGET.getZ(), serverBlock, transaction, true);
             if (answeredBeforeStop) answer(transaction);
             dig(PlayerAction.STOP_DESTROY_BLOCK);
             swing();

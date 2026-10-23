@@ -16,7 +16,6 @@ import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.KnownInput;
-import ac.cult.cultac.utils.data.StuckEdgeData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.CultMath;
@@ -48,8 +47,10 @@ public class HorizontalAnalyzer implements EngineCheck {
 
         float playerSpeed = result.getSimulationContext().getMaxSpeed(player);
         // ClientSprintState decides whether the sprint speed is available for this tick's travel branches
-        double sprintMultiplier =
-                playerSpeed > 0 ? result.getSimulationContext().getMaxSprintInputSpeed(player, result.getInitialStartingVel()) / playerSpeed : 1.3D;
+        double sprintMultiplier = playerSpeed > 0
+                ? result.getSimulationContext().getMaxSprintInputSpeed(player, result.getInitialStartingVel())
+                        / playerSpeed
+                : 1.3D;
 
         Vec3 target = result.getTarget();
 
@@ -102,9 +103,7 @@ public class HorizontalAnalyzer implements EngineCheck {
                     keysOffset);
         }
 
-        // TODO: If we want to, require sent a sneaking packet in the last tick to allow tick skip exempt
-        boolean isSlowed = result.getSimulationContext().isLastSneaking()
-                && !result.getInitialStartingVel().isTickSkip();
+        boolean isSlowed = result.getSimulationContext().isLastSneaking();
         Vec3 from = result.getSimulationContext().getStart();
 
         // The logic is that if the player has collisions above this, they will simply go into swimming position
@@ -171,16 +170,10 @@ public class HorizontalAnalyzer implements EngineCheck {
             }
         }
 
-        StuckEdgeData lastOnEdge = lastResult == null
-                ? null
-                : lastResult.getSimulationContext().getWorldData().getSneak();
-
-        // From here on are checks we cannot do if the player doesn't have inputs, is sneaking, or is colliding with a
-        // wall
+        // From here on are checks we cannot do if the player doesn't have inputs or is colliding with a wall
         if (inputScaledToSpeed < 0.01
                 || result.getCollideAxisData().getX().isLikelyCollide()
                 || result.getCollideAxisData().getZ().isLikelyCollide()
-                || (lastOnEdge != null && lastOnEdge.isOnEdge())
                 || (lastResult != null
                         && lastResult
                                 .getSimulationContext()
@@ -531,7 +524,8 @@ public class HorizontalAnalyzer implements EngineCheck {
         float radians = f2 * 0.017453292f;
         Vec3 correctMath = invertInputRotation(
                 wantedX, wantedZ, VanillaMath.sin(version, radians), VanillaMath.cos(version, radians));
-        Vec3 shitMath = invertInputRotation(wantedX, wantedZ, OptifineFastMath.sin(radians), OptifineFastMath.cos(radians));
+        Vec3 shitMath =
+                invertInputRotation(wantedX, wantedZ, OptifineFastMath.sin(radians), OptifineFastMath.cos(radians));
 
         if (correctMath == null || shitMath == null) {
             if (correctMath != null) return correctMath;

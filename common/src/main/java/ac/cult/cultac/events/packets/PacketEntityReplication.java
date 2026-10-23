@@ -55,6 +55,7 @@ import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHook;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
@@ -376,6 +377,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
         tickEntityInterpolationAtClientTickEnd();
+        // ClientLevel#tickEntities ran every entity's Entity#baseTick this client tick.
+        for (PacketEntity entity : player.compensatedEntities.entityMap.values()) entity.firstTick = false;
         recountPushersAfterPlayer();
         player.compensatedEntities.vehicles.onClientTickEnd();
         player.checkManager.getSimulationProcessor().recordRideTick();
@@ -960,10 +963,13 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
         boolean updatesHorseFlags = player.compensatedEntities.getEntity(packet.id()) instanceof PacketEntityHorse
                 && WatchableIndexUtil.getIndex(metadata, layout.horseFlags()) != null;
+        // Camel#standUp and #standUpInstantly also write LAST_POSE_CHANGE_TICK client-side.
+        boolean updatesCamelPoseTick = player.compensatedEntities.getEntity(packet.id()) instanceof PacketEntityCamel
+                && WatchableIndexUtil.getIndex(metadata, layout.camelLastPoseChangeTick()) != null;
         if (WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.ENTITY_NO_GRAVITY) != null) {
             player.sendTransaction();
         }
-        if (updatesHorseFlags) {
+        if (updatesHorseFlags || updatesCamelPoseTick) {
             // Horse standing changes the rider attachment point. A local
             // START_RIDING_JUMP also writes that client-visible bit, so a
             // server metadata packet can only replace it once transaction
@@ -1157,9 +1163,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             if (entity != null && !entity.isLivingEntity()) entity.isDead = true;
         }
 
-        // These are native server status codes, before ViaVersion rewrites the packet.
+        // These are native server status codes, before ViaVersion rewrites the packet. Only a
+        // 26.3+ client handles them: 26.2 EntityEvent ends at 70 and its AbstractBoat has no
+        // handleEntityEvent override, and ViaBackwards forwards the raw event unchanged.
         if (!player.isBedrockMovement()
                 && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_26_3)
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
                 && (status == 71 || status == 72)) {
             CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, List.of(), true);
             Runnable apply = () -> player.compensatedEntities.vehicles.applyBoatBubbleColumnEvent(entityId, status);
@@ -1374,7 +1383,14 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 ? List.of()
                 : resyncPackets(mountResyncState, dismountResyncState);
         boolean useDelimiter = !resyncPackets.isEmpty() || useReachBundleDelimiter;
-        return appendTrailingProofTransaction(event, resyncPackets, useDelimiter);
+        CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, List.of(), useDelimiter);
+        if (proof == null) return null;
+        // The resync packets follow this proof inside the same bundle, which
+        // ClientPacketListener#handleBundlePacket handles in one task before the client's next
+        // tick. Their send handlers allocate their own proofs after this one, so writing them
+        // after it keeps transactions rising in wire order.
+        event.getWritesAfterSend().addAll(resyncPackets);
+        return proof;
     }
 
     private List<CultWrite> resyncPackets(
@@ -1674,9 +1690,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         return proof;
     }
 
-    private void writeProofGroupNow(CultPlayer.TrackedTransaction proof, List<CultWrite> packetsBeforeProof) {
-        var packets = new ArrayList<CultWrite>(packetsBeforeProof);
+    /** As transactionForSetPassengers: the bundled packets follow the proof allocated before their own. */
+    private void writeProofGroupNow(CultPlayer.TrackedTransaction proof, List<CultWrite> packetsAfterProof) {
+        var packets = new ArrayList<CultWrite>(packetsAfterProof.size() + 1);
         packets.add(proof.packet());
+        packets.addAll(packetsAfterProof);
         player.user.write(packets, true);
         player.markTrackedTransactionPacketSent(proof);
     }

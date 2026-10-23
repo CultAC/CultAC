@@ -18,6 +18,7 @@ import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.RegistryGenerationAlerts;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.packet.Opaque;
@@ -272,21 +273,34 @@ public class PacketPlayerRespawn {
 
         final boolean keepEntityData = packet.shouldKeep(ClientboundRespawn.KEEP_ENTITY_DATA);
         final boolean keepAttributeModifiers = packet.shouldKeep(ClientboundRespawn.KEEP_ATTRIBUTE_MODIFIERS);
-        // TODO: What does keep all metadata do?
+        // ClientPacketListener#handleRespawn with KEEP_ENTITY_DATA creates the new LocalPlayer with the
+        // old getLastSentInput() from 1.21.6 (1.21.2-1.21.5 pass only the shift key for the
+        // PRESS_SHIFT_KEY command and start lastSentInput at Input.EMPTY). LocalPlayer#tick sends
+        // ServerboundPlayerInputPacket only when the keys differ from lastSentInput, so a held shift
+        // is not resent. Without the flag, or before 1.21.6, any held key is resent from EMPTY.
+        final boolean keepsLastSentInput = keepEntityData
+                && !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_6);
+        // KEEP_ENTITY_DATA also assigns the old player's non-default entity data, including the
+        // fall-flying shared flag; otherwise the new player starts from default shared flags.
+        final boolean keepsSharedFlags = keepEntityData && !player.isBedrockMovement();
         // A later login replaces this level; its respawn must not touch the new one.
         int level = player.compensatedWorld.level();
         final Runnable applyRespawnState = () -> {
             setbacks.respawnUnread = false;
             if (level != player.compensatedWorld.level()) return;
-            player.isSneaking = false;
-            // ClientPacketListener#handleRespawn starts the new LocalPlayer from Input.EMPTY unless KEEP_ENTITY_DATA.
-            if (!keepEntityData) player.packetStateData.knownInput = KnownInput.DEFAULT;
+            // ClientPacketListener#handleRespawn starts the new LocalPlayer's last sent input from Input.EMPTY
+            // unless KEEP_ENTITY_DATA hands it the old one, which it does from 1.21.6.
+            if (!keepsLastSentInput) {
+                player.isSneaking = false;
+                player.packetStateData.knownInput = KnownInput.DEFAULT;
+            }
             // ClientPacketListener#handleRespawn gives every new LocalPlayer a fresh KeyboardInput.
             FlightToggle.reset(player.packetStateData, keepEntityData);
             final BadPacketsF badPacketsF = player.checkManager.getListener(BadPacketsF.class);
             badPacketsF.exemptNext = true;
             player.lastOnGround = false;
-            player.isGliding = false;
+            if (!keepsSharedFlags) player.isGliding = false;
             player.isInBed = false;
             // Respawn permits one glide-state re-entry.
             ElytraC elytraC = player.checkManager.getListener(ElytraC.class);
@@ -376,7 +390,6 @@ public class PacketPlayerRespawn {
             player.isSprinting = !player.isBedrockMovement() && player.sprintState.flag();
             player.vehicleData.camelSprintingState = SprintingState.STOPPED;
             badPacketsF.lastSprinting = player.isSprinting;
-            player.refreshPlayerPose();
             player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
                     spawnInfo.gameMode().name());
             player.canInstabuild = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE;
@@ -390,6 +403,8 @@ public class PacketPlayerRespawn {
             }
             respawnedSelf.onRespawn(
                     keepAttributeModifiers, player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE);
+            // The new player's dimensions read its game mode and its scale, which onRespawn may drop.
+            player.refreshPlayerPose();
             if (dimensionType != null) player.compensatedWorld.setDimension(worldName, dimensionType);
             else player.compensatedWorld.setUnresolvedDimension(worldName);
             // ClientPacketListener creates a new ClientLevel only when the dimension key changes.

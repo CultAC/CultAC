@@ -581,23 +581,29 @@ public class CompensatedWorld {
         return clientPredictionSequence;
     }
 
+    /** A block update written into {@code transaction}'s bundle, which proves it. */
     public void handleServerBlockUpdate(BlockPos pos, int state, CultPlayer.TrackedTransaction transaction) {
-        queueServerBlockUpdate(pos.getX(), pos.getY(), pos.getZ(), state, transaction.transaction());
+        queueServerBlockUpdate(pos.getX(), pos.getY(), pos.getZ(), state, transaction.transaction(), true);
     }
 
-    /** Records a block update at send time and applies it once the client has processed it. */
-    public void queueServerBlockUpdate(int x, int y, int z, int state, int transaction) {
+    /**
+     * Records a block update at send time and applies it once the client has processed it. {@code proven} says that
+     * the client answers {@code transaction} only after handling the update; a ping written before it only bounds
+     * the update from below.
+     */
+    public void queueServerBlockUpdate(int x, int y, int z, int state, int transaction, boolean proven) {
         long position = BlockPos.asLong(x, y, z);
         long id = serverBlockView.sent(
                 position, ViaClientBlockShapeMappings.clientBlockStateId(player, stateIdOrAir(state)));
         int queuedLevel = level;
         player.latencyUtils.addRealTimeTask(transaction, () -> {
-            if (queuedLevel == level) handleServerBlockUpdate(x, y, z, state, transaction);
+            if (queuedLevel == level) applyServerBlockUpdate(x, y, z, state, proven);
             serverBlockView.applied(position, id);
         });
     }
 
-    public void queueServerBlockUpdates(SectionBlocksUpdate update, int transaction) {
+    /** {@link #queueServerBlockUpdate} for every update of a section packet. */
+    public void queueServerBlockUpdates(SectionBlocksUpdate update, int transaction, boolean proven) {
         long[] ids = new long[update.size()];
         int[] sent = {0};
         update.runUpdates((x, y, z, state) -> ids[sent[0]++] = serverBlockView.sent(
@@ -606,7 +612,7 @@ public class CompensatedWorld {
         player.latencyUtils.addRealTimeTask(transaction, () -> {
             int[] applied = {0};
             update.runUpdates((x, y, z, state) -> {
-                if (queuedLevel == level) handleServerBlockUpdate(x, y, z, state, transaction);
+                if (queuedLevel == level) applyServerBlockUpdate(x, y, z, state, proven);
                 serverBlockView.applied(BlockPos.asLong(x, y, z), ids[applied[0]++]);
             });
         });
@@ -639,6 +645,15 @@ public class CompensatedWorld {
 
     public void handleServerBlockUpdate(int x, int y, int z, int state, int transaction) {
         updateBlock(x, y, z, state);
+    }
+
+    /**
+     * A queued server block update at its transaction. ClientPacketListener handles packets in Minecraft#runAllTasks,
+     * between client ticks, so once a Java client answers a ping that follows the update every later client tick sees
+     * the new block: a fluid it changes has no open timing. A Bedrock client keeps the recent-change window.
+     */
+    private void applyServerBlockUpdate(int x, int y, int z, int state, boolean proven) {
+        updateBlock(x, y, z, state, proven && !player.isBedrockMovement());
     }
 
     private void applyBlockChanges(List<BlockPos> toApplyBlocks, int transaction, int sequence) {
@@ -679,7 +694,6 @@ public class CompensatedWorld {
         int state = stateIdOrAir(originalBlockId);
         if (getBlockStateIdAt(vector3i) != state) {
             updateBlock(vector3i.getX(), vector3i.getY(), vector3i.getZ(), state);
-
             if (playerPosition == null) {
                 // Fuck you player. You tried teleporting and then causing an illegal block change to try to validate
                 // your illegal teleport.
@@ -759,10 +773,10 @@ public class CompensatedWorld {
         return originalServerBlocks.containsKey(pos.asLong());
     }
 
-    /** Retained server state, excluding a locally predicted placement or destruction. */
+    /** Newest applied server state, excluding a locally predicted placement or destruction. */
     public int getServerBlockStateIdAt(BlockPos pos) {
         BlockPrediction pending = originalServerBlocks.get(pos.asLong());
-        return pending == null ? getBlockStateIdAt(pos) : pending.getOriginalBlockId();
+        return pending == null ? getBlockStateIdAt(pos) : pending.getServerBlockId();
     }
 
     /** ClientPacketListener.handleGameEvent and Level.setRainLevel (26.3). */
@@ -1042,6 +1056,11 @@ public class CompensatedWorld {
     }
 
     public int updateBlock(int x, int y, int z, int newState) {
+        return updateBlock(x, y, z, newState, false);
+    }
+
+    /** {@code fluidTimingKnown}: the update reached the client before every tick still to be simulated. */
+    private int updateBlock(int x, int y, int z, int newState, boolean fluidTimingKnown) {
         newState = ViaClientBlockShapeMappings.clientBlockStateId(player, stateIdOrAir(newState));
         BlockPos asVector = new BlockPos(x, y, z);
         BlockPrediction prediction = originalServerBlocks.get(asVector.asLong());
@@ -1081,6 +1100,7 @@ public class CompensatedWorld {
             // Only update the stored rollback target; the actual local block stays client-predicted until
             // confirmation handling decides whether to keep it or restore the original server state.
             prediction.setOriginalBlockId(newState);
+            prediction.setServerBlockId(newState);
             ghostBlockMitigator.handleUpdateServerBlockState(asVector, newState);
             return original;
         }
@@ -1090,10 +1110,10 @@ public class CompensatedWorld {
         // This works because of how we optimized wrappedblockstate (avoid messing with inner tick predictions)
         if (getBlockStateIdAt(asVector) == newState) return original;
 
-        player.checkManager.getSimulationProcessor().handleBlockChange(asVector, original);
-        player.checkManager.getSimulationProcessor().handleBlockChange(asVector, newState);
+        player.checkManager.getSimulationProcessor().handleBlockChange(asVector, original, fluidTimingKnown);
+        player.checkManager.getSimulationProcessor().handleBlockChange(asVector, newState, fluidTimingKnown);
         markRecentClientCollisionChange(asVector, original, newState);
-        markRecentClientFluidChange(asVector, original, newState);
+        if (!fluidTimingKnown) markRecentClientFluidChange(asVector, original, newState);
 
         applyBlockChangeRawDANGER(x, y, z, newState, asVector);
         geysers.updateBlock(asVector, original, newState);
@@ -1409,7 +1429,8 @@ public class CompensatedWorld {
         SimpleCollisionBox envelope = new SimpleCollisionBox();
         if (!pistons.reportsAfterBlockEntities()) {
             ShulkerBoxShoveResult result =
-                    shoveByShulkerBoxes(context, shoves, context.getStart(), context.getPose(), onGround, false);
+                    // CollisionModifier and PistonShulkerPush scale this shove by the stuck speed themselves.
+                    shoveByShulkerBoxes(context, shoves, context.getStart(), context.getPose(), onGround, false, null);
             if (result == null) return;
             envelope.unionX(result.movement().x);
             envelope.unionY(result.movement().y);
@@ -1493,7 +1514,9 @@ public class CompensatedWorld {
      * calls before, intersects the call's area. Each move starts from the Entity#onGround the last left,
      * {@code onGround} first. Null when no call reaches the player. From 26.3 ({@code restitution})
      * Entity#restituteMovementAfterCollisions zeroes the vertical velocity only after a vertical move or a horizontal
-     * collision (Entity#move, 26.1 :800-808, 26.3 :820-821).
+     * collision (Entity#move, 26.1 :800-808, 26.3 :820-821). {@code stuckSpeed}: the Entity#stuckSpeedMultiplier the
+     * first call meets, or null for none; that call scales its movement by it, consumes it and clears
+     * Entity#deltaMovement (Entity#move, 26.3 :761-767).
      */
     public ShulkerBoxShoveResult shoveByShulkerBoxes(
             SimulationContext context,
@@ -1501,31 +1524,43 @@ public class CompensatedWorld {
             Vec3 position,
             Pose pose,
             boolean onGround,
-            boolean restitution) {
+            boolean restitution,
+            Vec3 stuckSpeed) {
         boolean vehicle = context.getVehicle() != null;
         float width = vehicle ? context.getMaxWidth() : pose.width * context.getScale();
         float height = vehicle ? context.getMaxHeight() : pose.height * context.getScale();
         Vec3 start = position;
-        boolean reached = false, zeroX = false, zeroY = false, zeroZ = false;
+        boolean reached = false, zeroX = false, zeroY = false, zeroZ = false, consumedStuckSpeed = false;
+        boolean stuck = stuckSpeed != null && stuckSpeed.lengthSqr() > 1.0E-7D;
         for (CompensatedBlockEntities.ShulkerShove shove : shoves) {
             SimpleCollisionBox box =
                     GetBoundingBox.getBoundingBoxFromPosAndSize(position.x, position.y, position.z, width, height);
             if (!intersects(box, shove.area())) continue;
             reached = true;
-            Vec3 movement = Collisions.collide(player, box, shove.x(), shove.y(), shove.z(), onGround);
+            double x = shove.x(), y = shove.y(), z = shove.z();
+            if (stuck) {
+                x *= stuckSpeed.x;
+                y *= stuckSpeed.y;
+                z *= stuckSpeed.z;
+                stuck = false;
+                consumedStuckSpeed = true;
+            }
+            Vec3 movement = Collisions.collide(player, box, x, y, z, onGround);
             double movementLength = movement.lengthSqr();
-            double deltaLength = shove.x() * shove.x() + shove.y() * shove.y() + shove.z() * shove.z();
+            double deltaLength = x * x + y * y + z * z;
             if (movementLength > 1.0E-7D || deltaLength - movementLength < 1.0E-7D) position = position.add(movement);
             // Mth#equal
-            boolean xCollision = !(Math.abs(movement.x - shove.x()) < 1.0E-5F);
-            boolean zCollision = !(Math.abs(movement.z - shove.z()) < 1.0E-5F);
-            boolean verticalCollision = shove.y() != movement.y;
-            onGround = verticalCollision && shove.y() < 0.0D;
+            boolean xCollision = !(Math.abs(movement.x - x) < 1.0E-5F);
+            boolean zCollision = !(Math.abs(movement.z - z) < 1.0E-5F);
+            boolean verticalCollision = y != movement.y;
+            onGround = verticalCollision && y < 0.0D;
             zeroX |= xCollision;
             zeroZ |= zCollision;
-            if (verticalCollision && (!restitution || shove.y() != 0.0D || xCollision || zCollision)) zeroY = true;
+            if (verticalCollision && (!restitution || y != 0.0D || xCollision || zCollision)) zeroY = true;
         }
-        return reached ? new ShulkerBoxShoveResult(position.subtract(start), zeroX, zeroY, zeroZ, onGround) : null;
+        return reached
+                ? new ShulkerBoxShoveResult(position.subtract(start), zeroX, zeroY, zeroZ, onGround, consumedStuckSpeed)
+                : null;
     }
 
     private static boolean intersects(SimpleCollisionBox box, SimpleCollisionBox area) {
@@ -1800,7 +1835,7 @@ public class CompensatedWorld {
                 }
             }
             if (motionBlocking != null) applyClientMotionHeightmap(dimension, chunkX, chunkZ, motionBlocking);
-            preservePendingPredictions(chunk, chunkX, chunkZ);
+            recordPendingPredictionServerStates(chunk, chunkX, chunkZ);
             if (dimension.equals(visibleDimension)) {
                 geysers.replaceChunk(chunkX, chunkZ, geyserTickers);
                 pistons.forgetChunk(chunkX, chunkZ);
@@ -1833,7 +1868,7 @@ public class CompensatedWorld {
         removePendingReinternSections(toMerge, chunkX, chunkZ);
         releaseMergedChunkSections(existingColumn, toMerge, dimension, chunkX, chunkZ);
         existingColumn.mergeSections(toMerge);
-        preservePendingPredictions(existingColumn, chunkX, chunkZ);
+        recordPendingPredictionServerStates(existingColumn, chunkX, chunkZ);
         if (terrainListener != null) terrainListener.columnLoaded(chunkX, chunkZ);
     }
 
@@ -1886,7 +1921,11 @@ public class CompensatedWorld {
         }
     }
 
-    private void preservePendingPredictions(CachedChunk chunk, int chunkX, int chunkZ) {
+    /**
+     * LevelChunk#replaceWithPacketData reads the sections raw: the chunk replaces a predicted block,
+     * while BlockStatePredictionHandler keeps the retained state the ack later restores.
+     */
+    private void recordPendingPredictionServerStates(CachedChunk chunk, int chunkX, int chunkZ) {
         if (originalServerBlocks.isEmpty()) {
             return;
         }
@@ -1899,10 +1938,8 @@ public class CompensatedWorld {
 
             int serverState = getCachedChunkStateId(chunk, position);
             if (serverState != -1) {
-                prediction.setOriginalBlockId(serverState);
+                prediction.setServerBlockId(serverState);
             }
-
-            setCachedChunkState(chunk, position, prediction.getPredictedBlockId());
         }
     }
 
@@ -1918,19 +1955,6 @@ public class CompensatedWorld {
             return 0;
         }
         return section.getStateId(CachedChunk.index(position.getX() & 0xF, offsetY & 0xF, position.getZ() & 0xF));
-    }
-
-    private void setCachedChunkState(CachedChunk chunk, BlockPos position, int state) {
-        int offsetY = position.getY() - minHeight;
-        int sectionIndex = offsetY >> 4;
-        CachedSection section = chunk.getOrCreateSection(sectionIndex);
-        if (section == null) return;
-        if (section.isShared()) {
-            section = prepareSectionForWrite(position.getX() >> 4, sectionIndex, position.getZ() >> 4, section);
-            chunk.setSection(sectionIndex, section);
-        }
-        section.setStateId(CachedChunk.index(position.getX() & 0xF, offsetY & 0xF, position.getZ() & 0xF), state);
-        queuePendingReintern(position.getX() >> 4, sectionIndex, position.getZ() >> 4, section);
     }
 
     public double getFluidLevelAt(int x, int y, int z) {

@@ -74,4 +74,11 @@ public final class ItemUtil {
         var tool = ItemComponents.tool(modelItems().defaults(item.key()));
         return tool != null && !tool.canDestroyBlocksInCreative();
     }
+
+    /** Item#canDestroyBlock: the stack's own TOOL refuses an instabuild break unless it allows one. */
+    public static boolean refusesCreativeBreak(SimItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        var tool = ItemComponents.tool(stack.components());
+        return tool != null && !tool.canDestroyBlocksInCreative();
+    }
 }

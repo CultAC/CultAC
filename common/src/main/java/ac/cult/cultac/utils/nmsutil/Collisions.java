@@ -22,7 +22,6 @@ import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.math.Vector3dm;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
@@ -784,67 +783,6 @@ public class Collisions {
         return vector.x * vector.x + vector.z * vector.z;
     }
 
-    public static Vector3dm maybeBackOffFromEdge(
-            Vector3dm vec3,
-            CultPlayer player,
-            boolean lastOnGround,
-            SimpleCollisionBox playerBB,
-            boolean overrideVersion) {
-        if (!player.isFlying && player.isSneaking && isAboveGround(player, lastOnGround, playerBB)) {
-            double x = vec3.getX();
-            double z = vec3.getZ();
-
-            double maxStepDown = -player.getMaxUpStep();
-            SimpleCollisionBox probe = player.boundingBox.copy();
-
-            while (x != 0.0 && isEmpty(player, probe.set(player.boundingBox).offset(x, maxStepDown, 0.0))) {
-                if (x < 0.05D && x >= -0.05D) {
-                    x = 0.0D;
-                } else if (x > 0.0D) {
-                    x -= 0.05D;
-                } else {
-                    x += 0.05D;
-                }
-            }
-            while (z != 0.0 && isEmpty(player, probe.set(player.boundingBox).offset(0.0, maxStepDown, z))) {
-                if (z < 0.05D && z >= -0.05D) {
-                    z = 0.0D;
-                } else if (z > 0.0D) {
-                    z -= 0.05D;
-                } else {
-                    z += 0.05D;
-                }
-            }
-            while (x != 0.0
-                    && z != 0.0
-                    && isEmpty(player, probe.set(player.boundingBox).offset(x, maxStepDown, z))) {
-                if (x < 0.05D && x >= -0.05D) {
-                    x = 0.0D;
-                } else if (x > 0.0D) {
-                    x -= 0.05D;
-                } else {
-                    x += 0.05D;
-                }
-
-                if (z < 0.05D && z >= -0.05D) {
-                    z = 0.0D;
-                } else if (z > 0.0D) {
-                    z -= 0.05D;
-                } else {
-                    z += 0.05D;
-                }
-            }
-            vec3 = new Vector3dm(x, vec3.getY(), z);
-        }
-
-        return vec3;
-    }
-
-    public static boolean isAboveGround(CultPlayer player, boolean lastOnGround, SimpleCollisionBox playerBB) {
-        // https://bugs.mojang.com/browse/MC-2404
-        return lastOnGround || !isEmpty(player, playerBB.copy().offset(0.0, -player.getMaxUpStep(), 0.0));
-    }
-
     public static boolean isSlidingDown(CultPlayer player, int locationX, int locationY, int locationZ, Vec3 pos) {
         if (player.onGround) {
             return false;
@@ -1242,6 +1180,126 @@ public class Collisions {
             return true;
         });
         return iteration[0] + 1;
+    }
+
+    /**
+     * Entity#checkInsideBlocks before 1.21.9: BlockGetter#boxTraverseBlocks through 1.21.4, then
+     * #forEachBlockIntersectedBetween. From 1.21.5 a movement replays one axis at a time in the order of its own
+     * clipped delta. A non-air block is visited once, when first reached, whether or not it was contacted.
+     */
+    public static void visitInsideBlocksLegacy(
+            SimpleCollisionBox fromAabb,
+            SimpleCollisionBox toAabb,
+            boolean axisSteps,
+            boolean nudgedTravel,
+            java.util.function.Predicate<BlockPos> air,
+            InsideBlockVisitor visitor) {
+        LongSet visited = new LongOpenHashSet();
+        Vec3 delta = boxCenter(toAabb).subtract(boxCenter(fromAabb));
+        if (axisSteps && delta.lengthSqr() > 0.0) {
+            SimpleCollisionBox from = fromAabb.copy();
+            for (Axis axis : getAxisStepOrder(delta)) {
+                double amount = getAxisValue(delta, axis);
+                if (amount == 0.0) continue;
+                SimpleCollisionBox to = from.copy();
+                offsetAlongAxis(to, axis, amount);
+                visitInsideSegmentLegacy(from, to, visited, nudgedTravel, air, visitor);
+                from = to;
+            }
+        } else {
+            visitInsideSegmentLegacy(fromAabb, toAabb, visited, nudgedTravel, air, visitor);
+        }
+    }
+
+    private static void visitInsideSegmentLegacy(
+            SimpleCollisionBox from,
+            SimpleCollisionBox to,
+            LongSet visited,
+            boolean nudgedTravel,
+            java.util.function.Predicate<BlockPos> air,
+            InsideBlockVisitor visitor) {
+        SimpleCollisionBox target = SimpleCollisionBox.between(to.minX, to.minY, to.minZ, to.maxX, to.maxY, to.maxZ)
+                .deflate(1.0E-5F);
+        OrderedBlockVisitor visit = (pos, step) -> {
+            if (!air.test(pos) && visited.add(pos.asLong())) visitor.visit(from, to, pos, true);
+            return true;
+        };
+        Iterable<BlockPos> destination = BlockPos.betweenClosed(
+                BlockPos.containing(target.minX, target.minY, target.minZ),
+                BlockPos.containing(target.maxX, target.maxY, target.maxZ));
+        Vec3 travel = boxCenter(to).subtract(boxCenter(from));
+        if (travel.lengthSqr() < 0.99999F * 0.99999F) {
+            for (BlockPos pos : destination) visit.visit(pos, 0);
+            return;
+        }
+
+        LongSet traversed = new LongOpenHashSet();
+        Vec3 corner = new Vec3(target.minX, target.minY, target.minZ);
+        // BlockGetter#boxTraverseBlocks offsets both ends by 1.0E-7 along the travel.
+        Vec3 nudge = nudgedTravel ? travel.normalize().scale(1.0E-7) : Vec3.ZERO;
+        addCollisionsAlongTravelLegacy(
+                traversed, corner.subtract(travel).subtract(nudge), corner.add(nudge), target, visit);
+        for (BlockPos pos : destination) {
+            if (traversed.add(pos.asLong())) visit.visit(pos, 0);
+        }
+    }
+
+    /** BlockGetter#addCollisionsAlongTravel before 1.21.9: the cells a corner's travel clips, plus the box behind it. */
+    private static void addCollisionsAlongTravelLegacy(
+            LongSet traversed, Vec3 from, Vec3 to, SimpleCollisionBox box, OrderedBlockVisitor visitor) {
+        Vec3 travel = to.subtract(from);
+        int x = CultMath.floor(from.x);
+        int y = CultMath.floor(from.y);
+        int z = CultMath.floor(from.z);
+        int signX = (int) Math.signum(travel.x);
+        int signY = (int) Math.signum(travel.y);
+        int signZ = (int) Math.signum(travel.z);
+        double deltaX = signX == 0 ? Double.MAX_VALUE : signX / travel.x;
+        double deltaY = signY == 0 ? Double.MAX_VALUE : signY / travel.y;
+        double deltaZ = signZ == 0 ? Double.MAX_VALUE : signZ / travel.z;
+        double nextX = deltaX * (signX > 0 ? 1.0D - CultMath.frac(from.x) : CultMath.frac(from.x));
+        double nextY = deltaY * (signY > 0 ? 1.0D - CultMath.frac(from.y) : CultMath.frac(from.y));
+        double nextZ = deltaZ * (signZ > 0 ? 1.0D - CultMath.frac(from.z) : CultMath.frac(from.z));
+        int iterations = 0;
+
+        while (nextX <= 1.0D || nextY <= 1.0D || nextZ <= 1.0D) {
+            if (nextX < nextY) {
+                if (nextX < nextZ) {
+                    x += signX;
+                    nextX += deltaX;
+                } else {
+                    z += signZ;
+                    nextZ += deltaZ;
+                }
+            } else if (nextY < nextZ) {
+                y += signY;
+                nextY += deltaY;
+            } else {
+                z += signZ;
+                nextZ += deltaZ;
+            }
+
+            if (iterations++ > 16) break;
+
+            double scale = clipScale26Dot2(
+                    x, y, z, x + 1.0D, y + 1.0D, z + 1.0D, from.x, from.y, from.z, travel.x, travel.y, travel.z);
+            if (scale < 0.0D) continue;
+            double hitX = clamp(from.x + scale * travel.x, x + 1.0E-5F, x + 1.0D - 1.0E-5F);
+            double hitY = clamp(from.y + scale * travel.y, y + 1.0E-5F, y + 1.0D - 1.0E-5F);
+            double hitZ = clamp(from.z + scale * travel.z, z + 1.0E-5F, z + 1.0D - 1.0E-5F);
+            int maxX = CultMath.floor(hitX + box.getXsize());
+            int maxY = CultMath.floor(hitY + box.getYsize());
+            int maxZ = CultMath.floor(hitZ + box.getZsize());
+            for (int cellX = x; cellX <= maxX; cellX++) {
+                for (int cellY = y; cellY <= maxY; cellY++) {
+                    for (int cellZ = z; cellZ <= maxZ; cellZ++) {
+                        if (traversed.add(BlockPos.asLong(cellX, cellY, cellZ))) {
+                            visitor.visit(new BlockPos(cellX, cellY, cellZ), iterations);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @FunctionalInterface

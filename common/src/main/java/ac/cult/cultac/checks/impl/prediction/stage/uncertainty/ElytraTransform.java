@@ -53,16 +53,11 @@ public class ElytraTransform implements UncertaintyHandler {
                         startingHorizontalUncertainty.maxZ - startingHorizontalUncertainty.minZ);
         double yUncertainty = uncertainty * 0.04 * 3.2; // Exact values, we could also look at Y
 
-        // LivingEntity#aiStep applies bubble callbacks after travel. Their existing
-        // Y range is therefore input to the next tick's elytra transform, including X/Z.
+        // LivingEntity#aiStep's bubble callbacks after travel are already in the carried velocity.
         PredVector minStart = start, maxStart = start;
         // A server velocity set replaces the stored velocity; a grounded riptide lift that consumes a stuck
         // multiplier zeroes it.
         boolean replaced = start.hasReason("Velocity") || context.getRiptideLiftStuck() != null;
-        if (BubbleColumn.beforeElytra(context) && !replaced) {
-            minStart = BubbleColumn.apply(context, lastResult, start, Double.NEGATIVE_INFINITY);
-            maxStart = BubbleColumn.apply(context, lastResult, start, Double.POSITIVE_INFINITY);
-        }
         // FireworkRocketEntity#tick runs after the LocalPlayer's tick and boosts the stored velocity once per
         // attached rocket with that tick's look; a server velocity set is handled after it and replaces it.
         int fireworks = replaced ? 0 : player.compensatedFireworks.getMaxFireworksAppliedPossible();
@@ -71,10 +66,6 @@ public class ElytraTransform implements UncertaintyHandler {
         PredVector minCarried = minStart, maxCarried = maxStart;
         if (pushed != null) {
             minCarried = maxCarried = pushed.carried;
-            if (BubbleColumn.beforeElytra(context)) {
-                minCarried = BubbleColumn.apply(context, lastResult, pushed.carried, Double.NEGATIVE_INFINITY);
-                maxCarried = BubbleColumn.apply(context, lastResult, pushed.carried, Double.POSITIVE_INFINITY);
-            }
         }
         Vec3[] boostedMin = {minCarried, minCarried};
         Vec3[] boostedMax = {maxCarried, maxCarried};

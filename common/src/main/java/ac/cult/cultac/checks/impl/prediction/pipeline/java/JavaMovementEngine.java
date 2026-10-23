@@ -53,8 +53,7 @@ public final class JavaMovementEngine implements MovementEngine {
             CultPlayer player,
             Set<Vec3> startingVelocities,
             SimulationContext context,
-            PredictionResult lastPrediction,
-            boolean canTickSkip) {
+            PredictionResult lastPrediction) {
         if (context.getProfileCarry() instanceof JavaPredictionCarry selected
                 && !selected.states().isEmpty()
                 && player.checkManager.getSimulationProcessor().getCurrentPredictionCarry()
@@ -75,7 +74,7 @@ public final class JavaMovementEngine implements MovementEngine {
             for (Vec3 velocity : startingVelocities) shoved.add(shove.velocityAfter(velocity));
             startingVelocities = shoved;
         }
-        return modifiers.applyModifers(player, startingVelocities, context, lastPrediction, canTickSkip);
+        return modifiers.applyModifers(player, startingVelocities, context, lastPrediction);
     }
 
     /** What the shulker box block shoves after this travel leave, from 26.3, when any reaches the player, else null. */
@@ -92,21 +91,11 @@ public final class JavaMovementEngine implements MovementEngine {
     }
 
     /**
-     * A clean candidate from the carried velocity beats a clean tick-skip start. Of two equally flagged candidates from
-     * the same start (tick skip and packet velocities), the one nearer the client's move is the movement it ran; across
-     * other starts the start-velocity sort order stands.
+     * Of two equally flagged candidates from the same start (the same packet velocities), the one nearer the client's
+     * move is the movement it ran; across starts the start-velocity sort order stands.
      */
     @Override
     public boolean isBetterCandidate(PredictionResult candidate, PredictionResult currentBest) {
-        // A tick end proves LocalPlayer#tick ran each unsent tick, so the carried velocity is the client's
-        // start; its Entity#move collisions drive SlimeBlock#bounceUp, SlimeBlock#stepOn and Entity#onGround.
-        if (currentBest != null
-                && candidate.getFlagSeverity() == 0.0
-                && currentBest.getFlagSeverity() == 0.0
-                && currentBest.getInitialStartingVel().isTickSkip()
-                && !candidate.getInitialStartingVel().isTickSkip()) {
-            return true;
-        }
         if (currentBest == null
                 || candidate.getFlagSeverity() != currentBest.getFlagSeverity()
                 || !candidate.getInitialStartingVel().hasSameStartAs(currentBest.getInitialStartingVel())) {
@@ -175,7 +164,7 @@ public final class JavaMovementEngine implements MovementEngine {
             NextTickVelocityDeriver.Scratch scratch) {
         if (result.getSimulationContext().getVehicle() != null)
             settleRiddenSupport(player, result, JavaFallDistance.movement(result, acceptedDiff));
-        if (contextUsesExactEffects(result.getSimulationContext())) {
+        {
             var moved = JavaFallDistance.afterCollision(player, result, acceptedDiff);
             result.setJavaCommittedMove(moved);
             Set<Vec3> velocities = NextTickVelocityDeriver.beforeBlockEffects(
@@ -184,21 +173,39 @@ public final class JavaMovementEngine implements MovementEngine {
             Vec3 end = result.getSimulationContext().getStart().add(moved.movement());
             var states = new ArrayList<JavaPredictionCarry.State>(velocities.size());
             var nextVelocities = new LinkedHashSet<Vec3>(velocities.size() * 2);
+            // Protocol 773 is both 1.21.9, whose bubble columns act on any contact, and 1.21.10, which needs a
+            // precise one.
+            boolean[] preciseBubbles = result.getSimulationContext().getVersion() == ClientVersion.V_1_21_9
+                    ? new boolean[] {true, false}
+                    : new boolean[] {true};
+            boolean slimeStep = JavaInsideBlockEffects.stepsOnSlime(player, result, moved);
             for (Vec3 velocity : velocities) {
-                Vec3 stepped = JavaInsideBlockEffects.stepOn(player, result, moved, velocity);
-                var effects = JavaInsideBlockEffects.resolve(
-                        player, result, scan, moved.fallDistance(), stepped, moved.landed());
-                effects = afterActorTick(player, result.getSimulationContext(), moved.movement(), effects);
-                effects = GeyserVelocity.applyToState(player, result, end, effects);
-                ShulkerBoxShoveResult shove = shulkerBoxShoveAfterTravel(result);
-                if (shove != null)
-                    effects = new JavaInsideBlockEffects.State(
-                            effects.fallDistance(), shove.velocityAfter(effects.velocity()), effects.stuckSpeed());
-                var state =
-                        new JavaPredictionCarry.State(effects.velocity(), effects.fallDistance(), effects.stuckSpeed());
-                if (!states.contains(state)) {
-                    states.add(state);
-                    nextVelocities.add(state.velocity());
+                for (boolean preciseBubble : preciseBubbles) {
+                    var effects = JavaInsideBlockEffects.resolve(
+                            player,
+                            result,
+                            scan,
+                            moved.fallDistance(),
+                            velocity,
+                            moved.landed(),
+                            slimeStep,
+                            preciseBubble);
+                    effects = afterActorTick(player, result.getSimulationContext(), moved.movement(), effects);
+                    effects = GeyserVelocity.applyToState(player, result, end, effects);
+                    ShulkerBoxShoveResult shove = shulkerBoxShoveAfterTravel(result);
+                    // The first shove's Entity#move consumes the multiplier this travel's pass set and clears
+                    // Entity#deltaMovement (26.3 :761-767).
+                    if (shove != null)
+                        effects = new JavaInsideBlockEffects.State(
+                                effects.fallDistance(),
+                                effects.stuckSpeed() != null ? Vec3.ZERO : shove.velocityAfter(effects.velocity()),
+                                null);
+                    var state = new JavaPredictionCarry.State(
+                            effects.velocity(), effects.fallDistance(), effects.stuckSpeed());
+                    if (!states.contains(state)) {
+                        states.add(state);
+                        nextVelocities.add(state.velocity());
+                    }
                 }
             }
             var stateList = List.copyOf(states);
@@ -223,10 +230,6 @@ public final class JavaMovementEngine implements MovementEngine {
                     stateList);
             return new PredictionCommit(carry, nextVelocities);
         }
-        return new PredictionCommit(
-                JavaFallDistance.commit(player, result, acceptedDiff),
-                NextTickVelocityDeriver.findVelocitiesForNextTick(
-                        player, result, lastPrediction, acceptedDiff, scratch));
     }
 
     /**
@@ -261,8 +264,9 @@ public final class JavaMovementEngine implements MovementEngine {
         if (scan == null) return carry;
         List<JavaPredictionCarry.State> states = new ArrayList<>(carry.states());
         for (JavaPredictionCarry.State state : carry.states()) {
+            // Only the stuck state is read, which neither SlimeBlock#stepOn nor a bubble column touches.
             var effects = JavaInsideBlockEffects.resolve(
-                    player, last, scan, moved.fallDistance(), state.velocity(), moved.landed());
+                    player, last, scan, moved.fallDistance(), state.velocity(), moved.landed(), false, true);
             if (effects.stuckSpeed() == null || effects.stuckSpeed().equals(state.stuckSpeed())) continue;
             var stuck = new JavaPredictionCarry.State(state.velocity(), effects.fallDistance(), effects.stuckSpeed());
             if (!states.contains(stuck)) states.add(stuck);
@@ -295,16 +299,5 @@ public final class JavaMovementEngine implements MovementEngine {
     private static boolean hasMatchingVelocity(JavaPredictionCarry carry, Set<Vec3> velocities) {
         for (var state : carry.states()) if (velocities.contains(state.velocity())) return true;
         return false;
-    }
-
-    public static boolean contextUsesExactEffects(SimulationContext context) {
-        return context != null && supportsExactEffects(context.getVersion());
-    }
-
-    public static boolean supportsExactEffects(ClientVersion version) {
-        // 1.21.11 Entity#checkInsideBlocks already uses the same axis-ordered,
-        // step-based callbacks after travel/landing as 26.1 and 26.2. In particular,
-        // powder snow's inside shape must observe the fall distance at that step.
-        return version.isNewerThanOrEquals(ClientVersion.V_1_21_11);
     }
 }

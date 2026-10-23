@@ -9,6 +9,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -27,6 +28,8 @@ class JavaGlideStopTest {
             var end = new Vec3(310.58527805685776, 82.33158785369419, -79.75710919209625);
             prepare(player, start, ClientVersion.V_26_3);
             player.isSprinting = true;
+            // The recording held forward and sprint; its air tick moves by exactly that input.
+            player.packetStateData.knownInput = new KnownInput(true, false, false, false, false, false, true);
             player.compensatedWorld.updateBlock(new BlockPos(310, 82, -81), BlockIds.SCAFFOLDING.defaultState());
             var runner = player.checkManager.getSimulationProcessor();
             runner.seedStartingVelocity(new Vec3(-0.11329486970119805, 0.11760000228881837, 0.13650000935792939));

@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBoxPool;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -105,9 +106,13 @@ public class CollisionModifier implements UncertaintyHandler {
                 : context.getStart();
         boolean onGround = delta.y < 0.0D && delta.y != travel.y;
         // Player#tick ends with updatePlayerPose (26.3 :284), at the travel's end, before Level#tickBlockEntities.
-        Pose pose = player.updatedPose(context.getWorldData().isSwimming(), end.x, end.y, end.z);
-        ShulkerBoxShoveResult shove =
-                player.compensatedWorld.shoveByShulkerBoxes(context, shoves, end, pose, onGround, true);
+        Pose pose = player.updatedPose(context.getWorldData().isSwimming(trace.position()), end.x, end.y, end.z);
+        // LivingEntity#aiStep's applyEffectsFromBlocks sets the multiplier the first shove meets from the travel.
+        SimpleCollisionBox travelFrom = context.getFromActualPose().copy();
+        SimpleCollisionBox travelTo = travelFrom.copy().offset(end.subtract(context.getStart()));
+        Vec3 travelStuckSpeed = WorldStageBuilder.stuckSpeedAlong(player, context, travelFrom, travelTo, end);
+        ShulkerBoxShoveResult shove = player.compensatedWorld.shoveByShulkerBoxes(
+                context, shoves, end, pose, onGround, true, travelStuckSpeed);
         if (shove == null) return trace;
         Vec3 movement = shove.movement();
         return new MovementTrace(
@@ -218,6 +223,7 @@ public class CollisionModifier implements UncertaintyHandler {
 
     private static Vec3 horizontalInputTowards(Vec3 movement, Vec3 end, PredictionResult inputSource) {
         if (inputSource == null || inputSource.getSimulationContext() == null) return Vec3.ZERO;
+        if (movement instanceof PredVector vector && vector.isInputApplied()) return Vec3.ZERO;
         double dx = end.x - movement.x;
         double dz = end.z - movement.z;
         double distance = Math.sqrt(dx * dx + dz * dz);

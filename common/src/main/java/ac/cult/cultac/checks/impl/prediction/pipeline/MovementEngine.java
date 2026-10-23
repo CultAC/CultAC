@@ -35,8 +35,7 @@ public interface MovementEngine {
             CultPlayer player,
             Set<Vec3> startingVelocities,
             SimulationContext context,
-            PredictionResult lastPrediction,
-            boolean canTickSkip);
+            PredictionResult lastPrediction);
 
     List<PredVector> startingVelocities(
             VelocityTransformer transformer, CultPlayer player, List<PredVector> input, SimulationContext context);

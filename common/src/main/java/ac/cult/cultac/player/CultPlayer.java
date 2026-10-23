@@ -329,6 +329,7 @@ public class CultPlayer implements GrimUser {
     public @MonotonicNonNull GameMode gamemode;
     /** The mode of the last packet the server sent, which the client only adopts once it acknowledges that packet. */
     public @MonotonicNonNull GameMode serverGamemode;
+
     public @MonotonicNonNull String dimension;
     public @Nullable String world;
     public @Nullable Vec3 bedPosition;
@@ -803,15 +804,17 @@ public class CultPlayer implements GrimUser {
      * a ping. ClientPacketListener#handleBundlePacket handles the whole bundle in one task and handlePing answers
      * inside it, so the update shares the latest CultAC ping already in that bundle. Without one, a ping is
      * written directly before the update and opens the bundle, or makes the host bundle it is in the flush bundle.
-     * A Bedrock player's flush group shares its ping the same way, to keep one ping per flush, though Geyser does
-     * not hand the client the group as one task. Standalone level/player packets require a trailing proof instead.
+     * Geyser hands a Bedrock client each packet of the group separately, so a ping before the update can be answered
+     * before the client applies it; a Bedrock update, like a standalone level/player packet, needs a trailing proof.
      */
     public int appendFlushProofTransaction(PacketSendEvent<?> event) {
         // A listener may already have bracketed this packet. A new leading ping would be allocated later
         // but emitted before those older proofs, violating transaction order on the wire.
         if (event.receiptProof() > 0) return event.receiptProof();
         var connection = user.getCultConnection();
-        if (!connection.isPreparingWrites() || PacketBundlePolicy.requiresStandalone(event.getPacketType())) {
+        if (!connection.isPreparingWrites()
+                || !clientHandlesBundles()
+                || PacketBundlePolicy.requiresStandalone(event.getPacketType())) {
             TrackedTransaction proof = appendTrailingProofTransaction(event);
             return proof == null ? -1 : proof.transaction();
         }
@@ -856,14 +859,15 @@ public class CultPlayer implements GrimUser {
      * encoder bundles a packet that expands to several frames, and ClientPacketListener#handleBundlePacket
      * handles the sub-packets in order in one task, so the pong proves the packet was applied before the
      * client's next tick. In a Java flush bundle that already holds a CultAC ping, that ping is handled in the
-     * same task and proves the packet without another. Standalone packets instead retain a FIFO trailing proof,
-     * without claiming bundle atomicity or application before the next client tick. Protocol transitions cannot
-     * carry an old-phase proof. Returns null, writing nothing, when no transaction can be sent.
+     * same task and proves the packet without another. Standalone packets, and every packet to a Bedrock client,
+     * which has no bundles, instead retain a FIFO trailing proof, without claiming bundle atomicity or application
+     * before the next client tick. Protocol transitions cannot carry an old-phase proof. Returns null, writing
+     * nothing, when no transaction can be sent.
      */
     @Nullable
     public TrackedTransaction appendTrailingProofTransaction(
             PacketSendEvent<?> event, List<CultWrite> packetsBeforeProof) {
-        int shared = !isBedrockMovement() && PacketBundlePolicy.requiresStandalone(event.getPacketType())
+        int shared = !clientHandlesBundles() || PacketBundlePolicy.requiresStandalone(event.getPacketType())
                 ? 0
                 : event.flushPing();
         if (shared > 0) {
@@ -871,6 +875,14 @@ public class CultPlayer implements GrimUser {
             return new TrackedTransaction(shared, null);
         }
         return writeTrailingProofTransaction(event, packetsBeforeProof);
+    }
+
+    /**
+     * Whether the client handles a flush bundle in one task, so any ping in it proves every packet in it. Geyser
+     * translates a Java bundle into separate Bedrock packets.
+     */
+    private boolean clientHandlesBundles() {
+        return user.getCultConnection().bedrockBridge() == null;
     }
 
     /**
@@ -1150,11 +1162,11 @@ public class CultPlayer implements GrimUser {
             return desiredPose;
         }
 
-        // The vanilla local player only evaluates pose fallback when it can fit the
-        // swimming box, then falls back from the desired pose to crouching and finally
-        // to swimming based on exact collision tests at the current position.
+        // Player#updatePlayerPose only sets a pose when the swimming box fits, falling
+        // back from the desired pose to crouching and finally to swimming based on
+        // exact collision tests at the current position; otherwise the pose is kept.
         if (!canPlayerFitWithinBlocksAndEntitiesWhen(Pose.SWIMMING, x, y, z)) {
-            return desiredPose;
+            return pose;
         }
 
         if (gamemode == GameMode.SPECTATOR
@@ -1469,23 +1481,13 @@ public class CultPlayer implements GrimUser {
         return 0.0002;
     }
 
-    // Alright, someone at mojang decided to not send a flying packet every tick with 1.9
-    // Thanks for wasting my time to save 1 MB an hour
-    //
-    // MEANING, to get an "acceptable" 1.9+ reach check, we must only treat it like a 1.8 clients
-    // when it is acting like one and sending a packet every tick.
-    //
-    // There are two predictable scenarios where this happens:
-    // 1. The player moves more than 0.03/0.0002 blocks every tick
-    //     - This code runs after the prediction engine to prevent a false when immediately switching back to 1.9-like
-    // movements
-    //     - 3 ticks is a magic value, but it should buffer out incorrect predictions somewhat.
-    // 2. The player is in a vehicle
+    // True when LocalPlayer#sendPosition sent a position on each of the last ticks: it withholds one within
+    // the movement threshold of the last sent position. A vehicle's movement is not withheld this way.
     public boolean isTickingReliablyFor(int ticks) {
         if (compensatedEntities.getSelf().inVehicle()) {
             return true;
         }
-        return !checkManager.getSimulationProcessor().getLastTickSkip().hasOccurredSince(ticks);
+        return !checkManager.getSimulationProcessor().getLastNoPositionTick().hasOccurredSince(ticks);
     }
 
     @Contract(pure = true)
@@ -1501,10 +1503,6 @@ public class CultPlayer implements GrimUser {
 
     public ac.cult.cultac.protocol.value.Hand getClientItemUseHand() {
         return usesModernJavaItemUse() ? clientItemUse.hand() : packetStateData.itemInUseHand;
-    }
-
-    public boolean canThePlayerBeCloseToZeroMovement(int ticks) {
-        return checkManager.getSimulationProcessor().getLastTickSkip().hasOccurredSince(ticks);
     }
 
     public ac.cult.cultac.utils.latency.ClientWorldRegistries getWorldRegistries() {

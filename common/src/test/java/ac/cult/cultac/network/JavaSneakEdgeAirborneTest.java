@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
@@ -90,6 +91,10 @@ class JavaSneakEdgeAirborneTest {
             Vec3 position = new Vec3(0.5, POST_TOP + 1.0, z);
             f.place(position, new Vec3(0.0, vy, startZ));
             f.input(SNEAK);
+            // The shift was already held on the tick before, so LocalPlayer#aiStep crouches from the first falling
+            // tick.
+            JavaTickFixture.setField(
+                    SimulationProcessor.class, f.player.checkManager.getSimulationProcessor(), "lastSneaking", true);
 
             for (int tick = 0; tick < 3; tick++) {
                 position = position.add(0.0, vy, dz[tick]);

@@ -53,7 +53,6 @@ import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.data.ClientItemUseState;
-import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import com.google.common.collect.ClassToInstanceMap;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -261,27 +260,30 @@ public final class OrderedLegacyCheckDispatchTest {
         }
     }
 
+    /**
+     * LocalPlayer#sendPosition's xLast cache: neither the pre-26.3 PosRot echo of a teleport nor the 26.3 acceptance
+     * writes it, so the answer is not judged and the next tick is judged against the cache from before the teleport.
+     */
     @Test
-    public void badPacketsVTeleportGraceExpiresAfterOneCompletedTick() throws Exception {
+    public void badPacketsVKeepsItsSentPositionAcrossATeleportAnswer() throws Exception {
         CultPlayer player = offlineJavaPlayer();
         player.setDisabled(true);
         try {
             BadPacketsV check = player.checkManager.getListener(BadPacketsV.class);
-            ServerboundMovePlayer movement = new ServerboundMovePlayer(0, 0, 0, 0, 0, true, false, false, false);
+            ServerboundMovePlayer sent = new ServerboundMovePlayer(1, 64, 2, 0, 0, true, false, true, false);
+            player.packetStateData.lastPacketWasTeleport = false;
+            check.onMovePlayer(receiveEvent(player, sent), player, sent);
 
+            ServerboundMovePlayer answer = new ServerboundMovePlayer(30, 70, -5, 0, 0, true, false, true, true);
             player.packetStateData.lastPacketWasTeleport = true;
-            check.onMovePlayer(receiveEvent(player, movement), player, movement);
+            check.onMovePlayer(receiveEvent(player, answer), player, answer);
 
-            Field field = BadPacketsV.class.getDeclaredField("lastTeleportTicks");
-            field.setAccessible(true);
-            LastInstance grace = (LastInstance) field.get(check);
-            assertTrue(grace.hasOccurredSince(1));
-
-            player.lastInstanceManager.onPredictionComplete(null);
-            assertTrue(grace.hasOccurredSince(1));
-
-            player.lastInstanceManager.onPredictionComplete(null);
-            assertFalse(grace.hasOccurredSince(1));
+            for (String axis : new String[] {"sentX", "sentY", "sentZ"}) {
+                Field field = BadPacketsV.class.getDeclaredField(axis);
+                field.setAccessible(true);
+                double expected = axis.equals("sentX") ? 1 : axis.equals("sentY") ? 64 : 2;
+                assertTrue(axis, field.getDouble(check) == expected);
+            }
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

@@ -4,6 +4,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
 import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
@@ -202,14 +203,12 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             }
         }
 
-        if (riding instanceof PacketEntityCamel camel && camel.actionAlive) {
-            // LocalPlayer#aiStep set zza from the keys this tick's root reads.
-            camel.tickRidden(player.boatData.vehicleForward > 0.0F, player.compensatedWorld.clientGameTime());
-            // Camel#tick then stands a sitting camel up at once in water; Entity#baseTick set isInWater at the start.
-            if (camel.isCamelSitting()
-                    && result.getSimulationContext().getWorldData().isVehicleInWater()) {
-                camel.standUpInstantly(player.compensatedWorld.clientGameTime());
+        if (riding instanceof PacketEntityCamel camel) {
+            if (camel.actionAlive) {
+                // LocalPlayer#aiStep set zza from the keys this tick's root reads.
+                camel.tickRidden(player.boatData.vehicleForward > 0.0F, player.compensatedWorld.clientGameTime());
             }
+            if (!player.isBedrockMovement()) standUpInWater(camel, result);
         }
 
         // For performance reasons - and to make debugging less painful - don't try spamming jumps
@@ -229,6 +228,18 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
                     camel.dashing = true;
                 }
             }
+        }
+    }
+
+    /** Camel#tick stands a seated camel in water up after LivingEntity#tick's travel and Camel#tickRidden. */
+    private void standUpInWater(PacketEntityCamel camel, PredictionResult result) {
+        if (!camel.isCamelSitting()) return;
+        // Camel#tick reads isInWater after the move: Entity#baseTick set it from the blocks the client held this
+        // tick, and LivingEntity#checkFallDamage refreshed it after the move unless the camel was already in water.
+        var context = result.getSimulationContext();
+        if (context.getWorldData().isVehicleInWater()
+                || JavaFallDistance.touchesWater(player, context, context.getEnd())) {
+            camel.standUpInstantly(player.compensatedWorld.clientGameTime());
         }
     }
 

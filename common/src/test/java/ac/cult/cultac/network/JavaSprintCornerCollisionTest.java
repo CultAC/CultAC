@@ -15,6 +15,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.sprint.SprintE;
@@ -69,7 +70,8 @@ class JavaSprintCornerCollisionTest {
      * The real client's recorded moves from {@link #landingInACornerKeepsTheSprint}, replayed without the
      * STOP_SPRINTING it sent after the jump. That test asserts the jump's collision is hard, on which
      * LocalPlayer#shouldStopRunSprinting stops the sprint; SprintE adds one violation for each later move that still
-     * sprints.
+     * sprints. Its air moves travelled by the walking flying speed, short of the sprint flag's Player#getFlyingSpeed:
+     * the wall clips the first to the same end either way, but the reported keys do not explain the second.
      */
     @Test
     void sprintContinuingAfterAHardCollisionAddsViolations() throws Exception {
@@ -81,7 +83,7 @@ class JavaSprintCornerCollisionTest {
             c.move(1.0, 121.4102639754279, 73.7531999805212, 165.69999998807907, false);
             f.player.xRot = -352.76086F;
             f.player.yRot = 30.195354F;
-            c.move(2.0, 121.37044541000586, 74.00133597911214, 165.71944371692285, false);
+            c.moveAgainstTheKeys(2.0, 121.37044541000586, 74.00133597911214, 165.71944371692285);
         }
     }
 
@@ -353,6 +355,15 @@ class JavaSprintCornerCollisionTest {
         PredictionResult move(double violations, double x, double y, double z, boolean onGround) {
             PredictionResult result = f.tick(new Vec3(x, y, z), onGround);
             assertTrue(exact(result), describe(result));
+            assertEquals(violations, sprintE.violations, describe(result));
+            return result;
+        }
+
+        /** An air move the engine predicts exactly but the reported keys do not; SprintE holds {@code violations}. */
+        PredictionResult moveAgainstTheKeys(double violations, double x, double y, double z) {
+            PredictionResult result = f.tick(new Vec3(x, y, z), false);
+            assertTrue(result.getOffset() < 1.0E-5, describe(result));
+            assertTrue(result.hasFlag(InputKeys.class), describe(result));
             assertEquals(violations, sprintE.violations, describe(result));
             return result;
         }

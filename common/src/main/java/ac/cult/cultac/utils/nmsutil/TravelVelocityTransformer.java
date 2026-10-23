@@ -1,8 +1,6 @@
 package ac.cult.cultac.utils.nmsutil;
 
-import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
@@ -82,28 +80,6 @@ public final class TravelVelocityTransformer {
                 && result.getInitialStartingVel() != null) {
             double flightY = result.getInitialStartingVel().y * 0.6;
             frictions.replaceAll(velocity -> new Vec3(velocity.x, flightY, velocity.z));
-        }
-
-        // MCP-Reborn Strider#floatStrider only rewrites deltaMovement from the
-        // post-travel Strider#tick path while the strider is actually in lava.
-        if (!JavaMovementEngine.contextUsesExactEffects(result.getSimulationContext())
-                && result.getSimulationContext().getVehicle() != null
-                && result.getSimulationContext().getVehicle().type == EntityTypeIds.STRIDER
-                && result.getSimulationContext()
-                        .getWorldData()
-                        .getInLava()
-                        .getStates()
-                        .contains(true)
-                && !(Above.isAbove(player.y)
-                        && player.compensatedWorld.getLavaFluidLevelAt(
-                                        (int) Math.floor(player.x), (int) Math.floor(player.y + 1), (int)
-                                                Math.floor(player.z))
-                                == 0)) {
-            int size = frictions.size();
-            for (int i = 0; i < size; i++) {
-                Vec3 friction = frictions.get(i);
-                frictions.add(friction.scale(0.5).add(new Vec3(0, 0.05, 0)));
-            }
         }
 
         return frictions;

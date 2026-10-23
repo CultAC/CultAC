@@ -15,6 +15,8 @@ public final class ConfigPatcher {
 
     private final File file;
     private final List<String> lines;
+    // The operator's file keeps its own line separator, whatever the server's platform.
+    private final String lineSeparator;
     private final Map<String, NodePosition> locationMap;
 
     // ... (formatValue and YAML_KEYWORDS/SPECIAL_CHARS constants are unchanged) ...
@@ -25,6 +27,8 @@ public final class ConfigPatcher {
 
     public ConfigPatcher(File configFile) throws IOException {
         this.file = configFile;
+        String text = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
+        this.lineSeparator = text.contains("\r\n") ? "\r\n" : text.contains("\n") ? "\n" : System.lineSeparator();
         this.lines = Files.readAllLines(configFile.toPath(), StandardCharsets.UTF_8);
         this.locationMap = new HashMap<>();
         mapFile();
@@ -162,7 +166,7 @@ public final class ConfigPatcher {
         String indentStr = " ".repeat(indentation);
         for (int i = 0; i < list.size(); i++) {
             block.append(indentStr).append("- ").append(formatValue(list.get(i)));
-            if (i < list.size() - 1) block.append(System.lineSeparator());
+            if (i < list.size() - 1) block.append(lineSeparator);
         }
         return block.toString();
     }
@@ -251,7 +255,9 @@ public final class ConfigPatcher {
         Path target = file.toPath().toAbsolutePath();
         Path temporary = Files.createTempFile(target.getParent(), ".cult-config-", ".tmp");
         try {
-            Files.write(temporary, lines, StandardCharsets.UTF_8);
+            StringBuilder text = new StringBuilder();
+            for (String line : lines) text.append(line).append(lineSeparator);
+            Files.writeString(temporary, text, StandardCharsets.UTF_8);
             try {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException unsupported) {

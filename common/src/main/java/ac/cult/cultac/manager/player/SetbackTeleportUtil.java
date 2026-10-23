@@ -108,6 +108,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     public final ConcurrentLinkedDeque<TeleportData> pendingTeleports = new ConcurrentLinkedDeque<>();
     /** The teleport whose ID a pre-26.3 client sent last, until the PosRot that must follow it. */
     private TeleportData awaitingPosRot;
+
     private final ConcurrentLinkedQueue<VehicleTeleport> vehicleTeleports = new ConcurrentLinkedQueue<>();
     private BedrockCoordinateFrame activeBedrockCoordinateFrame = BedrockCoordinateFrame.IDENTITY;
 
@@ -195,7 +196,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     player.checkManager.getSimulationProcessor().getLastPrediction();
 
             MovementTrace trace = MovementTrace.start(initialVel);
-            for (UncertaintyHandler modifier : UncertaintyPipeline.MODIFIERS_FOR_SETBACKS) {
+            for (UncertaintyHandler modifier : UncertaintyPipeline.MODIFIERS) {
                 trace = modifier.handleMovementTrace(
                         player,
                         result.getValidMovements(),
@@ -752,7 +753,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                             data.getTeleportData().getTransaction());
                 } else {
                     sendPlayerSetbackPackets(
-                            teleportId, position, data.getTeleportData().getFlags().getMask());
+                            teleportId,
+                            position,
+                            data.getTeleportData().getFlags().getMask());
                 }
             }
 
@@ -1966,7 +1969,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         // if the player must move
         if (player.checkManager
                 .getSimulationProcessor()
-                .tryToAchievePointThree(new Vec3(player.x, player.y, player.z), player.xRot, player.yRot)
+                .predictZeroMovement(new Vec3(player.x, player.y, player.z), player.xRot, player.yRot)
                 .getFlags()
                 .isEmpty()) {
             return;

@@ -10,10 +10,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 final class BedrockCollisionClipper {
+    // The ordinary move-request configuration supplies the unit vector as its per-axis depenetration limit.
     static final float DEFAULT_MAX_DEPENETRATION = 1.0F;
 
     static float maximumDepenetration(ac.cult.cultac.bedrock.prediction.state.BedrockMovementState state) {
-        return state.isVehicle() ? 0.0F : 0.01F;
+        return state.isVehicle() ? 0.0F : DEFAULT_MAX_DEPENETRATION;
     }
 
     private BedrockCollisionClipper() {}

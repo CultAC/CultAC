@@ -113,6 +113,7 @@ public final class ClientFluidQueries {
         private static final Sample EMPTY = new Sample(false, false, 0.0D);
     }
 
+    /** Entity#isEyeInFluid(WATER) for the actual eye Y, as the client's last fluid update computed it. */
     public static boolean eyesInWater(CultPlayer player, SimpleCollisionBox body, Vec3 feet, double eyeY) {
         if (!player.isBedrockMovement()) {
             // EntityFluidInteraction#update samples the eye from 26.1.

@@ -1,13 +1,18 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAnimate;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
@@ -15,6 +20,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 public class PacketSelfMetadataListener {
@@ -76,7 +82,7 @@ public class PacketSelfMetadataListener {
                     WatchableIndexUtil.getIndex(entityMetadata, WatchableIndexUtil.ENTITY_SHARED_FLAGS);
             if (watchable != null) {
                 // The newest flags the server sent; resyncPose resends them as server truth.
-                player.serverSentSelfSharedFlags = watchable;
+                player.serverSentSelfSharedFlags = watchable.detach();
                 Object zeroBitField = watchable.value();
                 if (zeroBitField instanceof Byte fieldByte) {
                     final byte field = fieldByte;
@@ -120,20 +126,9 @@ public class PacketSelfMetadataListener {
                 Runnable applyBedMetadata = () -> {
                     if (bed.isPresent()) {
                         player.isInBed = true;
-                        BlockPos bedPos = bed.get();
-                        player.bedPosition = new Vec3(
-                                bedPos.getX() + 0.5,
-                                bedPos.getY()
-                                        + (player.getClientVersion()
-                                                                .isNewerThanOrEquals(
-                                                                        ac.cult.cultac.network.protocol.ClientVersion
-                                                                                .V_26_3)
-                                                        && ac.cult.blocksim.data.BlockIds.is(
-                                                                player.compensatedWorld.getBlockStateIdAt(bedPos),
-                                                                ac.cult.blocksim.data.BlockIds.STRAW_BED)
-                                                ? 0.375
-                                                : 0.6875),
-                                bedPos.getZ() + 0.5);
+                        Vec3 sleeping = positionOnBed(player, bed.get());
+                        // Without a sleep height the client stays where it is.
+                        if (sleeping != null) player.bedPosition = sleeping;
                     } else {
                         player.isInBed = false;
                     }
@@ -244,6 +239,38 @@ public class PacketSelfMetadataListener {
             return;
         }
         player.latencyUtils.addRealTimeTask(proof.transaction(), task);
+    }
+
+    /** LivingEntity#setPosToBed as the client applies a received sleeping position. */
+    private static Vec3 positionOnBed(CultPlayer player, BlockPos bedPos) {
+        boolean v26_3 = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3);
+        if (!v26_3 || player.isBedrockMovement()) {
+            // 26.2 moves onto any sleeping position; the Bedrock bridge keeps its existing heights.
+            boolean straw = v26_3 && BlockIds.is(player.compensatedWorld.getBlockStateIdAt(bedPos), BlockIds.STRAW_BED);
+            return new Vec3(bedPos.getX() + 0.5, bedPos.getY() + (straw ? 0.375 : 0.6875), bedPos.getZ() + 0.5);
+        }
+        // 26.3 moves only onto an AbstractBedBlock with a sleep height: the laying-on shape's top plus 0.125.
+        var registry = DataTables.defaults().registry();
+        int state = player.compensatedWorld.getBlockStateIdAt(bedPos);
+        double sleepHeight;
+        if (BlockIds.is(state, BlockIds.STRAW_BED)) {
+            // StrawBedBlock#getSleepHeight lays a head on its connected foot, a 4 pixel column.
+            if (registry.value(state, "part").equals("head")) {
+                Direction facing =
+                        Direction.valueOf(registry.value(state, "facing").toUpperCase(Locale.ROOT));
+                int foot = player.compensatedWorld.getBlockStateIdAt(bedPos.relative(facing.getOpposite()));
+                if (!BlockIds.is(foot, BlockIds.STRAW_BED)
+                        || !registry.value(foot, "part").equals("foot")) {
+                    return null;
+                }
+            }
+            sleepHeight = 0.25;
+        } else if (BlockFamilies.BED.test(state)) {
+            sleepHeight = 0.5625;
+        } else {
+            return null;
+        }
+        return new Vec3(bedPos.getX() + 0.5, bedPos.getY() + sleepHeight + 0.125, bedPos.getZ() + 0.5);
     }
 
     private static void addTaskAfterPacketProof(PacketSendEvent<?> event, CultPlayer player, Runnable task) {

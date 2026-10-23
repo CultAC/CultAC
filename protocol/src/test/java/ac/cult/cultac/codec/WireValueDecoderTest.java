@@ -596,18 +596,22 @@ class WireValueDecoderTest {
                         new EntityData(0, field(data, "byteType"), (byte) 2),
                         new EntityData(9, field(data, "floatType"), 1.5f),
                         new EntityData(6, field(data, "poseType"), 3),
-                        new EntityData(8, field(data, "optionalVarIntType"), 0));
+                        new EntityData(8, field(data, "optionalVarIntType"), 0),
+                        // Camel.LAST_POSE_CHANGE_TICK, negative while the camel sits.
+                        new EntityData(20, field(data, "longType"), -1234L));
                 var input = Unpooled.buffer();
                 try {
                     types.entityDataList().write(input, entries);
                     byte[] original = ByteBufUtil.getBytes(input);
                     var decoded = decoder.metadata(version, input, names(version));
-                    assertEquals(4, decoded.size());
+                    assertEquals(5, decoded.size());
                     assertFalse(input.isReadable());
                     assertEquals("pose", decoded.get(2).kind());
                     assertEquals(3, decoded.get(2).value());
                     assertEquals("optional_int", decoded.get(3).kind());
                     assertEquals(0, decoded.get(3).value());
+                    assertEquals("value", decoded.get(4).kind());
+                    assertEquals(-1234L, decoded.get(4).value());
                     var output = Unpooled.buffer();
                     try {
                         decoded.forEach(entry -> output.writeBytes(input, entry.offset(), entry.length()));

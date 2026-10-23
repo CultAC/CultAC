@@ -260,6 +260,7 @@ public final class CompensatedBlockEntities {
     }
 
     public void clear() {
+        lastTickShoves.clear();
         entries = null;
         ticking = null;
         added = null;

@@ -37,9 +37,9 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * LocalPlayer#sendChanges sends the keys KeyboardInput#tick read before the tick's position, and on the ground they add
- * exactly their input before Entity#move. Player#maybeBackOffFromEdge shortens that move only for a shift key, so a
- * Safe Walk client holding back without shift moves less than its keys, or not at all.
+ * LocalPlayer#sendChanges sends the keys KeyboardInput#tick read before the tick's position, and on the ground and in
+ * the air they add exactly their input before Entity#move. Player#maybeBackOffFromEdge shortens that move only for a
+ * shift key, so a Safe Walk client holding back without shift moves less than its keys, or not at all.
  */
 class InputKeysTest {
     private static final ServerboundPlayerInput NONE =
@@ -59,6 +59,7 @@ class InputKeysTest {
     private static final double EDGE_Z = -8.299;
     private static final double WALK = (double) 0.98F * (double) 0.1F;
     private static final double SPRINT = (double) 0.98F * (double) 0.13F;
+    private static final double AIR = (double) 0.98F * (double) 0.02F;
     private static final double FRICTION = 0.6F * 0.91F;
 
     @Test
@@ -483,6 +484,137 @@ class InputKeysTest {
             assertExact(result);
             assertNoFlags(f);
             assertEquals(Pose.STANDING, f.player.pose);
+        }
+    }
+
+    @Test
+    void walkingDiagonallyAt1214IsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_4);
+            f.place(new Vec3(0.5, FLOOR_Y, 4.5), GROUNDED);
+            f.input(NONE);
+            assertExact(f.tick(new Vec3(0.5, FLOOR_Y, 4.5), true));
+
+            // Before 1.21.5 LivingEntity#aiStep scales each impulse by 0.98F, and Entity#getInputVector normalizes the
+            // diagonal.
+            f.input(BACK_LEFT);
+            Vec3 diagonal = new Vec3(0.98F, 0, -0.98F).normalize().scale(0.1F);
+            assertExact(f.tick(new Vec3(0.5 + diagonal.x, FLOOR_Y, 4.5 + diagonal.z), true));
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void sneakingDiagonallyAt1212IsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_2);
+            f.place(new Vec3(0.5, FLOOR_Y, 4.5), GROUNDED);
+            f.input(SNEAK);
+            assertExact(f.tick(new Vec3(0.5, FLOOR_Y, 4.5), true));
+
+            // 1.21.2 KeyboardInput#tick scales each impulse by the sneaking speed, which leaves the diagonal shorter
+            // than 1, so Entity#getInputVector does not normalize it.
+            f.input(new ServerboundPlayerInput(false, true, true, false, false, true, false));
+            float axis = 0.3F * 0.98F;
+            Vec3 diagonal = new Vec3(axis, 0, -axis).scale(0.1F);
+            assertExact(f.tick(new Vec3(0.5 + diagonal.x, FLOOR_Y, 4.5 + diagonal.z), true));
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void safeWalkShorteningTheMoveWithoutShiftAt1212IsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_2);
+            double z = -8.23;
+            f.place(new Vec3(0.5, FLOOR_Y, z), GROUNDED);
+            f.input(NONE);
+            assertExact(f.tick(new Vec3(0.5, FLOOR_Y, z), true));
+
+            f.input(BACK);
+            PredictionResult backedOff = f.tick(new Vec3(0.5, FLOOR_Y, z + (-WALK + 0.05)), true);
+
+            assertTrue(backedOff.hasFlag(InputKeys.class), describe(backedOff));
+        }
+    }
+
+    @Test
+    void movingWithoutEverSendingThePlayerInputAt1212IsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_2);
+            double z = -6;
+            f.place(new Vec3(0.5, FLOOR_Y, z), GROUNDED);
+            assertExact(f.tick(new Vec3(0.5, FLOOR_Y, z), true));
+
+            PredictionResult moved = f.tick(new Vec3(0.5, FLOOR_Y, z - WALK), true);
+
+            assertTrue(moved.hasFlag(InputKeys.class), describe(moved));
+        }
+    }
+
+    @Test
+    void fallingWhileHoldingTheReportedKeysIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 position = new Vec3(0.5, FLOOR_Y + 10, 4.5);
+            f.place(position, Vec3.ZERO);
+            f.input(BACK);
+            // LivingEntity#travelInAir moves by Player#getFlyingSpeed off the ground, then drags by 0.91F and 0.98F.
+            double velocityY = 0.0;
+            double velocityZ = 0.0;
+            for (int tick = 0; tick < 4; tick++) {
+                velocityZ -= AIR;
+                position = position.add(0, velocityY, velocityZ);
+                assertExact(f.tick(position, false));
+                velocityY = (velocityY - 0.08) * (double) 0.98F;
+                velocityZ *= (double) 0.91F;
+            }
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void sprintingInTheAirMovesByTheSprintFlagsFlyingSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 position = new Vec3(0.5, FLOOR_Y + 10, -4.5);
+            f.place(position, Vec3.ZERO);
+            f.player.isSprinting = true;
+            f.player.sprintState.onClientTick(true);
+            f.input(SPRINT_FORWARD);
+            // Player#getFlyingSpeed reads the sprint flag.
+            double sprintAir = (double) 0.98F * (double) 0.025999999F;
+            assertExact(f.tick(position.add(0, 0, sprintAir), false));
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void movingInTheAirWithoutKeysIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 position = new Vec3(0.5, FLOOR_Y + 10, 4.5);
+            f.place(position, Vec3.ZERO);
+            f.input(NONE);
+
+            PredictionResult moved = f.tick(position.add(0, 0, -AIR), false);
+
+            assertTrue(moved.hasFlag(InputKeys.class), describe(moved));
+        }
+    }
+
+    @Test
+    void strafingInTheAirAgainstTheReportedKeysIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 position = new Vec3(0.5, FLOOR_Y + 10, 4.5);
+            f.place(position, Vec3.ZERO);
+            // The client reports only back, yet moves sideways at the same air speed.
+            f.input(BACK);
+
+            PredictionResult moved = f.tick(position.add(AIR, 0, 0), false);
+
+            assertTrue(moved.hasFlag(InputKeys.class), describe(moved));
         }
     }
 

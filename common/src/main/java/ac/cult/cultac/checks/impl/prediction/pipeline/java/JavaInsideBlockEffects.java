@@ -2,24 +2,25 @@ package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
-import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.InsideBlockEffectScan;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 
-/** 26.1/26.2 Entity#checkInsideBlocks and the movement-affecting block callbacks. */
+/** Entity#checkInsideBlocks and the movement-affecting block callbacks, per client version. */
 public final class JavaInsideBlockEffects {
     private JavaInsideBlockEffects() {}
 
@@ -32,20 +33,44 @@ public final class JavaInsideBlockEffects {
     /** Returns {@code null} when no block callback can change any velocity resolved for this move. */
     public static Scan scan(CultPlayer player, PredictionResult result, Vec3 movement) {
         var context = result.getSimulationContext();
+        SimpleCollisionBox poseAtEnd = context.getToActualPose();
         PacketEntity actor =
                 context.getVehicle() == null ? context.getEntities().getSelf() : context.getVehicle();
         if (actor.isDead || player.gamemode == GameMode.SPECTATOR) return null;
         Vec3 end = context.getStart().add(movement);
-        SimpleCollisionBox to = context.getToActualPose().offset(end.subtract(context.getEnd()));
+        SimpleCollisionBox to = poseAtEnd.offset(end.subtract(context.getEnd()));
         SimpleCollisionBox from = to.copy().offset(movement.scale(-1));
         if (!InsideBlockEffectScan.mayHaveEffects(player, from, to, false)) return null;
         return new Scan(actor, end, from, to, attemptedMovement(result));
     }
 
+    /**
+     * {@code preciseBubble}: BubbleColumnBlock#entityInside acts only on a precise contact, as from 1.21.10. 1.21.9
+     * acts on any contact, and shares its protocol with 1.21.10, so it resolves both ways.
+     */
     public static State resolve(
-            CultPlayer player, PredictionResult result, Scan scan, double distance, Vec3 velocity, boolean landed) {
-        if (scan == null) return new State(distance, velocity, null);
+            CultPlayer player,
+            PredictionResult result,
+            Scan scan,
+            double distance,
+            Vec3 velocity,
+            boolean landed,
+            boolean slimeStep,
+            boolean preciseBubble) {
+        if (scan == null) {
+            // AbstractBoat#tick invokes applyEffectsFromBlocks twice, each pass running SlimeBlock#stepOn.
+            int passes = result.getSimulationContext().getVehicle() != null
+                            && result.getSimulationContext().getVehicle().isBoat()
+                    ? 2
+                    : 1;
+            for (int pass = 0; slimeStep && pass < passes; pass++) velocity = slimeStepOn(velocity);
+            return new State(distance, velocity, null);
+        }
         var context = result.getSimulationContext();
+        ClientVersion version = context.getVersion();
+        // Before 1.21.5, PowderSnowBlock keeps the full inside shape and BubbleColumnBlock tests the block above
+        // for air.
+        boolean legacyBlocks = version.isOlderThan(ClientVersion.V_1_21_5);
         Vec3 originalMovement = scan.originalMovement();
         State[] current = {new State(distance, velocity, null)};
         PacketEntity actor = scan.actor();
@@ -61,88 +86,104 @@ public final class JavaInsideBlockEffects {
         // AbstractBoat#tick invokes applyEffectsFromBlocks twice. The second pass
         // has no recorded axis-dependent movement and uses oldPosition -> position.
         int passes = actor.isBoat() ? 2 : 1;
+        Collisions.InsideBlockVisitor visitor = (segmentFrom, segmentTo, pos, precise) -> {
+            int block = player.compensatedWorld.getBlockStateIdAt(pos);
+            int effects = InsideBlockEffectScan.effects(block);
+            if (effects == 0) return false;
+            boolean powder = (effects & InsideBlockEffectScan.POWDER) != 0;
+            boolean web = (effects & InsideBlockEffectScan.WEB) != 0;
+            boolean berry = (effects & InsideBlockEffectScan.BERRY) != 0;
+            boolean honey = (effects & InsideBlockEffectScan.HONEY) != 0;
+            boolean bubble = (effects & InsideBlockEffectScan.BUBBLE) != 0;
+            VoxelShape shape = powder && !legacyBlocks
+                    ? JavaCollisionState.of(player, actor, current[0].fallDistance())
+                            .powderSnowShape(pos.getY(), end.y)
+                    : Shapes.block();
+            if (shape.isEmpty()) shape = Shapes.block(); // PowderSnowBlock#getEntityInsideCollisionShape
+            boolean inside = shape == Shapes.block() || intersects(segmentFrom, segmentTo, shape, pos);
+            if (!inside) return false;
+            State state = current[0];
+            Vec3 speed = null;
+            if (stuckAllowed) {
+                if (powder && powderAllowed) speed = new Vec3(0.9F, 1.5, 0.9F);
+                if (web) speed = Collisions.getCobwebStuckSpeed(player);
+                if (berry
+                        && actor.type != ac.cult.blocksim.entity.EntityTypeIds.FOX
+                        && actor.type != ac.cult.blocksim.entity.EntityTypeIds.BEE)
+                    speed = Collisions.getSweetBerryBushStuckSpeed(living);
+            }
+            if (speed != null) state = new State(0, state.velocity(), speed);
+            if (honey && slides(end, pos, to.maxX - to.minX, landed, state.velocity().y)) {
+                state = new State(0, slideVelocity(state.velocity()), state.stuckSpeed());
+            }
+            if (bubble && (precise || !preciseBubble) && (context.getVehicle() != null || !player.isFlying)) {
+                int above = player.compensatedWorld.getBlockStateIdAt(pos.above());
+                boolean surface = legacyBlocks
+                        ? isAir(above)
+                        : player.compensatedWorld
+                                        .geometry()
+                                        .collision(above, pos)
+                                        .isEmpty()
+                                && ac.cult.cultac.utils.nmsutil.ClientFluidQueries.modelFluid(above)
+                                        .isEmpty();
+                // AbstractBoat overrides the surface callback without changing client velocity.
+                if (!surface || !actor.isBoat()) {
+                    state = bubble(state, surface, BlockProps.DRAG.booleanValue(block));
+                }
+            }
+            current[0] = state;
+            return true;
+        };
         for (int pass = 0; pass < passes; pass++) {
-            Collisions.visitInsideBlocks26Dot2(
-                    from, to, pass == 0 ? originalMovement : null, (segmentFrom, segmentTo, pos, precise) -> {
-                        int block = player.compensatedWorld.getBlockStateIdAt(pos);
-                        int effects = InsideBlockEffectScan.effects(block);
-                        if (effects == 0) return false;
-                        boolean powder = (effects & InsideBlockEffectScan.POWDER) != 0;
-                        boolean web = (effects & InsideBlockEffectScan.WEB) != 0;
-                        boolean berry = (effects & InsideBlockEffectScan.BERRY) != 0;
-                        boolean honey = (effects & InsideBlockEffectScan.HONEY) != 0;
-                        boolean bubble = (effects & InsideBlockEffectScan.BUBBLE) != 0;
-                        VoxelShape shape = powder
-                                ? JavaCollisionState.of(player, actor, current[0].fallDistance())
-                                        .powderSnowShape(pos.getY(), end.y)
-                                : Shapes.block();
-                        if (shape.isEmpty()) shape = Shapes.block(); // PowderSnowBlock#getEntityInsideCollisionShape
-                        boolean inside = shape == Shapes.block() || intersects(segmentFrom, segmentTo, shape, pos);
-                        if (!inside) return false;
-                        State state = current[0];
-                        Vec3 speed = null;
-                        if (stuckAllowed) {
-                            if (powder && powderAllowed) speed = new Vec3(0.9F, 1.5, 0.9F);
-                            if (web) speed = Collisions.getCobwebStuckSpeed(player);
-                            if (berry && actor.type != EntityTypeIds.FOX && actor.type != EntityTypeIds.BEE)
-                                speed = Collisions.getSweetBerryBushStuckSpeed(living);
-                        }
-                        if (speed != null) state = new State(0, state.velocity(), speed);
-                        if (honey && slides(end, pos, to.maxX - to.minX, landed, state.velocity().y)) {
-                            state = new State(0, slideVelocity(state.velocity()), state.stuckSpeed());
-                        }
-                        if (bubble && precise && (context.getVehicle() != null || !player.isFlying)) {
-                            int above = player.compensatedWorld.getBlockStateIdAt(pos.above());
-                            boolean surface = player.compensatedWorld
-                                            .geometry()
-                                            .collision(above, pos)
-                                            .isEmpty()
-                                    && ClientFluidQueries.modelFluid(above).isEmpty();
-                            // AbstractBoat overrides the surface callback without changing client velocity.
-                            if (context.getVehicle() == null) {
-                                // Player bubble velocity uses the existing uncertainty handler;
-                                // committing it here would force one pose and apply it twice.
-                                if (!surface) state = new State(0, state.velocity(), state.stuckSpeed());
-                            } else if (!surface || !actor.isBoat()) {
-                                state = bubble(state, surface, BlockProps.DRAG.booleanValue(block));
-                            }
-                        }
-                        current[0] = state;
-                        return true;
-                    });
+            // Entity#applyEffectsFromBlocks runs SlimeBlock#stepOn before the pass's inside-block callbacks.
+            if (slimeStep) {
+                current[0] = new State(
+                        current[0].fallDistance(), slimeStepOn(current[0].velocity()), current[0].stuckSpeed());
+            }
+            if (version.isNewerThanOrEquals(ClientVersion.V_1_21_9)) {
+                Collisions.visitInsideBlocks26Dot2(from, to, pass == 0 ? originalMovement : null, visitor);
+            } else {
+                // 1.21.5-1.21.8 Entity#move records its clipped delta for an axis replay; earlier clients and
+                // AbstractBoat's second pass replay oldPosition -> position whole.
+                Collisions.visitInsideBlocksLegacy(
+                        from,
+                        to,
+                        pass == 0 && !legacyBlocks,
+                        // BlockGetter#boxTraverseBlocks nudges its corner endpoints only on 1.21.2-1.21.3.
+                        version.isOlderThan(ClientVersion.V_1_21_4),
+                        pos -> isAir(player.compensatedWorld.getBlockStateIdAt(pos)),
+                        visitor);
+            }
         }
         return current[0];
     }
 
+    private static boolean isAir(int state) {
+        return DataTables.defaults().registry().facts(state).has(StateFacts.AIR);
+    }
+
     /**
-     * SlimeBlock#stepOn, which Entity#applyEffectsFromBlocks runs before the inside-block callbacks when Entity#move
-     * left the actor on the ground ({@link JavaFallDistance#collidesBelow}): below 0.1 vertical speed it scales the
-     * carried horizontal velocity by 0.4 + |y| * 0.2, ahead of the next tick's LivingEntity#aiStep movement threshold
-     * and ridden input.
+     * Whether SlimeBlock#stepOn runs at the start of each Entity#applyEffectsFromBlocks pass of this move: the actor
+     * ends on slime with Entity#move's verticalCollisionBelow ({@link JavaFallDistance#collidesBelow}) and is not
+     * stepping carefully.
      */
-    public static Vec3 stepOn(CultPlayer player, PredictionResult result, JavaFallDistance.Moved moved, Vec3 velocity) {
+    public static boolean stepsOnSlime(CultPlayer player, PredictionResult result, JavaFallDistance.Moved moved) {
         SimulationContext context = result.getSimulationContext();
-        if (!carriesStepOn(player, context)
-                || !BlockIds.is(context.getWorldData().getOnBlock(), BlockIds.SLIME_BLOCK)
+        return !player.isBedrockMovement()
+                && BlockIds.is(context.getWorldData().getOnBlock(), BlockIds.SLIME_BLOCK)
                 // Entity#isSteppingCarefully: the client's shift key, or the vehicle's shared crouching flag.
-                || (context.getVehicle() == null
+                && !(context.getVehicle() == null
                         ? context.isSneaking()
                         : (context.getVehicle().actionSharedFlags & 2) != 0)
-                || !JavaFallDistance.collidesBelow(attemptedMovement(result).y, moved)) return velocity;
+                && JavaFallDistance.collidesBelow(attemptedMovement(result).y, moved);
+    }
+
+    /** SlimeBlock#stepOn: below 0.1 vertical speed it scales the horizontal velocity by 0.4 + |y| * 0.2. */
+    static Vec3 slimeStepOn(Vec3 velocity) {
         double absDeltaY = Math.abs(velocity.y);
         if (absDeltaY >= 0.1) return velocity;
         double scale = 0.4 + absDeltaY * 0.2;
         return velocity.multiply(scale, 1.0, scale);
-    }
-
-    /**
-     * Whether the velocity carried out of {@code context}'s move holds {@link #stepOn}: a Java client's own or its
-     * living vehicle's.
-     */
-    public static boolean carriesStepOn(CultPlayer player, SimulationContext context) {
-        return !player.isBedrockMovement()
-                && JavaMovementEngine.contextUsesExactEffects(context)
-                && (context.getVehicle() == null || context.getVehicle().isLivingEntity());
     }
 
     /**

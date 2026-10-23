@@ -16,6 +16,10 @@ public final class WatchableIndexUtil {
     public static final int LIVING_SLEEPING_POS = 14;
     public static final int MOB_FLAGS = 15;
     public static final int AGEABLE_BABY = 16;
+    // Zombie, its subclasses and Zoglin define DATA_BABY_ID after Mob's fields, as AgeableMob does.
+    public static final int ZOMBIE_BABY = 16;
+    // Piglin's DATA_BABY_ID follows AbstractPiglin's DATA_IMMUNE_TO_ZOMBIFICATION.
+    public static final int PIGLIN_BABY = 17;
     public static final int PHANTOM_SIZE = 16;
     public static final int SHULKER_ATTACH_FACE = 16;
     public static final int SHULKER_PEEK = 17;
@@ -36,7 +40,12 @@ public final class WatchableIndexUtil {
             int slimeSize,
             int pigSaddle,
             int striderSaddle,
-            boolean saddleEquipment) {}
+            boolean saddleEquipment) {
+        /** Camel defines LAST_POSE_CHANGE_TICK directly after DASH in every supported version. */
+        public int camelLastPoseChangeTick() {
+            return camelDash + 1;
+        }
+    }
 
     private static final Layout LEGACY = new Layout(18, 17, 17, 18, -1, -1, 16, 17, 19, false);
     private static final Layout EQUIPMENT = new Layout(17, 17, 17, 18, -1, -1, 16, -1, -1, true);

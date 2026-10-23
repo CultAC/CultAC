@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.prediction.runner;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
-import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.EngineCheck;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
@@ -40,9 +39,6 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     @Getter
     public transient TransactionVel lastSent = null;
 
-    @Getter
-    boolean canTickSkip = false;
-
     @Setter
     boolean isSetbackVal = false;
 
@@ -54,14 +50,6 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
         if (firstBread == null && secondBread == null) return;
 
-        PredVector start = result.getInitialStartingVel();
-        boolean isPointThree = (start.hasPacketModifier(firstBread) || start.hasPacketModifier(secondBread))
-                && result.getSimulationContext().isTestingPointThree()
-                && result.getOffset() < player.getMovementThreshold();
-
-        if (isPointThree) {
-            canTickSkip = true;
-        }
         if (result.getSimulationContext().isTestingPointThree()) return;
 
         double flags = result.getFlagSeverity();
@@ -129,14 +117,6 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             return;
         }
 
-        final boolean possibleSkip = this.canTickSkip;
-        // If there is a velocity going to 0, and the player moved slow enough to reach 0, assume movement skipped.
-        if (this.canTickSkip) {
-            this.canTickSkip = false;
-            if (this.firstBread != null) this.firstBread.addOffset(0);
-            if (this.secondBread != null) this.secondBread.addOffset(0);
-        }
-
         if (predictionComplete.getPredictionResult().getInitialStartingVel().hasPacketModifier(this.firstBread)) {
             List<PredictionResult> realities =
                     predictionComplete.getPredictionResult().getRealities();
@@ -166,7 +146,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             // TODO: Perhaps if the velocity overrode other velocities, we flag multiple times?
             // TODO: Perhaps add maximum latency for velocity.
             if (player.getSetbackTeleportUtil().isDebug()) {
-                LogUtil.info("Velocity flag: " + this.secondBread.getOffset() + " skip=" + possibleSkip);
+                LogUtil.info("Velocity flag: " + this.secondBread.getOffset());
             }
             if (!this.secondBread.isSetbackVel()) {
                 final double offset = this.secondBread.getOffset();

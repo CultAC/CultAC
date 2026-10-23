@@ -120,9 +120,12 @@ public class BoundingBoxSize {
 
         // Vanilla Entity#positionRider subtracts the rider's current, scaled attachment
         // after the vehicle supplies its passenger point, including for stationary seats.
-        Vec3 vehicleAttachment = nativeVector(
-                baseDimensions(passenger).vehicleAttachment(passenger.scale, getAttachmentYaw(passenger, player)));
-        return new Vec3(x, y, z).add(passengerAttachment).subtract(vehicleAttachment);
+        var vehicleAttachment =
+                baseDimensions(passenger).vehicleAttachment(passenger.scale, getAttachmentYaw(passenger, player));
+        return new Vec3(
+                x + passengerAttachment.x - vehicleAttachment.x(),
+                y + passengerAttachment.y - vehicleAttachment.y(),
+                z + passengerAttachment.z - vehicleAttachment.z());
     }
 
     /**
@@ -379,7 +382,10 @@ public class BoundingBoxSize {
             return version.isNewerThanOrEquals(ClientVersion.V_26_1) ? 0.6F : 0.45F;
         if (version.isNewerThanOrEquals(ClientVersion.V_26_1)) {
             if (path.equals("goat")) return 0.55F;
-            if (EntityTypeUtil.isHorseFamily(entity.type)) return 0.7F;
+            // Horse, SkeletonHorse and ZombieHorse scale babies by 0.7; the
+            // chested horses (AbstractChestedHorse, Llama) keep 0.5.
+            if (EntityTypeUtil.isHorseFamily(entity.type) && !EntityTypeUtil.isChestedHorseFamily(entity.type))
+                return 0.7F;
         }
         return 0.5F;
     }
@@ -393,8 +399,6 @@ public class BoundingBoxSize {
                     return 0.375F;
                 case "hoglin", "zoglin":
                     return 0.75F;
-                case "fox":
-                    return 0.36F;
                 case "goat":
                     return 0.45F;
                 case "camel", "camel_husk":
@@ -404,6 +408,8 @@ public class BoundingBoxSize {
         return switch (path) {
             case "axolotl", "squid", "glow_squid" -> 0.5F;
             case "chicken" -> 0.3F;
+            // Fox's 0.6 baby scale arrived in 26.1, a release before the other overrides above.
+            case "fox" -> 0.36F;
             case "rabbit" -> 0.24F;
             case "zombie",
                     "drowned",
@@ -426,8 +432,6 @@ public class BoundingBoxSize {
                     return 0.21F;
                 case "hoglin", "zoglin":
                     return 0.85F;
-                case "fox":
-                    return 0.42F;
                 case "goat":
                     return 0.65F;
                 case "camel", "camel_husk":
@@ -446,6 +450,7 @@ public class BoundingBoxSize {
         return switch (path) {
             case "axolotl" -> 0.25F;
             case "chicken", "rabbit" -> 0.4F;
+            case "fox" -> 0.42F;
             case "squid", "glow_squid" -> 0.63F;
             case "zombie",
                     "drowned",

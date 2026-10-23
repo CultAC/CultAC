@@ -39,30 +39,6 @@ public final class GeyserVelocity {
 
     private GeyserVelocity() {}
 
-    public static Set<Vec3> applyToResult(CultPlayer player, PredictionResult result, Set<Vec3> velocities) {
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_26_2) || player.bedrockState != null) {
-            return velocities;
-        }
-
-        SimulationContext context = result.getSimulationContext();
-
-        // Entity#getRootVehicle is launched, unless that root is itself riding
-        // something. That exactly matches the client ticker's isPassenger test.
-        PacketEntity launchedEntity =
-                context.getVehicle() == null ? context.getEntities().getSelf() : context.getVehicle();
-        if (!canLaunch(launchedEntity, context.getVehicle() == null, player.isFlying, player.gamemode)) {
-            return velocities;
-        }
-
-        SimpleCollisionBox playerBox = context.getToActualPose();
-        List<Float> caps = findIntersectingColumnCaps(player, playerBox);
-        if (caps.isEmpty()) {
-            return velocities;
-        }
-
-        return applyLaunchCaps(velocities, caps);
-    }
-
     /** The client caps fall distance before testing whether this ticker can launch the actor. */
     public static JavaInsideBlockEffects.State applyToState(
             CultPlayer player, PredictionResult result, Vec3 end, JavaInsideBlockEffects.State state) {

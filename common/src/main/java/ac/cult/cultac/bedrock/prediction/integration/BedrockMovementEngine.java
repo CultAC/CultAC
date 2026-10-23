@@ -101,9 +101,8 @@ public final class BedrockMovementEngine implements MovementEngine {
             CultPlayer player,
             Set<Vec3> startingVelocities,
             SimulationContext context,
-            PredictionResult lastPrediction,
-            boolean canTickSkip) {
-        return modifiers.applyBedrockModifiers(player, startingVelocities, context, lastPrediction, canTickSkip);
+            PredictionResult lastPrediction) {
+        return modifiers.applyBedrockModifiers(player, startingVelocities, context, lastPrediction);
     }
 
     public List<PredVector> startingVelocities(

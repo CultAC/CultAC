@@ -411,6 +411,7 @@ public final class PrivateCodecService implements WireValueDecoder {
             var values = types.entityDataTypes().values();
             if (id < 0 || id >= values.length) throw new MalformedPacketException("Unknown metadata serializer " + id);
             String kind = "unused";
+            // EntityDataSerializers BYTE, INT, LONG, FLOAT and BOOLEAN.
             if (id == 0 || id == 1 || id == 2 || id == 3 || id == 8) kind = "value";
             else if (id == pose) kind = "pose";
             else if (id == optional) kind = "optional_int";

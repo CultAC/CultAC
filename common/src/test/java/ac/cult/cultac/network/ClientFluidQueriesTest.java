@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.FluidTags;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -48,6 +50,49 @@ class ClientFluidQueriesTest {
                     POS.above(),
                     DataTables.defaults().registry().block("minecraft:lava").defaultState());
             assertEquals(8 / 9.0F, ClientFluidQueries.height(world, POS, ClientFluidQueries.fluidAt(world, POS)), 0);
+        }
+    }
+
+    @Test
+    void legacyEyesUseTheActualEyeAgainstAStrictFloatSurface() throws Exception {
+        try (var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var player = fixture.player;
+            useClientVersion(player, ClientVersion.V_1_21_11);
+            var world = player.compensatedWorld;
+            world.ensureValidationChunkLoaded(0, 0);
+            world.updateBlock(
+                    POS,
+                    DataTables.defaults().registry().block("minecraft:water").defaultState());
+            var body = new SimpleCollisionBox(8.2, 64, 8.2, 8.8, 65.8, 8.8, false);
+            var feet = new Vec3(8.5, 64, 8.5);
+            // Entity#updateFluidOnEyes no longer lowers the eye by 0.11111111F.
+            assertFalse(ClientFluidQueries.eyesInWater(player, body, feet, 64.95));
+            assertTrue(ClientFluidQueries.eyesInWater(player, body, feet, 64.85));
+            double surface = (float) 64 + 8 / 9.0F;
+            assertFalse(ClientFluidQueries.eyesInWater(player, body, feet, surface));
+            assertTrue(ClientFluidQueries.eyesInWater(player, body, feet, Math.nextDown(surface)));
+        }
+    }
+
+    @Test
+    void preCameraFluidEyesUseTheInclusiveOrdinarySurface() throws Exception {
+        try (var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var player = fixture.player;
+            useClientVersion(player, ClientVersion.V_26_2);
+            var world = player.compensatedWorld;
+            world.ensureValidationChunkLoaded(0, 0);
+            world.updateBlock(
+                    POS,
+                    DataTables.defaults().registry().block("minecraft:water").defaultState());
+            var body = new SimpleCollisionBox(8.2, 64, 8.2, 8.8, 65.8, 8.8, false);
+            var feet = new Vec3(8.5, 64, 8.5);
+            assertFalse(ClientFluidQueries.eyesInWater(player, body, feet, 64.95));
+            assertTrue(ClientFluidQueries.eyesInWater(player, body, feet, 64 + (double) (8 / 9.0F)));
+            // Only 26.3 FluidState#getHeightForCamera fills a source under a sturdy ceiling.
+            world.updateBlock(
+                    POS.above(),
+                    DataTables.defaults().registry().block("minecraft:stone").defaultState());
+            assertFalse(ClientFluidQueries.eyesInWater(player, body, feet, 64.95));
         }
     }
 
@@ -108,5 +153,11 @@ class ClientFluidQueriesTest {
                     DataTables.defaults().registry().block("minecraft:lava").defaultState());
             assertEquals(Vec3.ZERO, FluidTypeFlowing.flow(player, POS, ClientFluidQueries.fluidAt(world, POS)));
         }
+    }
+
+    private static void useClientVersion(CultPlayer player, ClientVersion version) throws Exception {
+        var resolved = CultPlayer.class.getDeclaredField("resolvedClientVersion");
+        resolved.setAccessible(true);
+        resolved.set(player, version);
     }
 }

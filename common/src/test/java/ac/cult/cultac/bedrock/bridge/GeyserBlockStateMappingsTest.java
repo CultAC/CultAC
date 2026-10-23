@@ -21,6 +21,9 @@ public class GeyserBlockStateMappingsTest {
             assertNotNull(stream);
             return stream;
         });
+        // Geyser reads optional resources, such as a palette's data-driven blocks, through getResourceOrNull.
+        when(geyser.getBootstrap().getResourceOrNull(anyString()))
+                .thenAnswer(call -> GeyserImpl.class.getClassLoader().getResourceAsStream(call.getArgument(0)));
         var instance = GeyserImpl.class.getDeclaredField("instance");
         instance.setAccessible(true);
         Object previous = instance.get(null);
@@ -28,6 +31,12 @@ public class GeyserBlockStateMappingsTest {
         var previousSkulls = BlockRegistries.CUSTOM_SKULLS.get();
         var previousCustomBlocks = BlockRegistries.CUSTOM_BLOCKS.get();
         try {
+            // BuiltInJavaRegistries#bootstrap opens the block registry to the populators before Registries#populate
+            // freezes it; the rest of that bootstrap needs a registered GeyserApi.
+            var allowUnsafeAccess =
+                    org.geysermc.geyser.registry.java.SimpleJavaRegistry.class.getDeclaredMethod("allowUnsafeAccess");
+            allowUnsafeAccess.setAccessible(true);
+            allowUnsafeAccess.invoke(org.geysermc.geyser.registry.java.BuiltInJavaRegistries.BLOCK);
             org.geysermc.geyser.level.block.Blocks.AIR.javaId();
             var skull = new org.geysermc.geyser.registry.type.CustomSkull("cultac_palette_test");
             BlockRegistries.CUSTOM_SKULLS.set(new it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<>());

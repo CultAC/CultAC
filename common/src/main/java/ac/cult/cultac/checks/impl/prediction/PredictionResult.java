@@ -8,7 +8,6 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.StringReturner;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.math.Vec3;
@@ -28,7 +27,6 @@ public class PredictionResult {
     final TeleportData setBackData;
     final List<PredictionResult> realities;
     final List<PredictionResult> anyReality;
-    SimpleCollisionBox realitiesExtent = null;
 
     // Computed upon compute()
     CollideAxisData collideAxisData;
@@ -47,8 +45,6 @@ public class PredictionResult {
     @EqualsAndHashCode.Exclude
     @ToString.Exclude
     private double selectionOffset = Double.NaN;
-    private Boolean cachedAnyRealityControlsVerticalMovement;
-    private Boolean cachedAnyRealityDidTickSkipGravity;
 
     /** VanillaStepProof's source-proven step for this result; one handleResult pass reads it from two checks. */
     @EqualsAndHashCode.Exclude
@@ -164,38 +160,6 @@ public class PredictionResult {
         return !isExempt && flagSeverity > 0.0D;
     }
 
-    public boolean anyRealityControlsVerticalMovement() {
-        if (cachedAnyRealityControlsVerticalMovement != null) {
-            return cachedAnyRealityControlsVerticalMovement;
-        }
-
-        boolean result = false;
-        for (PredictionResult reality : realities) {
-            if (reality.getValidMovements().isControlsVerticalMovement()) {
-                result = true;
-                break;
-            }
-        }
-        cachedAnyRealityControlsVerticalMovement = result;
-        return result;
-    }
-
-    public boolean anyRealityDidTickSkipGravity() {
-        if (cachedAnyRealityDidTickSkipGravity != null) {
-            return cachedAnyRealityDidTickSkipGravity;
-        }
-
-        boolean result = false;
-        for (PredictionResult reality : realities) {
-            if (reality.getValidMovements().isDidTickSkipGravity()) {
-                result = true;
-                break;
-            }
-        }
-        cachedAnyRealityDidTickSkipGravity = result;
-        return result;
-    }
-
     public int getEffectiveFlagCount() {
         return hasEffectiveFlags() ? flags.size() : 0;
     }
@@ -210,6 +174,9 @@ public class PredictionResult {
 
     /** Radius of the circular horizontal input allowance around the closest movement. */
     public double getHorizontalInputRadius() {
+        if (validMovements != null
+                && validMovements.getClosestTrace() != null
+                && validMovements.getClosestTrace().position().isInputApplied()) return 0.0D;
         return getSimulationContext().getHorizontalInputRadius(player, initialStartingVel);
     }
 
@@ -241,8 +208,7 @@ public class PredictionResult {
     }
 
     public DesyncStatus getIsFalling() {
-        if (initialStartingVel.isTickSkip() || validMovements.getCollisionIgnoredMaxStartingVelExtents() == null)
-            return DesyncStatus.UNKNOWN;
+        if (validMovements.getCollisionIgnoredMaxStartingVelExtents() == null) return DesyncStatus.UNKNOWN;
         DesyncStatus falling =
                 DesyncStatus.fromBoolean(validMovements.getCollisionIgnoredMaxStartingVelExtents().minY <= 0);
         if (falling.determineOptimistically() && validMovements.getCollisionIgnoredMaxStartingVelExtents().maxY > 0) {
@@ -262,7 +228,7 @@ public class PredictionResult {
         double gravity = getSimulationContext().getEntities().getEntityInControl().gravity;
         if (!hasSlowFalling) {
             return Collections.singletonList(gravity);
-        } else if (initialStartingVel.isTickSkip() || (minVelocityY <= 0.0D && maxVelocityY > 0.0D)) {
+        } else if (minVelocityY <= 0.0D && maxVelocityY > 0.0D) {
             return Arrays.asList(Math.min(gravity, 0.01D), gravity);
         } else {
             return Collections.singletonList(maxVelocityY <= 0.0D ? Math.min(gravity, 0.01D) : gravity);

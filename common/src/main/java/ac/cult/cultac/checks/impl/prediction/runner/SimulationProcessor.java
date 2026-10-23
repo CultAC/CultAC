@@ -84,7 +84,6 @@ import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
-import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
@@ -112,10 +111,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private static final double TRAVEL_FLAG_DISTANCE_SQR = 400.0;
     // LevelLoadTracker stops waiting after CLIENT_WAIT_TIMEOUT_MS (30 s) and LEVEL_LOAD_CLOSE_DELAY_MS (0.5 s).
     private static final int MAX_LOADING_LEVEL_TICKS = 610;
-    LastInstance lastTickSkip = new LastInstance(this.player);
-    LastInstance lastOnGroundSkip = new LastInstance(this.player);
+    // An accepted ServerboundClientTickEndPacket without a movement packet: LocalPlayer#sendPosition withheld it.
+    LastInstance lastNoPositionTick = new LastInstance(this.player);
     EvictingQueue<Long> lastMovementTime = new EvictingQueue(3);
-    boolean couldPotentiallyTickSkip = false;
     Set<Vec3> validPlayerStartingVels = new HashSet<>();
     PredictionResult lastPrediction = null;
     /** The committed tick's LivingEntity#checkAutoSpinAttack certainly hit, so the next tick starts from the rebound. */
@@ -337,7 +335,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                 this.player.xRot,
                                 this.player.yRot);
                         if (this.isAcceptedNoPositionTick(result)) {
-                            this.couldPotentiallyTickSkip = true;
+                            this.lastNoPositionTick.reset();
                         }
                     } else if (this.ticksWhileLoadingLevel < MAX_LOADING_LEVEL_TICKS) {
                         // Entity#push adds to the waiting player's deltaMovement with no travel or friction between.
@@ -379,9 +377,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                 new Vec3(this.player.x, this.player.y, this.player.z),
                                 this.player.xRot,
                                 this.player.yRot);
-                        boolean isPointThree = this.isAcceptedNoPositionTick(result);
-                        if (isPointThree) {
-                            this.couldPotentiallyTickSkip = true;
+                        if (this.isAcceptedNoPositionTick(result)) {
+                            this.lastNoPositionTick.reset();
                         }
 
                         boolean didFlagNoFall = result.hasFlag(NoFallPseudo.class);
@@ -399,9 +396,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
                         if (!didFlagNoFall || result.isExempt()) {
                             this.lastOnGround = DesyncStatus.fromBoolean(flying.onGround());
-                            if (!this.lastOnGround.is(flying.onGround()) && this.lastPrediction != null) {
-                                this.lastOnGroundSkip.reset();
-                            }
                         }
                     } else {
                         // PlayerInput precedes the passenger Rot each riding tick, even
@@ -423,13 +417,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (positionUpdate.getTeleportData().isTeleport()) {
             this.handleTeleport(positionUpdate.getTeleportData());
         } else {
-            if (!this.player.isBedrockMovement()
-                    && (this.player.checkManager.getKnockbackHandler().hasPacketVelocity()
-                            || this.player.checkManager.getExplosionHandler().hasPacketVelocity())) {
-                this.tryToAchievePointThree(
-                        new Vec3(this.player.x, this.player.y, this.player.z), this.player.xRot, this.player.yRot);
-            }
-
             boolean packetOnGround = positionUpdate.isOnGround();
             PredictionResult result = this.callPrediction(
                     positionUpdate.getTo(),
@@ -499,7 +486,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.lastMovementWasSetback = teleportAcceptData.getSetback() != null
                     && !teleportAcceptData.getSetback().isPlugin();
         }
-        this.couldPotentiallyTickSkip = false;
         this.certainSpinHit = false;
         this.player.riptideSpinCertain = false;
         if (!this.player.isBedrockMovement()
@@ -657,7 +643,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 Vec3.ZERO,
                 position,
                 position,
-                this.lastTickSkip,
                 false,
                 frame.getYaw(),
                 frame.getPitch(),
@@ -709,7 +694,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     Vec3.ZERO,
                     unchangedPosition,
                     unchangedPosition,
-                    this.lastTickSkip,
                     false,
                     xRot,
                     yRot,
@@ -802,7 +786,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 observed.subtract(start),
                 start,
                 observed,
-                this.lastTickSkip,
                 false,
                 yaw,
                 pitch,
@@ -826,7 +809,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         result.getSimulationContext()
                 .setEnd(BedrockVectorAdapter.toJava(
                         BedrockProfileState.previousState(commit.carry()).physicalFeetPosition()));
-        this.handlePossibleRealities(result);
         boolean verbose = profile.shouldCreateVerboseLog(this.player, result);
         boolean flagged = !result.isExempt() && result.hasEffectiveFlags();
         if (flagged || verbose || BedrockPredictionDebug.shouldRecordMovementDebug(this.player, result)) {
@@ -979,7 +961,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.player.onGround = onGround;
             }
 
-            this.handlePossibleRealities(result);
             if (this.player.isBedrockMovement()) {
                 this.activeBedrockSetbackState =
                         MovementEngines.requireForProfile(movementProfile).prepareSetbackState(this.player, result);
@@ -1115,11 +1096,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.player.packetStateData.riptideLevel = 0;
             this.player.packetStateData.riptideReleaseCertain = false;
             this.player.riptideSpinAttackTicks = Math.max(0, this.player.riptideSpinAttackTicks - 1);
-            this.couldPotentiallyTickSkip = false;
             this.player.compensatedEntities.fishingRodPulls.clear();
             if (!this.player.isBedrockMovement()) {
-                this.player.swimState.onClientTick(
-                        result.getSimulationContext().getWorldData().isSwimming(), this.player.isFlying);
+                this.player.swimState.onClientTick(committedSwimming(result), this.player.isFlying);
             }
             this.player.refreshPlayerPose();
         } else {
@@ -1199,6 +1178,17 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             case HELD -> used[1] = true;
             default -> used[0] = used[1] = true;
         }
+    }
+
+    /**
+     * Entity#isSwimming the committed movement travelled with. While an unknown water state leaves the swim open, the
+     * selected movement carries the one SwimInput chose for it, so the swim the next tick and Player#updatePlayerPose
+     * build on is the one this movement proved, not the optimistic one.
+     */
+    private static boolean committedSwimming(PredictionResult result) {
+        ValidMovements valid = result.getValidMovements();
+        MovementTrace selected = valid == null ? null : valid.getClosestTrace();
+        return result.getSimulationContext().getWorldData().isSwimming(selected == null ? null : selected.position());
     }
 
     /** Each candidate once per sprint modifier it can travel with while a possible attack reset leaves it open. */
@@ -1321,58 +1311,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return flags.getAndIncrement() % 128 + 1;
     }
 
-    private void handlePossibleRealities(PredictionResult result) {
-        SimpleCollisionBox valid = null;
-        if (this.lastPrediction != null) {
-            valid = this.lastPrediction.getRealitiesExtent();
-            if (valid != null) {
-                float blockFriction = BlockProperties.getMaterialFriction(
-                        result.getSimulationContext().getWorldData().getOnBlock());
-                double trueFriction =
-                        result.getSimulationContext().getLastOnGround().determinePessimistically()
-                                ? blockFriction * 0.91
-                                : 0.91;
-                if (result.getSimulationContext().getWorldData().getInLava().determinePessimistically()) {
-                    trueFriction = 0.5;
-                }
-
-                if (result.getSimulationContext().getWorldData().getInWater().determineOptimistically()) {
-                    trueFriction = 0.96;
-                }
-
-                if (result.getSimulationContext().usesFallFlyingMovement()) {
-                    trueFriction = 0.99;
-                }
-
-                valid = new SimpleCollisionBox(
-                        valid.minX * trueFriction,
-                        0.0,
-                        valid.minZ * trueFriction,
-                        valid.maxX * trueFriction,
-                        0.0,
-                        valid.maxZ * trueFriction);
-            }
-        }
-
-        for (PredictionResult reality : result.getRealities()) {
-            if (reality.getInitialStartingVel().packetModifiersLength() != 0) {
-                SimpleCollisionBox knockbackVel =
-                        new SimpleCollisionBox(reality.getInitialStartingVel(), reality.getInitialStartingVel());
-                if (valid == null) {
-                    valid = knockbackVel;
-                } else {
-                    valid = valid.union(knockbackVel);
-                }
-            }
-
-            if (reality.getInitialStartingVel().isTickSkip() && reality.getFlagSeverity() == 0.0) {
-                this.lastTickSkip.reset();
-            }
-        }
-
-        result.setRealitiesExtent(valid);
-    }
-
     /**
      * The accepted travel that ends within LocalPlayer#sendPosition's movement threshold of xLast, the best one if it
      * does, else the one ending nearest; a travel ending farther away would have sent its position.
@@ -1397,7 +1335,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return nearest;
     }
 
-    public PredictionResult tryToAchievePointThree(Vec3 withPos, float xRot, float yRot) {
+    public PredictionResult predictZeroMovement(Vec3 withPos, float xRot, float yRot) {
         return this.callPrediction(
                 Vec3.ZERO, withPos, withPos, true, xRot, yRot, null, MovementProfiles.forPlayer(this.player));
     }
@@ -1412,7 +1350,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         Vec3 movement = end == position ? Vec3.ZERO : end.subtract(position);
         MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
         PredictionResult result = this.callPrediction(movement, position, end, true, xRot, yRot, null, movementProfile);
-        this.handlePossibleRealities(result);
         this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(result);
         if (result.getFlags().isEmpty() && !result.isExempt()) {
             PredictionResult committed = result;
@@ -1424,7 +1361,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         ? travelWithinMovementThreshold(travelled, position, sent, this.player.getMovementThreshold())
                         : null;
                 if (withheld != null) {
-                    this.handlePossibleRealities(withheld);
                     committed = withheld;
                     movement = withheld.getAcceptedClosestToTarget();
                     end = position.add(movement);
@@ -1487,7 +1423,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 target,
                 from,
                 to,
-                this.lastTickSkip,
                 testing,
                 xRot,
                 yRot,
@@ -1603,7 +1538,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             Vec3 target,
             Vec3 start,
             Vec3 end,
-            LastInstance lastTickSkip,
             boolean testing,
             float xRot,
             float yRot) {
@@ -1614,7 +1548,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 target,
                 start,
                 end,
-                lastTickSkip,
                 testing,
                 xRot,
                 yRot,
@@ -1629,7 +1562,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             Vec3 target,
             Vec3 start,
             Vec3 end,
-            LastInstance lastTickSkip,
             boolean testing,
             float xRot,
             float yRot,
@@ -1646,7 +1578,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     target,
                     start,
                     end,
-                    lastTickSkip,
                     testing,
                     xRot,
                     yRot,
@@ -1664,7 +1595,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             Vec3 target,
             Vec3 start,
             Vec3 end,
-            LastInstance lastTickSkip,
             boolean testing,
             float xRot,
             float yRot,
@@ -1681,19 +1611,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 target,
                 start,
                 end,
-                lastTickSkip,
                 testing,
                 xRot,
                 yRot,
                 authoredMovementFrame,
                 movementProfile)) {
             List<PredVector> contextPacketStart = engine.applyModifiers(
-                    new MovementModifiers(),
-                    player,
-                    startingVel,
-                    curSimulationContext,
-                    lastPrediction,
-                    this.couldPotentiallyTickSkip);
+                    new MovementModifiers(), player, startingVel, curSimulationContext, lastPrediction);
             List<PredVector> validInitialVelocities = withSprintOutcomes(
                     player,
                     curSimulationContext,
@@ -1851,9 +1775,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     private static int compareStartingVelocities(
             PredVector first, PredVector second, Vec3 target, TransactionVel velocity, TransactionVel explosion) {
-        int order = Integer.compare(first.tickSkippingComparator(), second.tickSkippingComparator());
-        if (order != 0) return order;
-        order = Integer.compare(missing(first, velocity, explosion), missing(second, velocity, explosion));
+        int order = Integer.compare(missing(first, velocity, explosion), missing(second, velocity, explosion));
         if (order != 0) return order;
         order = Integer.compare(first.packetModifiersLength(), second.packetModifiersLength());
         if (order != 0) return order;
@@ -2036,7 +1958,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             Vec3 target,
             Vec3 start,
             Vec3 end,
-            LastInstance lastTickSkip,
             boolean testing,
             float xRot,
             float yRot,
@@ -2048,7 +1969,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 target,
                 start,
                 end,
-                lastTickSkip,
                 testing,
                 xRot,
                 yRot,
@@ -2064,7 +1984,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     target,
                     start,
                     end,
-                    lastTickSkip,
                     testing,
                     xRot,
                     yRot,
@@ -2088,7 +2007,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                             target,
                             start,
                             end,
-                            lastTickSkip,
                             testing,
                             xRot,
                             yRot,
@@ -2106,7 +2024,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         target,
                         start,
                         end,
-                        lastTickSkip,
                         testing,
                         xRot,
                         yRot,
@@ -2138,7 +2055,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             Vec3 target,
             Vec3 start,
             Vec3 end,
-            LastInstance lastTickSkip,
             boolean testing,
             float xRot,
             float yRot,
@@ -2163,7 +2079,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     target,
                     start,
                     end,
-                    lastTickSkip,
                     testing,
                     xRot,
                     yRot,
@@ -2183,14 +2098,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             Vec3 target,
             Vec3 start,
             Vec3 end,
-            LastInstance lastTickSkip,
             boolean testing,
             float xRot,
             float yRot,
             AuthoredMovementFrame authoredMovementFrame,
             MovementProfile movementProfile) {
         if (!player.isBedrockMovement()
-                && JavaMovementEngine.supportsExactEffects(player.getClientVersion())
                 && this.profileCarry
                         instanceof ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry carry
                 && !carry.states().isEmpty()
@@ -2216,7 +2129,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         target,
                         start,
                         end,
-                        lastTickSkip,
                         testing,
                         xRot,
                         yRot,
@@ -2244,7 +2156,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 target,
                 start,
                 end,
-                lastTickSkip,
                 testing,
                 xRot,
                 yRot,
@@ -2266,7 +2177,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     target,
                     start,
                     end,
-                    lastTickSkip,
                     testing,
                     xRot,
                     yRot,
@@ -2303,7 +2213,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             Vec3 target,
             Vec3 start,
             Vec3 end,
-            LastInstance lastTickSkip,
             boolean testing,
             float xRot,
             float yRot,
@@ -2316,7 +2225,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 target,
                 start,
                 end,
-                lastTickSkip,
                 testing,
                 xRot,
                 yRot,
@@ -2335,7 +2243,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
      * both states.
      */
     private DesyncStatus sprintingAtTravel(CultPlayer player, @Nullable PacketEntity riding) {
-        if (riding != null) return DesyncStatus.FALSE;
+        // A ridden root travels on its own Entity#isSprinting, shared flag 3, which only entity metadata writes.
+        if (riding != null) {
+            return DesyncStatus.fromBoolean(
+                    !player.isBedrockMovement() && riding.isLivingEntity() && (riding.actionSharedFlags & 0x08) != 0);
+        }
         if (player.isBedrockMovement()) return DesyncStatus.UNKNOWN;
         return DesyncStatus.fromBoolean(player.isSprinting);
     }
@@ -2352,7 +2264,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             Vec3 target,
             Vec3 start,
             Vec3 end,
-            LastInstance lastTickSkip,
             boolean testing,
             float xRot,
             float yRot,
@@ -2388,7 +2299,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 player.minPlayerAttackSlow,
                 player.maxPlayerAttackSlow,
                 player.packetStateData.riptideLevel,
-                lastTickSkip,
                 testing,
                 vehicleInputs,
                 player.packetStateData.clientMovementInputKnown,
@@ -2490,7 +2400,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
     }
 
-    public void handleBlockChange(BlockPos pos, int to) {
+    /**
+     * Opens the last movement's state that a block change near it may have touched. {@code fluidTimingKnown}: the
+     * client handled the change before every tick still to be simulated, so the last movement's fluid state stays as
+     * it was.
+     */
+    public void handleBlockChange(BlockPos pos, int to, boolean fluidTimingKnown) {
         if (this.lastPrediction != null) {
             if (!this.player.compensatedEntities.getSelf().inVehicle()) {
                 SimulationContext context = this.lastPrediction.getSimulationContext();
@@ -2499,8 +2414,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     SimpleCollisionBox playerMaxExtent = context.getToMaximumExtent();
                     playerMaxExtent.expand(1.0);
                     if (blockCollisionBox.isIntersected(playerMaxExtent)) {
-                        if (ClientFluidQueries.modelFluid(to)
-                                .isSame(ClientFluidQueries.modelFluid(BlockIds.WATER.defaultState()))) {
+                        if (!fluidTimingKnown
+                                && ClientFluidQueries.modelFluid(to)
+                                        .isSame(ClientFluidQueries.modelFluid(BlockIds.WATER.defaultState()))) {
                             this.lastPrediction
                                     .getSimulationContext()
                                     .getWorldData()
@@ -2511,7 +2427,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     .setInFlowingLiquid(DesyncStatus.UNKNOWN);
                         }
 
-                        if (BlockIds.is(to, BlockIds.LAVA)) {
+                        if (!fluidTimingKnown && BlockIds.is(to, BlockIds.LAVA)) {
                             this.lastPrediction
                                     .getSimulationContext()
                                     .getWorldData()
@@ -2540,8 +2456,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     .getWorldData()
                                     .setStuckSpeed(new StuckSpeedData(null, stuckSpeed));
                             this.validPlayerStartingVels.add(Vec3.ZERO);
-                            if (JavaMovementEngine.contextUsesExactEffects(context)
-                                    && !this.player.isBedrockMovement()
+                            if (!this.player.isBedrockMovement()
                                     && this.profileCarry instanceof JavaPredictionCarry carry
                                     && carry.actor() == this.player.compensatedEntities.getSelf()) {
                                 this.carryWithChangedStuckBlock = carry;
@@ -2578,13 +2493,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     @Generated
-    public LastInstance getLastTickSkip() {
-        return this.lastTickSkip;
-    }
-
-    @Generated
-    public LastInstance getLastOnGroundSkip() {
-        return this.lastOnGroundSkip;
+    public LastInstance getLastNoPositionTick() {
+        return this.lastNoPositionTick;
     }
 
     @Generated

@@ -1,6 +1,7 @@
 package ac.cult.cultac.checks.impl.prediction.stage.world;
 
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
@@ -58,7 +59,6 @@ public class WorldData {
     @Setter
     int onBlock;
 
-    StuckEdgeData sneak;
     BubbleColumnData bubbleColumn;
     PistonPushes pistonPushes;
 
@@ -87,6 +87,16 @@ public class WorldData {
 
     /** Entity#isSwimming after this tick's Entity#updateSwimming; true if the client may swim. */
     boolean swimming;
+
+    /** Whether Entity#updateSwimming may go either way: a swimmer whose Entity#isInWater is unknown. */
+    public boolean isSwimmingOpen() {
+        return swimming && inWater.isDesync();
+    }
+
+    /** Entity#isSwimming for {@code candidate}: the state it travelled with while {@link #isSwimmingOpen()}. */
+    public boolean isSwimming(PredVector candidate) {
+        return candidate != null && candidate.getSwimming() != null ? candidate.getSwimming() : swimming;
+    }
 
     /** A vehicle's Entity#isInWater after this tick's Entity#baseTick, from the blocks the client holds this tick. */
     boolean vehicleInWater;
@@ -123,7 +133,6 @@ public class WorldData {
                 carriedPush,
                 pushable,
                 onBlock,
-                sneak,
                 bubbleColumn,
                 pistonPushes,
                 stuckSpeed,

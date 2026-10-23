@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
@@ -1761,6 +1762,29 @@ public final class OfflineBedrockReplayRunnerTest {
         seedPlayerAt(player, syntheticPillarFrame(0, groundPosition, false, false, false));
     }
 
+    /**
+     * A flagged Bedrock movement is corrected by the engine, not by a teleport setback: BedrockMovement only reports
+     * the offset, and BedrockMovementCorrections sends the committed simulated state as the rewind correction. The
+     * frame must be simulated from {@code boundary}, the engine must keep its own state there instead of the
+     * client's claim, and the committed position may move towards the claim only by the bounded reconciliation step.
+     */
+    private static void assertEngineCorrectedToBoundary(CultPlayer player, PredictionResult result, Vec3 boundary) {
+        BedrockPredictionResult bedrock = result.getProfileResult(BedrockPredictionResult.class);
+        assertNotNull(bedrock);
+        assertEquals(boundary, toJava(bedrock.movementResult().previousState().physicalFeetPosition()));
+        assertEquals(boundary, toJava(bedrock.nextTickBaseState().physicalFeetPosition()));
+        assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
+        assertEquals(
+                boundary, player.getSetbackTeleportUtil().lastKnownGoodPosition.getPos());
+        double reconciliation = CultAPI.INSTANCE.getConfigManager().getBedrockMovementPositionReconciliationStep();
+        double drift = new Vec3(player.x, player.y, player.z).distanceTo(boundary);
+        assertTrue("committed position drifted " + drift, drift <= reconciliation + 1.0E-9D);
+    }
+
+    private static Vec3 toJava(Vec3d vector) {
+        return new Vec3(vector.x(), vector.y(), vector.z());
+    }
+
     /** Creates a synthetic BedrockAuthInputFrame at the given position. */
     private static BedrockAuthInputFrame syntheticPillarFrame(
             long tick, Vec3 position, boolean sneaking, boolean jumping, boolean sprinting) {
@@ -1967,18 +1991,8 @@ public final class OfflineBedrockReplayRunnerTest {
                     .getSimulationProcessor()
                     .processBedrockAuthInputFrame(exploitFrame, BedrockPredictionTrigger.OFFLINE_REPLAY);
             assertNotNull(exploitResult);
-
-            Vec3 postExploitPos = new Vec3(player.x, player.y, player.z);
             assertTrue(exploitResult.hasFlag(BedrockMovement.class));
-            assertTrue(player.getSetbackTeleportUtil().isPendingSetback());
-            assertFalse(player.getSetbackTeleportUtil().getRequiredSetBack().isPlugin());
-            assertEquals(
-                    groundPos,
-                    player.getSetbackTeleportUtil()
-                            .getRequiredSetBack()
-                            .getTeleportData()
-                            .getLocation());
-            assertEquals(groundPos, postExploitPos);
+            assertEngineCorrectedToBoundary(player, exploitResult, groundPos);
         } finally {
             if (player != null) {
                 closeOfflinePlayer(player);
@@ -2038,15 +2052,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     .processBedrockAuthInputFrame(exploitFrame, BedrockPredictionTrigger.OFFLINE_REPLAY);
             assertNotNull(exploitResult);
             assertTrue(exploitResult.hasFlag(BedrockMovement.class));
-            assertTrue(player.getSetbackTeleportUtil().isPendingSetback());
-            assertFalse(player.getSetbackTeleportUtil().getRequiredSetBack().isPlugin());
-            assertEquals(
-                    groundPos,
-                    player.getSetbackTeleportUtil()
-                            .getRequiredSetBack()
-                            .getTeleportData()
-                            .getLocation());
-            assertEquals(groundPos, new Vec3(player.x, player.y, player.z));
+            assertEngineCorrectedToBoundary(player, exploitResult, groundPos);
         } finally {
             if (player != null) {
                 closeOfflinePlayer(player);
