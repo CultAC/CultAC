@@ -797,11 +797,15 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         try {
             connection.executeLater(() -> {
                 if (!ctx.channel().isActive()) return;
-                if (!removed && bundle == flushBundles) closeFlushBundle(ctx);
-                // Also sends a deferred flush whose bundle was closed by another path before this ran.
-                ctx.flush();
+                try {
+                    if (!removed && bundle == flushBundles) closeFlushBundle(ctx);
+                } finally {
+                    // Also sends a deferred flush whose bundle was closed by another path before this ran.
+                    ctx.flush();
+                }
             });
         } catch (RuntimeException | Error failure) {
+            closeQueuedFor = -1;
             if (deferFlush) ctx.flush();
             throw failure;
         }
