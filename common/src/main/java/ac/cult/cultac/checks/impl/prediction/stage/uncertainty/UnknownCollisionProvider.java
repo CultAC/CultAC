@@ -46,8 +46,12 @@ public final class UnknownCollisionProvider {
                 : player.compensatedEntities.unknownCollisionCandidates();
         PacketEntity selfRidingRoot = player.compensatedEntities.selfRidingRoot();
         PacketEntity serverVehicleRoot = player.compensatedEntities.serverVehicleRoot();
+        PacketEntity rootOfSelf = inVehicle ? player.compensatedEntities.rootOfSelf() : null;
         for (PacketEntity entity : candidates) {
             if (player.compensatedEntities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) continue;
+            // EntityGetter#getEntityCollisions never returns the moving vehicle itself, and
+            // AbstractBoat#canVehicleCollide rejects anything Entity#isPassengerOfSameVehicle.
+            if (inVehicle && player.compensatedEntities.sharesRootVehicleWithSelf(entity, rootOfSelf)) continue;
             if (entity.isBoat()) {
                 // Expand by 2 since boats suck.
                 addIntersecting(

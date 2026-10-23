@@ -25,6 +25,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.GeyserVelocity;
 import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
+import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -237,7 +238,7 @@ public final class JavaMovementEngine implements MovementEngine {
      */
     private static void settleRiddenSupport(CultPlayer player, PredictionResult result, Vec3 movement) {
         SimulationContext context = result.getSimulationContext();
-        double requestedY = result.getInitialStartingVel().y * context.getLastStuckSpeed().y;
+        double requestedY = VelocityCandidates.preCollisionVelocity(result).y * context.getLastStuckSpeed().y;
         boolean collidedBelow = requestedY < 0.0 && !JavaFallDistance.sameMoveY(movement.y, requestedY);
         MainSupportingBlockData support = player.checkManager
                 .getSimulationProcessor()

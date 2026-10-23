@@ -23,6 +23,22 @@ public class BoatTransform implements UncertaintyHandler {
     }
 
     @Override
+    public MovementTrace handleMovementTrace(
+            CultPlayer player,
+            ValidMovements valid,
+            PredictionResult result,
+            SimulationContext context,
+            PredictionResult lastResult,
+            MovementTrace trace,
+            Vec3 end) {
+        PredVector velocity = handleUncertainty(player, valid, result, context, lastResult, trace.position(), end);
+        if (velocity == trace.position()) return trace;
+        // AbstractBoat#tick stores the floatBoat and controlBoat result in deltaMovement before Entity#move,
+        // so that, not the tick's starting velocity, is what the move carries into the next tick.
+        return trace.withPosition(velocity).withPreCollisionVelocity(velocity);
+    }
+
+    @Override
     public PredVector handleUncertainty(
             CultPlayer player,
             ValidMovements valid,

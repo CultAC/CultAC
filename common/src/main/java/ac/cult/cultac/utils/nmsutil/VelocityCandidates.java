@@ -273,11 +273,12 @@ public final class VelocityCandidates {
                 != probe;
     }
 
-    private static Vec3 preCollisionVelocity(PredictionResult result) {
-        CultPlayer player = result.getPlayer();
-        if (player == null || player.getClientVersion().isOlderThan(ClientVersion.V_26_1)) {
-            return result.getInitialStartingVel();
-        }
+    /**
+     * The deltaMovement Entity#move received. LivingEntity#travelFallFlying and AbstractBoat#tick replace it before
+     * the move in every version (1.21.11 LivingEntity.java:2357, AbstractBoat.java:233-239), so a gliding or boat
+     * tick never carries the velocity it started from.
+     */
+    public static Vec3 preCollisionVelocity(PredictionResult result) {
         return result.getValidMovements().getClosestTrace().preCollisionVelocity();
     }
 
