@@ -13,7 +13,6 @@ import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
-import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -52,8 +51,7 @@ final class ModelEntityMetadataValues {
         int payloadLength = decoded.isEmpty()
                 ? 0
                 : decoded.getLast().offset() + decoded.getLast().length() - payloadStart;
-        ByteBuffer payload = ByteBuffer.wrap(ByteBufUtil.getBytes(input, payloadStart, payloadLength))
-                .asReadOnlyBuffer();
+        byte[] payload = ByteBufUtil.getBytes(input, payloadStart, payloadLength);
         var entries = new EntityMetadata.Entry[decoded.size()];
         for (int i = 0; i < entries.length; i++) {
             var value = decoded.get(i);

@@ -14,12 +14,14 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
 
     /**
      * One entry. A null value means the payload was traversed but is not consumed by the anticheat. Its bytes are a
-     * range of a read-only payload whose position and limit are never moved, so views are cut on demand.
+     * range of a read-only payload, or of an array, whose position and limit are never moved, so views are cut on
+     * demand.
      */
     public static final class Entry {
         private final int id;
         private final Object value;
-        private final ByteBuffer payload;
+        /** A read-only {@link ByteBuffer} or a {@code byte[]}. */
+        private final Object payload;
         private final int offset;
         private final int length;
 
@@ -28,7 +30,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
             this(id, value, bytes.asReadOnlyBuffer(), bytes.position(), bytes.remaining());
         }
 
-        private Entry(int id, Object value, ByteBuffer payload, int offset, int length) {
+        private Entry(int id, Object value, Object payload, int offset, int length) {
             this.id = id;
             this.value = value;
             this.payload = payload;
@@ -46,6 +48,15 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
             return new Entry(id, value, payload, offset, length);
         }
 
+        /**
+         * An entry whose bytes are {@code length} bytes of {@code payload} from index {@code offset}. The entry keeps
+         * the array: nothing may change its contents afterwards.
+         */
+        public static Entry of(int id, Object value, byte[] payload, int offset, int length) {
+            Objects.checkFromIndexSize(offset, length, payload.length);
+            return new Entry(id, value, payload, offset, length);
+        }
+
         public int id() {
             return id;
         }
@@ -56,7 +67,8 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
 
         /** A fresh read-only view of the entry's bytes, at position 0. */
         public ByteBuffer bytes() {
-            return payload.slice(offset, length);
+            if (payload instanceof ByteBuffer buffer) return buffer.slice(offset, length);
+            return ByteBuffer.wrap((byte[]) payload, offset, length).slice().asReadOnlyBuffer();
         }
 
         /** EntityDataSerializers.BYTE is serializer 0 in every supported observed version. */
