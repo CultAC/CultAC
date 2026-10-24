@@ -724,15 +724,28 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
      * still share one ping. The client handles nothing in the bundle before its closing delimiter.
      */
     private void flushBundle(ChannelHandlerContext ctx) {
-        ctx.flush();
-        if (!connection.flushBundleOpen() || closeQueuedFor == flushBundles) return;
+        if (!connection.flushBundleOpen()) {
+            ctx.flush();
+            return;
+        }
+        // The client handles none of a delimited bundle before its closing delimiter, so sending its members now
+        // would cost a second socket write without the client handling anything sooner. The queued close sends both.
+        boolean deferFlush = delimitsFlushBundle();
+        if (!deferFlush) ctx.flush();
+        if (closeQueuedFor == flushBundles) return;
         int bundle = flushBundles;
         closeQueuedFor = bundle;
-        connection.executeLater(() -> {
-            if (removed || !ctx.channel().isActive() || bundle != flushBundles) return;
-            closeFlushBundle(ctx);
-            ctx.flush();
-        });
+        try {
+            connection.executeLater(() -> {
+                if (!ctx.channel().isActive()) return;
+                if (!removed && bundle == flushBundles) closeFlushBundle(ctx);
+                // Also sends a deferred flush whose bundle was closed by another path before this ran.
+                ctx.flush();
+            });
+        } catch (RuntimeException | Error failure) {
+            if (deferFlush) ctx.flush();
+            throw failure;
+        }
     }
 
     private void closeFlushBundle(ChannelHandlerContext ctx) {
