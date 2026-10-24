@@ -76,7 +76,7 @@ public class PacketSelfMetadataListener {
                     WatchableIndexUtil.getIndex(entityMetadata, WatchableIndexUtil.ENTITY_SHARED_FLAGS);
             if (watchable != null) {
                 // The newest flags the server sent; resyncPose resends them as server truth.
-                player.serverSentSelfSharedFlags = watchable;
+                player.serverSentSelfSharedFlags = watchable.detach();
                 Object zeroBitField = watchable.value();
                 if (zeroBitField instanceof Byte fieldByte) {
                     final byte field = fieldByte;

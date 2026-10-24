@@ -59,6 +59,12 @@ public class CompensatedEntities {
     private int addOrderMappedAt;
     // The sum of passengers.size() over entityMap values.
     private int trackedPassengers;
+    // Working space of one positionPassenger or recordRideTickSeat call.
+    private final SimpleCollisionBox seatVehicleBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox seatVehicleScratch = new SimpleCollisionBox();
+    private final SimpleCollisionBox seatBox = new SimpleCollisionBox();
+    // Working space of one tickClientEntities call.
+    private final ArrayList<PacketEntity> tickRoots = new ArrayList<>();
     // Type-filtered entityMap values in entityMap iteration order, current while typeViewsAt matches the map.
     private int typeViewsAt = -1;
     private List<PacketEntity> pushOrCollideCandidates = List.of();
@@ -781,7 +787,13 @@ public class CompensatedEntities {
      */
     public void recordRideTickSeat() {
         PacketEntity riding = playerEntity.getRiding();
-        rideTickSeat = riding == null ? null : BoundingBoxSize.getRidingOffsetFromVehicle(riding, playerEntity, player);
+        rideTickSeat = riding == null
+                ? null
+                : BoundingBoxSize.getRidingOffsetFromVehicle(
+                        riding,
+                        playerEntity,
+                        player,
+                        riding.getPossibleMovementCollisionBoxes(seatVehicleBox, seatVehicleScratch));
     }
 
     /** The seat the last client tick's Entity#rideTick ended on, or null when it ended off a vehicle. */
@@ -828,12 +840,13 @@ public class CompensatedEntities {
     }
 
     public void positionPassenger(PacketEntity riding, PacketEntity passenger) {
-        Vec3 passengerPosition = BoundingBoxSize.getRidingOffsetFromVehicle(riding, passenger, player);
+        Vec3 passengerPosition = BoundingBoxSize.getRidingOffsetFromVehicle(
+                riding, passenger, player, riding.getPossibleMovementCollisionBoxes(seatVehicleBox, seatVehicleScratch));
         passenger.inheritPositionCertainty(riding);
         passenger.setPassengerPosition(
                 player,
                 GetBoundingBox.getPacketEntityBoundingBox(
-                        player, passengerPosition.x, passengerPosition.y, passengerPosition.z, passenger));
+                        seatBox, player, passengerPosition.x, passengerPosition.y, passengerPosition.z, passenger));
         if (passenger == playerEntity) {
             player.packetStateData.clientSidePosition = passengerPosition;
         }
@@ -1334,8 +1347,10 @@ public class CompensatedEntities {
 
     /** Runs {@code tick} for every entity this player tracks except untracked riders, in entity map order. */
     public void forEachTrackedEntity(Consumer<PacketEntity> tick) {
+        PacketEntity selfRoot = selfRidingRoot();
+        PacketEntity serverRoot = serverVehicleRoot();
         for (PacketEntity entity : entityMap.values()) {
-            if (!isUntrackedRider(entity)) tick.accept(entity);
+            if (!isUntrackedRider(entity, selfRoot, serverRoot)) tick.accept(entity);
         }
     }
 
@@ -1350,8 +1365,8 @@ public class CompensatedEntities {
         PacketEntity self = getSelf();
         long selfOrder = self.getClientTickOrder();
         boolean selfPending = self.getRiding() == null && isTicking(self);
-        // Tracked passengers ride, so they are never roots.
-        List<PacketEntity> roots = new ArrayList<>(Math.max(1, size + 1 - trackedPassengers));
+        List<PacketEntity> roots = tickRoots;
+        roots.clear();
         long previous = 0L;
         for (int i = 0; i < size; i++) {
             PacketEntity entity = addOrder.get(i);

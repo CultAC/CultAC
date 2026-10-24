@@ -28,6 +28,15 @@ public class GetBoundingBox {
         return getBoundingBoxFromPosAndSize(centerX, minY, centerZ, width, height);
     }
 
+    /** {@link #getPacketEntityBoundingBox(CultPlayer, double, double, double, PacketEntity)} written into {@code out}. */
+    public static SimpleCollisionBox getPacketEntityBoundingBox(
+            SimpleCollisionBox out, CultPlayer player, double centerX, double minY, double centerZ, PacketEntity entity) {
+        float width = BoundingBoxSize.getWidth(player, entity);
+        float height = BoundingBoxSize.getHeight(player, entity);
+
+        return getBoundingBoxFromPosAndSize(out, centerX, minY, centerZ, width, height);
+    }
+
     // Size regular: 0.6 width 1.8 height
     // Size shifting: 0.6 width 1.5 height
     // Size while gliding/swimming: 0.6 width 0.6 height
