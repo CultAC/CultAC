@@ -6,6 +6,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
@@ -106,13 +107,24 @@ public final class UnknownCollisionProvider {
                     addIntersecting(boxes, box, queryBox);
                 }
             }
+
+            // Java Shulker#canBeCollidedWith admits every living shulker.
+            if (!inVehicle
+                    && !player.isBedrockMovement()
+                    && entity instanceof PacketEntityShulker shulker
+                    && !shulker.isDead) {
+                addIntersecting(
+                        boxes,
+                        shulker.boundingBox(shulker.getPossibleMovementCollisionBoxes(entityBox, scratch)),
+                        queryBox);
+            }
         }
     }
 
     /**
-     * Whether {@code entity} collides with a player outside a vehicle at each of its possible positions: a boat, or a
-     * happy ghast that HappyGhast#canBeCollidedWith admits. {@code envelope} and {@code scratch} are working space
-     * owned by the caller.
+     * Whether {@code entity} collides with a player outside a vehicle at each of its possible positions: a boat, a
+     * living shulker, or a happy ghast that HappyGhast#canBeCollidedWith admits. {@code envelope} and {@code scratch}
+     * are working space owned by the caller.
      */
     public static boolean collidesAtPossiblePositions(
             CultPlayer player,
@@ -121,6 +133,7 @@ public final class UnknownCollisionProvider {
             SimpleCollisionBox envelope,
             SimpleCollisionBox scratch) {
         if (entity.isBoat()) return true;
+        if (entity instanceof PacketEntityShulker) return !entity.isDead;
         return entity instanceof PacketEntityHappyGhast happyGhast
                 && !happyGhast.isBaby
                 && !happyGhast.isDead

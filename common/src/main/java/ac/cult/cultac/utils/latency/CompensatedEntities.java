@@ -1117,7 +1117,7 @@ public class CompensatedEntities {
         applyAgeableMetadata(entity, watchableObjects);
         applySizeMetadata(entity, watchableObjects, layout);
         if (entity instanceof PacketEntityShulker) {
-            applyShulkerMetadata(entity, watchableObjects);
+            applyShulkerMetadata(entity, watchableObjects, provenAt);
         }
         if (entity instanceof PacketEntityRideable) {
             applyRideableMetadata(entity, watchableObjects, layout);
@@ -1195,7 +1195,7 @@ public class CompensatedEntities {
         entity.refreshDimensions(player);
     }
 
-    private void applyShulkerMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
+    private void applyShulkerMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects, int provenAt) {
         EntityMetadata.Entry attachFaceData =
                 WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.SHULKER_ATTACH_FACE);
         if (attachFaceData != null) {
@@ -1207,20 +1207,9 @@ public class CompensatedEntities {
         EntityMetadata.Entry peekData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.SHULKER_PEEK);
         if (peekData == null) return;
 
-        int peek = Byte.toUnsignedInt((byte) peekData.value());
-        if (peek == 0) {
-            ShulkerData opened = new ShulkerData(entity, player.lastTransactionSent.get(), true);
-            player.compensatedWorld.openShulkerBoxes.remove(opened);
-            player.compensatedWorld.openShulkerBoxes.add(opened);
-            return;
-        }
-
-        // MCP-Reborn Shulker#updatePeekAmount changes currentPeekAmount
-        // by 0.05 toward DATA_PEEK_ID * 0.01 each client tick.
-        int closingTicks = Math.max(1, (peek + 4) / 5);
-        ShulkerData closing = new ShulkerData(entity, player.lastTransactionSent.get(), false, closingTicks);
-        player.compensatedWorld.openShulkerBoxes.remove(closing);
-        player.compensatedWorld.openShulkerBoxes.add(closing);
+        PacketEntityShulker shulker = (PacketEntityShulker) entity;
+        shulker.onPeek((byte) peekData.value(), provenAt);
+        if (shulker.isAnimating()) player.compensatedWorld.openShulkerBoxes.add(new ShulkerData(shulker));
     }
 
     private void applyRideableMetadata(

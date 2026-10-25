@@ -5,6 +5,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
@@ -14,7 +15,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * The entity colliders a Java move outside a vehicle may meet. Entity#collide collides with each entity at the one
  * position the client holds it, as its bounding box (EntityGetter#getEntityCollisions, EntityGetter.java:54-69), so
- * each world holds one possible box of each boat, or of each happy ghast the player collides with, that may lie in
+ * each world holds one possible box of each boat, shulker, or happy ghast the player collides with, that may lie in
  * the move's region, and no box for an entity the client may hold outside it.
  */
 public final class EntityPositionWorlds {
@@ -47,11 +48,14 @@ public final class EntityPositionWorlds {
             if (!UnknownCollisionProvider.collidesAtPossiblePositions(player, playerPos, entity, envelope, scratch)) {
                 continue;
             }
-            if (!entity.getPossibleMovementCollisionBoxes(envelope, scratch).isIntersected(region)) continue;
+            if (!boundingBox(entity, entity.getPossibleMovementCollisionBoxes(envelope, scratch))
+                    .isIntersected(region)) {
+                continue;
+            }
             List<SimpleCollisionBox> boxes = new ArrayList<>();
             boolean outside = false;
             for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
-                SimpleCollisionBox box = entity.possibleMovementCollisionBoxCandidate(i, scratch);
+                SimpleCollisionBox box = boundingBox(entity, entity.possibleMovementCollisionBoxCandidate(i, scratch));
                 if (!box.isIntersected(region)) {
                     outside = true;
                 } else if (!containsBox(boxes, box)) {
@@ -90,6 +94,11 @@ public final class EntityPositionWorlds {
             region.maxY += Math.max(0.0D, player.getMaxUpStep());
         }
         return region;
+    }
+
+    /** The bounding box of {@code entity} at {@code box}, one of its position boxes. */
+    private static SimpleCollisionBox boundingBox(PacketEntity entity, SimpleCollisionBox box) {
+        return entity instanceof PacketEntityShulker shulker ? shulker.boundingBox(box) : box;
     }
 
     /** Whether {@code worlds} is the one empty world. */

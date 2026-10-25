@@ -686,10 +686,16 @@ public class PacketEntity {
 
     /** An attribute update replacing the scale, which the client has applied once it answers provenAt. */
     public void onScale(float scale, int provenAt) {
+        scale = sanitizeScale(scale);
         if (scale == this.scale) return;
         if (!(replacedScale <= this.scale)) replacedScale = this.scale;
         this.scale = scale;
         sizeProvenAt = Math.max(sizeProvenAt, provenAt);
+    }
+
+    /** LivingEntity#sanitizeScale of the scale attribute, which LivingEntity#getScale returns. */
+    protected float sanitizeScale(float scale) {
+        return scale;
     }
 
     /** The client answered this transaction: once it proves every replacement, it shows only the current size. */

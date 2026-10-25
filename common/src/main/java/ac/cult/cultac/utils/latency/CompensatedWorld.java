@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -959,6 +960,9 @@ public class CompensatedWorld {
     }
 
     private SimpleCollisionBox openShulkerCollisionBox(ShulkerData data) {
+        if (data.entity instanceof PacketEntityShulker shulker) {
+            return shulker.boundingBox(data.getCollision().copy());
+        }
         Direction facing = data.getFacing(player);
         return data.getCollision().copy().expandToCoordinate(facing.getModX(), facing.getModY(), facing.getModZ());
     }
@@ -1178,7 +1182,7 @@ public class CompensatedWorld {
      * TickRateManager#runsNormally for the client tick in progress: Minecraft#tick sets it from the frozen state and
      * the remaining steps before taking a step.
      */
-    private boolean clientRunsNormally() {
+    public boolean clientRunsNormally() {
         return !player.packetStateData.serverTicksFrozen || player.packetStateData.serverFrozenTickStepsRemaining > 0;
     }
 
