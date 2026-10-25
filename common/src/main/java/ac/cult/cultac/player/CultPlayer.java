@@ -16,6 +16,7 @@ import ac.cult.cultac.checks.impl.prediction.checks.ItemUseDesync;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UnknownCollisionProvider;
 import ac.cult.cultac.checks.verdict.FlagArbiter;
 import ac.cult.cultac.events.packets.PacketEntityReplication;
 import ac.cult.cultac.manager.LastInstanceManager;
@@ -52,6 +53,7 @@ import ac.cult.cultac.utils.data.ClientSwimState;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.VehicleData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.latency.CompensatedCameraEntity;
@@ -1206,8 +1208,11 @@ public class CultPlayer implements GrimUser {
         if (!Collisions.isEmpty(this, box, y)) return false;
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
         SimpleCollisionBox entityBox = new SimpleCollisionBox();
+        SimpleCollisionBox scratch = new SimpleCollisionBox();
         for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
-            if (canCollideWithForPoseCheck(riding, entity) && overlapsAtEachPossiblePosition(entity, box, entityBox)) {
+            if (canCollideWithForPoseCheck(riding, entity)
+                    && collidesWithPoseBox(entity, box, entityBox, scratch)
+                    && overlapsAtEachPossiblePosition(entity, box, entityBox)) {
                 return false;
             }
         }
@@ -1227,7 +1232,8 @@ public class CultPlayer implements GrimUser {
         SimpleCollisionBox entityBox = new SimpleCollisionBox();
         SimpleCollisionBox scratch = new SimpleCollisionBox();
         for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
-            if (!canCollideWithForPoseCheck(riding, entity)) {
+            if (!canCollideWithForPoseCheck(riding, entity)
+                    || !collidesWithPoseBox(entity, playerBox, entityBox, scratch)) {
                 continue;
             }
 
@@ -1237,6 +1243,16 @@ public class CultPlayer implements GrimUser {
             }
         }
         return true;
+    }
+
+    /** Whether the entity collides with this player in {@code playerBox}, which HappyGhast#canBeCollidedWith limits. */
+    private static boolean collidesWithPoseBox(
+            PacketEntity entity, SimpleCollisionBox playerBox, SimpleCollisionBox entityBox, SimpleCollisionBox scratch) {
+        if (!(entity instanceof PacketEntityHappyGhast ghast)) return true;
+        Vec3 position = new Vec3(
+                (playerBox.minX + playerBox.maxX) / 2.0D, playerBox.minY, (playerBox.minZ + playerBox.maxZ) / 2.0D);
+        return UnknownCollisionProvider.canBeCollidedWith(
+                ghast, ghast.getPossibleMovementCollisionBoxes(entityBox, scratch), null, position);
     }
 
     private static boolean overlapsAtAPossiblePosition(

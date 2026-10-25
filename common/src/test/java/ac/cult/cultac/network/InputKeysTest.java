@@ -26,7 +26,9 @@ import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientItemUseState;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.ItemUtil;
@@ -60,6 +62,8 @@ class InputKeysTest {
     private static final double WALK = (double) 0.98F * (double) 0.1F;
     private static final double SPRINT = (double) 0.98F * (double) 0.13F;
     private static final double FRICTION = 0.6F * 0.91F;
+    private static final ServerboundPlayerInput FORWARD =
+            new ServerboundPlayerInput(true, false, false, false, false, false, false);
 
     @Test
     void zeroHealthClearsTravelInputOnlyAfterItsReceipt() throws Exception {
@@ -484,6 +488,97 @@ class InputKeysTest {
             assertNoFlags(f);
             assertEquals(Pose.STANDING, f.player.pose);
         }
+    }
+
+    @Test
+    void sprintingUnderAHappyGhastHoveringABlockUpIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            sprintUnderAHoveringHappyGhast(f, false);
+        }
+    }
+
+    @Test
+    void sprintingUnderAGhastlingHoveringABlockUpIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            sprintUnderAHoveringHappyGhast(f, true);
+        }
+    }
+
+    /**
+     * HappyGhast#canBeCollidedWith admits a player below the top of a ghast's box only while it stays still, and
+     * never admits a ghastling, so neither blocks the standing pose.
+     */
+    private static void sprintUnderAHoveringHappyGhast(JavaTickFixture f, boolean baby) {
+        f.player.compensatedEntities.addEntity(
+                100, EntityTypeIds.HAPPY_GHAST, new Vec3(0.5, FLOOR_Y + 1, 0.5), 0, 0, 0);
+        var ghast = (PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(100);
+        ghast.isBaby = baby;
+        assertFalse(ghast.staysStill);
+        f.place(new Vec3(0.5, FLOOR_Y, -4.5), GROUNDED);
+        f.player.isSprinting = true;
+        f.player.sprintState.onClientTick(true);
+        f.input(SPRINT_FORWARD);
+        double z = -4.5;
+        double velocity = 0.0;
+        while (z < 0.5) {
+            z += velocity + SPRINT;
+            f.tick(new Vec3(0.5, FLOOR_Y, z), true);
+            velocity = (velocity + SPRINT) * FRICTION;
+        }
+
+        assertNoFlags(f);
+        var standing = new SimpleCollisionBox(0.2, FLOOR_Y, z - 0.3, 0.8, FLOOR_Y + 1.8, z + 0.3);
+        assertTrue(ghast.getPossibleMovementCollisionBoxes().isIntersected(standing));
+        assertEquals(Pose.STANDING, f.player.pose);
+    }
+
+    @Test
+    void walkingUnderAStillHappyGhastHoveringABlockUpIsSlowedLikeCrawling() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            walkUnderAStillHappyGhast(f, (double) (0.98F * 0.3F) * (float) (0.1F * 1.4D));
+            assertNoFlags(f);
+            assertEquals(Pose.SWIMMING, f.player.pose);
+        }
+    }
+
+    @Test
+    void walkingUnderAStillHappyGhastHoveringABlockUpAtTheWalkingSpeedIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            assertTrue(walkUnderAStillHappyGhast(f, (double) 0.98F * (float) (0.1F * 1.4D)) > 0);
+        }
+    }
+
+    /**
+     * The InputKeys violations of a walk with Speed II along +x by {@code accel} under an adult happy ghast that stays
+     * still a block up. HappyGhast#canBeCollidedWith admits the player there, so neither the standing nor the crouching pose fits and
+     * Player#updatePlayerPose falls back to the swimming pose, which LocalPlayer#isMovingSlowly counts as crawling.
+     */
+    private static double walkUnderAStillHappyGhast(JavaTickFixture f, double accel) {
+        f.player.compensatedEntities.addEntity(
+                100, EntityTypeIds.HAPPY_GHAST, new Vec3(0.5, FLOOR_Y + 1, 0.5), 0, 0, 0);
+        ((PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(100)).staysStill = true;
+        f.player.compensatedEntities.updateAttributes(
+                f.player.entityID,
+                List.of(new AttributeSnapshot(
+                        "minecraft:movement_speed",
+                        0.1F,
+                        List.of(new AttributeModifier(
+                                "minecraft:effect.speed", 0.4D, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL)))));
+        f.player.xRot = -90;
+        double x = 0.5;
+        f.place(new Vec3(x, FLOOR_Y, 0.5), GROUNDED);
+        f.input(NONE);
+        f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+        assertEquals(Pose.SWIMMING, f.player.pose);
+        f.input(FORWARD);
+        double velocity = 0.0;
+        for (int tick = 0; tick < 4; tick++) {
+            velocity += accel;
+            x += velocity;
+            f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+            velocity *= FRICTION;
+        }
+        return keyFlags(f);
     }
 
     private static void selfMetadata(JavaTickFixture f, int index, byte value) {
