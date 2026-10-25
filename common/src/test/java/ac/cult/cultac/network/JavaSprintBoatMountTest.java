@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.sprint.SprintA;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -75,6 +76,39 @@ class JavaSprintBoatMountTest {
     }
 
     /**
+     * LocalPlayer#hasEnoughFoodToStartSprinting is true for a passenger and the first ride tick still sprints; the
+     * STOP_SPRINTING it sends stops the sprint for the second.
+     */
+    @Test
+    void aHungryPassengerIsJudgedByTheFlagSentAfterTheFirstRideTick() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_4, ClientVersion.V_1_21_4)) {
+            mount(f);
+            SprintA sprintA = hungry(f);
+
+            PredictionResult firstRide = firstRideTick(f, true);
+            assertTrue(exact(firstRide), "first ride tick: " + describe(firstRide));
+            PredictionResult secondRide = secondRideTick(f);
+            assertTrue(exact(secondRide), "second ride tick: " + describe(secondRide));
+            assertEquals(0.0, sprintA.violations, "SprintA");
+        }
+    }
+
+    @Test
+    void aHungryPassengerThatKeepsSprintingIsSprintA() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_4, ClientVersion.V_1_21_4)) {
+            mount(f);
+            SprintA sprintA = hungry(f);
+
+            PredictionResult firstRide = firstRideTick(f, false);
+            assertTrue(exact(firstRide), "first ride tick: " + describe(firstRide));
+            assertEquals(0.0, sprintA.violations, "SprintA on the first ride tick");
+            PredictionResult secondRide = secondRideTick(f);
+            assertTrue(exact(secondRide), "second ride tick: " + describe(secondRide));
+            assertTrue(sprintA.violations > 0, "SprintA on the second ride tick");
+        }
+    }
+
+    /**
      * A 1.21.2 LocalPlayer#aiStep stops the sprint of a boat passenger, whom the boat keeps out of the water, only
      * without forward impulse or on a horizontal collision, so a passenger paddling forward keeps it and sends no
      * STOP_SPRINTING.
@@ -83,12 +117,14 @@ class JavaSprintBoatMountTest {
     void a1_21_2PassengerPaddlingForwardKeepsItsSprint() throws Exception {
         try (var f = new JavaTickFixture(ProtocolVersion.V1_21_4, ClientVersion.V_1_21_2)) {
             SprintG sprintG = mount(f);
+            SprintA sprintA = hungry(f);
 
             PredictionResult firstRide = firstRideTick(f, false);
             assertTrue(exact(firstRide), "first ride tick: " + describe(firstRide));
             PredictionResult secondRide = secondRideTick(f);
             assertTrue(exact(secondRide), "second ride tick: " + describe(secondRide));
             assertEquals(0.0, sprintG.violations, "SprintG");
+            assertEquals(0.0, sprintA.violations, "SprintA");
         }
     }
 
@@ -231,6 +267,13 @@ class JavaSprintBoatMountTest {
         Vec3 seat = at(240.39491855367655, 61.123034541455986, 204.5464472442114).add(OTHER_BOAT_OFFSET);
         enter(f, OTHER_BOAT, 3, seat, BOAT_SYNC.add(OTHER_BOAT_OFFSET));
         return rideTick(f, false, -158.96085F, 42.975826F, FIRST_RIDE.add(OTHER_BOAT_OFFSET), true);
+    }
+
+    private static SprintA hungry(JavaTickFixture f) {
+        f.player.food = 6;
+        SprintA sprintA = f.player.checkManager.getCheck(SprintA.class);
+        sprintA.violations = 0;
+        return sprintA;
     }
 
     /** A ride tick: paddles, the rider's Rot, the boat's move, then STOP_SPRINTING when {@code stop}. */

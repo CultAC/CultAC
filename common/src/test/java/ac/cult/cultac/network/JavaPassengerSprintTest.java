@@ -2,6 +2,7 @@ package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
+import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static ac.cult.cultac.network.JavaTickFixture.observeOnly;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.sprint.SprintA;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
@@ -18,6 +20,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
@@ -35,10 +38,62 @@ class JavaPassengerSprintTest {
     private static final int VEHICLE = 100;
     private static final ServerboundPlayerInput FORWARD_SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
+    private static final Vec3 START = new Vec3(0.5, FLOOR_Y, 0.5);
     private static final Vec3[] NAUTILUS_RIDE = {
         at(341.933039011208, 62.75250756510613, -61.512551876154134),
         at(341.87043664710177, 62.75477098958726, -61.43417395472013)
     };
+
+    /** CamelHusk extends Camel, whose canSprint lets its controlling passenger sprint at any food level. */
+    @Test
+    void aHungryCamelHuskRiderSprintsWithoutSprintA() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(START.add(0, 1, 0), Vec3.ZERO);
+            f.player.compensatedEntities.addEntity(
+                    VEHICLE, EntityTypes.defaults().byKey("minecraft:camel_husk").id(), START, 0, 0, 0);
+            ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
+            f.setPassengers(VEHICLE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.food = 6;
+            f.player.isSprinting = true;
+            SprintA sprintA = f.player.checkManager.getCheck(SprintA.class);
+            sprintA.violations = 0;
+
+            for (int tick = 0; tick < 3; tick++) {
+                PredictionResult result = f.rideTick(START, true);
+                assertEquals(0.0, sprintA.violations, "SprintA on tick " + tick);
+                assertTrue(exact(result) && !result.isExempt(), "tick " + tick + ": " + describe(result));
+            }
+        }
+    }
+
+    /** The controlling passenger of a camel husk standing in water keeps its sprint. */
+    @Test
+    void aCamelHuskRiderSprintsInWaterWithoutSprintG() throws Exception {
+        try (var f = pool();
+                var ignored = observeOnly()) {
+            Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+            f.player.setExperimentalChecks(true);
+            SprintG sprintG = f.player.checkManager.getCheck(SprintG.class);
+            sprintG.violations = 0;
+            f.place(START.add(0, 1, 0), Vec3.ZERO);
+            f.player.compensatedEntities.addEntity(
+                    VEHICLE, EntityTypes.defaults().byKey("minecraft:camel_husk").id(), START, 0, 0, 0);
+            ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
+            f.setPassengers(VEHICLE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.isSprinting = true;
+
+            for (int tick = 0; tick < 3; tick++) {
+                PredictionResult result = f.rideTick(START, true);
+                assertTrue(
+                        result.getSimulationContext().getWorldData().getInWater().determinePessimistically(),
+                        "tick " + tick + " in water: " + describe(result));
+                assertEquals(0.0, sprintG.violations, "SprintG on tick " + tick);
+                assertTrue(exact(result), "tick " + tick + ": " + describe(result));
+            }
+        }
+    }
 
     /**
      * A player sprint-swimming at the surface mounts a saddled nautilus. AbstractNautilus has no canSprint, so the
