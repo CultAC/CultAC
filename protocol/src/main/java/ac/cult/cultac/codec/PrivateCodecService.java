@@ -240,24 +240,19 @@ public final class PrivateCodecService implements WireValueDecoder {
     private ItemValue item(Item item, Registries registries, ProtocolVersion version, byte[] wirePatch) {
         if (item == null || item.isEmpty()) return new ItemValue(0, 0, null);
         var context = new ValueContext(registries, version, mappings(version, ProtocolVersion.V26_3));
-        var patch = ComponentValues.patch(item, context);
-        var layouts = ComponentValues.layouts(item, patch, context);
+        var values = ComponentValues.components(item, context);
         ByteBuf output = Unpooled.buffer();
         try {
-            Types.COMPOUND_TAG.write(output, patch);
+            Types.COMPOUND_TAG.write(output, values.patch());
             byte[] components = ByteBufUtil.getBytes(output);
             byte[] layoutBytes = null;
-            if (!layouts.isEmpty()) {
+            if (!values.layouts().isEmpty()) {
                 output.clear();
-                Types.COMPOUND_TAG.write(output, layouts);
+                Types.COMPOUND_TAG.write(output, values.layouts());
                 layoutBytes = ByteBufUtil.getBytes(output);
             }
             // Via's component writers preserve fields that the persistent NBT codec omits.
-            var encodings = new HashMap<String, ComponentEncoding>();
-            for (var data : item.dataContainer().data().values()) {
-                if (data.isEmpty()) continue;
-                encodings.put(Key.namespaced(data.key().identifier()), ComponentValues.wireEncoding(data, context));
-            }
+            var encodings = values.encodings();
             return new ItemValue(
                     item.identifier(),
                     item.amount(),
@@ -276,18 +271,13 @@ public final class PrivateCodecService implements WireValueDecoder {
             Item item, Registries registries, ProtocolVersion version, byte[] wirePatch, NbtFactory<T> factory) {
         if (item == null || item.isEmpty()) return new DecodedItem<>(0, 0, null, null, Map.of(), null);
         var context = new ValueContext(registries, version, mappings(version, ProtocolVersion.V26_3));
-        var patch = ComponentValues.patch(item, context);
-        var layouts = ComponentValues.layouts(item, patch, context);
-        var encodings = new HashMap<String, ComponentEncoding>();
-        for (var data : item.dataContainer().data().values()) {
-            if (!data.isEmpty())
-                encodings.put(Key.namespaced(data.key().identifier()), ComponentValues.wireEncoding(data, context));
-        }
+        var values = ComponentValues.components(item, context);
+        var encodings = values.encodings();
         return new DecodedItem<>(
                 item.identifier(),
                 item.amount(),
-                PortableNbt.read(patch, factory),
-                layouts.isEmpty() ? null : PortableNbt.read(layouts, factory),
+                PortableNbt.read(values.patch(), factory),
+                values.layouts().isEmpty() ? null : PortableNbt.read(values.layouts(), factory),
                 encodings,
                 wirePatch == null ? null : new ComponentEncoding(version.protocol(), wirePatch, context.references()));
     }

@@ -11,6 +11,12 @@ import ac.cult.shaded.vialib.api.type.types.version.VersionedTypes;
 import ac.cult.shaded.vialib.codec.nbt.NbtOps;
 import ac.cult.shaded.vialib.nbt.tag.*;
 import ac.cult.shaded.vialib.util.Key;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.Unpooled;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 /** Complete component patches; uninspected values retain their version-specific codec encoding. */
 final class ComponentValues {
@@ -62,35 +68,104 @@ final class ComponentValues {
         return patch;
     }
 
-    static WireValueDecoder.ComponentEncoding wireEncoding(StructuredData<?> data, ValueContext parent) {
-        var context = parent.fork();
-        var value = component(data, context);
-        valueLayout(data, value, context);
-        var buffer = io.netty.buffer.Unpooled.buffer();
-        try {
-            data.write(buffer);
-            return new WireValueDecoder.ComponentEncoding(
-                    parent.version().protocol(),
-                    io.netty.buffer.ByteBufUtil.getBytes(buffer),
-                    context.references(),
-                    itemEncodings(data.value(), parent));
-        } finally {
-            buffer.release();
+    /**
+     * As {@link #patch} and {@link #layouts} with a {@link #wireEncoding} per present component; each component's value
+     * and layout are built once, in the context its encoding's references come from.
+     */
+    static final class ItemComponents {
+        private final Item item;
+        private final ValueContext context;
+        private final CompoundTag patch = new CompoundTag(), layouts = new CompoundTag();
+        private final ArrayList<ValueContext> forks;
+
+        private ItemComponents(Item item, ValueContext context) {
+            this.item = item;
+            this.context = context;
+            var values = item.dataContainer().data().values();
+            forks = new ArrayList<>(values.size());
+            for (var data : values) {
+                String name = Key.stripMinecraftNamespace(data.key().identifier());
+                if (data.isEmpty()) {
+                    patch.put("!" + Key.namespaced(name), new CompoundTag());
+                    continue;
+                }
+                var fork = context.fork();
+                patch.put(Key.namespaced(name), component(data, fork));
+                forks.add(fork);
+            }
+            int next = 0;
+            for (var data : values) {
+                if (data.isEmpty()) continue;
+                String key = Key.namespaced(data.key().identifier());
+                var detail = valueLayout(data, patch.get(key), forks.get(next++));
+                if (!detail.isEmpty()) layouts.put(key, detail);
+            }
+            for (var fork : forks) context.include(fork);
+        }
+
+        CompoundTag patch() {
+            return patch;
+        }
+
+        CompoundTag layouts() {
+            return layouts;
+        }
+
+        /** The present components' encodings, keyed by namespaced component name. */
+        Map<String, WireValueDecoder.ComponentEncoding> encodings() {
+            var encodings = new HashMap<String, WireValueDecoder.ComponentEncoding>();
+            ByteBuf scratch = Unpooled.buffer();
+            try {
+                int next = 0;
+                for (var data : item.dataContainer().data().values()) {
+                    if (!data.isEmpty())
+                        encodings.put(
+                                Key.namespaced(data.key().identifier()),
+                                wireEncoding(data, context, forks.get(next++), scratch));
+                }
+            } finally {
+                scratch.release();
+            }
+            return encodings;
         }
     }
 
+    static ItemComponents components(Item item, ValueContext context) {
+        return new ItemComponents(item, context);
+    }
+
+    private static WireValueDecoder.ComponentEncoding wireEncoding(
+            StructuredData<?> data, ValueContext parent, ByteBuf scratch) {
+        var context = parent.fork();
+        var value = component(data, context);
+        valueLayout(data, value, context);
+        return wireEncoding(data, parent, context, scratch);
+    }
+
+    /** {@code context} already holds the references of {@code data}'s value and layout. */
+    private static WireValueDecoder.ComponentEncoding wireEncoding(
+            StructuredData<?> data, ValueContext parent, ValueContext context, ByteBuf scratch) {
+        scratch.clear();
+        data.write(scratch);
+        byte[] bytes = ByteBufUtil.getBytes(scratch);
+        return new WireValueDecoder.ComponentEncoding(
+                parent.version().protocol(), bytes, context.references(), itemEncodings(data.value(), parent, scratch));
+    }
+
     private static java.util.Map<String, java.util.Map<String, WireValueDecoder.ComponentEncoding>> itemEncodings(
-            Object value, ValueContext context) {
+            Object value, ValueContext context, ByteBuf scratch) {
+        if (!(value instanceof Item) && !(value instanceof Item[]) && !(value instanceof PotDecorations26_3))
+            return Map.of();
         var result = new java.util.HashMap<String, java.util.Map<String, WireValueDecoder.ComponentEncoding>>();
-        if (value instanceof Item item) itemEncodings(result, "0", item, context);
+        if (value instanceof Item item) itemEncodings(result, "0", item, context, scratch);
         else if (value instanceof Item[] items)
             for (int index = 0; index < items.length; index++)
-                itemEncodings(result, Integer.toString(index), items[index], context);
+                itemEncodings(result, Integer.toString(index), items[index], context, scratch);
         else if (value instanceof PotDecorations26_3 pot) {
-            itemEncodings(result, "back", pot.back(), context);
-            itemEncodings(result, "left", pot.left(), context);
-            itemEncodings(result, "right", pot.right(), context);
-            itemEncodings(result, "front", pot.front(), context);
+            itemEncodings(result, "back", pot.back(), context, scratch);
+            itemEncodings(result, "left", pot.left(), context, scratch);
+            itemEncodings(result, "right", pot.right(), context, scratch);
+            itemEncodings(result, "front", pot.front(), context, scratch);
         }
         return java.util.Map.copyOf(result);
     }
@@ -99,11 +174,13 @@ final class ComponentValues {
             java.util.Map<String, java.util.Map<String, WireValueDecoder.ComponentEncoding>> target,
             String slot,
             Item item,
-            ValueContext context) {
+            ValueContext context,
+            ByteBuf scratch) {
         if (!present(item)) return;
         var components = new java.util.HashMap<String, WireValueDecoder.ComponentEncoding>();
         for (var data : item.dataContainer().data().values())
-            if (!data.isEmpty()) components.put(Key.namespaced(data.key().identifier()), wireEncoding(data, context));
+            if (!data.isEmpty())
+                components.put(Key.namespaced(data.key().identifier()), wireEncoding(data, context, scratch));
         if (!components.isEmpty()) target.put(slot, java.util.Map.copyOf(components));
     }
 
