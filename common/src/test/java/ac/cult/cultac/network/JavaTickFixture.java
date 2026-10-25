@@ -243,10 +243,23 @@ final class JavaTickFixture implements AutoCloseable {
             float sourcePitch,
             float finalYaw,
             float finalPitch) {
+        teleport(transaction, target, Vec3.ZERO, flags, sourceYaw, sourcePitch, finalYaw, finalPitch);
+    }
+
+    /** A teleport whose packet delta movement is {@code delta}. */
+    void teleport(
+            int transaction,
+            Vec3 target,
+            Vec3 delta,
+            RelativeFlag flags,
+            float sourceYaw,
+            float sourcePitch,
+            float finalYaw,
+            float finalPitch) {
         int id = ++teleportId;
         player.getSetbackTeleportUtil()
                 .addSentTeleport(
-                        target, Vec3.ZERO, transaction, flags, false, id, sourceYaw, sourcePitch, finalYaw, finalPitch);
+                        target, delta, transaction, flags, false, id, sourceYaw, sourcePitch, finalYaw, finalPitch);
         pongThrough(transaction);
         accept(id, target, finalYaw, finalPitch);
     }

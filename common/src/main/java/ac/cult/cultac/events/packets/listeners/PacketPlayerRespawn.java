@@ -307,6 +307,7 @@ public class PacketPlayerRespawn {
             simulation.handleRespawn();
             // ClientPacketListener#handleRespawn copies the old delta movement only with KEEP_ENTITY_DATA.
             if (!keepEntityData && !player.isBedrockMovement()) simulation.seedStartingVelocity(Vec3.ZERO);
+            player.compensatedFireworks.localPlayerReplaced(keepEntityData);
             final BadPacketsE badPacketsE = player.checkManager.getListener(BadPacketsE.class);
             badPacketsE.handleRespawn(); // Reminder ticks reset
             player.checkManager.getListener(BadPacketsG.class).handleRespawn();

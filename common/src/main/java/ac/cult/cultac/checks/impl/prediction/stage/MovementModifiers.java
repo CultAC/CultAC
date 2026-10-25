@@ -4,11 +4,14 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.SpinRebound;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.math.Vector3dm;
+import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -154,6 +157,7 @@ public class MovementModifiers {
         }
 
         EntityPush.addVehiclePushCandidates(player, start, state, lastResult);
+        addFireworkBoosts(player, start, state);
 
         // To prevent trying to add a million vectors, we limit the overridden vels
         for (TransactionVel order : player.checkManager.getKnockbackHandler().overriddenVels) {
@@ -203,6 +207,29 @@ public class MovementModifiers {
         }
 
         return start;
+    }
+
+    /**
+     * FireworkRocketEntity#tick boosts the stored velocity after the last tick's LivingEntity#aiStep, with that
+     * tick's look, so this tick's packets, attack and travel start from the boost. The travel may be a glide, or a
+     * fluid or air travel once the server's fall flying flag arrives.
+     */
+    private static void addFireworkBoosts(CultPlayer player, List<PredVector> start, SimulationContext state) {
+        int boosts = player.compensatedFireworks.getMaxFireworksAppliedPossible();
+        if (boosts == 0 || state.getVehicle() != null) return;
+        List<PredVector> stored = new ArrayList<>(start);
+        // The look reads either trig table, as the glide does.
+        for (int fastMath = 0; fastMath < 2; fastMath++) {
+            Vector3dm look = ReachUtils.getLook(player, state.getLastXRot(), state.getLastYRot());
+            for (PredVector carried : stored) {
+                Vec3 boosted = carried;
+                for (int i = 1; i <= boosts; i++) {
+                    boosted = ElytraTransform.boostFirework(boosted, look);
+                    start.add(new ElytraTransform.Boosted(carried, boosted, i));
+                }
+            }
+            player.trigHandler.toggleShitMath();
+        }
     }
 
     private static void addSlimePistonLaunches(List<PredVector> start, SimulationContext state) {

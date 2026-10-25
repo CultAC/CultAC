@@ -14,6 +14,8 @@ import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsG;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.checks.impl.combat.FairReach;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -32,6 +34,7 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
+import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.math.Vec3;
@@ -409,6 +412,11 @@ public final class PacketPlayerRespawnLifecycleTest {
         try {
             player.compensatedFireworks.addNewFirework(7);
             player.compensatedFireworks.addNewFirework(8);
+            SimulationContext gliding = mock(SimulationContext.class);
+            when(gliding.isGliding()).thenReturn(true);
+            PredictionResult tick = mock(PredictionResult.class);
+            when(tick.getSimulationContext()).thenReturn(gliding);
+            player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
             player.compensatedFireworks.removeFirework(8);
             ClientboundLogin login = loginPacket(true);
             var loginEvent = sendEvent(player, ClientboundPackets.LOGIN, login);

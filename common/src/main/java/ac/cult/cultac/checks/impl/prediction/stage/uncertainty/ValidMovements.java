@@ -148,7 +148,6 @@ public class ValidMovements {
     /** Selects one complete movement towards {@code end} with collisions ignored. */
     public Vec3 computeCollisionIgnoredMovement(Vec3 end, PredictionResult lastResult) {
         // Select one complete movement with the existing uncertainty handlers.
-        // In particular, Fireworks must share its radius between Y and X/Z.
         result.setCollideAxisData(COLLISION_IGNORED);
         setClosestTrace(transformTraceTowards(end, lastResult));
         return closestToTarget;

@@ -469,12 +469,18 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.pushesWhileLoadingLevel = inheritedRange(teleportData, this.pushesWhileLoadingLevel);
                 if (this.pushesWhileLoadingLevel == null) this.ticksWhileLoadingLevel = 0;
             }
-            Set<Vec3> existingVectors = this.validPlayerStartingVels;
+            Set<Vec3> existingVectors = this.player.compensatedFireworks.boosted(
+                    this.validPlayerStartingVels, this.lastXRot, this.lastYRot);
             this.validPlayerStartingVels = new HashSet<>();
 
             for (Vec3 vector : existingVectors) {
                 this.validPlayerStartingVels.add(
                         this.player.isBedrockMovement() ? Vec3.ZERO : teleportData.applyToVelocity(vector));
+            }
+            if (this.profileCarry instanceof JavaPredictionCarry carry && !carry.states().isEmpty()) {
+                JavaPredictionCarry moved = this.carryThroughTeleport(carry, teleportData);
+                if (this.carryWithChangedStuckBlock == carry) this.carryWithChangedStuckBlock = moved;
+                this.profileCarry = moved;
             }
 
             if (!teleportData.isRelativeDeltaX()
@@ -516,6 +522,20 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.profileCarry = null;
             }
         }
+    }
+
+    /** Each candidate keeps its fall distance and stuck speed through the last tick's boosts and the teleport. */
+    private JavaPredictionCarry carryThroughTeleport(JavaPredictionCarry carry, TeleportData teleportData) {
+        List<JavaPredictionCarry.State> states = new ArrayList<>();
+        for (JavaPredictionCarry.State state : carry.states()) {
+            for (Vec3 velocity : this.player.compensatedFireworks.boosted(
+                    Set.of(state.velocity()), this.lastXRot, this.lastYRot)) {
+                JavaPredictionCarry.State moved = new JavaPredictionCarry.State(
+                        teleportData.applyToVelocity(velocity), state.fallDistance(), state.stuckSpeed());
+                if (!states.contains(moved)) states.add(moved);
+            }
+        }
+        return new JavaPredictionCarry(carry.actor(), carry.fallDistance(), states);
     }
 
     public void applyAcceptedBedrockTeleport(TeleportAcceptData teleportAcceptData) {

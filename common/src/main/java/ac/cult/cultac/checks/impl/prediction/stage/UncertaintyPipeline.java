@@ -26,7 +26,6 @@ public class UncertaintyPipeline {
             new BubbleColumn(),
             new SwimSpaceShift(),
             new AquaticUpdateSwim(),
-            new Fireworks(),
             new FluidPush(),
             new InsideBlock(),
             new EntityPush(),
