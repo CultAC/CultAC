@@ -118,7 +118,13 @@ public final class CultVelocityPlugin {
                 bundledVersion = BuildUpdates.descriptorVersion(
                         getClass().getResourceAsStream("/velocity-plugin.json"), "velocity");
                 bootBuild = new BuildUpdates(updateSettings(), bundledVersion)
-                        .boot(engine.loaderVersion(), engine.updates(), BOOT_UPDATE_LIMIT, logger::info, logger::warn);
+                        .boot(
+                                engine.loaderVersion(),
+                                engine.updates(),
+                                BOOT_UPDATE_LIMIT,
+                                logger::info,
+                                logger::warn,
+                                CultBuildVersion.BRANCH);
             } catch (IOException | RuntimeException failure) {
                 logger.warn("Starting the bundled CultAC runtime; the update settings are unusable: " + failure);
             }

@@ -78,15 +78,10 @@ public class Riptide implements UncertaintyHandler {
         return context.getRiptideLevel() == 0 ? null : velocity.firstInLineage(Pushed.class);
     }
 
-    /** A velocity carrying this tick's push, and the velocity the push was added to. */
+    /** A velocity carrying this tick's push. */
     static final class Pushed extends PredVector {
-        final PredVector carried;
-        final Vec3 push;
-
         private Pushed(PredVector carried, Vec3 push) {
             super(carried.add(push), carried, PUSH);
-            this.carried = carried;
-            this.push = push;
         }
     }
 

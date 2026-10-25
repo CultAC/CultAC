@@ -14,6 +14,8 @@ import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsG;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.checks.impl.combat.FairReach;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -32,12 +34,15 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
+import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
+import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.UUID;
 import org.junit.Test;
 
@@ -402,14 +407,60 @@ public final class PacketPlayerRespawnLifecycleTest {
         }
     }
 
+    /** ClientPacketListener#handleRespawn copies the boosted delta movement into the new level with KEEP_ENTITY_DATA. */
+    @Test
+    public void aDimensionChangeKeepsTheLastBoostOnlyWithKeptEntityData() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        for (byte kept : new byte[] {ClientboundRespawn.KEEP_ENTITY_DATA, 0}) {
+            CultPlayer player = offlineJavaPlayer();
+            try {
+                player.compensatedFireworks.attachmentChanged(
+                        7, OptionalInt.of(player.entityID), player.lastTransactionSent.get() + 1);
+                SimulationContext gliding = mock(SimulationContext.class);
+                when(gliding.isGliding()).thenReturn(true);
+                PredictionResult tick = mock(PredictionResult.class);
+                when(tick.getSimulationContext()).thenReturn(gliding);
+                player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
+                assertEquals(1, player.compensatedFireworks.getMaxFireworksAppliedPossible());
+
+                var nether = new ClientboundRespawn(
+                        new PlayerSpawnInfo(
+                                ModelRegistryNamesState.defaults()
+                                        .id("minecraft:dimension_type", "minecraft:the_nether"),
+                                "minecraft:the_nether",
+                                GameMode.SURVIVAL),
+                        kept);
+                new PacketPlayerRespawn()
+                        .onRespawn(sendEvent(player, ClientboundPackets.RESPAWN, nether), player, nether);
+                player.lastTransactionReceived.set(1);
+                player.latencyUtils.handleNettySyncTransaction(1);
+
+                assertEquals(
+                        "kept " + kept,
+                        kept != 0 ? 1 : 0,
+                        player.compensatedFireworks.getMaxFireworksAppliedPossible());
+                player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
+                assertEquals(0, player.compensatedFireworks.getMaxFireworksAppliedPossible());
+            } finally {
+                OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+            }
+        }
+    }
+
     @Test
     public void loginReceiptDropsRocketsOfTheOldLevel() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = offlineJavaPlayer();
         try {
-            player.compensatedFireworks.addNewFirework(7);
-            player.compensatedFireworks.addNewFirework(8);
-            player.compensatedFireworks.removeFirework(8);
+            int attachedAt = player.lastTransactionSent.get() + 1;
+            player.compensatedFireworks.attachmentChanged(7, OptionalInt.of(player.entityID), attachedAt);
+            player.compensatedFireworks.attachmentChanged(8, OptionalInt.of(player.entityID), attachedAt);
+            SimulationContext gliding = mock(SimulationContext.class);
+            when(gliding.isGliding()).thenReturn(true);
+            PredictionResult tick = mock(PredictionResult.class);
+            when(tick.getSimulationContext()).thenReturn(gliding);
+            player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
+            player.compensatedFireworks.removalSent(List.of(8), player.lastTransactionSent.get() + 1);
             ClientboundLogin login = loginPacket(true);
             var loginEvent = sendEvent(player, ClientboundPackets.LOGIN, login);
             int receipt = player.lastTransactionSent.get() + 1;

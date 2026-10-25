@@ -22,6 +22,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
     private final ModelInventoryValues inventory;
     private final ObservedWorldValues world;
     private final ModelEntityMetadataValues metadata;
+    private final ItemStackCache stacks;
     private final Map<String, RegistryTags.Payload> configurationTags = new LinkedHashMap<>();
 
     public ObservedPacketValues(
@@ -30,12 +31,27 @@ public final class ObservedPacketValues implements PacketValueAdapter {
             Supplier<RegistryNames> modelNames,
             Function<String, PaintingSize> paintings,
             Supplier<int[]> dimension) {
+        this(decoder, version, modelNames, paintings, dimension, null);
+    }
+
+    /**
+     * Sent stacks reuse {@code stacks}, which the connection's model codecs also bind; a connection decodes either
+     * its observed wire or the model wire, never both.
+     */
+    ObservedPacketValues(
+            WireValueDecoder decoder,
+            ProtocolVersion version,
+            Supplier<RegistryNames> modelNames,
+            Function<String, PaintingSize> paintings,
+            Supplier<int[]> dimension,
+            ItemStackCache stacks) {
         this.decoder = decoder;
         this.version = version;
+        this.stacks = stacks;
         names = new WireRegistryState(version, modelNames);
         toModel = ModelIdMappings.project(version, ProtocolVersion.V26_3);
         toWire = ModelIdMappings.project(ProtocolVersion.V26_3, version);
-        inventory = new ModelInventoryValues(decoder, version, names);
+        inventory = new ModelInventoryValues(decoder, version, names, stacks, names::generation);
         world = new ObservedWorldValues(this, dimension);
         metadata = new ModelEntityMetadataValues(decoder, version, names, paintings);
     }
@@ -147,7 +163,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
             RegistryTagValues.read(input);
             return new RegistryTags(Map.of());
         }
-        return read(input, context);
+        return stacks == null ? read(input, context) : stacks.observe(() -> read(input, context));
     }
 
     @Override

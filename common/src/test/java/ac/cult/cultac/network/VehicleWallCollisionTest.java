@@ -11,12 +11,16 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -41,6 +45,20 @@ class VehicleWallCollisionTest {
     private static final double ICE_FRICTION = 0.98F;
     /** The gap a vehicle's box leaves to the wall in the stopping cases. */
     private static final double GAP = 0.001;
+
+    private static final Vec3 CAPTURE_HAPPY_GHAST = new Vec3(0.31166499081405, FLOOR_Y, 0.60483034020788);
+    private static final double HAPPY_GHAST_MAX_Z = CAPTURE_HAPPY_GHAST.z + 2.0;
+    private static final Vec3 CAPTURE_SEAT = new Vec3(-2.35900561273564, FLOOR_Y, 3.34896297377384);
+    /** HappyGhast's STAYS_STILL in the 26.3 metadata layout. */
+    private static final int HAPPY_GHAST_STAYS_STILL = 19;
+
+    private static final ByteBuffer NO_BYTES = ByteBuffer.allocate(0);
+    private static final double GHAST_GAP = 0.005;
+    /**
+     * A ridden happy ghast's first move from rest: HappyGhast#getRiddenInput's forward 1 scaled by 3.9F times its 0.05
+     * flying speed, through moveRelative at HappyGhast#travel's flying speed times 5F / 3F.
+     */
+    private static final double GHAST_FLIGHT = 3.9F * 0.05 * (double) (0.05F * 5.0F / 3.0F);
 
     private static final ServerboundPlayerInput FORWARD =
             new ServerboundPlayerInput(true, false, false, false, false, false, false);
@@ -211,6 +229,126 @@ class VehicleWallCollisionTest {
                 if (clipped) assertExact(result);
                 else assertRejected(result, "VehicleOffset");
             }
+        }
+    }
+
+    /**
+     * A horse walking into a grounded boat 0.05 ahead: AbstractBoat#canBeCollidedWith admits it, so Entity#collide
+     * steps the horse onto the boat's 0.5625 top within its step height, and the horse cannot pass through the boat.
+     */
+    @Test
+    void aHorseStepsUpOntoABoat() throws Exception {
+        Vec3 seat = new Vec3(0.5, FLOOR_Y, 3.0 - 0.05 - BOAT_HALF_WIDTH - HORSE_HALF_WIDTH);
+        for (boolean stepped : new boolean[] {true, false}) {
+            try (var f = ridden(EntityTypeIds.HORSE, seat)) {
+                f.player.compensatedEntities.addEntity(
+                        VEHICLE + 1, EntityTypeIds.OAK_BOAT, new Vec3(0.5, FLOOR_Y, 3.0), 0, 0, 0);
+                f.pongThrough(f.player.lastTransactionSent.get());
+                f.input(FORWARD);
+                assertExact(f.rideTick(seat, true));
+                PredictionResult result =
+                        f.rideTick(new Vec3(seat.x, FLOOR_Y + (stepped ? 0.5625 : 0.0), seat.z + HORSE_INPUT), true);
+                if (stepped) assertExact(result);
+                else assertRejected(result, "VehicleOffset");
+            }
+        }
+    }
+
+    /**
+     * A horse walking into a closed shulker 0.05 ahead with stone over the shulker, so the step cannot clear it.
+     * Shulker#canBeCollidedWith admits every entity while the shulker lives: the horse stops flat at its face.
+     */
+    @Test
+    void aHorseStopsAtAShulkerUnderACeiling() throws Exception {
+        Vec3 seat = new Vec3(0.5, FLOOR_Y, 3.0 - 0.05 - HORSE_HALF_WIDTH);
+        for (boolean clipped : new boolean[] {true, false}) {
+            try (var f = ridden(EntityTypeIds.HORSE, seat)) {
+                f.player.compensatedEntities.addEntity(
+                        VEHICLE + 1, EntityTypeIds.SHULKER, new Vec3(0.5, FLOOR_Y, 3.5), 0, 0, 0);
+                fill(f, 66, 66, 3, 3, BlockIds.STONE.defaultState());
+                f.pongThrough(f.player.lastTransactionSent.get());
+                f.input(FORWARD);
+                assertExact(f.rideTick(seat, true));
+                PredictionResult result =
+                        f.rideTick(new Vec3(seat.x, seat.y, seat.z + (clipped ? 0.05 : HORSE_INPUT)), true);
+                if (clipped) assertExact(result);
+                else assertRejected(result, "VehicleOffset");
+            }
+        }
+    }
+
+    /**
+     * HappyGhast#canBeCollidedWith admits any entity while the client's STAYS_STILL is set, as it is while a player
+     * stands on the ghast: a horse walking into it stops at its box. The geometry is a 26.3 capture shifted by (-164,
+     * -190): the horse's box 0.04589 from the side of a grounded ghast, overlapping it by 0.027 along x.
+     */
+    @Test
+    void aHorseStopsAtAHappyGhastStayingStill() throws Exception {
+        assertExact(rideIntoHappyGhast(true, HAPPY_GHAST_MAX_Z + HORSE_HALF_WIDTH));
+        assertRejected(rideIntoHappyGhast(true, CAPTURE_SEAT.z - HORSE_INPUT), "VehicleOffset");
+    }
+
+    /** Without STAYS_STILL the happy ghast admits no horse, so the horse walks through its box. */
+    @Test
+    void aHorseWalksThroughAHappyGhastNotStayingStill() throws Exception {
+        assertExact(rideIntoHappyGhast(false, CAPTURE_SEAT.z - HORSE_INPUT));
+        assertRejected(rideIntoHappyGhast(false, HAPPY_GHAST_MAX_Z + HORSE_HALF_WIDTH), "VehicleOffset");
+    }
+
+    /**
+     * A ridden happy ghast flying forward 0.005 from another happy ghast: HappyGhast#canBeCollidedWith admits a happy
+     * ghast against one that carries a passenger, so it stops at the gap, and passes one that carries none.
+     */
+    @Test
+    void aRiddenHappyGhastStopsAtAnotherRiddenOne() throws Exception {
+        assertExact(flyIntoHappyGhast(true, GHAST_GAP));
+        assertRejected(flyIntoHappyGhast(true, GHAST_FLIGHT), "VehicleOffset");
+        assertExact(flyIntoHappyGhast(false, GHAST_FLIGHT));
+    }
+
+    /** A horse facing -z towards a grounded happy ghast, ridden forward; its move after the input ends at {@code z}. */
+    private static PredictionResult rideIntoHappyGhast(boolean staysStill, double z) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.xRot = 180.0F;
+            mountRidden(f, EntityTypeIds.HORSE, CAPTURE_SEAT);
+            f.player.compensatedEntities.addEntity(
+                    VEHICLE + 1, EntityTypeIds.HAPPY_GHAST, CAPTURE_HAPPY_GHAST, 0, 0, 0);
+            f.player.compensatedEntities.updateEntityMetadata(
+                    VEHICLE + 1, List.of(new EntityMetadata.Entry(HAPPY_GHAST_STAYS_STILL, staysStill, NO_BYTES)));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            PacketEntityHappyGhast ghast = (PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(VEHICLE + 1);
+            assertTrue(ghast.staysStill == staysStill
+                    && ghast.getPossibleMovementCollisionBoxes().maxZ == HAPPY_GHAST_MAX_Z);
+            f.input(FORWARD);
+            assertExact(f.rideTick(CAPTURE_SEAT, true));
+            return f.rideTick(new Vec3(CAPTURE_SEAT.x, CAPTURE_SEAT.y, z), true);
+        }
+    }
+
+    /**
+     * A happy ghast in body armor ridden forward along +z towards another happy ghast {@link #GHAST_GAP} ahead, which
+     * carries a remote player when {@code otherRidden}; the move after the input moves the ghast by {@code dz}.
+     */
+    private static PredictionResult flyIntoHappyGhast(boolean otherRidden, double dz) throws Exception {
+        Vec3 seat = new Vec3(0.5, FLOOR_Y, 0.0);
+        try (var f = new JavaTickFixture()) {
+            f.place(seat, Vec3.ZERO);
+            f.player.compensatedWorld.applyClientTime(new WorldPackets.TimeUpdate(24_000L, Map.of()));
+            f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.HAPPY_GHAST, seat, 0, 0, 0);
+            ((PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(VEHICLE)).hasBodyArmor = true;
+            f.setPassengers(VEHICLE, List.of(f.player.entityID));
+            Vec3 other = new Vec3(seat.x, FLOOR_Y, seat.z + 4.0 + GHAST_GAP);
+            f.player.compensatedEntities.addEntity(VEHICLE + 1, EntityTypeIds.HAPPY_GHAST, other, 0, 0, 0);
+            if (otherRidden) {
+                f.addRemotePlayer(VEHICLE + 2, other.add(0, 4, 0), GameMode.SURVIVAL);
+                f.setPassengers(VEHICLE + 1, List.of(VEHICLE + 2));
+            }
+            f.pongThrough(f.player.lastTransactionSent.get());
+            // The move follows the client ticks CompensatedVehicleState tracks after a vehicle switch.
+            for (int tick = 0; tick < 5; tick++) assertExact(f.rideTick(seat, true));
+            f.input(FORWARD);
+            assertExact(f.rideTick(seat, true));
+            return f.rideTick(new Vec3(seat.x, seat.y, seat.z + dz), true);
         }
     }
 

@@ -18,6 +18,7 @@ import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.RegistryGenerationAlerts;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.packet.Opaque;
@@ -157,6 +158,8 @@ public class PacketPlayerRespawn {
                 player.compensatedWorld.clearChunks();
                 player.compensatedWorld.clearPistonLikeState();
                 player.compensatedEntities.clearClientLevel();
+                // ClientPacketListener#handleLogin's LocalPlayer#resetPos zeroes the new player's velocity.
+                player.compensatedFireworks.localPlayerReplaced(false);
                 player.compensatedWorld.isRaining = false;
                 player.checkManager.getListener(BadPacketsA.class).resetCarriedIndex();
                 player.checkManager.getListener(AirLiquidBreak.class).resetPending();
@@ -175,6 +178,7 @@ public class PacketPlayerRespawn {
                     player.boatData.clearInput();
                     player.onGround = player.lastOnGround = false;
                     player.isSneaking = false;
+                    player.packetStateData.respawnShiftPending = false;
                     player.isGliding = false;
                     player.isInBed = false;
                     player.packetStateData.packetPlayerOnGround = false;
@@ -278,9 +282,17 @@ public class PacketPlayerRespawn {
         final Runnable applyRespawnState = () -> {
             setbacks.respawnUnread = false;
             if (level != player.compensatedWorld.level()) return;
-            player.isSneaking = false;
-            // ClientPacketListener#handleRespawn starts the new LocalPlayer from Input.EMPTY unless KEEP_ENTITY_DATA.
-            if (!keepEntityData) player.packetStateData.knownInput = KnownInput.DEFAULT;
+            // From 1.21.6 ClientPacketListener#handleRespawn gives the new LocalPlayer the old lastSentInput with
+            // KEEP_ENTITY_DATA; otherwise the new LocalPlayer starts from Input.EMPTY.
+            if (!keepEntityData || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_6)) {
+                player.packetStateData.knownInput = KnownInput.DEFAULT;
+            }
+            // LocalPlayer#sendChanges resends no key a kept lastSentInput holds; the fresh KeyboardInput reads a held
+            // shift at the first LocalPlayer#aiStep.
+            player.packetStateData.respawnShiftPending =
+                    !player.isBedrockMovement() && player.packetStateData.knownInput.shift();
+            // KEEP_ENTITY_DATA copies the old pose, which refreshPlayerPose below takes from the old shift key.
+            if (!keepEntityData || player.isBedrockMovement()) player.isSneaking = false;
             // ClientPacketListener#handleRespawn gives every new LocalPlayer a fresh KeyboardInput.
             FlightToggle.reset(player.packetStateData, keepEntityData);
             final BadPacketsF badPacketsF = player.checkManager.getListener(BadPacketsF.class);
@@ -307,6 +319,7 @@ public class PacketPlayerRespawn {
             simulation.handleRespawn();
             // ClientPacketListener#handleRespawn copies the old delta movement only with KEEP_ENTITY_DATA.
             if (!keepEntityData && !player.isBedrockMovement()) simulation.seedStartingVelocity(Vec3.ZERO);
+            player.compensatedFireworks.localPlayerReplaced(keepEntityData);
             final BadPacketsE badPacketsE = player.checkManager.getListener(BadPacketsE.class);
             badPacketsE.handleRespawn(); // Reminder ticks reset
             player.checkManager.getListener(BadPacketsG.class).handleRespawn();
@@ -377,6 +390,8 @@ public class PacketPlayerRespawn {
             player.vehicleData.camelSprintingState = SprintingState.STOPPED;
             badPacketsF.lastSprinting = player.isSprinting;
             player.refreshPlayerPose();
+            // LocalPlayer#isShiftKeyDown reads the fresh KeyboardInput's Input.EMPTY until the first aiStep.
+            player.isSneaking = false;
             player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
                     spawnInfo.gameMode().name());
             player.canInstabuild = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE;

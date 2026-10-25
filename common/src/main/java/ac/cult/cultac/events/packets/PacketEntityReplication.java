@@ -101,7 +101,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             float rotationYaw,
             float rotationPitch,
             @Nullable Boolean onGround,
-            DeltaMovementChange deltaMovement) {
+            DeltaMovementChange deltaMovement,
+            boolean relativeToClientPosition) {
         private static EntityMovement relativeEntityPacket(
                 int entityId,
                 boolean hasPosition,
@@ -118,7 +119,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     yaw,
                     pitch,
                     onGround,
-                    DeltaMovementChange.NONE);
+                    DeltaMovementChange.NONE,
+                    false);
         }
 
         private static EntityMovement legacyRelativeEntityPacket(
@@ -139,7 +141,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     yaw,
                     pitch,
                     onGround,
-                    DeltaMovementChange.NONE);
+                    DeltaMovementChange.NONE,
+                    false);
         }
 
         private static EntityMovement teleportEntityPacket(
@@ -148,7 +151,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 float yaw,
                 float pitch,
                 boolean onGround,
-                DeltaMovementChange deltaMovement) {
+                DeltaMovementChange deltaMovement,
+                boolean relativeToClientPosition) {
             return new EntityMovement(
                     entityId,
                     MovementKind.TELEPORT_ENTITY,
@@ -157,7 +161,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     yaw,
                     pitch,
                     onGround,
-                    deltaMovement);
+                    deltaMovement,
+                    relativeToClientPosition);
         }
 
         private static EntityMovement positionSyncPacket(
@@ -170,7 +175,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     yaw,
                     pitch,
                     onGround,
-                    DeltaMovementChange.NONE);
+                    DeltaMovementChange.NONE,
+                    false);
         }
 
         private static EntityMovement minecartPacket(int entityId, Vec3 position, float yaw, float pitch) {
@@ -182,7 +188,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     yaw,
                     pitch,
                     null,
-                    DeltaMovementChange.NONE);
+                    DeltaMovementChange.NONE,
+                    false);
         }
 
         private boolean hasPosition() {
@@ -709,10 +716,19 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 sourceDelta, change.deltaMovement(), sourceYaw, sourcePitch, finalYaw, finalPitch, packetFlags);
         int packetHandlerDeltaSequence = recordPacketHandlerDeltaMovement(teleport.entityId(), finalDelta);
         DeltaMovementChange deltaMovementChange = DeltaMovementChange.fixed(finalDelta, packetHandlerDeltaSequence);
+        // ClientPacketListener#handleTeleportEntity adds a relative X/Y/Z to the client's own position.
+        int relativePosition = RelativeFlag.X.getMask() | RelativeFlag.Y.getMask() | RelativeFlag.Z.getMask();
+        boolean relativeToClientPosition = (packetFlags.getMask() & relativePosition) != 0;
         handleMoveEntity(
                 event,
                 EntityMovement.teleportEntityPacket(
-                        teleport.entityId(), pos, finalYaw, finalPitch, teleport.onGround(), deltaMovementChange));
+                        teleport.entityId(),
+                        pos,
+                        finalYaw,
+                        finalPitch,
+                        teleport.onGround(),
+                        deltaMovementChange,
+                        relativeToClientPosition));
     }
 
     private void handleRemovedPlayerVehicleTeleport(
@@ -1544,6 +1560,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private void handleRemoveEntities(
             PacketSendEvent<ClientboundRemoveEntities> event, ClientboundRemoveEntities packet) {
         List<Integer> destroyEntityIds = packet.entityIds();
+        int edge = player.lastTransactionSent.get();
         // Removing the player's vehicle ejects it client-side with the velocity its last Entity#rideTick left.
         // A zero motion before the proof replaces that velocity, as the set_passengers dismount resync does.
         boolean resetsVelocity = !CultAPI.INSTANCE.getConfigManager().isObserveOnly()
@@ -1553,10 +1570,13 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 ? transactionOf(appendTrailingProofTransaction(
                         event, List.of(entityMotion(player.entityID, SELF_DISMOUNT_VELOCITY)), true))
                 : player.appendFlushProofTransaction(event);
+        int removedAt = transaction >= 0 ? transaction : player.lastTransactionSent.get() + 1;
         if (player.compensatedEntities.mayChangeSelfPassengers(destroyEntityIds))
-            player.compensatedEntities.markSelfPassengersChange(
-                    transaction >= 0 ? transaction : player.lastTransactionSent.get() + 1);
+            player.compensatedEntities.markSelfPassengersChange(removedAt);
         boolean sentVelocityReset = resetsVelocity && transaction >= 0;
+        // The client can apply the removal once it has answered every ping before it.
+        player.latencyUtils.addRealTimeTask(
+                edge, () -> player.compensatedFireworks.removalSent(destroyEntityIds, removedAt));
 
         for (int entityID : destroyEntityIds) {
             despawnedEntitiesThisTransaction.add(entityID);
@@ -1582,7 +1602,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             for (int integer : destroyEntityIds) {
                 if (!player.isBedrockMovement() && level == player.compensatedWorld.level())
                     player.compensatedEntities.removeEntity(integer);
-                player.compensatedFireworks.removeFirework(integer);
             }
             if (sentVelocityReset
                     && wasPassenger
@@ -1918,6 +1937,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             applyDeltaMovementUpdate(entity, movement.deltaMovement());
             clearPacketHandlerDeltaMovement(movement);
             player.compensatedEntities.updatePassengerPositions();
+            positionApplied(movement, proofTransaction);
         });
     }
 
@@ -1937,6 +1957,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             applyDeltaMovementUpdate(entity, movement.deltaMovement());
             clearPacketHandlerDeltaMovement(movement);
             applySecondMovement(entity, entityId, kind, deltaMovementSequence, true);
+            positionApplied(movement, proofTransaction);
         });
     }
 
@@ -1970,6 +1991,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             if (second) {
                 if (unbundledPathEntity != null) unbundledPathEntity.onUnbundledPathProven();
                 applySecondMovement(entityId, kind, deltaMovementSequence, false);
+                positionApplied(movement, firstTransaction);
                 return;
             }
             PacketEntity entity = applicableMovementEntity(movement);
@@ -2013,6 +2035,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) return false;
         entity.onPositionPath(path, position.hasPosition(), movement.yaw(), movement.pitch(), player, bundled);
         return true;
+    }
+
+    /** Runs once the client has certainly applied {@code movement}, which it applies after answering appliedAfter. */
+    private void positionApplied(EntityMovement movement, int appliedAfter) {
+        if (movement.hasPosition() && !movement.relativeToClientPosition())
+            player.compensatedFireworks.positionApplied(movement.entityId(), appliedAfter);
     }
 
     // The model interpolates every teleport and legacy position sync, which a client may snap to instead.

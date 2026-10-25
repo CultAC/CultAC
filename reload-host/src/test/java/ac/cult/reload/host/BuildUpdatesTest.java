@@ -474,6 +474,129 @@ class BuildUpdatesTest {
         assertEquals(Files.size(directory.resolve("jars/b142.jar")), Files.size(jar));
     }
 
+    BuildUpdates following(String branch) {
+        var base = settings();
+        var follow = new UpdateSettings(
+                base.repository(),
+                base.token(),
+                base.publicKey(),
+                base.webhook(),
+                base.stateFile(),
+                base.pinnedBuild(),
+                branch);
+        return new BuildUpdates(
+                follow, BUNDLED, endpoints(), Duration.ofSeconds(2), Duration.ofSeconds(5), Duration.ofSeconds(5));
+    }
+
+    @Test
+    void aFollowingBootStartsTheNewestBuildOfItsBranchOverTheStateFile() throws Exception {
+        publish(142, manifest -> {});
+        String version = "0.1.0-b144-experimental-bbbbbbb";
+        publish(144, "experimental", jar("b144.jar", version, "next"), version, manifest -> {}, signer);
+        publish(143, manifest -> {});
+        UpdateState.write(directory.resolve("state.json"), 142, BUNDLED);
+        var info = new ArrayList<String>();
+        var warnings = new ArrayList<String>();
+
+        Path jar = following("experimental")
+                .boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, "main");
+
+        assertNotNull(jar);
+        assertEquals(List.of("Starting b144 (experimental bbbbbbb)"), info);
+        assertEquals(List.of(), warnings);
+    }
+
+    @Test
+    void aFollowingBootKeepsABundledBuildNewerThanEveryPublishedOne() throws Exception {
+        String version = "0.1.0-b140-experimental-bbbbbbb";
+        publish(140, "experimental", jar("b140.jar", version, "next"), version, manifest -> {}, signer);
+        var info = new ArrayList<String>();
+        var warnings = new ArrayList<String>();
+
+        assertNull(following("experimental")
+                .boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, "main"));
+        assertEquals(List.of("Starting the bundled build b141, the newest experimental build"), info);
+        assertEquals(List.of(), warnings);
+    }
+
+    @Test
+    void aBareLatestFollowsTheBundledBranch() throws Exception {
+        publish(142, manifest -> {});
+        String version = "0.1.0-b144-experimental-bbbbbbb";
+        publish(144, "experimental", jar("b144.jar", version, "next"), version, manifest -> {}, signer);
+        var info = new ArrayList<String>();
+        var warnings = new ArrayList<String>();
+
+        assertNotNull(
+                following("").boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, "main"));
+        assertEquals(List.of("Starting b142 (main bbbbbbb)"), info);
+
+        assertNull(following("").boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, null));
+        assertEquals(
+                List.of("Starting the bundled build b141: update.build follows the bundled branch,"
+                        + " which this jar does not name"),
+                warnings);
+    }
+
+    @Test
+    void aFollowingBootStartsTheBundledBuildWhenItIsTheNewestOrNoneIsUsable() throws Exception {
+        var info = new ArrayList<String>();
+        var warnings = new ArrayList<String>();
+        assertNull(following("main")
+                .boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, "main"));
+        assertEquals(1, warnings.size());
+        assertTrue(
+                warnings.getFirst().contains("the newest main build was refused: no build of main"),
+                warnings.getFirst());
+
+        warnings.clear();
+        String version = "0.1.0-b142-experimental-bbbbbbb";
+        publish(142, "experimental", jar("b142.jar", version, "next"), version, manifest -> {}, signer);
+        releases.get(0).getAsJsonObject().addProperty("name", "build-142 (main bbbbbbb)");
+        assertNull(following("main")
+                .boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, "main"));
+        assertEquals(1, warnings.size());
+        assertTrue(warnings.getFirst().endsWith("b142 is signed for experimental, not main"), warnings.getFirst());
+        assertEquals(List.of(), info);
+    }
+
+    @Test
+    void readsAFollowedBranch() throws Exception {
+        Files.writeString(directory.resolve("config.yml"), "update:\n  build: latest\n");
+        assertEquals(
+                "",
+                UpdateSettings.read(directory, "CultAC/CultAC", name -> null).followBranch());
+        assertEquals(
+                0, UpdateSettings.read(directory, "CultAC/CultAC", name -> null).pinnedBuild());
+        assertEquals(
+                "experimental",
+                UpdateSettings.read(
+                                directory,
+                                "CultAC/CultAC",
+                                name -> name.equals("CULTAC_UPDATE_BUILD") ? "latest:experimental" : null)
+                        .followBranch());
+        assertNull(UpdateSettings.read(
+                        directory, "CultAC/CultAC", name -> name.equals("CULTAC_UPDATE_BUILD") ? "130" : null)
+                .followBranch());
+        assertEquals(
+                "",
+                UpdateSettings.read(
+                                directory,
+                                "CultAC/CultAC",
+                                name -> name.equals("CULTAC_UPDATE_BUILD") ? "latest:" : null)
+                        .followBranch());
+        assertEquals(
+                "experimental",
+                UpdateSettings.read(
+                                directory,
+                                "CultAC/CultAC",
+                                name -> name.equals("CULTAC_UPDATE_BUILD") ? "Latest: experimental" : null)
+                        .followBranch());
+        assertNull(UpdateSettings.read(
+                        directory, "CultAC/CultAC", name -> name.equals("CULTAC_UPDATE_BUILD") ? "latests" : null)
+                .followBranch());
+    }
+
     @Test
     void bootFallsBackToTheBundledBuild() throws Exception {
         var info = new ArrayList<String>();

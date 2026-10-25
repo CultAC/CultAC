@@ -22,11 +22,15 @@ public final class TravelVelocityTransformer {
         // Boat friction is special, not handled here
         if (result.getSimulationContext().getVehicle() != null
                 && EntityTypeUtil.isBoat(result.getSimulationContext().getVehicle().type)) {
+            // Entity#move scales a boat's deltaMovement by getBlockSpeedFactor like any other entity's.
+            Vec3 movedVelocity = additionalBlockFriction == 1.0F
+                    ? playerVelocity
+                    : playerVelocity.multiply(additionalBlockFriction, 1, additionalBlockFriction);
             // edge case with teleporting to top of water
             if (player.boatData.nullifyNextY) {
-                return Collections.singletonList(new Vec3(playerVelocity.x, 0, playerVelocity.z));
+                return Collections.singletonList(new Vec3(movedVelocity.x, 0, movedVelocity.z));
             }
-            return Collections.singletonList(playerVelocity);
+            return Collections.singletonList(movedVelocity);
         }
 
         List<Vec3> frictions = new ArrayList<>(4);

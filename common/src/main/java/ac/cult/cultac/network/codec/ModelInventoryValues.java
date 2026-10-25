@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import io.netty.buffer.ByteBuf;
 import java.util.*;
+import java.util.function.Supplier;
 
 /** Versioned inventory framing around the isolated item value readers. */
 final class ModelInventoryValues {
@@ -19,8 +20,18 @@ final class ModelInventoryValues {
     private final ProtocolVersion version;
 
     ModelInventoryValues(WireValueDecoder decoder, ProtocolVersion version, WireValueDecoder.Registries registries) {
+        this(decoder, version, registries, null, null);
+    }
+
+    /** Sent stacks reuse {@code cache} while {@code generation} names the same registry answers. */
+    ModelInventoryValues(
+            WireValueDecoder decoder,
+            ProtocolVersion version,
+            WireValueDecoder.Registries registries,
+            ItemStackCache cache,
+            Supplier<?> generation) {
         this.version = version;
-        values = new ModelItemValues(decoder, version, registries, ItemUtil.modelItems());
+        values = new ModelItemValues(decoder, version, registries, ItemUtil.modelItems(), cache, generation);
     }
 
     Object read(ByteBuf input, String name) {
@@ -31,15 +42,15 @@ final class ModelInventoryValues {
                 int window = Wire.readVarInt(input), state = Wire.readVarInt(input);
                 int count = Wire.readLength(input, input.readableBytes());
                 var items = new ArrayList<SimItemStack>(count);
-                for (int slot = 0; slot < count; slot++) items.add(values.item(input, false));
-                yield new InventoryPackets.Content(window, state, items, values.item(input, false));
+                for (int slot = 0; slot < count; slot++) items.add(values.sentItem(input));
+                yield new InventoryPackets.Content(window, state, items, values.sentItem(input));
             }
             case "minecraft:container_set_slot" ->
                 new InventoryPackets.Slot(
-                        Wire.readVarInt(input), Wire.readVarInt(input), input.readShort(), values.item(input, false));
+                        Wire.readVarInt(input), Wire.readVarInt(input), input.readShort(), values.sentItem(input));
             case "minecraft:set_player_inventory" ->
-                new InventoryPackets.PlayerInventory(Wire.readVarInt(input), values.item(input, false));
-            case "minecraft:set_cursor_item" -> new InventoryPackets.Cursor(values.item(input, false));
+                new InventoryPackets.PlayerInventory(Wire.readVarInt(input), values.sentItem(input));
+            case "minecraft:set_cursor_item" -> new InventoryPackets.Cursor(values.sentItem(input));
             case "minecraft:set_equipment" -> equipment(input);
             case "minecraft:container_click" -> click(input);
             case "minecraft:merchant_offers" -> offers(input);
@@ -65,7 +76,7 @@ final class ModelInventoryValues {
         var entries = new ArrayList<EquipmentEntry>();
         do {
             slot = input.readUnsignedByte();
-            entries.add(new EquipmentEntry(EquipmentSlot.VALUES.get(slot & 127), values.item(input, false)));
+            entries.add(new EquipmentEntry(EquipmentSlot.VALUES.get(slot & 127), values.sentItem(input)));
         } while ((slot & 128) != 0);
         return new InventoryPackets.Equipment(id, entries);
     }

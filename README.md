@@ -112,7 +112,7 @@ The settings live in the `update` section of the plugin's `config.yml`. Each env
 | `update.token` | `CULTAC_UPDATE_TOKEN` | none; sent only to `api.github.com`, which allows 60 anonymous requests an hour |
 | `update.webhook` | `CULTAC_UPDATE_WEBHOOK` | none; a Discord-style webhook that receives each install line |
 | `update.state-file` | `CULTAC_UPDATE_STATE` | `update-state.json` in the plugin data directory |
-| `update.build` | `CULTAC_UPDATE_BUILD` | none; the build to start on boot while the state file names none |
+| `update.build` | `CULTAC_UPDATE_BUILD` | none; the build to start on boot while the state file names none, or `latest` / `latest:<channel>` to start the newest build of the bundled jar's channel, or of `<channel>`, on every boot whatever the state file names; a channel is its branch's name except main's `stable`, a boot never starts a build older than the bundled one, and a `/cult update` install lasts until the next boot (turning follow off later starts the last build it installed) |
 
 ```yaml
 update:

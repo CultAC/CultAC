@@ -10,6 +10,7 @@ public final class WireRegistryState implements WireValueDecoder.Registries {
     private final java.util.function.Supplier<RegistryNames> model;
     private final Map<String, List<String>> received = new HashMap<>();
     private boolean awaitingRegistryData;
+    private Object generation = new Object();
 
     public WireRegistryState(ProtocolVersion version, java.util.function.Supplier<RegistryNames> model) {
         this.source = ModelRegistryData.load(version);
@@ -30,6 +31,12 @@ public final class WireRegistryState implements WireValueDecoder.Registries {
         var entries = new ArrayList<>(received.getOrDefault(packet.registry(), List.of()));
         packet.entries().forEach(entry -> entries.add(entry.name()));
         received.put(packet.registry(), List.copyOf(entries));
+        generation = new Object();
+    }
+
+    /** Replaced whenever {@link #name} or {@link #id} can answer differently. */
+    Object generation() {
+        return generation;
     }
 
     @Override

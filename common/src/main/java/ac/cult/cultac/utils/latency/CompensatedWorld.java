@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -959,6 +960,9 @@ public class CompensatedWorld {
     }
 
     private SimpleCollisionBox openShulkerCollisionBox(ShulkerData data) {
+        if (data.entity instanceof PacketEntityShulker shulker) {
+            return shulker.boundingBox(data.getCollision().copy());
+        }
         Direction facing = data.getFacing(player);
         return data.getCollision().copy().expandToCoordinate(facing.getModX(), facing.getModY(), facing.getModZ());
     }
@@ -1178,7 +1182,7 @@ public class CompensatedWorld {
      * TickRateManager#runsNormally for the client tick in progress: Minecraft#tick sets it from the frozen state and
      * the remaining steps before taking a step.
      */
-    private boolean clientRunsNormally() {
+    public boolean clientRunsNormally() {
         return !player.packetStateData.serverTicksFrozen || player.packetStateData.serverFrozenTickStepsRemaining > 0;
     }
 
@@ -1366,7 +1370,13 @@ public class CompensatedWorld {
         }
 
         SimpleCollisionBox queryBox = pistons.createPistonQueryBox(context);
-        PistonPushes pistonResult = pistons.tickPlayerInPistonPushingArea(queryBox);
+        SimpleCollisionBox shoveQuery = pistons.createPistonShoveQueryBox(context, queryBox);
+        double shoveMaxX = shoveQuery.maxX, shoveMaxY = shoveQuery.maxY, shoveMaxZ = shoveQuery.maxZ;
+        PistonPushes pistonResult = pistons.tickPlayerInPistonPushingArea(shoveQuery);
+        // The shulker test reads the query grown by every piston shove the pass found.
+        if (shoveQuery != queryBox) {
+            queryBox.expand(shoveQuery.maxX - shoveMaxX, shoveQuery.maxY - shoveMaxY, shoveQuery.maxZ - shoveMaxZ);
+        }
         SimpleCollisionBox shulkerPushes = accumulateShulkerPushes(queryBox);
 
         SimpleCollisionBox pistonPush = pistonResult.getPistonPush();
@@ -1506,7 +1516,8 @@ public class CompensatedWorld {
         float width = vehicle ? context.getMaxWidth() : pose.width * context.getScale();
         float height = vehicle ? context.getMaxHeight() : pose.height * context.getScale();
         Vec3 start = position;
-        boolean reached = false, zeroX = false, zeroY = false, zeroZ = false;
+        boolean reached = false, zeroX = false, zeroY = false, zeroZ = false, horizontalCollision = false;
+        Vec3 lastMovement = Vec3.ZERO;
         for (CompensatedBlockEntities.ShulkerShove shove : shoves) {
             SimpleCollisionBox box =
                     GetBoundingBox.getBoundingBoxFromPosAndSize(position.x, position.y, position.z, width, height);
@@ -1521,11 +1532,15 @@ public class CompensatedWorld {
             boolean zCollision = !(Math.abs(movement.z - shove.z()) < 1.0E-5F);
             boolean verticalCollision = shove.y() != movement.y;
             onGround = verticalCollision && shove.y() < 0.0D;
+            horizontalCollision = xCollision || zCollision;
+            lastMovement = movement;
             zeroX |= xCollision;
             zeroZ |= zCollision;
             if (verticalCollision && (!restitution || shove.y() != 0.0D || xCollision || zCollision)) zeroY = true;
         }
-        return reached ? new ShulkerBoxShoveResult(position.subtract(start), zeroX, zeroY, zeroZ, onGround) : null;
+        if (!reached) return null;
+        return new ShulkerBoxShoveResult(
+                position.subtract(start), zeroX, zeroY, zeroZ, onGround, horizontalCollision, lastMovement);
     }
 
     private static boolean intersects(SimpleCollisionBox box, SimpleCollisionBox area) {
@@ -1593,6 +1608,14 @@ public class CompensatedWorld {
     public CachedChunk getChunk(int chunkX, int chunkZ) {
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
         return chunks.get(chunkPosition);
+    }
+
+    /** Whether the client has applied the column at the chunk position and no load or unload of it is in flight. */
+    public boolean isColumnProven(int chunkX, int chunkZ) {
+        CachedChunk column = getChunk(chunkX, chunkZ);
+        return column != null
+                && column.getTransaction() < player.lastTransactionReceived.get()
+                && !serverBlockView.isUnknown(chunkX, chunkZ);
     }
 
     public boolean isChunkLoaded(int chunkX, int chunkZ) {

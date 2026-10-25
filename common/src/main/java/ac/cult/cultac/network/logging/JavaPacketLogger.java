@@ -7,12 +7,14 @@ import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
+import ac.cult.cultac.protocol.ProjectedPackets;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.UnsupportedOnVersionException;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /** Records only owned text; the writer never reads player state or packet buffers. */
 public final class JavaPacketLogger implements AutoCloseable {
@@ -182,7 +185,7 @@ public final class JavaPacketLogger implements AutoCloseable {
                 return;
             }
             String name = ids.name(id);
-            var values = connection
+            Supplier<List<ProjectedPackets.Value>> read = () -> connection
                     .packets()
                     .observe(
                             phase,
@@ -190,6 +193,9 @@ public final class JavaPacketLogger implements AutoCloseable {
                             frame,
                             connection,
                             type -> !type.isOpaque() || type.codec().readsEntirePayload());
+            var platform = connection.platform();
+            var model = platform == null ? null : platform.modelValues();
+            var values = model == null ? read.get() : model.observe(read);
             for (var value : values) {
                 capture.log.record(
                         () -> JavaPacketLogFormatter.format(direction, phase, id, name, value.type(), value.packet()));

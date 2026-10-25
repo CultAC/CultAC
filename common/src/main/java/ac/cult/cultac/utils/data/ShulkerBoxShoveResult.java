@@ -4,9 +4,17 @@ import ac.cult.cultac.utils.math.Vec3;
 
 /**
  * What the Entity#move(MoverType.SHULKER_BOX) calls of one Level#tickBlockEntities leave in the local player: their
- * total movement, the Entity#deltaMovement axes their collisions zero, and the Entity#onGround the last call sets.
+ * total movement, the Entity#deltaMovement axes their collisions zero, and the Entity#onGround, the
+ * Entity#horizontalCollision and the collided movement of the last call.
  */
-public record ShulkerBoxShoveResult(Vec3 movement, boolean zeroX, boolean zeroY, boolean zeroZ, boolean onGround) {
+public record ShulkerBoxShoveResult(
+        Vec3 movement,
+        boolean zeroX,
+        boolean zeroY,
+        boolean zeroZ,
+        boolean onGround,
+        boolean horizontalCollision,
+        Vec3 lastMovement) {
     /** Entity#deltaMovement after the calls, from {@code velocity} before them. */
     public Vec3 velocityAfter(Vec3 velocity) {
         if (!zeroX && !zeroY && !zeroZ) return velocity;

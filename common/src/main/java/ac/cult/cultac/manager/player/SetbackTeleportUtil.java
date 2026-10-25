@@ -23,6 +23,7 @@ import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
@@ -45,6 +46,7 @@ import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
@@ -55,6 +57,7 @@ import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.Friction;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.IsUsingItem;
+import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
 import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 import ac.grim.grimac.api.event.events.GrimPlayerSetbackEvent;
 import ac.grim.grimac.api.event.events.GrimTeleportEvent;
@@ -284,7 +287,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         blockMovementsUntilResync(
                 true, // simulate next tick
                 true, // full resync
-                false); // ignore if no forced change
+                false, // ignore if no forced change
+                null);
     }
 
     public void executeNonSimulatingSetback() {
@@ -300,10 +304,16 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         blockMovementsUntilResync(
                 false, // timer and other non-simulating setbacks must not advance a tick
                 false, // full resync
-                false); // ignore if no forced change
+                false, // ignore if no forced change
+                null);
     }
 
     public boolean executeViolationSetback() {
+        return executeViolationSetback(null);
+    }
+
+    /** A setback for the rejected {@code flagged} movement; a ridden vehicle takes the tick simulated for it. */
+    public boolean executeViolationSetback(PredictionResult flagged) {
         if (isExempt()) return false;
         if (isPendingSetback()) { // Don't spam setbacks // TODO: Remove plugin teleport status
             return false;
@@ -314,7 +324,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         blockMovementsUntilResync(
                 true, // simulate next tick
                 false, // full resync
-                false); // ignore if no forced change
+                false, // ignore if no forced change
+                flagged);
         return true;
     }
 
@@ -364,7 +375,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         blockMovementsUntilResync(
                 true, // simulate next tick
                 false, // full resync
-                true); // ignore if no forced change
+                true, // ignore if no forced change
+                null);
         return true;
     }
 
@@ -401,7 +413,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
     }
 
-    private void blockMovementsUntilResync(boolean simulateNext, boolean fullResync, boolean ignoreUnchanged) {
+    private void blockMovementsUntilResync(
+            boolean simulateNext, boolean fullResync, boolean ignoreUnchanged, PredictionResult flagged) {
         if (lastKnownGoodPosition == null) return; // Hasn't spawned
         // A teleport changes neither attributes nor the sprint flag; the rejected moves' modifier evidence is dropped.
         if (!player.isBedrockMovement()) player.sprintState.restore(lastKnownGoodPosition.getSprintOutcomes());
@@ -468,6 +481,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                                 .getLastOnGround()
                                 .determinePessimistically();
 
+        boolean vehicleSimulated = simulateNext
+                && flagged != null
+                && !player.isBedrockMovement()
+                && flagged.getSimulationContext().getVehicle() != null;
         // Use Java's correction tick for both platforms. The caller owns whether
         // a tick is allowed: timer setbacks must stay on the non-simulating path.
         if (simulateNext
@@ -552,6 +569,14 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 player.y = oldY;
                 player.z = oldZ;
             }
+        } else if (vehicleSimulated) {
+            // The vehicle's simulated tick from the safe state: its Entity#move and the deltaMovement it carries on.
+            Vec3 movement = flagged.getAcceptedClosestToTarget();
+            position = flagged.getSimulationContext().getStart().add(movement);
+            clientVel = NextTickVelocityDeriver.findVelocitiesForNextTick(
+                            player, flagged, lastPrediction, movement, null)
+                    .iterator()
+                    .next();
         }
 
         if (bedrockVehicle && profileState != null) {
@@ -578,6 +603,14 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 false,
                 expectedOnGround,
                 profileState);
+        PacketEntity vehicle = player.compensatedEntities.getEntity(resolveSetbackVehicleId());
+        if (vehicle != null && !player.isBedrockMovement()) {
+            // The vehicle keeps its own rotation; a boat's is the yaw its simulated tick turned it to.
+            float boatYaw =
+                    vehicleSimulated && vehicle.isBoat() ? BoatTransform.predictedBoatYaw(player, flagged) : Float.NaN;
+            data.setVehicleYaw(Float.isNaN(boatYaw) ? vehicle.clientPhysicalYaw : boatYaw);
+            data.setVehiclePitch(vehicle.clientPhysicalPitch);
+        }
         sendSetback(data, simulateNext);
         // Something weird has occurred in the player's movement, block offsets until the client accepts this
         // setback. Only its acceptance clears the block, so a setback that was never tracked must not raise it.
@@ -726,9 +759,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                                 data.getProfileState());
                     }
                 } else {
+                    boolean vehicleRotation = !Float.isNaN(data.getVehicleYaw());
                     player.user.write(new CultWrite(
                             new ClientboundMoveVehicle(
-                                    new Vec3d(position.x, position.y, position.z), player.xRot, player.yRot),
+                                    new Vec3d(position.x, position.y, position.z),
+                                    vehicleRotation ? data.getVehicleYaw() : player.xRot,
+                                    vehicleRotation ? data.getVehiclePitch() : player.yRot),
                             false));
                 }
             } else {

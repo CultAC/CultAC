@@ -17,6 +17,7 @@ import io.netty.buffer.ByteBuf;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /** Owned item values for every supported wire schema, including the native model version. */
 public final class ModelItemValues {
@@ -25,21 +26,67 @@ public final class ModelItemValues {
     private final WireValueDecoder.Registries registries;
     private final ItemRegistry items;
     private final ModelIdMappings mappings;
+    private final ItemStackCache cache;
+    private final Supplier<?> generation;
+    private final CachedStacks cached;
 
     public ModelItemValues(
             WireValueDecoder decoder,
             ProtocolVersion version,
             WireValueDecoder.Registries registries,
             ItemRegistry items) {
+        this(decoder, version, registries, items, null, null);
+    }
+
+    /** {@code generation} changes whenever an answer of {@code registries} can. */
+    ModelItemValues(
+            WireValueDecoder decoder,
+            ProtocolVersion version,
+            WireValueDecoder.Registries registries,
+            ItemRegistry items,
+            ItemStackCache cache,
+            Supplier<?> generation) {
         this.decoder = Objects.requireNonNull(decoder);
         this.version = Objects.requireNonNull(version);
         this.registries = Objects.requireNonNull(registries);
         this.items = Objects.requireNonNull(items);
         this.mappings = decoder.mappings(version, ProtocolVersion.V26_3);
+        this.cache = cache;
+        this.generation = cache == null ? null : Objects.requireNonNull(generation);
+        this.cached = cache == null ? null : new CachedStacks();
     }
 
     public SimItemStack item(ByteBuf input, boolean creative) {
         return item(decoder.item(version, input, creative, registries, ModelNbtFactory.INSTANCE));
+    }
+
+    /** As {@code item(input, false)}, for a stack the server sent; each call returns a stack of its own. */
+    SimItemStack sentItem(ByteBuf input) {
+        if (cache == null || cache.observing()) return item(input, false);
+        cache.bind(decoder, version, items, generation.get());
+        return decoder.item(version, input, registries, ModelNbtFactory.INSTANCE, cached);
+    }
+
+    private final class CachedStacks implements WireValueDecoder.ItemReuse<NbtValue, SimItemStack> {
+        @Override
+        public SimItemStack reuse(ByteBuf input, int start, int end) {
+            var stack = cache.get(input, start, end);
+            return stack == null ? null : stack.copy();
+        }
+
+        @Override
+        public SimItemStack decoded(WireValueDecoder.DecodedItem<NbtValue> value, ByteBuf input, int start, int end) {
+            var stack = item(value);
+            // Bundle contents memoize their weight and are never shared between received stacks.
+            if (input.readerIndex() == end
+                    && end - start <= ItemStackCache.MAX_BYTES
+                    && !stack.isEmpty()
+                    && stack.patch().added().bundle() == null) {
+                int size = ItemStackCache.retained(end - start, value.components(), value.componentLayouts());
+                cache.put(input, start, end, stack.copy(), size);
+            }
+            return stack;
+        }
     }
 
     public SimItemStack itemCost(ByteBuf input, boolean optional) {

@@ -191,8 +191,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
         // The teleport ID acknowledgement interrupts a Rot -> MoveVehicle pair.
         player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
-        player.checkManager.dispatchDecodedReceiveObservers(event);
-        player.checkManager.dispatchNonAsyncReceive(event);
+        player.checkManager.dispatchReceiveHandlers(event);
     }
 
     @CultPacketHandler
@@ -434,6 +433,13 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.sprintState.onClientTick(player.isSprinting);
     }
 
+    // A respawned LocalPlayer's KeyboardInput#tick reads the held shift its kept lastSentInput holds.
+    private static void applyRespawnShift(CultPlayer player) {
+        if (!player.packetStateData.respawnShiftPending) return;
+        player.packetStateData.respawnShiftPending = false;
+        player.isSneaking = true;
+    }
+
     // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced.
     public static boolean localPlayerTicked(CultPlayer player) {
         return !player.isBedrockMovement()
@@ -592,6 +598,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.packetStateData.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             player.packetStateData.playerLoadedIntoLevel = true;
+            applyRespawnShift(player);
             if (packet.hasPosition()) player.packetStateData.lastSentTickPosition = position;
             if (packet.hasRotation()) {
                 player.packetStateData.lastSentTickYaw = packet.yaw();
@@ -1170,6 +1177,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // tick end here only closes that frame's Java projection.
         if (player.user.getBedrockBridgeConnection() == null) {
             // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
+            if (localPlayerTicked(player)) applyRespawnShift(player);
             onLocalPlayerSprintTick(player);
             onLocalPlayerAttackTick(player);
             dispatchPrePredictionReceive(event, player);

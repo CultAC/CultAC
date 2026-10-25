@@ -29,7 +29,7 @@ import java.util.List;
  * tick adds exactly their input to the starting velocity before Entity#move collides it. Player#maybeBackOffFromEdge
  * shortens that move only while Player#isStayingOnGroundSurface, which is LocalPlayer#isShiftKeyDown.
  */
-final class ReportedKeyInput {
+public final class ReportedKeyInput {
     private static final Vec3 NO_STUCK_SPEED = new Vec3(1, 1, 1);
 
     private ReportedKeyInput() {}
@@ -39,14 +39,34 @@ final class ReportedKeyInput {
      * this candidate's starting velocity and uncertainties, or 0 when the tick's state does not decide that input.
      */
     static double offset(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
-        SimulationContext context = result.getSimulationContext();
         if (!appliesTo(player, result, lastResult)) return 0.0D;
+        List<Vec3> inputs = travelInputs(player, result, groundSpeeds(player, result));
+        if (inputs == null) return 0.0D;
         SimpleCollisionBox extents = result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
         if (extents == null) return 0.0D;
+        double best = Double.MAX_VALUE;
+        for (Vec3 input : inputs) {
+            best = Math.min(best, offset(player, result, extents, input));
+            if (best == 0.0D) return 0.0D;
+        }
+        return best;
+    }
 
-        KnownInput keys = player.packetStateData.knownInput;
-        ClientItemUseState.Snapshot use = context.getItemUse();
-        float[] slows = slows(player, context);
+    /**
+     * Every moveRelative addition the client's latest PLAYER_INPUT keys can give this candidate's travel, one of which
+     * its LivingEntity#travel adds: on the ground where {@link #offset} judges the keys, and in the air, where
+     * LivingEntity#getFrictionInfluencedSpeed is Player#getFlyingSpeed. Null when the tick's state does not decide
+     * that input.
+     */
+    public static List<Vec3> travelInputs(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
+        if (appliesTo(player, result, lastResult)) return travelInputs(player, result, groundSpeeds(player, result));
+        return inAir(player, result, lastResult)
+                ? travelInputs(player, result, flyingSpeeds(result.getSimulationContext()))
+                : null;
+    }
+
+    private static float[] groundSpeeds(CultPlayer player, PredictionResult result) {
+        SimulationContext context = result.getSimulationContext();
         float walk = context.getMoveRelativeSpeed(player, true, false, false);
         // LivingEntity#getFrictionInfluencedSpeed reads getSpeed(), which carries minecraft:sprinting while applied.
         // ClientSprintState can still hold the modifier after one aiStep started and stopped a wall sprint.
@@ -57,27 +77,42 @@ final class ReportedKeyInput {
         float[] speeds = new float[sprint.length + 1];
         speeds[0] = walk;
         System.arraycopy(sprint, 0, speeds, 1, sprint.length);
+        return speeds;
+    }
+
+    /** Player#getFlyingSpeed out of creative flight for each sprint flag the client may hold during the travel. */
+    private static float[] flyingSpeeds(SimulationContext context) {
+        List<Boolean> sprinting = context.getIsSprinting().getStates();
+        float[] speeds = new float[sprinting.size()];
+        for (int i = 0; i < speeds.length; i++) speeds[i] = sprinting.get(i) ? 0.025999999F : 0.02F;
+        return speeds;
+    }
+
+    private static List<Vec3> travelInputs(CultPlayer player, PredictionResult result, float[] speeds) {
+        SimulationContext context = result.getSimulationContext();
+        KnownInput keys = player.packetStateData.knownInput;
+        ClientItemUseState.Snapshot use = context.getItemUse();
+        float[] slows = slows(player, context);
         // LocalPlayer#modifyInput's item multiplier is the legal one, the required one of a use the client owes, or
         // that of a use it may have started: Minecraft#tick runs handleKeybinds, whose startUseItem precedes the
         // tick's LocalPlayer#aiStep, so a use slows the tick that sends its USE_ITEM.
         float[] itemUses = {use.legalMultiplier(), use.requiredMultiplier(), use.slowestMultiplier()};
-        double best = Double.MAX_VALUE;
+        List<Vec3> inputs = new ArrayList<>(slows.length * speeds.length * itemUses.length);
         for (float slow : slows) {
             for (int s = 0; s < speeds.length; s++) {
                 float speed = speeds[s];
-                // A repeated speed or multiplier gives the same input and offset as its first occurrence.
+                // A repeated speed or multiplier gives the same input as its first occurrence.
                 if (repeats(speeds, s)) continue;
                 for (int u = 0; u < itemUses.length; u++) {
                     float itemUse = itemUses[u];
                     if (repeats(itemUses, u)) continue;
                     Vec3 input = ClientKeyInput.travelInput(player, context, keys, itemUse, slow, speed);
-                    if (input == null) return 0.0D;
-                    best = Math.min(best, offset(player, result, extents, input));
-                    if (best == 0.0D) return 0.0D;
+                    if (input == null) return null;
+                    inputs.add(input);
                 }
             }
         }
-        return best;
+        return inputs;
     }
 
     /**
@@ -179,6 +214,24 @@ final class ReportedKeyInput {
     }
 
     private static boolean appliesTo(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
+        WorldData world = result.getSimulationContext().getWorldData();
+        return keysDecideTravel(player, result, lastResult)
+                && result.getValidMovements() != null
+                && world.getLastOnGround() == DesyncStatus.TRUE
+                && !world.isMightBeInBlock();
+    }
+
+    /** LivingEntity#travelInAir off the ground, where Player#getFlyingSpeed moves the keys' input. */
+    private static boolean inAir(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
+        return keysDecideTravel(player, result, lastResult)
+                && result.getSimulationContext().getWorldData().getLastOnGround() == DesyncStatus.FALSE;
+    }
+
+    /**
+     * Whether the keys alone decide the input LivingEntity#travelInAir adds this tick and Entity#move takes unchanged,
+     * whatever Entity#onGround is.
+     */
+    private static boolean keysDecideTravel(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
         SimulationContext context = result.getSimulationContext();
         WorldData world = context.getWorldData();
         StuckEdgeData edge = world.getSneak();
@@ -195,12 +248,9 @@ final class ReportedKeyInput {
                 && !player.isFlying
                 && !context.usesFallFlyingMovement()
                 && result.getInitialStartingVel() != null
-                && result.getValidMovements() != null
-                && world.getLastOnGround() == DesyncStatus.TRUE
                 && world.getInWater() == DesyncStatus.FALSE
                 && world.getInLava() == DesyncStatus.FALSE
                 && world.getClimbingAtStart() == DesyncStatus.FALSE
-                && !world.isMightBeInBlock()
                 // Entity#move scales the delta by the stuck speed before Entity#collide.
                 && NO_STUCK_SPEED.equals(context.getLastStuckSpeed())
                 && world.getStuckSpeed().getUnknownStuckSpeedMultiplier() == null

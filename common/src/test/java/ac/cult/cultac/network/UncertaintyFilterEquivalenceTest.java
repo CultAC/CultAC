@@ -24,7 +24,6 @@ import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
-import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -153,10 +152,9 @@ class UncertaintyFilterEquivalenceTest {
 
     private static final int SLIME_STATE = 14379;
     private static final int BED_STATE = firstBedState();
-    private static final int FIREWORK = 1_000_001;
 
     /** Handlers whose predicate the scenarios alone never turn false; a variant must make each one move a trace. */
-    private static final Set<String> MUST_ACT = Set.of("BoatTransform", "Fireworks", "Honey", "StuckSpeed");
+    private static final Set<String> MUST_ACT = Set.of("BoatTransform", "Honey", "StuckSpeed");
 
     private static final List<Variant> VARIANTS = List.of(
             Variant.of(Owner.WORLD, "inWater", () -> DesyncStatus.TRUE),
@@ -182,7 +180,7 @@ class UncertaintyFilterEquivalenceTest {
             Variant.of(Owner.CONTEXT, "vehicle", UncertaintyFilterEquivalenceTest::boat),
             Variant.of(Owner.LAST_CONTEXT, "riptideLevel", () -> 3),
             Variant.of(Owner.LAST_CONTEXT, "gliding", () -> true),
-            Variant.of(Owner.FIREWORKS, "activeFireworks", () -> IntArrayList.of(FIREWORK)),
+            Variant.of(Owner.FIREWORKS, "boostsNextTick", () -> 1),
             new Variant(
                     "honey before 1.21.11",
                     List.of(

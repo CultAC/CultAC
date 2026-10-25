@@ -12,6 +12,7 @@
  */
 package ac.cult.cultac.network.codec;
 
+import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.network.packet.InventoryPackets;
@@ -229,14 +230,33 @@ public final class ClientPacketCodecs {
     @SuppressWarnings("unchecked")
     private static <R> PacketCodec<R> inventoryReader(
             Function<ProtocolContext, RegistryNames> snapshots, String name, boolean entirePayload) {
-        return namedReader(
-                snapshots,
-                (input, snapshot) -> {
-                    var names = registries(snapshot);
-                    return (R)
-                            new ModelInventoryValues(ProtocolCodecs.decoder(), MODEL_VERSION, names).read(input, name);
-                },
-                entirePayload);
+        return new PacketCodec<>() {
+            @Override
+            public boolean requiresModelValues() {
+                return true;
+            }
+
+            @Override
+            public boolean readsEntirePayload() {
+                return entirePayload;
+            }
+
+            @Override
+            public R read(ByteBuf input, ProtocolContext context) {
+                requireModelWire(context);
+                var snapshot = snapshots.apply(context);
+                var values = new ModelInventoryValues(
+                        ProtocolCodecs.decoder(), MODEL_VERSION, registries(snapshot), stacks(context), () -> snapshot);
+                return (R) values.read(input, name);
+            }
+        };
+    }
+
+    /** The connection's sent stacks, held for one immutable snapshot of model names at a time. */
+    private static ItemStackCache stacks(ProtocolContext context) {
+        if (!(context.state() instanceof CultConnection connection) || connection.platform() == null) return null;
+        var values = connection.platform().modelValues();
+        return values == null ? null : values.stacks();
     }
 
     private static <R> PacketCodec<R> namedReader(

@@ -6,9 +6,10 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
 public final class UnknownCollisionProvider {
     private UnknownCollisionProvider() {}
@@ -21,22 +22,22 @@ public final class UnknownCollisionProvider {
             List<SimpleCollisionBox> boxes,
             SimpleCollisionBox entityBox,
             SimpleCollisionBox scratch) {
-        addEntityUnknownCollisions(player, playerPos, queryBox, boxes, entityBox, scratch);
+        addEntityUnknownCollisions(player, context.getVehicle(), playerPos, queryBox, boxes, entityBox, scratch);
         addDynamicBlockUnknownCollisions(player, context, queryBox, boxes);
     }
 
     /**
-     * Adds a copy of each entity box that intersects {@code queryBox}. {@code entityBox} and {@code scratch} are
-     * working space owned by the caller.
+     * Adds a copy of each entity box that intersects {@code queryBox} for the move of {@code vehicle}, or of the player
+     * outside a vehicle when it is null. {@code entityBox} and {@code scratch} are working space owned by the caller.
      */
     private static void addEntityUnknownCollisions(
             CultPlayer player,
+            @Nullable PacketEntity vehicle,
             Vec3 playerPos,
             SimpleCollisionBox queryBox,
             List<SimpleCollisionBox> boxes,
             SimpleCollisionBox entityBox,
             SimpleCollisionBox scratch) {
-        boolean ridingStrider = player.compensatedEntities.getSelf().getRiding() instanceof PacketEntityStrider;
         boolean inBoat = player.compensatedEntities.getSelf().getRiding() != null
                 && player.compensatedEntities.getSelf().getRiding().isBoat();
         boolean inVehicle = player.compensatedEntities.getSelf().inVehicle();
@@ -82,53 +83,61 @@ public final class UnknownCollisionProvider {
                 }
             }
 
-            if (ridingStrider
-                    && entity.type == EntityTypeIds.SHULKER
-                    && !player.compensatedEntities.getSelf().getRiding().hasPassenger(entity)) {
-                // Striders suck less.
-                addIntersecting(
-                        boxes,
-                        entity.getPossibleCollisionBoxes(entityBox, scratch).expand(1),
-                        queryBox);
-            }
-
-            if (!inVehicle
-                    && entity instanceof PacketEntityHappyGhast happyGhast
-                    && !happyGhast.isBaby
-                    && !happyGhast.isDead
+            if (entity instanceof PacketEntityHappyGhast happyGhast
                     && !happyGhast.hasPassenger(player.compensatedEntities.getSelf())) {
                 SimpleCollisionBox box = happyGhast.getPossibleMovementCollisionBoxes(entityBox, scratch);
-                // MCP-Reborn HappyGhast#canBeCollidedWith is client-only for a
-                // Player whose position is at or above the top of the ghast's
-                // concrete bounding box, and otherwise follows the synced
-                // still-timeout state.
-                if (happyGhast.staysStill || playerPos.y >= box.maxY - SimpleCollisionBox.COLLISION_EPSILON) {
-                    addIntersecting(boxes, box, queryBox);
-                }
+                if (canBeCollidedWith(happyGhast, box, vehicle, playerPos)) addIntersecting(boxes, box, queryBox);
+            }
+
+            // Java Shulker#canBeCollidedWith admits every living shulker.
+            if (!inBoat
+                    && !player.isBedrockMovement()
+                    && entity instanceof PacketEntityShulker shulker
+                    && !shulker.isDead) {
+                addIntersecting(
+                        boxes,
+                        shulker.boundingBox(shulker.getPossibleMovementCollisionBoxes(entityBox, scratch)),
+                        queryBox);
             }
         }
     }
 
     /**
-     * Whether {@code entity} collides with a player outside a vehicle at each of its possible positions: a boat, or a
-     * happy ghast that HappyGhast#canBeCollidedWith admits. {@code envelope} and {@code scratch} are working space
-     * owned by the caller.
+     * Whether {@code entity} collides with the moving {@code vehicle}, or with the player outside a vehicle when it is
+     * null, at each of its possible positions: a boat, a living shulker, or a happy ghast not carrying {@code self}
+     * that HappyGhast#canBeCollidedWith admits. {@code envelope} and {@code scratch} are working space owned by the
+     * caller.
      */
     public static boolean collidesAtPossiblePositions(
-            CultPlayer player,
+            PacketEntity self,
+            @Nullable PacketEntity vehicle,
             Vec3 playerPos,
             PacketEntity entity,
             SimpleCollisionBox envelope,
             SimpleCollisionBox scratch) {
         if (entity.isBoat()) return true;
+        if (entity instanceof PacketEntityShulker) return !entity.isDead;
         return entity instanceof PacketEntityHappyGhast happyGhast
-                && !happyGhast.isBaby
-                && !happyGhast.isDead
-                && !happyGhast.hasPassenger(player.compensatedEntities.getSelf())
-                && (happyGhast.staysStill
-                        || playerPos.y
-                                >= happyGhast.getPossibleMovementCollisionBoxes(envelope, scratch).maxY
-                                        - SimpleCollisionBox.COLLISION_EPSILON);
+                && !happyGhast.hasPassenger(self)
+                && canBeCollidedWith(
+                        happyGhast,
+                        happyGhast.getPossibleMovementCollisionBoxes(envelope, scratch),
+                        vehicle,
+                        playerPos);
+    }
+
+    /**
+     * HappyGhast#canBeCollidedWith for the moving {@code vehicle}, or for the player at {@code playerPos} outside a
+     * vehicle when it is null, with {@code box} the ghast's possible movement box. On the client the still timeout is
+     * the synced STAYS_STILL; a player at or above the top of the box also collides, and a ridden happy ghast collides
+     * with another ridden one.
+     */
+    public static boolean canBeCollidedWith(
+            PacketEntityHappyGhast happyGhast, SimpleCollisionBox box, @Nullable PacketEntity vehicle, Vec3 playerPos) {
+        if (happyGhast.isBaby || happyGhast.isDead) return false;
+        if (happyGhast.staysStill) return true;
+        if (vehicle == null) return playerPos.y >= box.maxY - SimpleCollisionBox.COLLISION_EPSILON;
+        return vehicle instanceof PacketEntityHappyGhast && !happyGhast.passengers.isEmpty();
     }
 
     private static void addIntersecting(

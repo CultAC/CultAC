@@ -469,12 +469,18 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.pushesWhileLoadingLevel = inheritedRange(teleportData, this.pushesWhileLoadingLevel);
                 if (this.pushesWhileLoadingLevel == null) this.ticksWhileLoadingLevel = 0;
             }
-            Set<Vec3> existingVectors = this.validPlayerStartingVels;
+            Set<Vec3> existingVectors = this.player.compensatedFireworks.boosted(
+                    this.validPlayerStartingVels, this.lastXRot, this.lastYRot);
             this.validPlayerStartingVels = new HashSet<>();
 
             for (Vec3 vector : existingVectors) {
                 this.validPlayerStartingVels.add(
                         this.player.isBedrockMovement() ? Vec3.ZERO : teleportData.applyToVelocity(vector));
+            }
+            if (this.profileCarry instanceof JavaPredictionCarry carry && !carry.states().isEmpty()) {
+                JavaPredictionCarry moved = this.carryThroughTeleport(carry, teleportData);
+                if (this.carryWithChangedStuckBlock == carry) this.carryWithChangedStuckBlock = moved;
+                this.profileCarry = moved;
             }
 
             if (!teleportData.isRelativeDeltaX()
@@ -516,6 +522,20 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.profileCarry = null;
             }
         }
+    }
+
+    /** Each candidate keeps its fall distance and stuck speed through the last tick's boosts and the teleport. */
+    private JavaPredictionCarry carryThroughTeleport(JavaPredictionCarry carry, TeleportData teleportData) {
+        List<JavaPredictionCarry.State> states = new ArrayList<>();
+        for (JavaPredictionCarry.State state : carry.states()) {
+            for (Vec3 velocity : this.player.compensatedFireworks.boosted(
+                    Set.of(state.velocity()), this.lastXRot, this.lastYRot)) {
+                JavaPredictionCarry.State moved = new JavaPredictionCarry.State(
+                        teleportData.applyToVelocity(velocity), state.fallDistance(), state.stuckSpeed());
+                if (!states.contains(moved)) states.add(moved);
+            }
+        }
+        return new JavaPredictionCarry(carry.actor(), carry.fallDistance(), states);
     }
 
     public void applyAcceptedBedrockTeleport(TeleportAcceptData teleportAcceptData) {
@@ -1375,12 +1395,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     /**
      * The accepted travel that ends within LocalPlayer#sendPosition's movement threshold of xLast, the best one if it
-     * does, else the one ending nearest; a travel ending farther away would have sent its position.
+     * does, else the one ending nearest; a travel ending farther away would have sent its position. A travel moves by
+     * its legacy-like prediction vector: LivingEntity#travel's moveRelative input is part of the Entity#move delta.
      */
     static PredictionResult travelWithinMovementThreshold(
             PredictionResult travelled, Vec3 position, Vec3 sent, double threshold) {
         double nearestSqr = threshold * threshold;
-        if (sent.distanceToSqr(position.add(travelled.getAcceptedClosestToTarget())) <= nearestSqr) {
+        if (sent.distanceToSqr(position.add(travelled.getLegacyLikePredictionVector())) <= nearestSqr) {
             return travelled;
         }
         PredictionResult nearest = null;
@@ -1388,7 +1409,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         for (int i = 0, size = realities.size(); i < size; i++) {
             PredictionResult reality = realities.get(i);
             if (reality.getFlagSeverity() != 0.0) continue;
-            double distanceSqr = sent.distanceToSqr(position.add(reality.getAcceptedClosestToTarget()));
+            double distanceSqr = sent.distanceToSqr(position.add(reality.getLegacyLikePredictionVector()));
             if (distanceSqr <= nearestSqr) {
                 nearestSqr = distanceSqr;
                 nearest = reality;
@@ -1426,7 +1447,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 if (withheld != null) {
                     this.handlePossibleRealities(withheld);
                     committed = withheld;
-                    movement = withheld.getAcceptedClosestToTarget();
+                    movement = withheld.getLegacyLikePredictionVector();
                     end = position.add(movement);
                 }
                 this.commitPlayerPosition(end);

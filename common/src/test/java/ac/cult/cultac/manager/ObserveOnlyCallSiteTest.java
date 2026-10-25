@@ -112,7 +112,7 @@ class ObserveOnlyCallSiteTest {
     private static final String ALLOWED = """
             [isExempt()] SetbackTeleportUtil.isExempt() is true in observe-only
             manager/player/SetbackTeleportUtil.java#executeTooHighLatencySetback(String) blockMovementsUntilResync
-            manager/player/SetbackTeleportUtil.java#executeViolationSetback() blockMovementsUntilResync
+            manager/player/SetbackTeleportUtil.java#executeViolationSetback(PredictionResult) blockMovementsUntilResync
             [shouldBlockMovement()] true in observe-only only before the world loads; the codec forwards the client's packet
             checks/impl/combat/ReachCheck.java#handleInteract(PacketReceiveEvent,ServerboundInteract) setCancelled
             checks/impl/movement/timer/AbstractTimerCheck.java#recordModernMovePlayerPacket(PacketReceiveEvent,boolean) setCancelled
@@ -130,7 +130,7 @@ class ObserveOnlyCallSiteTest {
             [] reached only from callers that return first in observe-only
             checks/impl/prediction/checks/NoSlow.java#clearFlaggedUse() clearActiveItem
             events/packets/patch/ResyncWorldUtil.java#resyncOnOwner(CultPlayer,int,int,int,int,int,int) sendServerStates
-            manager/player/SetbackTeleportUtil.java#blockMovementsUntilResync(boolean,boolean,boolean) sendSetback
+            manager/player/SetbackTeleportUtil.java#blockMovementsUntilResync(boolean,boolean,boolean,PredictionResult) sendSetback
             manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData) sendSetback
             manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData,boolean) sendSetback
             manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData,boolean,boolean) sendSetback

@@ -37,6 +37,8 @@ public class CompensatedEntities {
     /** LivingEntity#SPEED_MODIFIER_SPRINTING, which LivingEntity#setSprinting adds to movement_speed. */
     public static final AttributeModifier SPRINTING_SPEED_MODIFIER =
             new AttributeModifier(SPRINTING_MODIFIER_ID, 0.3F, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+    /** EnderDragon#subEntities: head, neck, body, three tail segments and two wings. */
+    private static final int ENDER_DRAGON_PARTS = 8;
 
     public static final String SNOW_MODIFIER_ID = "minecraft:powder_snow";
     public static final Set<String> EXCLUDED_MODIFIER_IDS = Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID);
@@ -960,6 +962,21 @@ public class CompensatedEntities {
         return entityMap.get(entityID);
     }
 
+    /**
+     * The ender dragon in entityMap or serverPositionsMap that {@code entityID} is one of the eight EnderDragonParts of,
+     * which EnderDragon#recreateFromPacket numbers from the dragon's id plus one.
+     */
+    public OptionalInt enderDragonOfPart(int entityID) {
+        for (int parent = entityID - ENDER_DRAGON_PARTS; parent < entityID; parent++) {
+            PacketEntity entity = entityMap.get(parent);
+            TrackerData tracked = serverPositionsMap.get(parent);
+            if ((entity != null && entity.type == EntityTypeIds.ENDER_DRAGON)
+                    || (tracked != null && tracked.getEntityType() == EntityTypeIds.ENDER_DRAGON))
+                return OptionalInt.of(parent);
+        }
+        return OptionalInt.empty();
+    }
+
     public PacketEntitySelf getSelf() {
         return playerEntity;
     }
@@ -1117,7 +1134,7 @@ public class CompensatedEntities {
         applyAgeableMetadata(entity, watchableObjects);
         applySizeMetadata(entity, watchableObjects, layout);
         if (entity instanceof PacketEntityShulker) {
-            applyShulkerMetadata(entity, watchableObjects);
+            applyShulkerMetadata(entity, watchableObjects, provenAt);
         }
         if (entity instanceof PacketEntityRideable) {
             applyRideableMetadata(entity, watchableObjects, layout);
@@ -1147,7 +1164,7 @@ public class CompensatedEntities {
             EntityMetadata.Entry fireworkData =
                     WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.FIREWORK_ATTACHED_TO_TARGET);
             if (fireworkData == null) return;
-            trackFireworkIfAttachedToPlayer(entityID, fireworkData.value());
+            trackFireworkAttachment(entityID, fireworkData.value(), provenAt);
         }
 
         if (entity instanceof PacketEntityHook) {
@@ -1195,7 +1212,7 @@ public class CompensatedEntities {
         entity.refreshDimensions(player);
     }
 
-    private void applyShulkerMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
+    private void applyShulkerMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects, int provenAt) {
         EntityMetadata.Entry attachFaceData =
                 WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.SHULKER_ATTACH_FACE);
         if (attachFaceData != null) {
@@ -1207,20 +1224,9 @@ public class CompensatedEntities {
         EntityMetadata.Entry peekData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.SHULKER_PEEK);
         if (peekData == null) return;
 
-        int peek = Byte.toUnsignedInt((byte) peekData.value());
-        if (peek == 0) {
-            ShulkerData opened = new ShulkerData(entity, player.lastTransactionSent.get(), true);
-            player.compensatedWorld.openShulkerBoxes.remove(opened);
-            player.compensatedWorld.openShulkerBoxes.add(opened);
-            return;
-        }
-
-        // MCP-Reborn Shulker#updatePeekAmount changes currentPeekAmount
-        // by 0.05 toward DATA_PEEK_ID * 0.01 each client tick.
-        int closingTicks = Math.max(1, (peek + 4) / 5);
-        ShulkerData closing = new ShulkerData(entity, player.lastTransactionSent.get(), false, closingTicks);
-        player.compensatedWorld.openShulkerBoxes.remove(closing);
-        player.compensatedWorld.openShulkerBoxes.add(closing);
+        PacketEntityShulker shulker = (PacketEntityShulker) entity;
+        shulker.onPeek((byte) peekData.value(), provenAt);
+        if (shulker.isAnimating()) player.compensatedWorld.openShulkerBoxes.add(new ShulkerData(shulker));
     }
 
     private void applyRideableMetadata(
@@ -1296,18 +1302,18 @@ public class CompensatedEntities {
         }
     }
 
-    private void trackFireworkIfAttachedToPlayer(int entityID, Object rawValue) {
-        boolean attachedToPlayer = rawValue instanceof OptionalInt optionalInt
-                && optionalInt.isPresent()
-                && optionalInt.getAsInt() == player.entityID;
-        if (!attachedToPlayer && rawValue instanceof Optional<?> optional) {
-            attachedToPlayer = optional.isPresent()
-                    && optional.get() instanceof Integer referencedEntity
-                    && referencedEntity == player.entityID;
+    private void trackFireworkAttachment(int entityID, Object rawValue, int provenAt) {
+        OptionalInt target;
+        if (rawValue instanceof OptionalInt optionalInt) {
+            target = optionalInt;
+        } else if (rawValue instanceof Optional<?> optional && optional.isEmpty()) {
+            target = OptionalInt.empty();
+        } else if (rawValue instanceof Optional<?> optional && optional.get() instanceof Integer referencedEntity) {
+            target = OptionalInt.of(referencedEntity);
+        } else {
+            return;
         }
-        if (attachedToPlayer) {
-            player.compensatedFireworks.addNewFirework(entityID);
-        }
+        player.compensatedFireworks.attachmentChanged(entityID, target, provenAt);
     }
 
     private void applyNoAiMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {

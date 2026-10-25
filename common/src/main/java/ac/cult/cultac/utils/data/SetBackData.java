@@ -12,6 +12,8 @@ import lombok.ToString;
 public class SetBackData {
     TeleportData teleportData;
     float xRot, yRot;
+    // The rotation ClientboundMoveVehiclePacket#fromEntity gives a vehicle setback; NaN for the player's.
+    float vehicleYaw = Float.NaN, vehiclePitch = Float.NaN;
     Vec3 velocity;
     boolean vehicle;
     boolean expectedOnGround;
