@@ -11,6 +11,7 @@ import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.utils.data.TrackerData;
 import io.netty.channel.embedded.EmbeddedChannel;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.lang.reflect.Field;
@@ -77,6 +78,7 @@ class PacketHandlerTransformCapTest {
         Method record = PacketEntityReplication.class.getDeclaredMethod(
                 "recordPacketHandlerTransform",
                 int.class,
+                TrackerData.class,
                 boolean.class,
                 double.class,
                 double.class,
@@ -85,7 +87,17 @@ class PacketHandlerTransformCapTest {
                 float.class,
                 float.class);
         record.setAccessible(true);
-        record.invoke(player.packetEntityReplication, entityId, true, 1.0D, 64.0D, 1.0D, true, 0.0F, 0.0F);
+        record.invoke(
+                player.packetEntityReplication,
+                entityId,
+                player.compensatedEntities.getTrackedEntity(entityId),
+                true,
+                1.0D,
+                64.0D,
+                1.0D,
+                true,
+                0.0F,
+                0.0F);
     }
 
     private static Int2ObjectOpenHashMap<?> transforms(CultPlayer player) throws Exception {
