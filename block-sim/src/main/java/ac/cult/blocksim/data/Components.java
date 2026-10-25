@@ -18,6 +18,8 @@ public final class Components {
     private final Map<String, NbtValue.Compound> layouts;
     private final BundleContents bundle;
     private final Map<String, ComponentWireEncoding> wireEncodings;
+    /** 0 until known, 1 when every key has a typed encoding, 2 when one lacks it. */
+    private byte encodedComplete;
 
     public Components(Map<String, JsonElement> values) {
         this(values, Map.of());
@@ -85,11 +87,17 @@ public final class Components {
     }
     /** {@code encodedNbt().equals(other.encodedNbt())}, throwing what either call throws, this side first. */
     public boolean sameEncodedNbt(Components other) {
+        if (other == this && encodedComplete()) return true;
         for (String key : keys()) encodedNbt(key);
         for (String key : other.keys()) other.encodedNbt(key);
         if (keys().size() != other.keys().size()) return false;
         for (String key : keys()) if (!encodedNbt(key).equals(other.encodedNbt(key))) return false;
         return true;
+    }
+    private boolean encodedComplete() {
+        byte known = encodedComplete;
+        if (known == 0) encodedComplete = known = encodedNbt.keySet().containsAll(values.keySet()) ? (byte) 1 : (byte) 2;
+        return known == 1;
     }
     public Components subset(Set<String> keys) {
         if (keys.isEmpty()) return EMPTY;
