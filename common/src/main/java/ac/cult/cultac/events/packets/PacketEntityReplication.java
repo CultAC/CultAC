@@ -1196,6 +1196,21 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return;
         }
 
+        // From 1.21.6 Ravager#handleEntityEvent(69) pushes the local player; no packet in that tick carries the push.
+        if (status == 69
+                && !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_6)) {
+            PacketEntity entity = player.compensatedEntities.getEntity(entityId);
+            if (entity != null && entity.type == EntityTypeIds.RAVAGER) {
+                CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, List.of(), true);
+                player.checkManager
+                        .getExplosionHandler()
+                        .onRavagerRoar(
+                                entityId, proof != null ? proof.transaction() : player.lastTransactionSent.get());
+            }
+            return;
+        }
+
         if (status == 31) {
             player.sendTransaction();
 
