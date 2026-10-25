@@ -172,7 +172,11 @@ public class PacketOrderI extends Check implements PostPredictionListener {
                 }
             }
 
-            case ABORT_DESTROY_BLOCK -> cancelledDigging = shouldCheckPlacingWhileDigging();
+            case ABORT_DESTROY_BLOCK -> {
+                if (!player.packetOrderProcessor.isTeleportAbort()) {
+                    cancelledDigging = shouldCheckPlacingWhileDigging();
+                }
+            }
 
             case STOP_DESTROY_BLOCK -> digging = shouldCheckPlacingWhileDigging();
             default -> {}
