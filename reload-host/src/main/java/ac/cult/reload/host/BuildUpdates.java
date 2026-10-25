@@ -274,7 +274,53 @@ public final class BuildUpdates {
      *     runtime
      */
     public Path boot(String loaderVersion, Path updates, Duration limit, Consumer<String> info, Consumer<String> warn) {
+        return boot(loaderVersion, updates, limit, info, warn, null);
+    }
+
+    /**
+     * {@link #boot(String, Path, Duration, Consumer, Consumer)}, except that with {@link UpdateSettings#followBranch}
+     * set the newest build of that branch is started, whatever the state file or pinned build name.
+     *
+     * @param bundledBranch the branch the bundled jar was built from, which an empty follow branch means
+     */
+    public Path boot(
+            String loaderVersion,
+            Path updates,
+            Duration limit,
+            Consumer<String> info,
+            Consumer<String> warn,
+            String bundledBranch) {
         removeDownloads(updates, warn);
+        String follow = settings.followBranch();
+        if (follow != null) {
+            String branch = follow.isEmpty() ? bundledBranch : follow;
+            if (branch == null || branch.isEmpty()) {
+                warn.accept("Starting the bundled build " + label(bundledVersion)
+                        + ": update.build follows the bundled branch, which this jar does not name");
+                return null;
+            }
+            return bootAttempt(
+                    () -> {
+                        var newest = list(branch).stream().findFirst();
+                        if (newest.isEmpty())
+                            throw new Refused("no build of " + branch + " among the newest " + LISTED_RELEASES
+                                    + " releases of " + settings.repository());
+                        long bundled = buildNumber(bundledVersion);
+                        if (newest.get().number() <= bundled) {
+                            info.accept("Starting the bundled build " + label(bundledVersion) + ", the newest " + branch
+                                    + " build");
+                            return bundled;
+                        }
+                        return newest.get().number();
+                    },
+                    branch,
+                    "the newest " + branch + " build",
+                    loaderVersion,
+                    updates,
+                    limit,
+                    info,
+                    warn);
+        }
         var recorded = UpdateState.read(settings.stateFile());
         long number = recorded == null ? settings.pinnedBuild() : recorded.build();
         if (recorded != null
@@ -291,10 +337,34 @@ public final class BuildUpdates {
             return null;
         }
         if (number == 0 || number == buildNumber(bundledVersion)) return null;
-        String fallback = "Starting the bundled build " + label(bundledVersion) + ": b" + number + " ";
+        return bootAttempt(() -> number, null, "b" + number, loaderVersion, updates, limit, info, warn);
+    }
+
+    private interface BootTarget {
+        long number() throws Refused, InterruptedException;
+    }
+
+    /**
+     * @param branch the branch the build must be signed for; null for any
+     * @param subject how the warnings name the build
+     */
+    private Path bootAttempt(
+            BootTarget target,
+            String branch,
+            String subject,
+            String loaderVersion,
+            Path updates,
+            Duration limit,
+            Consumer<String> info,
+            Consumer<String> warn) {
+        String fallback = "Starting the bundled build " + label(bundledVersion) + ": " + subject + " ";
         var attempt = new FutureTask<Path>(() -> {
             try {
+                long number = target.number();
+                if (number == buildNumber(bundledVersion)) return null;
                 Build build = fetch(number);
+                if (branch != null && !build.branch().equals(branch))
+                    throw new Refused("b" + number + " is signed for " + build.branch() + ", not " + branch);
                 if (build.version().equals(bundledVersion)) return null;
                 if (!build.loaderVersion().equals(loaderVersion)) {
                     warn.accept(fallback + "needs a proxy restart with its own jar (loader " + loaderVersion + " → "
