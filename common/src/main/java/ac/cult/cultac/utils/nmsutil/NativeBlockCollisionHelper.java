@@ -178,7 +178,7 @@ public final class NativeBlockCollisionHelper {
 
         return player.compensatedWorld
                 .geometry()
-                .collision(state, new ac.cult.blocksim.engine.BlockPos(x, y, z), entityContext(player, entityBottom));
+                .collision(state, new ac.cult.blocksim.engine.BlockPos(x, y, z), movementContext(player, entityBottom));
     }
 
     /** Inputs shared only by one synchronous old/new-state shape comparison. */
@@ -273,8 +273,20 @@ public final class NativeBlockCollisionHelper {
     }
 
     public static EntityCollisionContext entityContext(CultPlayer player, double entityBottom) {
+        return entityContext(player, entityBottom, player.isSneaking);
+    }
+
+    /** The context of the entity in control's move, descending by its own Entity#isDescending. */
+    private static EntityCollisionContext movementContext(CultPlayer player, double entityBottom) {
+        return entityContext(
+                player,
+                entityBottom,
+                JavaCollisionState.isDescending(player, player.compensatedEntities.getEntityInControl()));
+    }
+
+    private static EntityCollisionContext entityContext(CultPlayer player, double entityBottom, boolean descending) {
         String key = heldItem(player);
-        return new EntityCollisionContext(entityBottom, player.isSneaking, 0, false, false, key, false, false, false);
+        return new EntityCollisionContext(entityBottom, descending, 0, false, false, key, false, false, false);
     }
 
     private static String heldItem(CultPlayer player) {
