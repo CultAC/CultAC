@@ -6,6 +6,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.VanillaMath;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -104,20 +105,22 @@ public class PacketEntityShulker extends PacketEntity {
 
     /**
      * Whether ClientLevel#tickEntities ticks the shulker in the client tick in progress: TickRateManager#isEntityFrozen
-     * spares a vehicle that carries a player, and a passenger ticks with its root vehicle.
+     * spares a player and a vehicle that carries one, and a passenger ticks with its root vehicle.
      */
     private boolean ticks() {
         if (player.compensatedWorld.clientRunsNormally()) return true;
         PacketEntity root = this;
         while (root.riding != null) root = root.riding;
-        return carriesPlayer(root);
+        return isPlayer(root) || carriesPlayer(root);
+    }
+
+    private static boolean isPlayer(PacketEntity entity) {
+        return entity instanceof PacketEntityPlayer || entity instanceof PacketEntitySelf;
     }
 
     private static boolean carriesPlayer(PacketEntity entity) {
         for (PacketEntity passenger : entity.passengers) {
-            if (passenger instanceof PacketEntityPlayer
-                    || passenger instanceof PacketEntitySelf
-                    || carriesPlayer(passenger)) return true;
+            if (isPlayer(passenger) || carriesPlayer(passenger)) return true;
         }
         return false;
     }
@@ -125,32 +128,42 @@ public class PacketEntityShulker extends PacketEntity {
     // Each peek steps toward its target, or toward any later one the client handles before the step.
     private Map<Float, Integer> next() {
         Map<Float, Integer> next = new HashMap<>();
-        int end = firstTarget + targets.size();
-        peeks.forEach((amount, from) -> {
-            for (int target = from; target < end; target++) {
-                next.merge(step(amount, target(target)), target, Math::min);
-            }
-        });
+        forEachTarget((amount, target, sequence) -> next.merge(step(amount, target), sequence, Math::min));
         return next;
     }
 
     private void update() {
-        int end = firstTarget + targets.size();
         physicalPeek = 0.0F;
         nextPhysicalPeek = 0.0F;
         nextStepGrows = false;
         atRest = peeks.size() == 1;
-        for (Map.Entry<Float, Integer> peek : peeks.entrySet()) {
-            float amount = peek.getKey();
-            float current = physicalPeek(amount);
-            physicalPeek = Math.max(physicalPeek, current);
-            for (int target = peek.getValue(); target < end; target++) {
-                float next = physicalPeek(step(amount, target(target)));
-                nextPhysicalPeek = Math.max(nextPhysicalPeek, next);
-                nextStepGrows |= next > current;
-                atRest &= target(target) == amount;
+        for (float amount : peeks.keySet()) physicalPeek = Math.max(physicalPeek, physicalPeek(amount));
+        forEachTarget((amount, target, sequence) -> {
+            float next = physicalPeek(step(amount, target));
+            nextPhysicalPeek = Math.max(nextPhysicalPeek, next);
+            nextStepGrows |= next > physicalPeek(amount);
+            atRest &= target == amount;
+        });
+    }
+
+    /** Each peek with each distinct target it may move toward, at the earliest sequence number it holds from it. */
+    private void forEachTarget(TargetAction action) {
+        List<Map.Entry<Float, Integer>> latestFirst = new ArrayList<>(peeks.entrySet());
+        latestFirst.sort(Map.Entry.comparingByValue(Comparator.reverseOrder()));
+        Map<Float, Integer> earliest = new HashMap<>();
+        int sequence = firstTarget + targets.size();
+        for (Map.Entry<Float, Integer> peek : latestFirst) {
+            while (sequence > peek.getValue()) {
+                sequence--;
+                earliest.put(target(sequence), sequence);
             }
+            float amount = peek.getKey();
+            earliest.forEach((target, from) -> action.accept(amount, target, from));
         }
+    }
+
+    private interface TargetAction {
+        void accept(float amount, float target, int sequence);
     }
 
     private float target(int target) {

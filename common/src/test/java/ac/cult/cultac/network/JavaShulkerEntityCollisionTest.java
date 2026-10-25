@@ -16,12 +16,15 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ShulkerData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Shulker#canBeCollidedWith admits every living shulker, so Entity#collide stops a player on its bounding box,
@@ -33,6 +36,7 @@ class JavaShulkerEntityCollisionTest {
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
     private static final double FALL = 0.0784000015258789;
     private static final int SHULKER = 100;
+    private static final int PLAYER = 101;
     // A 1.21.4 client's offset from the shulker's position, the block centre the shulker sits on.
     private static final double X = 0.66393651849273;
     private static final double Z = 0.37791566111454;
@@ -191,6 +195,27 @@ class JavaShulkerEntityCollisionTest {
             stand(f, FLOOR_Y + 2);
             PredictionResult hover = f.tick(at(FLOOR_Y + 2), true);
             assertFalse(exact(hover), describe(hover));
+        }
+    }
+
+    /** TickRateManager#isEntityFrozen spares a player, so a shulker riding one keeps stepping its peek. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aShulkerRidingAPlayerStepsWhileFrozen(boolean self) throws Exception {
+        try (var f = legacyFixture()) {
+            shulker(f);
+            var entities = f.player.compensatedEntities;
+            if (!self) entities.addEntity(PLAYER, EntityTypeIds.PLAYER, new Vec3(5.0, FLOOR_Y, 5.0), 0, 0, 0);
+            PacketEntityShulker shulker = (PacketEntityShulker) entities.getEntity(SHULKER);
+            shulker.mount(self ? entities.getSelf() : entities.getEntity(PLAYER));
+            peek(f, 100);
+            f.player.packetStateData.serverTicksFrozen = true;
+            ticks(f, 10);
+            float amount = 0.0F;
+            for (int tick = 0; tick < 10; tick++) amount += 0.05F;
+            SimpleCollisionBox closed = new SimpleCollisionBox(0.0, FLOOR_Y, 0.0, 1.0, FLOOR_Y + 1, 1.0);
+            double grow = Math.max(physicalPeek(amount), physicalPeek(amount + 0.05F));
+            assertEquals(FLOOR_Y + 1 + grow, shulker.boundingBox(closed).maxY);
         }
     }
 
