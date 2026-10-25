@@ -38,7 +38,7 @@ public record ComponentPatch(Components added, Set<String> removed) {
             }
         });
         return values.isEmpty() && removed.isEmpty() ? EMPTY
-                : new ComponentPatch(new Components(values, encoded, details), removed);
+                : new ComponentPatch(Components.adopt(values, encoded, details), removed);
     }
 
     /** Authored codec values; received values use fromNbt to retain their exact NBT kinds. */

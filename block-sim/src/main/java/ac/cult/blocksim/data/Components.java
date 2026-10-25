@@ -37,15 +37,25 @@ public final class Components {
                        Map<String, ComponentWireEncoding> wireEncodings) {
         this(values, encodedNbt, layouts, bundle, wireEncodings, true);
     }
+    /** As the public constructor, adopting {@code values}' trees, which nothing else may hold or change. */
+    static Components adopt(Map<String, JsonElement> values, Map<String, NbtValue> encodedNbt,
+                            Map<String, NbtValue.Compound> layouts) {
+        return new Components(values, encodedNbt, layouts, null, Map.of(), true, false);
+    }
     /** Only this class can assemble trees it already owns; public boundaries always copy. */
     private Components(Map<String, JsonElement> values, Map<String, NbtValue> encodedNbt,
                        Map<String, NbtValue.Compound> layouts, BundleContents bundle,
                        Map<String, ComponentWireEncoding> wireEncodings, boolean copyJson) {
-        if (copyJson) {
+        this(values, encodedNbt, layouts, bundle, wireEncodings, copyJson, copyJson);
+    }
+    private Components(Map<String, JsonElement> values, Map<String, NbtValue> encodedNbt,
+                       Map<String, NbtValue.Compound> layouts, BundleContents bundle,
+                       Map<String, ComponentWireEncoding> wireEncodings, boolean restore, boolean deepCopy) {
+        if (restore) {
             var copy = new HashMap<String, JsonElement>();
             values.forEach((key, value) -> {
                 var layout = layouts.get(key);
-                copy.put(key, ComponentNumbers.restore(value.deepCopy(), layout == null ? null : layout.values().get("negative_zero")));
+                copy.put(key, ComponentNumbers.restore(deepCopy ? value.deepCopy() : value, layout == null ? null : layout.values().get("negative_zero")));
             });
             this.values = Map.copyOf(copy);
         } else this.values = Map.copyOf(values);
