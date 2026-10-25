@@ -136,6 +136,8 @@ public final class ModelItemValues {
     }
 
     private static ComponentWireEncoding encoding(WireValueDecoder.ComponentEncoding value) {
+        if (value.items().isEmpty())
+            return new ComponentWireEncoding(value.protocol(), value.bytes(), value.references());
         var children = new HashMap<String, Map<String, ComponentWireEncoding>>();
         value.items().forEach((slot, components) -> {
             var encodings = new HashMap<String, ComponentWireEncoding>();
