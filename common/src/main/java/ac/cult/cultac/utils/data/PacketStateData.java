@@ -50,6 +50,8 @@ public class PacketStateData {
     public Hand itemInUseHand = Hand.MAIN_HAND;
     private int slowedByUsingItemSlot = Integer.MIN_VALUE;
     public KnownInput knownInput = KnownInput.DEFAULT;
+    // A respawned LocalPlayer's kept lastSentInput holds shift, which its KeyboardInput reads at the first aiStep.
+    public boolean respawnShiftPending;
     public int riptideLevel = 0;
     public boolean riptideReleaseCertain = false;
     public int acceptedClientTick = 0;

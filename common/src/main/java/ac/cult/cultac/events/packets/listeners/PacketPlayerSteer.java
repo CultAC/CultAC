@@ -19,6 +19,7 @@ public class PacketPlayerSteer {
             return;
         }
         player.isSneaking = packet.shift();
+        player.packetStateData.respawnShiftPending = false;
         ServerboundPlayerInput input = packet;
         // Vanilla sends input only when key state changes; keep the latest raw state even before mounting.
         // Living vehicles read the KeyboardInput impulses (xxa/zza), where opposing keys cancel.
