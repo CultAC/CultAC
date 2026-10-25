@@ -117,6 +117,7 @@ public class PacketEntity {
     private SimpleCollisionBox oldLocationBox;
     private @Nullable ReachInterpolationData settledInterpolation;
     private @Nullable Vec3 settledPhysicalPosition;
+    private @Nullable ReachInterpolationData spareInterpolation;
     // Valid while the position, the world and its chunk epoch are the ones it was computed for.
     private @Nullable Vec3 loadedChunkPosition;
     private @Nullable CompensatedWorld loadedChunkWorld;
@@ -277,8 +278,9 @@ public class PacketEntity {
         SimpleCollisionBox startingLocation =
                 placed ? packetPositionBox(player) : interpolationStartingLocation(player);
         boolean ridingInVehicle = player.compensatedEntities.getSelf().inVehicle();
+        ReachInterpolationData dropped = oldPacketLocation;
         this.oldPacketLocation = newPacketLocation;
-        this.newPacketLocation = ReachInterpolationData.takingStart(
+        this.newPacketLocation = nextInterpolation(
                 player,
                 startingLocation,
                 desyncClientPos.x,
@@ -289,8 +291,8 @@ public class PacketEntity {
                 targetYaw,
                 targetPitch,
                 !ridingInVehicle,
-                this,
                 uncertainInitialSteps);
+        recycleInterpolation(dropped);
         trackedPositionInexact = true;
         keepPositionCertainty();
     }
@@ -447,8 +449,9 @@ public class PacketEntity {
                 desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, targetYaw, targetPitch)) {
             return;
         }
+        ReachInterpolationData replaced = newPacketLocation;
         this.oldPacketLocation = null;
-        this.newPacketLocation = ReachInterpolationData.takingStart(
+        this.newPacketLocation = nextInterpolation(
                 player,
                 interpolationStartingLocation(player),
                 desyncClientPos.x,
@@ -459,8 +462,8 @@ public class PacketEntity {
                 targetYaw,
                 targetPitch,
                 !player.compensatedEntities.getSelf().inVehicle(),
-                this,
                 false);
+        recycleInterpolation(replaced);
         keepPositionCertainty();
     }
 
@@ -592,7 +595,63 @@ public class PacketEntity {
 
     // Remove the possibility of the old packet location
     public void onSecondTransaction() {
+        ReachInterpolationData dropped = oldPacketLocation;
         this.oldPacketLocation = null;
+        recycleInterpolation(dropped);
+    }
+
+    /** Keeps a snapshot that no field references any more for {@link #nextInterpolation} to restart. */
+    private void recycleInterpolation(@Nullable ReachInterpolationData dropped) {
+        if (dropped == null || dropped.usesSteppedInterpolation()) return;
+        if (dropped == newPacketLocation || dropped == oldPacketLocation) return;
+        if (dropped == settledInterpolation) settledInterpolation = null;
+        spareInterpolation = dropped;
+    }
+
+    /** {@link ReachInterpolationData#takingStart}, restarting the spare snapshot when there is one. */
+    private ReachInterpolationData nextInterpolation(
+            CultPlayer player,
+            SimpleCollisionBox startingLocation,
+            double x,
+            double y,
+            double z,
+            float currentYaw,
+            float currentPitch,
+            float targetYaw,
+            float targetPitch,
+            boolean isPointNine,
+            boolean uncertainInitialSteps) {
+        ReachInterpolationData spare = spareInterpolation;
+        spareInterpolation = null;
+        if (spare != null
+                && spare.restart(
+                        player,
+                        startingLocation,
+                        x,
+                        y,
+                        z,
+                        currentYaw,
+                        currentPitch,
+                        targetYaw,
+                        targetPitch,
+                        isPointNine,
+                        this,
+                        uncertainInitialSteps)) {
+            return spare;
+        }
+        return ReachInterpolationData.takingStart(
+                player,
+                startingLocation,
+                x,
+                y,
+                z,
+                currentYaw,
+                currentPitch,
+                targetYaw,
+                targetPitch,
+                isPointNine,
+                this,
+                uncertainInitialSteps);
     }
 
     public int unprovenUnbundledPaths() {
