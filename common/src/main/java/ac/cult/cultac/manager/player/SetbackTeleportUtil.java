@@ -137,6 +137,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     // This required setback data is the head of the teleport.
     // It is set by both bukkit and netty due to going on the bukkit thread to setback players
     private volatile SetBackData requiredSetBack = null;
+    // A required vehicle setback whose vehicle teleport was dropped, kept until the client is off the vehicle.
+    private SetBackData droppedVehicleSetback = null;
     private volatile BedrockVehicleSetback bedrockVehicleSetback;
     public SetbackPosWithVector lastKnownGoodPosition;
     // The position of the last Bedrock movement packet actually forwarded to
@@ -679,7 +681,11 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             data.getTeleportData().setTeleportId(teleportId);
             data.getTeleportData().setTransaction(player.lastTransactionSent.get());
 
-            final int vehicleEntityId = dismounted ? Integer.MIN_VALUE : resolveSetbackVehicleId();
+            // Every passenger change already written reaches the client first, so the server's graph decides its seat.
+            boolean leftVehicle = !player.isBedrockMovement()
+                    && !isServerPassenger()
+                    && player.getRidingVehicleId() != Integer.MIN_VALUE;
+            final int vehicleEntityId = dismounted || leftVehicle ? Integer.MIN_VALUE : resolveSetbackVehicleId();
             boolean bedrockVehicle = player.isBedrockMovement()
                     && BedrockVehicleControl.isSupported(player.compensatedEntities.getEntity(vehicleEntityId));
 
@@ -774,7 +780,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             final KnockbackHandler knockbackHandler = player.checkManager.getKnockbackHandler();
             if (!bedrockVehicle
                     && data.getVelocity() != null
-                    && (dismounted || data.getVelocity().lengthSqr() > 0 || vehicleEntityId != Integer.MIN_VALUE)) {
+                    && (dismounted
+                            || leftVehicle
+                            || data.getVelocity().lengthSqr() > 0
+                            || vehicleEntityId != Integer.MIN_VALUE)) {
                 knockbackHandler.setSetbackVal(true);
                 player.user.write(new CultWrite(
                         new ClientboundEntityMotion(
@@ -799,13 +808,17 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 new ClientboundPlayerPosition(teleportId, point, Vec3d.ZERO, 0.0F, 0.0F, relatives), true));
     }
 
-    private int resolveSetbackVehicleId() {
+    private boolean isServerPassenger() {
         Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
-        if (serverVehicle != null && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(serverVehicle)) {
-            return serverVehicle;
+        return serverVehicle != null && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(serverVehicle);
+    }
+
+    private int resolveSetbackVehicleId() {
+        if (isServerPassenger()) {
+            return player.compensatedEntities.vehicles.serverPlayerVehicle;
         }
 
-        // The compensated graph trails the packet stream. It remains the
+        // The compensated graph trails the packet stream. For Bedrock it remains the
         // client-visible authority during an ordered dismount transition.
         return player.getRidingVehicleId();
     }
@@ -1509,10 +1522,33 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     }
 
     public void clearVehicleTeleports() {
+        if (!player.isBedrockMovement()
+                && vehicleTeleports.stream().anyMatch(this::isRequiredSetbackVehicleTeleport)) {
+            droppedVehicleSetback = requiredSetBack;
+        }
         vehicleTeleports.clear();
         if (player.bedrockState != null) {
             player.runSafely(() -> player.bedrockState.movementCorrections.clear());
         }
+        reissueDroppedVehicleSetback();
+    }
+
+    /**
+     * A client off the corrected vehicle never answers its move, so a dropped vehicle setback moves the player
+     * instead. Called where the client-visible graph leaves a vehicle.
+     */
+    public void reissueDroppedVehicleSetback() {
+        SetBackData dropped = droppedVehicleSetback;
+        if (dropped == null || player.getRidingVehicleId() != Integer.MIN_VALUE) return;
+        droppedVehicleSetback = null;
+        // A respawn places the player anew.
+        if (requiredSetBack != dropped || dropped.isComplete() || dropped.isPlugin() || lastKnownGoodPosition == null)
+            return;
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            releaseRequiredSetback(new Vec3(player.x, player.y, player.z));
+            return;
+        }
+        sendSetback(dropped, false, true);
     }
 
     public void transferBedrockVehicleSetback(int previousVehicleId) {
