@@ -1183,9 +1183,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             if (entity != null && !entity.isLivingEntity()) entity.isDead = true;
         }
 
-        // These are native server status codes, before ViaVersion rewrites the packet.
+        // These are native server status codes, before ViaVersion rewrites the packet. AbstractBoat#handleEntityEvent
+        // reads them from 26.3; earlier clients have no handler and keep their boat's velocity.
         if (!player.isBedrockMovement()
                 && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_26_3)
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
                 && (status == 71 || status == 72)) {
             CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, List.of(), true);
             Runnable apply = () -> player.compensatedEntities.vehicles.applyBoatBubbleColumnEvent(entityId, status);
