@@ -71,6 +71,7 @@ public final class VelocityCandidates {
         // replace its falling/zero carry with a mandatory bounce from a probe.
         OptionalDouble requiredPostCollisionY =
                 player != null ? requiredPacketVisibleSlimeBounceY(result, collisionMovementY) : OptionalDouble.empty();
+        if (requiredPostCollisionY.isEmpty() && player != null) requiredPostCollisionY = keptRisingY(player, result);
         if (requiredPostCollisionY.isPresent()) {
             diff = new Vec3(diff.x, requiredPostCollisionY.getAsDouble(), diff.z);
             isY = false;
@@ -228,6 +229,26 @@ public final class VelocityCandidates {
     }
 
     /**
+     * Before 26.2, SlimeBlock and BedBlock#updateEntityMovementAfterFallOn bounce only a falling deltaMovement
+     * (SlimeBlock#bounceUp), so Entity#move keeps a rising one whether or not a ceiling clipped the move.
+     */
+    private static OptionalDouble keptRisingY(CultPlayer player, PredictionResult result) {
+        SimulationContext context = result.getSimulationContext();
+        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)
+                || result.getInitialStartingVel() == null
+                || context == null
+                || suppressesBounce(context)) {
+            return OptionalDouble.empty();
+        }
+        int onBlock = context.getWorldData().getOnBlock();
+        if (!BlockIds.is(onBlock, BlockIds.SLIME_BLOCK) && !ClientBlockProperties.isBed(onBlock)) {
+            return OptionalDouble.empty();
+        }
+        double deltaY = preCollisionVelocity(result).y;
+        return deltaY > 0.0D ? OptionalDouble.of(deltaY) : OptionalDouble.empty();
+    }
+
+    /**
      * Whether Entity#collide may have changed the accepted move's vertical movement. Entity#move sets
      * verticalCollision only when it did (Entity.java:800, 770 in 26.2, {@code delta.y != movement.y}), and
      * Entity#restituteMovementAfterCollisions bounces only on a vertical collision.
@@ -287,6 +308,11 @@ public final class VelocityCandidates {
         // boats and minecarts) only receive 80% of the block's restitution.
         double restitution = BlockIds.is(onBlock, BlockIds.SLIME_BLOCK) ? 1.0D : isBouncyBlock(onBlock) ? 0.75D : 0.0D;
         return living ? restitution : restitution * 0.8D;
+    }
+
+    /** Entity#isSuppressingBounce of the client's own movement: its shift key. */
+    private static boolean suppressesBounce(SimulationContext context) {
+        return context.getVehicle() == null && context.isSneaking();
     }
 
     private static boolean livingMover(SimulationContext context) {
@@ -435,8 +461,8 @@ public final class VelocityCandidates {
             // collided horizontal axes as -v * bounciness instead of zeroing them
             // (zero at the default bounciness attribute of 0.0).
             SimulationContext context = result.getSimulationContext();
-            boolean suppressingBounce = context.getVehicle() == null && context.isSneaking();
-            double bounciness = suppressingBounce ? 0.0D : player.compensatedEntities.getEntityInControl().bounciness;
+            double bounciness =
+                    suppressesBounce(context) ? 0.0D : player.compensatedEntities.getEntityInControl().bounciness;
             if (canZeroX) {
                 postMoveDelta = new Vec3(-postMoveDelta.x * bounciness, postMoveDelta.y, postMoveDelta.z);
             }
@@ -473,7 +499,7 @@ public final class VelocityCandidates {
         return afterVerticalCollision(
                 result.getPlayer(),
                 context.getWorldData().getOnBlock(),
-                context.getVehicle() == null && context.isSneaking(),
+                suppressesBounce(context),
                 livingMover(context),
                 deltaY,
                 clippedY);
