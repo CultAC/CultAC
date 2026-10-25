@@ -1385,7 +1385,7 @@ public final class CloudCapture implements PlayerObserver {
 
         /** Only loaded columns of the dimension the client was last sent; none while its dimension type is unknown. */
         @Override
-        public byte[] blocks(int x, int y, int z) {
+        public byte[] section(int x, int y, int z) {
             CompensatedWorld world = player.compensatedWorld;
             if (world.isClientboundUnresolved() || world.isLevelUnresolved()) return null;
             CompensatedWorld.CachedChunk column = world.getChunk(x, z);
@@ -1394,7 +1394,7 @@ public final class CloudCapture implements PlayerObserver {
             if (!dimension.dimension().equals(world.dimensionForChunk(x, z))) return null;
             int index = y - (dimension.minHeight() >> 4);
             if (index < 0 || index >= column.sectionCount()) return null;
-            return SectionBytes.of(column.getSection(index));
+            return SectionBytes.record(x, y, z, column.getSection(index));
         }
     }
 
