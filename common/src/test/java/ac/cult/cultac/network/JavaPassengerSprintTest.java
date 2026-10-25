@@ -106,10 +106,12 @@ class JavaPassengerSprintTest {
                 var ignored = observeOnly()) {
             SprintG sprintG = mountNautilus(f);
 
-            rideTick(f, -369.95422F, NAUTILUS_RIDE[0], 34.39789F, true);
+            PredictionResult first = rideTick(f, -369.95422F, NAUTILUS_RIDE[0], 34.39789F, true);
             assertEquals(0.0, sprintG.violations, "SprintG on the first ride tick");
-            rideTick(f, -369.62418F, NAUTILUS_RIDE[1], 12.386856F, false);
+            assertTrue(exact(first), "first ride tick: " + describe(first));
+            PredictionResult second = rideTick(f, -369.62418F, NAUTILUS_RIDE[1], 12.386856F, false);
             assertEquals(0.0, sprintG.violations, "SprintG on the second ride tick");
+            assertTrue(exact(second), "second ride tick: " + describe(second));
         }
     }
 
