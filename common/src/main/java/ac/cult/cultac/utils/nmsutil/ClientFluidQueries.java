@@ -89,22 +89,27 @@ public final class ClientFluidQueries {
 
     /** Classify one compensated cell without changing the caller's body-query bounds. */
     public static Sample sample(CultPlayer player, int block, BlockPos pos) {
+        return sample(player, block, pos.getX(), pos.getY(), pos.getZ());
+    }
+
+    public static Sample sample(CultPlayer player, int block, int x, int y, int z) {
         if (usesTagBasedFluidRules(player)) {
-            SimFluidState fluid = fluidAt(player.compensatedWorld, pos);
+            CompensatedWorld world = player.compensatedWorld;
+            SimFluidState fluid = modelFluid(world.getBlockStateIdAt(x, y, z));
             if (fluid.isEmpty()) return Sample.EMPTY;
             return new Sample(
                     is(player, fluid, FluidTags.WATER),
                     is(player, fluid, FluidTags.LAVA),
-                    height(player.compensatedWorld, pos, fluid));
+                    fluid.height(modelFluid(world.getBlockStateIdAt(x, y + 1, z))));
         }
         // Older clients and Bedrock use the material and height rules,
         // including waterlogged blocks and the amount/9 height calculation.
         SimFluidState fluid = modelFluid(block);
         if (fluid.is("minecraft:water") || fluid.is("minecraft:flowing_water")) {
-            return new Sample(true, false, player.compensatedWorld.getWaterFluidLevelAt(pos));
+            return new Sample(true, false, player.compensatedWorld.getWaterFluidLevelAt(x, y, z));
         }
         if (BlockIds.is(block, BlockIds.LAVA)) {
-            return new Sample(false, true, player.compensatedWorld.getLavaFluidLevelAt(pos));
+            return new Sample(false, true, player.compensatedWorld.getLavaFluidLevelAt(x, y, z));
         }
         return Sample.EMPTY;
     }

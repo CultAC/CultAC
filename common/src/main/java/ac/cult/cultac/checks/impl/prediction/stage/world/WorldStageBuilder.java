@@ -366,9 +366,11 @@ public class WorldStageBuilder {
 
         SimpleCollisionBox lavaCollision = box.copy();
 
-        Collisions.hasState(player, box, (block, pos) -> {
+        Collisions.hasState(player, box, (block, x, y, z) -> {
+            ClientFluidQueries.Sample fluid = ClientFluidQueries.sample(player, block, x, y, z);
+            if (!fluid.water() && !fluid.lava()) return false;
+            BlockPos pos = new BlockPos(x, y, z);
             boolean isInsideFluid = false;
-            ClientFluidQueries.Sample fluid = ClientFluidQueries.sample(player, block, pos);
             if (fluid.water()) {
                 double fluidHeight = fluid.height();
                 boolean status = calculateStatusForFluid(player, box, fluidHeight, pos);
@@ -1211,7 +1213,7 @@ public class WorldStageBuilder {
     }
 
     /** The per-block test of {@link #findSupportingBlock}: never matches, it keeps the closest supporting block. */
-    private final class SupportScan implements Collisions.StatePredicate {
+    private final class SupportScan implements Collisions.StateAtPredicate {
         private boolean inUse;
         private CultPlayer player;
         private SimpleCollisionBox searchBox;
@@ -1242,30 +1244,34 @@ public class WorldStageBuilder {
         }
 
         @Override
-        public boolean test(int block, BlockPos blockPos) {
+        public boolean test(int block, int x, int y, int z) {
             // BlockCollisions#computeNext: an outer cell on one axis holds only a block with a large collision
             // shape, on two axes only a moving piston, and on all three none.
-            int outer = (blockPos.getX() == cells.minX || blockPos.getX() == cells.maxX ? 1 : 0)
-                    + (blockPos.getY() == cells.minY || blockPos.getY() == cells.maxY ? 1 : 0)
-                    + (blockPos.getZ() == cells.minZ || blockPos.getZ() == cells.maxZ ? 1 : 0);
+            int outer = (x == cells.minX || x == cells.maxX ? 1 : 0)
+                    + (y == cells.minY || y == cells.maxY ? 1 : 0)
+                    + (z == cells.minZ || z == cells.maxZ ? 1 : 0);
             if (outer == 3
                     || outer == 1 && !BLOCKS.facts(block).has(StateFacts.LARGE_COLLISION)
                     || outer == 2 && !BlockIds.is(block, BlockIds.MOVING_PISTON)) return false;
 
-            CollisionBox collision =
-                    ClientBlockShapes.movement(player, block, blockPos.getX(), blockPos.getY(), blockPos.getZ());
+            CollisionBox collision = ClientBlockShapes.movement(player, block, x, y, z);
             if (!collision.isIntersected(searchBox)) return false;
 
-            double distanceX = blockPos.getX() + 0.5 - playerX;
-            double distanceY = blockPos.getY() + 0.5 - playerY;
-            double distanceZ = blockPos.getZ() + 0.5 - playerZ;
+            double distanceX = x + 0.5 - playerX;
+            double distanceY = y + 0.5 - playerY;
+            double distanceZ = z + 0.5 - playerZ;
             double distance = distanceX * distanceX + distanceY * distanceY + distanceZ * distanceZ;
 
-            if (distance < bestDistance
-                    // CollisionGetter#findSupportingBlock keeps the greatest BlockPos#compareTo among equal distances.
-                    || distance == bestDistance && (best == null || best.compareTo(blockPos) < 0)) {
-                best = blockPos;
+            if (distance < bestDistance) {
+                best = new BlockPos(x, y, z);
                 bestDistance = distance;
+            } else if (distance == bestDistance) {
+                // CollisionGetter#findSupportingBlock keeps the greatest BlockPos#compareTo among equal distances.
+                BlockPos blockPos = new BlockPos(x, y, z);
+                if (best == null || best.compareTo(blockPos) < 0) {
+                    best = blockPos;
+                    bestDistance = distance;
+                }
             }
 
             return false;
