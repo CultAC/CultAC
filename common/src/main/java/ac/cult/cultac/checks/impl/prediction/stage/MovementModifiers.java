@@ -217,7 +217,10 @@ public class MovementModifiers {
     private static void addFireworkBoosts(CultPlayer player, List<PredVector> start, SimulationContext state) {
         int boosts = player.compensatedFireworks.getMaxFireworksAppliedPossible();
         if (boosts == 0 || state.getVehicle() != null) return;
+        int certain = player.compensatedFireworks.getCertainFireworksApplied();
         List<PredVector> stored = new ArrayList<>(start);
+        // Every rocket the client has applied and not yet removed boosted the stored velocity.
+        if (certain > 0) start.clear();
         // The look reads either trig table, as the glide does.
         for (int fastMath = 0; fastMath < 2; fastMath++) {
             Vector3dm look = ReachUtils.getLook(player, state.getLastXRot(), state.getLastYRot());
@@ -225,7 +228,7 @@ public class MovementModifiers {
                 Vec3 boosted = carried;
                 for (int i = 1; i <= boosts; i++) {
                     boosted = ElytraTransform.boostFirework(boosted, look);
-                    start.add(new ElytraTransform.Boosted(carried, boosted, i));
+                    if (i >= certain) start.add(new ElytraTransform.Boosted(carried, boosted, i));
                 }
             }
             player.trigHandler.toggleShitMath();

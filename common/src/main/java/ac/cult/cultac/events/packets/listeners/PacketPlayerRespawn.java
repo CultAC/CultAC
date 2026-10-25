@@ -158,6 +158,8 @@ public class PacketPlayerRespawn {
                 player.compensatedWorld.clearChunks();
                 player.compensatedWorld.clearPistonLikeState();
                 player.compensatedEntities.clearClientLevel();
+                // ClientPacketListener#handleLogin's LocalPlayer#resetPos zeroes the new player's velocity.
+                player.compensatedFireworks.localPlayerReplaced(false);
                 player.compensatedWorld.isRaining = false;
                 player.checkManager.getListener(BadPacketsA.class).resetCarriedIndex();
                 player.checkManager.getListener(AirLiquidBreak.class).resetPending();

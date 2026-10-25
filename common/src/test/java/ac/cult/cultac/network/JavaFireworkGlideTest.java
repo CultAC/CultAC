@@ -13,6 +13,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import java.util.OptionalInt;
 import java.util.function.BiFunction;
 import org.junit.jupiter.api.Test;
 
@@ -49,14 +50,14 @@ class JavaFireworkGlideTest {
         try (var f = gliding()) {
             Vec3 first = glide(f, CARRIED);
             assertExact(f.tick(FROM.add(first), false));
-            f.player.compensatedFireworks.addNewFirework(ROCKET);
+            attachRocket(f);
             Vec3 second = glide(f, first);
             assertExact(f.tick(FROM.add(first).add(second), false));
         }
         try (var f = gliding()) {
             Vec3 first = glide(f, CARRIED);
             assertExact(f.tick(FROM.add(first), false));
-            f.player.compensatedFireworks.addNewFirework(ROCKET);
+            attachRocket(f);
             Vec3 boosted = glide(f, boost(f, first));
             assertNotVanilla(f.tick(FROM.add(first).add(boosted), false));
         }
@@ -143,7 +144,7 @@ class JavaFireworkGlideTest {
     @Test
     void theTravelAfterTheServerStopsTheGlideStartsFromTheBoost() throws Exception {
         try (var f = gliding()) {
-            f.player.compensatedFireworks.addNewFirework(ROCKET);
+            attachRocket(f);
             Vec3 first = glide(f, CARRIED);
             assertExact(f.tick(FROM.add(first), false));
             f.player.isGliding = false;
@@ -160,7 +161,7 @@ class JavaFireworkGlideTest {
     @Test
     void aGliderEnteringWaterStartsItsWaterTravelFromTheBoost() throws Exception {
         try (var f = gliding()) {
-            f.player.compensatedFireworks.addNewFirework(ROCKET);
+            attachRocket(f);
             Vec3 first = glide(f, CARRIED);
             assertExact(f.tick(FROM.add(first), false));
             fillWater(f);
@@ -190,10 +191,16 @@ class JavaFireworkGlideTest {
         }
     }
 
+    /** The rocket's attachment, which the client may apply before any tick until the next ping proves it. */
+    private static void attachRocket(JavaTickFixture f) {
+        f.player.compensatedFireworks.attachmentChanged(
+                ROCKET, OptionalInt.of(f.player.entityID), f.player.lastTransactionSent.get() + 1);
+    }
+
     /** A glider whose first tick the attached rocket boosted. */
     private static JavaTickFixture boostedGlider() throws Exception {
         JavaTickFixture f = gliding();
-        f.player.compensatedFireworks.addNewFirework(ROCKET);
+        attachRocket(f);
         assertExact(f.tick(FROM.add(glide(f, CARRIED)), false));
         return f;
     }
@@ -232,7 +239,7 @@ class JavaFireworkGlideTest {
 
     private static PredictionResult glideAfterBoost(Vec3 extra) throws Exception {
         try (var f = gliding()) {
-            f.player.compensatedFireworks.addNewFirework(ROCKET);
+            attachRocket(f);
             Vec3 first = glide(f, CARRIED);
             assertExact(f.tick(FROM.add(first), false));
             Vec3 second = glide(f, boost(f, first));

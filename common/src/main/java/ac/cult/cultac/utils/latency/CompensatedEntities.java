@@ -1147,7 +1147,7 @@ public class CompensatedEntities {
             EntityMetadata.Entry fireworkData =
                     WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.FIREWORK_ATTACHED_TO_TARGET);
             if (fireworkData == null) return;
-            trackFireworkIfAttachedToPlayer(entityID, fireworkData.value());
+            trackFireworkAttachment(entityID, fireworkData.value(), provenAt);
         }
 
         if (entity instanceof PacketEntityHook) {
@@ -1285,18 +1285,18 @@ public class CompensatedEntities {
         }
     }
 
-    private void trackFireworkIfAttachedToPlayer(int entityID, Object rawValue) {
-        boolean attachedToPlayer = rawValue instanceof OptionalInt optionalInt
-                && optionalInt.isPresent()
-                && optionalInt.getAsInt() == player.entityID;
-        if (!attachedToPlayer && rawValue instanceof Optional<?> optional) {
-            attachedToPlayer = optional.isPresent()
-                    && optional.get() instanceof Integer referencedEntity
-                    && referencedEntity == player.entityID;
+    private void trackFireworkAttachment(int entityID, Object rawValue, int provenAt) {
+        OptionalInt target;
+        if (rawValue instanceof OptionalInt optionalInt) {
+            target = optionalInt;
+        } else if (rawValue instanceof Optional<?> optional && optional.isEmpty()) {
+            target = OptionalInt.empty();
+        } else if (rawValue instanceof Optional<?> optional && optional.get() instanceof Integer referencedEntity) {
+            target = OptionalInt.of(referencedEntity);
+        } else {
+            return;
         }
-        if (attachedToPlayer) {
-            player.compensatedFireworks.addNewFirework(entityID);
-        }
+        player.compensatedFireworks.attachmentChanged(entityID, target, provenAt);
     }
 
     private void applyNoAiMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {

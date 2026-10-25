@@ -1610,6 +1610,14 @@ public class CompensatedWorld {
         return chunks.get(chunkPosition);
     }
 
+    /** Whether the client has applied the column at the chunk position and no load or unload of it is in flight. */
+    public boolean isColumnProven(int chunkX, int chunkZ) {
+        CachedChunk column = getChunk(chunkX, chunkZ);
+        return column != null
+                && column.getTransaction() < player.lastTransactionReceived.get()
+                && !serverBlockView.isUnknown(chunkX, chunkZ);
+    }
+
     public boolean isChunkLoaded(int chunkX, int chunkZ) {
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
         return chunks.containsKey(chunkPosition);
