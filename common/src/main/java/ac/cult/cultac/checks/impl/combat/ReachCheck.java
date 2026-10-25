@@ -96,6 +96,12 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         return tracked == null ? -1 : tracked.getEntityType();
     }
 
+    /** ClientLevel#onTrackingStart adds a dragon's EnderDragonParts only once the client has processed its spawn. */
+    private boolean isPartOfUnspawnedDragon(int entityId) {
+        OptionalInt dragon = player.compensatedEntities.enderDragonOfPart(entityId);
+        return dragon.isPresent() && !player.compensatedEntities.entityMap.containsKey(dragon.getAsInt());
+    }
+
     /** The check that owns this check's attacks whose look misses the target. */
     protected abstract Class<? extends Check> hitboxes();
 
@@ -131,7 +137,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 // Only cancel if and only if we are tracking this entity
                 // This is because we don't track paintings.
                 if (shouldModifyPackets()
-                        && player.compensatedEntities.serverPositionsMap.containsKey(action.entityId())) {
+                        && (player.compensatedEntities.serverPositionsMap.containsKey(action.entityId())
+                                || isPartOfUnspawnedDragon(action.entityId()))) {
                     debug(() -> {
                         return "cancelled = no entity";
                     });

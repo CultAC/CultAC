@@ -37,6 +37,8 @@ public class CompensatedEntities {
     /** LivingEntity#SPEED_MODIFIER_SPRINTING, which LivingEntity#setSprinting adds to movement_speed. */
     public static final AttributeModifier SPRINTING_SPEED_MODIFIER =
             new AttributeModifier(SPRINTING_MODIFIER_ID, 0.3F, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+    /** EnderDragon#subEntities: head, neck, body, three tail segments and two wings. */
+    private static final int ENDER_DRAGON_PARTS = 8;
 
     public static final String SNOW_MODIFIER_ID = "minecraft:powder_snow";
     public static final Set<String> EXCLUDED_MODIFIER_IDS = Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID);
@@ -958,6 +960,21 @@ public class CompensatedEntities {
             return playerEntity;
         }
         return entityMap.get(entityID);
+    }
+
+    /**
+     * The ender dragon in entityMap or serverPositionsMap that {@code entityID} is one of the eight EnderDragonParts of,
+     * which EnderDragon#recreateFromPacket numbers from the dragon's id plus one.
+     */
+    public OptionalInt enderDragonOfPart(int entityID) {
+        for (int parent = entityID - ENDER_DRAGON_PARTS; parent < entityID; parent++) {
+            PacketEntity entity = entityMap.get(parent);
+            TrackerData tracked = serverPositionsMap.get(parent);
+            if ((entity != null && entity.type == EntityTypeIds.ENDER_DRAGON)
+                    || (tracked != null && tracked.getEntityType() == EntityTypeIds.ENDER_DRAGON))
+                return OptionalInt.of(parent);
+        }
+        return OptionalInt.empty();
     }
 
     public PacketEntitySelf getSelf() {
