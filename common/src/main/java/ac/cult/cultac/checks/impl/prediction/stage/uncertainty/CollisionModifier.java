@@ -1,13 +1,16 @@
 package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
+import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.checks.ReportedKeyInput;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBoxPool;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.PistonPushes;
 import ac.cult.cultac.utils.data.ShulkerBoxShoveResult;
 import ac.cult.cultac.utils.enums.Pose;
@@ -77,32 +80,145 @@ public class CollisionModifier implements UncertaintyHandler {
                         : trace.position().multiply(stuckSpeed));
         List<CompensatedBlockEntities.ShulkerShove> shoves = shulkerBoxShovesAfterTravel(context);
         if (shoves == null || trace.shulkerBoxShove() != null) return collide(result, context, trace, end);
-        return collide(result, context, shoveAfterTravel(player, context, trace, shoves), end);
+        List<Vec3> inputs = javaTravelInput ? travelInputs(player, context, result, lastContext) : null;
+        if (inputs == null) {
+            inputs = undecidedInputs(player, context, inputSource(result), trace, end, shoves);
+            return leastOffset(player, result, context, trace, end, shoves, inputs);
+        }
+        // LivingEntity#travel adds one of these inputs; the shoves follow from where that travel ends.
+        MovementTrace nearest = trace;
+        double nearestDistance = Double.POSITIVE_INFINITY;
+        for (Vec3 input : inputs) {
+            Vec3 delta = trace.preCollisionMovement().add(input);
+            Vec3 travel = travel(player, context, delta);
+            MovementTrace shoved = shoveAfterTravel(player, context, trace, delta, travel, shoves);
+            Vec3 moved = travelEnd(context, delta, travel).subtract(context.getStart());
+            double distance = horizontalDistance(moved, shoved, end);
+            if (distance < nearestDistance) {
+                nearest = shoved;
+                nearestDistance = distance;
+            }
+        }
+        return collide(result, context, nearest, end);
     }
 
     /**
-     * {@code trace} moved by the shulker box block shoves after its travel: Entity#collide clips the travel from the
-     * packet's start, which Entity#onGround as the travel starts lets step up, and the shoves start from its end and
-     * from the onGround its vertical collision below sets.
+     * The collision of the travel of {@code inputs} that leaves the least offset within the input allowance, the
+     * first of them on a tie.
      */
-    private static MovementTrace shoveAfterTravel(
+    private MovementTrace leastOffset(
             CultPlayer player,
+            PredictionResult result,
             SimulationContext context,
             MovementTrace trace,
+            Vec3 end,
+            List<CompensatedBlockEntities.ShulkerShove> shoves,
+            List<Vec3> inputs) {
+        double radius = inputs.size() > 1 ? result.getHorizontalInputRadius() : 0.0D;
+        MovementTrace least = null;
+        double leastOffset = Double.POSITIVE_INFINITY;
+        for (Vec3 input : inputs) {
+            Vec3 delta = trace.preCollisionMovement().add(input);
+            Vec3 travel = travel(player, context, delta);
+            MovementTrace collided =
+                    collide(result, context, shoveAfterTravel(player, context, trace, delta, travel, shoves), end);
+            double offset = UncertaintyHelper.handleCircularInput(collided.position(), end, radius)
+                    .distanceToSqr(end);
+            if (offset < leastOffset) {
+                least = collided;
+                leastOffset = offset;
+            }
+        }
+        return least;
+    }
+
+    /**
+     * The inputs {@link ReportedKeyInput#travelInputs} gives, or no input for no keys held, which
+     * Entity#getInputVector leaves at zero at any speed; null when the tick's state leaves the input undecided.
+     */
+    private static List<Vec3> travelInputs(
+            CultPlayer player, SimulationContext context, PredictionResult result, PredictionResult lastResult) {
+        List<Vec3> inputs = ReportedKeyInput.travelInputs(player, result, lastResult);
+        if (inputs != null || context.getVehicle() != null) return inputs;
+        ClientHorizontalCollision.Input input = ClientHorizontalCollision.input(result);
+        KnownInput keys = input == null ? null : input.keys();
+        return keys != null && keys.strafeImpulse() == 0.0F && keys.forwardImpulse() == 0.0F
+                ? List.of(Vec3.ZERO)
+                : null;
+    }
+
+    /**
+     * Inputs within the input allowance for a travel whose input the tick's state leaves undecided: none, and the one
+     * whose travel ends where the shoves it meets settle, when such a one is found.
+     */
+    private static List<Vec3> undecidedInputs(
+            CultPlayer player,
+            SimulationContext context,
+            PredictionResult inputSource,
+            MovementTrace trace,
+            Vec3 end,
             List<CompensatedBlockEntities.ShulkerShove> shoves) {
-        Vec3 stuckSpeed = context.getLastStuckSpeed();
-        Vec3 delta = trace.preCollisionMovement();
-        Vec3 travel = Collisions.collide(
+        Vec3 movement = trace.preCollisionMovement();
+        Vec3 aim = end;
+        for (int pass = 0; pass < 3; pass++) {
+            Vec3 input = horizontalInputTowards(movement, aim, inputSource);
+            if (input == Vec3.ZERO) break;
+            Vec3 delta = movement.add(input);
+            Vec3 travel = travel(player, context, delta);
+            Vec3 shove = shoveMovement(shoveAfterTravel(player, context, trace, delta, travel, shoves));
+            Vec3 next = new Vec3(end.x - shove.x, end.y, end.z - shove.z);
+            if (next.equals(aim)) return List.of(Vec3.ZERO, input);
+            aim = next;
+        }
+        return List.of(Vec3.ZERO);
+    }
+
+    private static Vec3 shoveMovement(MovementTrace trace) {
+        ShulkerBoxShoveResult shove = trace.shulkerBoxShove();
+        return shove == null ? Vec3.ZERO : shove.movement();
+    }
+
+    /** The horizontal distance between {@code end} and the {@code travel} followed by {@code trace}'s shove. */
+    private static double horizontalDistance(Vec3 travel, MovementTrace trace, Vec3 end) {
+        Vec3 shove = shoveMovement(trace);
+        return Math.hypot(travel.x + shove.x - end.x, travel.z + shove.z - end.z);
+    }
+
+    /**
+     * Entity#collide's clip of {@code delta}, input included, from the packet's start, which Entity#onGround as the
+     * travel starts lets step up.
+     */
+    private static Vec3 travel(CultPlayer player, SimulationContext context, Vec3 delta) {
+        return Collisions.collide(
                 player,
                 context.getFromActualPose(),
                 delta.x,
                 delta.y,
                 delta.z,
                 context.getLastOnGround().determineOptimistically());
+    }
+
+    /** Where Entity#move's setPos leaves the player after the {@code travel} of {@code delta}. */
+    private static Vec3 travelEnd(SimulationContext context, Vec3 delta, Vec3 travel) {
         double travelLength = travel.lengthSqr();
-        Vec3 end = travelLength > 1.0E-7D || delta.lengthSqr() - travelLength < 1.0E-7D
+        return travelLength > 1.0E-7D || delta.lengthSqr() - travelLength < 1.0E-7D
                 ? context.getStart().add(travel)
                 : context.getStart();
+    }
+
+    /**
+     * {@code trace} moved by the shulker box block shoves after its {@code travel} of {@code delta}: the shoves start
+     * from the travel's end and from the onGround its vertical collision below sets.
+     */
+    private static MovementTrace shoveAfterTravel(
+            CultPlayer player,
+            SimulationContext context,
+            MovementTrace trace,
+            Vec3 delta,
+            Vec3 travel,
+            List<CompensatedBlockEntities.ShulkerShove> shoves) {
+        Vec3 stuckSpeed = context.getLastStuckSpeed();
+        Vec3 end = travelEnd(context, delta, travel);
         boolean onGround = delta.y < 0.0D && delta.y != travel.y;
         // Player#tick ends with updatePlayerPose (26.3 :284), at the travel's end, before Level#tickBlockEntities.
         Pose pose = player.updatedPose(context.getWorldData().isSwimming(), end.x, end.y, end.z);

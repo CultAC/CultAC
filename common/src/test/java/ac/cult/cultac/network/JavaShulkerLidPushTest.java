@@ -5,6 +5,7 @@ import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
@@ -36,6 +37,10 @@ class JavaShulkerLidPushTest {
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
     private static final ServerboundPlayerInput JUMP =
             new ServerboundPlayerInput(false, false, false, false, true, false, false);
+    private static final ServerboundPlayerInput FORWARD =
+            new ServerboundPlayerInput(true, false, false, false, false, false, false);
+    // The yaw LivingEntity#moveRelative turns forward input west by.
+    private static final float WEST = 90.0F;
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
     private static final double FALL = 0.0784000015258789;
     private static final BlockPos BOX = new BlockPos(0, FLOOR_Y, 0);
@@ -147,6 +152,235 @@ class JavaShulkerLidPushTest {
                         .fake(0, y, onGround)
                         .run(3),
                 check);
+    }
+
+    /**
+     * The 26.3 shoves test the player's box where its travel ends, the travel's input included: a player walking off
+     * the next block onto the opening box is shoved up by the first step, also beside a box opening sideways out of its
+     * reach.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aPlayerWalkingOntoAnOpeningBoxIsShoved(boolean besideSideways) throws Exception {
+        assertExact(walkOntoOpeningBox(besideSideways, pushTop(0.1F) - pushTop(0.0F) + 0.01, false));
+    }
+
+    /** A player whose travel ends over the opening box is not where its travel ended. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aPlayerWalkingOntoAnOpeningBoxUnshovedIsRejected(boolean besideSideways) throws Exception {
+        JavaTickFixture.assertRejected(walkOntoOpeningBox(besideSideways, 0.0, true), "VerticalOffset");
+    }
+
+    /**
+     * A 26.3 client walking west into the push area of an east-facing box as it opens: the travel ends inside it, the
+     * shove moves the player back out east, and its Entity#move leaves it off the ground.
+     */
+    @Test
+    void aPlayerWalkingIntoASidewaysShoveIsShoved() throws Exception {
+        assertExact(walkAlongSidewaysShove(1.15, WEST, true));
+    }
+
+    @Test
+    void aPlayerWalkingIntoASidewaysShoveUnshovedIsRejected() throws Exception {
+        JavaTickFixture.assertRejected(walkAlongSidewaysShove(1.15, WEST, false), "Speed");
+    }
+
+    /** A 26.3 client walking east out of the push area before the shove tests it is not shoved. */
+    @Test
+    void aPlayerWalkingOutOfASidewaysShoveIsNotShoved() throws Exception {
+        assertExact(walkAlongSidewaysShove(1.05, -WEST, false));
+    }
+
+    @Test
+    void aPlayerWalkingOutOfASidewaysShoveShovedIsRejected() throws Exception {
+        JavaTickFixture.assertRejected(walkAlongSidewaysShove(1.05, -WEST, true), "Speed");
+    }
+
+    /**
+     * A 26.3 client in the air holding forward at {@code yaw} beside an east-facing box as it opens: its input moves at
+     * Player#getFlyingSpeed, and its travel ends in the push area, so the shove moves it east.
+     */
+    @ParameterizedTest
+    @CsvSource({"0.0, 1.08", "0.0, 1.095", "90.0, 1.09", "90.0, 1.11", "-90.0, 1.08"})
+    void aPlayerFallingIntoASidewaysShoveIsShoved(float yaw, double minX) throws Exception {
+        assertExact(fallAlongSidewaysShove(minX, yaw, true));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0.0, 1.08", "0.0, 1.095", "90.0, 1.09", "90.0, 1.11", "-90.0, 1.08"})
+    void aPlayerFallingIntoASidewaysShoveUnshovedIsRejected(float yaw, double minX) throws Exception {
+        JavaTickFixture.assertRejected(fallAlongSidewaysShove(minX, yaw, false), "Strafe");
+    }
+
+    /** A 26.3 client in the air holding forward east out of the push area before the shove tests it is not shoved. */
+    @Test
+    void aPlayerFallingOutOfASidewaysShoveIsNotShoved() throws Exception {
+        assertExact(fallAlongSidewaysShove(1.09, -WEST, false));
+    }
+
+    @Test
+    void aPlayerFallingOutOfASidewaysShoveShovedIsRejected() throws Exception {
+        JavaTickFixture.assertRejected(fallAlongSidewaysShove(1.09, -WEST, true), "Strafe");
+    }
+
+    /**
+     * A 26.3 client at rest in the air with its box's west face at {@code minX}, east of an east-facing {@link #BOX},
+     * then holding forward at {@code yaw} as the box opens; the move it reports is shoved east by the first step or
+     * not.
+     */
+    private static PredictionResult fallAlongSidewaysShove(double minX, float yaw, boolean shoved) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            int box = REGISTRY.with(REGISTRY.block("minecraft:shulker_box").defaultState(), "facing", "east");
+            f.player.compensatedWorld.updateBlock(BOX, box);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            Vec3 position = new Vec3(minX + (double) (0.6F / 2.0F), FLOOR_Y + 0.5, 0.5);
+            f.place(position, new Vec3(0, 0, 0));
+            f.player.xRot = yaw;
+            f.player.yRot = 0.0F;
+            f.input(NONE);
+            assertExact(f.tick(position, false));
+
+            blockEvent(f, BOX, 1, 1, box, true);
+            Vec3 air = ClientMoveInput.of(f, FORWARD, 1.0F, 0.02F, yaw);
+            f.input(FORWARD);
+            double shove = shoved ? (1.0 + (double) 0.1F) - 1.0 + 0.01 : 0.0;
+            // The velocity the rest tick's LivingEntity#travelInAir leaves: gravity, then the air drag.
+            double fall = (0.0 - 0.08) * (double) 0.98F;
+            return f.tick(new Vec3(position.x + air.x + shove, position.y + fall, position.z + air.z), false);
+        }
+    }
+
+    /**
+     * A 26.3 client against a wall of east-facing boxes walking forward at yaw 45 into it, so the wall stops the
+     * travel's X: the travel ends in the push area of the box that opens, and the shove moves the player east, off
+     * the ground.
+     */
+    @ParameterizedTest
+    @ValueSource(doubles = {-0.05, -0.065})
+    void aPlayerSlidingIntoASidewaysShoveIsShoved(double maxZ) throws Exception {
+        assertExact(slideIntoSidewaysShove(maxZ, true));
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = {-0.05, -0.065})
+    void aPlayerSlidingIntoASidewaysShoveUnshovedIsRejected(double maxZ) throws Exception {
+        JavaTickFixture.assertRejected(slideIntoSidewaysShove(maxZ, false), "Speed");
+    }
+
+    /**
+     * A 26.3 client on the floor east of a wall of east-facing boxes along z, its box's west face on theirs and its
+     * south face at {@code maxZ}, north of {@link #BOX}, walking forward at yaw 45 as {@link #BOX} opens; the move it
+     * reports is shoved east by the first step or not.
+     */
+    private static PredictionResult slideIntoSidewaysShove(double maxZ, boolean shoved) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            int box = REGISTRY.with(REGISTRY.block("minecraft:shulker_box").defaultState(), "facing", "east");
+            for (int z = -3; z <= 3; z++) f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, z), box);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            Vec3 position = new Vec3(1.0 + (double) (0.6F / 2.0F), FLOOR_Y, maxZ - (double) (0.6F / 2.0F));
+            f.place(position, new Vec3(0, -FALL, 0));
+            f.player.xRot = 45.0F;
+            f.player.yRot = 0.0F;
+            f.player.onGround = f.player.lastOnGround = true;
+            f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
+            f.input(NONE);
+            assertExact(f.tick(position, true));
+
+            blockEvent(f, BOX, 1, 1, box, true);
+            Vec3 walk = ClientMoveInput.of(f, FORWARD, 1.0F, 0.1F, 45.0F);
+            f.input(FORWARD);
+            double shove = shoved ? (1.0 + (double) 0.1F) - 1.0 + 0.01 : 0.0;
+            return f.tick(new Vec3(position.x + shove, position.y, position.z + walk.z), !shoved);
+        }
+    }
+
+    /**
+     * A 26.3 client on the floor with its box's west face at {@code minX}, east of an east-facing {@link #BOX}, walking
+     * forward at {@code yaw} as the box opens; the move it reports is shoved east by the first step or not.
+     */
+    private static PredictionResult walkAlongSidewaysShove(double minX, float yaw, boolean shoved) throws Exception {
+        return walkAlongSidewaysShove(minX, yaw, shoved, false);
+    }
+
+    /**
+     * A 26.3 client on the floor in a ladder's block, the ladder on a wall east of it, with its box's west face at
+     * {@code minX} east of an east-facing {@link #BOX}, walking forward at {@code yaw} as the box opens: its travel
+     * ends in the push area, so the shove moves it east.
+     */
+    @ParameterizedTest
+    @CsvSource({"0.0, 1.005", "0.0, 1.02", "0.0, 1.05", "0.0, 1.08", "-20.0, 1.005", "-20.0, 1.02", "-20.0, 1.05"})
+    void aPlayerClimbingIntoASidewaysShoveIsShoved(float yaw, double minX) throws Exception {
+        assertExact(walkAlongSidewaysShove(minX, yaw, true, true));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0.0, 1.005", "0.0, 1.02", "0.0, 1.05", "0.0, 1.08", "-20.0, 1.005", "-20.0, 1.02", "-20.0, 1.05"})
+    void aPlayerClimbingIntoASidewaysShoveUnshovedIsRejected(float yaw, double minX) throws Exception {
+        JavaTickFixture.assertRejected(walkAlongSidewaysShove(minX, yaw, false, true), "Speed");
+    }
+
+    /** {@code ladder}: the client stands in a ladder's block, the ladder on a wall east of it. */
+    private static PredictionResult walkAlongSidewaysShove(double minX, float yaw, boolean shoved, boolean ladder)
+            throws Exception {
+        try (var f = new JavaTickFixture()) {
+            int box = REGISTRY.with(REGISTRY.block("minecraft:shulker_box").defaultState(), "facing", "east");
+            f.player.compensatedWorld.updateBlock(BOX, box);
+            if (ladder) {
+                int west = REGISTRY.with(REGISTRY.block("minecraft:ladder").defaultState(), "facing", "west");
+                f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), west);
+                f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), BlockIds.STONE.defaultState());
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            Vec3 position = new Vec3(minX + (double) (0.6F / 2.0F), FLOOR_Y, 0.5);
+            f.place(position, new Vec3(0, -FALL, 0));
+            f.player.xRot = yaw;
+            f.player.yRot = 0.0F;
+            f.player.onGround = f.player.lastOnGround = true;
+            f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
+            f.input(NONE);
+            assertExact(f.tick(position, true));
+
+            blockEvent(f, BOX, 1, 1, box, true);
+            Vec3 walk = ClientMoveInput.of(f, FORWARD, 1.0F, 0.1F, yaw);
+            f.input(FORWARD);
+            double shove = shoved ? (1.0 + (double) 0.1F) - 1.0 + 0.01 : 0.0;
+            return f.tick(new Vec3(position.x + walk.x + shove, position.y, position.z + walk.z), !shoved);
+        }
+    }
+
+    /**
+     * A 26.3 client standing on a block east of {@link #BOX}, its box's west face on the box's east face, walking west
+     * as the box opens, {@code besideSideways} with an east-facing box north of it opening too; the move it reports is
+     * {@code shove} up from its travel's end.
+     */
+    private static PredictionResult walkOntoOpeningBox(boolean besideSideways, double shove, boolean onGround)
+            throws Exception {
+        try (var f = new JavaTickFixture()) {
+            int box = REGISTRY.block("minecraft:shulker_box").defaultState();
+            int sideways = REGISTRY.with(box, "facing", "east");
+            BlockPos side = new BlockPos(0, FLOOR_Y, 1);
+            f.player.compensatedWorld.updateBlock(BOX, box);
+            if (besideSideways) f.player.compensatedWorld.updateBlock(side, sideways);
+            f.player.compensatedWorld.updateBlock(
+                    new BlockPos(1, FLOOR_Y, 0),
+                    REGISTRY.block("minecraft:stone").defaultState());
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            Vec3 position = new Vec3(1.0 + (double) (0.6F / 2.0F), lidTop(0.0F), 0.5);
+            f.place(position, new Vec3(0, -FALL, 0));
+            f.player.xRot = WEST;
+            f.player.yRot = 0.0F;
+            f.player.onGround = f.player.lastOnGround = true;
+            f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
+            f.input(NONE);
+            assertExact(f.tick(position, true));
+
+            blockEvent(f, BOX, 1, 1, box, true);
+            if (besideSideways) blockEvent(f, side, 1, 1, sideways, true);
+            Vec3 walk = ClientMoveInput.of(f, FORWARD, 1.0F, 0.1F, WEST);
+            f.input(FORWARD);
+            return f.tick(new Vec3(position.x + walk.x, position.y + shove, position.z + walk.z), onGround);
+        }
     }
 
     /** The first 26.3 step shoves a rider standing on the closed lid up, which leaves it off the ground. */
