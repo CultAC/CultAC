@@ -32,6 +32,9 @@ final class SneakEdgeBackoff {
      * reality's starting velocity reproduces that move with the client's keys, or several reproduce it differently.
      */
     static Vec3 deltaMovement(PredictionResult result, Vec3 accepted) {
+        // Every reality of a result belongs to the result's player.
+        CultPlayer player = result.getPlayer();
+        if (player == null || !appliesTo(player)) return null;
         Vec3 found = deltaMovementFrom(result, accepted);
         List<PredictionResult> realities = result.getRealities();
         for (int i = 0, size = realities == null ? 0 : realities.size(); i < size; i++) {
@@ -143,12 +146,7 @@ final class SneakEdgeBackoff {
     private static boolean appliesTo(CultPlayer player, PredictionResult result, SimulationContext context) {
         PredVector start = result.getInitialStartingVel();
         WorldData world = context.getWorldData();
-        // 1.21.6 is the earliest checked client with the 1e-7 canFallAtLeast slab and the square-movement correction.
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_6)
-                && !player.isBedrockMovement()
-                && player.packetStateData.clientMovementInputKnown
-                // Player#isStayingOnGroundSurface reads the keys this tick's PLAYER_INPUT sent.
-                && player.packetStateData.knownInput.shift()
+        return appliesTo(player)
                 && context.isSneaking()
                 && context.getVehicle() == null
                 && !player.isFlying
@@ -171,6 +169,15 @@ final class SneakEdgeBackoff {
                 && !IsUsingItem.isUsingItem(player)
                 && result.getValidMovements() != null
                 && result.getValidMovements().getPositionOnlyDelta().lengthSqr() <= 1.0E-14;
+    }
+
+    private static boolean appliesTo(CultPlayer player) {
+        // 1.21.6 is the earliest checked client with the 1e-7 canFallAtLeast slab and the square-movement correction.
+        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_6)
+                && !player.isBedrockMovement()
+                && player.packetStateData.clientMovementInputKnown
+                // Player#isStayingOnGroundSurface reads the keys this tick's PLAYER_INPUT sent.
+                && player.packetStateData.knownInput.shift();
     }
 
     /**
