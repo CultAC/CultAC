@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
@@ -1196,17 +1197,20 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return;
         }
 
-        // From 1.21.6 Ravager#handleEntityEvent(69) pushes the local player; no packet in that tick carries the push.
-        if (status == 69
-                && !player.isBedrockMovement()
-                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_6)) {
+        // From 1.21.6 Ravager#handleEntityEvent(69) pushes the local player, and from 1.21.2 to 1.21.5 the client's own
+        // Ravager#aiStep roars once the stun of event 39 runs out; no packet in that tick carries the push.
+        boolean roarEvent = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_6);
+        if (!player.isBedrockMovement()
+                && (roarEvent
+                        ? status == 69
+                        : status == 39 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2))) {
             PacketEntity entity = player.compensatedEntities.getEntity(entityId);
             if (entity != null && entity.type == EntityTypeIds.RAVAGER) {
                 CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, List.of(), true);
-                player.checkManager
-                        .getExplosionHandler()
-                        .onRavagerRoar(
-                                entityId, proof != null ? proof.transaction() : player.lastTransactionSent.get());
+                int transaction = proof != null ? proof.transaction() : player.lastTransactionSent.get();
+                ExplosionHandler explosions = player.checkManager.getExplosionHandler();
+                if (roarEvent) explosions.onRavagerRoar(entityId, transaction);
+                else explosions.onRavagerStun(entityId, transaction);
             }
             return;
         }

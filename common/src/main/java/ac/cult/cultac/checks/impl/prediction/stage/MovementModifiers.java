@@ -13,7 +13,6 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
@@ -149,7 +148,7 @@ public class MovementModifiers {
             }
             // ClientPacketListener applies replacement motion and additive explosions in wire order, even
             // when a single bundle ping proves all of them.
-            packetEventsInOrder.sort(Comparator.comparingLong(TransactionVel::getOutboundSequence));
+            packetEventsInOrder.sort(TransactionVel::compareClientOrder);
         }
 
         for (Vec3 vector : unrebounded) {
