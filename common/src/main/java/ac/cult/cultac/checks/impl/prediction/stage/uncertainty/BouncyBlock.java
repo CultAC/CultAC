@@ -36,10 +36,15 @@ public class BouncyBlock implements UncertaintyHandler {
 
         int onBlock = lastContext.getSimulationContext().getWorldData().getOnBlock();
 
-        // SlimeBlock#stepOn scales the carried horizontal velocity by 0.4 to 0.42 below 0.1 vertical speed. A Java
-        // client's or living vehicle's exact-effects carry already holds that scale (JavaInsideBlockEffects#stepOn).
+        // SlimeBlock#stepOn scales the carried horizontal velocity by 0.4 to 0.42 below 0.1 vertical speed, unless
+        // Entity#isSteppingCarefully: a Java client's shift key that tick. A Java client's or living vehicle's
+        // exact-effects carry already holds that scale (JavaInsideBlockEffects#stepOn).
+        SimulationContext lastSimulation = lastContext.getSimulationContext();
         if (BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)
-                && !JavaInsideBlockEffects.carriesStepOn(player, lastContext.getSimulationContext())) {
+                && !JavaInsideBlockEffects.carriesStepOn(player, lastSimulation)
+                && (player.isBedrockMovement()
+                        || lastSimulation.getVehicle() != null
+                        || !lastSimulation.isSneaking())) {
             SimpleCollisionBox expandToZero = new SimpleCollisionBox(start, start);
             expandToZero.unionX(0);
             expandToZero.unionZ(0);
