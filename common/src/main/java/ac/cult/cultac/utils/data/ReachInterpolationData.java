@@ -207,14 +207,105 @@ public class ReachInterpolationData {
             boolean isPointNine,
             PacketEntity entity,
             boolean uncertainInitialSteps) {
+        this.reachesUsePacketPositionUncertainty = true;
+        start(
+                startingLocation,
+                new SimpleCollisionBox(),
+                player,
+                x,
+                y,
+                z,
+                currentYaw,
+                currentPitch,
+                targetYaw,
+                targetPitch,
+                isPointNine,
+                entity,
+                uncertainInitialSteps);
+    }
+
+    /**
+     * Reinitializes this dropped snapshot to the state {@link #takingStart} builds from the same arguments, reusing
+     * its target box; false, leaving it untouched, for a finished snapshot.
+     */
+    public boolean restart(
+            CultPlayer player,
+            SimpleCollisionBox startingLocation,
+            double x,
+            double y,
+            double z,
+            float currentYaw,
+            float currentPitch,
+            float targetYaw,
+            float targetPitch,
+            boolean isPointNine,
+            PacketEntity entity,
+            boolean uncertainInitialSteps) {
+        if (!reachesUsePacketPositionUncertainty) return false;
+        interpolationQueue = null;
+        steppedCurrent = null;
+        steppedTarget = null;
+        lastStep = null;
+        sampleFrom = null;
+        sampleTo = null;
+        sampleAmount = 0.0F;
+        currentStepTicks = 0.0F;
+        remainingTicks = 0.0F;
+        interpolationSpeed = 1.0F;
+        interpolationPlayer = null;
+        interpolationStepsLowBound = 0;
+        interpolationStepsHighBound = 0;
+        interpolationSteps = 1;
+        boundsValid = false;
+        boundsMinX = boundsMinY = boundsMinZ = boundsMaxX = boundsMaxY = boundsMaxZ = 0.0D;
+        boundsFullBlock = false;
+        settled = false;
+        probeCurrent = null;
+        probeYaw = probePitch = probeRemaining = probeSpeed = 0;
+        probeMinX = probeMinY = probeMinZ = probeMaxX = probeMaxY = probeMaxZ = 0L;
+        start(
+                startingLocation,
+                targetLocation,
+                player,
+                x,
+                y,
+                z,
+                currentYaw,
+                currentPitch,
+                targetYaw,
+                targetPitch,
+                isPointNine,
+                entity,
+                uncertainInitialSteps);
+        return true;
+    }
+
+    private void start(
+            SimpleCollisionBox startingLocation,
+            SimpleCollisionBox target,
+            CultPlayer player,
+            double x,
+            double y,
+            double z,
+            float currentYaw,
+            float currentPitch,
+            float targetYaw,
+            float targetPitch,
+            boolean isPointNine,
+            PacketEntity entity,
+            boolean uncertainInitialSteps) {
         this.startingLocation = startingLocation;
         this.targetLocation = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                x, y, z, BoundingBoxSize.getWidth(player, entity), BoundingBoxSize.getHeight(player, entity));
+                target,
+                x,
+                y,
+                z,
+                BoundingBoxSize.getWidth(player, entity),
+                BoundingBoxSize.getHeight(player, entity));
         this.currentYaw = currentYaw;
         this.currentPitch = currentPitch;
         this.targetYaw = targetYaw;
         this.targetPitch = targetPitch;
-        this.reachesUsePacketPositionUncertainty = true;
         this.positionExact = !player.isBedrockMovement();
         this.interpolationSteps = vanillaInterpolationStepsFor(player, entity);
 
