@@ -1,7 +1,6 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.data.BlockIds;
-import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
@@ -14,7 +13,6 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalDouble;
 import java.util.Set;
@@ -25,13 +23,6 @@ public final class VelocityCandidates {
     private VelocityCandidates() {}
 
     public static List<PredictionResult> nextTickVelocityRealities(CultPlayer player, PredictionResult result) {
-        if (shouldRetainItemControlledZeroMoveRealities(player, result)) {
-            List<PredictionResult> realities = new ArrayList<>();
-            realities.add(result);
-            realities.addAll(result.getAnyReality());
-            return realities;
-        }
-
         // Do not carry current-tick alternatives into the next tick's velocity set.
         return List.of(result);
     }
@@ -334,29 +325,6 @@ public final class VelocityCandidates {
             gravity = Math.min(gravity, 0.01D);
         }
         return gravity;
-    }
-
-    private static boolean shouldRetainItemControlledZeroMoveRealities(CultPlayer player, PredictionResult result) {
-        SimulationContext context = result.getSimulationContext();
-        PacketEntity vehicle = context == null ? null : context.getVehicle();
-        if (vehicle == null
-                || !isItemControlledRideable(vehicle)
-                || context.getTarget().lengthSqr() > 1.0E-14D
-                || result.getValidMovements() == null
-                || result.getValidMovements().getClosestTrace() == null) {
-            return false;
-        }
-
-        // Entity#move can skip Entity#setPos for tiny/collided movement while
-        // LivingEntity#travel still carries the post-input deltaMovement into the
-        // next tick. A zero MoveVehicle packet therefore does not distinguish the
-        // sibling item-controlled starting velocities that collapse to the same
-        // root position through this guard.
-        return result.getValidMovements().getClosestTrace().position().hasReason("Entity#move setPos guard");
-    }
-
-    private static boolean isItemControlledRideable(PacketEntity vehicle) {
-        return vehicle.type == EntityTypeIds.PIG || vehicle.type == EntityTypeIds.STRIDER;
     }
 
     private static boolean consumedRequiredStuckSpeedThisMove(PredictionResult result) {
