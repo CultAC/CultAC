@@ -177,6 +177,14 @@ public final class CompensatedVehicleState implements Debuggable {
         return true;
     }
 
+    /** Entity#push on the vehicle the local player controls adds {@code push} to its delta movement. */
+    public void applyVehiclePush(PacketEntity vehicle, Vec3 push) {
+        var startingVelocities = player.checkManager.getSimulationProcessor().getValidPlayerStartingVels().stream()
+                .map(candidate -> candidate.add(push))
+                .toList();
+        applyClientboundVehicleVelocity(vehicle, vehicle.deltaMovement.add(push), startingVelocities);
+    }
+
     /** Apply at the acknowledged event boundary, after earlier passenger updates. */
     public void applyBoatBubbleColumnEvent(int entityId, byte event) {
         // Geyser does not translate these Java boat events.

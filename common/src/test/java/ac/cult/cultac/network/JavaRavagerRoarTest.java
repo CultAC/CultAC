@@ -1,12 +1,14 @@
 package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
+import static ac.cult.cultac.network.JavaTickFixture.assertVehicleExact;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -19,7 +21,9 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -32,6 +36,8 @@ class JavaRavagerRoarTest {
     private static final ServerboundPlayerInput SPRINT_FORWARD =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
     private static final int RAVAGER = 100;
+    private static final int HORSE = 200;
+    private static final int BOAT = 300;
     private static final byte ROAR = 69;
     private static final Vec3 STANDING = new Vec3(0.5, FLOOR_Y, 0.5);
     private static final Vec3 GROUNDED = new Vec3(0, -0.0784000015258789, 0);
@@ -132,6 +138,88 @@ class JavaRavagerRoarTest {
             assertExact(f.tick(STANDING, true));
             assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
         }
+    }
+
+    /** A ridden horse is a living entity its rider controls, so strongKnockback pushes the horse from where it is. */
+    @Test
+    void aRoarPushesTheHorseThePlayerControls() throws Exception {
+        try (var f = riding(ProtocolVersion.V26_1, ClientVersion.V_26_1)) {
+            pushesTheHorse(f);
+        }
+    }
+
+    @Test
+    void aRoarPushesTheHorseThePlayerControlsOn26_3() throws Exception {
+        try (var f = riding(ProtocolVersion.V26_3, ClientVersion.V_26_3)) {
+            pushesTheHorse(f);
+        }
+    }
+
+    private static void pushesTheHorse(JavaTickFixture f) {
+        Vec3 ravager = new Vec3(-1.5, FLOOR_Y, 0.25);
+        addRavager(f, ravager);
+
+        roar(f);
+
+        double xd = STANDING.x - ravager.x;
+        double zd = STANDING.z - ravager.z;
+        double dd = xd * xd + zd * zd;
+        Vec3 move = new Vec3(xd / dd * 4.0, GROUNDED.y + 0.2, zd / dd * 4.0);
+        assertVehicleExact(f.rideTick(STANDING.add(move), false), 3);
+    }
+
+    @Test
+    void aHorseStayingWhereTheRoarPushesItIsFlagged() throws Exception {
+        try (var f = riding(ProtocolVersion.V26_1, ClientVersion.V_26_1)) {
+            addRavager(f, new Vec3(-1.5, FLOOR_Y, 0.25));
+
+            roar(f);
+
+            // The missed push is a desync, so the flagged tick is also resynced.
+            PredictionResult result = f.rideTick(STANDING, true);
+            assertTrue(
+                    result.getFlags().stream()
+                            .anyMatch(flag -> flag.getCheck().getCheckName().equals("VehicleOffset")),
+                    describe(result));
+        }
+    }
+
+    /** Ravager#ROAR_TARGET_ON_CLIENT selects only living entities, so the boat the player steers keeps falling. */
+    @Test
+    void aRoarDoesNotPushTheBoatThePlayerSteers() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V26_1, ClientVersion.V_26_1)) {
+            Vec3 seat = new Vec3(0.5, FLOOR_Y + 10, 0.5);
+            f.place(seat, Vec3.ZERO);
+            f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, seat, 0, 0, 0);
+            f.setPassengers(BOAT, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.xRot = 0;
+            f.player.yRot = 0;
+            addRavager(f, new Vec3(-1.5, seat.y, 0.25));
+
+            roar(f);
+
+            // AbstractBoat#floatBoat in the air: 0.9 friction and 0.04 gravity, then no input.
+            assertVehicleExact(f.rideTick(seat.add(0, -0.04F, 0), false), 0);
+            assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
+        }
+    }
+
+    private static JavaTickFixture riding(ProtocolVersion protocol, ClientVersion client) throws Exception {
+        var f = new JavaTickFixture(protocol, client);
+        f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, STANDING, 0, 0, 0);
+        var horse = (PacketEntityHorse) f.player.compensatedEntities.getEntity(HORSE);
+        horse.hasSaddle = true;
+        horse.isTame = true;
+        horse.onGround = true;
+        f.setPassengers(HORSE, List.of(f.player.entityID));
+        f.pongThrough(f.player.lastTransactionSent.get());
+        f.input(NONE);
+        f.tickEnd();
+        f.player.checkManager.getSimulationProcessor().seedStartingVelocity(GROUNDED);
+        f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
+        for (int tick = 0; tick < 3; tick++) assertVehicleExact(f.rideTick(STANDING, true), tick);
+        return f;
     }
 
     private static JavaTickFixture standing() throws Exception {

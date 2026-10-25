@@ -11,6 +11,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
+import ac.cult.cultac.utils.latency.CompensatedVehicleState;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import org.jetbrains.annotations.Nullable;
@@ -63,38 +64,67 @@ public class ExplosionHandler extends PacketModHandler {
 
     /**
      * Ravager#handleEntityEvent(69) runs applyRoarKnockbackClient once the client handles the event at
-     * {@code transaction}: strongKnockback adds to the delta movement of the local player within the ravager's box
-     * inflated by 4.0, from where both are between the client's ticks.
+     * {@code transaction}, from where the ravager and the local player are between the client's ticks.
      */
     public void onRavagerRoar(int ravagerId, int transaction) {
         long sequence = player.nextImpulseSequence();
         player.latencyUtils.addRealTimeTask(transaction, () -> {
-            Vec3 push = roarPush(ravagerId);
-            if (push == null) return;
-            TransactionVel velocity = new TransactionVel(push, transaction, false, isSetbackVal, ravagerId, sequence);
-            lastSent = velocity;
-            confirmVelocity(velocity, push);
+            PacketEntity ravager = player.compensatedEntities.getEntity(ravagerId);
+            if (ravager == null
+                    || ravager.type != EntityTypeIds.RAVAGER
+                    || ravager.clientPhysicalPosition == null
+                    || !ravager.clientPhysicalPositionExact) return;
+            roar(
+                    ravager,
+                    ravager.clientPhysicalPosition,
+                    player.x,
+                    player.z,
+                    player.boundingBox,
+                    transaction,
+                    sequence);
         });
     }
 
-    // Ravager#applyRoarKnockbackClient selects only living, locally authoritative entities; a passenger's delta
-    // movement is reset by Entity#rideTick.
-    private @Nullable Vec3 roarPush(int ravagerId) {
-        PacketEntitySelf self = player.compensatedEntities.getSelf();
-        if (!self.actionAlive || self.inVehicle()) return null;
-        PacketEntity ravager = player.compensatedEntities.getEntity(ravagerId);
-        if (ravager == null
-                || ravager.type != EntityTypeIds.RAVAGER
-                || ravager.clientPhysicalPosition == null
-                || !ravager.clientPhysicalPositionExact) return null;
-        Vec3 at = ravager.clientPhysicalPosition;
+    /**
+     * The client's Ravager#roar from {@code at}: strongKnockback adds to the delta movement of the roar's target at
+     * ({@code x}, {@code z}) when {@code box}, its bounding box, is within the ravager's box inflated by 4.0.
+     */
+    private void roar(
+            PacketEntity ravager, Vec3 at, double x, double z, SimpleCollisionBox box, int transaction, long sequence) {
+        PacketEntity target = roarTarget();
+        if (target == null) return;
         SimpleCollisionBox reach = GetBoundingBox.getPacketEntityBoundingBox(player, at.x, at.y, at.z, ravager)
                 .expand(4.0);
-        SimpleCollisionBox box = player.boundingBox;
-        if (!reach.intersects(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ)) return null;
-        double xd = player.x - at.x;
-        double zd = player.z - at.z;
+        if (!reach.intersects(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ)) return;
+        double xd = x - at.x;
+        double zd = z - at.z;
         double dd = Math.max(xd * xd + zd * zd, 0.001);
-        return new Vec3(xd / dd * 4.0, 0.2, zd / dd * 4.0);
+        Vec3 push = new Vec3(xd / dd * 4.0, 0.2, zd / dd * 4.0);
+        if (target != player.compensatedEntities.getSelf()) {
+            player.compensatedEntities.vehicles.applyVehiclePush(target, push);
+            return;
+        }
+        TransactionVel velocity =
+                new TransactionVel(push, transaction, false, isSetbackVal, ravager.getEntityId(), sequence);
+        lastSent = velocity;
+        confirmVelocity(velocity, push);
+    }
+
+    // Ravager#ROAR_TARGET_ON_CLIENT selects living, locally authoritative entities other than ravagers. A passenger's
+    // delta movement is reset by Entity#rideTick, so a riding player is pushed only through the vehicle it controls,
+    // whose position and box are then the player's.
+    private @Nullable PacketEntity roarTarget() {
+        PacketEntitySelf self = player.compensatedEntities.getSelf();
+        if (!self.actionAlive) return null;
+        PacketEntity vehicle = self.getRiding();
+        if (vehicle == null) return self;
+        CompensatedVehicleState vehicles = player.compensatedEntities.vehicles;
+        return vehicle.isLivingEntity()
+                        && vehicle.actionAlive
+                        && vehicle.type != EntityTypeIds.RAVAGER
+                        && vehicle == vehicles.getVelocityMovementVehicle()
+                        && vehicles.canClientAuthoritativelyMoveVisibleRoot(vehicle)
+                ? vehicle
+                : null;
     }
 }
