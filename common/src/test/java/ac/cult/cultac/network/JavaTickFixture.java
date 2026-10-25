@@ -65,12 +65,16 @@ final class JavaTickFixture implements AutoCloseable {
     private int teleportId;
 
     JavaTickFixture() throws Exception {
+        this(ProtocolVersion.V26_3, ClientVersion.V_26_3);
+    }
+
+    JavaTickFixture(ProtocolVersion protocol, ClientVersion client) throws Exception {
         Class.forName(VerboseCodecs.class.getName());
-        services = new RecordConsumerServices(ProtocolVersion.V26_3);
-        fixture = new RecordReceiveFixture(ProtocolVersion.V26_3);
+        services = new RecordConsumerServices(protocol);
+        fixture = new RecordReceiveFixture(protocol);
         player = fixture.player;
         fixture.user.bind(Mockito.mock(PlatformPlayer.class));
-        setField(CultPlayer.class, player, "resolvedClientVersion", ClientVersion.V_26_3);
+        setField(CultPlayer.class, player, "resolvedClientVersion", client);
         player.gamemode = GameMode.SURVIVAL;
         for (int x = -1; x <= 1; x++) {
             for (int z = -1; z <= 1; z++) player.compensatedWorld.ensureValidationChunkLoaded(x, z);

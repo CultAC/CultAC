@@ -205,7 +205,7 @@ public class PredictionResult {
             return profilePredictionVector;
         }
         Vec3 closest = getAcceptedClosestToTarget();
-        return UncertaintyHelper.handleCircular(new PredVector(closest), getTarget(), getHorizontalInputRadius());
+        return UncertaintyHelper.handleCircularInput(new PredVector(closest), getTarget(), getHorizontalInputRadius());
     }
 
     /** Radius of the circular horizontal input allowance around the closest movement. */

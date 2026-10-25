@@ -1395,12 +1395,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     /**
      * The accepted travel that ends within LocalPlayer#sendPosition's movement threshold of xLast, the best one if it
-     * does, else the one ending nearest; a travel ending farther away would have sent its position.
+     * does, else the one ending nearest; a travel ending farther away would have sent its position. A travel moves by
+     * its legacy-like prediction vector: LivingEntity#travel's moveRelative input is part of the Entity#move delta.
      */
     static PredictionResult travelWithinMovementThreshold(
             PredictionResult travelled, Vec3 position, Vec3 sent, double threshold) {
         double nearestSqr = threshold * threshold;
-        if (sent.distanceToSqr(position.add(travelled.getAcceptedClosestToTarget())) <= nearestSqr) {
+        if (sent.distanceToSqr(position.add(travelled.getLegacyLikePredictionVector())) <= nearestSqr) {
             return travelled;
         }
         PredictionResult nearest = null;
@@ -1408,7 +1409,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         for (int i = 0, size = realities.size(); i < size; i++) {
             PredictionResult reality = realities.get(i);
             if (reality.getFlagSeverity() != 0.0) continue;
-            double distanceSqr = sent.distanceToSqr(position.add(reality.getAcceptedClosestToTarget()));
+            double distanceSqr = sent.distanceToSqr(position.add(reality.getLegacyLikePredictionVector()));
             if (distanceSqr <= nearestSqr) {
                 nearestSqr = distanceSqr;
                 nearest = reality;
@@ -1446,7 +1447,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 if (withheld != null) {
                     this.handlePossibleRealities(withheld);
                     committed = withheld;
-                    movement = withheld.getAcceptedClosestToTarget();
+                    movement = withheld.getLegacyLikePredictionVector();
                     end = position.add(movement);
                 }
                 this.commitPlayerPosition(end);
