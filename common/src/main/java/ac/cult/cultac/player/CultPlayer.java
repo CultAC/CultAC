@@ -1219,6 +1219,38 @@ public class CultPlayer implements GrimUser {
         return true;
     }
 
+    /**
+     * Whether at some possible position of each entity the crouching box at the position fits blocks and entities while
+     * the standing box does not: the standing box is the crouching one with a band above it, so something must overlap
+     * that band without overlapping the crouching box.
+     */
+    public boolean mayFitOnlyCrouchingWhen(double x, double y, double z) {
+        if (!mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, x, y, z)) return false;
+        SimpleCollisionBox crouching = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                        x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
+                .expand(-1.0E-7D);
+        SimpleCollisionBox standing = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                        x, y, z, Pose.STANDING.width * getScale(), Pose.STANDING.height * getScale())
+                .expand(-1.0E-7D);
+        SimpleCollisionBox band = new SimpleCollisionBox(
+                standing.minX, crouching.maxY, standing.minZ, standing.maxX, standing.maxY, standing.maxZ);
+        if (!Collisions.isEmpty(this, band, y)) return true;
+        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        SimpleCollisionBox entityBox = new SimpleCollisionBox();
+        SimpleCollisionBox scratch = new SimpleCollisionBox();
+        for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+            if (!canCollideWithForPoseCheck(riding, entity)
+                    || !collidesWithPoseBox(entity, standing, entityBox, scratch)) {
+                continue;
+            }
+            for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
+                SimpleCollisionBox candidate = entity.possibleMovementCollisionBoxCandidate(i, entityBox);
+                if (candidate.isIntersected(band) && !candidate.isIntersected(crouching)) return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean overlapsAtEachPossiblePosition(
             PacketEntity entity, SimpleCollisionBox playerBox, SimpleCollisionBox entityBox) {
         for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {

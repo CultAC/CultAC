@@ -40,7 +40,7 @@ public final class ClientKeyInput {
                         Pose.STANDING.width * context.getScale(),
                         Pose.STANDING.height * context.getScale())
                 .expand(-SimpleCollisionBox.COLLISION_EPSILON);
-        // LocalPlayer#isMovingSlowly: with room to stand, the player crouches exactly when shift was held.
+        // LocalPlayer#aiStep crouches where crouching fits and shift was held or standing does not fit.
         if (!Collisions.isEmpty(player, standing)) return null;
 
         Vec3 modified = VelocityTransformer.getExactControllerModifiedInputStatic(

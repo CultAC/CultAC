@@ -76,6 +76,9 @@ class InputKeysTest {
     // Speed II raises the movement speed to 0.14, which a stone or slab block leaves unchanged on the ground.
     private static final double WALKING_WITH_SPEED = (double) 0.98F * (float) (0.1F * 1.4D);
     private static final double SNEAKING_WITH_SPEED = (double) (0.98F * 0.3F) * (float) (0.1F * 1.4D);
+    private static final double SNEAK_STEP = (double) (0.98F * 0.3F) * (double) 0.1F;
+    private static final Vec3 SHULKER_OVER_THE_HEAD = new Vec3(0.5, FLOOR_Y + 1, -2.5);
+    private static final Vec3 SHULKER_CLEAR_OF_THE_PLAYER = new Vec3(5.5, FLOOR_Y + 1, -2.5);
     private static final double MINECART_MIN_X = 0.01;
     private static final double MINECART_MAX_X = 0.99;
 
@@ -684,6 +687,154 @@ class InputKeysTest {
             assertTrue(x - 0.3 < MINECART_MAX_X, "the box left the cart at " + x);
             assertEquals(Pose.STANDING, f.player.pose);
             assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void releasingShiftUnderAShulkerThatBlocksStandingKeepsTheSneakingSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            releaseShiftUnderAShulkerThatBlocksStanding(f, SNEAKING_WITH_SPEED, 8);
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void releasingShiftUnderAShulkerThatBlocksStandingAndWalkingOnIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            releaseShiftUnderAShulkerThatBlocksStanding(f, WALKING_WITH_SPEED, 3);
+            assertTrue(keyFlags(f) > 0);
+        }
+    }
+
+    /**
+     * Sneaks with Speed II along slabs under a shulker whose box overlaps the standing box there but not the crouching
+     * one, releases shift under it and then accelerates by {@code accel} for {@code ticks} ticks. LocalPlayer#aiStep
+     * reads the previous tick's shift, so the release tick still sneaks.
+     */
+    private static void releaseShiftUnderAShulkerThatBlocksStanding(JavaTickFixture f, double accel, int ticks) {
+        var registry = DataTables.defaults().registry();
+        int slab = registry.with(registry.block("minecraft:stone_slab").defaultState(), "type", "bottom");
+        for (int blockX = -5; blockX <= 3; blockX++) {
+            f.player.compensatedWorld.updateBlock(new BlockPos(blockX, FLOOR_Y, 0), slab);
+        }
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        f.player.compensatedEntities.addEntity(100, EntityTypeIds.SHULKER, new Vec3(0.5, FLOOR_Y + 2, 0.5), 0, 0, 0);
+        double y = FLOOR_Y + 0.5;
+        double x = -3.5;
+        startAlongX(f, x, y);
+        f.input(SNEAK);
+        assertExact(f.tick(new Vec3(x, y, 0.5), true));
+        f.input(SNEAK_FORWARD);
+        double velocity = 0.0;
+        int released = -1;
+        for (int tick = 0; released < 0 || tick <= released + ticks; tick++) {
+            if (released < 0 && x > -0.2) {
+                released = tick;
+                f.input(FORWARD);
+            }
+            velocity += released < 0 || tick == released ? SNEAKING_WITH_SPEED : accel;
+            x += velocity;
+            PredictionResult result = f.tick(new Vec3(x, y, 0.5), true);
+            if (accel == SNEAKING_WITH_SPEED) assertExact(result);
+            velocity *= FRICTION;
+        }
+        assertTrue(x - 0.3 < 1.0, "the box left the shulker at " + x);
+    }
+
+    @Test
+    void walkingSlowlyWithoutShiftBesideAShulkerThatMayCoverTheHeadIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            assertTrue(moveOnceWithoutShiftBesideAShulker(f, SHULKER_CLEAR_OF_THE_PLAYER, true, SNEAK_STEP) > 0);
+        }
+    }
+
+    @Test
+    void walkingWithoutShiftBesideAShulkerThatMayCoverTheHeadMovesAtTheWalkingSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            assertEquals(0, moveOnceWithoutShiftBesideAShulker(f, SHULKER_CLEAR_OF_THE_PLAYER, true, WALK));
+        }
+    }
+
+    @Test
+    void walkingSlowlyWithoutShiftUnderAShulkerOverTheHeadIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            assertTrue(moveOnceWithoutShiftBesideAShulker(f, SHULKER_OVER_THE_HEAD, false, SNEAK_STEP) > 0);
+        }
+    }
+
+    @Test
+    void walkingSlowlyWithoutShiftBesideAShulkerClearOfThePlayerIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            assertTrue(moveOnceWithoutShiftBesideAShulker(f, SHULKER_CLEAR_OF_THE_PLAYER, false, SNEAK_STEP) > 0);
+        }
+    }
+
+    /**
+     * The InputKeys violations of one move along +z by {@code accel} without shift from (0.5, FLOOR_Y, -2.5), beside a
+     * shulker spawned at {@code at}; one {@code moving} over the player's head has had the first ping of that move
+     * answered and so may be at either position. A shulker over the head overlaps both the crouching and the standing
+     * box, so in no world does LocalPlayer#aiStep crouch the player.
+     */
+    private static double moveOnceWithoutShiftBesideAShulker(
+            JavaTickFixture f, Vec3 at, boolean moving, double accel) {
+        f.place(new Vec3(0.5, FLOOR_Y, -2.5), GROUNDED);
+        f.player.xRot = 0;
+        f.input(NONE);
+        f.tick(new Vec3(0.5, FLOOR_Y, -2.5), true);
+        f.player.compensatedEntities.addEntity(100, EntityTypeIds.SHULKER, at, 0, 0, 0);
+        if (moving) {
+            f.tick(new Vec3(0.5, FLOOR_Y, -2.5), true);
+            f.player
+                    .compensatedEntities
+                    .getEntity(100)
+                    .onFirstTransaction(true, true, SHULKER_OVER_THE_HEAD.x - at.x, 0, 0, f.player);
+        }
+        f.input(FORWARD);
+        f.tick(new Vec3(0.5, FLOOR_Y, -2.5 + accel), true);
+        return keyFlags(f);
+    }
+
+    @Test
+    void releasingShiftWhereStandingFitsAndKeepingTheSneakingSpeedIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            double x = -3.5;
+            startAlongX(f, x, FLOOR_Y);
+            f.input(SNEAK);
+            assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+            f.input(SNEAK_FORWARD);
+            double velocity = 0.0;
+            for (int tick = 0; tick < 10; tick++) {
+                if (tick == 5) f.input(FORWARD);
+                velocity += SNEAKING_WITH_SPEED;
+                x += velocity;
+                f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+                velocity *= FRICTION;
+            }
+
+            assertTrue(keyFlags(f) > 0);
+        }
+    }
+
+    @Test
+    void walkingOutFromAShulkerOverTheFeetWithShiftHeldMovesAtTheWalkingSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            double x = -3.5;
+            startAlongX(f, x, FLOOR_Y);
+            f.input(SNEAK);
+            assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+            // Its box overlaps the swimming box and so the crouching one: LocalPlayer#aiStep does not crouch.
+            f.player.compensatedEntities.addEntity(100, EntityTypeIds.SHULKER, new Vec3(x, FLOOR_Y, 0.5), 0, 0, 0);
+            f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+            f.input(SNEAK_FORWARD);
+            double velocity = 0.0;
+            for (int tick = 0; tick < 4; tick++) {
+                velocity += WALKING_WITH_SPEED;
+                x += velocity;
+                f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+                velocity *= FRICTION;
+            }
+
+            assertEquals(0, keyFlags(f));
         }
     }
 
