@@ -33,15 +33,6 @@ public interface PlayerToggleStore {
      */
     void prefetch(@NotNull UUID uuid, @NotNull UUID connectionId);
 
-    // TODO(cultLoaderVersion>5): no runtime on a newer loader calls this. Remove it with evict(UUID).
-    /**
-     * Hosts outlive runtimes, so this interface only grows: runtimes built before
-     * connection holds still call this. The player's UUID stands in as the holder.
-     */
-    default void prefetch(@NotNull UUID uuid) {
-        prefetch(uuid, uuid);
-    }
-
     /**
      * Read the slot's current best-known value. Returns {@code null} if no
      * source has won the slot yet (prefetch in flight + no permission-default
@@ -74,12 +65,6 @@ public interface PlayerToggleStore {
      * still has their last choice written.
      */
     void evict(@NotNull UUID uuid, @NotNull UUID connectionId);
-
-    // TODO(cultLoaderVersion>5): remove with prefetch(UUID).
-    /** Pairs with {@link #prefetch(UUID)} for runtimes built before connection holds. */
-    default void evict(@NotNull UUID uuid) {
-        evict(uuid, uuid);
-    }
 
     /** Called from {@code DataStoreLifecycle.stop()}. Idempotent. */
     void shutdown();

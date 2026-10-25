@@ -204,6 +204,18 @@ evaluationDependsOn(":bukkit-runtime")
 val engine = project(":bukkit-runtime").tasks.named<ShadowJar>("shadowJar")
 tasks.shadowJar {
     archiveFileName.set("CultAC-paper.jar")
+    // Paper ships these (META-INF/libraries.list, 1.21.2+) and the plugin classloader is
+    // parent-first, so bundled copies would never be loaded by the host or the runtime.
+    dependencies {
+        exclude(dependency("it.unimi.dsi:fastutil:.*"))
+        exclude(dependency("org.xerial:sqlite-jdbc:.*"))
+        exclude(dependency("com.google.guava:guava:.*"))
+        exclude(dependency("com.google.guava:failureaccess:.*"))
+        exclude(dependency("com.google.code.gson:gson:.*"))
+        exclude(dependency("org.joml:joml:.*"))
+        exclude(dependency("org.yaml:snakeyaml:.*"))
+        exclude(dependency("org.slf4j:slf4j-api:.*"))
+    }
     dependsOn(engine)
     from(engine.flatMap { it.archiveFile }) { into("cult-runtime"); rename { "default.jar" } }
     mergeServiceFiles()
