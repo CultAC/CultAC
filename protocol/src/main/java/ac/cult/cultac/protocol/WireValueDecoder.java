@@ -2,6 +2,7 @@ package ac.cult.cultac.protocol;
 
 import ac.cult.cultac.protocol.data.ModelIdMappings;
 import io.netty.buffer.ByteBuf;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -66,12 +67,8 @@ public interface WireValueDecoder extends AutoCloseable {
             Map<String, Map<String, ComponentEncoding>> items) {
         public ComponentEncoding {
             bytes = bytes.clone();
-            var copy = new java.util.HashMap<String, Map<Integer, String>>();
-            references.forEach((key, value) -> copy.put(key, Map.copyOf(value)));
-            references = Map.copyOf(copy);
-            var children = new java.util.HashMap<String, Map<String, ComponentEncoding>>();
-            items.forEach((key, value) -> children.put(key, Map.copyOf(value)));
-            items = Map.copyOf(children);
+            references = immutable(references);
+            items = immutable(items);
         }
 
         public ComponentEncoding(int protocol, byte[] bytes, Map<String, Map<Integer, String>> references) {
@@ -81,6 +78,13 @@ public interface WireValueDecoder extends AutoCloseable {
         @Override
         public byte[] bytes() {
             return bytes.clone();
+        }
+
+        private static <K, V> Map<String, Map<K, V>> immutable(Map<String, Map<K, V>> source) {
+            if (source.isEmpty()) return Map.of();
+            var copy = new HashMap<String, Map<K, V>>();
+            source.forEach((key, value) -> copy.put(key, Map.copyOf(value)));
+            return Map.copyOf(copy);
         }
     }
 
