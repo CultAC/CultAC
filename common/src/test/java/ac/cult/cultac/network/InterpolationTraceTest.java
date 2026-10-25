@@ -35,32 +35,32 @@ class InterpolationTraceTest {
 
     @Test
     void legacyTrace() throws Exception {
-        assertEquals(-1609902577819013976L, trace(ClientVersion.V_1_21_4, 11L));
+        assertEquals(-374780735555985414L, trace(ClientVersion.V_1_21_4, 11L));
     }
 
     @Test
     void oldClientTrace() throws Exception {
-        assertEquals(3415501462072160507L, trace(ClientVersion.V_1_8, 12L));
+        assertEquals(5275923346041693005L, trace(ClientVersion.V_1_8, 12L));
     }
 
     @Test
     void steppedTrace() throws Exception {
-        assertEquals(7915571620591440211L, trace(ClientVersion.V_26_3, 13L));
+        assertEquals(-2700158816743762849L, trace(ClientVersion.V_26_3, 13L));
     }
 
     @Test
     void riddenLegacyTrace() throws Exception {
-        assertEquals(-7264749867852690877L, riddenTrace(ClientVersion.V_1_21_4, 21L));
+        assertEquals(9069722683881720752L, riddenTrace(ClientVersion.V_1_21_4, 21L));
     }
 
     @Test
     void riddenOldClientTrace() throws Exception {
-        assertEquals(-2560366833329873277L, riddenTrace(ClientVersion.V_1_8, 22L));
+        assertEquals(-1737556905081472127L, riddenTrace(ClientVersion.V_1_8, 22L));
     }
 
     @Test
     void riddenSteppedTrace() throws Exception {
-        assertEquals(1453471068447140855L, riddenTrace(ClientVersion.V_26_3, 23L));
+        assertEquals(-566478890890597180L, riddenTrace(ClientVersion.V_26_3, 23L));
     }
 
     private static long trace(ClientVersion version, long seed) throws Exception {

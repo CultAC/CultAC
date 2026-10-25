@@ -112,6 +112,8 @@ public class PacketEntity {
     private long clientTickOrder = Long.MAX_VALUE;
     // Reused: valid only until the client tick that computed it applies it.
     private SimpleCollisionBox exactAfterClientTickBox;
+    // The lerped position exactAfterClientTickBox is built from, when the interpolation steps from the physical one.
+    private Vec3 exactAfterClientTickPosition;
     // Holds the current interpolation location only while carrying the target reads its position.
     private SimpleCollisionBox carryLocationBox;
     private SimpleCollisionBox oldLocationBox;
@@ -805,7 +807,10 @@ public class PacketEntity {
         } else if (rotationMayStep) {
             clientPhysicalYawCurrent = false;
         }
-        if (exactAfterClientTick != null) {
+        if (exactAfterClientTickPosition != null) {
+            clientPhysicalPosition = exactAfterClientTickPosition;
+            clientPhysicalPositionExact = true;
+        } else if (exactAfterClientTick != null) {
             clientPhysicalPosition = positionFromCollisionBox(exactAfterClientTick, clientPhysicalPosition);
             clientPhysicalPositionExact = true;
         } else {
@@ -953,19 +958,21 @@ public class PacketEntity {
     }
 
     private SimpleCollisionBox exactInterpolatedLocationAfterClientTick(CultPlayer player) {
+        exactAfterClientTickPosition = null;
         if (newPacketLocation == null) return null;
         if (oldPacketLocation == null
                 && newPacketLocation.interpolatesFromPhysicalAfterClientTick()
                 && hasUsableMountedPhysicalPosition(player)) {
             if (exactAfterClientTickBox == null) exactAfterClientTickBox = new SimpleCollisionBox();
-            SimpleCollisionBox physicalLocation = GetBoundingBox.getBoundingBoxFromPosAndSize(
+            Vec3 position = newPacketLocation.exactPositionAfterClientTickFromPhysical(clientPhysicalPosition);
+            exactAfterClientTickPosition = position;
+            return GetBoundingBox.getBoundingBoxFromPosAndSize(
                     exactAfterClientTickBox,
-                    clientPhysicalPosition.x,
-                    clientPhysicalPosition.y,
-                    clientPhysicalPosition.z,
+                    position.x,
+                    position.y,
+                    position.z,
                     BoundingBoxSize.getWidth(player, this),
                     BoundingBoxSize.getHeight(player, this));
-            return newPacketLocation.getExactMovementLocationAfterClientTickFromPhysical(physicalLocation);
         }
         if (!newPacketLocation.hasExactMovementLocationAfterClientTick()) return null;
         if (exactAfterClientTickBox == null) exactAfterClientTickBox = new SimpleCollisionBox();
