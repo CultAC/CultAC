@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.sprint;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -22,6 +23,7 @@ public final class SprintE extends Check implements PostPredictionListener {
     private boolean startedSprintingThisTick;
     private boolean wasHardHorizontalCollision;
     private boolean previousPredictionChecked;
+    private ClientHorizontalCollision.Input previousInput;
 
     public SprintE(CultPlayer player) {
         super(player);
@@ -40,6 +42,7 @@ public final class SprintE extends Check implements PostPredictionListener {
         if (complete.isTeleport()) {
             wasHardHorizontalCollision = false;
             previousPredictionChecked = false;
+            previousInput = null;
             startedSprintingThisTick = false;
             return;
         }
@@ -48,10 +51,14 @@ public final class SprintE extends Check implements PostPredictionListener {
         boolean checked = !complete.isExempt() && result != null;
         boolean inWater = result != null
                 && result.getSimulationContext().getWorldData().getInWater().determineOptimistically();
+        DesyncStatus shoved = checked && previousInput != null
+                ? ClientHorizontalCollision.hardBeforeTravel(result, previousInput)
+                : null;
+        boolean wasHard = shoved == null ? wasHardHorizontalCollision : shoved.determinePessimistically();
 
         if (checked
                 && previousPredictionChecked
-                && wasHardHorizontalCollision
+                && wasHard
                 && !startedSprintingThisTick
                 && !player.inVehicle()
                 && !inWater) {
@@ -65,6 +72,7 @@ public final class SprintE extends Check implements PostPredictionListener {
         wasHardHorizontalCollision =
                 checked && ClientHorizontalCollision.hard(result).determinePessimistically();
         previousPredictionChecked = checked;
+        previousInput = checked ? ClientHorizontalCollision.input(result) : null;
         startedSprintingThisTick = false;
     }
 }

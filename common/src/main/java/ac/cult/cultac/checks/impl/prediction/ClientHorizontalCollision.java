@@ -7,6 +7,8 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.KnownInput;
+import ac.cult.cultac.utils.data.PistonPushes;
+import ac.cult.cultac.utils.data.ShulkerBoxShoveResult;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
 
@@ -23,7 +25,9 @@ import ac.cult.cultac.utils.math.Vec3;
  * accepted input allowance. LocalPlayer#sendChanges reports in PLAYER_INPUT the keys KeyboardInput#tick read for the
  * tick's travel before it sends the move, and their direction alone decides whether the collision is minor. The
  * input direction takes the yaw in float radians through Mth's sine table, as isHorizontalCollisionMinor and
- * LivingEntity#moveRelative do.
+ * LivingEntity#moveRelative do. The block entities tick after the travel, and an Entity#move(MoverType.SHULKER_BOX)
+ * there sets both again from its own movement: from 26.3 the client sends its position after them, so the move
+ * carries that shove after its travel; before, the next move carries it before its own travel.
  */
 public final class ClientHorizontalCollision {
     private static final double TOLERANCE = HorizontalAnalyzer.HORIZONTAL_INPUT_UNCERTAINTY;
@@ -44,6 +48,12 @@ public final class ClientHorizontalCollision {
         MovementTrace trace = result.getValidMovements().getClosestTrace();
         if (trace == null) return DesyncStatus.UNKNOWN;
 
+        Input input = input(result);
+        if (trace.shulkerBoxShove() != null) return shoved(trace.shulkerBoxShove(), input);
+        KnownInput keys = input.keys();
+        double sin = input.sin();
+        double cos = input.cos();
+
         Vec3 target = result.getTarget();
         CollideAxisData collide = result.getCollideAxisData();
         int wallX = wallSide(collide.getX(), target.x);
@@ -51,8 +61,6 @@ public final class ClientHorizontalCollision {
         if (wallX == 0 && wallZ == 0) return DesyncStatus.FALSE;
 
         Vec3 stuck = trace.position().collisionStuckSpeedMultiplier(context);
-        float yaw = context.getXRot() * (float) (Math.PI / 180.0);
-        CultPlayer player = result.getPlayer();
         Move move = new Move(
                 trace.preCollisionMovement(),
                 target,
@@ -61,10 +69,9 @@ public final class ClientHorizontalCollision {
                 stuck == null ? 1 : stuck.x,
                 stuck == null ? 1 : stuck.z,
                 result.getHorizontalInputRadius(),
-                player == null ? VanillaMath.sin(yaw) : VanillaMath.sin(player.getClientVersion(), yaw),
-                player == null ? VanillaMath.cos(yaw) : VanillaMath.cos(player.getClientVersion(), yaw));
+                sin,
+                cos);
 
-        KnownInput keys = reportedKeys(player);
         if (keys != null) {
             int strafe = (int) keys.strafeImpulse();
             int forward = (int) keys.forwardImpulse();
@@ -81,6 +88,64 @@ public final class ClientHorizontalCollision {
         for (int strafe = -1; strafe <= 1; strafe++) {
             for (int forward = -1; forward <= 1; forward++) {
                 collisions |= move.collisions(strafe, forward);
+            }
+        }
+        return verdict(collisions);
+    }
+
+    /**
+     * The keys and yaw of an accepted move's client tick, by which LocalPlayer#isHorizontalCollisionMinor judges every
+     * Entity#move of that tick, the block entities' after the travel too.
+     */
+    public record Input(KnownInput keys, double sin, double cos) {}
+
+    /** The keys and yaw of {@code result}'s client tick, null without its context. */
+    public static Input input(PredictionResult result) {
+        if (result.getSimulationContext() == null) return null;
+        float yaw = result.getSimulationContext().getXRot() * (float) (Math.PI / 180.0);
+        CultPlayer player = result.getPlayer();
+        return new Input(
+                reportedKeys(player),
+                player == null ? VanillaMath.sin(yaw) : VanillaMath.sin(player.getClientVersion(), yaw),
+                player == null ? VanillaMath.cos(yaw) : VanillaMath.cos(player.getClientVersion(), yaw));
+    }
+
+    /**
+     * Before 26.3, the collision the shulker box block shoves of the last client tick leave, which {@code result}
+     * carries before its travel and the aiStep that starts it reads, judged by that tick's {@code input}; null when no
+     * shove before the travel reaches the player.
+     */
+    public static DesyncStatus hardBeforeTravel(PredictionResult result, Input input) {
+        SimulationContext context = result.getSimulationContext();
+        PistonPushes pushes = context == null || context.getWorldData() == null
+                ? null
+                : context.getWorldData().getPistonPushes();
+        if (pushes == null || !pushes.isShulkerBoxShoveBeforeTravel() || pushes.getShulkerBoxShoveResult() == null) {
+            return null;
+        }
+        return shoved(pushes.getShulkerBoxShoveResult(), input);
+    }
+
+    /**
+     * The collision the last Entity#move(MoverType.SHULKER_BOX) leaves in place of the travel's, minor when its
+     * collided movement is within the angle of the reported keys' direction, or of every key direction when the keys
+     * are unknown.
+     */
+    private static DesyncStatus shoved(ShulkerBoxShoveResult shove, Input input) {
+        if (!shove.horizontalCollision()) return DesyncStatus.FALSE;
+        Vec3 movement = shove.lastMovement();
+        KnownInput keys = input.keys();
+        if (keys != null) {
+            int strafe = (int) keys.strafeImpulse();
+            int forward = (int) keys.forwardImpulse();
+            return minor(strafe, forward, input.sin(), input.cos(), movement.x, movement.z)
+                    ? DesyncStatus.FALSE
+                    : DesyncStatus.TRUE;
+        }
+        int collisions = 0;
+        for (int strafe = -1; strafe <= 1; strafe++) {
+            for (int forward = -1; forward <= 1; forward++) {
+                collisions |= minor(strafe, forward, input.sin(), input.cos(), movement.x, movement.z) ? SOFT : HARD;
             }
         }
         return verdict(collisions);
@@ -174,11 +239,16 @@ public final class ClientHorizontalCollision {
          * movement, which the reported delta fixes.
          */
         boolean minor(int strafe, int forward) {
-            double length = Math.sqrt(strafe * strafe + forward * forward);
-            if (length == 0) return false;
-            return isMinor(
-                    (strafe * cos - forward * sin) / length, (forward * cos + strafe * sin) / length, target.x, target.z);
+            return ClientHorizontalCollision.minor(strafe, forward, sin, cos, target.x, target.z);
         }
+    }
+
+    /** Whether a collided movement is minor for the key direction (strafe, forward) at the yaw's sine and cosine. */
+    private static boolean minor(int strafe, int forward, double sin, double cos, double movementX, double movementZ) {
+        double length = Math.sqrt(strafe * strafe + forward * forward);
+        if (length == 0) return false;
+        return isMinor(
+                (strafe * cos - forward * sin) / length, (forward * cos + strafe * sin) / length, movementX, movementZ);
     }
 
     private static boolean isMinor(double dirX, double dirZ, double movementX, double movementZ) {

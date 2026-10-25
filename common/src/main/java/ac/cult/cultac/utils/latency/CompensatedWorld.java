@@ -1516,7 +1516,8 @@ public class CompensatedWorld {
         float width = vehicle ? context.getMaxWidth() : pose.width * context.getScale();
         float height = vehicle ? context.getMaxHeight() : pose.height * context.getScale();
         Vec3 start = position;
-        boolean reached = false, zeroX = false, zeroY = false, zeroZ = false;
+        boolean reached = false, zeroX = false, zeroY = false, zeroZ = false, horizontalCollision = false;
+        Vec3 lastMovement = Vec3.ZERO;
         for (CompensatedBlockEntities.ShulkerShove shove : shoves) {
             SimpleCollisionBox box =
                     GetBoundingBox.getBoundingBoxFromPosAndSize(position.x, position.y, position.z, width, height);
@@ -1531,11 +1532,15 @@ public class CompensatedWorld {
             boolean zCollision = !(Math.abs(movement.z - shove.z()) < 1.0E-5F);
             boolean verticalCollision = shove.y() != movement.y;
             onGround = verticalCollision && shove.y() < 0.0D;
+            horizontalCollision = xCollision || zCollision;
+            lastMovement = movement;
             zeroX |= xCollision;
             zeroZ |= zCollision;
             if (verticalCollision && (!restitution || shove.y() != 0.0D || xCollision || zCollision)) zeroY = true;
         }
-        return reached ? new ShulkerBoxShoveResult(position.subtract(start), zeroX, zeroY, zeroZ, onGround) : null;
+        if (!reached) return null;
+        return new ShulkerBoxShoveResult(
+                position.subtract(start), zeroX, zeroY, zeroZ, onGround, horizontalCollision, lastMovement);
     }
 
     private static boolean intersects(SimpleCollisionBox box, SimpleCollisionBox area) {
