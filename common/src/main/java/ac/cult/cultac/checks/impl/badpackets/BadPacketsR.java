@@ -7,6 +7,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
@@ -61,8 +62,24 @@ public class BadPacketsR extends Check implements CheckListener {
     @CultPacketHandler
     public void onMovePlayer(
             final PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
+        if (player.inVehicle() || packet.hasPosition()) countPositionUpdate(player);
+    }
+
+    // From 26.3 ClientPacketListener#handleMovePlayer carries the teleport response's position in this packet and
+    // sends no PosRot after it. PacketServerTeleport, registered ahead of the check listener, cancels one that answers
+    // no pending teleport.
+    @CultPacketHandler
+    public void onAcceptTeleportation(
+            final PacketReceiveEvent<ServerboundAcceptTeleportation> event,
+            CultPlayer player,
+            ServerboundAcceptTeleportation packet) {
+        if (packet.position() == null || event.isCancelled()) return;
+        countPositionUpdate(player);
+    }
+
+    private void countPositionUpdate(CultPlayer player) {
         if (!player.inVehicle()) {
-            if (packet.hasPosition()) positions++;
+            positions++;
             return;
         }
         // LocalPlayer#sendChanges sends a passenger's Rot every tick, and a MoveVehicle only for a vehicle it controls,

@@ -6,15 +6,21 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsR;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsO;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
+import ac.cult.cultac.manager.init.start.PacketManager;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
@@ -117,6 +123,81 @@ class VehiclePassengerChecksTest {
         }
     }
 
+    @Test
+    void aTeleportedClientAnsweringOnlyWithAcceptancesIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            var accept = acceptance(f, teleport(f, new Vec3(SEAT.x + 3, FLOOR_Y, SEAT.z)));
+            assertFalse(accept.isCancelled(), "the acceptance did not answer the teleport");
+            pongAfterTwoSeconds(f, check);
+
+            assertEquals(0, check.violations);
+        }
+    }
+
+    @Test
+    void anAcceptanceAnsweringNoTeleportIsStillFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            assertTrue(acceptance(f, 7).isCancelled(), "an acceptance without a teleport was taken");
+            pongAfterTwoSeconds(f, check);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
+    void aRepeatedAcceptanceIsNotAnotherPosition() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            int id = teleport(f, new Vec3(SEAT.x + 3, FLOOR_Y, SEAT.z));
+            assertFalse(acceptance(f, id).isCancelled(), "the acceptance did not answer the teleport");
+            pongAfterTwoSeconds(f, check);
+            assertTrue(acceptance(f, id).isCancelled(), "a repeated acceptance answered the teleport again");
+            pongAfterTwoSeconds(f, check);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
+    void aRepeatedAcceptanceThroughTheProductionRouteIsNotAnotherPosition() throws Exception {
+        var dispatcher = new PacketDispatcher(
+                CultAPI.INSTANCE.getNetworkManager().dispatcher().runtime());
+        dispatcher.register(PacketManager::registerListeners);
+        var route = dispatcher.get(ServerboundPackets.ACCEPT_TELEPORTATION).receive();
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            int id = teleport(f, new Vec3(SEAT.x + 3, FLOOR_Y, SEAT.z));
+            var first = acceptanceEvent(f, id, new Vec3(SEAT.x + 3, FLOOR_Y, SEAT.z));
+            route.dispatch(first, f.player);
+            assertFalse(first.isCancelled(), "the acceptance did not answer the teleport");
+            pongAfterTwoSeconds(f, check);
+            var repeated = acceptanceEvent(f, id, new Vec3(SEAT.x + 3, FLOOR_Y, SEAT.z));
+            route.dispatch(repeated, f.player);
+            assertTrue(repeated.isCancelled(), "a repeated acceptance answered the teleport again");
+            pongAfterTwoSeconds(f, check);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
+    void aBoatPassengerAnsweringATeleportStillOwesTheVehicle() throws Exception {
+        try (var f = ride(EntityTypeIds.OAK_BOAT)) {
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            var accept = acceptance(f, teleport(f, new Vec3(SEAT.x + 3, FLOOR_Y, SEAT.z)), SEAT);
+            assertFalse(accept.isCancelled(), "the acceptance did not answer the teleport");
+            pongAfterTwoSeconds(f, check);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
     /** The server's respawn, whose new LocalPlayer ticks only once ClientPacketListener#hasClientLoaded. */
     private static void respawn(JavaTickFixture f) {
         var spawnInfo = new PlayerSpawnInfo(
@@ -165,6 +246,35 @@ class VehiclePassengerChecksTest {
     private static void rot(JavaTickFixture f, float yaw, float pitch) {
         var packet = new ServerboundMovePlayer(0, 0, 0, yaw, pitch, f.player.onGround, false, false, true);
         f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, packet), f.player, packet);
+    }
+
+    /** A server teleport to {@code target} whose ping the client has answered; returns its ID. */
+    private static int teleport(JavaTickFixture f, Vec3 target) {
+        int id = 7;
+        int transaction = f.player.sendTrailingTransaction();
+        f.player.getSetbackTeleportUtil()
+                .addSentTeleport(target, Vec3.ZERO, transaction, new RelativeFlag(0), false, id, 0, 0, 0, 0);
+        f.pongThrough(transaction);
+        return id;
+    }
+
+    /** ClientPacketListener#handleMovePlayer's 26.3 answer, carrying the client's position after the teleport. */
+    private static PacketReceiveEvent<ServerboundAcceptTeleportation> acceptance(JavaTickFixture f, int id) {
+        return acceptance(f, id, new Vec3(SEAT.x + 3, FLOOR_Y, SEAT.z));
+    }
+
+    /** The acceptance of a client at {@code at}; ClientPacketListener#handleMovePlayer leaves a passenger seated. */
+    private static PacketReceiveEvent<ServerboundAcceptTeleportation> acceptance(JavaTickFixture f, int id, Vec3 at) {
+        var event = acceptanceEvent(f, id, at);
+        new PacketServerTeleport().onAcceptTeleportation(event, f.player, event.getPacket());
+        f.listener.onAcceptTeleportation(event, f.player, event.getPacket());
+        return event;
+    }
+
+    private static PacketReceiveEvent<ServerboundAcceptTeleportation> acceptanceEvent(
+            JavaTickFixture f, int id, Vec3 at) {
+        var packet = new ServerboundAcceptTeleportation(id, new Vec3d(at.x, at.y, at.z), 0, 0);
+        return f.event(ServerboundPackets.ACCEPT_TELEPORTATION, packet);
     }
 
     /** The first pong after more than two seconds without a position, which BadPacketsR judges. */

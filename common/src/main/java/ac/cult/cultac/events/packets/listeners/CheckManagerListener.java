@@ -191,8 +191,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
         // The teleport ID acknowledgement interrupts a Rot -> MoveVehicle pair.
         player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
-        player.checkManager.dispatchDecodedReceiveObservers(event);
-        player.checkManager.dispatchNonAsyncReceive(event);
+        player.checkManager.dispatchReceiveHandlers(event);
     }
 
     @CultPacketHandler
