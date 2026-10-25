@@ -221,7 +221,10 @@ class PerfRecorderTest {
     /** Sampled bytes a window keeps of {@code samples}, {@code thread} alive at its start and live threads unknown. */
     private static long kept(List<RecordedEvent> samples, Thread thread) {
         PerfRecorder.Window window = new PerfRecorder.Window(
-                -1, Map.of(thread.threadId(), new PerfRecorder.ThreadBytes(thread.getName(), 0)), () -> null);
+                -1,
+                10_000_000L,
+                Map.of(thread.threadId(), new PerfRecorder.ThreadBytes(thread.getName(), 0)),
+                () -> null);
         for (RecordedEvent sample : samples) window.sample(sample, PerfRecorder.Window.ALLOC);
         window.calibrate(null);
         return window.trie.encode(true, 1 << 20).build().getAllocBytesTotal();
