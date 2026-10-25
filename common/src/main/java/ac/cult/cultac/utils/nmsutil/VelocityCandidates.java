@@ -214,8 +214,8 @@ public final class VelocityCandidates {
             if (suppressesBounceAtGravity(player.getClientVersion(), deltaY, gravity)
                     || BlockIds.is(onBlock, BlockIds.HONEY_BLOCK)) {
                 // Below the effective-gravity impact speed (or inside
-                // #suppresses_bounce) the 26.2 client does not bounce at all.
-                return OptionalDouble.empty();
+                // #suppresses_bounce) restitution is zero, which zeroes y.
+                return mayHaveClippedVertically(result) ? OptionalDouble.of(0.0D) : OptionalDouble.empty();
             }
             bounceY = restitutedBounceY(
                     player, deltaY, clippedY, gravity, blockBounciness(onBlock, livingMover(context)));
