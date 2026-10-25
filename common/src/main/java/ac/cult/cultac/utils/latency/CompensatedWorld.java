@@ -1366,7 +1366,13 @@ public class CompensatedWorld {
         }
 
         SimpleCollisionBox queryBox = pistons.createPistonQueryBox(context);
-        PistonPushes pistonResult = pistons.tickPlayerInPistonPushingArea(queryBox);
+        SimpleCollisionBox shoveQuery = pistons.createPistonShoveQueryBox(context, queryBox);
+        double shoveMaxX = shoveQuery.maxX, shoveMaxY = shoveQuery.maxY, shoveMaxZ = shoveQuery.maxZ;
+        PistonPushes pistonResult = pistons.tickPlayerInPistonPushingArea(shoveQuery);
+        // The shulker test reads the query grown by every piston shove the pass found.
+        if (shoveQuery != queryBox) {
+            queryBox.expand(shoveQuery.maxX - shoveMaxX, shoveQuery.maxY - shoveMaxY, shoveQuery.maxZ - shoveMaxZ);
+        }
         SimpleCollisionBox shulkerPushes = accumulateShulkerPushes(queryBox);
 
         SimpleCollisionBox pistonPush = pistonResult.getPistonPush();

@@ -334,6 +334,17 @@ public final class CompensatedWorldPistons {
         return playerBox;
     }
 
+    /**
+     * The box {@link #tickPlayerInPistonPushingArea} tests: {@code queryBox}, or for 26.3 the travel's exact end, where
+     * the client ticks block entities before LocalPlayer#sendPosition. PistonMovingBlockEntity#moveCollidedEntities
+     * shoves only a box that strictly intersects the moving area, and every shove moves at least 0.01, so a box that
+     * only touches the area is never shoved.
+     */
+    SimpleCollisionBox createPistonShoveQueryBox(SimulationContext context, SimpleCollisionBox queryBox) {
+        if (!reportsAfterBlockEntities()) return queryBox;
+        return context.getFromMaximumExtent().union(context.getToMaxPose());
+    }
+
     public boolean mayHavePushedOnLastClientTick(SimpleCollisionBox playerBox) {
         // These boxes describe the block-entity phase captured at tick-end.
         // Query before a later position correction replaces the player's box;
