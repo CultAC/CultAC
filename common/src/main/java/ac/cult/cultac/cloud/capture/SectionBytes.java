@@ -1,5 +1,6 @@
 package ac.cult.cultac.cloud.capture;
 
+import ac.cult.cultac.cloud.wire.IntakeWire;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
@@ -27,6 +28,23 @@ public final class SectionBytes {
         try {
             section.writeStates(buffer);
             return ByteBufUtil.getBytes(buffer);
+        } finally {
+            if (buffer.capacity() > KEPT_BYTES) {
+                buffer.release();
+                BUFFER.set(Unpooled.buffer(256));
+            }
+        }
+    }
+
+    /** A {@code SECTION} record's body: column x, index y, column z and {@link #of} the section. */
+    public static byte[] record(int x, int y, int z, CachedSection section) {
+        if (section == null) return IntakeWire.section(x, y, z, air());
+        ByteBuf buffer = BUFFER.get();
+        buffer.clear();
+        try {
+            section.writeStates(buffer);
+            return IntakeWire.section(
+                    x, y, z, buffer.array(), buffer.arrayOffset() + buffer.readerIndex(), buffer.readableBytes());
         } finally {
             if (buffer.capacity() > KEPT_BYTES) {
                 buffer.release();
