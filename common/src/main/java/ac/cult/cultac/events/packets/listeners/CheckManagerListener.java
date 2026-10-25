@@ -375,10 +375,18 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // glide starts used to terminate at the pre-Via boundary, so they must
         // not enter the ordinary check route. Keep every other ordinary-phase
         // cancellation on the existing same-phase semantics.
+        if (!player.isBedrockMovement() && sentByLocalPlayerTick(packet.action())) {
+            player.packetStateData.localPlayerTickCommandThisClientTick = true;
+        }
         if (event.isCancelled() && packet.action() == PlayerCommandAction.START_FLYING_WITH_ELYTRA) {
             return;
         }
         processGenericReceive(event, player);
+    }
+
+    // InBedChatScreen sends STOP_SLEEPING and Minecraft#handleKeybinds OPEN_INVENTORY; LocalPlayer#tick sends the rest.
+    private static boolean sentByLocalPlayerTick(PlayerCommandAction action) {
+        return action != PlayerCommandAction.STOP_SLEEPING && action != PlayerCommandAction.OPEN_INVENTORY;
     }
 
     @CultPacketHandler
@@ -1198,6 +1206,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.packetStateData.flightStopThisClientTick = false;
         player.packetStateData.bedrockTranslatedMovement.clear();
         player.packetStateData.clientMovementInputUpdatedThisClientTick = false;
+        player.packetStateData.localPlayerTickCommandThisClientTick = false;
         player.packetStateData.vehicleMovePacketsThisClientTick = 0;
         player.packetStateData.clientTickVehicleMovePacketsThisClientTick = 0;
         player.packetStateData.localAuthoritativeVehicleMovePacketsThisClientTick = 0;

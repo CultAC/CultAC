@@ -87,12 +87,21 @@ public class PacketStateData {
     public int localAuthoritativeVehicleMovePacketsThisClientTick = 0;
     public boolean carriedItemChangedThisClientTick = false;
     public boolean carriedItemClaimedThisClientTick = false;
+    // A player_command or player_abilities LocalPlayer#tick sent this client tick.
+    public boolean localPlayerTickCommandThisClientTick = false;
     public boolean vehicleMovementStartOnGround = false;
     // Original-client-reported ground, excluding fields synthesized by protocol translation.
     public boolean vehicleMovementOnGroundPresent = true;
     public Vec3 lastPacketProvenVehiclePhysicalMovement = null;
     // Transaction observed at the last tick-end packet; used to prove tick-boundary state ordering.
     public int lastClientTickEndTransaction = Integer.MIN_VALUE;
+
+    /** LocalPlayer#tick sent its player_input, a player_command, player_abilities or its movement this client tick. */
+    public boolean localPlayerTickSentThisClientTick() {
+        return receivedMovementThisClientTick
+                || clientMovementInputUpdatedThisClientTick
+                || localPlayerTickCommandThisClientTick;
+    }
 
     public boolean isVehicleMovementFromClientTick() {
         return vehicleMovementFromClientTick;
