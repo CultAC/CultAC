@@ -1,9 +1,6 @@
 package ac.cult.cultac.cloud.diag;
 
-import ac.cult.cultac.checks.impl.prediction.BlockGrid;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
-import com.github.luben.zstd.ZstdCompressCtx;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -348,13 +345,13 @@ public final class Diagnostics {
     }
 
     private void run() {
-        try (ZstdCompressCtx zstd = new ZstdCompressCtx().setLevel(ZSTD_LEVEL)) {
+        try (DiagText text = new DiagText(ZSTD_LEVEL)) {
             while (true) {
                 Object item = inbox.poll(POLL_MILLIS, TimeUnit.MILLISECONDS);
                 runCommands();
                 int handled = 0;
                 while (item != null) {
-                    handle(item, zstd);
+                    handle(item, text);
                     item = ++handled < QUEUE ? inbox.poll() : null;
                 }
                 try {
@@ -399,10 +396,10 @@ public final class Diagnostics {
         }
     }
 
-    private void handle(Object item, ZstdCompressCtx zstd) {
+    private void handle(Object item, DiagText text) {
         try {
             switch (item) {
-                case DiagWatch.Raw raw -> captured(raw, zstd);
+                case DiagWatch.Raw raw -> captured(raw, text);
                 case DiagWatch.TickEnd end -> {
                     if (!end.watch().ended && end.watch().ring != null)
                         end.watch().ring.flags(end.seq(), end.flags());
@@ -414,7 +411,7 @@ public final class Diagnostics {
         }
     }
 
-    private void captured(DiagWatch.Raw raw, ZstdCompressCtx zstd) {
+    private void captured(DiagWatch.Raw raw, DiagText text) {
         DiagWatch watch = raw.watch();
         if (watch.ended) return;
         if (watch.ring == null) watch.ring = new DiagRing(watch.ringTicks, watch.ringBytes);
@@ -423,9 +420,8 @@ public final class Diagnostics {
         byte[] full = null;
         int chars = 0;
         if (raw.state() != null) {
-            String text = text(raw.state(), raw.grid());
+            full = text.compress(raw.state(), raw.grid());
             chars = text.length();
-            full = compress(zstd, text);
         }
         costs.add(raw.nanos(), System.nanoTime() - start, chars, full == null ? 0 : full.length);
         watch.ring.add(raw.seq(), raw.offset(), raw.trace(), full);
@@ -436,19 +432,6 @@ public final class Diagnostics {
                 && p99(watch.captureNanos) > captureLimitNanos) {
             end(watch, "failed");
         }
-    }
-
-    /** A tick's full text: its state as the packet thread printed it, then the block grid. */
-    static String text(String state, BlockGrid grid) {
-        StringBuilder sb = new StringBuilder(state.length() + (grid == null ? 0 : grid.textLength()));
-        sb.append(state);
-        if (grid != null) grid.appendTo(sb);
-        return sb.toString();
-    }
-
-    /** One Zstandard frame. */
-    static byte[] compress(ZstdCompressCtx zstd, String text) {
-        return zstd.compress(text.getBytes(StandardCharsets.UTF_8));
     }
 
     static long p99(long[] samples) {
