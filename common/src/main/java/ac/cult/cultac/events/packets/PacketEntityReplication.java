@@ -673,7 +673,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                         packet.hasRotation(),
                         packet.yaw(),
                         packet.pitch(),
-                        packet.onGround()));
+                        packet.onGround()),
+                tracked);
     }
 
     private void handleTeleportEntity(
@@ -794,7 +795,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 return deferredTransform;
             }
         }
+        return packetHandlerTransformFallback(entity, data, out);
+    }
 
+    /** {@link #packetHandlerTransformSource} without a live entry: the client's current transform. */
+    private PacketHandlerEntityTransform packetHandlerTransformFallback(
+            PacketEntity entity, TrackerData data, PacketHandlerEntityTransform out) {
         ReachInterpolationData interpolationTarget = teleportSourceInterpolationTarget(entity);
         if (interpolationTarget != null) {
             // MCP-Reborn PositionMoveRotation#of(entity) reads the current
@@ -917,8 +923,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private void handleSetEntityData(PacketSendEvent<EntityMetadata> event, EntityMetadata packet) {
         List<EntityMetadata.Entry> metadata = packet.packedItems();
         PacketEntity entity = player.compensatedEntities.getEntity(packet.id());
-        TrackerData tracked = player.compensatedEntities.getTrackedEntity(packet.id());
-        int type = entity == null ? (tracked == null ? -1 : tracked.getEntityType()) : entity.type;
+        int type = entity == null ? trackedType(packet.id()) : entity.type;
         if (!player.isBedrockMovement()
                 && packet.id() == player.entityID
                 && WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.LIVING_HEALTH) != null) {
@@ -958,7 +963,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 return;
             }
         }
-        boolean updatesHorseFlags = player.compensatedEntities.getEntity(packet.id()) instanceof PacketEntityHorse
+        boolean updatesHorseFlags = entity instanceof PacketEntityHorse
                 && WatchableIndexUtil.getIndex(metadata, layout.horseFlags()) != null;
         if (WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.ENTITY_NO_GRAVITY) != null) {
             player.sendTransaction();
@@ -987,6 +992,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.ENTITY_POSE) != null) {
             retireSizeAt(packet.id(), proven);
         }
+    }
+
+    private int trackedType(int entityId) {
+        TrackerData tracked = player.compensatedEntities.getTrackedEntity(entityId);
+        return tracked == null ? -1 : tracked.getEntityType();
     }
 
     private void handleSetEquipment(
@@ -1682,6 +1692,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void handleMoveEntity(PacketSendEvent<?> event, EntityMovement movement) {
+        handleMoveEntity(event, movement, player.compensatedEntities.getTrackedEntity(movement.entityId()));
+    }
+
+    private void handleMoveEntity(PacketSendEvent<?> event, EntityMovement movement, @Nullable TrackerData data) {
         // ServerEntity#sendChanges sends one tracked movement per entity per tick; explicit
         // teleports may share a tick with it.
         var backendTicks = player.backendTicks();
@@ -1694,7 +1708,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             player.sendTransaction();
         }
 
-        TrackerData data = player.compensatedEntities.getTrackedEntity(movement.entityId());
         PositionChange position = movement.position();
         boolean absolutePositionKnown = !position.relative();
         double absoluteX = position.x();
@@ -1823,6 +1836,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (!ignoredMovement) {
             recordPacketHandlerTransform(
                     movement.entityId(),
+                    data,
                     movement.hasPosition(),
                     absoluteX,
                     absoluteY,
@@ -1922,7 +1936,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             markUncertainPosition(entity, movement);
             applyDeltaMovementUpdate(entity, movement.deltaMovement());
             clearPacketHandlerDeltaMovement(movement);
-            applySecondMovement(entityId, kind, deltaMovementSequence, true);
+            applySecondMovement(entity, entityId, kind, deltaMovementSequence, true);
         });
     }
 
@@ -2067,7 +2081,20 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private void applySecondMovement(
             int entityId, MovementKind kind, int packetHandlerDeltaMovementSequence, boolean updatePassengerPositions) {
-        PacketEntity entity = player.compensatedEntities.getEntity(entityId);
+        applySecondMovement(
+                player.compensatedEntities.getEntity(entityId),
+                entityId,
+                kind,
+                packetHandlerDeltaMovementSequence,
+                updatePassengerPositions);
+    }
+
+    private void applySecondMovement(
+            @Nullable PacketEntity entity,
+            int entityId,
+            MovementKind kind,
+            int packetHandlerDeltaMovementSequence,
+            boolean updatePassengerPositions) {
         if (entity == null || kind.shouldSkip(this, entityId)) {
             clearPacketHandlerDeltaMovement(entityId, packetHandlerDeltaMovementSequence);
             return;
@@ -2102,16 +2129,30 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void recordPacketHandlerTransform(
-            int entityId, boolean hasPos, double x, double y, double z, boolean hasRotation, float yaw, float pitch) {
+            int entityId,
+            @Nullable TrackerData data,
+            boolean hasPos,
+            double x,
+            double y,
+            double z,
+            boolean hasRotation,
+            float yaw,
+            float pitch) {
         PacketEntity entity = player.compensatedEntities.getEntity(entityId);
-        TrackerData data = player.compensatedEntities.getTrackedEntity(entityId);
-        PacketHandlerEntityTransform source = packetHandlerTransformSource(entity, data, transformScratch);
+        PacketHandlerEntityTransform entry = packetHandlerEntityTransforms.get(entityId);
+        PacketHandlerEntityTransform source;
+        if (entity != null && entity.getEntityId() != entityId) {
+            source = packetHandlerTransformSource(entity, data, transformScratch);
+        } else if (entity != null && entry != null && entry.tick == transformTick) {
+            source = entry;
+        } else {
+            source = packetHandlerTransformFallback(entity, data, transformScratch);
+        }
         double nextX = hasPos ? x : source.x;
         double nextY = hasPos ? y : source.y;
         double nextZ = hasPos ? z : source.z;
         float nextYRot = hasRotation ? yaw : source.yRot;
         float nextXRot = hasRotation ? pitch : source.xRot;
-        PacketHandlerEntityTransform entry = packetHandlerEntityTransforms.get(entityId);
         if (entry == null) {
             if (packetHandlerEntityTransforms.size() >= MAX_REUSED_TRANSFORMS
                     && transformsPrunedTick != transformTick) {
