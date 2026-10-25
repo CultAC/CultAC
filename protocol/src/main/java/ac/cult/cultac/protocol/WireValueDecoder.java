@@ -195,6 +195,30 @@ public interface WireValueDecoder extends AutoCloseable {
         return decoded(item(version, input, creative, registries), factory);
     }
 
+    /**
+     * A stack in {@code item}'s non-creative framing, decoded, or offered for reuse once the same structure checks
+     * have accepted it where the decoder supports that.
+     */
+    default <T, R> R item(
+            ProtocolVersion version,
+            ByteBuf input,
+            Registries registries,
+            NbtFactory<T> factory,
+            ItemReuse<T, R> reuse) {
+        int start = input.readerIndex();
+        var item = item(version, input, false, registries, factory);
+        return reuse.decoded(item, input, start, input.readerIndex());
+    }
+
+    /** Values for accepted stacks, by their bytes: {@code input} from {@code start} up to {@code end}. */
+    interface ItemReuse<T, R> {
+        /** What {@link #decoded} returned for these bytes, or null to decode them; the input is not consumed. */
+        R reuse(ByteBuf input, int start, int end);
+
+        /** The value of a stack decoded from {@code start}; {@code input} is positioned after it. */
+        R decoded(DecodedItem<T> item, ByteBuf input, int start, int end);
+    }
+
     ItemValue itemCost(ProtocolVersion version, ByteBuf input, boolean optional, Registries registries);
 
     default <T> DecodedItem<T> itemCost(

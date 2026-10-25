@@ -209,12 +209,38 @@ public final class PrivateCodecService implements WireValueDecoder {
         return item(decoded.item(), registries, version, decoded.patch(), factory);
     }
 
+    @Override
+    public <T, R> R item(
+            ProtocolVersion version,
+            ByteBuf input,
+            Registries registries,
+            NbtFactory<T> factory,
+            ItemReuse<T, R> reuse) {
+        checkOpen();
+        var type = types(version);
+        var scan = input.duplicate();
+        ItemStructureGuard.scanItemStack(type, version, scan, false);
+        int start = input.readerIndex(), end = scan.readerIndex();
+        R reused = reuse.reuse(input, start, end);
+        if (reused != null) {
+            input.readerIndex(end);
+            return reused;
+        }
+        var decoded = readScanned(type, input, false, false);
+        return reuse.decoded(item(decoded.item(), registries, version, decoded.patch(), factory), input, start, end);
+    }
+
     private ItemInput readItem(ProtocolVersion version, ByteBuf input, boolean creative) {
         checkOpen();
         var type = types(version);
         boolean lengthPrefixed = creative && version.atLeast(ProtocolVersion.V1_21_5);
         // The structure budget runs on a view: an oversized item must never reach the readers below.
         ItemStructureGuard.scanItemStack(type, version, input.duplicate(), lengthPrefixed);
+        return readScanned(type, input, creative, lengthPrefixed);
+    }
+
+    private static ItemInput readScanned(
+            VersionedTypesHolder type, ByteBuf input, boolean creative, boolean lengthPrefixed) {
         int start = input.readerIndex();
         // 1.21.5 introduced the length-prefixed creative component codec.
         Item item = (lengthPrefixed ? type.lengthPrefixedItem() : type.item()).read(input);
