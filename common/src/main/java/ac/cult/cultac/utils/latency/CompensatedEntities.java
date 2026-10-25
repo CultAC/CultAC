@@ -144,7 +144,7 @@ public class CompensatedEntities {
         return camels;
     }
 
-    /** The boats, minecarts, shulkers and happy ghasts, in entityMap iteration order. Read only. */
+    /** The boats, shulkers and happy ghasts, in entityMap iteration order. Read only. */
     public List<PacketEntity> poseCollisionCandidates() {
         refreshTypeViews();
         return poseCollisionCandidates;
@@ -169,7 +169,7 @@ public class CompensatedEntities {
             boolean shulker = entity.type == EntityTypeIds.SHULKER;
             if (boat) boatList.add(entity);
             if (entity instanceof PacketEntityCamel camel) camelList.add(camel);
-            if (boat || entity.isMinecart() || shulker || entity.isHappyGhast()) pose.add(entity);
+            if (boat || shulker || entity.isHappyGhast()) pose.add(entity);
             if (boat || shulker || entity instanceof PacketEntityHappyGhast) unknown.add(entity);
         }
         pushOrCollideCandidates = pushOrCollide;

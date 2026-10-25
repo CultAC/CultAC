@@ -40,12 +40,11 @@ class EntityScanParityTest {
         return !(!EntityTypeUtil.isLiving(entity.type) && !hard || entity.type == EntityTypeIds.ARMOR_STAND);
     }
 
-    private static boolean oldPoseCollide(CultPlayer player, PacketEntity riding, PacketEntity entity) {
+    private static boolean referencePoseCollide(CultPlayer player, PacketEntity riding, PacketEntity entity) {
         if (entity == null || entity.isDead || entity.getEntityId() == player.entityID) return false;
         if (riding != null && (riding == entity || riding.hasPassenger(entity) || entity.hasPassenger(riding)))
             return false;
         return EntityTypeUtil.isBoat(entity.type)
-                || EntityTypeUtil.isMinecart(entity.type)
                 || entity.type == EntityTypeIds.SHULKER
                 || EntityTypeUtil.isHappyGhast(entity.type);
     }
@@ -86,7 +85,7 @@ class EntityScanParityTest {
                             };
                             if (ridingState == 2) entity.mount(riding);
                             if (ridingState == 3) riding.mount(entity);
-                            boolean expected = oldPoseCollide(player, riding, entity);
+                            boolean expected = referencePoseCollide(player, riding, entity);
                             assertEquals(
                                     expected,
                                     canCollide.invoke(player, riding, entity),

@@ -1275,12 +1275,12 @@ public class CultPlayer implements GrimUser {
         return boxes;
     }
 
+    /**
+     * Entity#canBeCollidedWith admits this player for boats, shulkers and happy ghasts; AbstractMinecart keeps its
+     * false, so a minecart never blocks a pose or a move.
+     */
     private boolean canCollideWithForPoseCheck(@Nullable PacketEntity riding, PacketEntity entity) {
-        if (entity == null
-                || !(entity.isBoat()
-                        || entity.isMinecart()
-                        || entity.type == EntityTypeIds.SHULKER
-                        || entity.isHappyGhast())) {
+        if (entity == null || !(entity.isBoat() || entity.type == EntityTypeIds.SHULKER || entity.isHappyGhast())) {
             return false;
         }
 

@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
@@ -64,6 +65,19 @@ class InputKeysTest {
     private static final double FRICTION = 0.6F * 0.91F;
     private static final ServerboundPlayerInput FORWARD =
             new ServerboundPlayerInput(true, false, false, false, false, false, false);
+    private static final ServerboundPlayerInput SNEAK_FORWARD =
+            new ServerboundPlayerInput(true, false, false, false, false, true, false);
+    private static final ServerboundPlayerInput SNEAK_SPRINT =
+            new ServerboundPlayerInput(false, false, false, false, false, true, true);
+    private static final ServerboundPlayerInput SNEAK_SPRINT_FORWARD =
+            new ServerboundPlayerInput(true, false, false, false, false, true, true);
+    private static final ServerboundPlayerInput SNEAK_SPRINT_BACK =
+            new ServerboundPlayerInput(false, true, false, false, false, true, true);
+    // Speed II raises the movement speed to 0.14, which a stone or slab block leaves unchanged on the ground.
+    private static final double WALKING_WITH_SPEED = (double) 0.98F * (float) (0.1F * 1.4D);
+    private static final double SNEAKING_WITH_SPEED = (double) (0.98F * 0.3F) * (float) (0.1F * 1.4D);
+    private static final double MINECART_MIN_X = 0.01;
+    private static final double MINECART_MAX_X = 0.99;
 
     @Test
     void zeroHealthClearsTravelInputOnlyAfterItsReceipt() throws Exception {
@@ -579,6 +593,117 @@ class InputKeysTest {
             velocity *= FRICTION;
         }
         return keyFlags(f);
+    }
+
+    @Test
+    void reversingWhileSneakingThroughAMinecartWithSpeedIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            double x = -2.5;
+            startAlongX(f, x, FLOOR_Y);
+            addMinecart(f);
+            f.input(SNEAK_SPRINT);
+            assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+            f.input(SNEAK_SPRINT_FORWARD);
+            double velocity = 0.0;
+            for (int tick = 0; tick < 40; tick++) {
+                if (tick == 30) f.input(SNEAK_SPRINT_BACK);
+                velocity += tick < 30 ? SNEAKING_WITH_SPEED : -SNEAKING_WITH_SPEED;
+                x += velocity;
+                assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+                velocity *= FRICTION;
+            }
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void pressingShiftAsTheBoxEntersAMinecartSlowsTheKeys() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            pressShiftAsTheBoxEntersAMinecart(f, SNEAKING_WITH_SPEED);
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void walkingOnAfterPressingShiftAsTheBoxEntersAMinecartIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            pressShiftAsTheBoxEntersAMinecart(f, WALKING_WITH_SPEED);
+            assertTrue(keyFlags(f) > 0);
+        }
+    }
+
+    /**
+     * Walks into a minecart with Speed II, pressing shift on the tick whose move brings the box into the cart, then
+     * accelerates by {@code accel}. LocalPlayer#aiStep reads the previous tick's shift, so the press tick still walks.
+     */
+    private static void pressShiftAsTheBoxEntersAMinecart(JavaTickFixture f, double accel) {
+        double x = -3.5;
+        startAlongX(f, x, FLOOR_Y);
+        addMinecart(f);
+        f.input(FORWARD);
+        double velocity = 0.0;
+        int pressed = -1;
+        for (int tick = 0; pressed < 0 || tick < pressed + 4; tick++) {
+            if (pressed < 0 && x + velocity + WALKING_WITH_SPEED + 0.3 > MINECART_MIN_X) {
+                pressed = tick;
+                f.input(SNEAK_FORWARD);
+            }
+            velocity += pressed < 0 || tick == pressed ? WALKING_WITH_SPEED : accel;
+            x += velocity;
+            PredictionResult result = f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+            if (accel == SNEAKING_WITH_SPEED) assertExact(result);
+            velocity *= FRICTION;
+        }
+        assertTrue(x - 0.3 < MINECART_MAX_X, "the box left the cart at " + x);
+    }
+
+    @Test
+    void releasingShiftInsideAMinecartWalksAtTheWalkingSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            double x = -3.5;
+            startAlongX(f, x, FLOOR_Y);
+            addMinecart(f);
+            f.input(SNEAK);
+            assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+            f.input(SNEAK_FORWARD);
+            double velocity = 0.0;
+            int released = -1;
+            for (int tick = 0; released < 0 || tick < released + 5; tick++) {
+                if (released < 0 && x > 0.0) {
+                    released = tick;
+                    f.input(FORWARD);
+                }
+                // LocalPlayer#aiStep reads the previous tick's shift, so the release tick still sneaks.
+                velocity += released < 0 || tick == released ? SNEAKING_WITH_SPEED : WALKING_WITH_SPEED;
+                x += velocity;
+                assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+                velocity *= FRICTION;
+            }
+
+            assertTrue(x - 0.3 < MINECART_MAX_X, "the box left the cart at " + x);
+            assertEquals(Pose.STANDING, f.player.pose);
+            assertNoFlags(f);
+        }
+    }
+
+    /** Places the player grounded at {@code (x, y, 0.5)} facing +x with Speed II. */
+    private static void startAlongX(JavaTickFixture f, double x, double y) {
+        f.player.compensatedEntities.updateAttributes(
+                f.player.entityID,
+                List.of(new AttributeSnapshot(
+                        "minecraft:movement_speed",
+                        0.1F,
+                        List.of(new AttributeModifier(
+                                "minecraft:effect.speed", 0.4D, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL)))));
+        f.player.xRot = -90;
+        f.place(new Vec3(x, y, 0.5), GROUNDED);
+    }
+
+    /** A minecart on the floor block at (0, 0), its box spanning x from 0.01 to 0.99. */
+    private static void addMinecart(JavaTickFixture f) {
+        f.player.compensatedEntities.addEntity(
+                101, EntityTypes.defaults().byKey("minecart").id(), new Vec3(0.5, FLOOR_Y + 0.0625, 0.5), 0, 0, 0);
     }
 
     private static void selfMetadata(JavaTickFixture f, int index, byte value) {
