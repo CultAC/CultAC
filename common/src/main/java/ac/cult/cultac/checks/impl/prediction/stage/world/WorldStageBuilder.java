@@ -364,8 +364,6 @@ public class WorldStageBuilder {
         state.setWaterTimingUncertain(player.compensatedWorld.hasRecentClientWaterChanges(box));
         state.setLavaTimingUncertain(player.compensatedWorld.hasRecentClientLavaChanges(box));
 
-        SimpleCollisionBox lavaCollision = box.copy();
-
         Collisions.hasState(player, box, (block, x, y, z) -> {
             ClientFluidQueries.Sample fluid = ClientFluidQueries.sample(player, block, x, y, z);
             if (!fluid.water() && !fluid.lava()) return false;
@@ -385,8 +383,7 @@ public class WorldStageBuilder {
 
             if (fluid.lava()) {
                 double fluidHeight = fluid.height();
-                // 1.14 doesn't care about actual lava collision box
-                boolean status = calculateStatusForFluid(player, lavaCollision, fluidHeight, pos);
+                boolean status = calculateStatusForFluid(player, box, fluidHeight, pos);
                 state.setInLava(status || state.isInLava());
                 if (status) {
                     state.setMaxLavaHeight(Math.max(
