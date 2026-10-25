@@ -1297,6 +1297,8 @@ public class CultPlayer implements GrimUser {
             CultAPI.INSTANCE.getPlayerDataManager().exemptUser(user);
             return;
         }
+        // The kick lands on the player's scheduler, so pollData keeps timing out until the connection closes.
+        if (hasDisconnected.get()) return;
         LogUtil.warn(getName() + " " + what);
         disconnect(MessageUtil.miniMessage(MessageUtil.replacePlaceholders(
                 this, CultAPI.INSTANCE.getConfigManager().getDisconnectTimeout())));
