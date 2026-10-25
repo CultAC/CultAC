@@ -173,8 +173,8 @@ class PerfWindowTest {
 
     @Test
     void aThreadStartedAfterTheStartSnapshotKeepsItsEarliestSample() {
-        PerfRecorder.Window window =
-                new PerfRecorder.Window(-1, Map.of(1L, new PerfRecorder.ThreadBytes("cult-a", 0)), Map::of);
+        PerfRecorder.Window window = new PerfRecorder.Window(
+                -1, 10_000_000L, Map.of(1L, new PerfRecorder.ThreadBytes("cult-a", 0)), Map::of);
 
         window.alloc(OWN, OWN_GROUP, 1, false, 1, "[B", 1_000_000);
         window.alloc(OWN, OWN_GROUP, 1, false, 2, "[B", 100);
@@ -197,7 +197,7 @@ class PerfWindowTest {
                 10L, new PerfRecorder.ThreadBytes("ForkJoinPool-1-worker-1", 5_000_000_000L + carrierGrowth),
                 11L, new PerfRecorder.ThreadBytes("Netty Server IO #0", 50_000_000_000L));
         AtomicInteger reads = new AtomicInteger();
-        PerfRecorder.Window window = new PerfRecorder.Window(-1, start, () -> {
+        PerfRecorder.Window window = new PerfRecorder.Window(-1, 10_000_000L, start, () -> {
             reads.incrementAndGet();
             return now;
         });
@@ -220,7 +220,7 @@ class PerfWindowTest {
         Map<Long, PerfRecorder.ThreadBytes> now = Map.of(
                 10L, new PerfRecorder.ThreadBytes("ForkJoinPool-1-worker-1", 1_001_000_000L),
                 12L, new PerfRecorder.ThreadBytes("ForkJoinPool-1-worker-2", 500L << 20));
-        PerfRecorder.Window window = new PerfRecorder.Window(-1, start, () -> now);
+        PerfRecorder.Window window = new PerfRecorder.Window(-1, 10_000_000L, start, () -> now);
 
         window.alloc(OWN, Attribution.OTHER, 100, true, 1, "[B", 400L << 20);
         window.alloc(FOREIGN, Attribution.OTHER, 100, true, 2, "Foo", 600L << 20);
@@ -233,7 +233,7 @@ class PerfWindowTest {
 
     @Test
     void aCarrierWeighedSampleIsKeptWhenLiveThreadsAreUnknown() {
-        PerfRecorder.Window window = new PerfRecorder.Window(-1, Map.of(), () -> null);
+        PerfRecorder.Window window = new PerfRecorder.Window(-1, 10_000_000L, Map.of(), () -> null);
 
         window.alloc(OWN, Attribution.OTHER, 100, true, 1, "[B", 1_000_000_000_000L);
         window.calibrate(null);
@@ -281,6 +281,26 @@ class PerfWindowTest {
         assertEquals(400, exact[Attribution.TICK]);
         assertEquals(80, exact[Attribution.PERF]);
         assertEquals(0, exact[Attribution.OTHER]);
+    }
+
+    @Test
+    void aCpuTimeSampleCountsTheAskedPeriodsItsSamplingPeriodCovers() {
+        PerfRecorder.Window window = new PerfRecorder.Window(-1, 10_000_000L, null, Map::of);
+        window.cpuTime(OWN, OWN_GROUP, 10_000_000L);
+        window.cpuTime(FOREIGN, OWN_GROUP, 40_200_000L);
+        window.cpuTime(OWN, OWN_GROUP, 3_000_000L);
+
+        PerfProfile profile = window.trie.encode(true, 1 << 20).build();
+        assertEquals(10_000_000L, window.cpuPeriodNanos);
+        assertEquals(6, profile.getCpuSamplesTotal());
+        assertEquals(
+                Map.of("x.B.alloc", 2L, "x.D.alloc", 4L),
+                profile.getStacksList().stream()
+                        .filter(stack -> stack.getCpuSamples() > 0)
+                        .collect(Collectors.toMap(
+                                stack -> StackTrieTest.names(profile, stack).getLast(),
+                                PerfStack::getCpuSamples,
+                                Long::sum)));
     }
 
     @Test

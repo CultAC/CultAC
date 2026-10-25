@@ -139,7 +139,11 @@ public final class PerfRecorder {
         long ownCpu = ownCpuNanos();
         Map<Long, Long> ownAlloc = ownAllocatedBytes();
         Map<Long, ThreadBytes> threadAlloc = threadAllocatedBytes();
-        Window window = new Window(Thread.currentThread().threadId(), threadAlloc, PerfRecorder::threadAllocatedBytes);
+        Window window = new Window(
+                Thread.currentThread().threadId(),
+                TimeUnit.MILLISECONDS.toNanos(settings.executionPeriodMs()),
+                threadAlloc,
+                PerfRecorder::threadAllocatedBytes);
         ProcCpu.Snapshot procStart = procCpu();
         load.players(platform, start);
         long dispatchCpu;
@@ -216,10 +220,7 @@ public final class PerfRecorder {
                 .addAllJvmFlags(jvmFlags())
                 .addAllAllocClasses(window.topClasses(settings.wholeJvm()))
                 .setCpuSampler(sampler)
-                .setCpuSamplePeriodNanos(
-                        window.samplingPeriodNanos > 0
-                                ? window.samplingPeriodNanos
-                                : TimeUnit.MILLISECONDS.toNanos(settings.executionPeriodMs()))
+                .setCpuSamplePeriodNanos(window.cpuPeriodNanos)
                 .setCpuSamplesLost(window.lostSamples)
                 .setProcessUserNanos(ProcCpu.userNanos(procStart, procEnd))
                 .setProcessSysNanos(ProcCpu.sysNanos(procStart, procEnd))
@@ -502,8 +503,8 @@ public final class PerfRecorder {
         long gcPauseNanos;
         long heapAfterGc;
         long lostSamples;
-        /** The longest {@code samplingPeriod} of the cpu-time samples; JFR samples at the shortest any recording asks. */
-        long samplingPeriodNanos;
+        /** The cpu sampling period the recording asks for. */
+        final long cpuPeriodNanos;
 
         final long recordingThread;
         private final Frames frames = new Frames();
@@ -511,13 +512,27 @@ public final class PerfRecorder {
         private Throwable failure;
 
         Window(long recordingThread) {
-            this(recordingThread, null, Map::of);
+            this(
+                    recordingThread,
+                    TimeUnit.MILLISECONDS.toNanos(PerfSettings.DEFAULTS.executionPeriodMs()),
+                    null,
+                    Map::of);
         }
 
-        Window(long recordingThread, Map<Long, ThreadBytes> allocStart, Supplier<Map<Long, ThreadBytes>> allocNow) {
+        Window(
+                long recordingThread,
+                long cpuPeriodNanos,
+                Map<Long, ThreadBytes> allocStart,
+                Supplier<Map<Long, ThreadBytes>> allocNow) {
             this.recordingThread = recordingThread;
+            this.cpuPeriodNanos = cpuPeriodNanos;
             this.allocStart = allocStart;
             this.allocNow = allocNow;
+        }
+
+        /** JFR stretches {@code samplingPeriod} by the timer overruns a sample absorbed; it counts that many periods. */
+        void cpuTime(StackTrie.StackTraceView stack, int group, long samplingPeriodNanos) {
+            trie.add(stack, group, Math.max(1, Math.round((double) samplingPeriodNanos / cpuPeriodNanos)), 0, 0);
         }
 
         synchronized void sample(RecordedEvent event, int kind) {
@@ -532,12 +547,8 @@ public final class PerfRecorder {
                             thread.getJavaName(), thread.getJavaThreadId(), recordingThread, dispatchThread);
             switch (kind) {
                 case CPU -> trie.add(stack, group, 1, 0, 0);
-                case CPU_TIME -> {
-                    trie.add(stack, group, 1, 0, 0);
-                    samplingPeriodNanos = Math.max(
-                            samplingPeriodNanos,
-                            event.getDuration("samplingPeriod").toNanos());
-                }
+                case CPU_TIME ->
+                    cpuTime(stack, group, event.getDuration("samplingPeriod").toNanos());
                 case NATIVE -> trie.add(stack, group, 0, 1, 0);
                 default -> {
                     RecordedClass allocated = event.getClass("objectClass");
