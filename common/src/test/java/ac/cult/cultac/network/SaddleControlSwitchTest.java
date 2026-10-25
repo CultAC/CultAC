@@ -31,7 +31,6 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.EquipmentSlot;
@@ -349,9 +348,7 @@ class SaddleControlSwitchTest {
         PredictionResult before = f.player.checkManager.getSimulationProcessor().getLastPrediction();
         var rot = new ServerboundMovePlayer(0, 0, 0, f.player.xRot, f.player.yRot, true, false, false, true);
         f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
-        var move =
-                new ServerboundMoveVehicle(new Vec3d(to.x, to.y, to.z), f.player.xRot, f.player.yRot, onGround, true);
-        f.listener.onMoveVehicle(f.event(ServerboundPackets.MOVE_VEHICLE, move), f.player, move);
+        f.moveVehicle(to, f.player.xRot, f.player.yRot, onGround);
         f.tickEnd();
         PredictionResult result = f.player.checkManager.getSimulationProcessor().getLastPrediction();
         assertNotSame(before, result, tick + " committed no prediction");
@@ -732,8 +729,7 @@ class SaddleControlSwitchTest {
     private static void moveVehicle(JavaTickFixture f, Vec3 to) {
         var rot = new ServerboundMovePlayer(0, 0, 0, f.player.xRot, f.player.yRot, true, false, false, true);
         f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
-        var move = new ServerboundMoveVehicle(new Vec3d(to.x, to.y, to.z), f.player.xRot, f.player.yRot, true, true);
-        f.listener.onMoveVehicle(f.event(ServerboundPackets.MOVE_VEHICLE, move), f.player, move);
+        f.moveVehicle(to, f.player.xRot, f.player.yRot, true);
         f.tickEnd();
     }
 

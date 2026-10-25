@@ -1726,8 +1726,7 @@ public class CultPlayer implements GrimUser {
      * the passenger list the client has applied.
      */
     public void onMountedClientTick(PacketEntity vehicle) {
-        sprintClearedAsPassenger = !EntityTypeUtil.isCamelFamily(vehicle.type)
-                || !compensatedEntities.vehicles.mayLocalPlayerControl(vehicle);
+        sprintClearedAsPassenger = !compensatedEntities.vehicles.vehicleCanSprint(vehicle);
     }
 
     /** A client tick on foot: LocalPlayer#sendPosition ends it in LocalPlayer#sendIsSprintingIfNeeded. */

@@ -607,6 +607,14 @@ public final class CompensatedVehicleState implements Debuggable {
         return isItemControlledVehicleType(vehicle) ? hasSaddle(vehicle) : canLocalClientAuthoritativelyMove(vehicle);
     }
 
+    /**
+     * LocalPlayer#vehicleCanSprint: Entity#canSprint on a vehicle the local player controls. Only Camel (and CamelHusk,
+     * which extends it) and Player override canSprint, and no player has a controlling passenger.
+     */
+    public boolean vehicleCanSprint(@Nullable PacketEntity vehicle) {
+        return vehicle != null && EntityTypeUtil.isCamelFamily(vehicle.type) && mayLocalPlayerControl(vehicle);
+    }
+
     public boolean canClientEchoLocalAuthoritativeMoveVehiclePacket(@Nullable PacketEntity vehicle) {
         // MCP-Reborn Entity#isLocalInstanceAuthoritative only requires the root
         // vehicle's controlling passenger to be the local player. Pig/strider
