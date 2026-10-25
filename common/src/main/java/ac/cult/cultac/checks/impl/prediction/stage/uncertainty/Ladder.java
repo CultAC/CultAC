@@ -11,6 +11,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FluidFallingAdjustedMovement;
@@ -63,11 +64,13 @@ public class Ladder implements UncertaintyHandler {
                 if (!player.compensatedEntities.getEntityInControl().hasGravity) grav = 0;
 
                 // TODO: Handle unknown fluid correctly
+                // AbstractNautilus#travelInWater replaces LivingEntity#travelInWater and its climbing 0.2.
                 if (lastResult
-                        .getSimulationContext()
-                        .getWorldData()
-                        .getInWater()
-                        .determinePessimistically()) {
+                                .getSimulationContext()
+                                .getWorldData()
+                                .getInWater()
+                                .determinePessimistically()
+                        && !(lastResult.getSimulationContext().getVehicle() instanceof PacketEntityNautilus)) {
                     Vec3 modified = start.withY(0.2D * 0.8F);
                     modified = FluidFallingAdjustedMovement.getFluidFallingAdjustedMovement(
                             player, grav, falling, modified);
@@ -143,7 +146,9 @@ public class Ladder implements UncertaintyHandler {
         double clampedZ = CultMath.clamp(delta.z, -0.15F, 0.15F);
         double clampedY = Math.max(delta.y, -0.15F);
         Vec3 from = context.getStart();
+        // Only a Player suppresses sliding down, not the vehicle its rider sneaks on.
         if (clampedY < 0
+                && context.getVehicle() == null
                 && context.isSneaking()
                 && !BlockIds.is(
                         player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(from.x, from.y, from.z)),

@@ -25,6 +25,7 @@ import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.enums.Pose;
@@ -156,9 +157,10 @@ public class WorldStageBuilder {
             climbing = DesyncStatus.UNKNOWN;
         }
 
-        // Pigs and striders are the only vehicle that can climb
+        // Pigs, striders and nautiluses keep LivingEntity#onClimbable; AbstractHorse and HappyGhast return false
         if (simulationContext.getVehicle() != null
                 && !(simulationContext.getVehicle() instanceof PacketEntityStrider
+                        || simulationContext.getVehicle() instanceof PacketEntityNautilus
                         || simulationContext.getVehicle().type == EntityTypeIds.PIG)) {
             climbingAtStart = DesyncStatus.FALSE;
             climbing = DesyncStatus.FALSE;
