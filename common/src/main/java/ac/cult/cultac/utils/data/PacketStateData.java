@@ -89,6 +89,11 @@ public class PacketStateData {
     public boolean carriedItemClaimedThisClientTick = false;
     // A player_command or player_abilities LocalPlayer#tick sent this client tick.
     public boolean localPlayerTickCommandThisClientTick = false;
+    // ClientPacketListener#handleSetHeldSlot leaves MultiPlayerGameMode#carriedIndex, so the next tick sends this
+    // slot back; -1 when no echo is due.
+    public int heldSlotEcho = -1;
+    // The last set_held_slot before the next tick applied while a screen was open, so it fixed that tick's slot.
+    public boolean heldSlotSetWithScreenOpen = false;
     public boolean vehicleMovementStartOnGround = false;
     // Original-client-reported ground, excluding fields synthesized by protocol translation.
     public boolean vehicleMovementOnGroundPresent = true;

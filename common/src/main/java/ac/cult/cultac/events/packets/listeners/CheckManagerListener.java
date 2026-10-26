@@ -1200,6 +1200,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.serverOpenedInventoryThisTick = false;
             player.packetStateData.carriedItemChangedThisClientTick = false;
             player.packetStateData.carriedItemClaimedThisClientTick = false;
+            player.packetStateData.heldSlotEcho = -1;
+            player.packetStateData.heldSlotSetWithScreenOpen = false;
         }
         player.packetStateData.receivedMovementThisClientTick = false;
         player.packetStateData.flyingStartBeforeTravel = false;

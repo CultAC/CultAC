@@ -33,6 +33,11 @@ public class BadPacketsA extends Check implements CheckListener {
         lastSlot = slot;
     }
 
+    /** MultiPlayerGameMode#carriedIndex as the client's slot packets set it, or -1 before the first. */
+    public int carriedIndex() {
+        return lastSlot;
+    }
+
     /** ClientPacketListener#handleLogin's new MultiPlayerGameMode starts its carriedIndex at 0. */
     public void resetCarriedIndex() {
         lastSlot = 0;
