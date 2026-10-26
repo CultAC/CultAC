@@ -144,7 +144,7 @@ public class CompensatedEntities {
         return camels;
     }
 
-    /** The boats, minecarts, shulkers and happy ghasts, in entityMap iteration order. Read only. */
+    /** The boats, shulkers and happy ghasts, in entityMap iteration order. Read only. */
     public List<PacketEntity> poseCollisionCandidates() {
         refreshTypeViews();
         return poseCollisionCandidates;
@@ -169,7 +169,7 @@ public class CompensatedEntities {
             boolean shulker = entity.type == EntityTypeIds.SHULKER;
             if (boat) boatList.add(entity);
             if (entity instanceof PacketEntityCamel camel) camelList.add(camel);
-            if (boat || entity.isMinecart() || shulker || entity.isHappyGhast()) pose.add(entity);
+            if (boat || shulker || entity.isHappyGhast()) pose.add(entity);
             if (boat || shulker || entity instanceof PacketEntityHappyGhast) unknown.add(entity);
         }
         pushOrCollideCandidates = pushOrCollide;
@@ -194,6 +194,9 @@ public class CompensatedEntities {
         if (entity.getTracker() != this) return;
         entity.setTracker(null);
         trackedPassengers -= entity.passengers.size();
+        if (entity instanceof PacketEntityRavager ravager) {
+            player.checkManager.getExplosionHandler().onCountdownEnd(ravager);
+        }
     }
 
     /** Called when PacketEntity#mount adds a passenger to an entity in this tracker's entityMap. */
@@ -942,6 +945,9 @@ public class CompensatedEntities {
         }
         if ((entityType == EntityTypeIds.STRIDER)) {
             return new PacketEntityStrider(player, entityID, entityType, position.x, position.y, position.z);
+        }
+        if (entityType == EntityTypeIds.RAVAGER) {
+            return new PacketEntityRavager(player, entityID, entityType, position.x, position.y, position.z);
         }
         if (EntityTypeUtil.isBoat(entityType) || (entityType == EntityTypeIds.CHICKEN)) {
             return new PacketEntityTrackXRot(player, entityID, entityType, position.x, position.y, position.z, xRot);

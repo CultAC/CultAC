@@ -963,6 +963,14 @@ public class PacketEntity {
         }
     }
 
+    /** Where this client tick's interpolation step leaves the entity, read before the tick runs it; null if inexact. */
+    public @Nullable Vec3 exactPositionAfterClientTick(CultPlayer player) {
+        if (newPacketLocation == null) return clientPhysicalPositionExact ? clientPhysicalPosition : null;
+        SimpleCollisionBox box = exactInterpolatedLocationAfterClientTick(player);
+        if (exactAfterClientTickPosition != null) return exactAfterClientTickPosition;
+        return box == null ? null : positionFromCollisionBox(box, clientPhysicalPosition);
+    }
+
     private SimpleCollisionBox exactInterpolatedLocationAfterClientTick(CultPlayer player) {
         exactAfterClientTickPosition = null;
         if (newPacketLocation == null) return null;

@@ -35,7 +35,7 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         if (open) {
             openPlayerInventoryTransaction = transaction;
         } else {
-            ticksOpen = 0;
+            onClose();
             closeTransaction = transaction;
         }
     }
@@ -65,7 +65,7 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     private void closeBefore(int transaction, boolean closeEmpty) {
         if (!closeEmpty) {
             closeTransaction = player.lastTransactionReceived.get();
-            ticksOpen = 0;
+            onClose();
         }
         boolean shouldCloseEmpty = closeEmpty && closeTransaction <= transaction;
         boolean shouldClosePlayer = openPlayerInventoryTransaction <= transaction;
@@ -77,7 +77,7 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     public void maybeClose() {
         possibleOpenWindows.add(null);
         closeTransaction = player.lastTransactionReceived.get();
-        ticksOpen = 0;
+        onClose();
     }
 
     public void closeFromRespawn() {
@@ -86,7 +86,13 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
                 || window == PLAYER_INVENTORY && openPlayerInventoryTransaction == transaction
                 || window.transaction < transaction);
         possibleOpenWindows.add(null);
+        onClose();
+    }
+
+    // A closed screen lets the client change its selected slot again before its next tick.
+    private void onClose() {
         ticksOpen = 0;
+        player.packetStateData.heldSlotSetWithScreenOpen = false;
     }
 
     @Override

@@ -116,25 +116,25 @@ public final class ReportedKeyInput {
     }
 
     /**
-     * LocalPlayer#modifyInput's slow multipliers: LocalPlayer#isMovingSlowly is crouching or Entity#isVisuallyCrawling,
-     * which out of water is a SWIMMING pose or, through LivingEntity#isVisuallySwimming, a FALL_FLYING pose without
-     * fall flying. Player#updatePlayerPose sets the pose only after LocalPlayer#aiStep, which crouches a player whose
-     * previous keys held shift only where the crouching pose fits blocks and entities
-     * (Player#canPlayerFitWithinBlocksAndEntitiesWhen).
+     * LocalPlayer#modifyInput's slow multipliers: LocalPlayer#isMovingSlowly is LocalPlayer#isCrouching or
+     * Entity#isVisuallyCrawling, which out of water is a SWIMMING pose or, through LivingEntity#isVisuallySwimming, a
+     * FALL_FLYING pose without fall flying. LocalPlayer#aiStep sets crouching where the crouching pose fits blocks and
+     * entities (Player#canPlayerFitWithinBlocksAndEntitiesWhen) and either the previous keys held shift or, for a
+     * player not sleeping, the standing pose does not fit. It returns one multiplier for each outcome the possible entity positions allow.
      */
     private static float[] slows(CultPlayer player, SimulationContext context) {
-        float sneaking =
-                (float) player.compensatedEntities.getSelf().sneakingSpeed.value();
+        float sneaking = (float) player.compensatedEntities.getSelf().sneakingSpeed.value();
         if (context.getPose() == Pose.SWIMMING || context.getPose() == Pose.FALL_FLYING) return new float[] {sneaking};
-        if (!context.isLastSneaking()) return new float[] {1.0F};
-        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_14)) return new float[] {sneaking};
         Vec3 from = context.getStart();
-        if (player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z)) {
-            return new float[] {sneaking};
+        if (!player.mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z)) {
+            return new float[] {1.0F};
         }
-        return player.mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z)
-                ? new float[] {sneaking, 1.0F}
-                : new float[] {1.0F};
+        boolean crouchFits = player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z);
+        if (context.isLastSneaking()) return crouchFits ? new float[] {sneaking} : new float[] {sneaking, 1.0F};
+        if (player.isInBed || !player.mayFitOnlyCrouchingWhen(from.x, from.y, from.z)) return new float[] {1.0F};
+        return crouchFits && !player.mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.STANDING, from.x, from.y, from.z)
+                ? new float[] {sneaking}
+                : new float[] {sneaking, 1.0F};
     }
 
     private static boolean repeats(float[] values, int index) {

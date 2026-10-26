@@ -63,6 +63,7 @@ class CloudAndInventoryChecksTest {
             assertFalse(closed.isCancelled());
 
             f.player.openWindow.onClientOpenOrCloseWindow(true);
+            f.player.openWindow.onClientTick();
             var open = slot(f, packet);
             check.onSetCarriedItem(open, f.player, packet);
             verify(check).flag();

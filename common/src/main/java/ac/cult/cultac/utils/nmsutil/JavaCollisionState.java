@@ -20,7 +20,12 @@ public record JavaCollisionState(
         boolean walks = EntityTags.POWDER_SNOW_WALKABLE_MOBS.test(actor.type)
                 || self && player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS;
         return new JavaCollisionState(
-                fallDistance, walks, self && player.isSneaking, actor.type == EntityTypeIds.FALLING_BLOCK);
+                fallDistance, walks, isDescending(player, actor), actor.type == EntityTypeIds.FALLING_BLOCK);
+    }
+
+    /** Entity#isDescending: LocalPlayer's shift key, or another entity's shared crouching flag. */
+    public static boolean isDescending(CultPlayer player, PacketEntity actor) {
+        return actor == player.compensatedEntities.getSelf() ? player.isSneaking : (actor.actionSharedFlags & 2) != 0;
     }
 
     public static JavaCollisionState current(CultPlayer player) {

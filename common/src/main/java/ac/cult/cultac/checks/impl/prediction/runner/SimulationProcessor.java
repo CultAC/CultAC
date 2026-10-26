@@ -332,10 +332,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     && !this.player.packetStateData.hasPassengerRotationThisClientTick()) {
                 if (!this.player.packetStateData.receivedMovementThisClientTick) {
                     if (CheckManagerListener.localPlayerTicked(this.player)) {
-                        PredictionResult result = this.advanceNoPositionClientTick(
-                                new Vec3(this.player.x, this.player.y, this.player.z),
-                                this.player.xRot,
-                                this.player.yRot);
+                        Vec3 from = new Vec3(this.player.x, this.player.y, this.player.z);
+                        this.player.checkManager.getExplosionHandler().beforeNoPositionTravel(from);
+                        PredictionResult result =
+                                this.advanceNoPositionClientTick(from, this.player.xRot, this.player.yRot);
                         if (this.isAcceptedNoPositionTick(result)) {
                             this.couldPotentiallyTickSkip = true;
                         }
@@ -366,6 +366,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (this.player.packetStateData.flyingStopAfterTravel) {
             this.stopFlyingAfterTravel();
         }
+        this.player.checkManager.getExplosionHandler().afterLocalTravel();
     }
 
     private void handleMovePlayer(ServerboundMovePlayer packet) {
@@ -375,10 +376,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 if (!this.isPacketHandlerRotationTeleport(packet)) {
                     if (!this.isPassengerRotationOnlyTick(packet)) {
                         this.player.onGround = flying.onGround();
-                        PredictionResult result = this.advanceNoPositionClientTick(
-                                new Vec3(this.player.x, this.player.y, this.player.z),
-                                this.player.xRot,
-                                this.player.yRot);
+                        Vec3 from = new Vec3(this.player.x, this.player.y, this.player.z);
+                        this.player.checkManager.getExplosionHandler().beforeLocalTravel(from);
+                        PredictionResult result =
+                                this.advanceNoPositionClientTick(from, this.player.xRot, this.player.yRot);
                         boolean isPointThree = this.isAcceptedNoPositionTick(result);
                         if (isPointThree) {
                             this.couldPotentiallyTickSkip = true;
@@ -423,6 +424,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (positionUpdate.getTeleportData().isTeleport()) {
             this.handleTeleport(positionUpdate.getTeleportData());
         } else {
+            this.player.checkManager.getExplosionHandler().beforeLocalTravel(positionUpdate.getFrom());
             if (!this.player.isBedrockMovement()
                     && (this.player.checkManager.getKnockbackHandler().hasPacketVelocity()
                             || this.player.checkManager.getExplosionHandler().hasPacketVelocity())) {
@@ -554,6 +556,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.handleTeleport(positionUpdate.getTeleportAcceptData());
             return null;
         }
+        this.player.checkManager.getExplosionHandler().beforeLocalTravel(positionUpdate.getFrom());
 
         if (!this.player.isBedrockMovement() && !positionUpdate.isHasOnGround()) {
             PacketEntity vehicle = this.currentPredictionVehicle();
