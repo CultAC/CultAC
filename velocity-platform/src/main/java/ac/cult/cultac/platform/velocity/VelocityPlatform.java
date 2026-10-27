@@ -37,6 +37,7 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.data.ProtocolData;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.GrimAPIProvider;
 import ac.grim.grimac.api.plugin.GrimPlugin;
@@ -197,10 +198,21 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     }
 
     private synchronized void startRemoteProfiles() {
-        remoteProfiles = RedisProfiles.create(proxy, nativePlugin, plugin.getLogger());
+        remoteProfiles = RedisProfiles.create(proxy, nativePlugin, plugin.getLogger(), this::reportsUntracked);
         if (remoteProfiles == null) return;
         RemoteProfiles.install(remoteProfiles);
         plugin.getLogger().info("RedisBungee found: /cult profile reaches players on the other proxies");
+    }
+
+    /** Only the current runtime reports a player untracked, and never one whose connection another runtime holds. */
+    private boolean reportsUntracked(UUID uuid) {
+        var host = RuntimeEnvironment.host();
+        if (host == null) return true;
+        if (!host.current()) return false;
+        var player = proxy.getPlayer(uuid).orElse(null);
+        if (player == null) return true;
+        String owner = host.ownerOf(transport.channel(player));
+        return owner == null || owner.equals(host.generationId());
     }
 
     private void mirrorWorld(UUID playerId, @Nullable UUID worldUid) {
