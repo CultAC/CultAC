@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPositionWorlds;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -164,12 +165,25 @@ public final class RootVehicleInterpolationCollision {
         return true;
     }
 
+    /**
+     * Where the local player stands for a read at the current ClientLevel#tickEntities place. A read before the
+     * LocalPlayer's place meets it where its tick began. A read after it meets it where its travel left it, and so
+     * does every Level#tickBlockEntities move: Minecraft#tick runs the block entities once all entities have ticked.
+     */
     private static Vec3 localPlayerPositionAtRootEntityTick(CultPlayer player) {
+        var entities = player.compensatedEntities;
         if (player.packetStateData.receivedMovementThisClientTick
-                && !player.compensatedEntities.getSelf().inVehicle()) {
+                && !entities.getSelf().inVehicle()) {
             var prediction = player.checkManager.getSimulationProcessor().getLastPrediction();
-            if (prediction != null && prediction.getSimulationContext() != null)
-                return prediction.getSimulationContext().getStart();
+            if (prediction != null && prediction.getSimulationContext() != null) {
+                if (entities.clientTickOrder(entities.getSelf()) > entities.tickedThroughOrder())
+                    return prediction.getSimulationContext().getStart();
+                // From 26.3 LocalPlayer reports after the block entities moved it; earlier it reports its travel end.
+                var pass = JavaMovementEngine.passAfterTravel(prediction);
+                return pass != null
+                        ? pass.travel().position()
+                        : prediction.getSimulationContext().getEnd();
+            }
             return new Vec3(player.lastX, player.lastY, player.lastZ);
         }
         return new Vec3(player.x, player.y, player.z);

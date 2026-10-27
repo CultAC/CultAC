@@ -176,7 +176,7 @@ class UncertaintyFilterEquivalenceTest {
                     Owner.LAST_WORLD, "pistonPushes", () -> new PistonPushes(box(), box(), new SimpleCollisionBox())),
             Variant.of(Owner.LAST_WORLD, "sneak", () -> new StuckEdgeData(false, true, true, false, true)),
             Variant.of(Owner.CONTEXT, "riptideLevel", () -> 3),
-            Variant.of(Owner.CONTEXT, "isTestingPointThree", () -> true),
+            Variant.of(Owner.CONTEXT, "withheldPosition", () -> true),
             Variant.of(Owner.CONTEXT, "gliding", () -> true),
             Variant.of(Owner.CONTEXT, "version", () -> ClientVersion.V_1_21_4),
             Variant.of(Owner.CONTEXT, "vehicle", UncertaintyFilterEquivalenceTest::boat),

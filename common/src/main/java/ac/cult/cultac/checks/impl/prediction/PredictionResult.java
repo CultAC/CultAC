@@ -188,7 +188,7 @@ public class PredictionResult {
             return closest;
         Vec3 inputTarget = getTarget();
         var pass = JavaMovementEngine.passAfterTravel(this);
-        if (pass != null && !simulationContext.isTestingPointThree()) {
+        if (pass != null && !simulationContext.isWithheldPosition()) {
             inputTarget = new Vec3(
                     pass.result().fixedX() ? closest.x : inputTarget.x,
                     inputTarget.y,

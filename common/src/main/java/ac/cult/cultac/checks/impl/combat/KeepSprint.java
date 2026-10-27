@@ -40,7 +40,7 @@ public class KeepSprint extends Check implements EngineCheck, PostPredictionList
     @Override
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
         int required = result.getSimulationContext().getMinAttackSlow();
-        if (required == 0 || result.getSimulationContext().isTestingPointThree()) return;
+        if (required == 0 || result.getSimulationContext().isWithheldPosition()) return;
         if (result.getInitialStartingVel().getAttackSlows() >= required) {
             bestRequiredOffset = Math.min(bestRequiredOffset, result.getFlagSeverity());
         }

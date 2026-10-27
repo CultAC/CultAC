@@ -116,6 +116,9 @@ public class PacketEntity {
     public ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState blockEntityState;
     private SimpleCollisionBox blockEntityPhysicalBox;
     private JavaPistonEntityStates pistonStates;
+    // Where the last block-entity pass left this untracked rider; allocated only once a pass reaches its vehicle.
+    private List<SimpleCollisionBox> riderPushBoxes;
+    private int riderPushPass;
 
     public void ensurePistonPatchStates() {
         if (pistonStates == null) pistonStates = new JavaPistonEntityStates(this);
@@ -1288,6 +1291,7 @@ public class PacketEntity {
     public void settleAtSeat(CultPlayer player, SimpleCollisionBox seat) {
         Vec3 codecBase = desyncClientPos;
         passengerPhysicalBox = null;
+        riderPushBoxes = null;
         oldPacketLocation = null;
         bedrockInterpolation = null;
         setPositionRaw(seat, clientPhysicalYaw, clientPhysicalPitch);
@@ -1438,6 +1442,61 @@ public class PacketEntity {
         var other = pistonStates == null ? null : pistonStates.other();
         if (other != null) ReachInterpolationData.combineCollisionBox(out, other.bounds(true, scratch), out);
         return out;
+    }
+
+    /**
+     * The bounds of the movement boxes this entity held before the client tick in progress stepped it, whatever place
+     * a pass reads from. {@code scratch} must be distinct from {@code out}. Allocates nothing.
+     */
+    public SimpleCollisionBox getMovementCollisionBoxesBeforeTick(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        List<SimpleCollisionBox> before = beforeTickPositions();
+        if (before != null) {
+            out.set(before.getFirst());
+            for (int i = 1; i < before.size(); i++) out.union(before.get(i));
+            return out;
+        }
+        boolean reading = readingTickPositions;
+        readingTickPositions = true;
+        try {
+            return getPossibleMovementCollisionBoxes(out, scratch);
+        } finally {
+            readingTickPositions = reading;
+        }
+    }
+
+    /** The movement candidates {@link #getMovementCollisionBoxesBeforeTick} bounds. Read only. */
+    public List<SimpleCollisionBox> movementCollisionBoxCandidatesBeforeTick() {
+        List<SimpleCollisionBox> before = beforeTickPositions();
+        if (before != null) return before;
+        boolean reading = readingTickPositions;
+        readingTickPositions = true;
+        try {
+            return getPossibleMovementCollisionBoxCandidates();
+        } finally {
+            readingTickPositions = reading;
+        }
+    }
+
+    private List<SimpleCollisionBox> beforeTickPositions() {
+        return tickPositions == null || positionPlayer == null ? null : tickPositions.beforeThisTick(positionPlayer);
+    }
+
+    /**
+     * Records {@code box} as a place the block-entity pass numbered {@code pass} left this untracked rider: off the seat
+     * its vehicle gave it before that pass, until its next Entity#rideTick pushes and reseats it.
+     */
+    public void recordRiderPushBox(int pass, SimpleCollisionBox box) {
+        if (riderPushBoxes == null) riderPushBoxes = new ArrayList<>(1);
+        if (riderPushPass != pass) {
+            riderPushBoxes.clear();
+            riderPushPass = pass;
+        }
+        riderPushBoxes.add(box);
+    }
+
+    /** The boxes {@link #recordRiderPushBox} recorded for block-entity pass {@code pass}, else null. Read only. */
+    public @Nullable List<SimpleCollisionBox> riderPushBoxes(int pass) {
+        return riderPushPass == pass && riderPushBoxes != null && !riderPushBoxes.isEmpty() ? riderPushBoxes : null;
     }
 
     /**

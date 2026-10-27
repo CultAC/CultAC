@@ -29,10 +29,6 @@ public class ValidMovements {
     private static final UncertaintyHandler[] MODIFIERS =
             UncertaintyPipeline.MODIFIERS.toArray(new UncertaintyHandler[0]);
 
-    private static boolean reportHandler(UncertaintyHandler handler) {
-        return handler instanceof PointThreeTesting;
-    }
-
     static {
         // ElytraTransform's skip holds only for the start trace, which only the first handler sees.
         if (!(MODIFIERS[0] instanceof ElytraTransform)) {
@@ -164,8 +160,6 @@ public class ValidMovements {
         Vec3 target = end;
 
         for (int i = 0; i < count; i++) {
-            // Java's report tolerance belongs after Entity#move. It is never an attempted movement to collide.
-            if (!player.isBedrockMovement() && reportHandler(handlers[i])) continue;
             if (waterInputChoice >= 0) {
                 int choice = handlers[i] instanceof SwimSpaceShift
                         ? waterInputChoice / 3
@@ -193,7 +187,7 @@ public class ValidMovements {
     /** A clipped shove or moving face fixes its axis independently of travel's horizontal input. */
     private static MovementTrace pinBlockEntityAxes(SimulationContext context, MovementTrace trace) {
         var pass = trace.passAfterTravel();
-        if (pass == null || context.isTestingPointThree()) return trace;
+        if (pass == null || context.isWithheldPosition()) return trace;
         var fixed = pass.result();
         Vec3 scale = context.getLastStuckSpeed();
         Vec3 move =
@@ -238,18 +232,24 @@ public class ValidMovements {
     public void applyForwardMove(PredictionResult lastResult) {
         JavaForwardMove.Result moved = JavaForwardMove.move(player, result, closestTrace, result.getTarget());
         result.setCollideAxisData(moved.collision());
-        setClosestTrace(reportMovement(moved.trace(), result.getTarget(), lastResult));
+        setClosestTrace(withheldReport(moved.trace(), result.getTarget()));
     }
 
-    private MovementTrace reportMovement(MovementTrace trace, Vec3 end, PredictionResult lastResult) {
+    /**
+     * LocalPlayer#sendPosition withholds the position only while it lies within 2.0E-4 of the last one sent. On such a
+     * tick the report is that last position and the client is where it travelled, so the gap is position, never
+     * deltaMovement. A travel ending farther away would have been sent: its whole gap stays.
+     */
+    private MovementTrace withheldReport(MovementTrace trace, Vec3 end) {
         SimulationContext context = result.getSimulationContext();
-        for (UncertaintyHandler handler : handlers) {
-            if (!reportHandler(handler)) continue;
-            MovementTrace moved = handler.handleMovementTrace(player, this, result, context, lastResult, trace, end);
-            Vec3 displacement = moved.position().subtract(trace.position());
-            trace = moved.addPositionOnlyDelta(displacement.multiply(context.getLastStuckSpeed()));
-        }
-        return trace;
+        if (player.isBedrockMovement() || !context.isWithheldPosition()) return trace;
+        Vec3 stuck = context.getLastStuckSpeed();
+        double threshold = player.getMovementThreshold();
+        noteReportRadius(threshold * Math.max(context.getTargetScalarHoriz(), context.getTargetScalarVert()));
+        Vec3 gap = end.subtract(trace.position());
+        if (gap.multiply(stuck).lengthSqr() > threshold * threshold) return trace;
+        return trace.withPosition(trace.position().withXYZOrSelf(end.x, end.y, end.z, "withheld position"))
+                .addPositionOnlyDelta(gap.multiply(stuck));
     }
 
     public Vec3 getPositionOnlyDelta() {
@@ -352,7 +352,7 @@ public class ValidMovements {
             result.getSimulationContext().getWorldData().setLastOnGround(lastOnGround);
         }
         JavaForwardMove.Result moved = JavaForwardMove.move(player, result, trace, end);
-        return new JavaForwardMove.Result(reportMovement(moved.trace(), end, lastResult), moved.collision());
+        return new JavaForwardMove.Result(withheldReport(moved.trace(), end), moved.collision());
     }
 
     private void addCollisionAlternative(

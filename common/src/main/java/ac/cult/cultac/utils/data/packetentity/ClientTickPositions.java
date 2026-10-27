@@ -34,6 +34,11 @@ final class ClientTickPositions {
         return orderAtTickStart <= order;
     }
 
+    /** The boxes held before this tick's step, or null when the entity has not ticked yet or kept still. */
+    List<SimpleCollisionBox> beforeThisTick(CultPlayer player) {
+        return tickedAt == player.packetStateData.acceptedClientTick ? before : null;
+    }
+
     List<SimpleCollisionBox> read(PacketEntity entity, CultPlayer player, boolean after, long epoch) {
         if (tickedAt == player.packetStateData.acceptedClientTick) return after ? null : before;
         if (!after || entity.interpolatedBeforeLocalTravel(player)) return null;

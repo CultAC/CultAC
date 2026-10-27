@@ -7,9 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.BlockRegistry;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
@@ -22,9 +25,12 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -582,6 +588,49 @@ class JavaEntityPushTest {
             PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
             assertExact(contact);
             assertEquals(1, contact.getSimulationContext().getWorldData().getNumCollidingTickingAfterPlayer());
+        }
+    }
+
+    /**
+     * PistonMovingBlockEntity#moveCollidedEntities shoves the vehicle east, but its rider sits above the piston's reach
+     * and keeps the seat Entity#positionRider gave it: the rider's next Entity#rideTick pushes from there before
+     * positionRider reseats it on the moved vehicle.
+     */
+    @Test
+    void aRiderPushesFromTheSeatAPistonLeftItOnWhileItsVehicleMovesAway() throws Exception {
+        try (var f = falling()) {
+            PacketEntity vehicle = entity(f, 100, BELOW_TOUCHING);
+            seatSlime(f, vehicle);
+            PacketEntity rider = f.player.compensatedEntities.getEntity(RIDER);
+            // A piston west of the vehicle extends stone east through the vehicle's lower half, below the rider.
+            BlockRegistry blocks = DataTables.defaults().registry();
+            int piston = blocks.with(blocks.block("minecraft:piston").defaultState(), "facing", "east");
+            BlockPos base = new BlockPos(-2, FLOOR_Y + 8, 1);
+            f.player.compensatedWorld.updateBlock(base, piston);
+            f.player.compensatedWorld.updateBlock(
+                    base.relative(Direction.EAST),
+                    blocks.block("minecraft:stone").defaultState());
+            f.player.compensatedWorld.pistons.handleBlockEvent(base, blocks.blockIndex(piston), 0, 5, 0);
+
+            assertExact(f.tick(CONTACT, false));
+            assertEquals(
+                    BELOW_TOUCHING.x + 0.31, vehicle.clientPhysicalPosition.x, 1.0E-6, "the stone shoves the vehicle");
+            SimpleCollisionBox near = GetBoundingBox.getPlayerBoundingBox(f.player, 0.5, CONTACT.y, 0.5);
+            var seats = f.player.compensatedEntities.untrackedRiderPushBoxes(
+                    rider, near, new SimpleCollisionBox(), new SimpleCollisionBox());
+            assertEquals(1, seats.size());
+            assertEquals(
+                    BELOW_TOUCHING.x,
+                    (seats.getFirst().minX + seats.getFirst().maxX) / 2,
+                    1.0E-9,
+                    "the rider still holds its seat on the vehicle's place before the shove");
+
+            Vec3 second = START.add(0, FIRST_FALL + SECOND_FALL, PUSH);
+            assertExact(f.tick(second, false));
+            // The rider's push from its kept seat lands on the drag-reduced first push.
+            Vec3 push = JavaLivingEntityPushes.impulse(new Vec3(BELOW_TOUCHING.x, 0, BELOW_TOUCHING.z), second);
+            assertEquals(0.0, push.x, 0.0, "the kept seat is straight ahead of the player");
+            assertExact(f.tick(second.add(0, fall(SECOND_FALL), PUSH * 0.91F + push.z), false));
         }
     }
 

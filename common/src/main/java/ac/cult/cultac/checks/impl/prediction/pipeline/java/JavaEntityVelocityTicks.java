@@ -108,22 +108,28 @@ public final class JavaEntityVelocityTicks {
                             || !entities.teamCollision.allows(entity.scoreboardName, player.getName())
                             || entities.sharesRootVehicleWithSelf(entity, entities.rootOfSelf())) continue;
                     boolean rider = entities.isUntrackedRider(entity);
-                    if (rider) {
-                        var root = entities.rootOf(entity);
-                        if (root == null
-                                || !entities.ticksInClientTick(root)
-                                || !entities.untrackedRiderMayReach(entity, box, rootBox, scratch)) continue;
-                    } else if (!entities.ticksInClientTick(entity)) continue;
-                    entities.setPassTickedThroughOrder(order);
                     List<SimpleCollisionBox> boxes;
                     if (rider) {
-                        var reach = entities.untrackedRiderPushBox(entity);
-                        if (reach == null || !reach.isIntersected(box)) continue;
-                        boxes = List.of(entities.currentMovementBox(entity));
-                    } else boxes = entity.getPossibleMovementCollisionBoxCandidates();
+                        var root = entities.rootOf(entity);
+                        if (root == null || !entities.ticksInClientTick(root)) continue;
+                        // The rider pushes before positionRider reseats it: from its last seat, or where the last
+                        // block-entity pass left it. Neither depends on this read's place in the tick.
+                        boxes = entities.untrackedRiderPushBoxes(entity, box, rootBox, scratch);
+                        if (boxes.isEmpty()) continue;
+                        entities.setPassTickedThroughOrder(order);
+                    } else {
+                        if (!entities.ticksInClientTick(entity)) continue;
+                        entities.setPassTickedThroughOrder(order);
+                        boxes = entity.getPossibleMovementCollisionBoxCandidates();
+                    }
                     var physicalBoxes = new ArrayList<SimpleCollisionBox>(boxes.size());
-                    for (var candidate : boxes)
-                        physicalBoxes.add(JavaLivingEntityPushes.physicalBox(player, entity, candidate));
+                    boolean touches = !rider;
+                    for (var candidate : boxes) {
+                        var physical = JavaLivingEntityPushes.physicalBox(player, entity, candidate);
+                        touches |= JavaLivingEntityPushes.intersects(physical, box);
+                        physicalBoxes.add(physical);
+                    }
+                    if (!touches) continue;
                     boxes = physicalBoxes;
                     List<Vec3> impulses;
                     if (boat) {

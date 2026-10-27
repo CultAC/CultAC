@@ -156,7 +156,8 @@ public class SimulationContext implements Cloneable {
     boolean noPhysics;
     @Setter
     boolean noPhysicsHorizontalCollision;
-    boolean isTestingPointThree;
+    // A tick whose position LocalPlayer#sendPosition withheld: the report is the last position sent.
+    boolean withheldPosition;
     Vec3 lastStuckSpeed = NO_STUCK_SPEED;
     Vec3 horseInputs;
 
@@ -234,7 +235,7 @@ public class SimulationContext implements Cloneable {
             int minAttackSlow,
             int maxAttackSlow,
             int riptideLevel,
-            boolean isTestingPointThree,
+            boolean withheldPosition,
             Vec3 horseInputs,
             boolean clientMovementInputKnown,
             Vec3 clientMovementInput,
@@ -263,7 +264,7 @@ public class SimulationContext implements Cloneable {
         this.minAttackSlow = minAttackSlow;
         this.maxAttackSlow = maxAttackSlow;
         this.riptideLevel = riptideLevel;
-        this.isTestingPointThree = isTestingPointThree;
+        this.withheldPosition = withheldPosition;
         this.horseInputs = horseInputs;
         this.lastTickMainSupportingBlockData = lastTickMainSupportingBlockData;
         this.pose = pose;

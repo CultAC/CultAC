@@ -71,7 +71,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         // Every predicted client tick records the velocity's offset, including one whose position
         // LocalPlayer#sendPosition withheld; the must-move test's stationary tick never ran on the client.
         if (firstBread == null && secondBread == null
-                || player.isBedrockMovement() && result.getSimulationContext().isTestingPointThree()
+                || player.isBedrockMovement() && result.getSimulationContext().isWithheldPosition()
                 || player.checkManager.getSimulationProcessor().isPredictingStationaryTick()) return;
 
         double flags = result.getFlagSeverity();

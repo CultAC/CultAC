@@ -33,6 +33,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -49,12 +50,10 @@ class JavaRiddenPistonVersionsTest {
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
     private static final ServerboundPlayerInput FORWARD_SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
-    /** A horse movement_speed (HorseSoulSandEdgeTest's captured one). */
-    private static final float SPEED = 0.14814077F;
+    /** PacketEntityHorse's movement_speed before the server sends one. */
+    private static final float SPEED = 0.225F;
     /** LivingEntity#travelInAir on a 0.6-friction block. */
     private static final double GROUND_FRICTION = 0.6F * 0.91F;
-    /** LivingEntity#travelInAir: a grounded horse's (0 - 0.08) * 0.98F. */
-    private static final double GROUNDED_Y = -0.0784000015258789;
     /** LivingEntity#moveRelative of the ridden input's 0.98F at yaw 0 on 0.6-friction ground. */
     private static final double GROUND_INPUT = (double) 0.98F * (SPEED * (0.21600002F / (0.6F * 0.6F * 0.6F)));
 
@@ -340,25 +339,14 @@ class JavaRiddenPistonVersionsTest {
      * PistonMovingBlockEntity#moveCollidedEntities fixes Z 0.01 past the moving face. Entity#move(PISTON) leaves
      * deltaMovement alone, so the free ticks after show the velocity those travels carried: one ridden input each.
      */
-    @org.junit.jupiter.api.Test
+    @Test
     void aPistonPushingTheRiddenHorseAlongItsTravelCarriesOneRiddenInput() throws Exception {
-        try (var f = new JavaTickFixture()) {
-            Vec3 start = new Vec3(0.5, FLOOR_Y, 0.9);
-            f.place(start, Vec3.ZERO);
-            f.player.compensatedWorld.applyClientTime(new WorldPackets.TimeUpdate(24_000L, Map.of()));
-            f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, start, 0, 0, 0);
-            var horse = (PacketEntityHorse) f.player.compensatedEntities.getEntity(HORSE);
-            horse.hasSaddle = true;
-            horse.isTame = true;
-            horse.movementSpeedAttribute = SPEED;
-            horse.onGround = true;
-            f.setPassengers(HORSE, List.of(f.player.entityID));
-            f.pongThrough(f.player.lastTransactionSent.get());
-            // AbstractHorse#tick runs before LocalPlayer#rideTick hands it this tick's keys.
+        Vec3 start = new Vec3(0.5, FLOOR_Y, 0.9);
+        try (var f = mounted(ClientVersion.V_26_3, EntityTypeIds.HORSE, start)) {
+            ((PacketEntityHorse) f.player.compensatedEntities.getEntity(HORSE)).isTame = true;
+            // ClientLevel#tickNonPassenger moves the horse before LocalPlayer#rideTick hands it this tick's keys.
             f.input(FORWARD_SPRINT);
-            f.tickEnd();
-            f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0, GROUNDED_Y, 0));
-            f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
+            assertExact(f.rideTick(start, true));
             BlockPos base = new BlockPos(0, FLOOR_Y, -2);
             extend(f, base, 3, piston(f, base, "south", "minecraft:stone"));
 
@@ -390,11 +378,14 @@ class JavaRiddenPistonVersionsTest {
     }
 
     private static JavaTickFixture mounted(ClientVersion version, int type) throws Exception {
+        return mounted(version, type, new Vec3(0.5, FLOOR_Y, 0.1));
+    }
+
+    private static JavaTickFixture mounted(ClientVersion version, int type, Vec3 position) throws Exception {
         var f = new JavaTickFixture();
         boolean ready = false;
         try {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
-            Vec3 position = new Vec3(0.5, FLOOR_Y, 0.1);
             f.place(position, Vec3.ZERO);
             f.player.compensatedWorld.applyClientTime(new WorldPackets.TimeUpdate(24_000L, Map.of()));
             f.player.compensatedEntities.addEntity(HORSE, type, position, 0, 0, 0);

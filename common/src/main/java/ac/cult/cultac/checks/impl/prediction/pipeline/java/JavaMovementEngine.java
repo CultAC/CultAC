@@ -62,7 +62,7 @@ public final class JavaMovementEngine implements MovementEngine {
             startingVelocities = filtered;
         }
         // Minecraft#tick sends CLIENT_TICK_END even without a position packet, so the runner simulates every
-        // travel from its carried velocity. PointThreeTesting checks sendPosition's withheld-position bound.
+        // travel from its carried velocity. ValidMovements#withheldReport checks sendPosition's withheld-position bound.
         return modifiers.applyModifers(player, startingVelocities, context, lastPrediction);
     }
 

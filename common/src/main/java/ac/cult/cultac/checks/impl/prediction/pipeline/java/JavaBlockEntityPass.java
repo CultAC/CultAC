@@ -115,6 +115,30 @@ public final class JavaBlockEntityPass {
         return run(env, pass, start);
     }
 
+    /**
+     * {@link #runEntity} for an entity whose position is not tracked, such as a rider outside the player's riding
+     * trees: the result is where the pass leaves it, and the entity itself is left as it was.
+     */
+    public static Result runDetachedEntity(
+            CultPlayer player,
+            PacketEntity actor,
+            ClientBlockEntityPass pass,
+            JavaPassState start,
+            JavaMovementPatch patch) {
+        var env = new JavaBlockEntityMove.Environment(
+                player,
+                null,
+                null,
+                actor.scale,
+                (actor.actionSharedFlags & 2) != 0,
+                start.position(),
+                pass.gameTime(),
+                actor,
+                patch,
+                true);
+        return run(env, pass, start);
+    }
+
     private static Result run(JavaBlockEntityMove.Environment env, ClientBlockEntityPass pass, JavaPassState start) {
         var replay = new Replay(env, start);
         CompensatedWorld world = env.player().compensatedWorld;

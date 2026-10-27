@@ -21,6 +21,7 @@ import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class JavaRemotePistonTest {
@@ -57,6 +58,37 @@ class JavaRemotePistonTest {
                     "the NPC is still touching when entities tick, before the piston separates them");
             assertTrue(actor.clientPhysicalPosition.z > 0.65, "the same completed tick must still push the NPC away");
             assertFalse(result.hasEffectiveFlags(), result.getFlags().toString());
+        }
+    }
+
+    /**
+     * Minecraft#tick runs Level#tickBlockEntities once ClientLevel#tickEntities has run the LocalPlayer's travel, so
+     * a piston's Entity#move of a boat collides with the player where that travel left it, not where the tick began.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_26_2", "V_26_3"})
+    void aPistonPushesABoatAgainstThePlayerWhereItsTravelLeftIt(ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            // Just below the boat's top as the tick starts, above it once it rises; AbstractBoat#tick's push box,
+            // 0.01 lower, never reaches it.
+            Vec3 start = new Vec3(0.6, FLOOR_Y + 0.555, 0.5);
+            f.place(start, new Vec3(0, 0.2, 0));
+            f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
+            // The boat touches the west face of the box the player starts the tick in.
+            double boatX = f.player.boundingBox.minX - 1.375 / 2;
+            f.player.compensatedEntities.addEntity(100, EntityTypeIds.OAK_BOAT, new Vec3(boatX, FLOOR_Y, 0.5), 0, 0, 0);
+            var boat = f.player.compensatedEntities.getEntity(100);
+            int piston = BLOCKS.with(BLOCKS.block("minecraft:piston").defaultState(), "facing", "east");
+            BlockPos base = new BlockPos(-2, FLOOR_Y, 0);
+            f.player.compensatedWorld.updateBlock(base, piston);
+            f.player.compensatedWorld.pistons.handleBlockEvent(base, BLOCKS.blockIndex(piston), 0, 5, 0);
+
+            f.tick(start.add(0, 0.2, 0), false);
+
+            assertEquals(boatX + 0.51, boat.clientPhysicalPosition.x, 1.0E-12, "the risen player no longer blocks it");
         }
     }
 

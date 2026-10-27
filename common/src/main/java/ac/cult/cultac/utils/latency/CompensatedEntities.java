@@ -84,6 +84,8 @@ public class CompensatedEntities {
     private List<Integer> sentSelfPassengers = List.of();
     // While a pass replays, the last ClientLevel#tickEntities place whose tick has run; Long.MIN_VALUE otherwise.
     private long passTickedThroughOrder = Long.MIN_VALUE;
+    // Numbers each client tick's block-entity pass; a rider's recorded push boxes hold until the next one starts.
+    private int riderPushPass;
     private int movementPositionReads;
     private long movementPositionEpoch;
 
@@ -361,6 +363,16 @@ public class CompensatedEntities {
      */
     public boolean untrackedRiderMayReach(
             PacketEntity rider, SimpleCollisionBox near, SimpleCollisionBox rootBox, SimpleCollisionBox scratch) {
+        return seatMayReach(rider, near, rootBox, scratch, false);
+    }
+
+    /** {@link #untrackedRiderMayReach}, with the root where it was before the client tick in progress stepped it. */
+    private boolean seatMayReach(
+            PacketEntity rider,
+            SimpleCollisionBox near,
+            SimpleCollisionBox rootBox,
+            SimpleCollisionBox scratch,
+            boolean rootBeforeTick) {
         double margin = 0.0D;
         PacketEntity entity = rider;
         for (int hops = 0; entity.getRiding() != null; hops++) {
@@ -369,11 +381,49 @@ public class CompensatedEntities {
             margin += BoundingBoxSize.getWidth(player, vehicle) + BoundingBoxSize.getWidth(player, entity);
             entity = vehicle;
         }
-        entity.getPossibleMovementCollisionBoxes(rootBox, scratch);
+        if (rootBeforeTick) entity.getMovementCollisionBoxesBeforeTick(rootBox, scratch);
+        else entity.getPossibleMovementCollisionBoxes(rootBox, scratch);
         return rootBox.minX - margin < near.maxX
                 && rootBox.maxX + margin > near.minX
                 && rootBox.minZ - margin < near.maxZ
                 && rootBox.maxZ + margin > near.minZ;
+    }
+
+    /** Starts the block-entity pass that ends this client tick; the rider push boxes the last one recorded expire. */
+    public int beginRiderPushPass() {
+        return ++riderPushPass;
+    }
+
+    /**
+     * The position boxes untracked {@code rider} may push the player from in the client tick in progress. Entity#rideTick
+     * runs LivingEntity#tick, whose aiStep pushes, before Entity#positionRider reseats the rider, so it pushes from the
+     * seat its root gave it before the root's own tick. When the last block-entity pass moved the rider or its root, it
+     * pushes from wherever that pass left it instead: every entity in a piston's area moves on its own, riders
+     * included. Empty when no seat can reach {@code near}, which allocates nothing. Read only.
+     */
+    public List<SimpleCollisionBox> untrackedRiderPushBoxes(
+            PacketEntity rider, SimpleCollisionBox near, SimpleCollisionBox rootBox, SimpleCollisionBox scratch) {
+        List<SimpleCollisionBox> moved = rider.riderPushBoxes(riderPushPass);
+        if (moved != null) return moved;
+        PacketEntity root = rootOf(rider);
+        if (root == null || !seatMayReach(rider, near, rootBox, scratch, true)) return List.of();
+        List<SimpleCollisionBox> roots = root.movementCollisionBoxCandidatesBeforeTick();
+        if (roots.size() == 1) {
+            SimpleCollisionBox seat = untrackedRiderSeat(rider, 0, roots.getFirst());
+            return seat == null ? List.of() : List.of(seat);
+        }
+        List<SimpleCollisionBox> seats = new ArrayList<>(roots.size());
+        for (SimpleCollisionBox candidate : roots) {
+            SimpleCollisionBox seat = untrackedRiderSeat(rider, 0, candidate);
+            if (seat != null) seats.add(seat);
+        }
+        return seats;
+    }
+
+    /** The seat untracked {@code rider} takes while the root of its vehicle chain holds {@code rootBox}; null in a cycle. */
+    @Nullable
+    public SimpleCollisionBox untrackedRiderSeatOn(PacketEntity rider, SimpleCollisionBox rootBox) {
+        return untrackedRiderSeat(rider, 0, rootBox);
     }
 
     /**
@@ -399,6 +449,8 @@ public class CompensatedEntities {
         seat.maxZ += spreadZ;
         seat.maxY += spreadY;
         seat.minY -= posedSeatDrop(rider);
+        List<SimpleCollisionBox> moved = rider.riderPushBoxes(riderPushPass);
+        if (moved != null) for (SimpleCollisionBox box : moved) seat.union(box);
         return seat;
     }
 
@@ -420,17 +472,23 @@ public class CompensatedEntities {
         return drop;
     }
 
-    // The seat box positionPassenger would give rider, with every untracked vehicle above it seated the same way.
     @Nullable
     private SimpleCollisionBox untrackedRiderSeat(PacketEntity rider, int hops) {
+        return untrackedRiderSeat(rider, hops, null);
+    }
+
+    // The seat box positionPassenger would give rider, with every untracked vehicle above it seated the same way, from
+    // rootBox, a box the root may hold, or from the root's possible boxes when null.
+    @Nullable
+    private SimpleCollisionBox untrackedRiderSeat(PacketEntity rider, int hops, @Nullable SimpleCollisionBox rootBox) {
         PacketEntity vehicle = rider.getRiding();
         if (vehicle == null || hops > entityMap.size()) return null;
         SimpleCollisionBox vehicleBox;
         if (isUntrackedRider(vehicle)) {
-            vehicleBox = untrackedRiderSeat(vehicle, hops + 1);
+            vehicleBox = untrackedRiderSeat(vehicle, hops + 1, rootBox);
             if (vehicleBox == null) return null;
         } else {
-            vehicleBox = vehicle.getPossibleMovementCollisionBoxes();
+            vehicleBox = rootBox != null ? rootBox : vehicle.getPossibleMovementCollisionBoxes();
         }
         Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(vehicle, rider, player, vehicleBox);
         return GetBoundingBox.getPacketEntityBoundingBox(player, seat.x, seat.y, seat.z, rider);

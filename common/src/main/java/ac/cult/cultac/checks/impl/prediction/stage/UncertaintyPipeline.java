@@ -20,7 +20,6 @@ public class UncertaintyPipeline {
             new SwimSpaceShift(),
             new AquaticUpdateSwim(),
             new FluidPush(),
-            new EntityPush(),
-            new PointThreeTesting() // LocalPlayer#sendPosition may withhold a position within its report threshold
+            new EntityPush()
             ));
 }

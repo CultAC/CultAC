@@ -78,7 +78,8 @@ final class JavaBlockEntityMove {
     /**
      * The tick's constants: the player, the prediction context whose actor and attributes it uses, the pose
      * Player#updatePlayerPose left, the shift key (Player#isSuppressingBounce and Entity#isSteppingCarefully), the
-     * position the tick started at (Entity#oldPosition) and Level#getGameTime.
+     * position the tick started at (Entity#oldPosition) and Level#getGameTime. A {@code detached} remote actor's moves
+     * are only computed, never applied to the tracked entity.
      */
     record Environment(
             CultPlayer player,
@@ -89,7 +90,21 @@ final class JavaBlockEntityMove {
             Vec3 tickStart,
             long gameTime,
             PacketEntity remoteActor,
-            JavaMovementPatch movementPatch) {
+            JavaMovementPatch movementPatch,
+            boolean detached) {
+        Environment(
+                CultPlayer player,
+                SimulationContext context,
+                Pose pose,
+                float scale,
+                boolean sneaking,
+                Vec3 tickStart,
+                long gameTime,
+                PacketEntity remoteActor,
+                JavaMovementPatch movementPatch) {
+            this(player, context, pose, scale, sneaking, tickStart, gameTime, remoteActor, movementPatch, false);
+        }
+
         PacketEntity actor() {
             if (remoteActor != null) return remoteActor;
             return context.getVehicle() == null ? player.compensatedEntities.getSelf() : context.getVehicle();
@@ -120,7 +135,7 @@ final class JavaBlockEntityMove {
             state = state.withVelocity(Vec3.ZERO);
             if (mover == Mover.SHULKER_BOX && actor.noAI) return new Moved(state, false, delta, Vec3.ZERO);
         }
-        Moved moved = moveEntity(env, state, mover, delta, true);
+        Moved moved = moveEntity(env, state, mover, delta, !env.detached());
         // Ordinary AbstractMinecart#move runs its no-argument stationary block pass even when Entity#move
         // returned early. PistonMovingBlockEntity runs its separate explicit block pass afterwards.
         if (actor != null && actor.isMinecart())

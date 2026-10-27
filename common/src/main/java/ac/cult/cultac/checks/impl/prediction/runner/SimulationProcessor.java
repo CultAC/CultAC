@@ -1590,7 +1590,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     private boolean certainlyMissesWalls(PredictionResult result) {
         CollideAxisData collide = result.getCollideAxisData();
-        return !result.getSimulationContext().isTestingPointThree()
+        return !result.getSimulationContext().isWithheldPosition()
                 && this.player.isTickingReliablyFor(1)
                 && collide != null
                 && collide.getX() != null
