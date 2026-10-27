@@ -2,15 +2,21 @@ package ac.cult.cultac.utils.anticheat;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.latency.CompensatedInventory;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /** Where a player is and what the client holds, as alert placeholders and the webhook's state line. */
 public final class AlertDetails {
     private static final String UNKNOWN = "unknown";
+    private static final int MAX_CHECKS = 10;
 
     private AlertDetails() {}
 
@@ -62,6 +68,80 @@ public final class AlertDetails {
         append(state, "transaction_ping", player.getTransactionPing());
         append(state, "keepalive_ping", player.getKeepAlivePing());
         return state.toString();
+    }
+
+    /**
+     * The state entries that set the client apart from an idle survival player, space-separated: the flags that are
+     * true, a game mode other than survival and the items held.
+     */
+    public static @NotNull String notableState(@NotNull CultPlayer player) {
+        StringBuilder state = new StringBuilder(128);
+        String gamemode = gamemode(player);
+        if (!gamemode.equals("survival")) appendNotable(state, "gamemode", gamemode);
+        if (player.isSprinting) appendNotable(state, "sprint", true);
+        if (player.sprintState.flag()) appendNotable(state, "sprint_flag", true);
+        if (player.sprintState.modifier()) appendNotable(state, "sprint_modifier", true);
+        if (player.isSneaking) appendNotable(state, "sneak", true);
+        if (player.swimState.swimming()) appendNotable(state, "swim", true);
+        if (player.isGliding) appendNotable(state, "glide", true);
+        if (player.isFlying) appendNotable(state, "fly", true);
+        if (player.onGround) appendNotable(state, "on_ground", true);
+        if (player.inVehicle()) appendNotable(state, "vehicle", true);
+        CompensatedInventory inventory = player.getInventory();
+        if (inventory != null) {
+            String held = item(inventory.getHeldItem());
+            if (!held.equals("air")) appendNotable(state, "holding", held);
+            String offhand = item(inventory.getOffHand());
+            if (!offhand.equals("air")) appendNotable(state, "offhand", offhand);
+        }
+        if (player.hasInventoryOpen) appendNotable(state, "inventory_open", true);
+        return state.toString();
+    }
+
+    /** Position and rotation as {@code x y z yaw pitch}, to two decimals. */
+    public static @NotNull String location(@NotNull CultPlayer player) {
+        return round(player.x) + " " + round(player.y) + " " + round(player.z) + " " + round(player.yRot) + " "
+                + round(player.xRot);
+    }
+
+    /** How long this player has been connected, as {@code 34.91s}, {@code 12m 5s} or {@code 3h 7m}. */
+    public static @NotNull String sessionTime(@NotNull CultPlayer player) {
+        long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - player.connectedAt);
+        if (millis < 60_000) return String.format(Locale.ROOT, "%.2fs", millis / 1000.0);
+        long minutes = millis / 60_000;
+        if (minutes < 60) return minutes + "m " + (millis / 1000 % 60) + "s";
+        return minutes / 60 + "h " + minutes % 60 + "m";
+    }
+
+    /**
+     * The checks holding violations, highest first, as {@code Name=VL}; an experimental check is marked {@code *}.
+     * At most ten are listed.
+     */
+    public static @NotNull String checks(@NotNull CultPlayer player) {
+        List<Check> flagged = new ArrayList<>();
+        for (Check check : player.checkManager.getAllChecks()) {
+            if (check.violations > 0 && check.getDisplayName() != null) flagged.add(check);
+        }
+        flagged.sort(
+                Comparator.comparingDouble((Check check) -> check.violations).reversed());
+        StringBuilder checks = new StringBuilder();
+        for (int i = 0; i < Math.min(flagged.size(), MAX_CHECKS); i++) {
+            Check check = flagged.get(i);
+            if (!checks.isEmpty()) checks.append(' ');
+            if (check.isExperimental()) checks.append('*');
+            checks.append(check.getDisplayName()).append('=').append(round(check.violations));
+        }
+        if (flagged.size() > MAX_CHECKS) checks.append(" +").append(flagged.size() - MAX_CHECKS);
+        return checks.toString();
+    }
+
+    private static double round(double value) {
+        return Math.round(value * 100) / 100.0;
+    }
+
+    private static void appendNotable(StringBuilder state, String key, Object value) {
+        if (!state.isEmpty()) state.append(' ');
+        state.append(key).append('=').append(value);
     }
 
     private static void append(StringBuilder state, String key, Object value) {

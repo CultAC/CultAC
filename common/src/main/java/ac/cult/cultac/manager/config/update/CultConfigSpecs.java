@@ -324,19 +324,33 @@ public final class CultConfigSpecs {
      * Spec for {@code discord.yml}.
      *
      * <p>v1 → v2: the alert names the player, check and violations in its title and puts every value in a code span.
-     * A title or {@code violation-content} still in a shipped v1 shape, in any language, takes the new default; one
-     * the operator wrote stays. {@code include-state} is added by the default rewrite.
+     * v2 → v3: the description takes Grim's alert layout (location, both pings, clock, session time, raw sensitivity,
+     * state, checks and verbose) and the footer and thumbnail keys are written out. A title or {@code
+     * violation-content} still in a shipped shape, in any language, takes the new default; one the operator wrote
+     * stays. {@code include-state} is added by the default rewrite.
      */
     public static @NotNull ConfigUpdater.Spec discord() {
-        return ConfigUpdater.Spec.builder("/discord/", 2, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/discord/", 3, ConfigUpdater.ConfigFlavor.V2)
                 .migration(2, CultConfigSpecs::discordAlertLayout)
+                .migration(3, CultConfigSpecs::discordAlertLayout)
                 .build();
     }
 
-    private static final Pattern SHIPPED_DISCORD_TITLE = Pattern.compile("\\*\\*(?:Cult|Grim) [^%*]+\\*\\*");
-    private static final Pattern SHIPPED_DISCORD_LINE = Pattern.compile("\\*\\*[^*]+\\*\\*: (`?)%([a-z_]+)%\\1");
-    private static final List<String> SHIPPED_DISCORD_PLACEHOLDERS =
+    private static final Pattern SHIPPED_DISCORD_TITLE = Pattern.compile("\\*\\*(?:Cult|Grim|Gladiator) [^%*]+\\*\\*");
+    private static final Pattern SHIPPED_DISCORD_LINE = Pattern.compile("\\*\\*[^*]+\\*\\*: (.+)");
+    private static final List<String> SHIPPED_V1_DISCORD_PLACEHOLDERS =
             List.of("player", "check", "violations", "version", "brand", "ping", "tps");
+    private static final List<String> SHIPPED_V2_DISCORD_VALUES = List.of(
+            "`%player%`",
+            "`%uuid%`",
+            "`%check%`",
+            "`%version%`",
+            "`%brand%`",
+            "`H %h_sensitivity%% / V %v_sensitivity%%`",
+            "`%ping%`",
+            "`%tps%`",
+            "`%server%`",
+            "`%world% (%world_type%)`");
 
     static void discordAlertLayout(MigrationContext ctx) {
         String title = ctx.input().getString("embed-title");
@@ -354,13 +368,27 @@ public final class CultConfigSpecs {
     }
 
     private static boolean isShippedDiscordContent(List<?> content) {
-        if (content.size() != SHIPPED_DISCORD_PLACEHOLDERS.size()) return false;
-        for (int i = 0; i < content.size(); i++) {
-            if (!(content.get(i) instanceof String line)) return false;
-            Matcher matcher = SHIPPED_DISCORD_LINE.matcher(line);
-            if (!matcher.matches() || !matcher.group(2).equals(SHIPPED_DISCORD_PLACEHOLDERS.get(i))) return false;
+        if (content.size() == SHIPPED_V1_DISCORD_PLACEHOLDERS.size()) {
+            for (int i = 0; i < content.size(); i++) {
+                String value = shippedLineValue(content.get(i));
+                String placeholder = "%" + SHIPPED_V1_DISCORD_PLACEHOLDERS.get(i) + "%";
+                if (!placeholder.equals(value) && !("`" + placeholder + "`").equals(value)) return false;
+            }
+            return true;
         }
-        return true;
+        if (content.size() == SHIPPED_V2_DISCORD_VALUES.size()) {
+            for (int i = 0; i < content.size(); i++) {
+                if (!SHIPPED_V2_DISCORD_VALUES.get(i).equals(shippedLineValue(content.get(i)))) return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static @Nullable String shippedLineValue(Object line) {
+        if (!(line instanceof String text)) return null;
+        Matcher matcher = SHIPPED_DISCORD_LINE.matcher(text);
+        return matcher.matches() ? matcher.group(1) : null;
     }
 
     public static @NotNull ConfigUpdater.Spec messages() {

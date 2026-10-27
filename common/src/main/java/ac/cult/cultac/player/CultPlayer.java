@@ -215,6 +215,8 @@ public class CultPlayer implements GrimUser {
     public long rawTransactionPing = 0;
     public long lastTransSent = 0;
 
+    public final long connectedAt = System.nanoTime();
+
     @Getter
     private long playerClockAtLeast = System.nanoTime();
     /**

@@ -7,23 +7,26 @@ disable-webhook-validation: false
 embed-title: "%player%, %check% tarafından tespit edildi [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
-# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+# The footer under the alert, and the icon beside it (an image URL, empty for none).
+embed-footer-text: "%uuid% v%cult_version%"
+embed-footer-url: ""
+# The image at the top right of the alert; %uuid% is the flagged player.
+embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...),
+# unless violation-content places %state%, which lists only the entries that are set.
 include-state: true
 # Discord'un metin biçimlendirmesini bozmasını önlemek için değerlerdeki (istemci markaları gibi) ters tırnak işaretlerini (`) değiştirir.
 # Bu değiştirmeyi devre dışı bırakmak için "`" olarak ayarlayın.
 backtick-replacement-char: "ˋ"
 violation-content:
-    - "**Oyuncu**: `%player%`"
-    - "**UUID**: `%uuid%`"
-    - "**Kontrol**: `%check%`"
-    - "**Client Versiyonu**: `%version%`"
-    - "**Client Markası**: `%brand%`"
-    - "**Hassasiyet**: `H %h_sensitivity%% / V %v_sensitivity%%`"
-    - "**Gecikme**: `%ping%`"
-    - "**TPS**: `%tps%`"
-    - "**Sunucu**: `%server%`"
-    - "**Dünya**: `%world% (%world_type%)`"
+    - "**Versiyon**: `%version%` **Marka**: `%brand%`"
+    - "**Sunucu**: `%server%` **Dünya**: `%world%` **Konum**: `%location%`"
+    - "**TPS**: `%tps%` **Gecikme**: `%ping%/%keepalive_ping%` **Saat**: `%clock_behind%ms` **Süre**: `%session_time%`"
+    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
+    - "**Durum**: %state%"
+    - "**Kontroller**: %checks%"
+    - "**Ayrıntılar**: %verbose%"
 
 # Şema işaretçileri — bkz. config.yml'deki başlık yorumu.
 config-flavor: V2
-config-version: 2
+config-version: 3

@@ -58,6 +58,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             new WebhookQueue(DiscordManager::post, System::currentTimeMillis, LogUtil::getLogger);
     private static final AtomicBoolean taskStarted = new AtomicBoolean();
     static final String DEFAULT_TITLE = "%player% has been detected for %check% [%violations%]";
+    static final String DEFAULT_FOOTER_TEXT = "%uuid% v%cult_version%";
     private URI url;
     private int embedColor;
     private CompiledDiscordTemplate compiledContent;
@@ -134,12 +135,10 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
                     url = null;
                 }
             }
-            // not adding these to the config since they may change in the future
-            // mainly for just for allowing more customization
             embedImageUrl = validatedConfigURL("embed-image-url", null);
             embedThumbnailUrl = validatedConfigURL("embed-thumbnail-url", "https://crafthead.net/helm/%uuid%");
             embedFooterUrl = validatedConfigURL("embed-footer-url", null);
-            embedFooterText = config.getStringElse("embed-footer-text", "v%cult_version%");
+            embedFooterText = config.getStringElse("embed-footer-text", DEFAULT_FOOTER_TEXT);
             compiledTitle = CompiledDiscordTemplate.compile(config.getStringElse("embed-title", DEFAULT_TITLE));
 
             try {
@@ -167,28 +166,30 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
     @Contract(value = " -> new", pure = true)
     private @NotNull @Unmodifiable List<@NotNull String> getDefaultContents() {
         return List.of(
-                "**Player**: `%player%`",
-                "**UUID**: `%uuid%`",
-                "**Check**: `%check%`",
-                "**Client Version**: `%version%`",
-                "**Brand**: `%brand%`",
-                "**Sensitivity**: `H %h_sensitivity%% / V %v_sensitivity%%`",
-                "**Ping**: `%ping%`",
-                "**TPS**: `%tps%`",
-                "**Server**: `%server%`",
-                "**World**: `%world% (%world_type%)`");
+                "**Version**: `%version%` **Brand**: `%brand%`",
+                "**Server**: `%server%` **World**: `%world%` **Location**: `%location%`",
+                "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Clock**: `%clock_behind%ms` **Time**: `%session_time%`",
+                "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`",
+                "**State**: %state%",
+                "**Checks**: %checks%",
+                "**Verbose**: %verbose%");
     }
 
     public void sendAlert(@NotNull CultPlayer player, String verbose, String checkName, int violations) {
         if (isDisabled()) {
             return;
         }
+        sendWebhookMessage(new WebhookMessage().addEmbeds(alertEmbed(player, verbose, checkName, violations)));
+    }
 
+    /** The embed {@link #sendAlert} posts for this flag. */
+    public @NotNull Embed alertEmbed(@NotNull CultPlayer player, String verbose, String checkName, int violations) {
         // Per-alert overlay — avoids polluting the global static map
         Map<String, String> statics =
                 new HashMap<>(CultAPI.INSTANCE.getExternalAPI().getStaticReplacements());
         statics.put("%check%", checkName);
         statics.put("%violations%", Integer.toString(violations));
+        statics.put("%verbose%", verbose);
 
         Map<String, Function<GrimUser, String>> dynamics =
                 CultAPI.INSTANCE.getExternalAPI().getVariableReplacements();
@@ -207,14 +208,13 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
 
         if (includeTimestamp) embed.timestamp(Instant.now());
 
-        if (!verbose.isEmpty() && includeVerbose) {
+        if (!verbose.isEmpty() && includeVerbose && !compiledContent.uses("%verbose%")) {
             embed.addFields(new EmbedField("Verbose", codeBlock(verbose)));
         }
-        if (includeState) {
+        if (includeState && !compiledContent.uses("%state%")) {
             embed.addFields(new EmbedField("State", codeBlock(AlertDetails.state(player))));
         }
-
-        sendWebhookMessage(new WebhookMessage().addEmbeds(embed));
+        return embed;
     }
 
     /** A code block that fits a field value, cutting the value rather than the fence. */
