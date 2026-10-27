@@ -560,6 +560,14 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 && !teleportData.getTeleportData().isPositionOnly()
                 && !player.isBedrockMovement()
                 && !player.user.getObservedProtocol().atLeast(ac.cult.cultac.protocol.ProtocolVersion.V26_3));
+        event.setAuthoredTeleportResponse(packet.hasPosition()
+                && packet.hasRotation()
+                && teleportData.isTeleport()
+                && teleportData.getTeleportData() != null
+                && teleportData.getTeleportData().isAuthored()
+                && !teleportData.getTeleportData().isPositionOnly()
+                && !teleportData.getTeleportData().isRotationOnly()
+                && !player.isBedrockMovement());
         player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
         player.packetStateData.lastPacketMatchedTeleportPosition = teleportData.isMatchedTeleportPosition();
         if (teleportData.isMatchedTeleportPosition()
@@ -589,6 +597,9 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
 
         // A teleport acknowledgement is not LocalPlayer#tick movement.
         if (!player.packetStateData.lastPacketWasTeleport) {
+            // The entities ticking before the player have moved it by the time LocalPlayer#tick sends this.
+            if (!player.packetStateData.receivedMovementThisClientTick && !player.isBedrockMovement())
+                player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
             player.packetStateData.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             player.packetStateData.playerLoadedIntoLevel = true;
@@ -759,7 +770,16 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             // position, or its prediction subsequently requires a correction.
             rideable.boost.tick(player.packetStateData.acceptedClientTick);
         }
-        if (!fromClientTick && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
+        TeleportAcceptData teleportData = player.getSetbackTeleportUtil()
+                .checkVehicleTeleportQueue(
+                        packetRoot == null ? null : packetRoot.getEntityId(),
+                        newPos.x,
+                        newPos.y,
+                        newPos.z,
+                        fromClientTick);
+        if (!teleportData.isTeleport()
+                && !fromClientTick
+                && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
             PacketEntity bufferedRoot = bufferedLocalAuthoritativeRoot(player, packetRoot);
             if (bufferedRoot != null) {
                 fromClientTick = true;
@@ -782,13 +802,6 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                                 fromClientTick)
                         || (fromClientTick
                                 && player.compensatedEntities.vehicles.isVehicleSwitchBufferActiveFor(packetRoot));
-        TeleportAcceptData teleportData = player.getSetbackTeleportUtil()
-                .checkVehicleTeleportQueue(
-                        packetRoot == null ? null : packetRoot.getEntityId(),
-                        newPos.x,
-                        newPos.y,
-                        newPos.z,
-                        pairedRiddenTick);
         boolean checkableClientTick =
                 fromClientTick && packetRoot != null && canAuthoritativelyMove && !teleportData.isTeleport();
 
@@ -836,6 +849,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         if (fromClientTick && !player.packetStateData.lastPacketWasTeleport) {
+            if (!player.packetStateData.receivedMovementThisClientTick && !player.isBedrockMovement())
+                player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
             player.packetStateData.receivedMovementThisClientTick = true;
         }
 
@@ -858,8 +873,9 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.boatData.tick(player);
         }
         Vec3 physicalMovementStart = oldPosition;
-        float physicalYaw = player.compensatedEntities.vehicles.saddleHandOverTravelYaw(packetRoot, vehiclePacket.yaw());
-        float physicalPitch = vehiclePacket.pitch();
+        float physicalYaw = player.compensatedEntities.vehicles.controlledTravelYaw(packetRoot, vehiclePacket.yaw());
+        float physicalPitch =
+                player.compensatedEntities.vehicles.controlledTravelPitch(packetRoot, vehiclePacket.pitch());
         Vec3 physicalNewPos = newPos;
         player.packetStateData.lastPacketProvenVehiclePhysicalMovement =
                 checkableClientTick ? physicalNewPos.subtract(oldPosition) : null;
@@ -941,6 +957,14 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             TeleportAcceptData teleportData) {
         VehicleTeleportData vehicleTeleportData = teleportData.getVehicleTeleportData();
         if (vehicleTeleportData != null && vehicleTeleportData.getEntityId() == packetRoot.getEntityId()) {
+            if (vehicleTeleportData.getApplication() != VehicleTeleportData.Application.ENTITY_TELEPORT) {
+                player.compensatedEntities.vehicles.applyAcceptedVehicleCorrection(packetRoot, vehicleTeleportData);
+                Vec3 physical = packetRoot.clientPhysicalPosition;
+                player.x = physical.x;
+                player.y = physical.y;
+                player.z = physical.z;
+                return;
+            }
             player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
                     vehicleTeleportData.getEntityId(),
                     vehicleTeleportData.getPosition(),
@@ -1186,6 +1210,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.packetStateData.carriedItemClaimedThisClientTick = false;
         }
         player.packetStateData.receivedMovementThisClientTick = false;
+        player.packetStateData.glidingBeforeClientAction = null;
         player.packetStateData.flyingStartBeforeTravel = false;
         player.packetStateData.flightStopThisClientTick = false;
         player.packetStateData.bedrockTranslatedMovement.clear();

@@ -38,17 +38,13 @@ class ElytraTransformFireworkTest {
     private static final Vec3 VELOCITY = new Vec3(0.3D, -0.2D, 0.6D);
 
     @Test
-    void eachAttachedRocketBoostsTheStoredVelocityBeforeTheGlide() {
+    void aGlideDoesNotApplyAnySpeculativeRocketBoosts() {
         withPlayer(player -> {
             player.compensatedFireworks.addNewFirework(100);
             player.compensatedFireworks.addNewFirework(101);
-            for (int rockets = 0; rockets <= 2; rockets++) {
-                Vector3dm lastLook = ReachUtils.getLook(player, LAST_YAW, LAST_PITCH);
-                Vec3 boosted = VELOCITY;
-                for (int i = 0; i < rockets; i++) boosted = boost(boosted, lastLook);
-                Vec3 end = glide(player, boosted);
-                assertClose(end, transform(player, new PredVector(VELOCITY), end));
-            }
+            Vec3 actual = glide(player, VELOCITY);
+            Vec3 speculative = glide(player, boost(VELOCITY, ReachUtils.getLook(player, LAST_YAW, LAST_PITCH)));
+            assertClose(actual, transform(player, new PredVector(VELOCITY), speculative));
         });
     }
 
@@ -69,7 +65,7 @@ class ElytraTransformFireworkTest {
 
     /** TridentItem#releaseUsing pushes in Minecraft#handleKeybinds, after the rocket boosted the stored velocity. */
     @Test
-    void aRiptidePushAddsToTheBoostedVelocity() {
+    void aRiptidePushIsAlreadyInTheGlideInput() {
         withPlayer(player -> {
             player.compensatedFireworks.addNewFirework(100);
             SimulationContext context = context(player);
@@ -77,12 +73,11 @@ class ElytraTransformFireworkTest {
             when(context.isRiptideReleaseCertain()).thenReturn(true);
             when(context.getTrig()).thenReturn(new TrigHandler(player));
             when(context.getWorldData().getCarriedOnGround()).thenReturn(DesyncStatus.FALSE);
-            PredVector pushed = Riptide.release(player, context, List.of(new PredVector(VELOCITY)))
+            PredVector pushed = Riptide.releasePushes(context, List.of(new PredVector(VELOCITY)))
                     .getFirst();
             Vec3 push = pushed.subtract(VELOCITY);
 
-            Vec3 boosted = boost(VELOCITY, ReachUtils.getLook(player, LAST_YAW, LAST_PITCH));
-            Vec3 end = glide(player, boosted.add(push));
+            Vec3 end = glide(player, VELOCITY.add(push));
             assertClose(end, transform(player, context, pushed, end));
         });
     }
@@ -157,7 +152,7 @@ class ElytraTransformFireworkTest {
     }
 
     private static void assertClose(Vec3 expected, Vec3 actual) {
-        assertEquals(0.0D, expected.distanceTo(actual), 1.0E-9D, () -> expected + " != " + actual);
+        assertEquals(0.0D, expected.distanceTo(actual), 1.0E-13D, () -> expected + " != " + actual);
     }
 
     private static void withPlayer(Consumer<CultPlayer> test) {

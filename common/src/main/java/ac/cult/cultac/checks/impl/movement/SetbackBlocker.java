@@ -90,8 +90,8 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
             PacketReceiveEvent<ServerboundMovePlayer> event, ServerboundMovePlayer packet) {
         if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return;
         boolean teleport = player.packetStateData.lastPacketWasTeleport;
-        // Invalid sleeping/dead movement must not change the simulation's position anchor.
-        if (!teleport && player.isInBed && packet.hasPosition()) {
+        // Java sleeping travel still consumes carried velocity; its movement is checked by the engine.
+        if (player.isBedrockMovement() && !teleport && player.isInBed && packet.hasPosition()) {
             Vec3 bedPosition = player.bedPosition;
             if (bedPosition == null
                     || Math.max(Math.abs(packet.x() - bedPosition.x), Math.abs(packet.z() - bedPosition.z)) > 0.5D
@@ -141,7 +141,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         }
 
         // A player is sleeping while in a vehicle
-        if (!teleport && player.isInBed) {
+        if (player.isBedrockMovement() && !teleport && player.isInBed) {
             event.setCancelled(true);
         }
 

@@ -81,10 +81,10 @@ final class BedrockWorldSnapshotBuilder {
         if (context == null || context.getWorldData() == null) {
             return Medium.AIR;
         }
-        if (context.getWorldData().getInWater().determinePessimistically()) {
+        if (context.getWorldData().isInWater()) {
             return Medium.WATER;
         }
-        if (context.getWorldData().getInLava().determinePessimistically()) {
+        if (context.getWorldData().isInLava()) {
             return Medium.LAVA;
         }
         return Medium.AIR;
@@ -93,13 +93,13 @@ final class BedrockWorldSnapshotBuilder {
     private static boolean sourceWaterContact(SimulationContext context) {
         return context != null
                 && context.getWorldData() != null
-                && context.getWorldData().getInWater().determinePessimistically();
+                && context.getWorldData().isInWater();
     }
 
     private static boolean sourceLavaContact(SimulationContext context) {
         return context != null
                 && context.getWorldData() != null
-                && context.getWorldData().getInLava().determinePessimistically();
+                && context.getWorldData().isInLava();
     }
 
     static BlockCollisionWorld withHardCollidingEntities(

@@ -64,6 +64,8 @@ public class BoundingBoxSize {
             return 0.4F;
         }
         float exactWidth = baseDimensions(packetEntity).width();
+        if (packetEntity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPufferfish fish)
+            exactWidth *= fish.puffScale();
         return Float.isNaN(exactWidth) ? 0.6f : exactWidth;
     }
 
@@ -147,6 +149,17 @@ public class BoundingBoxSize {
                         defaultDimensionsScale(vehicle, player.getClientVersion(), player.isBedrockMovement()),
                         vehicle.scale,
                         vehicleYaw));
+        if (vehicle.isAvatar() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
+            // Avatar#POSES supplies the current dimensions' default passenger attachment, at that pose's height.
+            float height;
+            if (vehicle == player.compensatedEntities.getSelf())
+                height = player.pose == ac.cult.cultac.utils.enums.Pose.SLEEPING
+                                || player.pose == ac.cult.cultac.utils.enums.Pose.DYING
+                        ? .2F
+                        : player.pose.height * vehicle.scale;
+            else height = PacketEntity.avatarHeight(vehicle.actionPose, vehicle.scale);
+            passengerAttachment = new Vec3(passengerAttachment.x, height, passengerAttachment.z);
+        }
         if (vehicle instanceof PacketEntityHorse horse) {
             // MCP-Reborn AbstractHorse#getPassengerAttachmentPoint adds this rearing offset to the default point.
             passengerAttachment = passengerAttachment.add(
@@ -321,6 +334,8 @@ public class BoundingBoxSize {
             return 0.5F;
         }
         float exactHeight = baseDimensions(packetEntity).height();
+        if (packetEntity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPufferfish fish)
+            exactHeight *= fish.puffScale();
         return Float.isNaN(exactHeight) ? 1.95f : exactHeight;
     }
 

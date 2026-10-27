@@ -19,6 +19,7 @@ Punishments:
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
+      - "Phase"
     # Límite:Intervalo Comando
     #
     # Por ejemplo, para expulsar al jugador con el mensaje "movimiento incorrecto!" después de 100 violaciones sin intervalo:
@@ -132,4 +133,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 4
+cult-config-version: 5

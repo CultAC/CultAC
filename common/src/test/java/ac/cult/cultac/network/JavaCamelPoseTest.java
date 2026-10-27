@@ -107,7 +107,7 @@ class JavaCamelPoseTest {
             shallowWater(f);
             f.input(FORWARD);
             // The root ticked on the idle keys before LocalPlayer#aiStep read the pressed ones.
-            assertExactTick(uncertainWater(f.rideTick(SEAT, true)), "entry");
+            assertExactTick(waterAtTick(f.rideTick(SEAT, true)), "entry");
             double velocity = 0.0D;
             double z = SEAT.z;
             for (int tick = 0; tick < 5; tick++) {
@@ -124,7 +124,7 @@ class JavaCamelPoseTest {
         try (var f = sitting()) {
             shallowWater(f);
             releaseJump(f);
-            assertExactTick(uncertainWater(f.rideTick(SEAT, true)), "entry");
+            assertExactTick(waterAtTick(f.rideTick(SEAT, true)), "entry");
             assertFalse(camel(f).isCamelSitting());
             assertEquals(0.4D, camel(f).horseJump, 1.0E-6);
         }
@@ -137,7 +137,7 @@ class JavaCamelPoseTest {
             f.input(FORWARD);
             assertExactTick(f.rideTick(SEAT, true), "entry");
             shallowWater(f);
-            assertExactTick(uncertainWater(f.rideTick(SEAT, true)), "transition 0");
+            assertExactTick(waterAtTick(f.rideTick(SEAT, true)), "transition 0");
             for (int tick = 1; tick < 6; tick++) assertExactTick(f.rideTick(SEAT, true), "transition " + tick);
         }
     }
@@ -148,7 +148,7 @@ class JavaCamelPoseTest {
         try (var f = sitting()) {
             shallowWater(f);
             f.input(FORWARD);
-            assertExactTick(uncertainWater(f.rideTick(SEAT, true)), "entry");
+            assertExactTick(waterAtTick(f.rideTick(SEAT, true)), "entry");
             double velocity = 0.0D;
             double z = SEAT.z;
             for (int tick = 0; tick < 2; tick++) {
@@ -167,7 +167,7 @@ class JavaCamelPoseTest {
             f.input(FORWARD);
             assertExactTick(f.rideTick(SEAT, true), "entry");
             shallowWater(f);
-            assertExactTick(uncertainWater(f.rideTick(SEAT, true)), "transition 0");
+            assertExactTick(waterAtTick(f.rideTick(SEAT, true)), "transition 0");
             for (int tick = 1; tick < 3; tick++) assertExactTick(f.rideTick(SEAT, true), "transition " + tick);
             assertFalse(exact(f.rideTick(new Vec3(SEAT.x, SEAT.y, SEAT.z + WATER_INPUT), true)));
         }
@@ -214,7 +214,14 @@ class JavaCamelPoseTest {
             layer(f, FLOOR_Y + 1, BlockIds.WATER.defaultState());
             expireBlockChangeUncertainty(f);
             f.input(FORWARD);
-            for (int tick = 0; tick < 6; tick++) assertExactTick(f.rideTick(SEAT, true), "transition " + tick);
+            double y = SEAT.y;
+            double velocityY = (double) 0.04F - 0.08 / 16.0;
+            for (int tick = 0; tick < 6; tick++) {
+                // Once standing dimensions enter the water, fluid travel adds ridden floating after gravity.
+                if (tick >= 3) y += velocityY;
+                assertExactTick(f.rideTick(new Vec3(SEAT.x, y, SEAT.z), tick < 3), "transition " + tick);
+                if (tick >= 3) velocityY = velocityY * (double) 0.8F - 0.08 / 16.0 + (double) 0.04F;
+            }
         }
     }
 
@@ -247,11 +254,11 @@ class JavaCamelPoseTest {
         }
     }
 
-    /** The tick ran while the client could hold the water or not. */
-    private static PredictionResult uncertainWater(PredictionResult result) {
+    /** The compensated block update is applied at this client tick; water is exact. */
+    private static PredictionResult waterAtTick(PredictionResult result) {
         assertEquals(
-                List.of(false, true),
-                result.getSimulationContext().getWorldData().getInWater().getStates());
+                List.of(true),
+                result.getSimulationContext().getWorldData().waterStates());
         return result;
     }
 
@@ -262,8 +269,7 @@ class JavaCamelPoseTest {
         report.append(" inWater=")
                 .append(result.getSimulationContext()
                         .getWorldData()
-                        .getInWater()
-                        .getStates());
+                        .isInWater());
         assertTrue(exact(result), report.toString());
     }
 

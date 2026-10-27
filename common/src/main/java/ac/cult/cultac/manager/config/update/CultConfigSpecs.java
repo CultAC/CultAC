@@ -137,16 +137,42 @@ public final class CultConfigSpecs {
     public static @NotNull ConfigUpdater.Spec cultConfig(String resourceDirectory) {
         ConfigUpdater.Spec.Builder builder = ConfigUpdater.Spec.builder(
                         resourceDirectory,
-                        resourceDirectory.equals("/punishments/") ? 4 : 0,
+                        resourceDirectory.equals("/punishments/") ? 5 : 0,
                         ConfigUpdater.ConfigFlavor.V2)
                 .cultVersioning();
         if (resourceDirectory.equals("/punishments/")) {
             builder.migration(1, CultConfigSpecs::addBedrockPunishment)
                     .migration(2, CultConfigSpecs::addMissingCheckPunishments)
                     .migration(3, CultConfigSpecs::addNoSneakSlowPunishment)
-                    .migration(4, CultConfigSpecs::addSkinBlinkerAndCloudPunishments);
+                    .migration(4, CultConfigSpecs::addSkinBlinkerAndCloudPunishments)
+                    .migration(5, CultConfigSpecs::addPhasePunishment);
         }
         return builder.build();
+    }
+
+    /**
+     * Phase flags and sets back with no punishment group of its own; it alerts with the movement checks. A group that
+     * already selects it keeps it alone.
+     */
+    private static void addPhasePunishment(MigrationContext ctx) {
+        Map<String, Object> groups = ctx.input().getMap("Punishments");
+        if (groups != null) {
+            for (Object value : groups.values()) {
+                if (!(value instanceof Map<?, ?> group) || !(group.get("checks") instanceof List<?> checks)) continue;
+                for (Object selector : checks) {
+                    if (selector instanceof String text
+                            && !text.startsWith("!")
+                            && "phase".contains(text.toLowerCase(Locale.ROOT))) return;
+                }
+            }
+        }
+        addPunishmentChecks(
+                ctx,
+                "Simulation",
+                List.of("Simulation"),
+                List.of("Phase"),
+                List.of("100:40 [alert]", "1:1 [log]", "100:100 [webhook]", "100:100 [proxy]"),
+                "NoFall");
     }
 
     private static void addSkinBlinkerAndCloudPunishments(MigrationContext ctx) {

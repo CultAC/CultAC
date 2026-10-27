@@ -8,6 +8,19 @@ import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 
 public class StepTransform implements UncertaintyHandler {
+    /** Entity#collide's step raises only the move: deltaMovement keeps its Y for the landing response after it. */
+    @Override
+    public MovementTrace handleMovementTrace(
+            CultPlayer player,
+            ValidMovements valid,
+            PredictionResult result,
+            SimulationContext context,
+            PredictionResult lastResult,
+            MovementTrace trace,
+            Vec3 end) {
+        return trace.withPosition(handleUncertainty(player, valid, result, context, lastResult, trace.position(), end));
+    }
+
     @Override
     public PredVector handleUncertainty(
             CultPlayer player,

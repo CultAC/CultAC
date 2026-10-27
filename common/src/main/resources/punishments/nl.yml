@@ -19,6 +19,7 @@ Punishments:
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
+      - "Phase"
     # Drempel: Interval-commando
     #
     # Voorbeeld, om de speler te schoppen met het bericht "verkeerde beweging!" na 100 overtredingen, zonder interval
@@ -131,4 +132,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 4
+cult-config-version: 5

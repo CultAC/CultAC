@@ -5,6 +5,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockTickInput;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementInputFactory.Input;
+import ac.cult.cultac.bedrock.prediction.integration.ExternalMovementUncertainty.Snapshot;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
@@ -28,12 +29,8 @@ import ac.cult.cultac.checks.impl.prediction.PredVector.StepCandidate;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty.Snapshot;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Fireworks;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.InsideBlock;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.PistonShulkerPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.StepTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
@@ -47,7 +44,6 @@ import ac.cult.cultac.utils.latency.CompensatedFireworks;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.junit.Assert;
 import org.junit.Test;
@@ -372,7 +368,7 @@ public final class BedrockUncertaintyPipelineTest {
 
     private static PistonPushes pushes(SimpleCollisionBox piston, SimpleCollisionBox shulker) {
         return new PistonPushes(
-                piston.isEmpty() ? shulker.copy() : piston.copy().union(shulker), piston, shulker, Set.of());
+                piston.isEmpty() ? shulker.copy() : piston.copy().union(shulker), piston, shulker);
     }
 
     private static SimpleCollisionBox pointEnvelope(double x) {

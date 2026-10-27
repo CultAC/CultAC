@@ -7,7 +7,6 @@ import static org.mockito.Mockito.when;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
-import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
@@ -26,17 +25,17 @@ import org.junit.jupiter.api.Test;
 class RiptideReleaseWaterTest {
     @Test
     void aReleaseAfterAWetMoveIsValidInADrainedWorld() {
-        assertTrue(withPlayer(false, player -> canRelease(player, DesyncStatus.TRUE)));
+        assertTrue(withPlayer(false, player -> canRelease(player, true)));
     }
 
     @Test
     void aReleaseAfterADryMoveIsDryInAFloodedWorld() {
-        assertFalse(withPlayer(true, player -> canRelease(player, DesyncStatus.FALSE)));
+        assertFalse(withPlayer(true, player -> canRelease(player, false)));
     }
 
     @Test
-    void aReleaseAfterAMoveOfUnknownWaterStateIsValid() {
-        assertTrue(withPlayer(false, player -> canRelease(player, DesyncStatus.UNKNOWN)));
+    void aWetMoveKeepsAReleaseCertainAfterTheWorldDrains() {
+        assertTrue(withPlayer(false, player -> spins(player, true)));
     }
 
     @Test
@@ -47,20 +46,20 @@ class RiptideReleaseWaterTest {
 
     @Test
     void onlyAWetLastMoveLeavesWasTouchingWaterForTheRelease() {
-        assertTrue(withPlayer(false, player -> spins(player, DesyncStatus.TRUE)));
-        assertFalse(withPlayer(true, player -> spins(player, DesyncStatus.UNKNOWN)));
+        assertTrue(withPlayer(false, player -> spins(player, true)));
+        assertFalse(withPlayer(true, player -> spins(player, false)));
         assertFalse(withPlayer(true, player -> spins(player, null)));
     }
 
-    private static boolean canRelease(CultPlayer player, DesyncStatus touchingWater) {
+    private static boolean canRelease(CultPlayer player, Boolean touchingWater) {
         return afterMove(player, touchingWater, RiptideUtil::canUseRiptideAtCurrentState);
     }
 
-    private static boolean spins(CultPlayer player, DesyncStatus touchingWater) {
+    private static boolean spins(CultPlayer player, Boolean touchingWater) {
         return afterMove(player, touchingWater, RiptideUtil::isCertainRiptideRelease);
     }
 
-    private static boolean afterMove(CultPlayer player, DesyncStatus touchingWater, Predicate<CultPlayer> rule) {
+    private static boolean afterMove(CultPlayer player, Boolean touchingWater, Predicate<CultPlayer> rule) {
         PredictionResult last = mock(PredictionResult.class);
         when(last.getJavaCommittedMove())
                 .thenReturn(

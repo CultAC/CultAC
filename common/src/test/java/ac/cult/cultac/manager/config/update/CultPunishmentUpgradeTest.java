@@ -41,8 +41,8 @@ class CultPunishmentUpgradeTest {
         var data = read(file);
         assertTrue(result.migrated);
         assertEquals(1, result.oldVersion);
-        assertEquals(4, result.newVersion);
-        assertEquals(4, data.get("cult-config-version"));
+        assertEquals(5, result.newVersion);
+        assertEquals(5, data.get("cult-config-version"));
         assertEquals(List.of("Knockback", "Explosion", "KeepSprint"), checks(data, "Knockback"));
         assertEquals(
                 List.of("Interact", "Aim", "AttackPlayerVisibility", "AttackMobVisibility"), checks(data, "Combat"));
@@ -137,7 +137,7 @@ class CultPunishmentUpgradeTest {
                 + "  Simulation:\n    checks: [Simulation, Timer]\n    commands: ['1:1 [log]']\n");
         upgrade(file);
         var data = read(file);
-        assertEquals(List.of("Simulation", "Timer", "BedrockMovement"), checks(data, "Simulation"));
+        assertEquals(List.of("Simulation", "Timer", "BedrockMovement", "Phase"), checks(data, "Simulation"));
         assertEquals(List.of("Knockback", "Explosion", "KeepSprint"), checks(data, "Knockback"));
         assertEquals(
                 List.of("Interact", "Aim", "AttackPlayerVisibility", "AttackMobVisibility"), checks(data, "Combat"));
@@ -162,7 +162,7 @@ class CultPunishmentUpgradeTest {
         var result = upgrade(file);
         assertTrue(result.migrated);
         assertEquals(2, result.oldVersion);
-        assertEquals(4, result.newVersion);
+        assertEquals(5, result.newVersion);
         assertEquals(List.of("Vehicle", "NoSlow", "NoSneakSlow", "Sprint", "SkinBlinker"), checks(read(file), "Misc"));
     }
 
@@ -185,13 +185,15 @@ class CultPunishmentUpgradeTest {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/punishments/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
-            assertEquals(4, data.get("cult-config-version"));
+            assertEquals(5, data.get("cult-config-version"));
             assertTrue(checks(data, "Knockback").contains("KeepSprint"));
             assertTrue(checks(data, "Combat").containsAll(List.of("AttackPlayerVisibility", "AttackMobVisibility")));
             List<?> misc = checks(data, "Misc");
             assertEquals("NoSneakSlow", misc.get(misc.indexOf("NoSlow") + 1));
             assertEquals("SkinBlinker", misc.get(misc.indexOf("Exploit") + 1));
             assertEquals(List.of("Cloud"), checks(data, "Cloud"));
+            List<?> simulation = checks(data, "Simulation");
+            assertEquals("Phase", simulation.get(simulation.indexOf("NoFall") + 1));
         }
     }
 
@@ -233,6 +235,48 @@ class CultPunishmentUpgradeTest {
         assertEquals(List.of("Cloud"), checks(data, "Bans"));
         assertEquals(600, group(data, "Bans").get("remove-violations-after"));
         assertEquals(List.of("2:0 ban %player%"), group(data, "Bans").get("commands"));
+    }
+
+    private static final String REVISION_4 = """
+            cult-config-version: 4
+            Punishments:
+              Simulation:
+                checks:
+                  - "Simulation"
+                  - "BedrockMovement"
+                  - "GroundSpoof"
+                  - "Timer"
+                  - "NoFall"
+                commands:
+                  - "100:40 [alert]"
+            """;
+
+    @Test
+    void addsPhaseToTheSimulationGroupAfterNoFall() throws Exception {
+        Path file = write(REVISION_4);
+        var result = upgrade(file);
+        assertTrue(result.migrated);
+        assertEquals(4, result.oldVersion);
+        assertEquals(5, result.newVersion);
+        assertEquals(
+                List.of("Simulation", "BedrockMovement", "GroundSpoof", "Timer", "NoFall", "Phase"),
+                checks(read(file), "Simulation"));
+    }
+
+    @Test
+    void leavesPhaseToAGroupThatAlreadySelectsOrExcludesIt() throws Exception {
+        Path own = write(REVISION_4 + "  Movement:\n    checks: [Phase]\n    commands: ['1:1 [alert]']\n");
+        upgrade(own);
+        assertEquals(
+                List.of("Simulation", "BedrockMovement", "GroundSpoof", "Timer", "NoFall"),
+                checks(read(own), "Simulation"));
+        assertEquals(List.of("Phase"), checks(read(own), "Movement"));
+
+        Path excluded = write(REVISION_4.replace("      - \"NoFall\"", "      - \"NoFall\"\n      - \"!Phase\""));
+        upgrade(excluded);
+        assertEquals(
+                List.of("Simulation", "BedrockMovement", "GroundSpoof", "Timer", "NoFall", "!Phase"),
+                checks(read(excluded), "Simulation"));
     }
 
     private Path write(String content) throws Exception {

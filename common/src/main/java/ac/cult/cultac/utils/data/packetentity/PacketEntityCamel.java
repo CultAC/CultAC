@@ -21,7 +21,7 @@ public class PacketEntityCamel extends PacketEntityHorse {
     private void applyCamelAttributeDefaults() {
         // Vanilla camel attribute defaults.
         this.jumpStrength = 0.42F;
-        this.movementSpeedAttribute = 0.09f;
+        defaultMovementSpeed(0.09F);
         this.stepHeightAttribute = 1.5D;
     }
 

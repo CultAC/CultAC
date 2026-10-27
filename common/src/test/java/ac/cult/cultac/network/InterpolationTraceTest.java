@@ -45,7 +45,9 @@ class InterpolationTraceTest {
 
     @Test
     void steppedTrace() throws Exception {
-        assertEquals(7915571620591440211L, trace(ClientVersion.V_26_3, 13L));
+        // Entity#recreateFromPacket leaves no active spawn lerp, including types using the legacy storage.
+        // Shulker#setPos puts a shulker's box on its block's bottom centre.
+        assertEquals(3776107225135333688L, trace(ClientVersion.V_26_3, 13L));
     }
 
     private static long trace(ClientVersion version, long seed) throws Exception {
@@ -82,8 +84,8 @@ class InterpolationTraceTest {
             }
         }
 
-        void tick(boolean reliably) {
-            tracker.tickClientEntities(entity -> entity.onMovement(player, reliably));
+        void tick() {
+            tracker.tickClientEntities(entity -> entity.onMovement(player));
         }
 
         void randomStep() {
@@ -112,8 +114,7 @@ class InterpolationTraceTest {
                     entity.isBaby = !entity.isBaby;
                     entity.refreshDimensions(player);
                 }
-                case 9 -> tick(false);
-                default -> tick(true);
+                default -> tick();
             }
         }
 

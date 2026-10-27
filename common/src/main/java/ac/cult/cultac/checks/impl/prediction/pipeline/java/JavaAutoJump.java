@@ -61,13 +61,6 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
         possible = !provablyCannotFire(result);
     }
 
-    /** A client tick that sent no position, simulated from the player's position under the movement exemption. */
-    public void onExemptNoPositionTick(PredictionResult result) {
-        if (player.isBedrockMovement()) return;
-        movedClientTick = player.packetStateData.acceptedClientTick;
-        possible = !provablyCannotFire(result);
-    }
-
     boolean schedulesJump(PredictionResult result) {
         return JavaFallDistance.landsOnClip(
                         result.getCollideAxisData().getYNeg(),

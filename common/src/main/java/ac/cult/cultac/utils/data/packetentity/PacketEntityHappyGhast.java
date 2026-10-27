@@ -1,10 +1,13 @@
 package ac.cult.cultac.utils.data.packetentity;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 
 public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
+    private final CultPlayer player;
     public boolean hasBodyArmor = false;
     public boolean staysStill = false;
     public float movementSpeedAttribute = 0.05F;
@@ -12,6 +15,19 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
 
     public PacketEntityHappyGhast(CultPlayer player, int entityId, int type, double x, double y, double z, float yaw) {
         super(player, entityId, type, x, y, z, yaw);
+        this.player = player;
+    }
+
+    /**
+     * HappyGhast#canBeCollidedWith on the client, for {@code other} at {@code otherPosition} and this ghast at
+     * {@code box}: an adult, live ghast collides with a Player at or above the top of its box, and otherwise with a
+     * happy ghast while it carries a rider, or with anything while it stays still. The client never sets the server's
+     * still timeout.
+     */
+    public boolean canBeCollidedWith(PacketEntity other, Vec3 otherPosition, SimpleCollisionBox box) {
+        if (isBaby || isDead) return false;
+        if (other.type == EntityTypeIds.PLAYER && otherPosition.y >= box.maxY) return true;
+        return !passengers.isEmpty() && other instanceof PacketEntityHappyGhast || staysStill;
     }
 
     public float getRiddenTickYaw(float controllerYaw) {
@@ -28,8 +44,9 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
 
         if (zza != 0.0F) {
             float pitchRadians = controllerPitch * ((float) Math.PI / 180F);
-            vertical = -CultMath.sin(pitchRadians);
-            forward = CultMath.cos(pitchRadians);
+            vertical =
+                    -(player.isBedrockMovement() ? CultMath.sin(pitchRadians) : player.trigHandler.sin(pitchRadians));
+            forward = player.isBedrockMovement() ? CultMath.cos(pitchRadians) : player.trigHandler.cos(pitchRadians);
             if (zza < 0.0F) {
                 vertical *= -0.5F;
                 forward *= -0.5F;

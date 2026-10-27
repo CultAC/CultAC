@@ -110,8 +110,14 @@ class SaddleControlSwitchTest {
     private static void assertFinishesPath(JavaTickFixture f, int first) {
         for (int step = first; step <= 3; step++) {
             assertTrue(controls(f), "step " + step);
-            PredictionResult result = f.rideTick(START.add(PATH * step / 3, 0, 0), true);
+            // MoveVehicle.fromEntity reports the path target while interpolation is active.
+            PredictionResult result = f.rideTick(START.add(PATH, 0, 0), true);
             assertTrue(exact(result), "step " + step + ": " + describe(result));
+            assertEquals(
+                    START.x + PATH * ((float) step / 3.0F),
+                    f.player.compensatedEntities.getEntity(DONKEY).clientPhysicalPosition.x,
+                    1e-10,
+                    "the reported target must not replace the physical interpolation step");
         }
         PredictionResult settled = f.rideTick(START.add(PATH, 0, 0), true);
         assertTrue(exact(settled), describe(settled));
@@ -331,7 +337,12 @@ class SaddleControlSwitchTest {
 
         double velocity = onGround;
         double z = START.z + velocity;
-        assertExactTick(f, new Vec3(START.x + PATH * 2 / 3, START.y, z), false, "tick 1");
+        // The first controlled travel runs while the path is still active. Its own input is
+        // physical movement; ServerboundMoveVehiclePacket still reports the path's target.
+        assertExactTick(f, START.add(PATH, 0, 0), false, "tick 1");
+        var root = f.player.compensatedEntities.getSelf().getRiding();
+        assertEquals(START.x + PATH * (2.0F / 3.0F), root.clientPhysicalPosition.x, 1e-10);
+        assertEquals(z, root.clientPhysicalPosition.z, 1e-10, "the first input must remain in physical travel");
         velocity = velocity * groundFriction + inAir;
         z += velocity;
         assertExactTick(f, new Vec3(START.x + PATH, START.y, z), true, "tick 2");

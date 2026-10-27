@@ -68,7 +68,7 @@ class JavaRiptideSpinAttackTest {
         try (var f = new JavaTickFixture()) {
             f.player.compensatedEntities.addEntity(71, typeId(type), BELOW_THE_PATH, 0, 0, 0);
             f.player.riptideSpinAttackTicks = spinTicks;
-            PredictionResult rebound = spinThenRebound(f);
+            PredictionResult rebound = spinThenRebound(f, type.equals("ZOMBIE"));
             assertFalse(rebound.isExempt(), describe(rebound));
             assertEquals(living, exact(rebound), describe(rebound));
         }
@@ -81,7 +81,7 @@ class JavaRiptideSpinAttackTest {
         try (var f = new JavaTickFixture()) {
             f.addRemotePlayer(71, BELOW_THE_PATH, spectator ? GameMode.SPECTATOR : GameMode.SURVIVAL);
             f.player.riptideSpinAttackTicks = 10;
-            PredictionResult rebound = spinThenRebound(f);
+            PredictionResult rebound = spinThenRebound(f, !spectator);
             assertFalse(rebound.isExempt(), describe(rebound));
             assertEquals(!spectator, exact(rebound), describe(rebound));
         }
@@ -182,7 +182,8 @@ class JavaRiptideSpinAttackTest {
             f.player.compensatedEntities.addEntity(
                     72, EntityTypeIds.EXPERIENCE_ORB, new Vec3(-4.0, FLOOR_Y, 0.5), 0, 0, 0);
             f.player.riptideSpinAttackTicks = 10;
-            f.place(new Vec3(-4.5, FLOOR_Y, 0.5), SPIN);
+            // A grounded wall hit also attempts the carried downward velocity; a horizontal-only move clears ground.
+            f.place(new Vec3(-4.5, FLOOR_Y, 0.5), SPIN.add(0, (0.0 - 0.08) * 0.98F, 0));
             f.input(NONE);
             f.player.xRot = 0.0F;
             f.player.yRot = 0.0F;
@@ -267,7 +268,8 @@ class JavaRiptideSpinAttackTest {
 
             Vec3 carried = drag(SPIN);
             Vec3 damped = new Vec3(carried.x * 0.6, carried.y, carried.z * 0.6);
-            PredictionResult rebound = f.tick(through.add(damped.multiply(-0.2, -0.2, -0.2)), false);
+            Vec3 latePush = player ? latePush() : Vec3.ZERO;
+            PredictionResult rebound = f.tick(through.add(damped.multiply(-0.2, -0.2, -0.2)).add(latePush), false);
             if (player) {
                 assertTrue(exact(rebound), describe(rebound));
             } else {
@@ -333,10 +335,13 @@ class JavaRiptideSpinAttackTest {
                     71,
                     List.of(new EntityMetadata.Entry(16, true, ByteBuffer.allocate(0))),
                     f.player.lastTransactionReceived.get());
-            f.player.compensatedEntities.updateEntityMetadata(
-                    71,
-                    List.of(new EntityMetadata.Entry(16, false, ByteBuffer.allocate(0))),
-                    applied ? f.player.lastTransactionReceived.get() : Integer.MAX_VALUE);
+            // updateEntityMetadata applies data now; its provenAt argument records the proof, not a delivery time.
+            // The real packet listener queues the application at its receipt transaction.
+            f.player.latencyUtils.addRealTimeTask(
+                    applied ? f.player.lastTransactionReceived.get() : Integer.MAX_VALUE,
+                    () -> f.player.compensatedEntities.updateEntityMetadata(
+                            71, List.of(new EntityMetadata.Entry(16, false, ByteBuffer.allocate(0))),
+                            f.player.lastTransactionReceived.get()));
             PredictionResult result = certainSpinThenDrag(f);
             if (applied) {
                 assertFalse(result.isExempt(), describe(result));
@@ -367,7 +372,9 @@ class JavaRiptideSpinAttackTest {
             f.pongThrough(f.player.lastTransactionSent.get());
 
             f.player.compensatedEntities.addEntity(71, EntityTypeIds.ARMOR_STAND, BELOW_THE_PATH, 0, 0, 0);
-            f.place(START, SPIN);
+            // ClientPacketListener rebases position and delta together; direct placement leaves the ride carry.
+            f.teleport(START, new RelativeFlag(0));
+            f.pongThrough(f.velocity(SPIN));
             f.input(NONE);
             Vec3 through = START.add(SPIN);
             PredictionResult spun = f.tick(through, false);
@@ -470,12 +477,22 @@ class JavaRiptideSpinAttackTest {
 
     /** The spin through {@link #BELOW_THE_PATH}, then the tick after it with the stored velocity scaled by -0.2. */
     private static PredictionResult spinThenRebound(JavaTickFixture f) {
+        return spinThenRebound(f, false);
+    }
+
+    private static PredictionResult spinThenRebound(JavaTickFixture f, boolean pushedAfterSpin) {
         f.place(START, SPIN);
         f.input(NONE);
         Vec3 through = START.add(SPIN);
         PredictionResult spun = f.tick(through, false);
         assertTrue(exact(spun), describe(spun));
-        return f.tick(through.add(drag(SPIN).multiply(-0.2, -0.2, -0.2)), false);
+        Vec3 latePush = pushedAfterSpin ? latePush() : Vec3.ZERO;
+        return f.tick(through.add(drag(SPIN).multiply(-0.2, -0.2, -0.2)).add(latePush), false);
+    }
+
+    /** The later LivingEntity tick's Entity#push at the half-block separation of BELOW_THE_PATH and through. */
+    private static Vec3 latePush() {
+        return new Vec3(0.5 / Math.sqrt(0.5) * (double) 0.05F, 0, 0);
     }
 
     /** A certain spin through {@link #BELOW_THE_PATH}, then the tick after it with the stored velocity. */

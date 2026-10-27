@@ -450,6 +450,7 @@ public final class PacketPlayerRespawnLifecycleTest {
         for (boolean bedrock : new boolean[] {false, true}) {
             CultPlayer player = offlinePlayer(bedrock);
             try {
+                player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
                 var entities = player.compensatedEntities;
                 entities.addEntity(7, EntityTypeIds.ZOMBIE, new Vec3(1, 64, 1), 0, 0, 0);
                 ClientboundRespawn respawn = respawnPacket();

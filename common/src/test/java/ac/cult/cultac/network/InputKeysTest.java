@@ -371,11 +371,11 @@ class InputKeysTest {
     }
 
     @Test
-    void walkingAt1214IgnoresTheServersPowderSnowModifier() throws Exception {
+    void walkingAt1214ReplacesTheServersPowderSnowModifierAfterTravel() throws Exception {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_4);
             f.place(new Vec3(0.5, FLOOR_Y, 4.5), GROUNDED);
-            // Before 1.21.5 LivingEntity#aiStep runs removeFrost on the client, which drops the server's modifier.
+            // Travel uses the server's modifier once; removeFrost runs afterwards, with zero frozen ticks here.
             f.player.compensatedEntities.updateAttributes(
                     f.player.entityID,
                     List.of(new AttributeSnapshot(
@@ -387,9 +387,10 @@ class InputKeysTest {
             double z = 4.5;
             double velocity = 0.0;
             for (int tick = 0; tick < 3; tick++) {
-                z += velocity - WALK;
+                double input = tick == 0 ? (double) 0.98F * (double) (float) (0.1F - 0.02D) : WALK;
+                z += velocity - input;
                 assertExact(f.tick(new Vec3(0.5, FLOOR_Y, z), true));
-                velocity = (velocity - WALK) * FRICTION;
+                velocity = (velocity - input) * FRICTION;
             }
 
             assertNoFlags(f);

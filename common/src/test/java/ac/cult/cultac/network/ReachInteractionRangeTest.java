@@ -1195,7 +1195,7 @@ class ReachInteractionRangeTest {
             PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
             entity.onPositionPath(
                     EntityPositionPath.linear(new Vec3(1.5, 64, 1)), true, null, null, setup.player, false);
-            entity.onMovement(setup.player, true);
+            entity.onMovement(setup.player);
             setup.positionSync(id, new Vec3(-63.3, 64, 1));
             assertFalse(entity.newPacketLocation.hasExactPosition());
         }

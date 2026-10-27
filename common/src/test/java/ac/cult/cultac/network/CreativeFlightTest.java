@@ -19,9 +19,11 @@ import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.Opaque;
@@ -32,6 +34,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -47,6 +50,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Flight the server grants through player_abilities. LocalPlayer#aiStep adds three times the abilities' flying speed
@@ -87,11 +92,104 @@ class CreativeFlightTest {
     private static final double FALL = (-0.2 - 0.08) * 0.98F;
     /** The Y velocity a player standing on the floor starts each tick with. */
     private static final double STANDING_Y = (0 - 0.08) * 0.98F;
+
     /** LivingEntity#getFrictionInfluencedSpeed on stone at 0.1 movement speed, times the 0.98 forward input. */
     private static final double WALK_STEP = (double) 0.98F * (double) (0.1F * (0.21600002F / (0.6F * 0.6F * 0.6F)));
     // The forward movement of a tick that starts in the air.
     private static final double AIR_STEP = (double) 0.98F * (double) 0.02F;
     private static final double GROUND_FRICTION = 0.6F * 0.91F;
+
+    @ParameterizedTest(name = "{0}: spectator travel carries the unclipped velocity through blocks")
+    @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
+    void spectatorTravelCarriesVelocityThroughBlocks(String release, ClientVersion version) throws Exception {
+        try (var f = flying()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            gameMode(f, 3);
+            Vec3 velocity = new Vec3(0.4, 0.2, -0.3);
+            f.place(HOVER, velocity);
+            f.player.compensatedWorld.updateBlock(
+                    BlockPos.containing(HOVER.x + 1, HOVER.y, HOVER.z), BlockIds.STONE.defaultState());
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            f.input(NONE);
+            PredictionResult result = f.tick(HOVER.add(velocity), false);
+            assertTrue(result.isExempt());
+            assertPredicted(result);
+            Vec3 expected = new Vec3(velocity.x * 0.91F, velocity.y * 0.6, velocity.z * 0.91F);
+            var carried = f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
+            assertTrue(carried.stream().anyMatch(v -> v.distanceTo(expected) < 1e-12), carried.toString());
+        }
+    }
+
+    @ParameterizedTest(name = "{0}: an exempt withheld tick advances the carried velocity")
+    @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
+    void exemptWithheldTickCommitsItsVelocity(String release, ClientVersion version) throws Exception {
+        try (var f = flying()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            // LivingEntity#aiStep thresholds this Y to zero before the hovering travel.
+            f.place(HOVER, new Vec3(0, 0.002, 0));
+            f.input(NONE);
+            f.tickEnd();
+            var processor = f.player.checkManager.getSimulationProcessor();
+            assertTrue(processor.getLastPrediction().isExempt());
+            assertEquals(Set.of(Vec3.ZERO), processor.getValidPlayerStartingVels());
+        }
+    }
+
+    @ParameterizedTest(name = "{0}: sleeping travel keeps velocity but clears horizontal input and jumping")
+    @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
+    void sleepingTravelCarriesVelocityWithoutInput(String release, ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            f.player.isInBed = true;
+            f.player.bedPosition = GROUND;
+            f.player.refreshPlayerPose();
+            f.place(GROUND, new Vec3(0.02, STANDING_Y, 0));
+            f.input(FORWARD_JUMP);
+            PredictionResult result = f.tick(GROUND.add(0.02, 0, 0), true);
+            assertFalse(result.isExempt());
+            assertPredicted(result);
+            Vec3 expected = new Vec3(0.02 * (0.6F * 0.91F), STANDING_Y, 0);
+            var carried = f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
+            assertTrue(carried.stream().anyMatch(v -> v.distanceTo(expected) < 1e-12), carried.toString());
+        }
+    }
+
+    @ParameterizedTest(name = "{0}: sleeping velocity may carry the player beyond the bed")
+    @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
+    void sleepingVelocityBeyondBedBoundsStillReachesPrediction(String release, ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            f.player.isInBed = true;
+            f.player.bedPosition = GROUND;
+            f.player.refreshPlayerPose();
+            f.place(GROUND, new Vec3(0.75, STANDING_Y, 0));
+            f.input(FORWARD_JUMP);
+            Vec3 end = GROUND.add(0.75, 0, 0);
+            var packet = new ServerboundMovePlayer(end.x, end.y, end.z, 0, 0, true, false, true, true);
+            var event = f.event(ServerboundPackets.MOVE_PLAYER, packet);
+            f.player.checkManager.getSetbackBlocker().onMovePlayer(event, f.player, packet);
+            assertFalse(event.isCancelled(), "carried velocity is not bounded by the bed's position");
+            PredictionResult result = f.tick(end, true);
+            assertFalse(result.isExempt());
+            assertPredicted(result);
+        }
+    }
+
+    @ParameterizedTest(name = "{0}: sleep cannot manufacture movement from held input")
+    @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
+    void sleepingInputCannotManufactureMovement(String release, ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            f.player.isInBed = true;
+            f.player.bedPosition = GROUND;
+            f.player.refreshPlayerPose();
+            f.place(GROUND, new Vec3(0, STANDING_Y, 0));
+            f.input(FORWARD_JUMP);
+            PredictionResult result = f.tick(GROUND.add(0.2, 0, 0), true);
+            assertFalse(result.isExempt());
+            assertTrue(result.hasEffectiveFlags(), "sleeping input supplies no travel acceleration");
+        }
+    }
 
     @Test
     void aVelocityTakenInFlightWithJumpHeldRisesByTheFlightImpulse() throws Exception {
@@ -1323,7 +1421,9 @@ class CreativeFlightTest {
 
     /** A landing with no keys held, then a grounded double-tap under a knockback with the takeoff jump. */
     private static PredictionResult landThenTakeOff(JavaTickFixture f) {
-        f.place(TAKEOFF.add(0, 0.3, 0), new Vec3(0, -0.2, 0));
+        // Rebase the complete post-ride carry as ClientPacketListener#setValuesFromPositionPacket does.
+        f.teleport(TAKEOFF.add(0, 0.3, 0), new RelativeFlag(0));
+        f.pongThrough(f.velocity(new Vec3(0, -0.2, 0)));
         f.input(NONE);
         assertPredicted(f.tick(TAKEOFF.add(0, 0.1, 0), false));
         assertPredicted(f.tick(TAKEOFF, true));

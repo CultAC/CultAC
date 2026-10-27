@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.prediction.runner;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
-import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.EngineCheck;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
@@ -27,6 +26,26 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     /** A later velocity replaces the client's delta movement, so only the newest overridden ones stay candidates. */
     static final int MAX_OVERRIDDEN_VELS = 16;
 
+    // Ordered LocalPlayer#onGameModeChanged writes also apply to an older callback confirmed later.
+    private long verticalResetSequence = Long.MIN_VALUE;
+
+    public void resetVerticalBefore(long sequence) {
+        verticalResetSequence = Math.max(verticalResetSequence, sequence);
+        resetVertical(firstBread);
+        resetVertical(secondBread);
+        resetVertical(lastSent);
+        overriddenVels.forEach(this::resetVertical);
+    }
+
+    private void resetVertical(TransactionVel velocity) {
+        if (velocity != null) velocity.setVel(resetVertical(velocity, velocity.getVel()));
+    }
+
+    private Vec3 resetVertical(TransactionVel velocity, Vec3 original) {
+        return velocity.getOutboundSequence() < verticalResetSequence
+                ? original.with(ac.cult.cultac.protocol.value.Direction.Axis.Y, 0) : original;
+    }
+
     double offsetToFlag;
     double maxAdvantage, immediate, ceiling, multiplier;
 
@@ -40,9 +59,6 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     @Getter
     public transient TransactionVel lastSent = null;
 
-    @Getter
-    boolean canTickSkip = false;
-
     @Setter
     boolean isSetbackVal = false;
 
@@ -52,17 +68,11 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
 
     @Override
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
-        if (firstBread == null && secondBread == null) return;
-
-        PredVector start = result.getInitialStartingVel();
-        boolean isPointThree = (start.hasPacketModifier(firstBread) || start.hasPacketModifier(secondBread))
-                && result.getSimulationContext().isTestingPointThree()
-                && result.getOffset() < player.getMovementThreshold();
-
-        if (isPointThree) {
-            canTickSkip = true;
-        }
-        if (result.getSimulationContext().isTestingPointThree()) return;
+        // Every predicted client tick records the velocity's offset, including one whose position
+        // LocalPlayer#sendPosition withheld; the must-move test's stationary tick never ran on the client.
+        if (firstBread == null && secondBread == null
+                || player.isBedrockMovement() && result.getSimulationContext().isTestingPointThree()
+                || player.checkManager.getSimulationProcessor().isPredictingStationaryTick()) return;
 
         double flags = result.getFlagSeverity();
 
@@ -129,14 +139,6 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             return;
         }
 
-        final boolean possibleSkip = this.canTickSkip;
-        // If there is a velocity going to 0, and the player moved slow enough to reach 0, assume movement skipped.
-        if (this.canTickSkip) {
-            this.canTickSkip = false;
-            if (this.firstBread != null) this.firstBread.addOffset(0);
-            if (this.secondBread != null) this.secondBread.addOffset(0);
-        }
-
         if (predictionComplete.getPredictionResult().getInitialStartingVel().hasPacketModifier(this.firstBread)) {
             List<PredictionResult> realities =
                     predictionComplete.getPredictionResult().getRealities();
@@ -166,7 +168,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             // TODO: Perhaps if the velocity overrode other velocities, we flag multiple times?
             // TODO: Perhaps add maximum latency for velocity.
             if (player.getSetbackTeleportUtil().isDebug()) {
-                LogUtil.info("Velocity flag: " + this.secondBread.getOffset() + " skip=" + possibleSkip);
+                LogUtil.info("Velocity flag: " + this.secondBread.getOffset());
             }
             if (!this.secondBread.isSetbackVel()) {
                 final double offset = this.secondBread.getOffset();
@@ -298,9 +300,13 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
     }
 
     protected void makeVelocityPossible(TransactionVel velocity, Vec3 originalVelocity) {
-        if (!velocity.isVelocity() && shouldCarryPreviousPacketModifier(secondBread, false, velocity)) {
-            velocity.setVel(originalVelocity.add(secondBread.getVel()));
-        }
+        if (!velocity.isVelocity()) {
+            // The older callback owns only originalVelocity. SECOND_BREAD can already include a later
+            // contribution, whose Y the earlier packet's tab-mode reset must never overwrite.
+            Vec3 original = resetVertical(velocity, originalVelocity);
+            velocity.setVel(shouldCarryPreviousPacketModifier(secondBread, false, velocity)
+                    ? original.add(secondBread.getVel()) : original);
+        } else resetVertical(velocity);
         firstBread = velocity;
     }
 
@@ -314,11 +320,12 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             overriddenVels.add(secondBread);
         }
         if (!velocity.isVelocity()) {
+            Vec3 original = resetVertical(velocity, originalVelocity);
             velocity.setVel(
                     shouldCarryPreviousPacketModifier(secondBread, false, velocity)
-                            ? originalVelocity.add(secondBread.getVel())
-                            : originalVelocity);
-        }
+                            ? original.add(secondBread.getVel())
+                            : original);
+        } else resetVertical(velocity);
         if (firstBread == velocity) firstBread = null;
         secondBread = velocity;
     }

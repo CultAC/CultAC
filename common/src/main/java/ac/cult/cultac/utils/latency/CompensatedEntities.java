@@ -32,7 +32,10 @@ import java.util.function.Consumer;
 import org.jetbrains.annotations.Nullable;
 
 public class CompensatedEntities {
+    public final ClientRavagerRoars ravagerRoars = new ClientRavagerRoars();
+    public final ClientFishingPulls fishingPulls = new ClientFishingPulls();
     public final ClientPlayerModes clientPlayerModes = new ClientPlayerModes();
+    public final ClientTeamCollision teamCollision = new ClientTeamCollision();
     private static final String SPRINTING_MODIFIER_ID = "minecraft:sprinting";
     /** LivingEntity#SPEED_MODIFIER_SPRINTING, which LivingEntity#setSprinting adds to movement_speed. */
     public static final AttributeModifier SPRINTING_SPEED_MODIFIER =
@@ -51,6 +54,7 @@ public class CompensatedEntities {
     public final CompensatedVehicleState vehicles;
     public List<SimpleCollisionBox> fishingRodPulls = new EvictingQueue<>(100); // sanity limit to prevent leaks.
     private long nextClientEntityTickOrder = 1L;
+    private final ClientEntityTickOrder clientTickMembership;
     // The entityMap values in the order addEntity put them.
     private final ArrayList<PacketEntity> addOrder = new ArrayList<>();
     // While addOrderMapped is set and entityMap.mutations equals addOrderMappedAt, every addOrder entry is the
@@ -66,19 +70,49 @@ public class CompensatedEntities {
     private List<PacketEntityCamel> camels = List.of();
     private List<PacketEntity> poseCollisionCandidates = List.of();
     private List<PacketEntity> unknownCollisionCandidates = List.of();
+    private List<PacketEntityHook> fishingHooks = List.of();
 
     CultPlayer player;
 
     public TrackerData selfTrackedEntity;
     public PacketEntitySelf playerEntity;
     private Vec3 rideTickSeat;
+    private List<Vec3> rideTickSeats = List.of();
     // The client holds every sent change to the local player's passengers once it answers this transaction.
     private int selfPassengersSettleTransaction = Integer.MIN_VALUE;
     // The passengers the last set_passengers for the local player named.
     private List<Integer> sentSelfPassengers = List.of();
+    // While a pass replays, the last ClientLevel#tickEntities place whose tick has run; Long.MIN_VALUE otherwise.
+    private long passTickedThroughOrder = Long.MIN_VALUE;
+    private int movementPositionReads;
+    private long movementPositionEpoch;
+
+    /** Movement reads run at the player's place in EntityTickList, without advancing packet/interaction state. */
+    public void beginMovementPositionReads() {
+        if (movementPositionReads++ == 0) movementPositionEpoch++;
+    }
+
+    public void endMovementPositionReads() {
+        movementPositionReads--;
+    }
+
+    public long movementPositionEpoch() {
+        return movementPositionEpoch;
+    }
+
+    public boolean readingMovementPositions() {
+        return movementPositionReads != 0 || passTickedThroughOrder != Long.MIN_VALUE;
+    }
+
+    /** Null outside a movement/pass read, otherwise whether this entity has interpolated at that read's place. */
+    public Boolean movementReadsAfterTick(PacketEntity entity) {
+        if (player.isBedrockMovement() || !readingMovementPositions() || !ticksInClientTick(entity)) return null;
+        return clientTickOrder(entity) <= tickedThroughOrder();
+    }
 
     public CompensatedEntities(CultPlayer player) {
         this.player = player;
+        this.clientTickMembership = new ClientEntityTickOrder(this, player.compensatedWorld);
         this.playerEntity = new PacketEntitySelf(player);
         this.vehicles = new CompensatedVehicleState(player, this);
         resetClientTickOrder();
@@ -95,12 +129,30 @@ public class CompensatedEntities {
         playerEntity.setClientTickOrder(nextClientEntityTickOrder++);
     }
 
+    void appendEntityToClientTickOrder(PacketEntity entity) {
+        entity.setClientTickOrder(nextClientEntityTickOrder++);
+        // Keep the traversal cache in EntityTickList's insertion order after a section/chunk re-entry too.
+        addOrder.remove(entity);
+        addOrder.add(entity);
+        addOrderMapped = false;
+    }
+
+    public void onClientEntityPositionChanged(PacketEntity entity) {
+        if (!player.isBedrockMovement()) clientTickMembership.moved(entity);
+    }
+
+    public void onClientChunkTicking(int x, int z, boolean ticking) {
+        if (!player.isBedrockMovement()) clientTickMembership.chunk(x, z, ticking);
+    }
+
     /** A replacement ClientLevel cannot retain remote entities or their queued values. */
     public void clearClientLevel() {
         clearEntityMap();
         pendingAttributes.clear();
         pendingEquipment.clear();
         fishingRodPulls.clear();
+        ravagerRoars.clear();
+        fishingPulls.reset();
         resetClientTickOrder();
     }
 
@@ -148,6 +200,11 @@ public class CompensatedEntities {
         return unknownCollisionCandidates;
     }
 
+    public List<PacketEntityHook> fishingHooks() {
+        refreshTypeViews();
+        return fishingHooks;
+    }
+
     private void refreshTypeViews() {
         if (typeViewsAt == entityMap.mutations) return;
         List<PacketEntity> pushOrCollide = presized(pushOrCollideCandidates);
@@ -155,7 +212,9 @@ public class CompensatedEntities {
         List<PacketEntityCamel> camelList = new ArrayList<>(camels.size());
         List<PacketEntity> pose = presized(poseCollisionCandidates);
         List<PacketEntity> unknown = presized(unknownCollisionCandidates);
+        List<PacketEntityHook> hooks = new ArrayList<>(fishingHooks.size());
         for (PacketEntity entity : entityMap.values()) {
+            if (entity instanceof PacketEntityHook hook) hooks.add(hook);
             if (entity.mayPushOrCollide()) pushOrCollide.add(entity);
             boolean boat = entity.isBoat();
             boolean shulker = entity.type == EntityTypeIds.SHULKER;
@@ -169,6 +228,7 @@ public class CompensatedEntities {
         camels = camelList;
         poseCollisionCandidates = pose;
         unknownCollisionCandidates = unknown;
+        fishingHooks = hooks;
         typeViewsAt = entityMap.mutations;
     }
 
@@ -180,11 +240,13 @@ public class CompensatedEntities {
     private void track(PacketEntity entity) {
         entity.setTracker(this);
         trackedPassengers += entity.passengers.size();
+        if (!player.isBedrockMovement()) clientTickMembership.add(entity);
     }
 
     private void untrack(PacketEntity entity) {
         if (entity.getTracker() != this) return;
         entity.setTracker(null);
+        clientTickMembership.remove(entity);
         trackedPassengers -= entity.passengers.size();
     }
 
@@ -475,7 +537,7 @@ public class CompensatedEntities {
     public long clientTickOrder(PacketEntity entity) {
         if (entity.getRiding() == null) return entity.getClientTickOrder();
         PacketEntity root = rootOf(entity);
-        return root == null ? entity.getClientTickOrder() : root.getClientTickOrder();
+        return root == null ? entity.getClientTickOrder() : root.tickingOrder(player);
     }
 
     /** The root of the local player's riding chain, the player itself while it rides nothing; null in a cycle. */
@@ -493,9 +555,9 @@ public class CompensatedEntities {
         return root != null && root == rootOfSelf;
     }
 
-    // Null inside a riding cycle (a server mounting a vehicle on its own passenger), which has no root.
+    /** Entity#getRootVehicle; null inside a riding cycle (a server mounting a vehicle on its own passenger). */
     @Nullable
-    private PacketEntity rootOf(PacketEntity entity) {
+    public PacketEntity rootOf(PacketEntity entity) {
         PacketEntity root = entity;
         for (int hops = 0; root.getRiding() != null; hops++) {
             if (hops > entityMap.size()) return null;
@@ -620,6 +682,15 @@ public class CompensatedEntities {
 
         if (entity != null && entityID != player.entityID) {
             for (AttributeSnapshot snapshot : objects) {
+                if (matchesAttribute(snapshot, "movement_speed")) {
+                    // Every modifier, the server's powder snow frost included: see ClientMovementSpeed.
+                    ClientMovementSpeed ridden = entity.riddenMovementSpeed();
+                    if (ridden != null) {
+                        ridden.onServerSnapshot(snapshot);
+                        entity.refreshRiddenMovementSpeed();
+                    }
+                }
+
                 if (matchesAttribute(snapshot, "scale")) {
                     entity.onScale((float) calculateAttribute(snapshot, 0.0625, 16.0), provenAt);
                     entityScaleChanged = true;
@@ -657,10 +728,6 @@ public class CompensatedEntities {
 
         if (entity instanceof PacketEntityHorse horse) {
             for (AttributeSnapshot snapshot : objects) {
-                if (matchesAttribute(snapshot, "movement_speed")) {
-                    horse.movementSpeedAttribute = (float) calculateAttribute(snapshot, 0.0, 1024.0);
-                }
-
                 if (matchesAttribute(snapshot, "jump_strength")) {
                     horse.jumpStrength = calculateAttribute(snapshot, 0.0, 32.0);
                 }
@@ -669,10 +736,6 @@ public class CompensatedEntities {
 
         if (entity instanceof PacketEntityRideable) {
             for (AttributeSnapshot snapshot : objects) {
-                if (matchesAttribute(snapshot, "movement_speed")) {
-                    ((PacketEntityRideable) entity).movementSpeedAttribute = calculateAttribute(snapshot, 0.0, 1024.0);
-                }
-
                 if (matchesAttribute(snapshot, "flying_speed")) {
                     ((PacketEntityRideable) entity).flyingSpeedAttribute =
                             (float) calculateAttribute(snapshot, 0.0, 1024.0);
@@ -688,14 +751,6 @@ public class CompensatedEntities {
 
                 if (matchesAttribute(snapshot, "flying_speed")) {
                     happyGhast.flyingSpeedAttribute = (float) calculateAttribute(snapshot, 0.0, 1024.0);
-                }
-            }
-        }
-
-        if (entity instanceof PacketEntityNautilus nautilus) {
-            for (AttributeSnapshot snapshot : objects) {
-                if (matchesAttribute(snapshot, "movement_speed")) {
-                    nautilus.movementSpeedAttribute = calculateAttribute(snapshot, 0.0, 1024.0);
                 }
             }
         }
@@ -781,7 +836,43 @@ public class CompensatedEntities {
      */
     public void recordRideTickSeat() {
         PacketEntity riding = playerEntity.getRiding();
-        rideTickSeat = riding == null ? null : BoundingBoxSize.getRidingOffsetFromVehicle(riding, playerEntity, player);
+        if (riding == null) {
+            rideTickSeat = null;
+            rideTickSeats = List.of();
+        } else if (player.isBedrockMovement()) {
+            rideTickSeat = BoundingBoxSize.getRidingOffsetFromVehicle(riding, playerEntity, player);
+        } else {
+            List<Vec3> seats = new ArrayList<>();
+            for (SimpleCollisionBox box : ridingPositionCandidates(riding)) {
+                Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(riding, playerEntity, player, box);
+                if (!seats.contains(seat)) seats.add(seat);
+            }
+            rideTickSeats = List.copyOf(seats);
+            rideTickSeat = seats.getFirst();
+        }
+    }
+
+    /** Discrete compensated positions, including the local player's intermediate vehicles; never a union-box center. */
+    public List<SimpleCollisionBox> ridingPositionCandidates(PacketEntity entity) {
+        if (entity.getRiding() == null) return entity.getPossibleMovementCollisionBoxCandidates();
+        List<SimpleCollisionBox> boxes = new ArrayList<>();
+        PacketEntity vehicle = entity.getRiding();
+        for (SimpleCollisionBox parent : ridingPositionCandidates(vehicle)) {
+            Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(vehicle, entity, player, parent);
+            boxes.add(ac.cult.cultac.utils.nmsutil.GetBoundingBox.getPacketEntityBoundingBox(
+                    player, seat.x, seat.y, seat.z, entity));
+        }
+        return boxes;
+    }
+
+    /** The exact passenger travel and later block-entity pass may move it away from positionRider's seat. */
+    public void recordRideTickSeats(List<Vec3> positions) {
+        rideTickSeats = List.copyOf(positions);
+        rideTickSeat = rideTickSeats.isEmpty() ? null : rideTickSeats.getFirst();
+    }
+
+    public List<Vec3> lastRideTickSeats() {
+        return rideTickSeats;
     }
 
     /** The seat the last client tick's Entity#rideTick ended on, or null when it ended off a vehicle. */
@@ -856,7 +947,7 @@ public class CompensatedEntities {
         // in receive order. ClientLevel#tickEntities then iterates EntityTickList
         // in that insertion order, so mirror the client's add sequence instead of
         // assuming server entity IDs match tick order.
-        packetEntity.setClientTickOrder(nextClientEntityTickOrder++);
+        if (player.isBedrockMovement()) packetEntity.setClientTickOrder(nextClientEntityTickOrder++);
         PacketEntity replaced = entityMap.put(entityID, packetEntity);
         if (replaced != null) {
             untrack(replaced);
@@ -885,6 +976,8 @@ public class CompensatedEntities {
     }
 
     private PacketEntity createTrackedEntity(int entityID, int entityType, Vec3 position, float xRot, int data) {
+        if (!player.isBedrockMovement() && entityType == EntityTypeIds.FIREWORK_ROCKET)
+            return new PacketEntityFirework(player, entityID, entityType, position);
         String typeKey = EntityTypeUtil.modelType(entityType).key();
         if (typeKey.equals("minecraft:painting")
                 || typeKey.equals("minecraft:item_frame")
@@ -892,6 +985,8 @@ public class CompensatedEntities {
             return new PacketEntityHanging(player, entityID, entityType, position, data, typeKey);
         if (typeKey.equals("minecraft:cat")) return new PacketEntityCat(player, entityID, entityType, position);
         if (typeKey.equals("minecraft:player")) return new PacketEntityPlayer(player, entityID, entityType, position);
+        if (!player.isBedrockMovement() && entityType == EntityTypeIds.PUFFERFISH)
+            return new PacketEntityPufferfish(player, entityID, entityType, position);
         if (typeKey.equals("minecraft:armor_stand"))
             return new PacketEntityArmorStand(player, entityID, entityType, position);
         if (typeKey.equals("minecraft:creaking"))
@@ -935,6 +1030,7 @@ public class CompensatedEntities {
         if (PacketEntityHurtingProjectile.isHurtingProjectile(entityType)) {
             return new PacketEntityHurtingProjectile(player, entityID, entityType, position, data);
         }
+        if (entityType == EntityTypeIds.RAVAGER) return new PacketEntityRavager(player, entityID, entityType, position);
         return new PacketEntity(player, entityID, entityType, position.x, position.y, position.z);
     }
 
@@ -1058,6 +1154,7 @@ public class CompensatedEntities {
             cat.updateActionMetadata(
                     watchableObjects, player.user.getCultConnection().getObservedProtocol());
         if (entity instanceof PacketEntityArmorStand stand) stand.updateActionMetadata(watchableObjects);
+        if (entity instanceof PacketEntityPufferfish fish) fish.updateMetadata(player, watchableObjects);
         var flags = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_SHARED_FLAGS);
         if (flags != null && flags.value() instanceof Byte value) entity.actionSharedFlags = value;
         if (entity.isDisplay()) {
@@ -1074,6 +1171,11 @@ public class CompensatedEntities {
             if (health != null && health.value() instanceof Float value) {
                 if (entity instanceof PacketEntitySelf self) self.setHealth(value);
                 else entity.actionAlive = value > 0.0F;
+            }
+            ClientMovementSpeed ridden = entity.riddenMovementSpeed();
+            var frozen = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_TICKS_FROZEN);
+            if (ridden != null && frozen != null && frozen.value() instanceof Integer value) {
+                ridden.onTicksFrozen(value);
             }
         }
         if (entity instanceof PacketEntityCreaking creaking) {
@@ -1132,14 +1234,26 @@ public class CompensatedEntities {
             EntityMetadata.Entry fireworkData =
                     WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.FIREWORK_ATTACHED_TO_TARGET);
             if (fireworkData == null) return;
+            if (entity instanceof PacketEntityFirework rocket) {
+                Object value = fireworkData.value();
+                rocket.attachment = value instanceof OptionalInt optional
+                        ? optional.orElse(-1)
+                        : value instanceof Optional<?> optional && optional.orElse(null) instanceof Integer id
+                                ? id
+                                : -1;
+            }
             trackFireworkIfAttachedToPlayer(entityID, fireworkData.value());
         }
 
-        if (entity instanceof PacketEntityHook) {
+        if (entity instanceof PacketEntityHook hook) {
             EntityMetadata.Entry hookedData =
                     WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.FISHING_HOOKED_ENTITY);
-            if (!(hookedData != null && hookedData.value() instanceof Integer hooked)) return;
-            ((PacketEntityHook) entity).attached = hooked - 1; // the server adds 1 to the ID
+            if (hookedData != null && hookedData.value() instanceof Integer hooked)
+                hook.setAttached(player, hooked - 1); // the server adds 1 to the ID
+            if (!player.isBedrockMovement()) {
+                var bitingData = WatchableIndexUtil.getIndex(watchableObjects, 9);
+                if (bitingData != null && bitingData.value() instanceof Boolean biting) hook.setBiting(biting);
+            }
         }
 
         if (entity instanceof PacketEntityRideable) {
@@ -1160,6 +1274,10 @@ public class CompensatedEntities {
         } else if (value instanceof Byte) {
             entity.isBaby = ((Byte) value) < 0;
         }
+        // AgeableMob#onSyncedDataUpdated refreshes the actual box immediately on DATA_BABY_ID.
+        // Position interpolation keeps its feet; it must not keep the previous age's dimensions.
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2))
+            entity.refreshDimensions(player);
     }
 
     private void applySizeMetadata(
@@ -1183,16 +1301,19 @@ public class CompensatedEntities {
     private void applyShulkerMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
         EntityMetadata.Entry attachFaceData =
                 WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.SHULKER_ATTACH_FACE);
-        if (attachFaceData != null) {
-            // This NMS -> Bukkit conversion is great and works in all 11 versions.
-            ((PacketEntityShulker) entity).facing =
-                    Direction.valueOf(attachFaceData.value().toString().toUpperCase());
+        Direction attachFace = null;
+        if (attachFaceData != null && attachFaceData.value() != null) {
+            attachFace = attachFaceData.value() instanceof Direction direction
+                    ? direction
+                    : Direction.valueOf(attachFaceData.value().toString().toUpperCase());
         }
-
         EntityMetadata.Entry peekData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.SHULKER_PEEK);
-        if (peekData == null) return;
+        Byte peekValue = peekData != null && peekData.value() instanceof Byte value ? value : null;
+        ((PacketEntityShulker) entity).onShapeData(attachFace, peekValue);
 
-        int peek = Byte.toUnsignedInt((byte) peekData.value());
+        // Java clients replay the peek and its Shulker#onPeekAmountChange moves; Bedrock keeps the push envelope.
+        if (!player.isBedrockMovement() || peekValue == null) return;
+        int peek = Byte.toUnsignedInt(peekValue);
         if (peek == 0) {
             ShulkerData opened = new ShulkerData(entity, player.lastTransactionSent.get(), true);
             player.compensatedWorld.openShulkerBoxes.remove(opened);
@@ -1223,10 +1344,15 @@ public class CompensatedEntities {
             return;
         }
 
-        if (entity instanceof PacketEntityStrider) {
+        if (entity instanceof PacketEntityStrider strider) {
             EntityMetadata.Entry boostData = WatchableIndexUtil.getIndex(watchableObjects, layout.striderBoostTime());
             if (boostData != null && boostData.value() instanceof Integer boost) {
                 ((PacketEntityRideable) entity).boost.onSynced(boost);
+            }
+            // Strider defines DATA_SUFFOCATING immediately after DATA_BOOST_TIME in every supported layout.
+            EntityMetadata.Entry coldData = WatchableIndexUtil.getIndex(watchableObjects, layout.striderBoostTime() + 1);
+            if (!player.isBedrockMovement() && coldData != null && coldData.value() instanceof Boolean cold) {
+                strider.onSuffocatingMetadata(cold);
             }
         }
     }
@@ -1306,7 +1432,9 @@ public class CompensatedEntities {
     public boolean isTicking(PacketEntity entity) {
         if (entity.type == EntityTypeIds.PLAYER) return true;
         Vec3 position = entity.clientPhysicalPosition;
-        return position != null && entity.isInLoadedChunk(player.compensatedWorld, position);
+        return position != null
+                && player.compensatedWorld.isClientEntityTickingChunk(
+                        CultMath.floor(position.x) >> 4, CultMath.floor(position.z) >> 4);
     }
 
     public void tickClientEntities(Consumer<PacketEntity> tick) {
@@ -1332,6 +1460,66 @@ public class CompensatedEntities {
         }
     }
 
+    /**
+     * Whether the client tick in progress ticks {@code entity}: {@link #tickClientEntities} from 1.17, and
+     * {@link #forEachTrackedEntity} before it.
+     */
+    public boolean ticksInClientTick(PacketEntity entity) {
+        if (entity == playerEntity || isUntrackedRider(entity)) return false;
+        if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_17)) return true;
+        if (entity.tickedThisTick(player)) return true;
+        PacketEntity root = rootOf(entity);
+        if (root == null) return false;
+        boolean frozen =
+                player.packetStateData.serverTicksFrozen && player.packetStateData.serverFrozenTickStepsRemaining == 0;
+        if (frozen && !containsPlayer(root)) return false;
+        for (PacketEntity ticking = entity; ticking != null; ticking = ticking.getRiding()) {
+            if (!isTicking(ticking)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * The last ClientLevel#tickEntities place whose entity has ticked where the client tick in progress reads entity
+     * boxes: the place before the local player's for its own tick, or the one a replayed pass sets.
+     */
+    public long tickedThroughOrder() {
+        return passTickedThroughOrder != Long.MIN_VALUE ? passTickedThroughOrder : clientTickOrder(playerEntity) - 1;
+    }
+
+    public long passTickedThroughOrder() {
+        return passTickedThroughOrder;
+    }
+
+    /** Sets {@link #tickedThroughOrder()} for a replayed pass; Long.MIN_VALUE ends it. */
+    public void setPassTickedThroughOrder(long order) {
+        passTickedThroughOrder = order;
+        movementPositionEpoch++;
+    }
+
+    /**
+     * The Shulker#onPeekAmountChange moves of the client tick in progress whose shulkers tick before, or after, the
+     * local player in ClientLevel#tickEntities, in that order. Each moves no passenger of its own root vehicle.
+     */
+    public List<ClientBlockEntityPass.ShulkerPeek> shulkerPeekMoves(boolean beforePlayer) {
+        if (player.isBedrockMovement()) return List.of();
+        long playerOrder = clientTickOrder(playerEntity);
+        PacketEntity rootOfSelf = rootOfSelf();
+        List<ClientBlockEntityPass.ShulkerPeek> moves = null;
+        for (PacketEntity entity : unknownCollisionCandidates()) {
+            if (!(entity instanceof PacketEntityShulker shulker)) continue;
+            if (clientTickOrder(shulker) < playerOrder != beforePlayer) continue;
+            if (isUntrackedRider(shulker) || sharesRootVehicleWithSelf(shulker, rootOfSelf)) continue;
+            ClientBlockEntityPass.ShulkerPeek move = shulker.peekMove();
+            if (move == null) continue;
+            if (moves == null) moves = new ArrayList<>(2);
+            moves.add(move);
+        }
+        if (moves == null) return List.of();
+        moves.sort(Comparator.comparingLong(ClientBlockEntityPass.ShulkerPeek::tickOrder));
+        return moves;
+    }
+
     /** Runs {@code tick} for every entity this player tracks except untracked riders, in entity map order. */
     public void forEachTrackedEntity(Consumer<PacketEntity> tick) {
         for (PacketEntity entity : entityMap.values()) {
@@ -1352,20 +1540,20 @@ public class CompensatedEntities {
         boolean selfPending = self.getRiding() == null && isTicking(self);
         // Tracked passengers ride, so they are never roots.
         List<PacketEntity> roots = new ArrayList<>(Math.max(1, size + 1 - trackedPassengers));
-        long previous = 0L;
+        long previous = Long.MIN_VALUE;
         for (int i = 0; i < size; i++) {
             PacketEntity entity = addOrder.get(i);
-            long order = entity.getClientTickOrder();
-            if (i > 0 && order <= previous) return null;
-            // Distinct orders make the entries distinct, so with equal sizes this proves the sets equal.
             if (!mapped && entityMap.get(entity.getEntityId()) != entity) return null;
+            if (entity.getRiding() != null || !isTicking(entity)) continue;
+            long order = entity.getClientTickOrder();
+            if (order <= previous) return null;
             previous = order;
             // Self ticks after an entity sharing its order.
             if (selfPending && selfOrder < order) {
                 roots.add(self);
                 selfPending = false;
             }
-            if (entity.getRiding() == null && isTicking(entity)) roots.add(entity);
+            roots.add(entity);
         }
         if (selfPending) roots.add(self);
         addOrderMapped = true;

@@ -43,11 +43,7 @@ public class ElytraI extends Check implements PostPredictionListener {
         PredictionResult lastPrediction =
                 player.checkManager.getSimulationProcessor().getLastPrediction();
         if (lastPrediction == null
-                || !lastPrediction
-                        .getSimulationContext()
-                        .getWorldData()
-                        .getInWater()
-                        .determinePessimistically()) return false;
+                || !lastPrediction.getSimulationContext().getWorldData().isInWater()) return false;
         // LivingEntity#baseTick refreshes Entity#wasTouchingWater at the end of the last move, and after
         // TridentItem#releaseUsing's lift, before LocalPlayer#aiStep calls Player#tryToStartFallFlying.
         for (SimpleCollisionBox box : RiptideUtil.glideStartBoxes(player)) {

@@ -1,6 +1,7 @@
 package ac.cult.cultac.checks.impl.prediction;
 
 import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -39,10 +40,10 @@ public final class ClientHorizontalCollision {
         if (context == null
                 || context.getVehicle() != null
                 || result.getValidMovements() == null
-                || result.getCollideAxisData() == null
-                || result.getInitialStartingVel().isTickSkip()) return DesyncStatus.UNKNOWN;
+                || result.getCollideAxisData() == null) return DesyncStatus.UNKNOWN;
         MovementTrace trace = result.getValidMovements().getClosestTrace();
         if (trace == null) return DesyncStatus.UNKNOWN;
+        if (result.getCollideAxisData() instanceof JavaMoveCollision move) return forwardHard(result, move);
 
         Vec3 target = result.getTarget();
         CollideAxisData collide = result.getCollideAxisData();
@@ -96,6 +97,21 @@ public final class ClientHorizontalCollision {
                 || player.isBedrockMovement()
                 || !player.cameraEntity.isSelf()) return null;
         return player.packetStateData.knownInput;
+    }
+
+    /**
+     * Entity#move's horizontalCollision and minorHorizontalCollision for a forward move: Player#isHorizontalCollisionMinor
+     * compares the collided movement with xxa/zza turned by the yaw, whose direction is the travel input's.
+     */
+    private static DesyncStatus forwardHard(PredictionResult result, JavaMoveCollision move) {
+        if (!move.horizontalCollision()) return DesyncStatus.FALSE;
+        Vec3 input = result.getInitialStartingVel().getTravelInput();
+        double length = input == null ? 0 : Math.sqrt(input.x * input.x + input.z * input.z);
+        if (length == 0) return DesyncStatus.TRUE;
+        Vec3 collided = move.collided();
+        return isMinor(input.x / length, input.z / length, collided.x, collided.z)
+                ? DesyncStatus.FALSE
+                : DesyncStatus.TRUE;
     }
 
     private static DesyncStatus verdict(int collisions) {

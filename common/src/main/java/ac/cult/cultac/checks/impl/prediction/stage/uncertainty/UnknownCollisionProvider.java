@@ -7,7 +7,9 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
+import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.EntityCollisionSelection;
 import java.util.List;
 
 public final class UnknownCollisionProvider {
@@ -21,15 +23,21 @@ public final class UnknownCollisionProvider {
             List<SimpleCollisionBox> boxes,
             SimpleCollisionBox entityBox,
             SimpleCollisionBox scratch) {
-        addEntityUnknownCollisions(player, playerPos, queryBox, boxes, entityBox, scratch);
+        if (player.isBedrockMovement()) {
+            addBedrockEntityUnknownCollisions(player, playerPos, queryBox, boxes, entityBox, scratch);
+        } else {
+            PacketEntity actor =
+                    context.getVehicle() == null ? player.compensatedEntities.getSelf() : context.getVehicle();
+            boxes.addAll(EntityPositionWorlds.colliders(player, actor, playerPos, queryBox));
+        }
         addDynamicBlockUnknownCollisions(player, context, queryBox, boxes);
     }
 
     /**
-     * Adds a copy of each entity box that intersects {@code queryBox}. {@code entityBox} and {@code scratch} are
-     * working space owned by the caller.
+     * Adds a copy of each entity box that intersects {@code queryBox}, for a Bedrock move. {@code entityBox} and
+     * {@code scratch} are working space owned by the caller.
      */
-    private static void addEntityUnknownCollisions(
+    private static void addBedrockEntityUnknownCollisions(
             CultPlayer player,
             Vec3 playerPos,
             SimpleCollisionBox queryBox,
@@ -93,42 +101,62 @@ public final class UnknownCollisionProvider {
             }
 
             if (!inVehicle
-                    && entity instanceof PacketEntityHappyGhast happyGhast
-                    && !happyGhast.isBaby
-                    && !happyGhast.isDead
-                    && !happyGhast.hasPassenger(player.compensatedEntities.getSelf())) {
-                SimpleCollisionBox box = happyGhast.getPossibleMovementCollisionBoxes(entityBox, scratch);
-                // MCP-Reborn HappyGhast#canBeCollidedWith is client-only for a
-                // Player whose position is at or above the top of the ghast's
-                // concrete bounding box, and otherwise follows the synced
-                // still-timeout state.
-                if (happyGhast.staysStill || playerPos.y >= box.maxY - SimpleCollisionBox.COLLISION_EPSILON) {
-                    addIntersecting(boxes, box, queryBox);
-                }
+                    && entity instanceof PacketEntityHappyGhast
+                    && collidesAtSomePosition(player, playerPos, entity, scratch)) {
+                addIntersecting(boxes, entity.getPossibleMovementCollisionBoxes(entityBox, scratch), queryBox);
             }
         }
     }
 
+    /** Whether {@code entity} collides with the player on foot at {@code playerPos} at one of its positions. */
+    private static boolean collidesAtSomePosition(
+            CultPlayer player, Vec3 playerPos, PacketEntity entity, SimpleCollisionBox scratch) {
+        var selection = new EntityCollisionSelection(player, player.compensatedEntities.getSelf(), playerPos);
+        if (!selection.mayCollide(entity)) return false;
+        for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
+            SimpleCollisionBox box =
+                    selection.collisionBox(entity, entity.possibleMovementCollisionBoxCandidate(i, scratch));
+            if (selection.collidesAt(entity, box)) return true;
+        }
+        return false;
+    }
+
     /**
-     * Whether {@code entity} collides with a player outside a vehicle at each of its possible positions: a boat, or a
-     * happy ghast that HappyGhast#canBeCollidedWith admits. {@code envelope} and {@code scratch} are working space
-     * owned by the caller.
+     * Whether EntityGetter#getEntityCollisions gives a Java player outside a vehicle, at {@code playerPos}, a shape for
+     * {@code box}, which CollisionGetter#noCollision counts with the blocks: a box of a boat, live shulker or happy
+     * ghast it collides with meets {@code box} inflated by 1.0E-7, at its compensated client-tick position.
      */
-    public static boolean collidesAtPossiblePositions(
-            CultPlayer player,
-            Vec3 playerPos,
-            PacketEntity entity,
-            SimpleCollisionBox envelope,
-            SimpleCollisionBox scratch) {
-        if (entity.isBoat()) return true;
-        return entity instanceof PacketEntityHappyGhast happyGhast
-                && !happyGhast.isBaby
-                && !happyGhast.isDead
-                && !happyGhast.hasPassenger(player.compensatedEntities.getSelf())
-                && (happyGhast.staysStill
-                        || playerPos.y
-                                >= happyGhast.getPossibleMovementCollisionBoxes(envelope, scratch).maxY
-                                        - SimpleCollisionBox.COLLISION_EPSILON);
+    public static boolean hasEntityCollision(CultPlayer player, Vec3 playerPos, SimpleCollisionBox box) {
+        if (player.isBedrockMovement() || player.compensatedEntities.getSelf().inVehicle()) return false;
+        // EntityGetter#getEntityCollisions skips a box whose average side is below 1.0E-7.
+        if (((box.maxX - box.minX) + (box.maxY - box.minY) + (box.maxZ - box.minZ)) / 3.0 < 1.0E-7) return false;
+        CompensatedEntities entities = player.compensatedEntities;
+        List<PacketEntity> candidates = entities.unknownCollisionCandidates();
+        if (candidates.isEmpty()) return false;
+        PacketEntity selfRidingRoot = entities.selfRidingRoot();
+        PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
+        SimpleCollisionBox envelope = new SimpleCollisionBox();
+        SimpleCollisionBox scratch = new SimpleCollisionBox();
+        var selection = new EntityCollisionSelection(player, entities.getSelf(), playerPos);
+        for (int e = 0, size = candidates.size(); e < size; e++) {
+            PacketEntity entity = candidates.get(e);
+            if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) continue;
+            if (!selection.mayCollide(entity)) continue;
+            if (!intersectsInflated(entity.getPossibleMovementCollisionBoxes(envelope, scratch), box)) continue;
+            SimpleCollisionBox candidate = selection.collisionBox(entity, entity.getClientMovementCollisionBox());
+            if (intersectsInflated(candidate, box) && selection.collidesAt(entity, candidate)) return true;
+        }
+        return false;
+    }
+
+    /** AABB#intersects of {@code entity} with {@code box} inflated by 1.0E-7. */
+    private static boolean intersectsInflated(SimpleCollisionBox entity, SimpleCollisionBox box) {
+        return entity.minX < box.maxX + 1.0E-7
+                && entity.maxX > box.minX - 1.0E-7
+                && entity.minY < box.maxY + 1.0E-7
+                && entity.maxY > box.minY - 1.0E-7
+                && entity.minZ < box.maxZ + 1.0E-7
+                && entity.maxZ > box.minZ - 1.0E-7;
     }
 
     private static void addIntersecting(
@@ -141,7 +169,7 @@ public final class UnknownCollisionProvider {
             SimulationContext context,
             SimpleCollisionBox queryBox,
             List<SimpleCollisionBox> unknown) {
-        if (context.getVehicle() != null) {
+        if (!player.isBedrockMovement() || context.getVehicle() != null) {
             return;
         }
 

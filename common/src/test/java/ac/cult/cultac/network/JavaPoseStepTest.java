@@ -46,7 +46,7 @@ class JavaPoseStepTest {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 1), state("stone_slab", "type", "bottom"));
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 2, 1), BlockIds.STONE.defaultState());
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
-        f.place(START, Vec3.ZERO);
+        f.place(START, new Vec3(0, -0.0784000015258789, 0));
         f.input(SNEAK);
         assertTrue(exact(f.tick(START, true)));
         assertEquals(Pose.CROUCHING, f.player.pose);

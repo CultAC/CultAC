@@ -18,11 +18,15 @@ public class TrigHandler {
     }
 
     public float sin(float f) {
-        return isVanillaMath ? VanillaMath.sin(f) : OptifineFastMath.sin(f);
+        return isVanillaMath
+                ? player.isBedrockMovement() ? VanillaMath.sin(f) : VanillaMath.sin(player.getClientVersion(), f)
+                : OptifineFastMath.sin(f);
     }
 
     public float cos(float f) {
-        return isVanillaMath ? VanillaMath.cos(f) : OptifineFastMath.cos(f);
+        return isVanillaMath
+                ? player.isBedrockMovement() ? VanillaMath.cos(f) : VanillaMath.cos(player.getClientVersion(), f)
+                : OptifineFastMath.cos(f);
     }
 
     // Mth.sin as this client's version indexes it (1.21.11 moved to double/long indexing).

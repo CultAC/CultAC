@@ -1,5 +1,6 @@
 package ac.cult.cultac.checks.impl.prediction.checks;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.BedrockSupported;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
@@ -14,6 +15,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.cult.cultac.utils.nmsutil.Collisions;
@@ -61,8 +63,14 @@ public class Phase extends Check implements PostPredictionListener {
             }
             return;
         }
-        if (!player.isBedrockMovement()) return;
         var context = result.getSimulationContext();
+        if (!player.isBedrockMovement()) {
+            // Before 26.3, pistons and later-ticking shulkers move the player after its report.
+            // The runner carries those moves into this travel's physical start. The previous
+            // report can still be outside a block the player already overlaps after that pass.
+            if (context != null) oldBox = boxAt(context.getStart(), 1.8f, false);
+            return;
+        }
         if (context == null || !context.hasTrustedAuthoredInput() || context.getBedrockInput() == null) return;
 
         checkMovement(
@@ -111,6 +119,7 @@ public class Phase extends Check implements PostPredictionListener {
 
         for (SimpleCollisionBox box : boxes) {
             if (intersects(newBox, box, bedrock) && !intersects(oldBox, box, bedrock)) {
+                if (!bedrock && isMovingBlock(player, box)) continue;
                 BlockPos blockPos = BlockPos.containing(
                         (box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, (box.minZ + box.maxZ) / 2);
                 int state = player.compensatedWorld.getBlockStateIdAt(blockPos);
@@ -134,6 +143,18 @@ public class Phase extends Check implements PostPredictionListener {
         }
 
         oldBox = historyBox;
+    }
+
+    /**
+     * Whether {@code box} is the collision of a block a piston is moving: the block the scan took it from is a
+     * MOVING_PISTON. PistonMovingBlockEntity#moveEntityByPiston moves entities with NOCLIP for blocks moving the same way,
+     * as fixEntityWithinPistonBase does pushing an entity out of a retracting base into the blocks it pulls, so a piston
+     * can leave the player inside one. Simulation checks movement against them; every other block stays Phase's.
+     */
+    public static boolean isMovingBlock(CultPlayer player, SimpleCollisionBox box) {
+        if (!(box instanceof VoxelShapeCollisionBox collider) || !collider.isTranslated()) return false;
+        BlockPos source = new BlockPos((int) collider.offsetX(), (int) collider.offsetY(), (int) collider.offsetZ());
+        return BlockIds.is(player.compensatedWorld.getBlockStateIdAt(source), BlockIds.MOVING_PISTON);
     }
 
     private SimpleCollisionBox boxAt(Vec3 location, float height, boolean bedrock) {

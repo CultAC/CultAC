@@ -596,7 +596,8 @@ class JavaEntityPushTest {
             f.place(STANDING, Vec3.ZERO);
             f.input(NONE);
             PacketEntity entity = entity(f, 100, SNAP_FROM);
-            assertExact(f.tick(STANDING, true));
+            // Entity#move's zero Y attempt clears ground on the local authoritative instance.
+            assertExact(f.tick(STANDING, false));
             entity.onFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
             entity.onSecondTransaction();
             assertExact(f.tick(STANDING, true));
@@ -604,7 +605,8 @@ class JavaEntityPushTest {
             positionSync(f, 100, SNAPPED);
             assertExact(f.tick(STANDING, true));
             assertExact(f.tick(STANDING, true));
-            assertExact(f.tick(STANDING.add(-pushFrom(SNAPPED.x + 2.0 / 3.0 * SNAP_STEPPING_DX - STANDING.x), 0, 0), true));
+            assertExact(
+                    f.tick(STANDING.add(-pushFrom(SNAPPED.x + 2.0 / 3.0 * SNAP_STEPPING_DX - STANDING.x), 0, 0), true));
         }
     }
 
@@ -655,7 +657,7 @@ class JavaEntityPushTest {
     void pushesWhileTheLevelLoadsMoveTheFirstLoadedTick() throws Exception {
         try (var f = loadingBesideOther()) {
             PredictionResult first =
-                    f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), true);
+                    f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), false);
             assertExact(first);
             assertEquals(0, first.getSimulationContext().getWorldData().getNumPushing());
         }
@@ -665,7 +667,7 @@ class JavaEntityPushTest {
     @Test
     void pushesWhileTheLevelLoadsMayNotHappen() throws Exception {
         try (var f = loadingBesideOther()) {
-            assertExact(f.tick(LOADING, true));
+            assertExact(f.tick(LOADING, false));
         }
     }
 
@@ -674,7 +676,7 @@ class JavaEntityPushTest {
     void pushesWhileTheLevelLoadsDoNotMoveThePlayerTowardsThePusher() throws Exception {
         try (var f = loadingBesideOther()) {
             PredictionResult first =
-                    f.tick(LOADING.add(TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), true);
+                    f.tick(LOADING.add(TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), false);
             assertFalse(exact(first), describe(first));
         }
     }
@@ -684,7 +686,7 @@ class JavaEntityPushTest {
     void aTeleportKeepingHorizontalVelocityWhileTheLevelLoadsKeepsThePushes() throws Exception {
         try (var f = loadingBesideOther()) {
             f.teleport(LOADING, ALL_DELTAS);
-            assertExact(f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), true));
+            assertExact(f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), false));
         }
     }
 
@@ -694,14 +696,15 @@ class JavaEntityPushTest {
         try (var f = loadingBesideOther()) {
             f.teleport(LOADING, new RelativeFlag(0));
             PredictionResult first =
-                    f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), true);
+                    f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), false);
             assertFalse(exact(first), describe(first));
         }
     }
 
     /**
      * A client standing at {@link #LOADING} that waited {@link #TICKS_LOADING} ticks for its level beside a zombie,
-     * which then left; its level has just loaded.
+     * which then left; its level has just loaded. No travel changed its initial zero Y velocity, so the first
+     * loaded Entity#move attempts zero Y and clears onGround even though the floor is directly below it.
      */
     private static JavaTickFixture loadingBesideOther() throws Exception {
         JavaTickFixture f = new JavaTickFixture();

@@ -69,6 +69,7 @@ public class PacketServerRegistries {
         if (java) {
             player.compensatedWorld.resetClientClocks();
             player.compensatedEntities.clientPlayerModes.clear();
+            player.compensatedEntities.teamCollision.clear();
         }
         var connection = event.getUser().getCultConnection();
         var platform = connection.platform();

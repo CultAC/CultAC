@@ -9,10 +9,10 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntitySizeable;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 
 /** LivingEntity#getDimensions and the concrete entity's getDefaultDimensions. */
-final class CameraEyeHeight {
+public final class CameraEyeHeight {
     private CameraEyeHeight() {}
 
-    static float of(PacketEntity entity, ClientVersion version) {
+    public static float of(PacketEntity entity, ClientVersion version) {
         if (entity.actionPose == EntityPose.SLEEPING && EntityTypeUtil.isLiving(entity.type)) return .2F;
         String type = EntityTypeUtil.getKey(entity.type).getPath();
         float height = EntityTypeUtil.modelType(entity.type).eyeHeight();

@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
@@ -47,8 +48,6 @@ public class PredictionResult {
     @EqualsAndHashCode.Exclude
     @ToString.Exclude
     private double selectionOffset = Double.NaN;
-    private Boolean cachedAnyRealityControlsVerticalMovement;
-    private Boolean cachedAnyRealityDidTickSkipGravity;
 
     /** VanillaStepProof's source-proven step for this result; one handleResult pass reads it from two checks. */
     @EqualsAndHashCode.Exclude
@@ -87,6 +86,13 @@ public class PredictionResult {
 
     @Setter
     Vec3 profilePredictionVector;
+
+    /** The source packet position, when MoveVehicle reports a path target rather than physical travel. */
+    Vec3 javaReportedMovement;
+
+    public Vec3 getReportedPredictionVector() {
+        return javaReportedMovement == null ? getAcceptedClosestToTarget() : javaReportedMovement;
+    }
 
     public <T> T getProfileResult(Class<T> type) {
         return type.isInstance(profileResult) ? type.cast(profileResult) : null;
@@ -139,6 +145,7 @@ public class PredictionResult {
     }
 
     public double getOffset() {
+        if (javaReportedMovement != null) return javaReportedMovement.distanceTo(getTarget());
         Vec3 predicted = getLegacyLikePredictionVector();
         return predicted.distanceTo(getTarget());
     }
@@ -164,48 +171,30 @@ public class PredictionResult {
         return !isExempt && flagSeverity > 0.0D;
     }
 
-    public boolean anyRealityControlsVerticalMovement() {
-        if (cachedAnyRealityControlsVerticalMovement != null) {
-            return cachedAnyRealityControlsVerticalMovement;
-        }
-
-        boolean result = false;
-        for (PredictionResult reality : realities) {
-            if (reality.getValidMovements().isControlsVerticalMovement()) {
-                result = true;
-                break;
-            }
-        }
-        cachedAnyRealityControlsVerticalMovement = result;
-        return result;
-    }
-
-    public boolean anyRealityDidTickSkipGravity() {
-        if (cachedAnyRealityDidTickSkipGravity != null) {
-            return cachedAnyRealityDidTickSkipGravity;
-        }
-
-        boolean result = false;
-        for (PredictionResult reality : realities) {
-            if (reality.getValidMovements().isDidTickSkipGravity()) {
-                result = true;
-                break;
-            }
-        }
-        cachedAnyRealityDidTickSkipGravity = result;
-        return result;
-    }
-
     public int getEffectiveFlagCount() {
         return hasEffectiveFlags() ? flags.size() : 0;
     }
 
     public Vec3 getLegacyLikePredictionVector() {
+        // Ridden input is already in the physical trace. An interpolation-target report supplies no
+        // extra moveRelative input and must never turn a server-authored path into carried velocity.
+        if (javaReportedMovement != null) return getAcceptedClosestToTarget();
         if (profilePredictionVector != null) {
             return profilePredictionVector;
         }
         Vec3 closest = getAcceptedClosestToTarget();
-        return UncertaintyHelper.handleCircular(new PredVector(closest), getTarget(), getHorizontalInputRadius());
+        // Every Java Entity#move includes its input before clipping. No input may be added after that collision.
+        if (collideAxisData instanceof ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision)
+            return closest;
+        Vec3 inputTarget = getTarget();
+        var pass = JavaMovementEngine.passAfterTravel(this);
+        if (pass != null && !simulationContext.isTestingPointThree()) {
+            inputTarget = new Vec3(
+                    pass.result().fixedX() ? closest.x : inputTarget.x,
+                    inputTarget.y,
+                    pass.result().fixedZ() ? closest.z : inputTarget.z);
+        }
+        return UncertaintyHelper.handleCircular(new PredVector(closest), inputTarget, getHorizontalInputRadius());
     }
 
     /** Radius of the circular horizontal input allowance around the closest movement. */
@@ -241,8 +230,7 @@ public class PredictionResult {
     }
 
     public DesyncStatus getIsFalling() {
-        if (initialStartingVel.isTickSkip() || validMovements.getCollisionIgnoredMaxStartingVelExtents() == null)
-            return DesyncStatus.UNKNOWN;
+        if (validMovements.getCollisionIgnoredMaxStartingVelExtents() == null) return DesyncStatus.UNKNOWN;
         DesyncStatus falling =
                 DesyncStatus.fromBoolean(validMovements.getCollisionIgnoredMaxStartingVelExtents().minY <= 0);
         if (falling.determineOptimistically() && validMovements.getCollisionIgnoredMaxStartingVelExtents().maxY > 0) {
@@ -262,7 +250,7 @@ public class PredictionResult {
         double gravity = getSimulationContext().getEntities().getEntityInControl().gravity;
         if (!hasSlowFalling) {
             return Collections.singletonList(gravity);
-        } else if (initialStartingVel.isTickSkip() || (minVelocityY <= 0.0D && maxVelocityY > 0.0D)) {
+        } else if (minVelocityY <= 0.0D && maxVelocityY > 0.0D) {
             return Arrays.asList(Math.min(gravity, 0.01D), gravity);
         } else {
             return Collections.singletonList(maxVelocityY <= 0.0D ? Math.min(gravity, 0.01D) : gravity);

@@ -5,13 +5,13 @@ import ac.cult.blocksim.data.Box;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.blockplace.ClientEntityQueries;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
+import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -38,14 +38,16 @@ final class JavaAutoJumpGeometry {
         int x0 = ((int) Math.floor(query.minX) - 1) >> 4, x1 = ((int) Math.floor(query.maxX) + 1) >> 4;
         int z0 = ((int) Math.floor(query.minZ) - 1) >> 4, z1 = ((int) Math.floor(query.maxZ) + 1) >> 4;
         for (int x = x0; x <= x1; x++)
-            for (int z = z0; z <= z1; z++)
-                if (player.compensatedWorld.getChunk(x, z) == null) return false;
+            for (int z = z0; z <= z1; z++) if (player.compensatedWorld.getChunk(x, z) == null) return false;
         return true;
     }
 
     private static List<Box> entityCollisions(CultPlayer player, SimpleCollisionBox query) {
-        return new ClientEntityQueries(player)
-                .playerCollisionBoxes(new Box(query.minX, query.minY, query.minZ, query.maxX, query.maxY, query.maxZ));
+        return RootVehicleInterpolationCollision.entityCollisionBoxes(
+                        player, player.compensatedEntities.getSelf(), new Vec3(player.x, player.y, player.z), query)
+                .stream()
+                .map(box -> new Box(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ))
+                .toList();
     }
 
     static List<SimpleCollisionBox> blockCollisions(CultPlayer player, SimpleCollisionBox query) {
@@ -73,7 +75,7 @@ final class JavaAutoJumpGeometry {
                         direct = !ClientBlockShapes.hasMovementAlternatives(player);
                         resolvedDirect = true;
                     }
-                    var actor = BlockIds.is(state, BlockIds.POWDER_SNOW) ? JavaCollisionState.current(player) : null;
+                    var actor = JavaCollisionState.readsActor(state) ? JavaCollisionState.current(player) : null;
                     var alternative = direct
                             ? Optional.<CollisionBox>empty()
                             : ClientBlockShapes.movementAlternative(player, state, x, y, z, player.y);

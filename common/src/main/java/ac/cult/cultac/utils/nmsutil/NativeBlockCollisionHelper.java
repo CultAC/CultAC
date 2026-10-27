@@ -28,7 +28,7 @@ public final class NativeBlockCollisionHelper {
                 y,
                 z,
                 entityBottom,
-                BlockIds.is(state, BlockIds.POWDER_SNOW) ? JavaCollisionState.current(player) : null);
+                JavaCollisionState.readsActor(state) ? JavaCollisionState.current(player) : null);
     }
 
     public static CollisionBox getCollisionBox(
@@ -153,7 +153,7 @@ public final class NativeBlockCollisionHelper {
                 y,
                 z,
                 entityBottom,
-                BlockIds.is(state, BlockIds.POWDER_SNOW) ? JavaCollisionState.current(player) : null);
+                JavaCollisionState.readsActor(state) ? JavaCollisionState.current(player) : null);
     }
 
     public static VoxelShape getCollisionShape(
@@ -176,9 +176,14 @@ public final class NativeBlockCollisionHelper {
         var fixed = player.compensatedWorld.geometry().staticCollision(state);
         if (fixed != null) return fixed;
 
+        // CollisionContext.of(entity) reads the moving entity's own isDescending, not its rider's shift key.
+        boolean descending = actor == null ? player.isSneaking : actor.descending();
         return player.compensatedWorld
                 .geometry()
-                .collision(state, new ac.cult.blocksim.engine.BlockPos(x, y, z), entityContext(player, entityBottom));
+                .collision(
+                        state,
+                        new ac.cult.blocksim.engine.BlockPos(x, y, z),
+                        entityContext(player, entityBottom, descending));
     }
 
     /** Inputs shared only by one synchronous old/new-state shape comparison. */
@@ -273,8 +278,12 @@ public final class NativeBlockCollisionHelper {
     }
 
     public static EntityCollisionContext entityContext(CultPlayer player, double entityBottom) {
+        return entityContext(player, entityBottom, player.isSneaking);
+    }
+
+    private static EntityCollisionContext entityContext(CultPlayer player, double entityBottom, boolean descending) {
         String key = heldItem(player);
-        return new EntityCollisionContext(entityBottom, player.isSneaking, 0, false, false, key, false, false, false);
+        return new EntityCollisionContext(entityBottom, descending, 0, false, false, key, false, false, false);
     }
 
     private static String heldItem(CultPlayer player) {

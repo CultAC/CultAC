@@ -39,7 +39,7 @@ public class SprintC extends Check implements PostPredictionListener {
             // Read water state pessimistically from the completed prediction.
             PredictionResult result = predictionComplete.getPredictionResult();
             boolean wasTouchingWater = result != null
-                    && result.getSimulationContext().getWorldData().getInWater().determinePessimistically();
+                    && result.getSimulationContext().getWorldData().isInWater();
             if (!wasTouchingWater) {
                 flaggedLastTick = false;
                 return;

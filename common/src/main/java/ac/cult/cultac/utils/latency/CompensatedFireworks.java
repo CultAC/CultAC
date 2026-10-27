@@ -4,8 +4,10 @@ import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityFirework;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
+import java.util.function.Consumer;
 
 public class CompensatedFireworks extends CultProcessor implements PostPredictionListener {
     // As this is sync to one player, this does not have to be concurrent
@@ -31,6 +33,10 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
     }
 
     public void removeFirework(int entityID) {
+        if (!player.isBedrockMovement()) {
+            activeFireworks.rem(entityID);
+            return;
+        }
         if (activeFireworks.contains(entityID) && !fireworksToRemoveNextTick.contains(entityID))
             fireworksToRemoveNextTick.add(entityID);
     }
@@ -43,5 +49,30 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
 
     public int getMaxFireworksAppliedPossible() {
         return activeFireworks.size();
+    }
+
+    /** Only rockets whose entity tick actually runs, on the requested side of LocalPlayer's tick. */
+    public int tickingRockets(boolean beforePlayer) {
+        var entities = player.compensatedEntities;
+        long playerOrder = entities.clientTickOrder(entities.getSelf());
+        int count = 0;
+        for (int i = 0; i < activeFireworks.size(); i++) {
+            var entity = entities.getEntity(activeFireworks.getInt(i));
+            if (entity instanceof PacketEntityFirework rocket
+                    && rocket.boostsPlayer(player)
+                    && (rocket.tickedThisTick(player) || entities.ticksInClientTick(rocket))
+                    && (rocket.tickingOrder(player) < playerOrder) == beforePlayer) count++;
+        }
+        return count;
+    }
+
+    public void forEachTickingRocket(Consumer<PacketEntityFirework> tick) {
+        var entities = player.compensatedEntities;
+        for (int i = 0; i < activeFireworks.size(); i++) {
+            var entity = entities.getEntity(activeFireworks.getInt(i));
+            if (entity instanceof PacketEntityFirework rocket
+                    && rocket.boostsPlayer(player)
+                    && (rocket.tickedThisTick(player) || entities.ticksInClientTick(rocket))) tick.accept(rocket);
+        }
     }
 }

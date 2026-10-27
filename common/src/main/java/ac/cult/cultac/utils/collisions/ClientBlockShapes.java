@@ -1,6 +1,5 @@
 package ac.cult.cultac.utils.collisions;
 
-import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -30,7 +29,7 @@ public final class ClientBlockShapes {
                 y,
                 z,
                 entityBottom,
-                BlockIds.is(state, BlockIds.POWDER_SNOW) ? JavaCollisionState.current(player) : null);
+                JavaCollisionState.readsActor(state) ? JavaCollisionState.current(player) : null);
     }
 
     public static CollisionBox movement(

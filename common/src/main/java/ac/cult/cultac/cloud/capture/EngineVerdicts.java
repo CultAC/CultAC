@@ -96,8 +96,8 @@ public final class EngineVerdicts {
 
         WorldData world = context.getWorldData();
         int movement = 0;
-        if (world.getInWater().determineOptimistically()) movement |= 1 << IntakeWire.CONTEXT_WATER;
-        if (world.getInLava().determineOptimistically()) movement |= 1 << IntakeWire.CONTEXT_LAVA;
+        if (world.mayBeInWater()) movement |= 1 << IntakeWire.CONTEXT_WATER;
+        if (world.mayBeInLava()) movement |= 1 << IntakeWire.CONTEXT_LAVA;
         if (world.getClimbingAtStart() != null && world.getClimbingAtStart().determineOptimistically()) {
             movement |= 1 << IntakeWire.CONTEXT_CLIMBING;
         }

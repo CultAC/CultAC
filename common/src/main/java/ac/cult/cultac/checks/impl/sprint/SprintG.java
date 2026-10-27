@@ -32,9 +32,9 @@ public class SprintG extends Check implements PostPredictionListener {
                 player.checkManager.getSimulationProcessor().getLastPrediction();
 
         WorldData world = result == null ? null : result.getSimulationContext().getWorldData();
-        boolean wasTouchingWater = world != null && world.getInWater().determinePessimistically();
+        boolean wasTouchingWater = world != null && world.isInWater();
         boolean wasWasTouchingWater = lastResult != null
-                && lastResult.getSimulationContext().getWorldData().getInWater().determinePessimistically();
+                && lastResult.getSimulationContext().getWorldData().isInWater();
 
         boolean wasLastPredictionCompleteChecked =
                 lastResult != null && !lastResult.isTeleport() && !lastResult.isExempt();

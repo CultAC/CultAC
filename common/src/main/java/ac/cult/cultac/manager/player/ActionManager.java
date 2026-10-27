@@ -65,7 +65,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
                         ClientItemUseState.duration(heldStack),
                         !ItemUseInventory.possiblyRefused(player, hand)
                                 && (RiptideUtil.getRiptideLevel(heldStack) <= 0
-                                        || RiptideUtil.inWaterOrRain(player).determinePessimistically()));
+                                        || RiptideUtil.inWaterOrRain(player)));
             return;
         }
         if (canStartUsingItem(heldStack)) {
@@ -116,7 +116,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
                 // TridentItem#use refuses a riptide trident only while !Player#isInWaterOrRain.
                 return !nms.nextDamageWillBreak()
                         && (ItemUtil.enchantmentLevel(stack, "minecraft:riptide") <= 0
-                                || RiptideUtil.inWaterOrRain(player).determineOptimistically());
+                                || RiptideUtil.inWaterOrRain(player));
             }
 
             var consumable = ItemComponents.consumable(nms.components());
@@ -140,7 +140,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
             // TridentItem#use refuses a riptide trident only while !Player#isInWaterOrRain.
             return !nms.nextDamageWillBreak()
                     && (ItemUtil.enchantmentLevel(stack, "minecraft:riptide") <= 0
-                            || RiptideUtil.inWaterOrRain(player).determineOptimistically());
+                            || RiptideUtil.inWaterOrRain(player));
         }
         if (material == ItemTypes.BOW || material == ItemTypes.CROSSBOW) {
             return false;

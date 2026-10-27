@@ -155,6 +155,7 @@ public class PacketPlayerRespawn {
         if (!player.isBedrockMovement()) {
             player.latencyUtils.addRealTimeTaskNext(() -> {
                 player.compensatedWorld.clearChunks();
+                player.compensatedWorld.initializeClientChunkCache(packet.chunkRadius());
                 player.compensatedWorld.clearPistonLikeState();
                 player.compensatedEntities.clearClientLevel();
                 player.compensatedWorld.isRaining = false;
@@ -280,7 +281,10 @@ public class PacketPlayerRespawn {
             if (level != player.compensatedWorld.level()) return;
             player.isSneaking = false;
             // ClientPacketListener#handleRespawn starts the new LocalPlayer from Input.EMPTY unless KEEP_ENTITY_DATA.
-            if (!keepEntityData) player.packetStateData.knownInput = KnownInput.DEFAULT;
+            if (!keepEntityData) {
+                player.packetStateData.knownInput = KnownInput.DEFAULT;
+                player.powderSnowFrozenTicks = 0;
+            }
             // ClientPacketListener#handleRespawn gives every new LocalPlayer a fresh KeyboardInput.
             FlightToggle.reset(player.packetStateData, keepEntityData);
             final BadPacketsF badPacketsF = player.checkManager.getListener(BadPacketsF.class);

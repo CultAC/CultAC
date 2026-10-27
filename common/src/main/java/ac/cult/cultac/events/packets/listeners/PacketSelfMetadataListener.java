@@ -106,9 +106,16 @@ public class PacketSelfMetadataListener {
             EntityMetadata.Entry frozen =
                     WatchableIndexUtil.getIndex(entityMetadata, WatchableIndexUtil.ENTITY_TICKS_FROZEN);
             if (frozen != null) {
-                if (!hasSendTransaction) player.sendTransaction();
-                hasSendTransaction = true;
-                player.latencyUtils.addRealTimeTaskNow(() -> player.powderSnowFrozenTicks = (int) frozen.value());
+                // handleSetEntityData changes the count before the next aiStep, but a ping preceding
+                // this packet cannot prove that change. Keep metadata and its proof in one client task.
+                Runnable applyFrozen = () -> player.powderSnowFrozenTicks = (int) frozen.value();
+                var proof = player.appendTrailingProofTransaction(event);
+                if (proof != null) {
+                    if (!event.isInsideBundle()) event.bundle();
+                    player.latencyUtils.addRealTimeTask(proof.transaction(), applyFrozen);
+                } else {
+                    addTaskAfterPacketProof(event, player, applyFrozen);
+                }
             }
 
             EntityMetadata.Entry bedObject =

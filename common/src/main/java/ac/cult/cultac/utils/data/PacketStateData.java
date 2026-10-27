@@ -29,8 +29,8 @@ public class PacketStateData {
     public int jumpTriggerTimes = 1;
     // Entity#isSwimming can be true from the last client tick's baseTick on; the server's entity data overwrites it.
     public boolean swimmingPossible = false;
-    // Entity#wasEyeInWater at the next client tick's baseTick: the eye fluid at the last client tick's start.
-    public boolean eyeInWaterBeforeTick = false;
+    // Eye contact read at the next baseTick: 26.3 queries current tags on the cached raw holders.
+    public int eyeFluidContactBeforeTick = 0;
     // Geyser forwards each auth frame before its movement. A horse move
     // precedes the rider's rotation; tick-end closes frames without movement.
     public final BedrockTranslatedMovementGate bedrockTranslatedMovement = new BedrockTranslatedMovementGate();
@@ -53,6 +53,7 @@ public class PacketStateData {
     public int riptideLevel = 0;
     public boolean riptideReleaseCertain = false;
     public int acceptedClientTick = 0;
+    public Boolean glidingBeforeClientAction;
     public int riptideUseStartClientTick = Integer.MIN_VALUE;
     public Hand riptideUseHand = null;
     public boolean invalidRiptideRelease = false;

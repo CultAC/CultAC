@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.blocksim.entity.EntityTags;
@@ -19,8 +20,14 @@ public record JavaCollisionState(
         boolean self = actor == player.compensatedEntities.getSelf();
         boolean walks = EntityTags.POWDER_SNOW_WALKABLE_MOBS.test(actor.type)
                 || self && player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS;
-        return new JavaCollisionState(
-                fallDistance, walks, self && player.isSneaking, actor.type == EntityTypeIds.FALLING_BLOCK);
+        // Entity#isDescending is isShiftKeyDown: LocalPlayer's shift key, or another entity's shared flag 1.
+        boolean descending = self ? player.isSneaking : (actor.actionSharedFlags & 2) != 0;
+        return new JavaCollisionState(fallDistance, walks, descending, actor.type == EntityTypeIds.FALLING_BLOCK);
+    }
+
+    /** Whether the state's collision shape reads these moving-entity inputs rather than only its bottom. */
+    public static boolean readsActor(int state) {
+        return BlockIds.is(state, BlockIds.POWDER_SNOW) || BlockIds.is(state, BlockIds.SCAFFOLDING);
     }
 
     public static JavaCollisionState current(CultPlayer player) {

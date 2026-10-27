@@ -63,8 +63,8 @@ class UncertaintyFilterEquivalenceTest {
         UncertaintyHandler[] modifiers = modifiers();
         UncertaintyHandler[] original = modifiers.clone();
         for (long seed = 0; seed < SCENARIOS; seed++) {
-            String filtered = PredictionDigestTest.dump(
-                    seed, new TreeMap<>(), UncertaintyFilterEquivalenceTest::holdWorldResync);
+            String filtered =
+                    PredictionDigestTest.dump(seed, new TreeMap<>(), UncertaintyFilterEquivalenceTest::holdWorldResync);
             String whole;
             try {
                 wrap(modifiers, i -> new Kept(original[i]));
@@ -156,7 +156,7 @@ class UncertaintyFilterEquivalenceTest {
     private static final int FIREWORK = 1_000_001;
 
     /** Handlers whose predicate the scenarios alone never turn false; a variant must make each one move a trace. */
-    private static final Set<String> MUST_ACT = Set.of("BoatTransform", "Fireworks", "Honey", "StuckSpeed");
+    private static final Set<String> MUST_ACT = Set.of("BoatTransform", "Honey", "StuckSpeed");
 
     private static final List<Variant> VARIANTS = List.of(
             Variant.of(Owner.WORLD, "inWater", () -> DesyncStatus.TRUE),
@@ -164,16 +164,16 @@ class UncertaintyFilterEquivalenceTest {
             Variant.of(Owner.WORLD, "inFlowingLiquid", () -> DesyncStatus.TRUE),
             Variant.of(Owner.WORLD, "mightBeInBlock", () -> true),
             Variant.of(Owner.WORLD, "climbingAtStart", () -> DesyncStatus.TRUE),
-            Variant.of(Owner.WORLD, "fishingRodPulls", UncertaintyFilterEquivalenceTest::box),
             Variant.of(Owner.WORLD, "sneak", () -> new StuckEdgeData(true, false, false, true, false)),
-            Variant.of(Owner.WORLD, "pistonPushes", () -> new PistonPushes(box(), Set.of())),
+            Variant.of(Owner.WORLD, "pistonPushes", () -> new PistonPushes(box(), box(), new SimpleCollisionBox())),
             Variant.of(Owner.LAST_WORLD, "climbing", () -> DesyncStatus.TRUE),
             Variant.of(Owner.LAST_WORLD, "onBlock", () -> SLIME_STATE),
             Variant.of(Owner.LAST_WORLD, "onBlock", () -> BED_STATE),
             Variant.of(Owner.LAST_WORLD, "honeySlide", () -> DesyncStatus.TRUE),
             Variant.of(Owner.LAST_WORLD, "bubbleColumn", () -> new BubbleColumnData(1, 1, 1, 1)),
             Variant.of(Owner.LAST_WORLD, "stuckSpeed", UncertaintyFilterEquivalenceTest::cobweb),
-            Variant.of(Owner.LAST_WORLD, "pistonPushes", () -> new PistonPushes(box(), Set.of())),
+            Variant.of(
+                    Owner.LAST_WORLD, "pistonPushes", () -> new PistonPushes(box(), box(), new SimpleCollisionBox())),
             Variant.of(Owner.LAST_WORLD, "sneak", () -> new StuckEdgeData(false, true, true, false, true)),
             Variant.of(Owner.CONTEXT, "riptideLevel", () -> 3),
             Variant.of(Owner.CONTEXT, "isTestingPointThree", () -> true),

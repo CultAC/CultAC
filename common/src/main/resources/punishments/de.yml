@@ -19,6 +19,7 @@ Punishments:
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
+      - "Phase"
     # Schwellenwert:Intervall Befehl
     #
     # Beispiel, um den Spieler mit der Meldung "Falsche Bewegung!" nach 100 Verstößen zu kicken, ohne Intervall
@@ -131,4 +132,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 4
+cult-config-version: 5

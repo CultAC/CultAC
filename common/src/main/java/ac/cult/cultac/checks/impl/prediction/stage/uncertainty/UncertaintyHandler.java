@@ -15,6 +15,10 @@ public interface UncertaintyHandler {
         return false;
     }
 
+    /**
+     * By default a handler models a change to the client's Entity#deltaMovement, so its shift moves the trace's
+     * pre-collision velocity too. Handlers whose movement Entity#move never writes to deltaMovement override this.
+     */
     default MovementTrace handleMovementTrace(
             CultPlayer player,
             ValidMovements valid,
@@ -23,7 +27,8 @@ public interface UncertaintyHandler {
             PredictionResult lastResult,
             MovementTrace trace,
             Vec3 end) {
-        return trace.withPosition(handleUncertainty(player, valid, result, context, lastResult, trace.position(), end));
+        return trace.withVelocityShift(handleUncertainty(player, valid, result, context, lastResult, trace.position(), end),
+                context == null ? null : trace.position().collisionStuckSpeedMultiplier(context));
     }
 
     PredVector handleUncertainty(

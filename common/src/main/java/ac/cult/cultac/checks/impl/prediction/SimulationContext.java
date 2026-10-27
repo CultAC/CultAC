@@ -4,6 +4,9 @@ import ac.cult.blocksim.data.BlockTags;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -12,12 +15,12 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.KnownInput;
-import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.packetentity.*;
 import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.TrigHandler;
 import ac.cult.cultac.utils.math.Vec3;
@@ -33,7 +36,7 @@ import lombok.ToString;
 
 @Getter
 @ToString
-public class SimulationContext {
+public class SimulationContext implements Cloneable {
     /**
      * Whether this tick starts from LivingEntity#checkAutoSpinAttack's -0.2 rebound: a hit scales deltaMovement and
      * sets autoSpinAttackTicks to 0, while a spin that hit nothing leaves deltaMovement as it was.
@@ -97,6 +100,7 @@ public class SimulationContext {
     // Whether movement_speed may carry minecraft:sprinting during travel
     @Setter
     boolean sprintModifier = true;
+
     private float[][] groundMoveRelativeSpeeds;
     // The movement_efficiency attribute during travel; LivingEntity#getBlockSpeedFactor lerps the block's factor to 1
     @Setter
@@ -111,6 +115,16 @@ public class SimulationContext {
     @Setter
     WorldData worldData;
 
+    /** The source-proven protocol-773 implementation this candidate follows, or null for other protocols. */
+    @Setter
+    JavaMovementPatch movementPatch;
+
+    @Setter
+    ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder;
+
+    @Setter
+    JavaPredictionCarry.PistonStart pistonStartState;
+
     @Setter
     int riptideLevel;
 
@@ -118,22 +132,30 @@ public class SimulationContext {
     @Setter
     boolean riptideReleaseCertain;
 
-    /** The rise of TridentItem#releaseUsing's Entity#move for a release on ground this tick. */
-    @Setter
-    double riptideGroundLift;
-
-    /**
-     * The Entity#stuckSpeedMultiplier a release on ground consumes this tick, or null: TridentItem#releaseUsing's
-     * Entity#move scales the lift by it, clears it and zeroes deltaMovement, so the tick's travel is not scaled.
-     */
+    /** Multiplier consumed by the release's move, retained as evidence that it replaced the carried velocity. */
     @Setter
     Vec3 riptideLiftStuck;
+
+    @Setter
+    Vec3 preTravelMovement = Vec3.ZERO;
+
+    /**
+     * The movements Entity#move recorded earlier in this client tick, which the travel's 1.21.5+
+     * Entity#applyEffectsFromBlocks replays before the travel's own.
+     */
+    @Setter
+    List<JavaInsideBlockEffects.RecordedMove> movesBeforeTravel = List.of();
 
     /** The starts the last tick's LivingEntity#checkAutoSpinAttack leaves this tick. */
     @Setter
     SpinRebound spinRebound = SpinRebound.OPTIONAL;
 
-    LastInstance lastTickSkip;
+    @Setter
+    boolean bedrockMovement;
+    @Setter
+    boolean noPhysics;
+    @Setter
+    boolean noPhysicsHorizontalCollision;
     boolean isTestingPointThree;
     Vec3 lastStuckSpeed = NO_STUCK_SPEED;
     Vec3 horseInputs;
@@ -154,11 +176,25 @@ public class SimulationContext {
     @Setter
     boolean rootClientVelocityPendingAtPrediction;
 
+    /** The concrete vehicle position used only by the passenger's own ride-tick replay. */
+    @Setter
+    SimpleCollisionBox rideTickVehicleBox;
+
     @Setter
     Vec3 requiredCurrentMoveStuckSpeed;
 
     @Setter
     PredictionCarry profileCarry;
+
+    /**
+     * From 26.3, the Level#tickBlockEntities that runs between this travel and the report when its movers may reach
+     * the player, which CollisionModifier replays after each candidate travel; null otherwise.
+     */
+    @Setter
+    @ToString.Exclude
+    ClientBlockEntityPass passAfterTravel;
+    @Setter
+    boolean spinSprintResetRequired;
 
     AuthoredMovementFrame authoredInput;
     BedrockAuthInputFrame bedrockInput;
@@ -198,7 +234,6 @@ public class SimulationContext {
             int minAttackSlow,
             int maxAttackSlow,
             int riptideLevel,
-            LastInstance lastTickSkip,
             boolean isTestingPointThree,
             Vec3 horseInputs,
             boolean clientMovementInputKnown,
@@ -228,7 +263,6 @@ public class SimulationContext {
         this.minAttackSlow = minAttackSlow;
         this.maxAttackSlow = maxAttackSlow;
         this.riptideLevel = riptideLevel;
-        this.lastTickSkip = lastTickSkip;
         this.isTestingPointThree = isTestingPointThree;
         this.horseInputs = horseInputs;
         this.lastTickMainSupportingBlockData = lastTickMainSupportingBlockData;
@@ -237,6 +271,8 @@ public class SimulationContext {
     }
 
     public void handleLastRequiredStuckSpeed(Vec3 stuckSpeedRequired) {
+        // Entity#move's noPhysics branch returns before consuming the stuck multiplier.
+        if (noPhysics) return;
         if (stuckSpeedRequired != null) {
             lastStuckSpeed = stuckSpeedRequired;
         }
@@ -245,6 +281,44 @@ public class SimulationContext {
             return;
         }
         setTarget(target.multiply(1 / lastStuckSpeed.x, 1 / lastStuckSpeed.y, 1 / lastStuckSpeed.z));
+    }
+
+    /** A travel replay owns its endpoint and world fields; shared boxes and inputs remain read-only. */
+    public SimulationContext forTravelReplay(Vec3 travelEnd) {
+        try {
+            SimulationContext copy = (SimulationContext) super.clone();
+            copy.end = travelEnd;
+            copy.target = travelEnd
+                    .subtract(start)
+                    .multiply(1 / lastStuckSpeed.x, 1 / lastStuckSpeed.y, 1 / lastStuckSpeed.z);
+            copy.worldData = worldData.copy();
+            copy.passAfterTravel = null;
+            return copy;
+        } catch (CloneNotSupportedException impossible) {
+            throw new AssertionError(impossible);
+        }
+    }
+
+    /** A release candidate owns its lifted travel origin, carry and world; the packet endpoint stays fixed. */
+    public SimulationContext afterPreTravelMove(
+            ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState moved) {
+        SimulationContext copy = forTravelReplay(end);
+        copy.passAfterTravel = passAfterTravel;
+        copy.target = target;
+        if (moved == null) return copy;
+        copy.preTravelMovement = moved.position().subtract(start);
+        copy.start = moved.position();
+        copy.lastStuckSpeed = NO_STUCK_SPEED;
+        copy.requiredCurrentMoveStuckSpeed = null;
+        copy.target = end.subtract(copy.start);
+        copy.handleLastRequiredStuckSpeed(moved.stuckSpeed());
+        copy.packetMovement = null;
+        copy.packetMovementEnd = null;
+        copy.lastTickMainSupportingBlockData = moved.support();
+        copy.entityCollisionBoxesForMovementTick = null;
+        copy.hardCollidingEntityCollisionsForMovementTick = null;
+        // forTravelReplay clears the after-travel pass; a release is still in the original client tick.
+        return copy;
     }
 
     public void attachAuthoredInput(AuthoredMovementFrame authoredInput) {
@@ -309,11 +383,7 @@ public class SimulationContext {
                 && gliding
                 && version.isNewerThanOrEquals(ClientVersion.V_1_21_5)
                 && worldData.getClimbingAtStart().determinePessimistically()
-                && !worldData.maybeInLiquid();
-    }
-
-    private double getMovementThreshold() {
-        return 0.0002;
+                && !worldData.mayBeInLiquid();
     }
 
     public SimpleCollisionBox getToMaxPose() {
@@ -324,16 +394,18 @@ public class SimulationContext {
         if (getVehicle() != null) {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight())
-                .expand(getMovementThreshold());
+        SimpleCollisionBox box =
+                GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
+        return bedrockMovement ? box.expand(0.0002) : box;
     }
 
     public SimpleCollisionBox getToMinimumExtent() {
         if (getVehicle() != null) {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), 0.6f);
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMinHeight())
-                .expand(-getMovementThreshold());
+        SimpleCollisionBox box =
+                GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMinHeight());
+        return bedrockMovement ? box.expand(-0.0002) : box;
     }
 
     /** {@code end.subtract(start)}, shared until {@code end} changes. */
@@ -373,11 +445,17 @@ public class SimulationContext {
     }
 
     public SimpleCollisionBox getToActualPose() {
+        return getActualPoseAt(end);
+    }
+
+    /** EntityDimensions#makeBoundingBox at {@code position}, with this movement's dimensions. */
+    public SimpleCollisionBox getActualPoseAt(Vec3 position) {
         if (getVehicle() != null) {
-            return getToMaxPose();
+            return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                    position.x, position.y, position.z, getMaxWidth(), getMaxHeight());
         }
         return GetBoundingBox.getBoundingBoxFromPosAndSize(
-                end.x, end.y, end.z, pose.width * scale, pose.height * scale);
+                position.x, position.y, position.z, pose.width * scale, pose.height * scale);
     }
 
     public float getMaxSpeed(CultPlayer player) {
@@ -387,6 +465,8 @@ public class SimulationContext {
 
     /** Radius of the circular horizontal input allowance around the input-free movement of {@code candidate}. */
     public double getHorizontalInputRadius(CultPlayer player, PredVector candidate) {
+        // A candidate that already holds its exact moveRelative input has no input left to allow.
+        if (candidate != null && candidate.hasTravelInput()) return 0.0D;
         return getVehicle() == null
                 ? getHorizontalInputAllowance(player, getSprintOutcome(player, candidate))
                 : getMaxSpeed(player);
@@ -400,8 +480,8 @@ public class SimulationContext {
         float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
         double allowance = 0;
         for (boolean onGround : worldData.getLastOnGround().getStates()) {
-            for (boolean water : worldData.getInWater().getStates()) {
-                for (boolean lava : worldData.getInLava().getStates()) {
+            for (boolean water : worldData.waterStates()) {
+                for (boolean lava : worldData.lavaStates()) {
                     allowance = Math.max(
                             allowance,
                             getFrictionInfluencedSpeed(blockUnderPlayer, player, onGround, water, lava, outcome)
@@ -432,8 +512,8 @@ public class SimulationContext {
         float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
         double maxSpeed = 0;
         for (boolean onGround : worldData.getLastOnGround().getStates()) {
-            for (boolean water : worldData.getInWater().getStates()) {
-                for (boolean lava : worldData.getInLava().getStates()) {
+            for (boolean water : worldData.waterStates()) {
+                for (boolean lava : worldData.lavaStates()) {
                     if (groundSprintSpeed(player, onGround, water || lava)) {
                         for (float speed : getGroundMoveRelativeSpeeds(player, outcome)) {
                             maxSpeed = Math.max(maxSpeed, speed);
@@ -532,8 +612,8 @@ public class SimulationContext {
     private float getFrictionInfluencedSpeed(float friction, CultPlayer player) {
         float maxSpeed = 0;
         for (boolean onGround : worldData.getLastOnGround().getStates()) {
-            for (boolean water : worldData.getInWater().getStates()) {
-                for (boolean lava : worldData.getInLava().getStates()) {
+            for (boolean water : worldData.waterStates()) {
+                for (boolean lava : worldData.lavaStates()) {
                     maxSpeed = Math.max(maxSpeed, getFrictionInfluencedSpeed(friction, player, onGround, water, lava));
                 }
             }
@@ -637,8 +717,7 @@ public class SimulationContext {
      * passenger's LocalPlayer#aiStep then re-sprints before sendIsSprintingIfNeeded, so no STOP_SPRINTING is sent.
      */
     public DesyncStatus getCamelRiderSprinting(CultPlayer player) {
-        if (player.vehicleData.camelSprintingState == SprintingState.STOPPED
-                || minAttackSlow > 0) {
+        if (player.vehicleData.camelSprintingState == SprintingState.STOPPED || minAttackSlow > 0) {
             return DesyncStatus.FALSE;
         }
         return maxAttackSlow > 0 ? DesyncStatus.UNKNOWN : DesyncStatus.TRUE;
@@ -664,7 +743,7 @@ public class SimulationContext {
             return ((PacketEntityHorse) vehicle).movementSpeedAttribute;
         }
         if (vehicle instanceof PacketEntityNautilus nautilus) {
-            boolean water = worldData != null && worldData.getInWater().determineOptimistically();
+            boolean water = worldData != null && worldData.mayBeInWater();
             return (water ? 0.0325F : 0.02F) * nautilus.movementSpeedAttribute;
         }
         // Must be rideable?
@@ -674,18 +753,18 @@ public class SimulationContext {
             if (vehicle.type == EntityTypeIds.PIG) {
                 speed *= 0.225D;
             } else if (vehicle.type == EntityTypeIds.STRIDER) {
-                speed *= isMountedStriderSuffocating(player) ? 0.35F : 0.55F;
+                boolean cold = player.isBedrockMovement()
+                        ? isBedrockMountedStriderSuffocating(player)
+                        : ((PacketEntityStrider) vehicle).isSuffocating();
+                speed *= cold ? 0.35F : 0.55F;
             }
             return (float) (speed * rideable.boost.factor(player.getClientVersion()));
         }
         return 0; // ??? I guess riding a weird vehicle?
     }
 
-    private boolean isMountedStriderSuffocating(CultPlayer player) {
-        // MCP-Reborn Strider#tick recomputes this local state from the root
-        // strider's exact start-of-tick position via blockPosition(),
-        // getBlockStateOnLegacy(), and getFluidHeight(FluidTags.LAVA) before
-        // super.tick() reaches LivingEntity#travelRidden/getRiddenSpeed.
+    private boolean isBedrockMountedStriderSuffocating(CultPlayer player) {
+        // Bedrock retains its existing block-based warmth model.
         BlockPos blockPos =
                 new BlockPos((int) Math.floor(start.x), (int) Math.floor(start.y), (int) Math.floor(start.z));
         int currentBlock = player.compensatedWorld.getBlockStateIdAt(blockPos);

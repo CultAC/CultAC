@@ -3,6 +3,9 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.KnownInput;
@@ -35,7 +38,20 @@ public class BoatTransform implements UncertaintyHandler {
         if (velocity == trace.position()) return trace;
         // AbstractBoat#tick stores the floatBoat and controlBoat result in deltaMovement before Entity#move,
         // so that, not the tick's starting velocity, is what the move carries into the next tick.
-        return trace.withPosition(velocity).withPreCollisionVelocity(velocity);
+        MovementTrace moved = trace.withPosition(velocity).withPreCollisionVelocity(velocity);
+        if (usesProvenWaterEntryPositionSnap(player, context)) {
+            // floatBoat's water-entry setPos is position only. That branch explicitly clears stored Y before
+            // controlBoat and Entity#move, so its height correction must never become next tick's buoyancy.
+            Vec3 snap = new Vec3(0, velocity.y, 0);
+            Vec3 stuck = velocity.collisionStuckSpeedMultiplier(context);
+            double unscaledY = stuck == null ? snap.y : snap.y / stuck.y;
+            Vec3 base = new Vec3(0, unscaledY, 0);
+            moved = moved.withPosition(velocity.withY(unscaledY, "boat setPos before move"))
+                    .withPreCollisionVelocity(new Vec3(velocity.x, 0, velocity.z))
+                    .addPositionOnlyDelta(snap)
+                    .addCollisionBaseOffset(base);
+        }
+        return moved;
     }
 
     @Override
@@ -68,7 +84,19 @@ public class BoatTransform implements UncertaintyHandler {
 
         BoatTickResult tick = selectBoatTick(
                 player, context, result.getInitialStartingVel(), BoatTickState.capture(player), result.getTarget());
-        tick.state().apply(player);
+        BoatTickState state = tick.state();
+        if (JavaFallDistance.runsFallDamageCallback(context.getVersion(), true)) {
+            Vec3 stuck = context.getRequiredCurrentMoveStuckSpeed();
+            boolean consumesStuck = context.consumesStuckSpeed() || stuck != null && stuck.lengthSqr() > 1.0E-7;
+            state = state.withLastYd(state.nullifyNextY() || consumesStuck ? 0 : tick.vector().y);
+        }
+        var pass = JavaMovementEngine.passAfterTravel(result);
+        if (pass != null && pass.result().boatLastYd() != null)
+            state = state.withLastYd(pass.result().boatLastYd());
+        state.apply(player);
+        if (player.compensatedEntities.vehicles.reportsInterpolationRotation(context.getVehicle()))
+            context.getVehicle()
+                    .setClientPhysicalRotation(tick.postControlYaw(), context.getVehicle().clientPhysicalPitch);
     }
 
     public static String debugBoatTick(CultPlayer player, SimulationContext context, Vec3 vector) {
@@ -146,7 +174,9 @@ public class BoatTransform implements UncertaintyHandler {
         SimpleCollisionBox boatBox = context.getFromMaximumExtent();
         double boatY = context.getStart().y;
         double boatHeight = boatBox.maxY - boatBox.minY;
-        double d1 = player.compensatedEntities.getEntityInControl().hasGravity ? -0.04f : 0;
+        boolean doubleGravity = context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
+        double gravity = doubleGravity ? 0.04D : (double) 0.04F;
+        double d1 = player.compensatedEntities.getEntityInControl().hasGravity ? -gravity : 0;
         double d2 = 0.0D;
         float invFriction = 0.05F;
 
@@ -187,15 +217,15 @@ public class BoatTransform implements UncertaintyHandler {
             vector = new Vec3(vector.x * invFriction, vector.y + d1, vector.z * invFriction);
 
             if (d2 > 0.0D) {
-                vector = new Vec3(vector.x, (vector.y + d2 * 0.06153846016296973D) * 0.75D, vector.z);
+                // floatBoat uses the DOUBLE default gravity even when NoGravity makes getGravity zero.
+                double buoyancy = doubleGravity ? 0.04D / 0.65D : 0.06153846016296973D;
+                vector = new Vec3(vector.x, (vector.y + d2 * buoyancy) * 0.75D, vector.z);
             }
         }
 
         // MCP-Reborn AbstractBoat#floatBoat multiplies deltaRotation by the same
         // status friction applied to horizontal velocity.
-        return new FloatBoatResult(
-                vector,
-                state.withDeltaRotation(state.deltaRotation() * invFriction).withLastYd(vector.y));
+        return new FloatBoatResult(vector, state.withDeltaRotation(state.deltaRotation() * invFriction));
     }
 
     private static BoatTickResult selectBoatTick(
@@ -323,7 +353,10 @@ public class BoatTransform implements UncertaintyHandler {
         float deltaRotation = applyBoatControlDelta(state.deltaRotation(), inputs);
         float startYaw;
         float postControlYaw;
-        if (player.packetStateData.isVehicleMovementFromClientTick()) {
+        if (player.compensatedEntities.vehicles.reportsInterpolationRotation(context.getVehicle())) {
+            startYaw = context.getVehicle().clientPhysicalYaw;
+            postControlYaw = startYaw + deltaRotation;
+        } else if (player.packetStateData.isVehicleMovementFromClientTick()) {
             // ServerboundMoveVehiclePacket#fromEntity serializes the root boat
             // after AbstractBoat#controlBoat has already added deltaRotation.
             postControlYaw = context.getXRot();

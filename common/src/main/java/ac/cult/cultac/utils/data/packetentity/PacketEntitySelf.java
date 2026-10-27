@@ -3,15 +3,16 @@ package ac.cult.cultac.utils.data.packetentity;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.sprint.SprintD;
 import ac.cult.cultac.network.packet.EntityPositionPath;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientAttributeInstance;
+import ac.cult.cultac.utils.data.ClientFrost;
+import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
-import java.util.ArrayList;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -121,19 +122,19 @@ public class PacketEntitySelf extends PacketEntity {
             default -> null;
         };
         if (instance == null) return;
-        instance.onServerSnapshot(instance == movementSpeedAttribute ? withoutClientFrost(snapshot) : snapshot);
+        instance.onServerSnapshot(snapshot);
         refreshAttributeValues();
     }
 
     /**
-     * LivingEntity#aiStep runs removeFrost and tryAddFrost only on the server since 1.21.5, so the client moves with
-     * the server's minecraft:powder_snow modifier. Older clients replace it every tick with their own.
+     * {@link ClientFrost} after travel, for the clients that run it. The synchronized frozen count is not advanced
+     * locally. Attribute packets can replace this modifier again before the next travel; from 1.21.5 only those
+     * packets change frost on the client.
      */
-    private AttributeSnapshot withoutClientFrost(AttributeSnapshot snapshot) {
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) return snapshot;
-        List<AttributeModifier> kept = new ArrayList<>(snapshot.modifiers());
-        kept.removeIf(modifier -> modifier.id().equals(CompensatedEntities.SNOW_MODIFIER_ID));
-        return new AttributeSnapshot(snapshot.attribute(), snapshot.base(), kept);
+    public void updateClientFrost(Vec3 position, MainSupportingBlockData supportingBlock) {
+        if (!ClientFrost.replacedAfterTravel(player)) return;
+        ClientFrost.replace(player, movementSpeedAttribute, player.powderSnowFrozenTicks, position, supportingBlock);
+        playerSpeed = movementSpeedAttribute.value();
     }
 
     /** movement_speed with {@code sprinting} as its minecraft:sprinting modifier; {@link #playerSpeed} has none. */

@@ -46,7 +46,7 @@ class LegacyHostRemotePlayerPathTest {
             player.packetEntityReplication.addEntity(ID, EntityTypeIds.PLAYER, new Vec3(0, 64, 0), 0, 0, 0, -1);
             PacketEntity entity = player.compensatedEntities.getEntity(ID);
             assertNotNull(entity);
-            for (int tick = 0; tick < 5; tick++) entity.onMovement(player, true);
+            for (int tick = 0; tick < 5; tick++) entity.onMovement(player);
 
             var move = new ClientboundMoveEntity(
                     ID, new EntityDelta.Linear((short) 4096, (short) 0, (short) 0), 0.0F, 0.0F, true, true, false);
@@ -71,7 +71,7 @@ class LegacyHostRemotePlayerPathTest {
     private static void assertTicks(CultPlayer player, PacketEntity entity, double from, double to, String what) {
         float[] samples = {1.0F / 3.0F, 2.25F / 3.0F, 1.0F};
         for (int tick = 0; tick < samples.length; tick++) {
-            entity.onMovement(player, true);
+            entity.onMovement(player);
             assertEquals(
                     from + (to - from) * samples[tick],
                     entity.clientPhysicalPosition.x,

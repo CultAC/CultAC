@@ -223,16 +223,10 @@ class JavaSetbackPacketOrderingTest {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"bed", "dead"})
-    void invalidBedAndDeathMovementCannotChangeThePredictionAnchor(String reason) throws Exception {
+    @Test
+    void deathMovementCannotChangeThePredictionAnchor() throws Exception {
         try (var setup = new Setup(ProtocolVersion.V26_3)) {
-            if (reason.equals("bed")) {
-                setup.player.isInBed = true;
-                setup.player.bedPosition = new Vec3(5, 64, 5);
-            } else {
-                setup.player.compensatedEntities.getSelf().isDead = true;
-            }
+            setup.player.compensatedEntities.getSelf().isDead = true;
             var reminder = setup.player.checkManager.getCheck(BadPacketsE.class);
             setField(BadPacketsE.class, reminder, "noReminderTicks", 19);
             assertTrue(setup.move(true, .6, 0).isCancelled());
@@ -296,7 +290,10 @@ class JavaSetbackPacketOrderingTest {
 
         Setup(ProtocolVersion version) throws Exception {
             services = new RecordConsumerServices(version);
-            fixture = new RecordReceiveFixture(version);
+            // These fixtures use a 26.3 client on each host wire. Older hosts still dispatch
+            // 26.3 model values, including the received registry/tag domain, in production.
+            fixture = RecordReceiveFixture.olderHost(version);
+            services.useNetwork(fixture.manager);
             player = fixture.player;
             setField(CultPlayer.class, player, "resolvedClientVersion", ClientVersion.V_26_3);
             player.gamemode = GameMode.SURVIVAL;

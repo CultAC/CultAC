@@ -47,7 +47,7 @@ public final class SprintE extends Check implements PostPredictionListener {
         PredictionResult result = complete.getPredictionResult();
         boolean checked = !complete.isExempt() && result != null;
         boolean inWater = result != null
-                && result.getSimulationContext().getWorldData().getInWater().determineOptimistically();
+                && result.getSimulationContext().getWorldData().isInWater();
 
         if (checked
                 && previousPredictionChecked
