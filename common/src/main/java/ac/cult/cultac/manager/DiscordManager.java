@@ -169,7 +169,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
                 "**Version**: `%version%` **Brand**: `%brand%`",
                 "**Server**: `%server%` **World**: `%world%` **Location**: `%location%`",
                 "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Clock**: `%clock_behind%ms` **Time**: `%session_time%`",
-                "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`",
+                "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`",
                 "**State**: %state%",
                 "**Checks**: %checks%",
                 "**Verbose**: %verbose%");

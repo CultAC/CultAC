@@ -324,17 +324,19 @@ public final class CultConfigSpecs {
      * Spec for {@code discord.yml}.
      *
      * <p>v1 → v2: the alert names the player, check and violations in its title and puts every value in a code span.
-     * v2 → v3: the description takes Grim's alert layout (location, both pings, clock, session time, raw sensitivity,
+     * v2 → v3: the description takes Grim's alert layout (location, both pings, clock, session time, sensitivity,
      * state, checks and verbose) and the footer and thumbnail keys are written out. A title or {@code
      * violation-content} still in a shipped shape, in any language, takes the new default; one the operator wrote
      * stays. The new layout leaves out the state or verbose line the operator turned off. {@code include-state} is
      * added by the default rewrite; {@code embed-image-url} and {@code include-verbose}, which no bundled file
      * carries, are kept.
+     * v3 → v4: the shipped sensitivity line shows percentages; the rest of the file is kept.
      */
     public static @NotNull ConfigUpdater.Spec discord() {
-        return ConfigUpdater.Spec.builder("/discord/", 3, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/discord/", 4, ConfigUpdater.ConfigFlavor.V2)
                 .migration(2, CultConfigSpecs::discordAlertLayout)
                 .migration(3, CultConfigSpecs::discordAlertLayout)
+                .migration(4, CultConfigSpecs::discordPercentSensitivity)
                 .build();
     }
 
@@ -372,6 +374,10 @@ public final class CultConfigSpecs {
             List.of("Server", "Servidor", "Serveur", "サーバー", "Сервер", "Sunucu", "服务器"),
             List.of("World", "Welt", "Mundo", "Monde", "Mondo", "ワールド", "Wereld", "Мир", "Dünya", "世界"));
     private static final List<String> UNBUNDLED_DISCORD_KEYS = List.of("embed-image-url", "include-verbose");
+    private static final String SHIPPED_V3_DISCORD_SENSITIVITY =
+            "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`";
+    private static final String PERCENT_DISCORD_SENSITIVITY =
+            "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`";
 
     static void discordAlertLayout(MigrationContext ctx) {
         String title = ctx.input().getString("embed-title");
@@ -390,6 +396,19 @@ public final class CultConfigSpecs {
                 layout.removeIf(line -> uses(line, "%verbose%"));
             ctx.output().put("violation-content", layout);
         }
+        keepUnbundledDiscordKeys(ctx);
+    }
+
+    static void discordPercentSensitivity(MigrationContext ctx) {
+        keepUnbundledDiscordKeys(ctx);
+        List<?> content = ctx.output().getList("violation-content");
+        if (content == null || !content.contains(SHIPPED_V3_DISCORD_SENSITIVITY)) return;
+        List<Object> layout = new ArrayList<>(content);
+        layout.replaceAll(line -> SHIPPED_V3_DISCORD_SENSITIVITY.equals(line) ? PERCENT_DISCORD_SENSITIVITY : line);
+        ctx.output().put("violation-content", layout);
+    }
+
+    private static void keepUnbundledDiscordKeys(MigrationContext ctx) {
         for (String key : UNBUNDLED_DISCORD_KEYS) {
             Object value = ctx.input().get(key);
             if (value != null && ctx.defaults().get(key) == null) ctx.output().put(key, value);

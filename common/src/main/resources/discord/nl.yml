@@ -22,11 +22,11 @@ violation-content:
     - "**Versie**: `%version%` **Merk**: `%brand%`"
     - "**Server**: `%server%` **Wereld**: `%world%` **Locatie**: `%location%`"
     - "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Klok**: `%clock_behind%ms` **Tijd**: `%session_time%`"
-    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
+    - "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`"
     - "**Status**: %state%"
     - "**Controles**: %checks%"
     - "**Details**: %verbose%"
 
 # Schemamarkers — zie de header-comment in config.yml.
 config-flavor: V2
-config-version: 3
+config-version: 4

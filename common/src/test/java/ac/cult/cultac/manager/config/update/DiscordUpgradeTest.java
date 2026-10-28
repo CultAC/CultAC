@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
@@ -51,6 +52,24 @@ class DiscordUpgradeTest {
             config-version: 2
             """;
 
+    private static final String V3_RAW_SENSITIVITY = """
+            enabled: true
+            webhook: "https://discord.com/api/webhooks/1/abc"
+            embed-title: "Alert on %server%"
+            embed-footer-url: "https://example.com/logo.png"
+            embed-image-url: "https://example.com/banner.png"
+            include-state: false
+            include-verbose: false
+            violation-content:
+                - "**Version**: `%version%` **Brand**: `%brand%`"
+                - "**Server**: `%server%` **World**: `%world%` **Location**: `%location%`"
+                - "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Clock**: `%clock_behind%ms` **Time**: `%session_time%`"
+                - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
+                - "**Checks**: %checks%"
+            config-flavor: V2
+            config-version: 3
+            """;
+
     @TempDir
     Path directory;
 
@@ -81,7 +100,7 @@ class DiscordUpgradeTest {
         assertEquals("https://example.com/logo.png", data.get("embed-footer-url"));
         assertEquals(bundled.get("embed-footer-text"), data.get("embed-footer-text"));
         assertEquals("https://discord.com/api/webhooks/1/abc", data.get("webhook"));
-        assertEquals(3, data.get("config-version"));
+        assertEquals(4, data.get("config-version"));
     }
 
     @Test
@@ -108,6 +127,28 @@ class DiscordUpgradeTest {
     }
 
     @Test
+    void shippedV3SensitivityShowsPercentages() throws Exception {
+        Map<String, Object> data = upgrade(V3_RAW_SENSITIVITY);
+        List<Object> expected = new ArrayList<>((List<?>) bundled("en").get("violation-content"));
+        expected.removeIf(line -> ((String) line).contains("%state%") || ((String) line).contains("%verbose%"));
+        assertEquals(expected, data.get("violation-content"));
+        assertEquals("Alert on %server%", data.get("embed-title"));
+        assertEquals("https://example.com/logo.png", data.get("embed-footer-url"));
+        assertEquals("https://example.com/banner.png", data.get("embed-image-url"));
+        assertEquals(false, data.get("include-state"));
+        assertEquals(false, data.get("include-verbose"));
+        assertEquals(4, data.get("config-version"));
+    }
+
+    @Test
+    void operatorV3SensitivityStays() throws Exception {
+        Map<String, Object> data = upgrade(V3_RAW_SENSITIVITY.replace("**xsens**", "**Sens X**"));
+        assertEquals(
+                "**Sens X**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`",
+                ((List<?>) data.get("violation-content")).get(3));
+    }
+
+    @Test
     void operatorV2LayoutStays() throws Exception {
         Map<String, Object> data = upgrade(V2_GLADIATOR
                 .replace("**Gladiator Alert**", "**Gladiator** on %server%")
@@ -129,7 +170,7 @@ class DiscordUpgradeTest {
     @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh"})
     void bundledLanguagesShipTheNewLayout(String language) throws Exception {
         Map<String, Object> data = bundled(language);
-        assertEquals(3, data.get("config-version"));
+        assertEquals(4, data.get("config-version"));
         assertEquals(true, data.get("include-state"));
         assertEquals("", data.get("embed-footer-url"));
         assertEquals("%uuid% v%cult_version%", data.get("embed-footer-text"));
