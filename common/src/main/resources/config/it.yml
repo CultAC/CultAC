@@ -255,6 +255,14 @@ cloud:
   # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
   # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
   team-sync: false
+  # Panel bans: staff ban a player from the cloud panel, and one server that has the command for it runs it as
+  # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %cheat% %cheat_id% %duration%
+  # (30m, 12h, 7d; empty when permanent) %seconds% %staff% %ban_id% %link%.
+  staff-ban:
+    # Runs when staff ban a player from the cloud panel. Empty: this server never runs panel bans.
+    command: ""
+    # For timed bans. Empty: this server never runs timed panel bans.
+    temp-command: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.

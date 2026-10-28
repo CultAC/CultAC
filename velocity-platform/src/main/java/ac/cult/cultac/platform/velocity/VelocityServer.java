@@ -57,7 +57,8 @@ final class VelocityServer implements PlatformServer {
      * Commands the proxy does not know run on the subject's backend console when its companion allows it; without such
      * a companion every command dispatches on the proxy as on an unbridged proxy, silently.
      */
-    void dispatchCommand(Sender sender, String command, @Nullable PlatformPlayer subject) {
+    @Override
+    public void dispatchCommand(Sender sender, String command, @Nullable PlatformPlayer subject) {
         var session = subject instanceof VelocityPlayer player ? player.bridge(ServerCapability.CONSOLE_EXEC) : null;
         if (session == null) {
             dispatchCommand(sender, command);

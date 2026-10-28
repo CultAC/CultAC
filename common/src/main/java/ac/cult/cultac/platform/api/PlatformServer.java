@@ -12,6 +12,11 @@ public interface PlatformServer {
 
     void dispatchCommand(Sender sender, String command);
 
+    /** Dispatches {@code command} for {@code subject}; a proxy may run it on the subject's backend console. */
+    default void dispatchCommand(Sender sender, String command, @Nullable PlatformPlayer subject) {
+        dispatchCommand(sender, command);
+    }
+
     /**
      * Dispatches a punishment command {@code check} triggered for {@code subject}. A proxy may run it on the subject's
      * backend console, where backend CommandExecuteEvent listeners can still cancel it.
