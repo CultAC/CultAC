@@ -141,9 +141,9 @@ public record NetworkSettings(
     @Override
     public String toString() {
         return "NetworkSettings[transport=" + transport + ", instanceId=" + instanceId + ", network=" + network
-                + ", secret=" + (secret.isEmpty() ? "" : "<set>") + ", redisUri=" + Redaction.text(redisUri)
+                + ", secret=" + (secret.isEmpty() ? "" : "<set>") + ", redisUri=" + Redaction.url(redisUri)
                 + ", natsServers="
-                + natsServers.stream().map(Redaction::text).toList()
+                + natsServers.stream().map(Redaction::url).toList()
                 + ", natsToken=" + (natsToken.isEmpty() ? "" : "<set>") + ", natsCredentialsFile="
                 + natsCredentialsFile + ", cloudProxyId=" + cloudProxyId + "]";
     }

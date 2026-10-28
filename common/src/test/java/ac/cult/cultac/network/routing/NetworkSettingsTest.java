@@ -171,6 +171,26 @@ class NetworkSettingsTest {
     }
 
     @Test
+    void toStringHidesTheCredentialsOfAUrlThatDoesNotParse() {
+        String text = new NetworkSettings(
+                        "nats",
+                        "",
+                        "default",
+                        "",
+                        "redis://:two words@cache:6379",
+                        List.of("nats://user:pass host:4222", "nats://user:p@ss@", "localhost:4222"),
+                        "",
+                        "",
+                        "")
+                .toString();
+        assertFalse(text.contains("two words"), text);
+        assertFalse(text.contains("pass"), text);
+        assertFalse(text.contains("p@ss"), text);
+        assertTrue(text.contains("redisUri=redis://***@cache:6379"), text);
+        assertTrue(text.contains("natsServers=[" + Redaction.HIDDEN + ", nats://***@, localhost:4222]"), text);
+    }
+
+    @Test
     void settingsThatReadAlikeAreEqual() {
         assertEquals(read(BLOCK, Map.of()), read(BLOCK, Map.of()));
         Map<String, String> changed = new HashMap<>(BLOCK);

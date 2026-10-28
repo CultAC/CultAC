@@ -1,13 +1,22 @@
 package ac.cult.cultac.network.routing;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -124,6 +133,41 @@ class RedisTransportTest {
         Thread.sleep(200);
         assertEquals(1, server.publishes());
         assertEquals(0, server.connections());
+    }
+
+    @Test
+    void closingCutsOffAConnectionStillAuthenticatingAndNothingIsPublishedOnIt() throws Exception {
+        try (ServerSocket silent = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+            silent.setSoTimeout(10_000);
+            RedisTransport stalled = RedisTransport.create("redis://:secret@127.0.0.1:" + silent.getLocalPort());
+            stalled.publish("cultac.default.p3", "unsent");
+            try (Socket accepted = silent.accept()) {
+                accepted.setSoTimeout(10_000);
+                InputStream in = accepted.getInputStream();
+                ByteArrayOutputStream received = new ByteArrayOutputStream();
+                received.write(in.read());
+
+                long started = System.nanoTime();
+                stalled.close();
+                long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+                assertTrue(closing < RedisTransport.DRAIN_MILLIS + 1_000, closing + " ms");
+                try {
+                    accepted.getOutputStream().write("+OK\r\n".repeat(4).getBytes(StandardCharsets.UTF_8));
+                } catch (IOException closedByTheClient) {
+                    // The client is gone; nothing reads the replies.
+                }
+                accepted.setSoTimeout(RedisTransport.READ_TIMEOUT_MILLIS / 4);
+                try {
+                    in.transferTo(received);
+                } catch (SocketTimeoutException stillOpen) {
+                    fail("the connection still authenticating outlasted close");
+                } catch (IOException reset) {
+                    // The client reset the connection.
+                }
+                String sent = received.toString(StandardCharsets.UTF_8);
+                assertFalse(sent.contains("PUBLISH"), sent);
+            }
+        }
     }
 
     @Test

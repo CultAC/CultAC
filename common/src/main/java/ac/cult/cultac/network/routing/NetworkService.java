@@ -28,6 +28,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -38,7 +40,8 @@ import org.jetbrains.annotations.Nullable;
  * instance, to every other instance, or to this instance's engine generations over the in-process bus. Messages for
  * this instance never reach the broker and need no transport. Only the current generation publishes the roster: a
  * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and a delta on each join, quit and backend switch. The
- * generation that published it last sends an empty snapshot when it stops. At most {@value #MAX_QUEUED_MESSAGES}
+ * generation that published it last sends an empty snapshot when it stops. The generations of one host check that they
+ * are current, publish and decide on that goodbye one at a time. At most {@value #MAX_QUEUED_MESSAGES}
  * received messages of {@value #MAX_QUEUED_BYTES} bytes in all wait to be read; the rest are dropped.
  */
 public final class NetworkService implements NetworkRouting {
@@ -47,6 +50,8 @@ public final class NetworkService implements NetworkRouting {
     static final long MAX_QUEUED_BYTES = 16L * 1024 * 1024;
     /** The host-shared {@code AtomicReference<String>} holding the id of the generation that published last. */
     static final String ROSTER_PUBLISHER_KEY = "cultac.network.roster-publisher";
+    /** The host-shared {@code ReentrantLock} held from a roster message's current check until it is sent. */
+    static final String ROSTER_LOCK_KEY = "cultac.network.roster-lock";
 
     /** A registered handler, removed by {@link #close}. */
     @FunctionalInterface
@@ -73,6 +78,7 @@ public final class NetworkService implements NetworkRouting {
     private final Map<String, List<MessageHandler>> handlers = new ConcurrentHashMap<>();
     private final Map<String, JsonElement> flags = new ConcurrentHashMap<>();
     private final AtomicReference<String> rosterPublisher;
+    private final Lock rosterLock;
     private final Backlog inbox;
     private final LogThrottle badSignatures = new LogThrottle();
 
@@ -102,6 +108,7 @@ public final class NetworkService implements NetworkRouting {
         this.directChannel = settings.channel(instanceId);
         this.broadcastChannel = settings.channel(NetworkSettings.ALL);
         this.rosterPublisher = host == null ? new AtomicReference<>() : rosterPublisher(host);
+        this.rosterLock = host == null ? new ReentrantLock() : (Lock) host.shared(ROSTER_LOCK_KEY, ReentrantLock::new);
         this.inbox = new Backlog(
                 "Dropped a received network message: " + MAX_QUEUED_MESSAGES + " messages or "
                         + MAX_QUEUED_BYTES / (1024 * 1024) + " MB are already waiting",
@@ -218,11 +225,16 @@ public final class NetworkService implements NetworkRouting {
         running = false;
         if (bus != null) bus.leave();
         if (transport != null) {
-            if (publishedLast())
-                publish(
-                        NetworkSettings.ALL,
-                        RosterCache.TYPE,
-                        RosterCache.body(List.of(), true, List.of(), new JsonObject()));
+            rosterLock.lock();
+            try {
+                if (publishedLast())
+                    publish(
+                            NetworkSettings.ALL,
+                            RosterCache.TYPE,
+                            RosterCache.body(List.of(), true, List.of(), new JsonObject()));
+            } finally {
+                rosterLock.unlock();
+            }
             transport.close();
         }
         if (scheduler != null) scheduler.shutdownNow();
@@ -312,11 +324,17 @@ public final class NetworkService implements NetworkRouting {
     }
 
     private void publishRoster(Collection<OnlinePlayer> players, boolean full, Collection<UUID> left) {
-        if (transport == null || !current()) return;
-        if (host != null) rosterPublisher.set(host.generationId());
-        JsonObject carried = new JsonObject();
-        flags.forEach(carried::add);
-        publish(NetworkSettings.ALL, RosterCache.TYPE, RosterCache.body(players, full, left, carried));
+        if (transport == null) return;
+        rosterLock.lock();
+        try {
+            if (!running || !current()) return;
+            if (host != null) rosterPublisher.set(host.generationId());
+            JsonObject carried = new JsonObject();
+            flags.forEach(carried::add);
+            publish(NetworkSettings.ALL, RosterCache.TYPE, RosterCache.body(players, full, left, carried));
+        } finally {
+            rosterLock.unlock();
+        }
     }
 
     private boolean publish(String to, String type, JsonObject body) {

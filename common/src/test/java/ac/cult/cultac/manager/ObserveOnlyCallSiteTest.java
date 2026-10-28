@@ -301,6 +301,12 @@ class ObserveOnlyCallSiteTest {
             companion/bridge/ServerActions.java#validationBlock(Player,ValidationBlock) setBlockData
             [] closes an HTTP connection
             command/commands/CultLog.java#sendLog(Sender,String,String,String,Consumer,String) disconnect
+            [] closes a network broker connection
+            network/routing/RedisTransport.java#close() disconnect
+            network/routing/RedisTransport.java#close() shutdown
+            network/routing/RedisTransport.java#disconnect() disconnect
+            network/routing/RedisTransport.java#ping() disconnect x2
+            platform/velocity/RedisBungeeTransport.java#close() shutdown
             """;
 
     @Test

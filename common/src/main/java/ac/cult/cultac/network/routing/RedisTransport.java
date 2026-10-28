@@ -2,6 +2,7 @@ package ac.cult.cultac.network.routing;
 
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.io.IOException;
+import java.net.Socket;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
@@ -12,8 +13,15 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.jetbrains.annotations.Nullable;
+import redis.clients.jedis.DefaultJedisClientConfig;
+import redis.clients.jedis.DefaultJedisSocketFactory;
+import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisClientConfig;
 import redis.clients.jedis.JedisPubSub;
+import redis.clients.jedis.JedisSocketFactory;
+import redis.clients.jedis.exceptions.JedisConnectionException;
+import redis.clients.jedis.util.JedisURIHelper;
 
 /**
  * Redis pub/sub through Jedis. One connection subscribes on its own thread and reconnects with a backoff capped at
@@ -21,8 +29,8 @@ import redis.clients.jedis.JedisPubSub;
  * pings it every {@value #PING_MILLIS} ms and drops it when no pong came back within {@value #PONG_TIMEOUT_MILLIS} ms.
  * A second connection publishes from one worker thread, at most {@value #MAX_BACKLOG_MESSAGES} messages of
  * {@value #MAX_BACKLOG_BYTES} bytes in all waiting for it; the rest are dropped. Closing waits
- * {@value #DRAIN_MILLIS} ms for the backlog, then closes the publishing socket under a blocked send. A
- * {@code rediss://} URI connects over TLS.
+ * {@value #DRAIN_MILLIS} ms for the backlog, then closes the publishing socket under a blocked send or a connection
+ * still authenticating, and the worker sends nothing more. A {@code rediss://} URI connects over TLS.
  */
 final class RedisTransport implements MessageTransport {
     static final int CONNECT_TIMEOUT_MILLIS = 10_000;
@@ -37,6 +45,8 @@ final class RedisTransport implements MessageTransport {
     static final long MAX_BACKLOG_BYTES = 16L * 1024 * 1024;
 
     private final URI uri;
+    private final JedisClientConfig publisherConfig;
+    private final JedisSocketFactory publisherSockets;
     private final long pingMillis;
     private final long pongTimeoutMillis;
     /** Publishes in order on one thread, which closes its connection when it ends. */
@@ -56,11 +66,24 @@ final class RedisTransport implements MessageTransport {
     private @Nullable Thread subscriberThread;
     /** The worker thread's publishing connection; only the worker opens and closes it. */
     private volatile @Nullable Jedis publisher;
+    /** The publishing connection's socket while Jedis authenticates on it, before {@link #publisher} is set. */
+    private volatile @Nullable Socket opening;
 
     private volatile boolean publishFailing;
 
     private RedisTransport(URI uri, long pingMillis, long pongTimeoutMillis) {
         this.uri = uri;
+        this.publisherConfig = DefaultJedisClientConfig.builder()
+                .connectionTimeoutMillis(CONNECT_TIMEOUT_MILLIS)
+                .socketTimeoutMillis(READ_TIMEOUT_MILLIS)
+                .user(JedisURIHelper.getUser(uri))
+                .password(JedisURIHelper.getPassword(uri))
+                .database(JedisURIHelper.getDBIndex(uri))
+                .protocol(JedisURIHelper.getRedisProtocol(uri))
+                .ssl(JedisURIHelper.isRedisSSLScheme(uri))
+                .build();
+        this.publisherSockets =
+                new DefaultJedisSocketFactory(new HostAndPort(uri.getHost(), uri.getPort()), publisherConfig);
         this.pingMillis = pingMillis;
         this.pongTimeoutMillis = pongTimeoutMillis;
         this.worker = Executors.newSingleThreadExecutor(task -> {
@@ -200,8 +223,11 @@ final class RedisTransport implements MessageTransport {
         for (int attempt = 0; attempt < 2 && !abandoned; attempt++) {
             try {
                 Jedis connection = publisher;
-                if (connection == null)
-                    publisher = connection = new Jedis(uri, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS);
+                if (connection == null) connection = openPublisher();
+                if (abandoned) {
+                    closePublisher();
+                    return;
+                }
                 connection.publish(channel, text);
                 publishFailing = false;
                 return;
@@ -216,6 +242,27 @@ final class RedisTransport implements MessageTransport {
         }
     }
 
+    private Jedis openPublisher() {
+        try {
+            Jedis connection = new Jedis(this::openSocket, publisherConfig);
+            publisher = connection;
+            return connection;
+        } finally {
+            opening = null;
+        }
+    }
+
+    /** The publishing connection's socket, closed at once when {@link #close} stopped waiting meanwhile. */
+    private Socket openSocket() {
+        Socket socket = publisherSockets.createSocket();
+        opening = socket;
+        if (abandoned) {
+            closeQuietly(socket);
+            throw new JedisConnectionException("the transport is closed");
+        }
+        return socket;
+    }
+
     private void closePublisher() {
         Jedis connection = publisher;
         publisher = null;
@@ -227,14 +274,27 @@ final class RedisTransport implements MessageTransport {
         }
     }
 
-    /** Closes the publishing connection's socket without flushing, so a send blocked on it fails at once. */
+    /**
+     * Closes the publishing connection's socket without flushing, so a send or an authentication blocked on it fails at
+     * once.
+     */
     private void dropPublisher() {
+        Socket socket = opening;
+        if (socket != null) closeQuietly(socket);
         Jedis connection = publisher;
         if (connection == null) return;
         try {
             connection.getConnection().forceDisconnect();
         } catch (IOException | RuntimeException ignored) {
             // The socket is closed or was never opened.
+        }
+    }
+
+    private static void closeQuietly(Socket socket) {
+        try {
+            socket.close();
+        } catch (IOException ignored) {
+            // Already closed.
         }
     }
 

@@ -28,18 +28,24 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.kyori.adventure.text.Component;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -102,11 +108,15 @@ class NetworkServiceTest {
         return host(shared, current, UUID.randomUUID().toString());
     }
 
-    @SuppressWarnings("unchecked")
     private static HostContext host(Map<String, Object> shared, AtomicBoolean current, String generation) {
+        return host(shared, current::get, generation);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static HostContext host(Map<String, Object> shared, Callable<Boolean> current, String generation) {
         HostContext host = mock(HostContext.class);
         when(host.generationId()).thenReturn(generation);
-        when(host.current()).thenAnswer(invocation -> current.get());
+        when(host.current()).thenAnswer(invocation -> current.call());
         when(host.shared(anyString(), any()))
                 .thenAnswer(invocation -> shared.computeIfAbsent(
                         invocation.getArgument(0), key -> ((Supplier<Object>) invocation.getArgument(1)).get()));
@@ -262,6 +272,56 @@ class NetworkServiceTest {
         assertTrue(peer.locate("Bob").isEmpty());
     }
 
+    @Test
+    void aGenerationPausedAfterItsCurrentCheckCannotTakeTheGoodbyeFromTheOneThatReplacedIt() throws Exception {
+        Map<String, Object> shared = new ConcurrentHashMap<>();
+        AtomicBoolean olderCurrent = new AtomicBoolean(true);
+        AtomicBoolean newerCurrent = new AtomicBoolean(false);
+        AtomicBoolean pauseOlder = new AtomicBoolean();
+        CountDownLatch paused = new CountDownLatch(1);
+        CountDownLatch resume = new CountDownLatch(1);
+        HostContext olderHost = host(
+                shared,
+                () -> {
+                    boolean current = olderCurrent.get();
+                    if (pauseOlder.compareAndSet(true, false)) {
+                        paused.countDown();
+                        resume.await();
+                    }
+                    return current;
+                },
+                "g1");
+        Players here = new Players().with(BOB, "Bob", "lobby");
+        NetworkService older = service("p3", here, olderHost, KEY, true);
+        older.start();
+        NetworkService peer = started("p7", new Players());
+        NetworkService newer = service("p3", here, host(shared, newerCurrent, "g2"), KEY, true);
+
+        pauseOlder.set(true);
+        Thread tick = new Thread(older::tick);
+        tick.start();
+        assertTrue(paused.await(10, TimeUnit.SECONDS));
+        olderCurrent.set(false);
+        newerCurrent.set(true);
+        Thread promotion = new Thread(newer::start);
+        promotion.start();
+        await(() -> promotion.getState() == Thread.State.TERMINATED
+                || shared.get(NetworkService.ROSTER_LOCK_KEY) instanceof ReentrantLock lock
+                        && lock.hasQueuedThread(promotion));
+        resume.countDown();
+        tick.join(10_000);
+        promotion.join(10_000);
+        assertFalse(tick.isAlive());
+        assertFalse(promotion.isAlive());
+
+        newerCurrent.set(false);
+        older.stop();
+        assertTrue(peer.locate("Bob").isPresent());
+        newer.stop();
+        assertTrue(peer.locate("Bob").isEmpty());
+        assertTrue(rosterBodiesFrom("p3").getLast().getAsJsonArray("players").isEmpty());
+    }
+
     private static void await(BooleanSupplier condition) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         while (!condition.getAsBoolean()) {
@@ -285,16 +345,46 @@ class NetworkServiceTest {
         }
     }
 
-    private NetworkService withReceiver(String instance, Receiver receiver, LogThrottle drops) {
+    /** One scheduler thread; the task scheduled on it at a fixed rate runs each time {@link #fire} asks, and only then. */
+    private static final class ManualScheduler extends ScheduledThreadPoolExecutor {
+        private volatile Runnable periodic;
+
+        ManualScheduler() {
+            super(1);
+        }
+
+        @Override
+        public ScheduledFuture<?> scheduleAtFixedRate(Runnable command, long initialDelay, long period, TimeUnit unit) {
+            periodic = command;
+            return schedule(() -> {}, 1, TimeUnit.DAYS);
+        }
+
+        /** Runs the fixed-rate task on the scheduler thread and waits for it to finish. */
+        void fire() throws Exception {
+            submit(periodic).get(10, TimeUnit.SECONDS);
+        }
+    }
+
+    private NetworkService withReceiver(
+            String instance, @Nullable ScheduledExecutorService scheduler, Receiver receiver, LogThrottle drops) {
         return new NetworkService(
-                SETTINGS, new Players(), null, instance, KEY, broker.transport(), clock::get, null, receiver, drops);
+                SETTINGS,
+                new Players(),
+                null,
+                instance,
+                KEY,
+                broker.transport(),
+                clock::get,
+                scheduler,
+                receiver,
+                drops);
     }
 
     @Test
     void aMessageOverTheSizeCapIsDroppedBeforeItIsQueued() {
         Receiver receiver = new Receiver();
         try {
-            NetworkService a = withReceiver("p3", receiver, new LogThrottle());
+            NetworkService a = withReceiver("p3", null, receiver, new LogThrottle());
             a.start();
             int queued = receiver.queued.get();
             broker.transport().publish("cultac.default.all", "x".repeat(EnvelopeCodec.MAX_BYTES - 1) + "\u00e9");
@@ -309,12 +399,14 @@ class NetworkServiceTest {
     }
 
     @Test
-    void aFullReceiveQueueDropsWarnsOnceAWindowAndTheRosterKeepsExpiring() throws Exception {
+    void aFullReceiveQueueDropsWarnsOnceAWindowAndTheScheduledRosterUpkeepKeepsRunning() throws Exception {
         Receiver receiver = new Receiver();
+        ManualScheduler scheduler = new ManualScheduler();
         AtomicLong nanos = new AtomicLong();
         CountDownLatch release = new CountDownLatch(1);
         try (CapturedLog log = new CapturedLog(Level.WARNING, "Dropped a received network message")) {
-            NetworkService a = withReceiver("p3", receiver, new LogThrottle(TimeUnit.MINUTES.toNanos(1), nanos::get));
+            NetworkService a =
+                    withReceiver("p3", scheduler, receiver, new LogThrottle(TimeUnit.MINUTES.toNanos(1), nanos::get));
             a.start();
             NetworkService b = started("p7", new Players().with(ALICE, "Alice", "lobby"));
             await(() -> a.locate("Alice").isPresent());
@@ -335,14 +427,17 @@ class NetworkServiceTest {
                     log.messages().get(1).endsWith("(4 more since the last report)"),
                     log.messages().get(1));
 
-            clock.addAndGet(RosterCache.EXPIRY_MILLIS + 1);
+            long late = RosterCache.EXPIRY_MILLIS + 1;
+            clock.addAndGet(late);
             broker.published.clear();
-            a.tick();
-            assertTrue(a.locate("Alice").isEmpty());
-            assertEquals(1, broker.on("cultac.default.all").size());
+            scheduler.fire();
+            assertEquals(1, rosterBodiesFrom("p3").size());
+            clock.addAndGet(-late);
+            assertTrue(a.locate("Alice").isEmpty(), "an instance the upkeep forgot stays gone with the clock back");
         } finally {
             release.countDown();
             receiver.shutdownNow();
+            scheduler.shutdownNow();
         }
     }
 
