@@ -67,9 +67,7 @@ final class LocalRouting implements NetworkRouting {
                     sender, "player-not-found", "%prefix% &cPlayer is exempt or offline!"));
             return CompletableFuture.completedFuture(false);
         }
-        return commands.execute(sender, CloudCommandService.onRegisteredRoot(line))
-                .handle((ran, failure) -> failure == null)
-                .toCompletableFuture();
+        return commands.execute(sender, line).handle((ran, failure) -> true).toCompletableFuture();
     }
 
     private static NetworkPlayer listed(PlatformPlayer player) {
