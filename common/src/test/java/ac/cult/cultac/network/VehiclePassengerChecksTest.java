@@ -9,6 +9,7 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsC;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsR;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsO;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
@@ -26,9 +27,11 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
@@ -302,6 +305,31 @@ class VehiclePassengerChecksTest {
     }
 
     @Test
+    void leaveBedClicksBeforeTheTickThatClosesTheBedScreenAreNotFlagged() throws Exception {
+        try (var f = sleeping()) {
+            BadPacketsC check = enabled(f, BadPacketsC.class);
+            tickEnd(f, check);
+            f.player.isInBed = false;
+            for (int click = 0; click < 6; click++) stopSleeping(f, check);
+
+            assertEquals(0, check.violations);
+        }
+    }
+
+    @Test
+    void aWakeRequestAfterTheTickThatClosesTheBedScreenIsFlagged() throws Exception {
+        try (var f = sleeping()) {
+            BadPacketsC check = enabled(f, BadPacketsC.class);
+            tickEnd(f, check);
+            f.player.isInBed = false;
+            tickEnd(f, check);
+            stopSleeping(f, check);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
     void aBoatPassengerAnsweringATeleportStillOwesTheVehicle() throws Exception {
         try (var f = ride(EntityTypeIds.OAK_BOAT)) {
             BadPacketsR check = enabled(f, BadPacketsR.class);
@@ -351,6 +379,17 @@ class VehiclePassengerChecksTest {
         f.player.isInBed = true;
         f.player.bedPosition = bed;
         return f;
+    }
+
+    private static void tickEnd(JavaTickFixture f, BadPacketsC check) {
+        var opaque = ServerboundPackets.CLIENT_TICK_END.opaqueValue();
+        check.onClientTickEnd(f.event(ServerboundPackets.CLIENT_TICK_END, opaque), f.player, opaque);
+    }
+
+    /** InBedChatScreen's Leave Bed button. */
+    private static void stopSleeping(JavaTickFixture f, BadPacketsC check) {
+        var packet = new ServerboundPlayerCommand(f.player.entityID, PlayerCommandAction.STOP_SLEEPING, 0);
+        check.onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, packet), f.player, packet);
     }
 
     private static PacketDispatcher.ReceiveRoute<ServerboundPacket> moveRoute() {
