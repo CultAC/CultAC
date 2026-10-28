@@ -37,7 +37,9 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.data.ProtocolData;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.reload.api.HostContext;
 import ac.grim.grimac.api.GrimAPIProvider;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -197,10 +199,25 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     }
 
     private synchronized void startRemoteProfiles() {
-        remoteProfiles = RedisProfiles.create(proxy, nativePlugin, plugin.getLogger());
+        remoteProfiles = RedisProfiles.create(proxy, nativePlugin, plugin.getLogger(), this::reportsUntracked);
         if (remoteProfiles == null) return;
         RemoteProfiles.install(remoteProfiles);
         plugin.getLogger().info("RedisBungee found: /cult profile reaches players on the other proxies");
+    }
+
+    private boolean reportsUntracked(UUID uuid) {
+        var player = proxy.getPlayer(uuid).orElse(null);
+        return reportsUntracked(RuntimeEnvironment.host(), player == null ? null : transport.channel(player));
+    }
+
+    /**
+     * The runtime holding a connection reports its player untracked; the current runtime reports a player whose
+     * connection no runtime holds, or who is not connected here.
+     */
+    static boolean reportsUntracked(@Nullable HostContext host, @Nullable Channel connection) {
+        if (host == null) return true;
+        String owner = connection == null ? null : host.ownerOf(connection);
+        return owner == null ? host.current() : owner.equals(host.generationId());
     }
 
     private void mirrorWorld(UUID playerId, @Nullable UUID worldUid) {
