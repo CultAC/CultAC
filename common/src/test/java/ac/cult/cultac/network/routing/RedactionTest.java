@@ -16,6 +16,16 @@ class RedactionTest {
     }
 
     @Test
+    void aFailureIsDescribedWithItsCausesAndNoUserInfo() {
+        RuntimeException failure = new RuntimeException(
+                "publish failed", new IllegalStateException("cannot reach redis://user:hunter22@cache:6379"));
+        assertEquals(
+                "RuntimeException: publish failed; IllegalStateException: cannot reach redis://***@cache:6379",
+                MessageTransport.describe(failure));
+        assertEquals("NullPointerException", MessageTransport.describe(new NullPointerException()));
+    }
+
+    @Test
     void theUserInfoOfEachUrlIsHidden() {
         assertEquals("nats://***@host:4222", Redaction.text("nats://user:pass@host:4222"));
         assertEquals("redis://***@cache:6379/0", Redaction.text("redis://:pw@cache:6379/0"));

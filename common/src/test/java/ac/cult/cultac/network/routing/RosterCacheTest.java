@@ -62,6 +62,19 @@ class RosterCacheTest {
     }
 
     @Test
+    void anOlderEpochIsAcceptedOnceNothingFromTheInstanceWasAppliedForTheExpiry() {
+        cache.apply("p3", full(List.of(BOB_ONLINE), 5, 100), 0);
+        cache.apply("p3", full(List.of(ALICE_ONLINE), 4, 1), 1_000);
+        assertEquals(List.of("Bob"), names(1_000));
+        cache.heard("p3", RosterCache.EXPIRY_MILLIS);
+        cache.apply("p3", full(List.of(ALICE_ONLINE), 4, 2), RosterCache.EXPIRY_MILLIS + 1);
+        assertEquals(List.of("Alice"), names(RosterCache.EXPIRY_MILLIS + 1));
+        cache.apply("p3", full(List.of(BOB_ONLINE), 5, 101), RosterCache.EXPIRY_MILLIS + 2);
+        cache.apply("p3", full(List.of(BOB_ONLINE), 4, 2), RosterCache.EXPIRY_MILLIS + 3);
+        assertEquals(List.of("Bob"), names(RosterCache.EXPIRY_MILLIS + 3));
+    }
+
+    @Test
     void aRosterMessageWithoutAnOrderIsAccepted() {
         cache.apply("p3", full(List.of(BOB_ONLINE), 5, 2), 0);
         cache.apply("p3", full(List.of(ALICE_ONLINE)), 0);

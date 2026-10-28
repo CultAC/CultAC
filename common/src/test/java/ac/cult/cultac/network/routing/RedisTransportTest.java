@@ -177,16 +177,22 @@ class RedisTransportTest {
     void closingAbortsAConnectThatNeverCompletesAndNothingIsPublished() throws Exception {
         try (CapturedLog failures = new CapturedLog(Level.WARNING, "Network transport Redis: cannot publish")) {
             RedisTransport stalled = RedisTransport.create("redis://10.255.255.1:6379");
-            stalled.publish("cultac.default.p3", "unsent");
-            Thread.sleep(300);
-            assumeTrue(failures.messages().isEmpty(), "10.255.255.1 refuses connections here instead of ignoring them");
+            try {
+                stalled.publish("cultac.default.p3", "unsent");
+                Thread.sleep(300);
+                assumeTrue(
+                        failures.messages().isEmpty(),
+                        "10.255.255.1 refuses connections here instead of ignoring them");
 
-            long started = System.nanoTime();
-            stalled.close();
-            long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-            assertTrue(closing < RedisTransport.DRAIN_MILLIS + 1_000, closing + " ms");
-            assertTrue(stalled.awaitStopped(1_000), "the connect outlasted close");
-            assertTrue(failures.messages().isEmpty(), failures.messages().toString());
+                long started = System.nanoTime();
+                stalled.close();
+                long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+                assertTrue(closing < RedisTransport.DRAIN_MILLIS + 1_000, closing + " ms");
+                assertTrue(stalled.awaitStopped(1_000), "the connect outlasted close");
+                assertTrue(failures.messages().isEmpty(), failures.messages().toString());
+            } finally {
+                stalled.close();
+            }
         }
     }
 

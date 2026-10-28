@@ -57,7 +57,8 @@ final class RedisBungeeTransport implements MessageTransport {
         try {
             return new RedisBungeeTransport(proxy, plugin, loader);
         } catch (Exception | LinkageError failure) {
-            LogUtil.warn("RedisBungee is installed but its pub/sub cannot carry network messages", failure);
+            LogUtil.warn("RedisBungee is installed but its pub/sub cannot carry network messages: "
+                    + MessageTransport.describe(failure));
             return null;
         }
     }
@@ -92,7 +93,7 @@ final class RedisBungeeTransport implements MessageTransport {
         try {
             register.invoke(api, (Object) channels.toArray(String[]::new));
         } catch (ReflectiveOperationException failure) {
-            LogUtil.warn("RedisBungee refused the network channels", failure);
+            LogUtil.warn("RedisBungee refused the network channels: " + MessageTransport.describe(failure));
             return;
         }
         Set<String> subscribed = Set.copyOf(channels);
@@ -101,7 +102,7 @@ final class RedisBungeeTransport implements MessageTransport {
                 String channel = (String) eventChannel.invoke(event);
                 if (subscribed.contains(channel)) receiver.receive(channel, (String) eventMessage.invoke(event));
             } catch (ReflectiveOperationException failure) {
-                LogUtil.warn("Unreadable RedisBungee pub/sub message", failure);
+                LogUtil.warn("Unreadable RedisBungee pub/sub message: " + MessageTransport.describe(failure));
             }
         };
         proxy.getEventManager().register(plugin, eventClass, handler);
@@ -114,7 +115,8 @@ final class RedisBungeeTransport implements MessageTransport {
                 try {
                     send.invoke(api, channel, text);
                 } catch (ReflectiveOperationException failure) {
-                    LogUtil.warn("RedisBungee could not publish a network message", failure);
+                    LogUtil.warn(
+                            "RedisBungee could not publish a network message: " + MessageTransport.describe(failure));
                 }
             });
         } catch (RejectedExecutionException closed) {

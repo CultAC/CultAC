@@ -19,7 +19,8 @@ import org.jetbrains.annotations.Nullable;
  * The other instances' players, as their {@value #TYPE} messages list them. A roster body is
  * {@code {players:[{u,n,s}], full, left:[u], flags:{}, o:[epoch, sequence]}}: a full one replaces the instance's list,
  * a delta adds or updates {@code players} and removes {@code left}. A body whose {@code o} is not greater than the last
- * one applied from its instance, compared epoch first, is dropped and changes nothing; a greater epoch is a restart. A
+ * one applied from its instance, compared epoch first, is dropped and changes nothing, unless nothing from that
+ * instance was applied for {@value #EXPIRY_MILLIS} ms (a restart whose clock went back); a greater epoch is a restart. A
  * body without {@code o} is applied. An instance is forgotten {@value #EXPIRY_MILLIS} ms after the last message of any
  * type heard from it. Any thread.
  */
@@ -33,6 +34,7 @@ final class RosterCache {
         final Map<UUID, NetworkPlayer> players = new LinkedHashMap<>();
         JsonObject flags = new JsonObject();
         long heard;
+        long applied = Long.MIN_VALUE;
         long epoch = Long.MIN_VALUE;
         long sequence = Long.MIN_VALUE;
     }
@@ -61,11 +63,13 @@ final class RosterCache {
         synchronized (peers) {
             Peer peer = peers.computeIfAbsent(instance, ignored -> new Peer());
             if (order != null) {
-                if (order[0] < peer.epoch || order[0] == peer.epoch && order[1] <= peer.sequence) return;
+                boolean fresh = peer.applied != Long.MIN_VALUE && now - peer.applied <= EXPIRY_MILLIS;
+                if (fresh && (order[0] < peer.epoch || order[0] == peer.epoch && order[1] <= peer.sequence)) return;
                 peer.epoch = order[0];
                 peer.sequence = order[1];
             }
             peer.heard = now;
+            peer.applied = now;
             if (full) peer.players.clear();
             if (body.get("left") instanceof JsonArray left) {
                 for (JsonElement uuid : left) {

@@ -23,6 +23,23 @@ public interface MessageTransport {
     /** Sends what is still queued, briefly, then disconnects. */
     void close();
 
+    /**
+     * {@code failure} and its causes as {@code Type: message; Type: message}, with the user info of every URL in them
+     * masked, for a transport's log line; never its stack trace.
+     */
+    static String describe(Throwable failure) {
+        StringBuilder text = new StringBuilder();
+        Throwable cause = failure;
+        for (int depth = 0; cause != null && depth < 8; depth++) {
+            if (!text.isEmpty()) text.append("; ");
+            text.append(cause.getClass().getSimpleName());
+            if (cause.getMessage() != null) text.append(": ").append(Redaction.text(cause.getMessage()));
+            if (cause.getCause() == cause) break;
+            cause = cause.getCause();
+        }
+        return text.toString();
+    }
+
     @FunctionalInterface
     interface Receiver {
         void receive(String channel, String text);
