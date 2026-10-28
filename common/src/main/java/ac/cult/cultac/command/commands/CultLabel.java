@@ -1,5 +1,6 @@
 package ac.cult.cultac.command.commands;
 
+import ac.cult.cultac.cloud.labels.LabelCatalog;
 import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.cloud.labels.LabelRequest;
 import ac.cult.cultac.command.BuildableCommand;
@@ -65,7 +66,10 @@ public class CultLabel implements BuildableCommand {
                                 context.<String>optional("note").orElse(null)))));
         commandManager.command(chosen(label(commandManager)
                         .required("player", StringParser.stringParser(), CloudArguments.players())
-                        .required("cheat", StringParser.stringParser(), CloudArguments.of(() -> LabelRequest.CHEATS)))
+                        .required(
+                                "cheat",
+                                StringParser.stringParser(),
+                                CloudArguments.of(() -> LabelCatalog.current().ids())))
                 .handler(context -> handleLabel(
                         context,
                         () -> LabelRequest.cheat(

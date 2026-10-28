@@ -1,6 +1,7 @@
 package ac.cult.cultac.command.commands;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.cloud.labels.LabelCatalog;
 import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.cloud.labels.LabelRequest;
 import ac.cult.cultac.command.commands.LabelWizard.Page;
@@ -239,12 +240,12 @@ final class LabelDialogs {
         }
         List<String> picked = wizard.checks();
         List<ActionButton> buttons = new ArrayList<>();
-        for (Map.Entry<String, String> check : LabelWizard.NAMES.entrySet()) {
-            boolean on = picked.contains(check.getKey());
+        for (LabelCatalog.Entry check : LabelCatalog.current().cheats()) {
+            boolean on = picked.contains(check.id());
             Component label = on
-                    ? Component.text("☑ " + check.getValue(), NamedTextColor.WHITE)
-                    : Component.text("☐ " + check.getValue(), NamedTextColor.GRAY);
-            buttons.add(button(label, CELL, click(player -> show(player, wizard.toggle(check.getKey())))));
+                    ? Component.text("☑ " + check.name(), NamedTextColor.WHITE)
+                    : Component.text("☐ " + check.name(), NamedTextColor.GRAY);
+            buttons.add(button(label, CELL, click(player -> show(player, wizard.toggle(check.id())))));
         }
         buttons.add(button(LabelLines.next(), CELL, click(player -> show(player, wizard.next()))));
         ActionButton back =

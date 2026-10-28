@@ -15,20 +15,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public record LabelRequest(
         String cheat, String confidence, @Nullable Span span, String note) {
-    public static final List<String> CHEATS = List.of(
-            "triggerbot",
-            "killaura",
-            "autoclicker",
-            "autototem",
-            "crystalaura",
-            "autoanchor",
-            "automace",
-            "shieldbreaker",
-            "autostunslam",
-            "jumpreset",
-            "chest-stealer",
-            "other");
-
     public static final String ALL = "all";
     public static final String POSITIVE = "positive";
     public static final String NEGATIVE = "negative";
@@ -107,8 +93,11 @@ public record LabelRequest(
 
     private static String knownCheat(String cheat) {
         String c = cheat.toLowerCase(Locale.ROOT);
-        if (!CHEATS.contains(c))
-            throw new IllegalArgumentException("Unknown cheat '" + cheat + "'. One of: " + String.join(", ", CHEATS));
+        LabelCatalog catalog = LabelCatalog.current();
+        if (!catalog.pickable(c)) {
+            throw new IllegalArgumentException(
+                    "Unknown cheat '" + cheat + "'. One of: " + String.join(", ", catalog.ids()));
+        }
         return c;
     }
 
