@@ -1,30 +1,99 @@
 {
-  "version": "bundled",
+  "version": "86ca6a24c1dc3878",
   "cheats": [
-    {"id": "triggerbot", "name": "Triggerbot"},
-    {"id": "killaura", "name": "KillAura"},
-    {"id": "autoclicker", "name": "Autoclicker"},
-    {"id": "autototem", "name": "Auto Totem"},
-    {"id": "crystalaura", "name": "Crystal Aura"},
-    {"id": "autoanchor", "name": "Auto Anchor"},
-    {"id": "automace", "name": "Auto Mace"},
-    {"id": "shieldbreaker", "name": "Shield Breaker"},
-    {"id": "autostunslam", "name": "Auto Stun Slam"},
-    {"id": "jumpreset", "name": "Jump Reset"},
-    {"id": "chest-stealer", "name": "Chest Stealer"},
-    {"id": "scaffold", "name": "Scaffold"},
-    {"id": "latency-abuse", "name": "Latency Abuse"},
-    {"id": "other", "name": "Other"}
+    {
+      "id": "triggerbot",
+      "name": "Triggerbot"
+    },
+    {
+      "id": "killaura",
+      "name": "KillAura"
+    },
+    {
+      "id": "autoclicker",
+      "name": "Autoclicker"
+    },
+    {
+      "id": "autototem",
+      "name": "Auto Totem"
+    },
+    {
+      "id": "crystalaura",
+      "name": "Crystal Aura"
+    },
+    {
+      "id": "autoanchor",
+      "name": "Auto Anchor"
+    },
+    {
+      "id": "automace",
+      "name": "Auto Mace"
+    },
+    {
+      "id": "shieldbreaker",
+      "name": "Shield Breaker"
+    },
+    {
+      "id": "autostunslam",
+      "name": "Auto Stun Slam"
+    },
+    {
+      "id": "jumpreset",
+      "name": "Jump Reset"
+    },
+    {
+      "id": "chest-stealer",
+      "name": "Chest Stealer"
+    },
+    {
+      "id": "scaffold",
+      "name": "Scaffold"
+    },
+    {
+      "id": "latency-abuse",
+      "name": "Latency Abuse"
+    },
+    {
+      "id": "other",
+      "name": "Other"
+    }
   ],
   "legacy": [
-    {"id": "reach", "name": "Reach"},
-    {"id": "velocity", "name": "Velocity"},
-    {"id": "movement", "name": "Movement"},
-    {"id": "fastbreak", "name": "Fast break"},
-    {"id": "crystal-aura", "name": "Crystal aura"},
-    {"id": "auto-totem", "name": "Auto totem"},
-    {"id": "anchor-aura", "name": "Anchor aura"},
-    {"id": "mace", "name": "Mace"},
-    {"id": "badpackets", "name": "Bad packets"}
+    {
+      "id": "reach",
+      "name": "Reach"
+    },
+    {
+      "id": "velocity",
+      "name": "Velocity"
+    },
+    {
+      "id": "movement",
+      "name": "Movement"
+    },
+    {
+      "id": "fastbreak",
+      "name": "Fast break"
+    },
+    {
+      "id": "crystal-aura",
+      "name": "Crystal aura"
+    },
+    {
+      "id": "auto-totem",
+      "name": "Auto totem"
+    },
+    {
+      "id": "anchor-aura",
+      "name": "Anchor aura"
+    },
+    {
+      "id": "mace",
+      "name": "Mace"
+    },
+    {
+      "id": "badpackets",
+      "name": "Bad packets"
+    }
   ]
 }
