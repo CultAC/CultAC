@@ -9,23 +9,26 @@ disable-webhook-validation: false
 embed-title: "%player% が %check% で検出されました [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
-# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+# The footer under the alert, and the icon beside it (an image URL, empty for none).
+embed-footer-text: "%uuid% v%cult_version%"
+embed-footer-url: ""
+# The image at the top right of the alert; %uuid% is the flagged player.
+embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...),
+# unless violation-content places %state%, which lists only the entries that are set.
 include-state: true
 # 値（クライアントのブランド名など）に含まれるバッククォート (`) を置換し、Discordのテキスト書式が崩れるのを防ぎます。
 # この置換を無効にするには "`" を設定してください。
 backtick-replacement-char: "ˋ"
 violation-content:
-    - "**プレイヤー**: `%player%`"
-    - "**UUID**: `%uuid%`"
-    - "**違反項目**: `%check%`"
-    - "**クライアントバージョン**: `%version%`"
-    - "**ブランド**: `%brand%`"
-    - "**感度**: `H %h_sensitivity%% / V %v_sensitivity%%`"
-    - "**Ping**: `%ping%`"
-    - "**TPS**: `%tps%`"
-    - "**サーバー**: `%server%`"
-    - "**ワールド**: `%world% (%world_type%)`"
+    - "**バージョン**: `%version%` **ブランド**: `%brand%`"
+    - "**サーバー**: `%server%` **ワールド**: `%world%` **座標**: `%location%`"
+    - "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **クロック**: `%clock_behind%ms` **時間**: `%session_time%`"
+    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
+    - "**状態**: %state%"
+    - "**違反項目**: %checks%"
+    - "**詳細**: %verbose%"
 
 # スキーマ用マーカー — config.yml のヘッダーコメントを参照。
 config-flavor: V2
-config-version: 2
+config-version: 3

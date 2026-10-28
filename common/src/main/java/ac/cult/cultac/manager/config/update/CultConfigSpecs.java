@@ -324,19 +324,54 @@ public final class CultConfigSpecs {
      * Spec for {@code discord.yml}.
      *
      * <p>v1 → v2: the alert names the player, check and violations in its title and puts every value in a code span.
-     * A title or {@code violation-content} still in a shipped v1 shape, in any language, takes the new default; one
-     * the operator wrote stays. {@code include-state} is added by the default rewrite.
+     * v2 → v3: the description takes Grim's alert layout (location, both pings, clock, session time, raw sensitivity,
+     * state, checks and verbose) and the footer and thumbnail keys are written out. A title or {@code
+     * violation-content} still in a shipped shape, in any language, takes the new default; one the operator wrote
+     * stays. The new layout leaves out the state or verbose line the operator turned off. {@code include-state} is
+     * added by the default rewrite; {@code embed-image-url} and {@code include-verbose}, which no bundled file
+     * carries, are kept.
      */
     public static @NotNull ConfigUpdater.Spec discord() {
-        return ConfigUpdater.Spec.builder("/discord/", 2, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/discord/", 3, ConfigUpdater.ConfigFlavor.V2)
                 .migration(2, CultConfigSpecs::discordAlertLayout)
+                .migration(3, CultConfigSpecs::discordAlertLayout)
                 .build();
     }
 
-    private static final Pattern SHIPPED_DISCORD_TITLE = Pattern.compile("\\*\\*(?:Cult|Grim) [^%*]+\\*\\*");
-    private static final Pattern SHIPPED_DISCORD_LINE = Pattern.compile("\\*\\*[^*]+\\*\\*: (`?)%([a-z_]+)%\\1");
-    private static final List<String> SHIPPED_DISCORD_PLACEHOLDERS =
+    private static final Pattern SHIPPED_DISCORD_TITLE = Pattern.compile("\\*\\*(?:Cult|Grim|Gladiator) "
+            + "(?:Alert|Alerta|Alerte|Avviso|Uyarı|Waarschuwing|Warnung|Оповещение|警告|警报)\\*\\*");
+    private static final Pattern SHIPPED_DISCORD_LINE = Pattern.compile("\\*\\*([^*]+)\\*\\*: (.+)");
+    private static final List<String> SHIPPED_V1_DISCORD_PLACEHOLDERS =
             List.of("player", "check", "violations", "version", "brand", "ping", "tps");
+    private static final List<String> SHIPPED_V2_DISCORD_VALUES = List.of(
+            "`%player%`",
+            "`%uuid%`",
+            "`%check%`",
+            "`%version%`",
+            "`%brand%`",
+            "`H %h_sensitivity%% / V %v_sensitivity%%`",
+            "`%ping%`",
+            "`%tps%`",
+            "`%server%`",
+            "`%world% (%world_type%)`");
+    private static final List<List<String>> SHIPPED_V2_DISCORD_LABELS = List.of(
+            List.of("Player", "Spieler", "Jugador", "Joueur", "Giocatore", "プレイヤー", "Speler", "Jogador", "Игрок",
+                    "Oyuncu", "玩家名"),
+            List.of("UUID"),
+            List.of("Check", "Überprüfung", "Comprobación", "Vérification", "Controllo", "違反項目", "Controle",
+                    "Verificação", "Проверка", "Kontrol", "检查"),
+            List.of("Client Version", "Client-Version", "Version del cliente", "Version du client",
+                    "Versione del client", "クライアントバージョン", "Client-versie", "Versão do Cliente", "Версия Клиента",
+                    "Client Versiyonu", "游戏版本"),
+            List.of("Brand", "Marke", "Marca del cliente", "Marque du client", "Marca del client", "ブランド",
+                    "Client-merk", "Marca do Cliente", "Бренд", "Client Markası", "客户端品牌"),
+            List.of("Sensitivity", "Empfindlichkeit", "Sensibilidad", "Sensibilité", "Sensibilità", "感度",
+                    "Gevoeligheid", "Sensibilidade", "Чувствительность", "Hassasiyet", "灵敏度"),
+            List.of("Ping", "Latencia", "Latence", "Пинг", "Gecikme", "延迟"),
+            List.of("TPS", "ТПС"),
+            List.of("Server", "Servidor", "Serveur", "サーバー", "Сервер", "Sunucu", "服务器"),
+            List.of("World", "Welt", "Mundo", "Monde", "Mondo", "ワールド", "Wereld", "Мир", "Dünya", "世界"));
+    private static final List<String> UNBUNDLED_DISCORD_KEYS = List.of("embed-image-url", "include-verbose");
 
     static void discordAlertLayout(MigrationContext ctx) {
         String title = ctx.input().getString("embed-title");
@@ -349,18 +384,49 @@ public final class CultConfigSpecs {
         List<?> content = ctx.input().getList("violation-content");
         List<?> newContent = ctx.defaults().getList("violation-content");
         if (content != null && newContent != null && isShippedDiscordContent(content)) {
-            ctx.output().put("violation-content", newContent);
+            List<Object> layout = new ArrayList<>(newContent);
+            if (Boolean.FALSE.equals(ctx.input().get("include-state"))) layout.removeIf(line -> uses(line, "%state%"));
+            if (Boolean.FALSE.equals(ctx.input().get("include-verbose")))
+                layout.removeIf(line -> uses(line, "%verbose%"));
+            ctx.output().put("violation-content", layout);
+        }
+        for (String key : UNBUNDLED_DISCORD_KEYS) {
+            Object value = ctx.input().get(key);
+            if (value != null && ctx.defaults().get(key) == null) ctx.output().put(key, value);
         }
     }
 
+    private static boolean uses(Object line, String placeholder) {
+        return line instanceof String text && text.contains(placeholder);
+    }
+
     private static boolean isShippedDiscordContent(List<?> content) {
-        if (content.size() != SHIPPED_DISCORD_PLACEHOLDERS.size()) return false;
-        for (int i = 0; i < content.size(); i++) {
-            if (!(content.get(i) instanceof String line)) return false;
-            Matcher matcher = SHIPPED_DISCORD_LINE.matcher(line);
-            if (!matcher.matches() || !matcher.group(2).equals(SHIPPED_DISCORD_PLACEHOLDERS.get(i))) return false;
+        if (content.size() == SHIPPED_V1_DISCORD_PLACEHOLDERS.size()) {
+            for (int i = 0; i < content.size(); i++) {
+                Matcher line = shippedLine(content.get(i));
+                if (line == null) return false;
+                String placeholder = "%" + SHIPPED_V1_DISCORD_PLACEHOLDERS.get(i) + "%";
+                String value = line.group(2);
+                if (!placeholder.equals(value) && !("`" + placeholder + "`").equals(value)) return false;
+            }
+            return true;
         }
-        return true;
+        if (content.size() == SHIPPED_V2_DISCORD_VALUES.size()) {
+            for (int i = 0; i < content.size(); i++) {
+                Matcher line = shippedLine(content.get(i));
+                if (line == null
+                        || !SHIPPED_V2_DISCORD_LABELS.get(i).contains(line.group(1))
+                        || !SHIPPED_V2_DISCORD_VALUES.get(i).equals(line.group(2))) return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static @Nullable Matcher shippedLine(Object line) {
+        if (!(line instanceof String text)) return null;
+        Matcher matcher = SHIPPED_DISCORD_LINE.matcher(text);
+        return matcher.matches() ? matcher : null;
     }
 
     public static @NotNull ConfigUpdater.Spec messages() {

@@ -7,23 +7,26 @@ disable-webhook-validation: false
 embed-title: "%player% обнаружен проверкой %check% [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
-# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+# The footer under the alert, and the icon beside it (an image URL, empty for none).
+embed-footer-text: "%uuid% v%cult_version%"
+embed-footer-url: ""
+# The image at the top right of the alert; %uuid% is the flagged player.
+embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...),
+# unless violation-content places %state%, which lists only the entries that are set.
 include-state: true
 # Заменяет обратные кавычки (`) в значениях (например, в названиях клиентов), чтобы не нарушать форматирование текста в Discord.
 # Установите значение "`", чтобы отключить эту замену.
 backtick-replacement-char: "ˋ"
 violation-content:
-    - "**Игрок**: `%player%`"
-    - "**UUID**: `%uuid%`"
-    - "**Проверка**: `%check%`"
-    - "**Версия Клиента**: `%version%`"
-    - "**Бренд**: `%brand%`"
-    - "**Чувствительность**: `H %h_sensitivity%% / V %v_sensitivity%%`"
-    - "**Пинг**: `%ping%`"
-    - "**ТПС**: `%tps%`"
-    - "**Сервер**: `%server%`"
-    - "**Мир**: `%world% (%world_type%)`"
+    - "**Версия**: `%version%` **Бренд**: `%brand%`"
+    - "**Сервер**: `%server%` **Мир**: `%world%` **Позиция**: `%location%`"
+    - "**TPS**: `%tps%` **Пинг**: `%ping%/%keepalive_ping%` **Часы**: `%clock_behind%ms` **Время**: `%session_time%`"
+    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
+    - "**Состояние**: %state%"
+    - "**Проверки**: %checks%"
+    - "**Подробности**: %verbose%"
 
 # Маркеры схемы — см. шапку config.yml.
 config-flavor: V2
-config-version: 2
+config-version: 3

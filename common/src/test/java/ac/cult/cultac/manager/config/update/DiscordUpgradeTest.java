@@ -30,6 +30,27 @@ class DiscordUpgradeTest {
             config-version: 1
             """;
 
+    private static final String V2_GLADIATOR = """
+            enabled: true
+            webhook: "https://discord.com/api/webhooks/1/abc"
+            embed-title: "**Gladiator Alert**"
+            embed-footer-url: "https://example.com/logo.png"
+            include-state: true
+            violation-content:
+                - "**Player**: `%player%`"
+                - "**UUID**: `%uuid%`"
+                - "**Check**: `%check%`"
+                - "**Client Version**: `%version%`"
+                - "**Brand**: `%brand%`"
+                - "**Sensitivity**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+                - "**Ping**: `%ping%`"
+                - "**TPS**: `%tps%`"
+                - "**Server**: `%server%`"
+                - "**World**: `%world% (%world_type%)`"
+            config-flavor: V2
+            config-version: 2
+            """;
+
     @TempDir
     Path directory;
 
@@ -42,6 +63,57 @@ class DiscordUpgradeTest {
         assertEquals(true, data.get("include-state"));
         assertEquals(true, data.get("enabled"));
         assertEquals("https://discord.com/api/webhooks/1/abc", data.get("webhook"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"**Gladiator Alert**", "**Gladiator Warnung**", "**Grim Alert**"})
+    void shippedBrandedTitleTakesTheDefault(String title) throws Exception {
+        Map<String, Object> data = upgrade(V1_GERMAN.replace("**Cult Warnung**", title));
+        assertEquals(bundled("en").get("embed-title"), data.get("embed-title"));
+    }
+
+    @Test
+    void shippedV2LayoutTakesTheNewDefault() throws Exception {
+        Map<String, Object> data = upgrade(V2_GLADIATOR);
+        Map<String, Object> bundled = bundled("en");
+        assertEquals(bundled.get("embed-title"), data.get("embed-title"));
+        assertEquals(bundled.get("violation-content"), data.get("violation-content"));
+        assertEquals("https://example.com/logo.png", data.get("embed-footer-url"));
+        assertEquals(bundled.get("embed-footer-text"), data.get("embed-footer-text"));
+        assertEquals("https://discord.com/api/webhooks/1/abc", data.get("webhook"));
+        assertEquals(3, data.get("config-version"));
+    }
+
+    @Test
+    void turnedOffSectionsStayOffAndUnbundledKeysStay() throws Exception {
+        Map<String, Object> data = upgrade(V2_GLADIATOR.replace(
+                "include-state: true\n",
+                "include-state: false\ninclude-verbose: false\nembed-image-url: \"https://example.com/banner.png\"\n"));
+        List<?> content = (List<?>) data.get("violation-content");
+        assertEquals(((List<?>) bundled("en").get("violation-content")).size() - 2, content.size());
+        assertFalse(content.stream().anyMatch(line -> ((String) line).contains("%state%")));
+        assertFalse(content.stream().anyMatch(line -> ((String) line).contains("%verbose%")));
+        assertEquals(false, data.get("include-state"));
+        assertEquals(false, data.get("include-verbose"));
+        assertEquals("https://example.com/banner.png", data.get("embed-image-url"));
+    }
+
+    @Test
+    void relabelledV2LayoutAndCustomBrandedTitleStay() throws Exception {
+        Map<String, Object> data = upgrade(V2_GLADIATOR
+                .replace("**Gladiator Alert**", "**Gladiator Staff Review Queue**")
+                .replace("**Player**", "**Suspect**"));
+        assertEquals("**Gladiator Staff Review Queue**", data.get("embed-title"));
+        assertEquals("**Suspect**: `%player%`", ((List<?>) data.get("violation-content")).get(0));
+    }
+
+    @Test
+    void operatorV2LayoutStays() throws Exception {
+        Map<String, Object> data = upgrade(V2_GLADIATOR
+                .replace("**Gladiator Alert**", "**Gladiator** on %server%")
+                .replace("`%world% (%world_type%)`", "`%world%`"));
+        assertEquals("**Gladiator** on %server%", data.get("embed-title"));
+        assertEquals("**World**: `%world%`", ((List<?>) data.get("violation-content")).get(9));
     }
 
     @Test
@@ -57,12 +129,22 @@ class DiscordUpgradeTest {
     @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh"})
     void bundledLanguagesShipTheNewLayout(String language) throws Exception {
         Map<String, Object> data = bundled(language);
-        assertEquals(2, data.get("config-version"));
+        assertEquals(3, data.get("config-version"));
         assertEquals(true, data.get("include-state"));
+        assertEquals("", data.get("embed-footer-url"));
+        assertEquals("%uuid% v%cult_version%", data.get("embed-footer-text"));
+        assertEquals("https://crafthead.net/helm/%uuid%", data.get("embed-thumbnail-url"));
         String title = (String) data.get("embed-title");
         assertTrue(title.contains("%player%") && title.contains("%check%") && title.contains("%violations%"));
         List<?> content = (List<?>) data.get("violation-content");
-        for (Object line : content) assertTrue(((String) line).endsWith("`"), line + " is not in a code span");
+        assertEquals(
+                bundled("en").get("violation-content").toString().replaceAll("\\*\\*[^*]+\\*\\*", ""),
+                content.toString().replaceAll("\\*\\*[^*]+\\*\\*", ""));
+        for (Object line : content) {
+            String text = (String) line;
+            if (text.contains("%state%") || text.contains("%checks%") || text.contains("%verbose%")) continue;
+            assertTrue(text.endsWith("`"), line + " is not in a code span");
+        }
         assertFalse(content.stream().anyMatch(line -> ((String) line).contains("%violations%")));
     }
 
