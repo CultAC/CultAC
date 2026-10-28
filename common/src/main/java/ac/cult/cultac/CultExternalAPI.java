@@ -18,6 +18,7 @@ import ac.grim.grimac.api.event.EventBus;
 import ac.grim.grimac.api.event.events.GrimReloadEvent;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import ac.grim.grimac.api.storage.backend.BackendRegistry;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
@@ -257,11 +258,16 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         variableReplacements.putIfAbsent("%player%", GrimUser::getName);
         variableReplacements.putIfAbsent("%uuid%", user -> user.getUniqueId().toString());
         variableReplacements.putIfAbsent("%ping%", user -> user.getTransactionPing() + "");
+        variableReplacements.putIfAbsent("%keepalive_ping%", user -> user.getKeepAlivePing() + "");
         variableReplacements.putIfAbsent("%brand%", GrimUser::getBrand);
         variableReplacements.putIfAbsent(
                 "%h_sensitivity%", user -> ((int) Math.round(user.getHorizontalSensitivity() * 200)) + "");
         variableReplacements.putIfAbsent(
                 "%v_sensitivity%", user -> ((int) Math.round(user.getVerticalSensitivity() * 200)) + "");
+        variableReplacements.putIfAbsent(
+                "%h_sensitivity_raw%", user -> String.format(Locale.ROOT, "%.5f", user.getHorizontalSensitivity()));
+        variableReplacements.putIfAbsent(
+                "%v_sensitivity_raw%", user -> String.format(Locale.ROOT, "%.5f", user.getVerticalSensitivity()));
         variableReplacements.putIfAbsent("%fast_math%", user -> !user.isVanillaMath() + "");
         variableReplacements.putIfAbsent(
                 "%tps%",
@@ -276,6 +282,18 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
                 "%world_type%", user -> user instanceof CultPlayer player ? AlertDetails.worldType(player) : "unknown");
         variableReplacements.putIfAbsent(
                 "%gamemode%", user -> user instanceof CultPlayer player ? AlertDetails.gamemode(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%location%", user -> user instanceof CultPlayer player ? AlertDetails.location(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%clock_behind%",
+                user -> user instanceof CultPlayer player ? player.getClockBehindInMs() + "" : "unknown");
+        variableReplacements.putIfAbsent(
+                "%session_time%",
+                user -> user instanceof CultPlayer player ? AlertDetails.sessionTime(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%state%", user -> user instanceof CultPlayer player ? AlertDetails.notableState(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%checks%", user -> user instanceof CultPlayer player ? AlertDetails.checks(player) : "unknown");
         staticReplacements.put(
                 "%prefix%",
                 MessageUtil.translateAlternateColorCodes(

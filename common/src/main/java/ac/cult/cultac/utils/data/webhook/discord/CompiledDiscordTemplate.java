@@ -78,6 +78,14 @@ public record CompiledDiscordTemplate(Segment[] segments) {
         return new CompiledDiscordTemplate(parts.toArray(Segment[]::new));
     }
 
+    /** Whether the template places {@code placeholder}, written with its percent signs. */
+    public boolean uses(@NotNull String placeholder) {
+        for (Segment segment : segments) {
+            if (segment instanceof Placeholder p && p.key.equals(placeholder)) return true;
+        }
+        return false;
+    }
+
     // ──────────────────── RENDER (once per alert) ────────────────────
     /**
      * @param player              Cult player (nullable)
