@@ -3,6 +3,7 @@ package ac.cult.cultac.cloud.labels;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -364,6 +365,40 @@ class LabelClientTest {
         assertEquals(Map.of(), unreachable.flags(PLAYER, 1, 2).get(10, TimeUnit.SECONDS));
     }
 
+    @Test
+    void theCatalogIsFetchedWithTheKeyAndReplacesTheCurrentOne() throws Exception {
+        try {
+            status = 200;
+            answer = "{\"version\":\"0123456789abcdef\",\"cheats\":[{\"id\":\"killaura\",\"name\":\"KillAura\"},"
+                    + "{\"id\":\"other\",\"name\":\"Other\"}],\"legacy\":[]}";
+
+            assertTrue(client().refreshCatalog().get(10, TimeUnit.SECONDS));
+
+            assertEquals(List.of("killaura", "other"), LabelCatalog.current().ids());
+            assertEquals("0123456789abcdef", LabelCatalog.current().version());
+            Seen request = seen.get(0);
+            assertEquals("GET", request.method());
+            assertEquals("/api/v1/labels/catalog", request.uri());
+            assertEquals("Bearer " + KEY, request.authorization());
+        } finally {
+            LabelCatalog.use(LabelCatalog.bundled());
+        }
+    }
+
+    @Test
+    void aMissingOrUnreadableCatalogKeepsTheCurrentOne() throws Exception {
+        LabelCatalog current = LabelCatalog.current();
+        status = 404;
+        answer = "{\"detail\":\"not found\"}";
+        assertFalse(client().refreshCatalog().get(10, TimeUnit.SECONDS));
+        status = 200;
+        answer = "{\"version\":\"x\",\"cheats\":[{\"id\":\"killaura\",\"name\":\"KillAura\"}]}";
+        assertFalse(client().refreshCatalog().get(10, TimeUnit.SECONDS));
+        LabelClient unreachable = new LabelClient("http://127.0.0.1:1", KEY, HttpClient.newHttpClient(), calls);
+        assertFalse(unreachable.refreshCatalog().get(10, TimeUnit.SECONDS));
+        assertSame(current, LabelCatalog.current());
+    }
+
     private LabelClient client() {
         return client(KEY);
     }
@@ -371,5 +406,19 @@ class LabelClientTest {
     private LabelClient client(String key) {
         return new LabelClient(
                 "http://127.0.0.1:" + server.getAddress().getPort(), key, HttpClient.newHttpClient(), calls);
+    }
+
+    @Test
+    void aCatalogAnEarlierConfigureFetchedIsNotUsed() {
+        long earlier = LabelClient.catalogChain();
+        LabelClient.refreshCatalogWhile(false);
+        try {
+            assertFalse(LabelClient.useIfCurrent(earlier, LabelCatalogTest.swapped()));
+            assertEquals(LabelCatalog.bundled().ids(), LabelCatalog.current().ids());
+            assertTrue(LabelClient.useIfCurrent(LabelClient.catalogChain(), LabelCatalogTest.swapped()));
+            assertEquals(LabelCatalogTest.swapped().ids(), LabelCatalog.current().ids());
+        } finally {
+            LabelCatalog.use(LabelCatalog.bundled());
+        }
     }
 }

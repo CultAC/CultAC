@@ -199,7 +199,10 @@ first. Each socket's findings are taken only for players uploaded on that socket
 minutes and are among the last 4,096 to leave it; others are dropped, so a late finding can be lost. Labels go to the
 service's label API with the server's API key, naming the labelling player's UUID; the service takes them only from a
 moderator (or above) of the key's organization with that Minecraft account on their profile, so the console can only
-list. `/cult label list` shows the first 50 labels. Players are named by UUID, online name or a Mojang lookup (at most
+list. The cheats a label may name, their order and their display names come from the cloud service, fetched when the
+upload is configured and every 30 minutes after; until it answers, or when it does not, the list shipped in the plugin
+is used. Cheats the service no longer offers still show their names on stored labels but cannot be labelled anew.
+`/cult label list` shows the first 50 labels. Players are named by UUID, online name or a Mojang lookup (at most
 8 at once, each name remembered for 10 minutes), so `/cult findings` and `/cult label` refuse on an offline-mode
 server that has no online-mode proxy in front. The service calls run off the calling thread, and the service's text is
 shown on one line.

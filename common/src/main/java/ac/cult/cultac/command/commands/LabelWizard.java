@@ -1,9 +1,8 @@
 package ac.cult.cultac.command.commands;
 
+import ac.cult.cultac.cloud.labels.LabelCatalog;
 import ac.cult.cultac.cloud.labels.LabelRequest;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -27,9 +26,6 @@ final class LabelWizard {
     static final long DAY_MS = 86_400_000L;
     static final String HIGH = "high";
     static final String EXTREME = "extreme";
-
-    /** Display names of {@link LabelRequest#CHEATS}, in its order. */
-    static final Map<String, String> NAMES = names();
 
     private static final Map<UUID, LabelWizard> OPEN = new ConcurrentHashMap<>();
 
@@ -142,7 +138,7 @@ final class LabelWizard {
 
     /** Page 2: picks {@code cheat}, or unpicks it. */
     Page toggle(String cheat) {
-        if (!NAMES.containsKey(cheat)) return Page.CHECKS;
+        if (!LabelCatalog.current().pickable(cheat)) return Page.CHECKS;
         if (!checks.remove(cheat)) checks.add(cheat);
         nothingPicked = false;
         return Page.CHECKS;
@@ -173,13 +169,17 @@ final class LabelWizard {
         return Page.REVIEW;
     }
 
-    /** The labels page 4's Confirm posts: one per check picked over the window, or one clean label without one. */
+    /**
+     * The labels page 4's Confirm posts: one per check picked over the window that the catalog still offers, or one
+     * clean label without one.
+     */
     List<LabelRequest.Window> labels(@Nullable String note) {
         if (verdict == null) return List.of();
         String n = note == null || note.isBlank() ? null : note;
         if (verdict == Verdict.CLEAN) return List.of(LabelRequest.Window.clean(confidence, n));
         List<LabelRequest.Window> labels = new ArrayList<>();
         for (String cheat : checks) {
+            if (!LabelCatalog.current().pickable(cheat)) continue;
             labels.add(
                     verdict == Verdict.CHEATING
                             ? LabelRequest.Window.cheat(cheat, confidence, from, to, n)
@@ -192,25 +192,5 @@ final class LabelWizard {
     static int days(float raw) {
         if (Float.isNaN(raw)) return DEFAULT_DAYS;
         return Math.max(MIN_DAYS, Math.min(MAX_DAYS, Math.round(raw)));
-    }
-
-    private static Map<String, String> names() {
-        Map<String, String> names = new LinkedHashMap<>();
-        names.put("triggerbot", "Triggerbot");
-        names.put("killaura", "KillAura");
-        names.put("autoclicker", "Autoclicker");
-        names.put("autototem", "Auto Totem");
-        names.put("crystalaura", "Crystal Aura");
-        names.put("autoanchor", "Auto Anchor");
-        names.put("automace", "Auto Mace");
-        names.put("shieldbreaker", "Shield Breaker");
-        names.put("autostunslam", "Auto Stun Slam");
-        names.put("jumpreset", "Jump Reset");
-        names.put("chest-stealer", "Chest Stealer");
-        names.put("other", "Other");
-        if (!List.copyOf(names.keySet()).equals(LabelRequest.CHEATS)) {
-            throw new IllegalStateException("every label cheat has one display name, in order");
-        }
-        return Collections.unmodifiableMap(names);
     }
 }
