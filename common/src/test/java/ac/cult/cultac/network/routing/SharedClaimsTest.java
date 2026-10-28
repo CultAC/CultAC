@@ -52,6 +52,27 @@ class SharedClaimsTest {
     }
 
     @Test
+    void anExpiredClaimSweptByAnotherGenerationMidClaimIsStillWon() {
+        Map<String, Long> racing = new ConcurrentHashMap<>() {
+            @Override
+            public boolean replace(String key, Long oldValue, Long newValue) {
+                remove(key);
+                return super.replace(key, oldValue, newValue);
+            }
+        };
+        HostContext host = mock(HostContext.class);
+        when(host.shared(any(), any())).thenReturn(racing);
+        SharedClaims claims = new SharedClaims(host, "alert", clock::get);
+
+        assertTrue(claims.claim("a"));
+        clock.addAndGet(EnvelopeCodec.REPLAY_WINDOW_MILLIS);
+        assertTrue(claims.claim("b"));
+        clock.addAndGet(1);
+        assertTrue(claims.claim("a"));
+        assertFalse(claims.claim("a"));
+    }
+
+    @Test
     void withoutAHostEachHasItsOwn() {
         assertTrue(new SharedClaims(null, "alert", clock::get).claim("a"));
         assertTrue(new SharedClaims(null, "alert", clock::get).claim("a"));

@@ -36,8 +36,12 @@ public final class SharedClaims {
             nextSweep = now + SWEEP_PERIOD_MILLIS;
             claims.values().removeIf(claimed -> expired(claimed, now));
         }
-        Long claimed = claims.putIfAbsent(id, now);
-        return claimed == null || expired(claimed, now) && claims.replace(id, claimed, now);
+        while (true) {
+            Long claimed = claims.putIfAbsent(id, now);
+            if (claimed == null) return true;
+            if (!expired(claimed, now)) return false;
+            if (claims.replace(id, claimed, now)) return true;
+        }
     }
 
     private static boolean expired(long claimed, long now) {
