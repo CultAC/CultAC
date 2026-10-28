@@ -396,18 +396,23 @@ public final class CultConfigSpecs {
                 layout.removeIf(line -> uses(line, "%verbose%"));
             ctx.output().put("violation-content", layout);
         }
-        for (String key : UNBUNDLED_DISCORD_KEYS) {
-            Object value = ctx.input().get(key);
-            if (value != null && ctx.defaults().get(key) == null) ctx.output().put(key, value);
-        }
+        keepUnbundledDiscordKeys(ctx);
     }
 
     static void discordPercentSensitivity(MigrationContext ctx) {
+        keepUnbundledDiscordKeys(ctx);
         List<?> content = ctx.output().getList("violation-content");
         if (content == null || !content.contains(SHIPPED_V3_DISCORD_SENSITIVITY)) return;
         List<Object> layout = new ArrayList<>(content);
         layout.replaceAll(line -> SHIPPED_V3_DISCORD_SENSITIVITY.equals(line) ? PERCENT_DISCORD_SENSITIVITY : line);
         ctx.output().put("violation-content", layout);
+    }
+
+    private static void keepUnbundledDiscordKeys(MigrationContext ctx) {
+        for (String key : UNBUNDLED_DISCORD_KEYS) {
+            Object value = ctx.input().get(key);
+            if (value != null && ctx.defaults().get(key) == null) ctx.output().put(key, value);
+        }
     }
 
     private static boolean uses(Object line, String placeholder) {

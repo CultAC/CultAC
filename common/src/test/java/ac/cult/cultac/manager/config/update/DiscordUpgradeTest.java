@@ -57,14 +57,15 @@ class DiscordUpgradeTest {
             webhook: "https://discord.com/api/webhooks/1/abc"
             embed-title: "Alert on %server%"
             embed-footer-url: "https://example.com/logo.png"
+            embed-image-url: "https://example.com/banner.png"
             include-state: false
+            include-verbose: false
             violation-content:
                 - "**Version**: `%version%` **Brand**: `%brand%`"
                 - "**Server**: `%server%` **World**: `%world%` **Location**: `%location%`"
                 - "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Clock**: `%clock_behind%ms` **Time**: `%session_time%`"
                 - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
                 - "**Checks**: %checks%"
-                - "**Verbose**: %verbose%"
             config-flavor: V2
             config-version: 3
             """;
@@ -129,11 +130,13 @@ class DiscordUpgradeTest {
     void shippedV3SensitivityShowsPercentages() throws Exception {
         Map<String, Object> data = upgrade(V3_RAW_SENSITIVITY);
         List<Object> expected = new ArrayList<>((List<?>) bundled("en").get("violation-content"));
-        expected.removeIf(line -> ((String) line).contains("%state%"));
+        expected.removeIf(line -> ((String) line).contains("%state%") || ((String) line).contains("%verbose%"));
         assertEquals(expected, data.get("violation-content"));
         assertEquals("Alert on %server%", data.get("embed-title"));
         assertEquals("https://example.com/logo.png", data.get("embed-footer-url"));
+        assertEquals("https://example.com/banner.png", data.get("embed-image-url"));
         assertEquals(false, data.get("include-state"));
+        assertEquals(false, data.get("include-verbose"));
         assertEquals(4, data.get("config-version"));
     }
 
