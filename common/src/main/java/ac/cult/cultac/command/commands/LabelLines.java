@@ -1,5 +1,6 @@
 package ac.cult.cultac.command.commands;
 
+import ac.cult.cultac.cloud.labels.LabelCatalog;
 import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.cloud.labels.LabelRequest;
 import ac.cult.cultac.command.CloudCommandService;
@@ -62,7 +63,7 @@ final class LabelLines {
     /** The display name of a label cheat; Clean for {@code all}. */
     static String name(String cheat) {
         if (cheat.equals(LabelRequest.ALL)) return Verdict.CLEAN.display;
-        return LabelWizard.NAMES.getOrDefault(cheat, cheat);
+        return LabelCatalog.current().name(cheat);
     }
 
     static String lastDays(int days) {

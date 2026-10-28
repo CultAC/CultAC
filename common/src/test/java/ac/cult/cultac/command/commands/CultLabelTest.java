@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.cloud.labels.LabelCatalog;
+import ac.cult.cultac.cloud.labels.LabelCatalogTest;
 import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.cloud.labels.LabelRequest;
 import ac.cult.cultac.platform.api.sender.Sender;
@@ -101,10 +103,20 @@ class CultLabelTest {
     void cheatConfidenceAndSpanTabComplete() {
         CommandManager<Sender> manager = manager();
         Sender sender = sender(true);
-        Set<String> verdicts = new HashSet<>(LabelRequest.CHEATS);
+        Set<String> verdicts = new HashSet<>(LabelCatalog.current().ids());
         verdicts.add("clean");
         assertEquals(verdicts, new HashSet<>(suggest(manager, sender, "cult label Steve ")));
         assertEquals(List.of("autototem"), suggest(manager, sender, "cult label Steve autot"));
+        assertEquals(List.of("latency-abuse"), suggest(manager, sender, "cult label Steve lat"));
+        assertEquals(List.of(), suggest(manager, sender, "cult label Steve reac"));
+        try {
+            LabelCatalog.use(LabelCatalogTest.swapped());
+            assertEquals(
+                    Set.of("killaura", "newcheat", "other", "clean"),
+                    new HashSet<>(suggest(manager, sender, "cult label Steve ")));
+        } finally {
+            LabelCatalog.use(LabelCatalog.bundled());
+        }
         assertEquals(List.of("high", "extreme"), suggest(manager, sender, "cult label Steve triggerbot "));
         assertEquals(List.of("high", "extreme"), suggest(manager, sender, "cult label Steve clean "));
         assertEquals(List.of("24h", "3d", "7d", "30d"), suggest(manager, sender, "cult label Steve triggerbot high "));

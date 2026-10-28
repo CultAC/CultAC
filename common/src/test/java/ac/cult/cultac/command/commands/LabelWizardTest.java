@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.cloud.labels.LabelCatalog;
+import ac.cult.cultac.cloud.labels.LabelCatalogTest;
 import ac.cult.cultac.cloud.labels.LabelRequest;
 import ac.cult.cultac.command.commands.LabelWizard.Page;
 import ac.cult.cultac.command.commands.LabelWizard.Verdict;
@@ -120,8 +122,21 @@ class LabelWizardTest {
     }
 
     @Test
-    void everyCheatHasADisplayName() {
-        assertEquals(LabelRequest.CHEATS, List.copyOf(LabelWizard.NAMES.keySet()));
-        assertEquals("Auto Stun Slam", LabelWizard.NAMES.get("autostunslam"));
+    void theChecksFollowTheCurrentCatalog() {
+        LabelWizard wizard = new LabelWizard(STAFF, NOTCH, 7);
+        wizard.choose(Verdict.CHEATING);
+        wizard.toggle("newcheat");
+        assertEquals(List.of(), wizard.checks());
+        assertEquals("Auto Stun Slam", LabelLines.name("autostunslam"));
+        try {
+            LabelCatalog.use(LabelCatalogTest.swapped());
+            wizard.toggle("newcheat");
+            wizard.toggle("autostunslam");
+            assertEquals(List.of("newcheat"), wizard.checks());
+            assertEquals("New Cheat", LabelLines.name("newcheat"));
+            assertEquals("Kill Aura", LabelLines.name("killaura"));
+        } finally {
+            LabelCatalog.use(LabelCatalog.bundled());
+        }
     }
 }
