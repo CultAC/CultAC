@@ -116,11 +116,11 @@ public final class NextTickVelocityDeriver {
             Set<Vec3> collided,
             Set<Vec3> transformed,
             boolean geysers) {
-        float additionalBlockFriction = result.getSimulationContext().isNoPhysics()
+        float blockSpeedFactor = result.getSimulationContext().isNoPhysics()
                 ? 1.0F
                 : BlockSpeedFactors.nextTickForResult(player, result);
-        travel(player, result, candidates, false, additionalBlockFriction, transformed);
-        travel(player, result, collided, true, additionalBlockFriction, transformed);
+        travel(player, result, candidates, false, blockSpeedFactor, transformed);
+        travel(player, result, collided, true, blockSpeedFactor, transformed);
         return applyPostTravelVelocityEffects(player, result, transformed, geysers);
     }
 
@@ -129,7 +129,7 @@ public final class NextTickVelocityDeriver {
             PredictionResult result,
             Set<Vec3> candidates,
             boolean horizontalCollision,
-            float additionalBlockFriction,
+            float blockSpeedFactor,
             Set<Vec3> transformed) {
         List<Boolean> onGroundStates =
                 result.getSimulationContext().getLastOnGround().getStates();
@@ -142,7 +142,7 @@ public final class NextTickVelocityDeriver {
                         vel,
                         horizontalCollision,
                         result,
-                        additionalBlockFriction,
+                        blockSpeedFactor,
                         false);
                 for (int j = 0; j < travelled.size(); j++) {
                     transformed.add(travelled.get(j));

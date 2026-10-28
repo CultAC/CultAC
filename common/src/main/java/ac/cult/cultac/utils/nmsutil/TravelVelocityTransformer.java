@@ -19,8 +19,9 @@ public final class TravelVelocityTransformer {
     private TravelVelocityTransformer() {}
 
     /**
-     * The travel operations after Entity#move left {@code playerVelocity}, with the horizontalCollision that move set.
-     * {@code keepBranches} retains equal branch outputs while pairing push-range endpoints.
+     * The end of Entity#move and the travel after it, on the deltaMovement Entity#move left as {@code playerVelocity}
+     * with the horizontalCollision that move set. {@code blockSpeedFactor} is Entity#getBlockSpeedFactor where the
+     * move ended. {@code keepBranches} retains equal branch outputs while pairing push-range endpoints.
      */
     static List<Vec3> transform(
             CultPlayer player,
@@ -29,18 +30,26 @@ public final class TravelVelocityTransformer {
             Vec3 playerVelocity,
             boolean horizontalCollision,
             PredictionResult result,
-            float additionalBlockFriction,
+            float blockSpeedFactor,
             boolean keepBranches) {
         if (ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel.clearsWithoutTravel(result.getSimulationContext()))
             return Collections.singletonList(Vec3.ZERO);
-        // Boat friction is special, not handled here
+        // Entity#move ends every entity's move, boats included: after zeroing collided axes it scales deltaMovement
+        // by getBlockSpeedFactor. Multiplying by an exact 1 keeps every component's bits.
+        Vec3 movedVelocity = playerVelocity;
+        if (blockSpeedFactor != 1.0F || movedVelocity.getClass() != Vec3.class) {
+            movedVelocity = movedVelocity.multiply(blockSpeedFactor, 1, blockSpeedFactor);
+        }
+
+        // AbstractBoat#tick runs no travel after Entity#move. Its drag is AbstractBoat#floatBoat's, which
+        // BoatTransform applies at the start of the next tick.
         if (result.getSimulationContext().getVehicle() != null
                 && EntityTypeUtil.isBoat(result.getSimulationContext().getVehicle().type)) {
             // edge case with teleporting to top of water
             if (player.boatData.nullifyNextY) {
-                return Collections.singletonList(new Vec3(playerVelocity.x, 0, playerVelocity.z));
+                return Collections.singletonList(new Vec3(movedVelocity.x, 0, movedVelocity.z));
             }
-            return Collections.singletonList(playerVelocity);
+            return Collections.singletonList(movedVelocity);
         }
 
         List<Vec3> frictions = new ArrayList<>(4);
@@ -53,13 +62,6 @@ public final class TravelVelocityTransformer {
         Boolean shallowLava = null;
 
         int branchStart = frictions.size();
-        Vec3 movedVelocity = playerVelocity;
-        // Entity#move applies horizontal collision zeroing and then
-        // getBlockSpeedFactor before LivingEntity#travel applies air/water friction.
-        // Multiplying by an exact 1 keeps every component's bits.
-        if (additionalBlockFriction != 1.0F || movedVelocity.getClass() != Vec3.class) {
-            movedVelocity = movedVelocity.multiply(additionalBlockFriction, 1, additionalBlockFriction);
-        }
 
         // Water/lava overrides gliding status
         if (result.getSimulationContext().usesFallFlyingMovement() && !inWater && !inLava) {
