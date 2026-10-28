@@ -29,7 +29,7 @@ class LabelRequestTest {
         assertFalse(body.has("fromEpochMillis"));
         assertFalse(body.has("toEpochMillis"));
         assertEquals("30 minutes watched", body.get("evidence").getAsString());
-        assertFalse(LabelRequest.CHEATS.contains("all"));
+        assertFalse(LabelCatalog.current().pickable("all"));
     }
 
     @Test
@@ -79,6 +79,11 @@ class LabelRequestTest {
         assertThrows(IllegalArgumentException.class, () -> LabelRequest.cheat("speed", "high", "24h", null));
         assertThrows(IllegalArgumentException.class, () -> LabelRequest.cheat("aimassist", "high", "24h", null));
         assertThrows(IllegalArgumentException.class, () -> LabelRequest.cheat("inventory", "high", "24h", null));
+        assertThrows(IllegalArgumentException.class, () -> LabelRequest.cheat("reach", "high", "24h", null));
+        IllegalArgumentException unknown =
+                assertThrows(IllegalArgumentException.class, () -> LabelRequest.cheat("speed", "high", "24h", null));
+        assertTrue(unknown.getMessage()
+                .endsWith(String.join(", ", LabelCatalog.current().ids())));
         assertThrows(IllegalArgumentException.class, () -> LabelRequest.cheat("other", "confirmed", "24h", null));
         assertThrows(IllegalArgumentException.class, () -> LabelRequest.cheat("other", "high", "day", null));
         assertThrows(IllegalArgumentException.class, () -> LabelRequest.cheat("other", "high", "90d", null));

@@ -29,9 +29,11 @@ public interface NetworkRouting {
     Collection<NetworkPlayer> roster();
 
     /**
-     * Runs {@code line}, a command without its leading slash, as {@code sender} on the instance holding {@code where}
-     * and relays its output to {@code sender}. Completes true once the command ran there; false when it could not reach
-     * the player, after telling {@code sender} why.
+     * Runs {@code line}, a CultAC command starting with one of its registered roots
+     * ({@code CloudCommandService.primaryRoot()}) and without a leading slash, as {@code sender} on the instance
+     * holding {@code where}, and relays its output to {@code sender}. Completes true once the command has run there,
+     * whatever it answered: its own errors reach {@code sender} as they would locally. Completes false when the player
+     * could not be reached, after telling {@code sender} why.
      */
     CompletableFuture<Boolean> run(Sender sender, String line, NetworkPlayer where);
 }

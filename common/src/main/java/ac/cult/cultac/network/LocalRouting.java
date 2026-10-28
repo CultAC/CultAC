@@ -1,6 +1,7 @@
 package ac.cult.cultac.network;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.player.PlatformPlayerFactory;
 import ac.cult.cultac.platform.api.sender.Sender;
@@ -29,13 +30,16 @@ final class LocalRouting implements NetworkRouting {
     public Optional<NetworkPlayer> locate(String nameOrUuid) {
         PlatformPlayerFactory players = CultAPI.INSTANCE.getPlatformPlayerFactory();
         if (players == null) return Optional.empty();
-        PlatformPlayer player;
         try {
-            player = players.getFromUUID(UUID.fromString(nameOrUuid));
+            return Optional.ofNullable(players.getFromUUID(UUID.fromString(nameOrUuid)))
+                    .map(LocalRouting::listed);
         } catch (IllegalArgumentException notUuid) {
-            player = players.getFromName(nameOrUuid);
+            // Platform name lookups may match a prefix of a longer name.
+            PlatformPlayer player = players.getFromName(nameOrUuid);
+            return player != null && player.getName().equalsIgnoreCase(nameOrUuid)
+                    ? Optional.of(listed(player))
+                    : Optional.empty();
         }
-        return Optional.ofNullable(player).map(LocalRouting::listed);
     }
 
     @Override
@@ -47,16 +51,23 @@ final class LocalRouting implements NetworkRouting {
 
     @Override
     public CompletableFuture<Boolean> run(Sender sender, String line, NetworkPlayer where) {
-        if (where.instance().equals(INSTANCE_ID)) {
-            sender.performCommand(line);
-            return CompletableFuture.completedFuture(true);
+        if (!where.instance().equals(INSTANCE_ID)) {
+            sender.sendMessage(MessageUtil.getParsedComponent(
+                    sender,
+                    "network-disabled-command",
+                    "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to"
+                            + " configure a messaging backend (Redis or NATS) in the CultAC configuration."));
+            return CompletableFuture.completedFuture(false);
         }
-        sender.sendMessage(MessageUtil.getParsedComponent(
-                sender,
-                "network-disabled-command",
-                "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to"
-                        + " configure a messaging backend (Redis or NATS) in the CultAC configuration."));
-        return CompletableFuture.completedFuture(false);
+        PlatformPlayerFactory players = CultAPI.INSTANCE.getPlatformPlayerFactory();
+        if (players == null
+                || players.getFromUUID(where.uuid()) == null
+                || !(CultAPI.INSTANCE.getCommandService() instanceof CloudCommandService commands)) {
+            sender.sendMessage(MessageUtil.getParsedComponent(
+                    sender, "player-not-found", "%prefix% &cPlayer is exempt or offline!"));
+            return CompletableFuture.completedFuture(false);
+        }
+        return commands.execute(sender, line).handle((ran, failure) -> true).toCompletableFuture();
     }
 
     private static NetworkPlayer listed(PlatformPlayer player) {

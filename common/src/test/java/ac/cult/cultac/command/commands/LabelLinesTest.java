@@ -39,6 +39,14 @@ class LabelLinesTest {
     }
 
     @Test
+    void aStoredLegacyLabelShowsItsName() {
+        assertEquals("Reach", LabelLines.name("reach"));
+        assertEquals("Bad packets", LabelLines.name("badpackets"));
+        assertEquals("Clean", LabelLines.name("all"));
+        assertEquals("speed", LabelLines.name("speed"));
+    }
+
+    @Test
     void theCardSaysWhetherTheTargetIsOnline() {
         Component online = LabelLines.presence("Notch", 42 * 60_000L);
         assertEquals("Notch · online 42m", plain(online));
