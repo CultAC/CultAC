@@ -238,7 +238,7 @@ public class BoatData {
                             int blockData = player.compensatedWorld.getBlockStateIdAt(l1, k2, i2);
 
                             if (!BlockIds.is(blockData, BlockIds.LILY_PAD)
-                                    && ClientBlockShapes.movement(player, blockData, l1, k2, i2)
+                                    && ClientBlockShapes.movementWithoutEntity(player, blockData, l1, k2, i2)
                                             .isIntersected(axisalignedbb1)) {
                                 f += BlockProperties.getMaterialFriction(blockData);
                                 ++k1;
