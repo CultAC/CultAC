@@ -63,7 +63,9 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.ArrayList;
@@ -1531,7 +1533,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         Vec3 position = new Vec3(trackedPosition.getX(), trackedPosition.getY(), trackedPosition.getZ());
         PacketEntity vehicle = player.compensatedEntities.getEntity(vehicleId);
         if (!isBedrockVehicleResync(vehicleId) && (forceSnapNudge || vehicleMoveWouldNotSnap(vehicle, position))) {
-            position = nudgeVehicleMoveResyncPosition(position);
+            position = nudgeVehicleMoveResyncPosition(vehicle, position);
+            if (position == null) {
+                return null;
+            }
         }
 
         return new VehicleMountResyncState(
@@ -1549,10 +1554,26 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         return serializedPosition != null && packetPosition.distanceTo(serializedPosition) <= 1.0E-5F;
     }
 
-    private Vec3 nudgeVehicleMoveResyncPosition(Vec3 position) {
+    @Nullable
+    private Vec3 nudgeVehicleMoveResyncPosition(@Nullable PacketEntity vehicle, Vec3 position) {
         long xBucket = Math.round(position.x / VEHICLE_MOVE_RESYNC_SNAP_EPSILON);
         double offset = (xBucket & 1L) == 0L ? VEHICLE_MOVE_RESYNC_SNAP_EPSILON : -VEHICLE_MOVE_RESYNC_SNAP_EPSILON;
-        return position.add(offset, 0.0D, 0.0D);
+        Vec3 nudged = position.add(offset, 0.0D, 0.0D);
+        if (vehicle == null) {
+            return nudged;
+        }
+        for (Vec3 candidate : List.of(
+                nudged,
+                position.add(-offset, 0.0D, 0.0D),
+                position.add(0.0D, 0.0D, offset),
+                position.add(0.0D, 0.0D, -offset))) {
+            SimpleCollisionBox box =
+                    GetBoundingBox.getPacketEntityBoundingBox(player, candidate.x, candidate.y, candidate.z, vehicle);
+            if (Collisions.isEmpty(player, box, candidate.y)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     @Nullable
