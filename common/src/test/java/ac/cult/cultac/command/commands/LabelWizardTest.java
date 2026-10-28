@@ -139,4 +139,18 @@ class LabelWizardTest {
             LabelCatalog.use(LabelCatalog.bundled());
         }
     }
+
+    @Test
+    void aCheckTheCatalogDropsWhileTheMenuIsOpenIsNotPosted() {
+        LabelWizard wizard = new LabelWizard(STAFF, NOTCH, 7);
+        wizard.choose(Verdict.CHEATING);
+        wizard.toggle("killaura");
+        wizard.toggle("autostunslam");
+        try {
+            LabelCatalog.use(LabelCatalogTest.swapped());
+            assertEquals(List.of("killaura"), wizard.labels(null).stream().map(LabelRequest.Window::cheat).toList());
+        } finally {
+            LabelCatalog.use(LabelCatalog.bundled());
+        }
+    }
 }

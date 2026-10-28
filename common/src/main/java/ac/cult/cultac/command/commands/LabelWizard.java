@@ -169,13 +169,17 @@ final class LabelWizard {
         return Page.REVIEW;
     }
 
-    /** The labels page 4's Confirm posts: one per check picked over the window, or one clean label without one. */
+    /**
+     * The labels page 4's Confirm posts: one per check picked over the window that the catalog still offers, or one
+     * clean label without one.
+     */
     List<LabelRequest.Window> labels(@Nullable String note) {
         if (verdict == null) return List.of();
         String n = note == null || note.isBlank() ? null : note;
         if (verdict == Verdict.CLEAN) return List.of(LabelRequest.Window.clean(confidence, n));
         List<LabelRequest.Window> labels = new ArrayList<>();
         for (String cheat : checks) {
+            if (!LabelCatalog.current().pickable(cheat)) continue;
             labels.add(
                     verdict == Verdict.CHEATING
                             ? LabelRequest.Window.cheat(cheat, confidence, from, to, n)
