@@ -31,8 +31,9 @@ public class BoatData {
     public float vehicleHoriz = 0f;
     public float vehicleForward = 0f;
     public boolean vehicleJump = false;
+    /** LocalPlayer#input.keyPresses: the raw keys of the last PLAYER_INPUT. */
     public KnownInput nextVehicleKeys = KnownInput.DEFAULT;
-    public KnownInput vehicleKeys = KnownInput.DEFAULT;
+
     public float deltaRotation = 0f;
     public SimpleCollisionBox fluidInteractionBox;
     public boolean oldStatusMayBeInAir;
@@ -43,7 +44,7 @@ public class BoatData {
         nextVehicleHoriz = vehicleHoriz = 0f;
         nextVehicleForward = vehicleForward = 0f;
         nextVehicleJump = vehicleJump = false;
-        nextVehicleKeys = vehicleKeys = KnownInput.DEFAULT;
+        nextVehicleKeys = KnownInput.DEFAULT;
     }
 
     /**
@@ -56,10 +57,17 @@ public class BoatData {
     }
 
     /**
-     * Runs at the end of each client tick. From 26.3 AbstractBoat#tick zeroes deltaRotation on every tick the client's
-     * instance does not control the boat.
+     * Runs at the end of each client tick. ClientLevel#tickPassenger ran LocalPlayer#rideTick after the root's own tick,
+     * and while the player is its boat's first passenger (Entity#getControlledVehicle) that rideTick's
+     * AbstractBoat#setInput gave the boat this tick's keys for its next tick. From 26.3 AbstractBoat#tick also zeroes
+     * deltaRotation on every tick the client's instance does not control the boat.
      */
     public void onClientTickEnd(CultPlayer player) {
+        PacketEntity self = player.compensatedEntities.getSelf();
+        PacketEntity riding = self.getRiding();
+        if (riding != null && riding.isBoat() && !riding.passengers.isEmpty() && riding.passengers.get(0) == self) {
+            setBoatInput(riding, nextVehicleKeys);
+        }
         if (controlledBoat == null || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) return;
         if (!controlledBoat.passengers.isEmpty()
                 && controlledBoat.passengers.get(0) == player.compensatedEntities.getSelf()) {
@@ -68,11 +76,23 @@ public class BoatData {
         deltaRotation = 0f;
     }
 
-    public void useNextInputForBoatTick() {
+    /** AbstractBoat#setInput keeps only the four movement keys. */
+    private static void setBoatInput(PacketEntity boat, KnownInput keys) {
+        KnownInput held = boat.boatInput;
+        if (held.forward() == keys.forward()
+                && held.backward() == keys.backward()
+                && held.left() == keys.left()
+                && held.right() == keys.right()) {
+            return;
+        }
+        boat.boatInput =
+                new KnownInput(keys.forward(), keys.backward(), keys.left(), keys.right(), false, false, false);
+    }
+
+    public void useNextInputForVehicleTick() {
         vehicleHoriz = nextVehicleHoriz;
         vehicleForward = nextVehicleForward;
         vehicleJump = nextVehicleJump;
-        vehicleKeys = nextVehicleKeys;
     }
 
     public boolean usesWaterEntryPositionSnap() {
@@ -109,7 +129,6 @@ public class BoatData {
         if (vehicle != null && EntityTypeUtil.isBoat(vehicle.type)) {
             SimpleCollisionBox boatBox = getControlledBoatCurrentBox(player, vehicle);
             fluidInteractionBox = boatBox.copy();
-            int boatEntityId = vehicle.getEntityId();
             if (controlledBoat != vehicle) {
                 // MCP-Reborn AbstractBoat stores deltaRotation, status, oldStatus,
                 // waterLevel, landFriction, and lastYd on the boat entity. When
@@ -117,14 +136,8 @@ public class BoatData {
                 // can leak from the old controlled boat. Before 26.3 a boat keeps
                 // its deltaRotation on the ticks the client's instance does not
                 // control it; from 26.3 AbstractBoat#tick zeroes it on those ticks.
-                //
-                // MCP-Reborn LocalPlayer#tick sends ServerboundMoveVehiclePacket
-                // from the controlled root before ClientLevel#tickPassenger runs
-                // LocalPlayer#rideTick to copy the latest key state into
-                // AbstractBoat#setInput. The first controlled packet for a newly
-                // mounted/switched boat therefore still uses that boat's exact
-                // pre-switch current input state, not the latest staged raw
-                // key bitset.
+                // The keys AbstractBoat#controlBoat reads are the boat's own
+                // PacketEntity#boatInput, so switching boats changes none of them.
                 if (controlledBoat != null) controlledBoat.boatDeltaRotation = deltaRotation;
                 controlledBoat = vehicle;
                 deltaRotation =
@@ -134,24 +147,6 @@ public class BoatData {
                 waterLevel = 0.0D;
                 landFriction = 0.0F;
                 lastYd = 0.0D;
-                if (hasCompletedPassengerTickAfterObservedMount(player, boatEntityId)) {
-                    // MCP-Reborn ClientLevel ticks the root boat before passenger
-                    // rideTick, and LocalPlayer#rideTick copies the latest keys
-                    // into AbstractBoat#setInput after LocalPlayer#tick sends the
-                    // vehicle packet. If a tick-end packet after the mount
-                    // transaction has already arrived, that passenger copy has
-                    // completed and the next root boat tick starts from the staged
-                    // input, not the boat's pre-mount zero fields.
-                    vehicleHoriz = nextVehicleHoriz;
-                    vehicleForward = nextVehicleForward;
-                    vehicleJump = nextVehicleJump;
-                    vehicleKeys = nextVehicleKeys;
-                } else {
-                    vehicleHoriz = 0.0F;
-                    vehicleForward = 0.0F;
-                    vehicleJump = false;
-                    vehicleKeys = KnownInput.DEFAULT;
-                }
             }
 
             midTickY = 0;
@@ -171,15 +166,6 @@ public class BoatData {
             fluidInteractionBox = null;
             oldStatusMayBeInAir = false;
         }
-    }
-
-    private static boolean hasCompletedPassengerTickAfterObservedMount(CultPlayer player, int boatEntityId) {
-        Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
-        Integer serverVehicleTransaction = player.compensatedEntities.vehicles.serverPlayerVehicleTransaction;
-        return serverVehicle != null
-                && serverVehicle == boatEntityId
-                && serverVehicleTransaction != null
-                && player.packetStateData.lastClientTickEndTransaction >= serverVehicleTransaction;
     }
 
     private static SimpleCollisionBox getControlledBoatCurrentBox(CultPlayer player, PacketEntity vehicle) {

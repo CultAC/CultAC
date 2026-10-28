@@ -278,7 +278,8 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         // that rideTick, and Minecraft sends ClientTickEnd only after level ticking
         // has finished. Tick-end is therefore the first packet proving the latest
         // raw input has been copied into the controlled root for the next root tick.
-        player.boatData.useNextInputForBoatTick();
+        // A boat's keys are its own PacketEntity#boatInput (BoatData#onClientTickEnd).
+        player.boatData.useNextInputForVehicleTick();
     }
 
     public static boolean usesStagedVehicleInput(PacketEntity root) {

@@ -26,6 +26,7 @@ import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BoatData;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.ReachInterpolationData;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
@@ -212,6 +213,9 @@ public class PacketEntity {
     public BoatEntityStatus boatStatus = null;
     // AbstractBoat#deltaRotation of this boat as the player's control moved to another boat.
     public float boatDeltaRotation;
+    // AbstractBoat's inputLeft/Right/Up/Down: only LocalPlayer#rideTick writes them, and nothing clears them on a
+    // dismount, so a boat keeps the keys of the last tick the client steered it, or none from its spawn.
+    public KnownInput boatInput = KnownInput.DEFAULT;
 
     @Getter
     private final int entityId;

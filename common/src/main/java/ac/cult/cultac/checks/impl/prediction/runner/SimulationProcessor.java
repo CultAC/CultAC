@@ -3037,7 +3037,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
         PacketEntity traveller = riding == null ? player.compensatedEntities.getSelf() : riding;
         context.setWaterMovementEfficiency(getWaterMovementEfficiency(traveller, contextLastOnGround));
-        context.setBoatInputs(player.boatData.vehicleKeys);
+        // AbstractBoat#controlBoat reads the keys stored on the boat itself.
+        if (riding != null) context.setBoatInputs(riding.boatInput);
         context.setRiptideReleaseCertain(player.packetStateData.riptideReleaseCertain);
         context.setProfileCarry(selectedCarry == null ? this.profileCarry : selectedCarry);
         if (selectedCarry != null && !selectedCarry.states().isEmpty())
