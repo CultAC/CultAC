@@ -146,6 +146,7 @@ class LabelWizardTest {
         wizard.choose(Verdict.CHEATING);
         wizard.toggle("killaura");
         wizard.toggle("autostunslam");
+        wizard.window(LabelWizard.EXTREME, null, NOW);
         try {
             LabelCatalog.use(LabelCatalogTest.swapped());
             assertEquals(List.of("killaura"), wizard.labels(null).stream().map(LabelRequest.Window::cheat).toList());

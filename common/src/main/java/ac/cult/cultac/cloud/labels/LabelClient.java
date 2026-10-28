@@ -186,18 +186,36 @@ public final class LabelClient {
      * earlier configure started stops.
      */
     public static void refreshCatalogWhile(boolean on) {
-        long chain = CATALOG_CHAIN.incrementAndGet();
+        long chain;
+        synchronized (CATALOG_CHAIN) {
+            chain = CATALOG_CHAIN.incrementAndGet();
+        }
         if (on) refreshCatalog(chain);
+    }
+
+    static long catalogChain() {
+        return CATALOG_CHAIN.get();
+    }
+
+    /** Uses {@code catalog} unless a configure since {@code chain} began has started another chain or stopped it. */
+    static boolean useIfCurrent(long chain, LabelCatalog catalog) {
+        synchronized (CATALOG_CHAIN) {
+            if (CATALOG_CHAIN.get() != chain) return false;
+            LabelCatalog.use(catalog);
+            return true;
+        }
     }
 
     private static void refreshCatalog(long chain) {
         if (CATALOG_CHAIN.get() != chain) return;
         LabelClient client = configured();
         if (client == null) return;
-        client.refreshCatalog().whenComplete((replaced, error) -> {
+        client.catalog().whenComplete((catalog, error) -> {
+            boolean replaced = catalog != null && useIfCurrent(chain, catalog);
+            if (CATALOG_CHAIN.get() != chain) return;
             CompletableFuture.delayedExecutor(CATALOG_REFRESH.toMinutes(), TimeUnit.MINUTES, client.executor)
                     .execute(() -> refreshCatalog(chain));
-            if (!Boolean.TRUE.equals(replaced)) {
+            if (!replaced) {
                 LogUtil.debug("Label catalog not refreshed; keeping "
                         + LabelCatalog.current().version());
             }
