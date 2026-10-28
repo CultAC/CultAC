@@ -35,23 +35,32 @@ final class NatsTransport implements MessageTransport {
 
     private final Options options;
     private final Opener opener;
+    private final Redaction redaction;
     private volatile boolean closed;
     private volatile @Nullable Connection connection;
     private @Nullable Thread connector;
 
-    private NatsTransport(Options.Builder options, Opener opener) {
+    private NatsTransport(Options.Builder options, Opener opener, Redaction redaction) {
+        this.redaction = redaction;
         this.options = options.connectionListener(this::connectionEvent)
                 .errorListener(new Errors())
                 .build();
         this.opener = opener;
     }
 
-    /** A transport for {@code nats.servers}, authenticated by {@code nats.token} or {@code nats.credentials-file}. */
-    static NatsTransport create(NetworkSettings settings) {
-        return create(settings, Nats::connect);
+    /**
+     * A transport for {@code nats.servers}, authenticated by {@code nats.token} or {@code nats.credentials-file},
+     * logging what the servers report through {@code redaction}.
+     */
+    static NatsTransport create(NetworkSettings settings, Redaction redaction) {
+        return create(settings, redaction, Nats::connect);
     }
 
     static NatsTransport create(NetworkSettings settings, Opener opener) {
+        return create(settings, Redaction.of(settings), opener);
+    }
+
+    static NatsTransport create(NetworkSettings settings, Redaction redaction, Opener opener) {
         if (settings.natsServers().isEmpty())
             throw new IllegalArgumentException("network.nats.servers lists no server");
         Options.Builder options = new Options.Builder()
@@ -69,7 +78,7 @@ final class NatsTransport implements MessageTransport {
             options.authHandler(Nats.credentials(credentials.toString()));
         }
         try {
-            return new NatsTransport(options, opener);
+            return new NatsTransport(options, opener, redaction);
         } catch (IllegalArgumentException | IllegalStateException invalid) {
             throw new IllegalArgumentException("network.nats: " + invalid.getMessage());
         }
@@ -97,11 +106,11 @@ final class NatsTransport implements MessageTransport {
                 Connection opened = subscribed(channels, receiver);
                 connection = opened;
                 if (closed) close(opened);
-                else LogUtil.info("Network transport NATS: connected to " + Redaction.text(opened.getConnectedUrl()));
+                else LogUtil.info("Network transport NATS: connected to " + redaction.redact(opened.getConnectedUrl()));
                 return;
             } catch (IOException | RuntimeException failure) {
                 if (!warned)
-                    LogUtil.warn("Network transport NATS: cannot connect (" + Redaction.text(failure.getMessage())
+                    LogUtil.warn("Network transport NATS: cannot connect (" + redaction.redact(failure.getMessage())
                             + "); retrying");
                 warned = true;
             } catch (InterruptedException interrupted) {
@@ -171,16 +180,16 @@ final class NatsTransport implements MessageTransport {
         switch (type) {
             case DISCONNECTED -> LogUtil.warn("Network transport NATS: disconnected; reconnecting");
             case RECONNECTED ->
-                LogUtil.info("Network transport NATS: reconnected to " + Redaction.text(opened.getConnectedUrl()));
+                LogUtil.info("Network transport NATS: reconnected to " + redaction.redact(opened.getConnectedUrl()));
             default -> {}
         }
     }
 
     /** Connection failures surface as connection events; only the server's own errors are logged here. */
-    private static final class Errors implements ErrorListener {
+    private final class Errors implements ErrorListener {
         @Override
         public void errorOccurred(Connection connection, String error) {
-            LogUtil.warn("Network transport NATS: the server reported " + LogThrottle.clip(Redaction.text(error)));
+            LogUtil.warn("Network transport NATS: the server reported " + LogThrottle.clip(redaction.redact(error)));
         }
 
         @Override

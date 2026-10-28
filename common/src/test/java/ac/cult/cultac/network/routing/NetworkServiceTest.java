@@ -101,6 +101,11 @@ class NetworkServiceTest {
                 new LogThrottle());
     }
 
+    private NetworkService service(String instance, Players players, HostContext host, MessageTransport transport) {
+        return new NetworkService(
+                SETTINGS, players, host, instance, KEY, transport, clock::get, null, null, new LogThrottle());
+    }
+
     private NetworkService started(String instance, Players players) {
         NetworkService service = service(instance, players, null, KEY, true);
         service.start();
@@ -323,6 +328,85 @@ class NetworkServiceTest {
         newer.stop();
         assertTrue(peer.locate("Bob").isEmpty());
         assertTrue(rosterBodiesFrom("p3").getLast().getAsJsonArray("players").isEmpty());
+    }
+
+    @Test
+    void anOlderGenerationsGoodbyeDeliveredAfterTheNewerSnapshotLeavesThePlayersListed() {
+        Map<String, Object> shared = new ConcurrentHashMap<>();
+        AtomicBoolean olderCurrent = new AtomicBoolean(true);
+        AtomicBoolean newerCurrent = new AtomicBoolean(false);
+        Players here = new Players().with(BOB, "Bob", "lobby");
+        FakeBroker.FakeTransport olderTransport = broker.transport();
+        NetworkService older = service("p3", here, host(shared, olderCurrent, "g1"), olderTransport);
+        older.start();
+        NetworkService peer = started("p7", new Players());
+        older.tick();
+        assertEquals("p3", peer.locate("Bob").orElseThrow().instance());
+
+        olderTransport.hold();
+        olderCurrent.set(false);
+        older.stop();
+        newerCurrent.set(true);
+        NetworkService newer = service("p3", here, host(shared, newerCurrent, "g2"), broker.transport());
+        newer.start();
+        olderTransport.release();
+
+        assertTrue(rosterBodiesFrom("p3").getLast().getAsJsonArray("players").isEmpty());
+        assertEquals("p3", peer.locate("Bob").orElseThrow().instance());
+        newer.tick();
+        assertEquals("p3", peer.locate("Bob").orElseThrow().instance());
+    }
+
+    private static Map<String, Object> rosterOrder(long epoch, long sequence) {
+        Map<String, Object> shared = new ConcurrentHashMap<>();
+        shared.put(NetworkService.ROSTER_EPOCH_KEY, epoch);
+        shared.put(NetworkService.ROSTER_SEQUENCE_KEY, new AtomicLong(sequence));
+        return shared;
+    }
+
+    @Test
+    void aRestartedInstanceIsHeardAndARosterFromAnOlderEpochIsDropped() {
+        AtomicBoolean current = new AtomicBoolean(true);
+        NetworkService peer = started("p7", new Players());
+        NetworkService crashed = service(
+                "p3",
+                new Players().with(BOB, "Bob", "lobby"),
+                host(rosterOrder(5_000, 41), current),
+                broker.transport());
+        crashed.start();
+        crashed.tick();
+        assertEquals("p3", peer.locate("Bob").orElseThrow().instance());
+
+        NetworkService restarted = service(
+                "p3",
+                new Players().with(ALICE, "Alice", "lobby"),
+                host(rosterOrder(6_000, 0), current),
+                broker.transport());
+        restarted.start();
+        assertTrue(peer.locate("Bob").isEmpty());
+        assertEquals("p3", peer.locate("Alice").orElseThrow().instance());
+
+        NetworkService stale = service(
+                "p3",
+                new Players().with(BOB, "Bob", "lobby"),
+                host(rosterOrder(4_000, 1_000), current),
+                broker.transport());
+        stale.start();
+        stale.tick();
+        assertTrue(peer.locate("Bob").isEmpty());
+        assertEquals("p3", peer.locate("Alice").orElseThrow().instance());
+    }
+
+    @Test
+    void aServiceStartedAgainWithoutAHostIsHeardAfterItsGoodbye() {
+        NetworkService peer = started("p7", new Players());
+        NetworkService first = started("p3", new Players().with(BOB, "Bob", "lobby"));
+        first.tick();
+        first.stop();
+        assertTrue(peer.locate("Bob").isEmpty());
+
+        started("p3", new Players().with(ALICE, "Alice", "lobby"));
+        assertEquals("p3", peer.locate("Alice").orElseThrow().instance());
     }
 
     private static void await(BooleanSupplier condition) throws InterruptedException {

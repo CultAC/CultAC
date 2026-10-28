@@ -6,11 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -22,6 +24,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.logging.Level;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -166,6 +169,57 @@ class RedisTransportTest {
                 }
                 String sent = received.toString(StandardCharsets.UTF_8);
                 assertFalse(sent.contains("PUBLISH"), sent);
+            }
+        }
+    }
+
+    @Test
+    void closingAbortsAConnectThatNeverCompletesAndNothingIsPublished() throws Exception {
+        try (CapturedLog failures = new CapturedLog(Level.WARNING, "Network transport Redis: cannot publish")) {
+            RedisTransport stalled = RedisTransport.create("redis://10.255.255.1:6379");
+            try {
+                stalled.publish("cultac.default.p3", "unsent");
+                Thread.sleep(300);
+                assumeTrue(
+                        failures.messages().isEmpty(),
+                        "10.255.255.1 refuses connections here instead of ignoring them");
+
+                long started = System.nanoTime();
+                stalled.close();
+                long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+                assertTrue(closing < RedisTransport.DRAIN_MILLIS + 1_000, closing + " ms");
+                assertTrue(stalled.awaitStopped(1_000), "the connect outlasted close");
+                assertTrue(failures.messages().isEmpty(), failures.messages().toString());
+            } finally {
+                stalled.close();
+            }
+        }
+    }
+
+    @Test
+    void closingCutsOffATlsHandshakeTheServerNeverAnswers() throws Exception {
+        try (ServerSocket silent = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+            silent.setSoTimeout(10_000);
+            RedisTransport stalled = RedisTransport.create("rediss://127.0.0.1:" + silent.getLocalPort());
+            stalled.publish("cultac.default.p3", "unsent");
+            try (Socket accepted = silent.accept()) {
+                accepted.setSoTimeout(10_000);
+                InputStream in = accepted.getInputStream();
+                assertEquals(0x16, in.read(), "a TLS handshake record");
+
+                long started = System.nanoTime();
+                stalled.close();
+                long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+                assertTrue(closing < RedisTransport.DRAIN_MILLIS + 1_000, closing + " ms");
+                assertTrue(stalled.awaitStopped(1_000), "the handshake outlasted close");
+                accepted.setSoTimeout(RedisTransport.READ_TIMEOUT_MILLIS / 4);
+                try {
+                    in.transferTo(OutputStream.nullOutputStream());
+                } catch (SocketTimeoutException stillOpen) {
+                    fail("the connection still shaking hands outlasted close");
+                } catch (IOException reset) {
+                    // The client reset the connection.
+                }
             }
         }
     }
