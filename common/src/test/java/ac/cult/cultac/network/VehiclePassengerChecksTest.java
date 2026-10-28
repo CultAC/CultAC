@@ -112,6 +112,64 @@ class VehiclePassengerChecksTest {
     }
 
     @Test
+    void aStillPlayerAtTickRateOneIsNotFlaggedBetweenItsPositionReminders() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            tickRate(f, 1F);
+            pong(f, check);
+            pongAfter(f, check, 11_645_000_000L);
+
+            assertEquals(0, check.violations);
+        }
+    }
+
+    @Test
+    void aPlayerAtTickRateOneThatStopsSendingPositionsIsStillFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            tickRate(f, 1F);
+            pong(f, check);
+            pongAfter(f, check, 41_000_000_000L);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
+    void theTicksBeforeTheTickRateReturnsToTwentyAreNotJudgedAtTwentyTicksPerSecond() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            tickRate(f, 1F);
+            pong(f, check);
+            position(f, check);
+            pongAfter(f, check, 41_000_000_000L);
+            tickRate(f, 20F);
+            pongAfter(f, check, 5_342_000_000L);
+            assertEquals(0, check.violations);
+
+            pongAfterTwoSeconds(f, check);
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
+    void aFrozenPlayerAtTickRateOneThatStopsSendingPositionsIsStillFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            tickRate(f, 1F);
+            f.player.packetStateData.serverTicksFrozen = true;
+            pong(f, check);
+            pongAfterTwoSeconds(f, check);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
     void aRespawnedPlayerThatHasNotLoadedTheLevelIsNotFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
@@ -279,9 +337,30 @@ class VehiclePassengerChecksTest {
 
     /** The first pong after more than two seconds without a position, which BadPacketsR judges. */
     private static void pongAfterTwoSeconds(JavaTickFixture f, BadPacketsR check) throws Exception {
-        long clock = System.nanoTime() - 5_000_000_000L;
+        pongAfter(f, check, 5_000_000_000L);
+    }
+
+    /** A pong {@code nanos} after the start of BadPacketsR's window. */
+    private static void pongAfter(JavaTickFixture f, BadPacketsR check, long nanos) throws Exception {
+        long clock = System.nanoTime() - nanos;
         JavaTickFixture.setField(BadPacketsR.class, check, "clock", clock);
         JavaTickFixture.setField(BadPacketsR.class, check, "lastTransTime", 0L);
+        pong(f, check);
+    }
+
+    /** A ClientboundTickingState the client has acknowledged. */
+    private static void tickRate(JavaTickFixture f, float rate) {
+        f.player.itemUseBurst.tickRateSent(rate);
+        f.player.packetStateData.serverTickRate = rate;
+    }
+
+    private static void position(JavaTickFixture f, BadPacketsR check) {
+        var packet = new ServerboundMovePlayer(
+                SEAT.x, FLOOR_Y, SEAT.z, f.player.xRot, f.player.yRot, true, false, true, false);
+        check.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, packet), f.player, packet);
+    }
+
+    private static void pong(JavaTickFixture f, BadPacketsR check) {
         var packet = new ServerboundPong(17);
         var event = f.event(ServerboundPackets.PONG, packet);
         event.setAcceptedTransactionResponse(true);
