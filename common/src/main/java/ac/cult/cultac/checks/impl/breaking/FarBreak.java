@@ -12,7 +12,9 @@ import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.math.VectorUtils;
+import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import ac.grim.grimac.api.storage.verbose.Verbose;
+import java.util.List;
 
 @CheckData(
         name = "FarBreak",
@@ -40,10 +42,12 @@ public class FarBreak extends Check implements BlockBreakListener {
                 || blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) return; // falses
 
         double min = Double.MAX_VALUE;
+        List<SimpleCollisionBox> outline = ReachUtils.outlineBoxes(player, blockBreak.position);
         for (double d : player.getPossibleEyeHeights()) {
-            SimpleCollisionBox box = new SimpleCollisionBox(blockBreak.position);
-            Vector3dm best = VectorUtils.cutBoxToVector(player.x, player.y + d, player.z, box);
-            min = Math.min(min, best.distanceSquared(player.x, player.y + d, player.z));
+            for (SimpleCollisionBox box : outline) {
+                Vector3dm best = VectorUtils.cutBoxToVector(player.x, player.y + d, player.z, box);
+                min = Math.min(min, best.distanceSquared(player.x, player.y + d, player.z));
+            }
         }
 
         double maxReach = player.compensatedEntities.getSelf().getBlockInteractionRange();

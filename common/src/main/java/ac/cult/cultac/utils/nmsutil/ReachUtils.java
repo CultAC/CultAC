@@ -1,13 +1,44 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.Pair;
+import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.math.VectorUtils;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ReachUtils {
+    public static List<SimpleCollisionBox> outlineBoxes(CultPlayer player, BlockPos position) {
+        List<SimpleCollisionBox> boxes = new ArrayList<>();
+        ClientBlockShapes.visual(
+                        player,
+                        player.compensatedWorld.getBlockStateIdAt(position),
+                        position.getX(),
+                        position.getY(),
+                        position.getZ())
+                .downCast(boxes);
+        if (boxes.isEmpty()) boxes.add(new SimpleCollisionBox(position));
+        return boxes;
+    }
+
+    public static boolean pickHits(CultPlayer player, BlockPos position, List<SimpleCollisionBox> outline, Ray ray) {
+        PacketEntitySelf self = player.compensatedEntities.getSelf();
+        double range = self.getBlockInteractionRange();
+        Vector3dm origin = ray.getOrigin();
+        Vector3dm end = ray.getPointAtDistance(Math.max(range, self.getEntityInteractionRange()));
+        if (calculateIntercept(new SimpleCollisionBox(position), origin, end).first() == null) return false;
+        for (SimpleCollisionBox box : outline) {
+            Vector3dm hit = calculateIntercept(box, origin, end).first();
+            if (hit != null && hit.distanceSquared(origin) < range * range) return true;
+        }
+        return false;
+    }
+
     public static Pair<Vector3dm, Direction> calculateIntercept(
             SimpleCollisionBox self, Vector3dm origin, Vector3dm end) {
         Vector3dm minX = getIntermediateWithXValue(origin, end, self.minX);
