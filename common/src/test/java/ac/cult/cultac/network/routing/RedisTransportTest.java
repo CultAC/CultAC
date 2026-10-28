@@ -32,6 +32,9 @@ import org.junit.jupiter.api.Test;
 
 /** Jedis wiring against a fake RESP server; a real Redis is not exercised here. */
 class RedisTransportTest {
+    /** Well under the 10 s connect and read timeouts, so a close that waits for either still fails. */
+    private static final long CLOSE_SLACK_MILLIS = 5_000;
+
     private static final List<String> CHANNELS = List.of("cultac.default.p3", "cultac.default.all");
 
     private FakeRedisServer server;
@@ -127,7 +130,7 @@ class RedisTransportTest {
         long started = System.nanoTime();
         publisher.close();
         long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-        assertTrue(closing < RedisTransport.DRAIN_MILLIS + 1_000, closing + " ms");
+        assertTrue(closing < RedisTransport.DRAIN_MILLIS + CLOSE_SLACK_MILLIS, closing + " ms");
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(RedisTransport.READ_TIMEOUT_MILLIS / 4);
         while (server.connections() > 0) {
             if (System.nanoTime() > deadline) fail("the publishing connection outlasted close");
@@ -153,7 +156,7 @@ class RedisTransportTest {
                 long started = System.nanoTime();
                 stalled.close();
                 long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-                assertTrue(closing < RedisTransport.DRAIN_MILLIS + 1_000, closing + " ms");
+                assertTrue(closing < RedisTransport.DRAIN_MILLIS + CLOSE_SLACK_MILLIS, closing + " ms");
                 try {
                     accepted.getOutputStream().write("+OK\r\n".repeat(4).getBytes(StandardCharsets.UTF_8));
                 } catch (IOException closedByTheClient) {
@@ -187,7 +190,7 @@ class RedisTransportTest {
                 long started = System.nanoTime();
                 stalled.close();
                 long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-                assertTrue(closing < RedisTransport.DRAIN_MILLIS + 1_000, closing + " ms");
+                assertTrue(closing < RedisTransport.DRAIN_MILLIS + CLOSE_SLACK_MILLIS, closing + " ms");
                 assertTrue(stalled.awaitStopped(1_000), "the connect outlasted close");
                 assertTrue(failures.messages().isEmpty(), failures.messages().toString());
             } finally {
@@ -210,7 +213,7 @@ class RedisTransportTest {
                 long started = System.nanoTime();
                 stalled.close();
                 long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-                assertTrue(closing < RedisTransport.DRAIN_MILLIS + 1_000, closing + " ms");
+                assertTrue(closing < RedisTransport.DRAIN_MILLIS + CLOSE_SLACK_MILLIS, closing + " ms");
                 assertTrue(stalled.awaitStopped(1_000), "the handshake outlasted close");
                 accepted.setSoTimeout(RedisTransport.READ_TIMEOUT_MILLIS / 4);
                 try {

@@ -62,16 +62,28 @@ class RosterCacheTest {
     }
 
     @Test
-    void anOlderEpochIsAcceptedOnceNothingFromTheInstanceWasAppliedForTheExpiry() {
+    void anOlderEpochIsAcceptedOnceNothingFromTheInstanceWasAppliedForLongerThanAnEnvelopeLives() {
+        long quiet = RosterCache.EPOCH_YIELD_MILLIS;
         cache.apply("p3", full(List.of(BOB_ONLINE), 5, 100), 0);
         cache.apply("p3", full(List.of(ALICE_ONLINE), 4, 1), 1_000);
-        assertEquals(List.of("Bob"), names(1_000));
         cache.heard("p3", RosterCache.EXPIRY_MILLIS);
-        cache.apply("p3", full(List.of(ALICE_ONLINE), 4, 2), RosterCache.EXPIRY_MILLIS + 1);
-        assertEquals(List.of("Alice"), names(RosterCache.EXPIRY_MILLIS + 1));
-        cache.apply("p3", full(List.of(BOB_ONLINE), 5, 101), RosterCache.EXPIRY_MILLIS + 2);
-        cache.apply("p3", full(List.of(BOB_ONLINE), 4, 2), RosterCache.EXPIRY_MILLIS + 3);
-        assertEquals(List.of("Bob"), names(RosterCache.EXPIRY_MILLIS + 3));
+        cache.heard("p3", quiet - 1_000);
+        cache.apply("p3", full(List.of(ALICE_ONLINE), 4, 2), quiet);
+        assertEquals(List.of("Bob"), names(quiet));
+        cache.apply("p3", full(List.of(ALICE_ONLINE), 4, 3), quiet + 1);
+        assertEquals(List.of("Alice"), names(quiet + 1));
+        cache.apply("p3", full(List.of(BOB_ONLINE), 5, 101), quiet + 2);
+        cache.apply("p3", full(List.of(BOB_ONLINE), 4, 4), quiet + 3);
+        assertEquals(List.of("Bob"), names(quiet + 3));
+    }
+
+    @Test
+    void anEarlierSequenceOfTheSameEpochIsDroppedHoweverLongTheInstanceWasQuiet() {
+        cache.apply("p3", full(List.of(BOB_ONLINE), 5, 2), 0);
+        cache.heard("p3", RosterCache.EXPIRY_MILLIS);
+        cache.heard("p3", RosterCache.EPOCH_YIELD_MILLIS);
+        cache.apply("p3", full(List.of(), 5, 1), RosterCache.EPOCH_YIELD_MILLIS + 1);
+        assertEquals(List.of("Bob"), names(RosterCache.EPOCH_YIELD_MILLIS + 1));
     }
 
     @Test

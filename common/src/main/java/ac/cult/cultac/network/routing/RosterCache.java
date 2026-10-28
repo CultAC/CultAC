@@ -19,14 +19,16 @@ import org.jetbrains.annotations.Nullable;
  * The other instances' players, as their {@value #TYPE} messages list them. A roster body is
  * {@code {players:[{u,n,s}], full, left:[u], flags:{}, o:[epoch, sequence]}}: a full one replaces the instance's list,
  * a delta adds or updates {@code players} and removes {@code left}. A body whose {@code o} is not greater than the last
- * one applied from its instance, compared epoch first, is dropped and changes nothing, unless nothing from that
- * instance was applied for {@value #EXPIRY_MILLIS} ms (a restart whose clock went back); a greater epoch is a restart. A
- * body without {@code o} is applied. An instance is forgotten {@value #EXPIRY_MILLIS} ms after the last message of any
+ * one applied from its instance, compared epoch first, is dropped and changes nothing; a greater epoch is a restart. A
+ * smaller epoch is accepted once nothing from the instance was applied for {@value #EPOCH_YIELD_MILLIS} ms, longer than
+ * any envelope stays acceptable, so only a restart whose clock went back gets through. A body without {@code o} is
+ * applied. An instance is forgotten {@value #EXPIRY_MILLIS} ms after the last message of any
  * type heard from it. Any thread.
  */
 final class RosterCache {
     static final String TYPE = "roster";
     static final long EXPIRY_MILLIS = 45_000;
+    static final long EPOCH_YIELD_MILLIS = EXPIRY_MILLIS + EnvelopeCodec.REPLAY_WINDOW_MILLIS;
     /** The roster body's {@code [epoch, sequence]}. */
     static final String ORDER = "o";
 
@@ -63,8 +65,8 @@ final class RosterCache {
         synchronized (peers) {
             Peer peer = peers.computeIfAbsent(instance, ignored -> new Peer());
             if (order != null) {
-                boolean fresh = peer.applied != Long.MIN_VALUE && now - peer.applied <= EXPIRY_MILLIS;
-                if (fresh && (order[0] < peer.epoch || order[0] == peer.epoch && order[1] <= peer.sequence)) return;
+                boolean yields = order[0] < peer.epoch && now - peer.applied > EPOCH_YIELD_MILLIS;
+                if (!yields && (order[0] < peer.epoch || order[0] == peer.epoch && order[1] <= peer.sequence)) return;
                 peer.epoch = order[0];
                 peer.sequence = order[1];
             }
