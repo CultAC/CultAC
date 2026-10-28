@@ -438,16 +438,17 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.sprintState.onClientTick(player.isSprinting, keyStart);
     }
 
-    // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced.
+    // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced, and
+    // ClientLevel#tickEntities no longer ticks a player LocalPlayer#tickDeath removed.
     public static boolean localPlayerTicked(CultPlayer player) {
         return !player.isBedrockMovement()
                 && (player.packetStateData.playerLoadedIntoLevel
-                        || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4));
+                        || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4))
+                && !player.compensatedEntities.getSelf().isRemovedFromLevel();
     }
 
     // Player#tick advances the attack ticker every client tick, including Entity#rideTick.
     private static void onLocalPlayerAttackTick(CultPlayer player) {
-        if (!localPlayerTicked(player)) return;
         player.attackStrength.onClientTick(
                 player.getInventory().getHeldItem(), player.packetStateData.carriedItemChangedThisClientTick);
     }
@@ -1197,9 +1198,13 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // The Geyser bridge ends each Bedrock client tick after translating its frame. Geyser's
         // tick end here only closes that frame's Java projection.
         if (player.user.getBedrockBridgeConnection() == null) {
+            // LivingEntity#baseTick runs LocalPlayer#tickDeath first. Its removal skips this tick's aiStep, while
+            // the rest of Player#tick, attack ticker included, still runs.
+            boolean playerTicked = localPlayerTicked(player);
+            if (playerTicked) player.compensatedEntities.getSelf().tickDeath();
             // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
             onLocalPlayerSprintTick(player);
-            onLocalPlayerAttackTick(player);
+            if (playerTicked) onLocalPlayerAttackTick(player);
             dispatchPrePredictionReceive(event, player);
             dispatchReceiveHandlers(event, player);
             // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.

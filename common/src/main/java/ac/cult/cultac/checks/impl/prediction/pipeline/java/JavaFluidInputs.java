@@ -23,6 +23,8 @@ public final class JavaFluidInputs {
 
     public static PredVector jumpInLiquid(CultPlayer player, SimulationContext context, PredVector velocity) {
         if (!appliesTo(player, context) || !player.packetStateData.knownInput.jump()) return velocity;
+        // LivingEntity#aiStep clears jumping while isImmobile: health at most 0, or Player#isImmobile's sleeping.
+        if (player.isInBed || !player.compensatedEntities.getSelf().actionAlive) return velocity;
         boolean water = context.getWorldData().isInWater();
         boolean lava = context.getWorldData().isInLava();
         if (!water && !lava) return velocity;

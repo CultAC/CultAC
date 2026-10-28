@@ -647,8 +647,10 @@ public class VelocityTransformer {
     }
 
     private List<PredVector> applyJumps(CultPlayer player, List<PredVector> velocities) {
-        // LivingEntity#aiStep clears jumping while Player#isImmobile includes sleeping.
-        if (!player.isBedrockMovement() && simulationContext.getVehicle() == null && player.isInBed) return velocities;
+        // LivingEntity#aiStep clears jumping while isImmobile: health at most 0, or Player#isImmobile's sleeping.
+        if (!player.isBedrockMovement()
+                && simulationContext.getVehicle() == null
+                && (player.isInBed || !player.compensatedEntities.getSelf().actionAlive)) return velocities;
         // LocalPlayer#applyInput sets LivingEntity#jumping from the reported keys, which include ClientInput#makeJump's
         // auto-jump; LivingEntity#aiStep's jumpFromGround needs it.
         boolean canPlayerJump = simulationContext.getWorldData().isCanJump()

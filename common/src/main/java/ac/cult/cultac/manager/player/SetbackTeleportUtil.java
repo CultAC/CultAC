@@ -359,8 +359,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
     public boolean executeTooHighLatencySetback(String cause) {
         if (isExempt()) return false;
-        // Latency is measured by movement: a dead client's movement is cancelled before prediction, and a client
-        // that has not accepted its placement teleport has no movement to send yet.
+        // Latency is measured by movement: a dead client stops sending it once LocalPlayer#tickDeath removes the
+        // player, and a client that has not accepted its placement teleport has no movement to send yet.
         if (player.compensatedEntities.getSelf().isDead || !hasFullyLoaded) return false;
         if (player.getSetbackTeleportUtil().debug) {
             LogUtil.warn("Setback sent to " + player.getName() + ", high latency, " + cause);

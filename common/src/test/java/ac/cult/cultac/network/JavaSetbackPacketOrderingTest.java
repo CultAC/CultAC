@@ -28,6 +28,7 @@ import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import io.netty.buffer.ByteBuf;
@@ -223,10 +224,23 @@ class JavaSetbackPacketOrderingTest {
         }
     }
 
+    /**
+     * A dying LocalPlayer travels and sends that movement, which the engine checks and Paper never receives. Once
+     * LocalPlayer#tickDeath removes it on its 20th dead tick it runs no client tick, so movement sent anyway cannot
+     * change the prediction anchor.
+     */
     @Test
-    void deathMovementCannotChangeThePredictionAnchor() throws Exception {
+    void movementAfterLocalPlayerTickDeathCannotChangeThePredictionAnchor() throws Exception {
         try (var setup = new Setup(ProtocolVersion.V26_3)) {
-            setup.player.compensatedEntities.getSelf().isDead = true;
+            PacketEntitySelf self = setup.player.compensatedEntities.getSelf();
+            self.isDead = true;
+            self.setHealth(0);
+            setup.player.packetStateData.playerLoadedIntoLevel = true;
+            for (int tick = 1; tick < 20; tick++) setup.endTick();
+            assertFalse(self.isRemovedFromLevel());
+            setup.endTick();
+            assertTrue(self.isRemovedFromLevel());
+
             var reminder = setup.player.checkManager.getCheck(BadPacketsE.class);
             setField(BadPacketsE.class, reminder, "noReminderTicks", 19);
             assertTrue(setup.move(true, .6, 0).isCancelled());

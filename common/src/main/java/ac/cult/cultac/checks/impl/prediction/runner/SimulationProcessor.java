@@ -704,7 +704,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     public void onPlayerTickEnd(PacketReceiveEvent event) {
-        if (!this.player.isBedrockMovement()) {
+        // ClientLevel no longer holds a player LocalPlayer#tickDeath removed: it travels no more, and no entity
+        // pushes it and no block entity moves it.
+        if (!this.player.isBedrockMovement()
+                && !this.player.compensatedEntities.getSelf().isRemovedFromLevel()) {
             if (!this.player.compensatedEntities.vehicles.hasClientPlayerPassengerState()
                     && !this.player.packetStateData.hasPassengerRotationThisClientTick()) {
                 if (!this.player.packetStateData.receivedMovementThisClientTick) {

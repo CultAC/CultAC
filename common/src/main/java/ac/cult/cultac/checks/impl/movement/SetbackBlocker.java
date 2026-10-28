@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.math.Vec3;
 
 public class SetbackBlocker extends CultProcessor implements CheckListener {
@@ -100,8 +101,18 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
             }
         }
 
-        // Player is dead
-        if (!teleport && player.compensatedEntities.getSelf().isDead) {
+        // Player is dead. A Java LocalPlayer travels and sends that movement until LocalPlayer#tickDeath removes it;
+        // the engine checks it and blockDeadJavaMovePlayer keeps it from the server. A removed player runs no client
+        // tick that could send movement.
+        PacketEntitySelf self = player.compensatedEntities.getSelf();
+        if (!teleport && (self.isRemovedFromLevel() || player.isBedrockMovement() && self.isDead)) {
+            event.setCancelled(true);
+        }
+    }
+
+    private void blockDeadJavaMovePlayer(PacketReceiveEvent<ServerboundMovePlayer> event) {
+        if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return;
+        if (!player.packetStateData.lastPacketWasTeleport && player.compensatedEntities.getSelf().isDead) {
             event.setCancelled(true);
         }
     }
@@ -167,6 +178,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
                 event.setCancelled(true);
             }
             blockMovePlayer(event, event.getPacket(), false);
+            blockDeadJavaMovePlayer(event);
         }
     }
 

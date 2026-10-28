@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
@@ -19,7 +21,9 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Relative;
@@ -33,11 +37,76 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mockito;
 
-/** A dead client sends no movement, and a respawn places a new player. */
+/**
+ * A dead client travels without input until LocalPlayer#tickDeath removes it, then sends no movement, and a respawn
+ * places a new player.
+ */
 class DeadPlayerSetbackTest {
     private static final Vec3 FALLING = new Vec3(.5, JavaTickFixture.FLOOR_Y + 3, .5);
     private static final Vec3 FALL_VELOCITY = new Vec3(0, -.5, 0);
     private static final Vec3 SPAWN = new Vec3(4.5, JavaTickFixture.FLOOR_Y, 4.5);
+    private static final Vec3 STANDING = new Vec3(.5, JavaTickFixture.FLOOR_Y, .5);
+    // LivingEntity#travelInAir's gravity on a grounded player, which the floor stops on the next move.
+    private static final double GROUNDED_Y = -0.08 * 0.98F;
+
+    /**
+     * LivingEntity#aiStep clears a dead player's input, but LocalPlayer still travels and sends that movement, which
+     * Paper never receives. LocalPlayer#tickDeath removes the player on its 20th dead tick, before aiStep; from then
+     * on it neither travels nor sends, until a respawn replaces it.
+     */
+    @Test
+    void aDyingPlayerSlidesWithoutInputUntilLocalPlayerTickDeathRemovesIt() throws Exception {
+        double motion = .2;
+        try (var f = groundedPlayer(new Vec3(motion, GROUNDED_Y, 0))) {
+            f.input(new ServerboundPlayerInput(true, false, false, false, false, false, false));
+            die(f);
+
+            SimulationProcessor simulation = f.player.checkManager.getSimulationProcessor();
+            Vec3 position = STANDING;
+            for (int tick = 1; tick < 20; tick++) {
+                // LivingEntity#aiStep zeroes a player's horizontal motion below 9.0E-6 squared.
+                if (motion * motion < 9.0E-6) motion = 0;
+                PredictionResult before = simulation.getLastPrediction();
+                if (motion != 0) {
+                    position = position.add(motion, 0, 0);
+                    assertTrue(f.move(position, true).isCancelled(), "Paper never receives a dead player's move");
+                }
+                f.tickEnd();
+                PredictionResult travel = simulation.getLastPrediction();
+                assertTrue(travel != before, "dead tick " + tick + " committed no travel");
+                assertExact(travel);
+                motion *= 0.6F * 0.91F;
+            }
+
+            PredictionResult last = simulation.getLastPrediction();
+            for (int tick = 20; tick < 25; tick++) {
+                f.tickEnd();
+                assertTrue(simulation.getLastPrediction() == last, "removed by dead tick 20, travelled on " + tick);
+            }
+            assertFalse(CheckManagerListener.localPlayerTicked(f.player));
+            assertTrue(f.move(position.add(0, -1, 0), false).isCancelled());
+            f.tickEnd();
+            assertTrue(simulation.getLastPrediction() == last, "a removed player has no client tick to predict");
+
+            respawn(f);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertFalse(f.player.compensatedEntities.getSelf().isRemovedFromLevel(), "the respawn's new LocalPlayer");
+        }
+    }
+
+    /** LivingEntity#aiStep clears jumping while LivingEntity#isImmobile, which a dead player is. */
+    @ParameterizedTest(name = "dead {0}")
+    @CsvSource({"false", "true"})
+    void onlyALivingPlayerJumps(boolean dead) throws Exception {
+        try (var f = groundedPlayer(new Vec3(0, GROUNDED_Y, 0))) {
+            if (dead) die(f);
+            f.input(new ServerboundPlayerInput(false, false, false, false, true, false, false));
+
+            PredictionResult jump = f.tick(STANDING.add(0, 0.42F, 0), false);
+            if (dead) JavaTickFixture.assertRejected(jump, "VerticalOffset");
+            else assertExact(jump);
+        }
+    }
 
     @Test
     void aDeadPlayerPastTheFreezeTimeGetsNoSetback() throws Exception {
@@ -203,6 +272,29 @@ class DeadPlayerSetbackTest {
         f.player.getSetbackTeleportUtil().lastKnownGoodPosition = new SetbackPosWithVector(FALLING, FALL_VELOCITY, 0);
         f.player.checkManager.getSimulationProcessor().getLastMovementTime().add(System.nanoTime() - 6_000_000_000L);
         return f;
+    }
+
+    /** A loaded client standing on the floor at {@link #STANDING}, its next travel starting from {@code velocity}. */
+    private static JavaTickFixture groundedPlayer(Vec3 velocity) throws Exception {
+        var f = new JavaTickFixture();
+        f.player.nettyScheduler.removeScheduler();
+        Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+        f.place(STANDING, velocity);
+        f.player.getSetbackTeleportUtil().lastKnownGoodPosition = new SetbackPosWithVector(STANDING, velocity, 0);
+        f.player.packetStateData.playerLoadedIntoLevel = true;
+        return f;
+    }
+
+    /** The server's SET_HEALTH of 0, which the client handles before its next tick. */
+    private static void die(JavaTickFixture f) {
+        var packet = new ClientboundSetHealth(0.0F, 20, 5.0F);
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_HEALTH, packet, false);
+        new PacketPlayerRespawn().onSetHealth(event, f.player, packet);
+        event.getTasksAfterSend().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+        assertTrue(f.player.compensatedEntities.getSelf().isDead);
+        assertFalse(f.player.compensatedEntities.getSelf().actionAlive);
     }
 
     /** The server's respawn, not yet answered by the client. */

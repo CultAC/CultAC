@@ -45,6 +45,29 @@ public class PacketEntitySelf extends PacketEntity {
         this.actionAlive = health > 0.0D;
     }
 
+    // LivingEntity#deathTime: the client ticks LivingEntity#baseTick has run LocalPlayer#tickDeath in.
+    private int deathTime;
+    private boolean removedFromLevel;
+
+    /**
+     * LivingEntity#baseTick's tickDeath for one LocalPlayer#tick. It runs while LivingEntity#isDeadOrDying, which on
+     * the client is a player's health at most 0, and ClientLevel#shouldTickDeath, which the player's own chunk always
+     * passes at distance 0. LocalPlayer#tickDeath removes the player on its 20th dead tick, before LivingEntity#tick
+     * reaches aiStep. Health above 0 pauses the count without resetting it; only a new LocalPlayer starts over.
+     */
+    public void tickDeath() {
+        if (actionAlive || removedFromLevel) return;
+        if (++deathTime == 20) removedFromLevel = true;
+    }
+
+    /**
+     * Whether LocalPlayer#tickDeath removed this player. ClientLevel#tickEntities skips a removed entity and
+     * Minecraft#tick runs no LocalPlayer#sendChanges for it, so it neither travels nor sends movement again.
+     */
+    public boolean isRemovedFromLevel() {
+        return removedFromLevel;
+    }
+
     // Player#blockInteractionRange and #entityInteractionRange read these attributes. Only server
     // attribute packets change them: ServerPlayer#updatePlayerAttributes owns the creative modifiers.
     public final ClientAttributeInstance blockInteractionRange = new ClientAttributeInstance(4.5D, 0.0D, 64.0D);
