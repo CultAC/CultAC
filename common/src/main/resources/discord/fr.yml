@@ -7,23 +7,26 @@ disable-webhook-validation: false
 embed-title: "%player% a été détecté pour %check% [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
-# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+# The footer under the alert, and the icon beside it (an image URL, empty for none).
+embed-footer-text: "%uuid% v%cult_version%"
+embed-footer-url: ""
+# The image at the top right of the alert; %uuid% is the flagged player.
+embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...),
+# unless violation-content places %state%, which lists only the entries that are set.
 include-state: true
 # Remplace les accents graves (`) dans les valeurs (ex. marques de clients) pour éviter de casser le formatage du texte sur Discord.
 # Définissez sur "`" pour désactiver ce remplacement.
 backtick-replacement-char: "ˋ"
 violation-content:
-    - "**Joueur**: `%player%`"
-    - "**UUID**: `%uuid%`"
-    - "**Vérification**: `%check%`"
-    - "**Version du client**: `%version%`"
-    - "**Marque du client**: `%brand%`"
-    - "**Sensibilité**: `H %h_sensitivity%% / V %v_sensitivity%%`"
-    - "**Latence**: `%ping%`"
-    - "**TPS**: `%tps%`"
-    - "**Serveur**: `%server%`"
-    - "**Monde**: `%world% (%world_type%)`"
+    - "**Version**: `%version%` **Marque**: `%brand%`"
+    - "**Serveur**: `%server%` **Monde**: `%world%` **Position**: `%location%`"
+    - "**TPS**: `%tps%` **Latence**: `%ping%/%keepalive_ping%` **Horloge**: `%clock_behind%ms` **Temps**: `%session_time%`"
+    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
+    - "**État**: %state%"
+    - "**Vérifications**: %checks%"
+    - "**Détails**: %verbose%"
 
 # Marqueurs de schéma — voir le commentaire d'en-tête dans config.yml.
 config-flavor: V2
-config-version: 2
+config-version: 3

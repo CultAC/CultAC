@@ -407,4 +407,18 @@ class LabelClientTest {
         return new LabelClient(
                 "http://127.0.0.1:" + server.getAddress().getPort(), key, HttpClient.newHttpClient(), calls);
     }
+
+    @Test
+    void aCatalogAnEarlierConfigureFetchedIsNotUsed() {
+        long earlier = LabelClient.catalogChain();
+        LabelClient.refreshCatalogWhile(false);
+        try {
+            assertFalse(LabelClient.useIfCurrent(earlier, LabelCatalogTest.swapped()));
+            assertEquals(LabelCatalog.bundled().ids(), LabelCatalog.current().ids());
+            assertTrue(LabelClient.useIfCurrent(LabelClient.catalogChain(), LabelCatalogTest.swapped()));
+            assertEquals(LabelCatalogTest.swapped().ids(), LabelCatalog.current().ids());
+        } finally {
+            LabelCatalog.use(LabelCatalog.bundled());
+        }
+    }
 }

@@ -7,23 +7,26 @@ disable-webhook-validation: false
 embed-title: "%player% wurde bei %check% erkannt [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
-# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+# The footer under the alert, and the icon beside it (an image URL, empty for none).
+embed-footer-text: "%uuid% v%cult_version%"
+embed-footer-url: ""
+# The image at the top right of the alert; %uuid% is the flagged player.
+embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...),
+# unless violation-content places %state%, which lists only the entries that are set.
 include-state: true
 # Ersetzt Backticks (`) in Werten (z. B. Client-Marken), um Fehler in der Discord-Textformatierung zu vermeiden.
 # Auf "`" setzen, um diese Ersetzung zu deaktivieren.
 backtick-replacement-char: "ˋ"
 violation-content:
-    - "**Spieler**: `%player%`"
-    - "**UUID**: `%uuid%`"
-    - "**Überprüfung**: `%check%`"
-    - "**Client-Version**: `%version%`"
-    - "**Marke**: `%brand%`"
-    - "**Empfindlichkeit**: `H %h_sensitivity%% / V %v_sensitivity%%`"
-    - "**Ping**: `%ping%`"
-    - "**TPS**: `%tps%`"
-    - "**Server**: `%server%`"
-    - "**Welt**: `%world% (%world_type%)`"
+    - "**Version**: `%version%` **Marke**: `%brand%`"
+    - "**Server**: `%server%` **Welt**: `%world%` **Position**: `%location%`"
+    - "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Uhr**: `%clock_behind%ms` **Zeit**: `%session_time%`"
+    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
+    - "**Zustand**: %state%"
+    - "**Prüfungen**: %checks%"
+    - "**Details**: %verbose%"
 
 # Schema-Marker — siehe Kopf-Kommentar in config.yml.
 config-flavor: V2
-config-version: 2
+config-version: 3
