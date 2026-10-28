@@ -445,6 +445,42 @@ class NetworkServiceTest {
     }
 
     @Test
+    void aForwardedCommandNothingAnswersFailsOnTheSchedulerWhileTheReceiverIsBusy() throws Exception {
+        Receiver receiver = new Receiver();
+        ManualScheduler scheduler = new ManualScheduler();
+        CountDownLatch busy = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            NetworkService a = withReceiver("p3", scheduler, receiver, new LogThrottle());
+            a.commands(commands(new ArrayList<>()));
+            a.on("probe", (envelope, origin) -> {
+                busy.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            a.start();
+            started("p7", new Players()).send("p3", "probe", new JsonObject());
+            assertTrue(busy.await(10, TimeUnit.SECONDS));
+            Sender sender = mock(Sender.class);
+            when(sender.getUniqueId()).thenReturn(UUID.randomUUID());
+            when(sender.getName()).thenReturn("Mod");
+
+            CompletableFuture<Boolean> result =
+                    a.run(sender, "cult profile Alice", new NetworkPlayer(ALICE, "Alice", "p9", "lobby"));
+            clock.addAndGet(RemoteCommands.ANSWER_MILLIS);
+            scheduler.fire();
+            assertFalse(result.getNow(true));
+        } finally {
+            release.countDown();
+            receiver.shutdownNow();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
     void theFirstBadSignatureWarnsAndTheNextAreThrottled() {
         try (CapturedLog log = new CapturedLog(Level.WARNING, "Dropped a network message with a bad signature")) {
             started("p3", new Players());
