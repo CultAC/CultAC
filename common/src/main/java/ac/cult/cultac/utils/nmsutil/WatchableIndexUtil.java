@@ -64,6 +64,11 @@ public final class WatchableIndexUtil {
         return version.atLeast(ProtocolVersion.V26_1) ? 18 : 17;
     }
 
+    /** HangingEntity adds DATA_DIRECTION in 1.21.6 before the painting variant and the frame's item and rotation. */
+    public static int hangingData(ProtocolVersion version) {
+        return version.atLeast(ProtocolVersion.V1_21_6) ? 9 : 8;
+    }
+
     public static EntityMetadata.Entry getIndex(List<EntityMetadata.Entry> objects, int index) {
         for (int i = 0; i < objects.size(); i++) {
             EntityMetadata.Entry object = objects.get(i);

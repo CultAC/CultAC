@@ -1091,7 +1091,9 @@ public class CompensatedEntities {
         PacketEntity entity = player.compensatedEntities.getEntity(entityID);
         if (entity == null) return;
         entity.onData(provenAt);
-        if (entity instanceof PacketEntityHanging hanging) hanging.updateActionMetadata(watchableObjects);
+        if (entity instanceof PacketEntityHanging hanging)
+            hanging.updateActionMetadata(
+                    watchableObjects, player.user.getCultConnection().getObservedProtocol());
         if (entity instanceof PacketEntityCat cat)
             cat.updateActionMetadata(
                     watchableObjects, player.user.getCultConnection().getObservedProtocol());
