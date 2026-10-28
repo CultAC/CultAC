@@ -90,7 +90,7 @@ public final class NetworkService implements NetworkRouting {
         this.codec = new EnvelopeCodec(key, instanceId, this::knownType);
         this.directChannel = settings.channel(instanceId);
         this.broadcastChannel = settings.channel(NetworkSettings.ALL);
-        this.commands = new RemoteCommands(this, clock, RemoteCommands.CULT);
+        this.commands = new RemoteCommands(this, clock, RemoteCommands.CULT, host);
         commands.register();
     }
 
@@ -219,6 +219,12 @@ public final class NetworkService implements NetworkRouting {
         if (instance.equals(instanceId)) return sendLocal(type, body);
         if (!running) return false;
         return publish(instance, type, body);
+    }
+
+    /** Whether {@code body} sent to {@code instance} as {@code type} fits in one message. */
+    boolean fits(String instance, String type, JsonObject body) {
+        String text = codec.encode(Envelope.create(type, instanceId, instance, clock.getAsLong(), body));
+        return EnvelopeCodec.utf8Length(text) <= EnvelopeCodec.MAX_BYTES;
     }
 
     /** Sends {@code body} to every other instance; false without a transport. */
