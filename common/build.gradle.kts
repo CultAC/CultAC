@@ -131,6 +131,9 @@ dependencies {
     implementation(libs.protobuf.javalite)
     // Intake compression; the plugin jars keep its package, which its JNI symbols name.
     implementation(libs.zstd.jni)
+    // The network transports' clients; the plugin jars relocate them.
+    implementation(libs.jedis)
+    implementation(libs.jnats)
     api(libs.fastutil)
     api("com.google.code.gson:gson:2.13.2")
     api("com.google.guava:guava:33.5.0-jre")

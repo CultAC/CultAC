@@ -118,6 +118,7 @@ tasks.shadowJar {
         exclude(project(":reload-integrations"))
     }
     relocate("com.google.protobuf", "ac.cult.cultac.libs.protobuf")
+    shadeNetworkClients()
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     exclude("META-INF/services/javax.annotation.processing.Processor")
     excludeCloudExtras()
@@ -137,7 +138,7 @@ tasks.shadowJar {
         "Cult-Runtime-Entrypoint" to "ac.cult.cultac.platform.bukkit.PaperRuntimeEntrypoint"
     ))
     doLast {
-        pruneUnreferencedClasses(archiveFile.get().asFile, listOf("org/apache/commons/lang3/"))
+        pruneUnreferencedClasses(archiveFile.get().asFile, listOf("org/apache/commons/lang3/", SHADED_BOUNCYCASTLE))
         check(ProcessBuilder("python3", rootProject.file("scripts/verify-no-bundled-minecraft.py").path,
             archiveFile.get().asFile.path).inheritIO().start().waitFor() == 0)
         check(ProcessBuilder("python3", rootProject.file("scripts/verify-vialib-packaging.py").path,

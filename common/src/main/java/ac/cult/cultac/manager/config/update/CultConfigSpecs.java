@@ -86,9 +86,11 @@ public final class CultConfigSpecs {
      * way and with no migration.
      *
      * <p>v13 → v14: adds {@code observe-only}; default rewriting adds the key.
+     *
+     * <p>v14 → v15: adds the {@code network} block; default rewriting adds it.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 14, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 15, ConfigUpdater.ConfigFlavor.V2)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);

@@ -130,6 +130,11 @@ cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
 # %checks_list% 中每个检查项的内部格式 — 可用占位符: %check_name% %count%
 cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
+# A command names a player on another instance, or a staff member asks for network-wide alerts, while
+# network.transport in config.yml is none.
+network-disabled-command: "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+
 # 模式标记 — 参见 config.yml 顶部的注释。
 config-flavor: V2
 config-version: 3

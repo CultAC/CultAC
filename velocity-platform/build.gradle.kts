@@ -74,6 +74,7 @@ tasks.shadowJar {
         exclude(project(":reload-integrations"))
     }
     relocate("com.google.protobuf", "ac.cult.cultac.libs.protobuf")
+    shadeNetworkClients()
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     exclude("META-INF/services/javax.annotation.processing.Processor")
     excludeCloudExtras()
@@ -89,7 +90,7 @@ tasks.shadowJar {
         "Cult-Runtime-Entrypoint" to "ac.cult.cultac.platform.velocity.VelocityRuntimeEntrypoint"
     ))
     doLast {
-        pruneUnreferencedClasses(archiveFile.get().asFile, listOf("org/apache/commons/lang3/"))
+        pruneUnreferencedClasses(archiveFile.get().asFile, listOf("org/apache/commons/lang3/", SHADED_BOUNCYCASTLE))
         verifyCloudRuntimeJar(archiveFile.get().asFile)
     }
 }

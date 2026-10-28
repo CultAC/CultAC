@@ -383,6 +383,11 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
         for (var session : List.copyOf(sessions.values())) session.close("proxy shutting down");
     }
 
+    /** Velocity's modern-forwarding secret; empty when forwarding is not modern or cannot be read. */
+    public static byte[] forwardingSecret(ProxyServer proxy) {
+        return forwarding(proxy).secret();
+    }
+
     /** Velocity's player info forwarding mode, null when it cannot be read, and its secret while it is modern. */
     private static Forwarding forwarding(ProxyServer proxy) {
         try {

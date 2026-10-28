@@ -4,12 +4,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/** The slice of RedisBungee's API that RedisProfiles reaches by reflection, recording what it publishes. */
+/** The slice of RedisBungee's API that CultAC reaches by reflection, recording what it registers and publishes. */
 public class AbstractRedisBungeeAPI {
     public static AbstractRedisBungeeAPI instance;
 
     public String proxyId = "proxy-a";
     public final List<String> published = new ArrayList<>();
+    public final List<String> publishedChannels = new ArrayList<>();
+    public final List<String> registered = new ArrayList<>();
 
     public static AbstractRedisBungeeAPI getAbstractRedisBungeeAPI() {
         return instance;
@@ -40,8 +42,11 @@ public class AbstractRedisBungeeAPI {
     }
 
     public synchronized void sendChannelMessage(String channel, String message) {
+        publishedChannels.add(channel);
         published.add(message);
     }
 
-    public void registerPubSubChannels(String... channels) {}
+    public synchronized void registerPubSubChannels(String... channels) {
+        registered.addAll(List.of(channels));
+    }
 }

@@ -11,6 +11,7 @@ import ac.cult.cultac.command.profile.RemoteProfiles;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.network.PacketOwner;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
+import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.command.CommandService;
@@ -67,6 +68,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     private final VelocityTransport transport;
     private final VelocityServer server;
     private final BridgeService bridge;
+    private final VelocityNetwork network;
     /** Set while the cloud upload is on and the bridge has started. */
     private volatile @Nullable CloudBackends cloudBackends;
     /** The bridge sessions the cloud's backends listen to; null until the bridge has started. */
@@ -115,6 +117,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             this.bridge =
                     new BridgeService(proxy, nativePlugin, transport::channel, manager::connection, plugin.getLogger());
             this.server = new VelocityServer(proxy, senders, bridge::tps);
+            this.network = new VelocityNetwork(proxy, nativePlugin);
             manager.setPacketOwnerResolver(channel -> {
                 var connection = manager.connection(channel);
                 if (connection == null) return null;
@@ -157,6 +160,8 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     public void start() {
         load();
         CloudModule.platformHooks(this::cloudTurnedOn, this::cloudTurnedOff);
+        NetworkModule.platform(network);
+        network.listen();
         CultAPI.INSTANCE.start();
         boolean bridged = bridge.start(
                 CultAPI.INSTANCE.getNetworkManager().dispatcher(),
@@ -402,6 +407,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         }
         closed = true;
         try {
+            network.close();
             if (cloudBackends != null) cloudBackends.close();
             bridge.close();
             VelocityBridge.install(BridgeSessions.NONE);

@@ -46,6 +46,24 @@ class ConfigHashTest {
         }
     }
 
+    private String networkHash(String secret, String redisUri, String natsToken, String transport) throws IOException {
+        Files.writeString(
+                folder.resolve("config.yml"),
+                "network:\n  transport: " + transport + "\n  secret: " + secret + "\n  redis:\n    uri: " + redisUri
+                        + "\n  nats:\n    token: " + natsToken + "\n");
+        Files.writeString(folder.resolve("cult.yml"), "Reach:\n  threshold: 0.0005\n");
+        Files.writeString(
+                folder.resolve("punishments.yml"), "Punishments:\n  Reach:\n    remove-violations-after: 300\n");
+        return CloudConnection.configHash(folder.toFile(), "en");
+    }
+
+    @Test
+    void theNetworkCredentialsLeaveTheHashAlone() throws IOException {
+        String base = networkHash("\"\"", "\"\"", "\"\"", "redis");
+        assertEquals(base, networkHash("\"s3cret\"", "\"redis://:pw@cache:6379/0\"", "\"tok\"", "redis"));
+        assertNotEquals(base, networkHash("\"\"", "\"\"", "\"\"", "nats"));
+    }
+
     @Test
     void changingASettingChangesTheHash() throws IOException {
         String base = hash("\"123456\"", "\"key\"", "0.0005");

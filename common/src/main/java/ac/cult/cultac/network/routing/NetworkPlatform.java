@@ -1,0 +1,55 @@
+package ac.cult.cultac.network.routing;
+
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.Collection;
+import java.util.UUID;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * What the platform tells the network service about this instance. The platform also reports each join, quit and
+ * backend switch through {@link NetworkModule#playerChanged} and {@link NetworkModule#playerLeft}.
+ */
+public interface NetworkPlatform {
+
+    /** Every player online on this instance, whichever runtime holds their connection. Any thread. */
+    Collection<OnlinePlayer> onlinePlayers();
+
+    /** {@code <host>:<port>}, the instance id when nothing else names one. */
+    String address();
+
+    /** Whether this instance is a proxy, whose players are on backend servers. */
+    default boolean proxy() {
+        return false;
+    }
+
+    /** RedisBungee's id for this proxy; null when RedisBungee is not installed. */
+    default @Nullable String redisBungeeId() {
+        return null;
+    }
+
+    /** The key an empty {@code network.secret} takes: Velocity's forwarding secret. Null where there is none. */
+    default byte @Nullable [] defaultSecret() {
+        return null;
+    }
+
+    /** A transport over RedisBungee's pub/sub; null where RedisBungee is not installed or cannot be reached. */
+    default @Nullable MessageTransport redisBungee() {
+        return null;
+    }
+
+    /** A player online here; {@code server} is their backend server on a proxy and null elsewhere. */
+    record OnlinePlayer(UUID uuid, String name, @Nullable String server) {}
+
+    /** {@code <host>:<port>}, this machine's name standing in for a null or empty {@code host}. */
+    static String address(@Nullable String host, int port) {
+        if (host == null || host.isBlank()) {
+            try {
+                host = InetAddress.getLocalHost().getHostName();
+            } catch (UnknownHostException unnamed) {
+                host = "localhost";
+            }
+        }
+        return host + ":" + port;
+    }
+}

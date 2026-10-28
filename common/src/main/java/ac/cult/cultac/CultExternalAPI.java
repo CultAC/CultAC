@@ -3,6 +3,7 @@ package ac.cult.cultac;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.manager.config.ConfigManagerFileImpl;
 import ac.cult.cultac.manager.init.start.StartableInitable;
+import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.AlertDetails;
@@ -211,6 +212,7 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
             CultAPI.INSTANCE.getConfigManager().load(config);
             onReload(config);
             if (started) CloudModule.configReloaded();
+            if (started) NetworkModule.configReloaded();
             if (started && RuntimeEnvironment.host() == null)
                 CultAPI.INSTANCE
                         .getScheduler()

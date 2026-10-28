@@ -133,6 +133,11 @@ cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
 # Formato interno por check em %checks_list% — placeholders válidos: %check_name% %count%
 cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
+# A command names a player on another instance, or a staff member asks for network-wide alerts, while
+# network.transport in config.yml is none.
+network-disabled-command: "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+
 # Marcadores de esquema — ver o comentário do cabeçalho em config.yml.
 config-flavor: V2
 config-version: 3
