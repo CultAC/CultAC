@@ -275,7 +275,7 @@ class ClientSprintStateTest {
     }
 
     @Test
-    void sprintKeyStartAndStopInOneAiStepDropsAStaleServerModifier() {
+    void anAiStepClearDropsAStaleServerModifierThatASetbackCannotRestore() {
         ClientSprintState state = sprinting();
         state.onClientTickEnd();
         // LocalPlayer#aiStep stops at a wall and sends STOP_SPRINTING.
@@ -283,39 +283,39 @@ class ClientSprintStateTest {
         state.onClientTickEnd();
         // A movement_speed snapshot the server built before it handled that STOP_SPRINTING.
         state.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+        state.onClientTick(false);
+        var beforeClear = state.outcomes();
         assertTrue(state.modifier());
         // canStartSprinting -> setSprinting(true), then shouldStopRunSprinting -> setSprinting(false); nothing is sent.
-        assertTrue(state.unannouncedStartPossible(false));
-        state.onClientTick(false, true);
+        state.onModifierCleared();
         assertFalse(state.flag());
+        assertFalse(state.modifier());
+        state.restore(beforeClear);
         assertFalse(state.modifier());
     }
 
     @Test
-    void onlyATicksFirstReconcileAppliesASprintKeyStart() {
+    void aPossibleAiStepClearKeepsTheHeldModifierPossibleUntilACertainEvent() {
         ClientSprintState state = new ClientSprintState();
         state.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
-        state.onClientMove();
-        state.onClientTick(false, false);
-        // The tick end reconciles the same aiStep again.
-        assertFalse(state.unannouncedStartPossible(false));
-        state.onClientTick(false, true);
-        assertTrue(state.modifier());
-        state.onClientTickEnd();
-        assertTrue(state.unannouncedStartPossible(false));
+        state.onClientTick(false);
+        var beforeClear = state.outcomes();
+        state.onModifierPossiblyCleared();
+        assertTrue(state.clearedPossible());
+        assertSame(CompensatedEntities.SPRINTING_SPEED_MODIFIER, state.heldModifier());
+        // A setback does not undo the client's aiStep.
+        state.restore(beforeClear);
+        assertTrue(state.clearedPossible());
+        state.onServerModifier(null);
+        assertFalse(state.clearedPossible());
     }
 
     @Test
-    void aStartThatTheTickAnnouncesOrAFlagSetBeforeAiStepIsNotUnannounced() {
+    void aPossibleAiStepClearWithoutAModifierChangesNothing() {
         ClientSprintState state = new ClientSprintState();
-        assertFalse(state.unannouncedStartPossible(true));
-        state.onClientTick(true, true);
-        assertSame(CompensatedEntities.SPRINTING_SPEED_MODIFIER, state.heldModifier());
-        state.onClientTickEnd();
-        // Set before aiStep, the flag's stop is announced and resynchronizes the modifier on its own.
-        assertFalse(state.unannouncedStartPossible(false));
-        state.onClientTick(false, true);
-        assertNull(state.heldModifier());
+        state.onClientTick(false);
+        state.onModifierPossiblyCleared();
+        assertFalse(state.clearedPossible());
     }
 
     @Test

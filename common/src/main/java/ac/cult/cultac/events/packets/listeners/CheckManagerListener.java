@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
 import ac.cult.cultac.manager.player.CheckManager;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -79,7 +80,6 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
-import ac.cult.cultac.utils.nmsutil.SprintKeyStart;
 import ac.cult.cultac.utils.nmsutil.TraverseBlocks;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
@@ -428,14 +428,14 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         if (vehicle != null) {
             player.onMountedClientTick(vehicle);
             player.sprintState.onClientTick(player.isClientSprinting());
+            // 1.21.4's shouldStopSprinting reaches setSprinting(false) for most passengers whatever the flag.
+            if (JavaAiStepSprint.clearsModifierRiding(player, vehicle)) player.sprintState.onModifierCleared();
             return;
         }
         if (player.compensatedEntities.getSelf().inVehicle()) return;
         player.onFootClientTick();
-        // The sprint key can start sprinting and a stop check end it within aiStep, announcing nothing.
-        boolean keyStart =
-                player.sprintState.unannouncedStartPossible(player.isSprinting) && SprintKeyStart.certain(player);
-        player.sprintState.onClientTick(player.isSprinting, keyStart);
+        // The travel decides whether this aiStep's setSprinting(false) removed the modifier (JavaAiStepSprint).
+        player.sprintState.onClientTick(player.isSprinting);
     }
 
     // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced, and

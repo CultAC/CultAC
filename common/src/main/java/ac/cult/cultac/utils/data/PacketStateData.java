@@ -25,8 +25,6 @@ public class PacketStateData {
     public boolean autoJumpPossible = false;
     // The jump key of the last client tick LocalPlayer#aiStep ran.
     public boolean lastTickJump = false;
-    // The shift key of the last client tick LocalPlayer#aiStep ran, which its crouching check reads before input.tick.
-    public boolean lastTickShift = false;
     // Bit t: Player#jumpTriggerTime can be t at the next LocalPlayer#aiStep flight toggle check.
     public int jumpTriggerTimes = 1;
     // Entity#isSwimming can be true from the last client tick's baseTick on; the server's entity data overwrites it.

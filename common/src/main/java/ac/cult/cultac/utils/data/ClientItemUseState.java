@@ -19,6 +19,11 @@ import org.jetbrains.annotations.Nullable;
  * All transitions run on the ordered player packet stream, never the Bukkit tick thread.
  */
 public final class ClientItemUseState {
+    /**
+     * One client tick's use state. {@code possiblyUsing} is whether LivingEntity#isUsingItem may hold, and
+     * {@code possiblyBlocksSprint} whether a use it may hold lacks UseEffects#canSprint
+     * (LocalPlayer#isSlowDueToUsingItem from 1.21.11).
+     */
     public record Snapshot(
             long session,
             int tick,
@@ -28,8 +33,35 @@ public final class ClientItemUseState {
             float slowestMultiplier,
             boolean canSprint,
             boolean required,
-            boolean definitelyUsing) {
-        public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, 1, true, false, false);
+            boolean definitelyUsing,
+            boolean possiblyUsing,
+            boolean possiblyBlocksSprint) {
+        public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, 1, true, false, false, false, false);
+
+        /** A snapshot whose possible uses are exactly its definite one. */
+        public Snapshot(
+                long session,
+                int tick,
+                int proof,
+                float legalMultiplier,
+                float requiredMultiplier,
+                float slowestMultiplier,
+                boolean canSprint,
+                boolean required,
+                boolean definitelyUsing) {
+            this(
+                    session,
+                    tick,
+                    proof,
+                    legalMultiplier,
+                    requiredMultiplier,
+                    slowestMultiplier,
+                    canSprint,
+                    required,
+                    definitelyUsing,
+                    definitelyUsing,
+                    definitelyUsing && !canSprint);
+        }
     }
 
     public record ActiveUse(Hand hand, String itemKey) {}
@@ -143,11 +175,13 @@ public final class ClientItemUseState {
         // LocalPlayer#modifyInput slows by any use the client may hold, including one it may have refused.
         float slowest = 1;
         boolean canSprint = inactive;
+        boolean blocksSprint = false;
         for (Use use : candidates) {
             var effects = effects(use.stack(), version);
             legal = Math.max(legal, effects.speedMultiplier());
             slowest = Math.min(slowest, effects.speedMultiplier());
             canSprint |= effects.canSprint();
+            blocksSprint |= !effects.canSprint();
         }
         float required =
                 obligation == null ? 1 : effects(obligation.stack(), version).speedMultiplier();
@@ -160,7 +194,9 @@ public final class ClientItemUseState {
                 Math.min(slowest, required),
                 canSprint,
                 obligation != null && required < 1,
-                !inactive && !candidates.isEmpty());
+                !inactive && !candidates.isEmpty(),
+                !candidates.isEmpty(),
+                blocksSprint);
         return prepared;
     }
 
@@ -272,11 +308,6 @@ public final class ClientItemUseState {
 
     public boolean hasObligation() {
         return obligation != null;
-    }
-
-    /** Whether LocalPlayer#isUsingItem may be set: a use the client may hold, or one the server still requires. */
-    public boolean possiblyUsing() {
-        return !candidates.isEmpty() || obligation != null;
     }
 
     public void reset() {

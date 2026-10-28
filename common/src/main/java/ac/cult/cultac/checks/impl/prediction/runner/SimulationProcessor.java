@@ -1655,6 +1655,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
      */
     private void commitSprintOutcomes(PredictionResult result) {
         ClientSprintState state = this.player.sprintState;
+        // The tick's LocalPlayer#aiStep ran before its travel, whatever a setback restores below.
+        switch (aiStepSprintClear(this.player, result)) {
+            case TRUE -> state.onModifierCleared();
+            case UNKNOWN -> state.onModifierPossiblyCleared();
+            case FALSE -> {}
+        }
         SetbackTeleportUtil setbacks = this.player.getSetbackTeleportUtil();
         if (setbacks.isPendingSetback() && setbacks.lastKnownGoodPosition != null) {
             state.restore(setbacks.lastKnownGoodPosition.getSprintOutcomes());
@@ -1663,6 +1669,23 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
         if (!state.outcomeOpen()) return;
         state.commit(sprintOutcomesAfter(this.player, result));
+    }
+
+    /**
+     * Whether the committed tick's aiStep removed the sprint modifier, over every accepted candidate's context: they
+     * all ran one aiStep, so one that disagrees leaves it possible.
+     */
+    private static DesyncStatus aiStepSprintClear(CultPlayer player, PredictionResult result) {
+        if (result == null || result.getSimulationContext() == null) return DesyncStatus.FALSE;
+        DesyncStatus cleared = null;
+        if (result.getRealities() != null) {
+            for (PredictionResult reality : result.getRealities()) {
+                if (reality.getFlagSeverity() != 0.0 || reality.getSimulationContext() == null) continue;
+                DesyncStatus verdict = reality.getSimulationContext().aiStepSprintClear(player);
+                cleared = cleared == null || cleared == verdict ? verdict : DesyncStatus.UNKNOWN;
+            }
+        }
+        return cleared != null ? cleared : result.getSimulationContext().aiStepSprintClear(player);
     }
 
     /**

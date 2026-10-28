@@ -33,6 +33,9 @@ public final class ClientSprintState {
     private Outcomes certainOutcomes = new Outcomes(null, false, 0, 0);
     // Counts possible attack resets; a restore keeps vanilla's modifier possible after any since its snapshot.
     private int possibleResets;
+    // An aiStep since the latest certain event may have removed the modifier. Only certain events end it, so a restore
+    // keeps it.
+    private boolean clearedPossible;
     private boolean sprintResetThisTick;
     private boolean flagUncertain;
     private boolean flagBeforeAiStep;
@@ -88,9 +91,32 @@ public final class ClientSprintState {
         }
     }
 
+    /**
+     * LocalPlayer#aiStep certainly ran LivingEntity#setSprinting(false) with the flag clear, removing the modifier
+     * without a STOP_SPRINTING. A setback does not undo it.
+     */
+    public void onModifierCleared() {
+        modifier = null;
+        onCertainEvent();
+    }
+
+    /**
+     * LocalPlayer#aiStep may have run LivingEntity#setSprinting(false) with the flag clear. The client holds the
+     * modifier or none until a certain event; a setback does not undo it.
+     */
+    public void onModifierPossiblyCleared() {
+        if (modifier()) clearedPossible = true;
+    }
+
+    /** Whether an earlier aiStep may have removed every modifier the client can hold. */
+    public boolean clearedPossible() {
+        return clearedPossible;
+    }
+
     private void onCertainEvent() {
         canonicalPossible = false;
         resetOutcomePending = false;
+        clearedPossible = false;
         certainEvents++;
         certainOutcomes = outcomes();
     }
@@ -101,31 +127,13 @@ public final class ClientSprintState {
     }
 
     /**
-     * Whether a start and stop in this tick's aiStep can still be unannounced: this is the tick's first reconcile, the
-     * flag was known to be clear before aiStep, and the tick announces no sprint.
-     */
-    public boolean unannouncedStartPossible(boolean sprinting) {
-        return !aiStepReconciled && !flag && !flagUncertain && !sprinting;
-    }
-
-    /** {@link #onClientTick(boolean, boolean)} for an aiStep not known to have started sprinting from the key. */
-    public void onClientTick(boolean sprinting) {
-        onClientTick(sprinting, false);
-    }
-
-    /**
      * Reconciles a completed LocalPlayer#aiStep with its known sprint flag. A tick that reaches
      * sendIsSprintingIfNeeded makes it equal the last announcement; a noncontrolling passenger can stop sprinting
-     * without announcing it. A changed flag proves setSprinting ran and resynchronized the modifier.
-     *
-     * <p>An unchanged clear flag keeps a modifier an attribute packet installed, unless {@code keyStart}: aiStep
-     * certainly ran canStartSprinting's setSprinting(true) from the held sprint key. The tick still announced no
-     * sprint, so a stop check ran setSprinting(false) in the same aiStep. The flag ends where it began and nothing is
-     * sent, but LivingEntity#setSprinting(false) removed the modifier. Only the tick's first reconcile sees the flag
-     * from before aiStep, so only it applies {@code keyStart}.
+     * without announcing it. A changed flag proves setSprinting ran and resynchronized the modifier. An unchanged
+     * clear flag keeps it here: whether aiStep's setSprinting(false) still removed it depends on the tick's world,
+     * which the travel decides ({@link #onModifierCleared}, {@link #onModifierPossiblyCleared}).
      */
-    public void onClientTick(boolean sprinting, boolean keyStart) {
-        boolean beforeAiStep = unannouncedStartPossible(sprinting);
+    public void onClientTick(boolean sprinting) {
         if (!aiStepReconciled) {
             flagBeforeAiStep = flag;
             aiStepReconciled = true;
@@ -133,9 +141,6 @@ public final class ClientSprintState {
         // An attack reset that aiStep re-sprinted re-added the modifier.
         if (flag != sprinting) {
             modifier = sprinting ? CompensatedEntities.SPRINTING_SPEED_MODIFIER : null;
-            onCertainEvent();
-        } else if (keyStart && beforeAiStep) {
-            modifier = null;
             onCertainEvent();
         } else if (sprintResetThisTick && sprinting) {
             // Only a possible reset leaves the flag: Player#attack resets only after damage and positive knockback.

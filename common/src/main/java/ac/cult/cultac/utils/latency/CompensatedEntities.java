@@ -656,10 +656,14 @@ public class CompensatedEntities {
                     case PRIOR -> state.canonicalPossible();
                     default -> false;
                 };
+        // An earlier aiStep's setSprinting(false) may have removed whichever modifier the client held.
+        boolean withNone = state.clearedPossible() && held != null;
         if (!withCanonical || SPRINTING_SPEED_MODIFIER.equals(held)) {
-            return new double[] {current};
+            return withNone ? new double[] {current, getPlayerMovementSpeed()} : new double[] {current};
         }
-        return new double[] {current, canonicalSpeed};
+        return withNone
+                ? new double[] {current, canonicalSpeed, getPlayerMovementSpeed()}
+                : new double[] {current, canonicalSpeed};
     }
 
     /** The largest of {@link #getPossiblePlayerMovementSpeeds}. */

@@ -80,22 +80,31 @@ public final class ClientKeyInput {
     public static float[] movingSlowlyFactors(CultPlayer player, SimulationContext context) {
         float sneaking =
                 (float) player.compensatedEntities.getSelf().sneakingSpeed.value();
+        return switch (movingSlowly(player, context)) {
+            case TRUE -> new float[] {sneaking};
+            case FALSE -> new float[] {1.0F};
+            case UNKNOWN -> new float[] {sneaking, 1.0F};
+        };
+    }
+
+    /** LocalPlayer#isMovingSlowly as this tick's aiStep reads it, which {@link #movingSlowlyFactors} applies. */
+    public static DesyncStatus movingSlowly(CultPlayer player, SimulationContext context) {
         boolean visuallySwimming =
                 context.getPose() == Pose.SWIMMING || context.getPose() == Pose.FALL_FLYING && !context.isGliding();
         // isVisuallyCrawling reads the isInWater this tick's Entity#baseTick left.
-        if (visuallySwimming && !context.getWorldData().isInWater()) return new float[] {sneaking};
-        return crouchingFactors(player, context, sneaking);
+        if (visuallySwimming && !context.getWorldData().isInWater()) return DesyncStatus.TRUE;
+        return crouching(player, context);
     }
 
-    private static float[] crouchingFactors(CultPlayer player, SimulationContext context, float sneaking) {
+    private static DesyncStatus crouching(CultPlayer player, SimulationContext context) {
         if (player.getClientVersion().isOlderThan(ClientVersion.V_1_14)) {
-            return new float[] {context.isLastSneaking() ? sneaking : 1.0F};
+            return DesyncStatus.fromBoolean(context.isLastSneaking());
         }
         // LocalPlayer#aiStep computes this before reading the new keys. These gates
         // apply to a held shift as well as crouching forced by the available space.
         if (FlightToggle.flyingBeforeAiStep(player)
                 || context.getWorldData().isSwimming()
-                || context.getVehicle() != null) return new float[] {1.0F};
+                || context.getVehicle() != null) return DesyncStatus.FALSE;
         Vec3 from = context.getStart();
         // LocalPlayer#aiStep also crouches without shift when standing does not fit. This precedes
         // Input#tick and Player#updatePlayerPose, so the starting pose can still be STANDING.
@@ -103,16 +112,16 @@ public final class ClientKeyInput {
         if (forced
                 && (player.isInBed
                         || player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.STANDING, from.x, from.y, from.z))) {
-            return new float[] {1.0F};
+            return DesyncStatus.FALSE;
         }
         if (player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z)) {
             return forced && player.mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.STANDING, from.x, from.y, from.z)
-                    ? new float[] {sneaking, 1.0F}
-                    : new float[] {sneaking};
+                    ? DesyncStatus.UNKNOWN
+                    : DesyncStatus.TRUE;
         }
         return player.mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z)
-                ? new float[] {sneaking, 1.0F}
-                : new float[] {1.0F};
+                ? DesyncStatus.UNKNOWN
+                : DesyncStatus.FALSE;
     }
 
     /**

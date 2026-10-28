@@ -1626,15 +1626,27 @@ public class CultPlayer implements GrimUser {
      * then handles both in one task, and the client is never in the packet's state before the proof's pong.
      */
     public boolean runAtTrailingProof(PacketSendEvent<?> event, Runnable task) {
+        return runAtTrailingProof(event, task, task);
+    }
+
+    /**
+     * As {@link #runAtTrailingProof(PacketSendEvent, Runnable)}, but {@code bundled} runs only at a proof that shares
+     * the packet's bundle, where the client applied the packet exactly before the proof's pong. Otherwise
+     * {@code unbundled} runs at the proof, or at the ping sent after it, and false is returned.
+     */
+    public boolean runAtTrailingProof(PacketSendEvent<?> event, Runnable bundled, Runnable unbundled) {
         TrackedTransaction proof = appendTrailingProofTransaction(event);
         if (proof == null) {
-            latencyUtils.addRealTimeTaskNext(task);
+            latencyUtils.addRealTimeTaskNext(unbundled);
             event.getTasksAfterSend().add(this::sendTransaction);
             return false;
         }
-        latencyUtils.addRealTimeTask(proof.transaction(), task);
         if (PacketBundlePolicy.requiresStandalone(event.getPacketType())
-                || !MovementProfiles.forPlayer(this).shouldUseBundledPacketProof(this)) return false;
+                || !MovementProfiles.forPlayer(this).shouldUseBundledPacketProof(this)) {
+            latencyUtils.addRealTimeTask(proof.transaction(), unbundled);
+            return false;
+        }
+        latencyUtils.addRealTimeTask(proof.transaction(), bundled);
         if (!event.isInsideBundle()) event.bundle();
         return true;
     }

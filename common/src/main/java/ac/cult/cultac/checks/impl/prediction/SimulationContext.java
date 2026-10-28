@@ -4,6 +4,7 @@ import ac.cult.blocksim.data.BlockTags;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
@@ -28,6 +29,7 @@ import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.Friction;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import java.util.Arrays;
 import java.util.List;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -102,6 +104,9 @@ public class SimulationContext implements Cloneable {
     boolean sprintModifier = true;
 
     private float[][] groundMoveRelativeSpeeds;
+    // JavaAiStepSprint#clearsModifier for this context's aiStep; null until read, and again after its world changes.
+    @Getter(AccessLevel.NONE)
+    private DesyncStatus aiStepSprintClear;
     // The movement_efficiency attribute during travel; LivingEntity#getBlockSpeedFactor lerps the block's factor to 1
     @Setter
     float movementEfficiency;
@@ -112,7 +117,6 @@ public class SimulationContext implements Cloneable {
     int minAttackSlow, maxAttackSlow;
     // WorldData must be generated based on movement state...
     // I don't want to give access to the world to everything - bad for performance and an antipattern
-    @Setter
     WorldData worldData;
 
     /** The source-proven protocol-773 implementation this candidate follows, or null for other protocols. */
@@ -284,6 +288,22 @@ public class SimulationContext implements Cloneable {
         setTarget(target.multiply(1 / lastStuckSpeed.x, 1 / lastStuckSpeed.y, 1 / lastStuckSpeed.z));
     }
 
+    /** The world this context's Entity#baseTick and LocalPlayer#aiStep read; the aiStep's sprint verdict follows it. */
+    public void setWorldData(WorldData worldData) {
+        this.worldData = worldData;
+        this.aiStepSprintClear = null;
+        this.groundMoveRelativeSpeeds = null;
+    }
+
+    /**
+     * Whether this context's LocalPlayer#aiStep removed minecraft:sprinting while the flag stayed clear
+     * ({@link JavaAiStepSprint#clearsModifier}). Its travel moves without the modifier when TRUE, and may when UNKNOWN.
+     */
+    public DesyncStatus aiStepSprintClear(CultPlayer player) {
+        if (aiStepSprintClear == null) aiStepSprintClear = JavaAiStepSprint.clearsModifier(player, this);
+        return aiStepSprintClear;
+    }
+
     /** A travel replay owns its endpoint and world fields; shared boxes and inputs remain read-only. */
     public SimulationContext forTravelReplay(Vec3 travelEnd) {
         try {
@@ -294,6 +314,9 @@ public class SimulationContext implements Cloneable {
                     .multiply(1 / lastStuckSpeed.x, 1 / lastStuckSpeed.y, 1 / lastStuckSpeed.z);
             copy.worldData = worldData.copy();
             copy.passAfterTravel = null;
+            // A copy's start, sprint flags or world can change before it travels.
+            copy.aiStepSprintClear = null;
+            copy.groundMoveRelativeSpeeds = null;
             return copy;
         } catch (CloneNotSupportedException impossible) {
             throw new AssertionError(impossible);
@@ -548,8 +571,7 @@ public class SimulationContext implements Cloneable {
         if (cached == null) {
             float blockUnderPlayer = BlockProperties.getFriction(player, lastTickMainSupportingBlockData, start);
             double[] speeds = vehicle == null
-                    ? entities.getPossiblePlayerMovementSpeeds(
-                            sprintModifier && !player.sprintState.modifier(), outcome)
+                    ? playerMovementSpeeds(player, outcome)
                     : new double[] {getPlayerMovementSpeed(player)};
             cached = new float[speeds.length];
             for (int i = 0; i < speeds.length; i++) {
@@ -559,6 +581,23 @@ public class SimulationContext implements Cloneable {
             groundMoveRelativeSpeeds[outcome.ordinal()] = cached;
         }
         return cached;
+    }
+
+    /**
+     * The player's LivingEntity#getSpeed values in {@code outcome} after this aiStep: none of them carries
+     * minecraft:sprinting once aiStep certainly removed it, and movement_speed without it joins them when it may have.
+     */
+    private double[] playerMovementSpeeds(CultPlayer player, ClientSprintState.Outcome outcome) {
+        double unmodified = entities.getPlayerMovementSpeed();
+        DesyncStatus cleared = aiStepSprintClear(player);
+        if (cleared == DesyncStatus.TRUE) return new double[] {unmodified};
+        double[] speeds =
+                entities.getPossiblePlayerMovementSpeeds(sprintModifier && !player.sprintState.modifier(), outcome);
+        if (cleared == DesyncStatus.FALSE) return speeds;
+        for (double speed : speeds) if (speed == unmodified) return speeds;
+        double[] withUnmodified = Arrays.copyOf(speeds, speeds.length + 1);
+        withUnmodified[speeds.length] = unmodified;
+        return withUnmodified;
     }
 
     private double sprintSpeedMultiplier(CultPlayer player, boolean onGround, boolean fluid) {
@@ -663,7 +702,7 @@ public class SimulationContext implements Cloneable {
             if (waterMovementEfficiency > 0) {
                 // A player's getSpeed carries minecraft:sprinting only while applied; a vehicle's is getRiddenSpeed
                 float livingSpeed = (float)
-                        (vehicle == null && sprintModifier
+                        (vehicle == null && sprintModifier && aiStepSprintClear(player) != DesyncStatus.TRUE
                                 ? entities.getMaxPlayerMovementSpeed(!player.sprintState.modifier(), outcome)
                                 : normalSpeed);
                 speed += (livingSpeed - speed) * waterMovementEfficiency;
