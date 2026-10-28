@@ -5,7 +5,10 @@ import ac.cult.cultac.network.RoutingHolder;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -14,6 +17,7 @@ import org.jetbrains.annotations.Nullable;
  * starts; without one there is no service. While a transport runs, the service is {@code NetworkRouting.current()}.
  */
 public final class NetworkModule {
+    private static final List<Consumer<NetworkService>> startHooks = new CopyOnWriteArrayList<>();
     private static volatile @Nullable NetworkPlatform platform;
     private static volatile @Nullable NetworkService service;
 
@@ -21,6 +25,11 @@ public final class NetworkModule {
 
     public static void platform(@Nullable NetworkPlatform hooks) {
         platform = hooks;
+    }
+
+    /** Runs {@code hook} on each service this runtime starts from now on, before it subscribes. */
+    public static void onStart(Consumer<NetworkService> hook) {
+        startHooks.add(hook);
     }
 
     /** The running service, which later features register handlers on and send through; null before start. */
@@ -70,6 +79,13 @@ public final class NetworkModule {
         NetworkPlatform hooks = platform;
         if (hooks == null) return;
         NetworkService started = NetworkService.create(settings, hooks, RuntimeEnvironment.host());
+        for (Consumer<NetworkService> hook : startHooks) {
+            try {
+                hook.accept(started);
+            } catch (RuntimeException failure) {
+                LogUtil.warn("A network feature failed to start", failure);
+            }
+        }
         started.start();
         service = started;
         if (!started.enabled()) return;

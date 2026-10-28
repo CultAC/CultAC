@@ -55,6 +55,7 @@ profile:
 help:
     - "&7======================"
     - "/%command% alerts &f- &7アラートを切り替えます"
+    - "/%command% alerts scope [server|global] &f- &7Show or set whose alerts you see"
     - "/%command% brands &f- &7Toggle brands"
     - "/%command% profile <player> &f- &7プレイヤー情報を表示します"
     - "/%command% help &f- &7このヘルプメッセージを表示します"
@@ -135,6 +136,12 @@ cult-history-check-count: "&f%check_name%&7 x&c%count%"
 # network.transport in config.yml is none.
 network-disabled-command: "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
 network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+# /cult alerts scope [server|global]: %scope% is server or global, %source% one of the alerts-scope-* texts below.
+alerts-scope: "%prefix% &fAlert scope: &b%scope% &7(%source%)"
+alerts-scope-set: "%prefix% &fAlert scope set to &b%scope%"
+alerts-scope-chosen: "chosen"
+alerts-scope-permission: "permission default"
+alerts-scope-local: "network-wide alerts are not enabled on this server"
 
 # スキーマ用マーカー — config.yml のヘッダーコメントを参照。
 config-flavor: V2

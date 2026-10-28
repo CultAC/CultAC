@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -226,10 +227,13 @@ public final class NetworkService implements NetworkRouting {
         return true;
     }
 
-    /** Sets {@code key} in the flags each roster message carries, or removes it when {@code value} is null. */
+    /**
+     * Sets {@code key} in the flags each roster message carries, or removes it when {@code value} is null. A change is
+     * published at once as a roster delta.
+     */
     public void flag(String key, @Nullable JsonElement value) {
-        if (value == null) flags.remove(key);
-        else flags.put(key, value);
+        JsonElement previous = value == null ? flags.remove(key) : flags.put(key, value);
+        if (running && !Objects.equals(previous, value)) publishRoster(List.of(), false, List.of());
     }
 
     /** The roster flags of each instance heard from lately, this one left out. */

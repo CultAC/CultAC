@@ -12,6 +12,7 @@ import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.NetworkRouting;
 import com.google.gson.JsonObject;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
@@ -97,6 +98,22 @@ class NetworkModuleTest {
         assertNotSame(first, NetworkModule.service());
         assertFalse(first.enabled());
         assertEquals("p4", NetworkRouting.current().instanceId());
+    }
+
+    @Test
+    void startHooksRunOnEveryServiceBeforeItSubscribes() {
+        List<NetworkService> hooked = new ArrayList<>();
+        NetworkModule.onStart(service -> {
+            assertFalse(service.enabled());
+            hooked.add(service);
+        });
+        NetworkModule.platform(new Proxy());
+        NetworkModule.start(REDISBUNGEE);
+        NetworkModule.configReloaded(
+                new NetworkSettings("redisbungee", "p4", "default", "", "", List.of(), "", "", ""));
+
+        assertEquals(2, hooked.size());
+        assertSame(NetworkModule.service(), hooked.get(1));
     }
 
     @Test

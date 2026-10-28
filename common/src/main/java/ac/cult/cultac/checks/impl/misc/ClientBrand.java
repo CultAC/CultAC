@@ -3,12 +3,17 @@ package ac.cult.cultac.checks.impl.misc;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.type.CheckListener;
+import ac.cult.cultac.manager.alerts.AlertSubject;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.Getter;
 import net.kyori.adventure.text.Component;
 
@@ -22,6 +27,9 @@ public class ClientBrand extends Check implements CheckListener {
     @Getter
     private boolean hasBrand = false;
 
+    /** On a proxy, the brand message waits for the player's first backend, whose staff it is for. */
+    private final AtomicReference<Component> heldAnnouncement = new AtomicReference<>();
+
     public ClientBrand(CultPlayer player) {
         super(player);
     }
@@ -32,6 +40,13 @@ public class ClientBrand extends Check implements CheckListener {
             CultPlayer player,
             ServerboundCustomPayload packet) {
         handle(packet.channel(), event.getPacket().data());
+    }
+
+    /** The proxy names the backend before it forwards that backend's login. */
+    @CultPacketHandler
+    public void onLogin(PacketSendEvent<ClientboundLogin> event, CultPlayer player, ClientboundLogin packet) {
+        Component held = heldAnnouncement.getAndSet(null);
+        if (held != null) CultAPI.INSTANCE.getAlertManager().sendBrand(player, held, null);
     }
 
     public void handle(String channel, byte[] data) {
@@ -74,7 +89,12 @@ public class ClientBrand extends Check implements CheckListener {
                     .getStringElse("client-brand-format", "%prefix% &f%player% joined using %brand%");
             Component component = MessageUtil.replacePlaceholders(player, MessageUtil.miniMessage(message));
 
-            CultAPI.INSTANCE.getAlertManager().sendBrand(component, null);
+            if (CultAPI.INSTANCE.getPlatform() == Platform.VELOCITY
+                    && AlertSubject.of(player).server() == null) {
+                heldAnnouncement.set(component);
+            } else {
+                CultAPI.INSTANCE.getAlertManager().sendBrand(player, component, null);
+            }
         }
         // The join-time session upsert runs before the brand packet arrives,
         // so client_brand is null on disk. observeBrandFromCheck re-issues

@@ -62,7 +62,7 @@ public class ProxyAlertMessenger implements PluginMessageListener {
             return;
         }
 
-        CultAPI.INSTANCE.getAlertManager().sendAlert(MessageUtil.miniMessage(alert), null);
+        CultAPI.INSTANCE.getAlertManager().relayAlert(MessageUtil.miniMessage(alert));
     }
 
     public static void sendPluginMessage(String message) {

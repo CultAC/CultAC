@@ -140,6 +140,8 @@ dependencies {
     api("org.joml:joml:1.10.9")
     compileOnly("org.checkerframework:checker-qual:3.49.5")
     api(libs.adventure.text.minimessage)
+    // The platforms provide it; alerts cross the network as its JSON.
+    compileOnly(libs.adventure.text.serializer.gson)
     api(libs.jetbrains.annotations)
     api(libs.hikaricp)
     api(libs.cult.api)
@@ -173,6 +175,7 @@ dependencies {
     testImplementation("com.google.guava:guava:31.1-jre")
     testImplementation(libs.netty)
     testImplementation(libs.cult.api)
+    testImplementation(libs.adventure.text.serializer.gson)
     testCompileOnly(libs.geyser.core)
     testRuntimeOnly(libs.geyser.core)
     // CultPlayer declares a ViaVersion PacketTracker field (compileOnly in main); tests
