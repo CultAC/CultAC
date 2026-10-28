@@ -184,18 +184,19 @@ servers claims it and runs it with that server's own command:
 | `cloud.staff-ban.command` | `""` | Runs for a permanent ban. |
 | `cloud.staff-ban.temp-command` | `""` | Runs for a timed ban. |
 
-Placeholders: `%player%` (the name, or the UUID when it is unknown or has characters other than letters, digits,
-`_`, `.`, `*` and `-`), `%uuid%`, `%reason%`, `%cheat%` (the cheat's display name), `%cheat_id%`, `%duration%`
-(`30m`, `12h`, `7d`: the largest of days, hours and minutes that divides it, else seconds as `90s`; empty when
-permanent), `%seconds%` (empty when permanent), `%staff%`, `%ban_id%`, `%link%` (the player's page on the cloud
-panel), `%staff_uuid%` (the banning staff member's Minecraft UUID when the panel knows it, else empty; only hex digits
-and dashes are kept) and `%evidence%` (a link to the evidence the ban rests on, such as a replay, else empty; only
-letters, digits and `:/?=&.%_-~` are kept). Control characters and line breaks are removed from every value and its
-whitespace collapsed; `%reason%` and `%staff%` keep at most 200 characters. For example `tempban %player% %duration% %reason%` or
-`ban %player% %reason% (%staff%)`. `%reason%` and `%staff%` are free text, so put `%reason%` last, after
-`%duration%`: a ban plugin may read a reason such as `1d spam` as a duration. A value starting with `-` gets a
-leading `'` so it is never read as a flag, and a staff name never contains `=` so it cannot read as a key in a
-`key=value` command. A ban for something other than a cheat has no cheat: `%cheat%` and `%cheat_id%` are
+Placeholders: `%player%` (the name, or the UUID when it is unknown, starts with `-` or has characters other than
+letters, digits, `_`, `.`, `*` and `-`), `%uuid%`, `%reason%`, `%cheat%` (the cheat's display name), `%cheat_id%`,
+`%duration%` (`30m`, `12h`, `7d`: the largest of days, hours and minutes that divides it, else seconds as `90s`; empty
+when permanent), `%seconds%` (empty when permanent), `%staff%`, `%ban_id%`, `%link%` (the player's page on the cloud
+panel), `%staff_uuid%` (the banning staff member's Minecraft UUID when the panel knows it, else empty) and
+`%evidence%` (a link to the evidence the ban rests on, such as a replay, else empty). Control characters and line
+breaks are removed from every value and its whitespace collapsed; `%reason%` and `%staff%` keep at most 200
+characters. `%link%` and `%evidence%` keep only letters, digits and `:/?=&.%_-~`, and are empty unless they then start
+with `https://` or `http://`; `%staff_uuid%` is empty unless it is a dashed UUID. For example
+`tempban %player% %duration% %reason%` or `ban %player% %reason% (%staff%)`. `%reason%` and `%staff%` are free text,
+so put `%reason%` last, after `%duration%`: a ban plugin may read a reason such as `1d spam` as a duration. Text other
+than `%reason%` never contains `=`, so it cannot read as a key in a `key=value` command, and a value that would start
+with `-` gets a leading `'` (within the 200 characters) so it is never read as a flag. A ban for something other than a cheat has no cheat: `%cheat%` and `%cheat_id%` are
 empty then.
 
 While the upload is configured and either command is set, CultAC asks the service for the pending bans its commands

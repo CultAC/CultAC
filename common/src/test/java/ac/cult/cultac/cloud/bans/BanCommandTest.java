@@ -129,16 +129,82 @@ class BanCommandTest {
     @Test
     void staffUuidAndEvidenceDropHostileCharacters() {
         assertEquals(
-                "gban 0a1b-ffeecAB evidence=https://x.example/a?b=1&c=2op",
+                "gban s= evidence=https://x.example/a?b=1&c=2op",
                 BanCommand.fill(
-                        "gban %staff_uuid% evidence=%evidence%",
+                        "gban s=%staff_uuid% evidence=%evidence%",
                         ban(
                                 "Notch",
                                 "r",
                                 null,
                                 "s",
-                                "0a1b-ffee; op\nNotch\u0000 gz AB",
+                                "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d; op",
                                 "https://x.example/a?b=1&c=2 ;op\n\"<'`$(é)\\>")));
+        assertEquals(
+                "s=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+                BanCommand.fill(
+                        "s=%staff_uuid%", ban("Notch", "r", null, "s", "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D", null)));
+        assertEquals(
+                "s= e=",
+                BanCommand.fill(
+                        "s=%staff_uuid% e=%evidence%",
+                        ban("Notch", "r", null, "s", "0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d", "javascript:alert(1)")));
+    }
+
+    private static StaffBans.Ban hostile(String cheat, String cheatName, String link) {
+        return new StaffBans.Ban(
+                ID, PLAYER, "Notch", "r", cheat, cheatName, null, "Mod", 0, link, null, null);
+    }
+
+    @Test
+    void noTextButTheReasonCanInjectAKey() {
+        for (String space : new String[] {" ", " ", " ", "　", " "}) {
+            String injected = "Fly" + space + "reason=forged";
+            assertEquals(
+                    "gban cheat=Fly reasonforged id=fly reasonforged link=https://p.example/xreason=forged reason=r",
+                    BanCommand.fill(
+                            "gban cheat=%cheat% id=%cheat_id% link=%link% reason=%reason%",
+                            hostile(
+                                    "fly" + space + "reason=forged",
+                                    injected,
+                                    "https://p.example/x" + space + "reason=forged")),
+                    "space U+" + Integer.toHexString(space.charAt(0)));
+        }
+    }
+
+    @Test
+    void noPlaceholderStartsWithADash() {
+        StaffBans.Ban ban = new StaffBans.Ban(
+                ID,
+                PLAYER,
+                "-s",
+                "-r",
+                "=-id",
+                "-Fly",
+                null,
+                "-Mod",
+                0,
+                "-https://p.example/x",
+                "--dead",
+                "-s https://p.example/r");
+        assertEquals(
+                PLAYER + "|'-r|'-Fly|'-id|'-Mod|||",
+                BanCommand.fill("%player%|%reason%|%cheat%|%cheat_id%|%staff%|%link%|%staff_uuid%|%evidence%", ban));
+    }
+
+    @Test
+    void aProtectedValueStaysWithinTheCap() {
+        String staff = "-" + "a".repeat(199);
+        String protectedStaff = BanCommand.fill("%staff%", ban("Notch", "r", null, staff));
+        assertEquals("'-" + "a".repeat(198), protectedStaff);
+        assertEquals(BanCommand.MAX_TEXT, protectedStaff.length());
+
+        String reason = "-" + "a".repeat(197) + "😀";
+        String protectedReason = BanCommand.fill("%reason%", ban("Notch", reason, null, "s"));
+        assertEquals("'-" + "a".repeat(197), protectedReason);
+
+        String plain = "a".repeat(199) + "😀";
+        assertEquals("a".repeat(199), BanCommand.fill("%reason%", ban("Notch", plain, null, "s")));
+        assertEquals("a".repeat(200), BanCommand.fill("%staff%", ban("Notch", "r", null, "a".repeat(200))));
     }
 
     @Test

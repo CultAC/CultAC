@@ -67,13 +67,16 @@ public final class StaffBans {
     static final int MAX_HANDLED = 1000;
     static final CommandOutcome BUSY = new CommandOutcome(false, "not run: the server was busy");
     static final String FAILED = "the command failed";
+    /** How Velocity and Bukkit start the message of the exception they wrap around what a command threw. */
+    private static final Pattern WRAPPER = Pattern.compile("Unable to invoke command |Unhandled exception executing ");
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     /** Bumped on every configure, so only the latest poller claims and dispatches. */
     private static final Generation GENERATION = new Generation();
     /** Ban ids this instance claimed and results it still owes, across reloads. */
     private static final Handled HANDLED = new Handled(MAX_HANDLED);
 
-    private static final Pattern ID =
+    static final Pattern ID =
             Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
     /** The commands {@code cloud.staff-ban.command} and {@code cloud.staff-ban.temp-command}; empty never runs. */
@@ -367,7 +370,7 @@ public final class StaffBans {
                                 + command);
                         return report(ban, true, outcome.message());
                     }
-                    String why = error == null ? outcome.message() : why(error);
+                    String why = error == null ? outcome.message() : why(error, command);
                     LogUtil.warn("Staff ban " + ban.id() + " from the cloud panel failed: " + why + ": " + command);
                     return report(ban, false, why);
                 })
@@ -418,19 +421,24 @@ public final class StaffBans {
     }
 
     /**
-     * What a failed dispatch says: the message of the innermost cause that has its own, since platforms wrap what the
-     * command threw; else {@link #FAILED}. A message that only repeats its cause, as a wrapper made from the cause
-     * alone has, is not its own.
+     * What a failed dispatch of {@code command} says: the message of the innermost cause that has its own, since
+     * platforms wrap what the command threw; else {@link #FAILED}. A message that only repeats its cause, as a wrapper
+     * made from the cause alone has, is not its own, and neither is one that names the command, which may carry
+     * values the service must not get back.
      */
-    static String why(Throwable error) {
+    static String why(Throwable error, String command) {
+        String spaced = WHITESPACE.matcher(command.strip()).replaceAll(" ");
         String why = FAILED;
         Set<Throwable> seen = new HashSet<>();
         for (Throwable cause = error; cause != null && seen.add(cause); cause = cause.getCause()) {
             String message = cause.getMessage();
             Throwable inner = cause.getCause();
-            if (message != null
-                    && !message.isBlank()
-                    && (inner == null || !message.equals(inner.toString()))) why = message;
+            if (message == null
+                    || message.isBlank()
+                    || (inner != null && message.equals(inner.toString()))
+                    || (!spaced.isEmpty() && (message.contains(command) || message.contains(spaced)))
+                    || WRAPPER.matcher(message).lookingAt()) continue;
+            why = message;
         }
         return why;
     }
@@ -468,8 +476,8 @@ public final class StaffBans {
                 orEmpty(text(ban, "staff")),
                 createdAt(ban.get("createdAt")),
                 orEmpty(text(ban, "link")),
-                text(ban, "staffUuid"),
-                text(ban, "evidence"));
+                string(ban, "staffUuid"),
+                string(ban, "evidence"));
     }
 
     /** An ISO instant or epoch millis; 0 when it is neither. */
@@ -486,6 +494,14 @@ public final class StaffBans {
     private static @Nullable String text(JsonObject object, String key) {
         JsonElement value = object.get(key);
         return value == null || !value.isJsonPrimitive() ? null : value.getAsString();
+    }
+
+    /** {@code key}'s value when it is a JSON string; null for any other type. */
+    private static @Nullable String string(JsonObject object, String key) {
+        JsonElement value = object.get(key);
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()
+                ? value.getAsString()
+                : null;
     }
 
     private static String orEmpty(@Nullable String text) {
