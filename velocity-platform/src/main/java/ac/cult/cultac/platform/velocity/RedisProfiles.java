@@ -17,6 +17,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.kyori.adventure.text.Component;
@@ -25,10 +27,14 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Asks the proxy holding a player for their profile over RedisBungee's pub/sub, when RedisBungee joins the proxies.
- * RedisBungee is optional and reached through its own class loader.
+ * RedisBungee is optional and reached through its own class loader. Every runtime on a proxy hears each request: the
+ * one tracking the player answers with the profile, and one that may report the player untracked answers empty.
  */
 final class RedisProfiles implements RemoteProfiles, AutoCloseable {
     static final String CHANNEL = "cultac:profile";
+    /** How long an empty answer waits for a profile from another runtime on the same proxy. */
+    static final long EMPTY_ANSWER_GRACE_MILLIS = 500;
+
     private static final String API = "com.imaginarycode.minecraft.redisbungee.AbstractRedisBungeeAPI";
     private static final String EVENT = "com.imaginarycode.minecraft.redisbungee.events.PubSubMessageEvent";
 
@@ -41,12 +47,16 @@ final class RedisProfiles implements RemoteProfiles, AutoCloseable {
     private final Class<Object> eventClass;
     private final EventHandler<Object> handler = this::onEvent;
     private final Map<UUID, CompletableFuture<List<Component>>> pending = new ConcurrentHashMap<>();
+    private final Predicate<UUID> reportsUntracked;
 
     @SuppressWarnings("unchecked")
-    private RedisProfiles(ProxyServer proxy, Object plugin, Logger logger, ClassLoader loader) throws Exception {
+    private RedisProfiles(
+            ProxyServer proxy, Object plugin, Logger logger, ClassLoader loader, Predicate<UUID> reportsUntracked)
+            throws Exception {
         this.proxy = proxy;
         this.plugin = plugin;
         this.logger = logger;
+        this.reportsUntracked = reportsUntracked;
         Class<?> type = Class.forName(API, true, loader);
         api = type.getMethod("getAbstractRedisBungeeAPI").invoke(null);
         if (api == null) throw new IllegalStateException("RedisBungee has not started");
@@ -64,13 +74,17 @@ final class RedisProfiles implements RemoteProfiles, AutoCloseable {
         proxy.getEventManager().register(plugin, eventClass, handler);
     }
 
-    /** Null when RedisBungee is not installed or cannot be reached. */
-    static @Nullable RedisProfiles create(ProxyServer proxy, Object plugin, Logger logger) {
+    /**
+     * Null when RedisBungee is not installed or cannot be reached. {@code reportsUntracked} says whether this runtime
+     * answers for a player it does not track; at most one runtime on a proxy may say so for any player.
+     */
+    static @Nullable RedisProfiles create(
+            ProxyServer proxy, Object plugin, Logger logger, Predicate<UUID> reportsUntracked) {
         var container = proxy.getPluginManager().getPlugin("redisbungee").orElse(null);
         Object instance = container == null ? null : container.getInstance().orElse(null);
         if (instance == null) return null;
         try {
-            return new RedisProfiles(proxy, plugin, logger, instance.getClass().getClassLoader());
+            return new RedisProfiles(proxy, plugin, logger, instance.getClass().getClassLoader(), reportsUntracked);
         } catch (Exception | LinkageError failure) {
             logger.log(Level.WARNING, "RedisBungee is installed but cross-proxy profiles are unavailable", failure);
             return null;
@@ -123,7 +137,10 @@ final class RedisProfiles implements RemoteProfiles, AutoCloseable {
                     for (JsonElement line : message.getAsJsonArray("lines")) {
                         lines.add(GsonComponentSerializer.gson().deserializeFromTree(line));
                     }
-                    future.complete(lines);
+                    if (!lines.isEmpty()) future.complete(lines);
+                    else
+                        CompletableFuture.delayedExecutor(EMPTY_ANSWER_GRACE_MILLIS, TimeUnit.MILLISECONDS)
+                                .execute(() -> future.complete(lines));
                 }
                 default -> {}
             }
@@ -134,7 +151,9 @@ final class RedisProfiles implements RemoteProfiles, AutoCloseable {
 
     /** An empty answer tells the asking proxy that this one does not track the player after all. */
     private void answer(UUID id, String to, String player) {
-        CultPlayer cultPlayer = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(UUID.fromString(player));
+        UUID uuid = UUID.fromString(player);
+        CultPlayer cultPlayer = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(uuid);
+        if (cultPlayer == null && !reportsUntracked.test(uuid)) return;
         JsonArray lines = new JsonArray();
         if (cultPlayer != null) {
             for (Component line : CultProfile.render(cultPlayer)) {
