@@ -21,10 +21,12 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.ItemTypes;
+import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import org.jetbrains.annotations.NotNull;
@@ -45,10 +47,9 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
 
     private int lastTick;
     private boolean didLastFlag;
-    // Initialize to non-null values to prevent NPE when checking for blockType properties and if position equals old
-    // position
+    // Initialize to a non-null value to prevent NPE when checking if position equals old position
     private @NotNull BlockPos lastBreakLoc = BlockPos.ZERO;
-    private int lastBlockType = BlockIds.AIR.defaultState();
+    private boolean lastStartBrokeInstantly;
 
     public AirLiquidBreak(CultPlayer player) {
         super(player);
@@ -70,22 +71,18 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
     private boolean checkBreak(BlockBreak blockBreak) {
         final int block = blockBreak.block;
 
-        // When breaking kelp underwater, the client sends two start digging packets in the same tick.
-        // AirLiquidBreak gets called twice, doesn't false the first time, but falses the second
-        // One ends up breaking the kelp, the other ends up doing nothing besides falsing this check because we think
-        // they're trying to mine water
-        // I am explicitly making this patch as narrow and specific as possible to potentially discover other blocks
-        // that exhibit similar behaviour
+        // Minecraft#continueAttack digs the fluid a survival START's instant MultiPlayerGameMode#destroyBlock leaves
         int newTick = CultAPI.INSTANCE.getTickManager().currentTick;
         if (lastTick == newTick
                 && lastBreakLoc.equals(blockBreak.position)
                 && !didLastFlag
-                && ClientBlockProperties.defaultDestroyTime(lastBlockType) == 0.0F
-                && ClientBlockProperties.explosionResistance(lastBlockType) == 0.0F
+                && lastStartBrokeInstantly
                 && BlockIds.is(block, BlockIds.WATER)) return false;
         lastTick = newTick;
         lastBreakLoc = blockBreak.position;
-        lastBlockType = block;
+        lastStartBrokeInstantly = blockBreak.action == PlayerAction.START_DESTROY_BLOCK
+                && player.gamemode != GameMode.CREATIVE
+                && BlockBreakSpeed.getBlockDamage(player, block) >= 1.0D;
 
         // the block does not have a hitbox
         boolean invalid = (BlockIds.is(block, BlockIds.LIGHT)
