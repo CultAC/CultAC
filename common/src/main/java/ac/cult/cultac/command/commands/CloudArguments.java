@@ -28,8 +28,6 @@ final class CloudArguments {
     /** Offers Clean in the label menu; the service still takes a clean label only from an admin. */
     static final String LABEL_CLEAN = "cult.cloud.label.clean";
 
-    static final String REPORT = "cult.cloud.report";
-
     static final String NOT_CONFIGURED = "Cloud is not configured on this server.";
     static final String CRACKED = "Labeling is disabled on offline-mode servers.";
     static final int MAX_SUGGESTIONS = 100;
@@ -73,12 +71,7 @@ final class CloudArguments {
      * when that completes. A lookup that fails, or a {@code then} that throws, is told to {@code sender} too.
      */
     static void resolve(Sender sender, String input, Consumer<Target> then) {
-        resolve(sender, input, true, then);
-    }
-
-    /** As {@link #resolve(Sender, String, Consumer)}, {@code mojangNames} as in {@link TargetLookup#resolve}. */
-    static void resolve(Sender sender, String input, boolean mojangNames, Consumer<Target> then) {
-        LOOKUP.resolve(input, mojangNames).whenComplete((outcome, error) -> {
+        LOOKUP.resolve(input).whenComplete((outcome, error) -> {
             try {
                 if (error != null) {
                     sender.sendMessage(Component.text(

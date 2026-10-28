@@ -129,7 +129,6 @@ class BridgeCommandHandlerTest {
         assertTrue(BridgeCommandHandler.forwardable("GD reload", roots, owned));
         assertFalse(BridgeCommandHandler.forwardable("guard update x.jar", roots, owned));
         assertFalse(BridgeCommandHandler.forwardable("guard findings Victim", roots, owned));
-        assertTrue(BridgeCommandHandler.forwardable("guard report Victim Cheater illegal_crossteaming", roots, owned));
         for (String root : CommandRoots.DEFAULT) {
             assertFalse(BridgeCommandHandler.forwardable(root + " alerts", roots, registered -> true), root);
         }
