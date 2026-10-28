@@ -32,8 +32,9 @@ public class CultAlerts implements BuildableCommand {
             AlertManagerImpl am = CultAPI.INSTANCE.getAlertManager();
             boolean newState = !am.hasAlertsEnabled(player);
             am.setAlertsEnabled(player, newState, false);
-            CultAPI.INSTANCE.getDataStoreLifecycle().playerToggleStore()
-                    .applyUserToggle(player.getUniqueId(), PlayerToggleStore.KEY_ALERTS, newState);
+            PlayerToggleStore toggles = CultAPI.INSTANCE.getDataStoreLifecycle().playerToggleStore();
+            toggles.applyUserToggle(player.getUniqueId(), PlayerToggleStore.KEY_ALERTS, newState);
+            if (!newState) toggles.applyUserToggle(player.getUniqueId(), PlayerToggleStore.KEY_VERBOSE, false);
         } else if (sender.isConsole()) {
             CultAPI.INSTANCE.getAlertManager().toggleConsoleAlerts();
         }

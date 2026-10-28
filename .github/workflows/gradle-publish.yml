@@ -31,7 +31,11 @@ on:
         paths:
             - 'bukkit/**'
             - 'common/**'
-            - 'fabric/**'
+            - '.github/workflows/build-and-publish.yml'
+            - '.github/workflows/gradle-publish.yml'
+            - 'gradle/**'
+            - 'gradle.properties'
+            - 'gradlew*'
             - '**.java'
             - '**.kt'
             - '**.kts'

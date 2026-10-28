@@ -217,7 +217,9 @@ public final class PacketApi {
 
         while (!pendingTypes.isEmpty()) {
             Class<?> type = pendingTypes.removeFirst();
-            checkedTypes.add(type);
+            if (!checkedTypes.add(type)) {
+                continue;
+            }
 
             if (type == ClientboundBundlePacket.class) {
                 unpackBundles(packets, pendingTypes, checkedTypes);
@@ -328,10 +330,6 @@ public final class PacketApi {
                         continue;
                     }
 
-                    if (insertIndex == index) {
-                        index++;
-                    }
-
                     packets.add(insertIndex++, nested);
                     if (type.isInstance(nested)) {
                         continue;
@@ -339,6 +337,7 @@ public final class PacketApi {
 
                     queueNestedPacket(nested, pendingTypes, checkedTypes);
                 }
+                index = insertIndex;
             }
         }
     }

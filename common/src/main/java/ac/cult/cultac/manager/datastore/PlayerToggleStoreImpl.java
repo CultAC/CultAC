@@ -27,7 +27,7 @@ import java.util.logging.Logger;
 /**
  * Concrete {@link PlayerToggleStore} backed by a {@link DataStore}.
  *
- * <h2>Lock-free state machine</h2>
+ * <h2>Preference precedence</h2>
  * Each (player, key) holds an {@link AtomicReference} to a {@link TogglePair}
  * carrying the value and the {@link Source} that wrote it. State transitions are
  * a precedence-gated CAS loop:
@@ -58,7 +58,7 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
         static final TogglePair INITIAL = new TogglePair(Source.UNKNOWN, null);
     }
 
-    /** Per-player slot. All fields are lock-free. */
+    /** Per-player preference state. */
     public static final class ToggleSlot {
         final AtomicReference<TogglePair> alerts = new AtomicReference<>(TogglePair.INITIAL);
         final AtomicReference<TogglePair> verbose = new AtomicReference<>(TogglePair.INITIAL);
@@ -78,6 +78,7 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
     private final long flushDelayMs;
     private final boolean ownsScheduler;
     private final Map<UUID, ToggleSlot> slots = new ConcurrentHashMap<>();
+    private boolean closed;
 
     public PlayerToggleStoreImpl(@NotNull DataStore store, @NotNull Logger logger) {
         this(store, logger, defaultScheduler(), DEFAULT_FLUSH_DELAY_MS, true);
@@ -104,7 +105,8 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
     }
 
     @Override
-    public void prefetch(@NotNull UUID uuid) {
+    public synchronized void prefetch(@NotNull UUID uuid) {
+        if (closed) return;
         ToggleSlot slot = slots.computeIfAbsent(uuid, k -> new ToggleSlot());
         prefetchKey(uuid, slot.alerts, KEY_ALERTS);
         prefetchKey(uuid, slot.verbose, KEY_VERBOSE);
@@ -133,7 +135,8 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
     }
 
     @Override
-    public void applyPermissionDefault(@NotNull UUID uuid, @NotNull String key, boolean value) {
+    public synchronized void applyPermissionDefault(@NotNull UUID uuid, @NotNull String key, boolean value) {
+        if (closed) return;
         ToggleSlot slot = slots.computeIfAbsent(uuid, k -> new ToggleSlot());
         AtomicReference<TogglePair> ref = refFor(slot, key);
         if (ref == null) return;
@@ -143,7 +146,8 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
     }
 
     @Override
-    public void applyUserToggle(@NotNull UUID uuid, @NotNull String key, boolean value) {
+    public synchronized void applyUserToggle(@NotNull UUID uuid, @NotNull String key, boolean value) {
+        if (closed) return;
         ToggleSlot slot = slots.computeIfAbsent(uuid, k -> new ToggleSlot());
         AtomicReference<TogglePair> ref = refFor(slot, key);
         AtomicBoolean dirty = dirtyFor(slot, key);
@@ -154,7 +158,7 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
     }
 
     @Override
-    public void evict(@NotNull UUID uuid) {
+    public synchronized void evict(@NotNull UUID uuid) {
         ToggleSlot slot = slots.remove(uuid);
         if (slot == null) return;
         ScheduledFuture<?> f = slot.pendingFlush.getAndSet(null);
@@ -189,7 +193,7 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
         if (!slot.pendingFlush.compareAndSet(null, f)) f.cancel(false);
     }
 
-    private void flushDirty(ToggleSlot slot, UUID uuid) {
+    private synchronized void flushDirty(ToggleSlot slot, UUID uuid) {
         flushOne(uuid, KEY_ALERTS, slot.alertsDirty, slot.alerts);
         flushOne(uuid, KEY_VERBOSE, slot.verboseDirty, slot.verbose);
         flushOne(uuid, KEY_BRANDS, slot.brandsDirty, slot.brands);
@@ -252,7 +256,12 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
     }
 
     @Override
-    public void shutdown() {
+    public synchronized void shutdown() {
+        if (closed) return;
+        closed = true;
         if (ownsScheduler) scheduler.shutdownNow();
+        for (UUID uuid : slots.keySet()) {
+            evict(uuid);
+        }
     }
 }

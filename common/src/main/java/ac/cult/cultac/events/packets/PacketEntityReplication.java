@@ -13,7 +13,6 @@ import ac.cult.cultac.network.packet.NmsPacketUtil;
 import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
@@ -34,16 +33,12 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.utils.nmsutil.MobEffectsCompat;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandler;
 import net.minecraft.core.Holder;
-import net.minecraft.network.PacketBundleUnpacker;
-import net.minecraft.network.protocol.BundleDelimiterPacket;
-import net.minecraft.network.protocol.BundlerInfo;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.common.ClientboundPingPacket;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
-import net.minecraft.network.protocol.game.ClientboundBundleDelimiterPacket;
+import net.minecraft.network.protocol.game.ClientboundBundlePacket;
 import net.minecraft.network.protocol.game.ClientboundDamageEventPacket;
 import net.minecraft.network.protocol.game.ClientboundEntityEventPacket;
 import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
@@ -66,7 +61,6 @@ import net.minecraft.world.phys.Vec3;
 import org.bukkit.potion.PotionEffectType;
 import org.jetbrains.annotations.Nullable;
 
-import java.lang.reflect.Field;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import java.util.ArrayList;
@@ -74,16 +68,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PacketEntityReplication extends CultProcessor implements CheckListener, ClientTickEndListener {
     private static final ClientVersion SERVER_VERSION =
             ClientVersion.fromProtocolVersion(net.minecraft.SharedConstants.getProtocolVersion());
     private static final Vec3 SELF_DISMOUNT_VELOCITY = Vec3.ZERO;
     private static final double VEHICLE_MOVE_RESYNC_SNAP_EPSILON = 2.0E-5D;
-    private static final AtomicBoolean LOGGED_SMOKETEST_BUNDLE_DELIMITER_LOOKUP = new AtomicBoolean(false);
-
-    private Packet<?> clientboundBundleDelimiterPacket;
     private final Map<Integer, PacketHandlerDeltaMovement> packetHandlerDeltaMovements = new HashMap<>();
     private final Map<Integer, PacketHandlerEntityTransform> packetHandlerEntityTransforms = new HashMap<>();
     private int packetHandlerDeltaMovementSequence = 0;
@@ -921,7 +911,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         // These are native server status codes, before ViaVersion rewrites the packet.
         if (!player.isBedrockMovement() && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_26_3)
                 && (status == 71 || status == 72)) {
-            CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, List.of(), true);
+            CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, List.of());
             Runnable apply = () -> player.compensatedEntities.vehicles.applyBoatBubbleColumnEvent(entityId, status);
             if (proof != null) player.latencyUtils.addRealTimeTask(proof.transaction(), apply);
             else player.latencyUtils.addRealTimeTaskNow(apply);
@@ -1041,10 +1031,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                                             @Nullable VehicleMountResyncState mountResyncState,
                                             @Nullable SelfDismountResyncState dismountResyncState) {
         List<Packet<? super ClientGamePacketListener>> resyncPackets = resyncPackets(mountResyncState, dismountResyncState);
-        boolean useDelimiter = resyncPackets.isEmpty()
-                ? shouldUseEntityTrackingBundleDelimiter()
-                : shouldUseVehicleProtocolBundleDelimiter();
-        CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, resyncPackets, useDelimiter);
+        CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, resyncPackets);
         return proof == null ? player.lastTransactionSent.get() : proof.transaction();
     }
 
@@ -1286,59 +1273,42 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private CultPlayer.TrackedTransaction appendTrailingProofTransaction(PacketSendEvent event) {
-        return appendTrailingProofTransaction(event, List.of(), shouldUseEntityTrackingBundleDelimiter());
+        return appendTrailingProofTransaction(event, List.of());
     }
 
     @Nullable
     public CultPlayer.TrackedTransaction appendVehicleProtocolProofTransaction(PacketSendEvent event) {
-        return appendTrailingProofTransaction(event, List.of(), shouldUseVehicleProtocolBundleDelimiter());
+        return appendTrailingProofTransaction(event, List.of());
     }
 
     @Nullable
     public CultPlayer.TrackedTransaction appendPlainProofTransaction(PacketSendEvent event) {
-        return appendTrailingProofTransaction(event, List.of(), false);
+        return appendTrailingProofTransaction(event, List.of());
     }
 
     private CultPlayer.TrackedTransaction appendTrailingProofTransaction(PacketSendEvent event,
-                                                                        List<Packet<? super ClientGamePacketListener>> packetsBeforeProof,
-                                                                        boolean requestedDelimiter) {
+                                                                        List<Packet<? super ClientGamePacketListener>> packetsBeforeProof) {
         CultPlayer.TrackedTransaction proof = player.createTrackedTransactionPacketForBundle();
         if (proof == null) {
             return null;
         }
 
-        Packet<?> delimiterPacket = requestedDelimiter ? getClientboundBundleDelimiterPacket() : null;
-        if (delimiterPacket != null) {
-            event.getPacketsBeforeSend().add(delimiterPacket);
-        }
-        addProofGroupPackets(event.getPacketsAfterSend(), proof, packetsBeforeProof, delimiterPacket);
+        event.getPacketsAfterSend().addAll(packetsBeforeProof);
+        event.getPacketsAfterSend().add(proof.packet());
         event.getTasksAfterSend().add(() -> player.markTrackedTransactionPacketSent(proof));
         return proof;
     }
 
     private void writeProofGroupNow(CultPlayer.TrackedTransaction proof,
                                     List<Packet<? super ClientGamePacketListener>> packetsBeforeProof) {
-        Packet<?> delimiterPacket = shouldUseVehicleProtocolBundleDelimiter()
-                ? getClientboundBundleDelimiterPacket()
-                : null;
-        List<Packet<?>> packets = new ArrayList<>(packetsBeforeProof.size() + (delimiterPacket == null ? 1 : 3));
-        addProofGroupPackets(packets, proof, packetsBeforeProof, delimiterPacket);
-        if (delimiterPacket != null) {
-            packets.add(0, delimiterPacket);
-        }
-        writePacketsDirect(packets);
-        player.markTrackedTransactionPacketSent(proof);
-    }
-
-    private void addProofGroupPackets(List<Packet<?>> packets,
-                                      CultPlayer.TrackedTransaction proof,
-                                      List<Packet<? super ClientGamePacketListener>> packetsBeforeProof,
-                                      @Nullable Packet<?> delimiterPacket) {
-        packets.addAll(packetsBeforeProof);
+        List<Packet<? super ClientGamePacketListener>> packets = new ArrayList<>(packetsBeforeProof);
         packets.add(proof.packet());
-        if (delimiterPacket != null) {
-            packets.add(delimiterPacket);
+        if (shouldUseVehicleProtocolBundleDelimiter()) {
+            writePacketDirect(new ClientboundBundlePacket(packets));
+        } else {
+            writePacketsDirect(new ArrayList<>(packets));
         }
+        player.markTrackedTransactionPacketSent(proof);
     }
 
     private boolean shouldUseEntityTrackingBundleDelimiter() {
@@ -1424,7 +1394,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
 
         CultPlayer.TrackedTransaction proof = useDelimiterProof
-                ? appendTrailingProofTransaction(event, List.of(), true)
+                ? appendTrailingProofTransaction(event, List.of())
                 : null;
         int firstTransaction = proof == null ? player.lastTransactionSent.get() : proof.transaction();
         if (data != null) {
@@ -1701,80 +1671,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
         PacketHandlerDeltaMovement movement = packetHandlerDeltaMovements.get(entity.getEntityId());
         return movement == null ? entity.deltaMovement : new Vec3(movement.x(), movement.y(), movement.z());
-    }
-
-    @Nullable
-    private Packet<?> getClientboundBundleDelimiterPacket() {
-        if (clientboundBundleDelimiterPacket != null) {
-            return clientboundBundleDelimiterPacket;
-        }
-
-        Object channelObject = player.user.getChannel();
-        if (!(channelObject instanceof Channel channel)) {
-            logSmoketestBundleDelimiterLookup("no-channel", null, null);
-            return null;
-        }
-
-        for (Map.Entry<String, ChannelHandler> entry : channel.pipeline()) {
-            Packet<?> delimiterPacket = findClientboundBundleDelimiterPacket(entry.getValue());
-            if (delimiterPacket != null) {
-                clientboundBundleDelimiterPacket = delimiterPacket;
-                logSmoketestBundleDelimiterLookup("found", entry.getKey(), delimiterPacket);
-                return delimiterPacket;
-            }
-        }
-
-        logSmoketestBundleDelimiterLookup("missing", null, null);
-        return null;
-    }
-
-    private void logSmoketestBundleDelimiterLookup(String result, @Nullable String handler, @Nullable Packet<?> packet) {
-        if (!Boolean.getBoolean("cult.validation.smoketestControl")
-                || !LOGGED_SMOKETEST_BUNDLE_DELIMITER_LOOKUP.compareAndSet(false, true)) {
-            return;
-        }
-        StringBuilder message = new StringBuilder("Smoketest reach bundle delimiter lookup attempted=true result=")
-                .append(result);
-        if (handler != null) {
-            message.append(" handler=").append(handler);
-        }
-        if (packet != null) {
-            message.append(" packetClass=").append(packet.getClass().getName());
-        }
-        LogUtil.info(message.toString());
-    }
-
-    @Nullable
-    private Packet<?> findClientboundBundleDelimiterPacket(Object source) {
-        if (!(source instanceof PacketBundleUnpacker) && !(source instanceof BundlerInfo)) {
-            return null;
-        }
-
-        Class<?> type = source.getClass();
-        while (type != null) {
-            for (Field field : type.getDeclaredFields()) {
-                try {
-                    field.setAccessible(true);
-                    Object value = field.get(source);
-                    if (value instanceof ClientboundBundleDelimiterPacket delimiter) {
-                        return delimiter;
-                    }
-                    if (value instanceof BundleDelimiterPacket<?> delimiter) {
-                        return (Packet<?>) delimiter;
-                    }
-                    if (value instanceof BundlerInfo) {
-                        Packet<?> delimiter = findClientboundBundleDelimiterPacket(value);
-                        if (delimiter != null) {
-                            return delimiter;
-                        }
-                    }
-                } catch (IllegalAccessException | RuntimeException ignored) {
-                }
-            }
-            type = type.getSuperclass();
-        }
-
-        return null;
     }
 
     private void writePacketDirect(Packet<?> packet) {

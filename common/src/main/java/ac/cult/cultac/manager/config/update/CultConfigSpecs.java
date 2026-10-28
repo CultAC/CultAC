@@ -93,7 +93,7 @@ public final class CultConfigSpecs {
                     if (backendId != null && !backendId.equals("sqlite")) {
                         // Connection details only matter for networked backends.
                         // SQLite settings (file path) stay at their defaults.
-                        String target = "databases/" + backendId + ".yml";
+                        String target = backendId + ".yml";
                         Object host = ctx.input().get("history.database.host");
                         Object port = ctx.input().get("history.database.port");
                         Object db = ctx.input().get("history.database.database");

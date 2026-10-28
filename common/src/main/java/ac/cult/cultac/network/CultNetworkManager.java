@@ -25,13 +25,6 @@ import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.protocol.BundlePacket;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
-import net.minecraft.network.protocol.common.ClientboundKeepAlivePacket;
-import net.minecraft.network.protocol.common.ClientboundPingPacket;
-import net.minecraft.network.protocol.common.ServerboundClientInformationPacket;
-import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
-import net.minecraft.network.protocol.common.ServerboundKeepAlivePacket;
-import net.minecraft.network.protocol.common.ServerboundPongPacket;
-import net.minecraft.network.protocol.common.ServerboundResourcePackPacket;
 import net.minecraft.network.protocol.configuration.ServerboundFinishConfigurationPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerConfigurationPacketListenerImpl;
@@ -945,30 +938,17 @@ public final class CultNetworkManager implements Listener {
         if (packet instanceof net.minecraft.network.protocol.configuration.ClientboundFinishConfigurationPacket) {
             return currentState;
         }
-        if (packet instanceof ServerboundCustomPayloadPacket
-                || packet instanceof ServerboundClientInformationPacket) {
+        String className = packet.getClass().getName();
+        if (className.contains(".protocol.common.") || className.contains(".protocol.cookie.")) {
             return currentState;
         }
-        if (packet instanceof ClientboundPingPacket || packet instanceof ServerboundPongPacket) {
-            return ConnectionProtocol.PLAY;
-        }
-        if (packet instanceof ClientboundKeepAlivePacket
-                || packet instanceof ServerboundKeepAlivePacket
-                || packet instanceof ServerboundResourcePackPacket) {
-            return ConnectionProtocol.PLAY;
-        }
-
-        String packageName = packet.getClass().getPackageName();
-        if (packageName.contains(".protocol.common.")) {
-            return ConnectionProtocol.PLAY;
-        }
-        if (packageName.contains(".protocol.login.")) {
+        if (className.contains(".protocol.login.")) {
             return ConnectionProtocol.LOGIN;
         }
-        if (packageName.contains(".protocol.configuration.")) {
+        if (className.contains(".protocol.configuration.")) {
             return ConnectionProtocol.CONFIGURATION;
         }
-        if (packageName.contains(".protocol.status.")) {
+        if (className.contains(".protocol.status.")) {
             return ConnectionProtocol.STATUS;
         }
         return ConnectionProtocol.PLAY;

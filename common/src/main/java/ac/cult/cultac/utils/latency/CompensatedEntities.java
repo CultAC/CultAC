@@ -93,6 +93,7 @@ public class CompensatedEntities {
         pendingEquipment.remove(entityID);
         if (entity == null) return;
 
+        entity.eject();
         boolean removedSelfVehicle = vehicles.serverPlayerVehicle != null && vehicles.serverPlayerVehicle == entityID;
         if (removedSelfVehicle) {
             vehicles.clearServerVehicle();

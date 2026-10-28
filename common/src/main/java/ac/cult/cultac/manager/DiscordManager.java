@@ -61,7 +61,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable {
     private static final Pattern URL_PATTERN = Pattern.compile("^https?://(?:www\\.)?[-a-z0-9@:%._+~#=]{1,256}\\.[a-z0-9()]{1,6}\\b[-a-z0-9()@:%_+.~#?&/=]*$", Pattern.CASE_INSENSITIVE);
 
     private static String validatedConfigURL(String configPath, String defaultURL) {
-        String url = CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse("embed-image-url", defaultURL);
+        String url = CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse(configPath, defaultURL);
         if (url == null || url.isBlank()) return null;
         if (URL_PATTERN.matcher(url).matches()) {
             return url;

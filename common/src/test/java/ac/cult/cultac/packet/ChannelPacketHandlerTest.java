@@ -162,6 +162,56 @@ public final class ChannelPacketHandlerTest {
     }
 
     @Test
+    public void generatedPacketsOfTheSameTypeAreDispatchedOnceEach() {
+        initializeConnectionConfiguration();
+        PacketApi api = new PacketApi("replacement-dispatch-test", false);
+        Connection connection = Mockito.mock(Connection.class);
+        List<Long> receivedIds = new ArrayList<>();
+        api.registerHandler(ClientboundPingPacket.class, Connection.class,
+                (receiver, packet) -> List.of(new ClientboundKeepAlivePacket(11L), new ClientboundKeepAlivePacket(12L)));
+        api.registerHandler(ClientboundKeepAlivePacket.class, Connection.class, (receiver, packet) -> {
+            receivedIds.add(packet.getId());
+            return List.of(new ClientboundKeepAlivePacket(packet.getId() + 100L));
+        });
+        EmbeddedChannel channel = new EmbeddedChannel(new ChannelPacketHandler(api, connection));
+        try {
+            assertTrue(channel.writeOutbound(new ClientboundPingPacket(7)));
+            Packet<?> outbound = channel.readOutbound();
+            List<Packet<?>> children = PacketBundleUtil.flattenOneLevel(outbound);
+            assertEquals(List.of(11L, 12L), receivedIds);
+            assertEquals(111L, ((ClientboundKeepAlivePacket) children.get(0)).getId());
+            assertEquals(112L, ((ClientboundKeepAlivePacket) children.get(1)).getId());
+            assertNull(channel.readOutbound());
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    public void prependedPacketsAndSameTypeExpansionDoNotRedispatchTheOriginal() {
+        initializeConnectionConfiguration();
+        PacketApi api = new PacketApi("same-type-replacement-test", false);
+        Connection connection = Mockito.mock(Connection.class);
+        List<Integer> receivedIds = new ArrayList<>();
+        ClientboundKeepAlivePacket before = new ClientboundKeepAlivePacket(11L);
+        ClientboundPingPacket original = new ClientboundPingPacket(7);
+        ClientboundPingPacket after = new ClientboundPingPacket(8);
+        api.registerHandler(ClientboundPingPacket.class, Connection.class, (receiver, packet) -> {
+            receivedIds.add(packet.getId());
+            return List.of(before, packet, after);
+        });
+        EmbeddedChannel channel = new EmbeddedChannel(new ChannelPacketHandler(api, connection));
+        try {
+            assertTrue(channel.writeOutbound(original));
+            Packet<?> outbound = channel.readOutbound();
+            assertEquals(List.of(7), receivedIds);
+            assertEquals(List.of(before, original, after), PacketBundleUtil.flattenOneLevel(outbound));
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
     public void oneChildInputBundleKeepsItsBoundary() {
         initializeConnectionConfiguration();
         PacketApi api = new PacketApi("single-bundle-test", false);

@@ -11,18 +11,18 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import lombok.RequiredArgsConstructor;
 import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 public class PunishmentManager implements ConfigReloadable {
     private static final CommandExecuteEvent.Channel COMMAND_CHANNEL = CultAPI.INSTANCE.getEventBus().get(CommandExecuteEvent.class);
     private final CultPlayer player;
+    private final LongSupplier currentTimeMillis;
     private final List<PunishGroup> groups = new ArrayList<>();
     private String experimentalSymbol = "*";
     private String alertString;
@@ -30,7 +30,12 @@ public class PunishmentManager implements ConfigReloadable {
     private String proxyAlertString = "";
 
     public PunishmentManager(CultPlayer player) {
+        this(player, System::currentTimeMillis);
+    }
+
+    PunishmentManager(CultPlayer player, LongSupplier currentTimeMillis) {
         this.player = player;
+        this.currentTimeMillis = Objects.requireNonNull(currentTimeMillis, "currentTimeMillis");
     }
 
     @Override
@@ -222,19 +227,19 @@ public class PunishmentManager implements ConfigReloadable {
     public void handleViolation(Check check) {
         for (PunishGroup group : groups) {
             if (group.checks.contains(check)) {
-                long currentTime = System.currentTimeMillis();
+                long currentTime = currentTimeMillis.getAsLong();
 
-                group.violations.put(currentTime, check);
+                group.violations.add(new PunishGroup.Violation(currentTime, check));
                 // Remove violations older than the defined time in the config
-                group.violations.long2ObjectEntrySet().removeIf(time -> currentTime - time.getLongKey() > group.removeViolationsAfter);
+                group.violations.removeIf(violation -> currentTime - violation.timestamp() > group.removeViolationsAfter);
             }
         }
     }
 
     private int getViolations(PunishGroup group, Check check) {
         int vl = 0;
-        for (Check value : group.violations.values()) {
-            if (value == check) vl++;
+        for (PunishGroup.Violation violation : group.violations) {
+            if (violation.check() == check) vl++;
         }
         return vl;
     }
@@ -244,8 +249,11 @@ public class PunishmentManager implements ConfigReloadable {
 class PunishGroup {
     public final List<AbstractCheck> checks;
     public final List<ParsedCommand> commands;
-    public final Long2ObjectMap<Check> violations = new Long2ObjectOpenHashMap<>();
+    public final List<Violation> violations = new ArrayList<>();
     public final int removeViolationsAfter; // time to remove violations after in milliseconds
+
+    record Violation(long timestamp, Check check) {
+    }
 }
 
 class ParsedCommand {

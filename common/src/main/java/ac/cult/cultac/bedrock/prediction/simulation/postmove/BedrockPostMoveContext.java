@@ -7,7 +7,6 @@ import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
-import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockMovementSlowdownResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMovement;

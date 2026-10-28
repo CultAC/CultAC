@@ -135,7 +135,9 @@ dependencies {
     }
     compileOnly(libs.geyser.core)
 
-    compileOnly(libs.floodgate.api)
+    compileOnly(libs.floodgate.api) {
+        isTransitive = false // Floodgate provides its implementation and dependencies at runtime.
+    }
     compileOnly(libs.viaversion)
     compileOnly(libs.viabackwards)
     compileOnly(libs.netty)
