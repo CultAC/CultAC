@@ -315,7 +315,7 @@ public final class HistoryComponentRenderer {
         TemplateValue checksList = origin.plainText()
                 ? TemplateValue.component(checkCounts(sender, cfg, bucket))
                 : TemplateValue.raw(checkCounts(cfg, bucket));
-        Component bucketHoverEntries = buildBucketHoverEntries(sender, cfg, d, bucket, verbose);
+        Component bucketHoverEntries = buildBucketHoverEntries(sender, cfg, d, bucket, verbose, origin);
         String bucketStart = formatDuration(bucket.bucketStartOffsetMs());
         String bucketEnd = formatDuration(bucket.bucketStartOffsetMs() + d.bucketSizeMs());
         RenderedTemplate rendered = parse(
@@ -372,7 +372,7 @@ public final class HistoryComponentRenderer {
     }
 
     private static Component buildBucketHoverEntries(
-            Sender sender, ConfigManager cfg, SessionDetail d, CheckBucket bucket, boolean verbose) {
+            Sender sender, ConfigManager cfg, SessionDetail d, CheckBucket bucket, boolean verbose, Origin origin) {
         long bucketStart = bucket.bucketStartOffsetMs();
         long bucketEnd = bucketStart + d.bucketSizeMs();
         Component body = Component.empty();
@@ -397,6 +397,16 @@ public final class HistoryComponentRenderer {
                                     Map.of("verbose", TemplateValue.text(verboseText)))
                             .component()
                     : Component.empty();
+            if (origin.confidence().test(v)) {
+                verboseComponent = parse(
+                                sender,
+                                cfg,
+                                "cult-history-detail-group-hover-confidence",
+                                " — &7confidence %confidence%",
+                                Map.of("confidence", TemplateValue.text(confidence(v.vl()))))
+                        .component()
+                        .append(verboseComponent);
+            }
             body = body.append(parse(
                             sender,
                             cfg,

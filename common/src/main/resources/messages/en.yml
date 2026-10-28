@@ -149,6 +149,7 @@ cult-history-detail-group-hover: "&bViolations in &f%bucket_start%–%bucket_end
 cult-history-detail-group-hover-entry: "<newline>&8  %offset% &b%check%%description%%verbose%"
 cult-history-hover-description: " — &f%description%"
 cult-history-detail-group-hover-verbose: " — &7%verbose%"
+cult-history-detail-group-hover-confidence: " — &7confidence %confidence%"
 # A single raw violation row (--detailed) — valid placeholders:
 #   %prefix% %offset% %check% %description% %vl% %confidence% %verbose%
 #   A cloud detection's value is %confidence% (0 to 1) and its %vl% is empty; for every other violation it is the reverse.

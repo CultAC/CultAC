@@ -565,6 +565,10 @@ class CloudHistoryTest {
 
             assertEquals("Reach — engine\n@ 0s — vl 3.0\ndistance=3.4", hover(rows.get(4)));
             assertEquals("Reach (cloud model) — cloud-model\n@ 0s — confidence 0.88", hover(rows.get(5)));
+            String grouped = text(render(
+                    CloudHistory.detail(cloud, PLAYER, "latest", 30_000, null).get(), false));
+            assertTrue(grouped.contains("cloud-model") && grouped.contains("confidence 0.88"), grouped);
+            assertFalse(grouped.contains("confidence 3.0"), grouped);
         }
     }
 
