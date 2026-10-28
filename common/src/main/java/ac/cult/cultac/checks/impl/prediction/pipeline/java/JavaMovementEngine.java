@@ -73,6 +73,33 @@ public final class JavaMovementEngine implements MovementEngine {
         return trace == null ? null : trace.passAfterTravel();
     }
 
+    /**
+     * Entity#wasTouchingWater as {@code result}'s client tick left it, or null before its Java commit.
+     * LivingEntity#checkFallDamage refreshes the fluids after the travel's Entity#move and again after each
+     * Entity#move(PISTON) of the block-entity pass that follows it, so a shove into water leaves the flag set.
+     */
+    public static Boolean touchingWaterAfterTick(PredictionResult result) {
+        JavaPassState pass = stateAfterPass(result);
+        if (pass != null) return pass.inWater();
+        var moved = result.getJavaCommittedMove();
+        return moved == null ? null : moved.touchingWater();
+    }
+
+    /** {@link #touchingWaterAfterTick} for the lava flag, which the same refreshes write. */
+    public static Boolean touchingLavaAfterTick(PredictionResult result) {
+        JavaPassState pass = stateAfterPass(result);
+        if (pass != null) return pass.inLava();
+        var moved = result.getJavaCommittedMove();
+        return moved == null ? null : moved.touchingLava();
+    }
+
+    /** The latest pass after the travel: a replayed one after the commit, else the 26.3 pass before the report. */
+    private static JavaPassState stateAfterPass(PredictionResult result) {
+        if (result.getJavaReplayedPassState() != null) return result.getJavaReplayedPassState();
+        JavaPassAfterTravel pass = passAfterTravel(result);
+        return pass == null ? null : pass.result().state();
+    }
+
     @Override
     public List<PredVector> startingVelocities(
             VelocityTransformer transformer, CultPlayer player, List<PredVector> input, SimulationContext context) {

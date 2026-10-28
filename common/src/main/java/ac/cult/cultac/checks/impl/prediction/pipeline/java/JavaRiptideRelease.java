@@ -34,7 +34,9 @@ public final class JavaRiptideRelease {
         var outputs = new ArrayList<Prepared>();
         var world = context.getWorldData();
         var carry = context.getProfileCarry() instanceof JavaPredictionCarry javaCarry ? javaCarry : null;
-        var previous = last == null ? null : last.getJavaCommittedMove();
+        // handleKeybinds reads the fluid flags the last tick's travel and block-entity pass left.
+        Boolean water = last == null ? null : JavaMovementEngine.touchingWaterAfterTick(last);
+        Boolean lava = last == null ? null : JavaMovementEngine.touchingLavaAfterTick(last);
         for (boolean grounded : world.getCarriedOnGround().getStates()) {
             for (PredVector pushed : spins ? Riptide.releasePushes(context, velocities) : velocities) {
                 boolean lift = spins && grounded;
@@ -47,8 +49,8 @@ public final class JavaRiptideRelease {
                         carry == null ? 0.0 : carry.fallDistance(),
                         player.checkManager.getSimulationProcessor().getPistonDeltas(),
                         carry != null && carry.powderContact(),
-                        previous == null ? world.isInWater() : previous.touchingWater(),
-                        previous == null ? world.isInLava() : previous.touchingLava(),
+                        water == null ? world.isInWater() : water,
+                        lava == null ? world.isInLava() : lava,
                         world.getEyeFluidContact());
                 JavaPassState moved = null;
                 JavaBlockEntityMove.Moved lifted = null;

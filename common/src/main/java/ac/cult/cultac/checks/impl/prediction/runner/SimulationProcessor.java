@@ -349,9 +349,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
         if (!reaches) return;
 
-        var travelled = this.lastPrediction.getJavaCommittedMove();
-        boolean waterAfterTravel = travelled == null ? world.isInWater() : travelled.touchingWater();
-        boolean lavaAfterTravel = travelled == null ? world.isInLava() : travelled.touchingLava();
+        Boolean waterAfterTick = JavaMovementEngine.touchingWaterAfterTick(this.lastPrediction);
+        Boolean lavaAfterTick = JavaMovementEngine.touchingLavaAfterTick(this.lastPrediction);
+        boolean waterBeforePass = waterAfterTick == null ? world.isInWater() : waterAfterTick;
+        boolean lavaBeforePass = lavaAfterTick == null ? world.isInLava() : lavaAfterTick;
         JavaBlockEntityPass.Result first = null;
         DesyncStatus passHard = null;
         boolean movedSelf = false;
@@ -367,8 +368,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     state.fallDistance(),
                     anchored == null ? this.getPistonDeltas(actor) : anchored.pistonDeltas(),
                     state.powderContact(),
-                    stateFluidContact(state, true, waterAfterTravel),
-                    stateFluidContact(state, false, lavaAfterTravel),
+                    stateFluidContact(state, true, waterBeforePass),
+                    stateFluidContact(state, false, lavaBeforePass),
                     state.playerEyeFluidContact());
             JavaBlockEntityPass.Result result;
             try (var ignored = ClientFluidTagOrder.use(this.player, state.fluidTagOrder())) {
@@ -449,6 +450,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (!first.moved() && after.equals(starts)) return;
 
         JavaPassState end = first.state();
+        // Each Entity#move of the pass refreshed the fluids a later riptide release and pass start from.
+        this.lastPrediction.setJavaReplayedPassState(end);
         if (vehicle == null) this.pistonDeltas = end.pistonDeltas();
         else {
             vehicle.blockEntityState = end;
@@ -510,11 +513,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (state.fluidTagOrder() == null || this.lastPrediction == null) return fallback;
         for (var prediction : this.lastPrediction.getRealities()) {
             if (prediction.getSimulationContext().getFluidTagOrder() != state.fluidTagOrder()) continue;
-            var moved = prediction.getJavaCommittedMove();
+            Boolean touching = water
+                    ? JavaMovementEngine.touchingWaterAfterTick(prediction)
+                    : JavaMovementEngine.touchingLavaAfterTick(prediction);
             var world = prediction.getSimulationContext().getWorldData();
-            return moved == null
-                    ? water ? world.isInWater() : world.isInLava()
-                    : water ? moved.touchingWater() : moved.touchingLava();
+            return touching == null ? water ? world.isInWater() : world.isInLava() : touching;
         }
         return fallback;
     }

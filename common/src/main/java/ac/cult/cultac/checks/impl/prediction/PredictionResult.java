@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
@@ -39,6 +40,14 @@ public class PredictionResult {
     @EqualsAndHashCode.Exclude
     @ToString.Exclude
     JavaFallDistance.Moved javaCommittedMove;
+
+    /**
+     * Where the last pass the runner replayed after this result's commit left its actor: the block entities after a
+     * pre-26.3 report, or the shulkers ticking before the next travel. Null until such a pass moves it.
+     */
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    JavaPassState javaReplayedPassState;
 
     List<Flag> flags = List.of();
     double flagSeverity = 0; // Cache for performance and to allow exempting

@@ -2,7 +2,7 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Riptide;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -76,25 +76,28 @@ public final class RiptideUtil {
     }
 
     /**
-     * Whether the last move left Entity#wasTouchingWater set, so TridentItem#releaseUsing spins this valid release.
+     * Whether the last tick left Entity#wasTouchingWater set, so TridentItem#releaseUsing spins this valid release.
      */
     public static boolean isCertainRiptideRelease(CultPlayer player) {
         if (player.compensatedEntities.getSelf().inVehicle()) {
             return false;
         }
-        PredictionResult last = player.checkManager.getSimulationProcessor().getLastPrediction();
-        JavaFallDistance.Moved moved = last == null ? null : last.getJavaCommittedMove();
-        return moved != null && moved.touchingWater();
+        return Boolean.TRUE.equals(lastTickTouchingWater(player));
     }
 
     /**
      * Entity#wasTouchingWater as TridentItem#releaseUsing reads it: Minecraft#handleKeybinds runs before the tick's
-     * baseTick, so the flag is the one the last move left after LivingEntity#checkFallDamage refreshed fluids.
+     * baseTick, so the flag is the one the last tick left after LivingEntity#checkFallDamage refreshed fluids, at the
+     * end of its travel and of any block-entity pass that moved the player after it.
      */
     private static boolean wasTouchingWater(CultPlayer player) {
+        Boolean water = lastTickTouchingWater(player);
+        return water != null ? water : isTouchingWater(player);
+    }
+
+    private static Boolean lastTickTouchingWater(CultPlayer player) {
         PredictionResult last = player.checkManager.getSimulationProcessor().getLastPrediction();
-        JavaFallDistance.Moved moved = last == null ? null : last.getJavaCommittedMove();
-        return moved != null ? moved.touchingWater() : isTouchingWater(player);
+        return last == null ? null : JavaMovementEngine.touchingWaterAfterTick(last);
     }
 
     public static boolean isTouchingWater(CultPlayer player) {
