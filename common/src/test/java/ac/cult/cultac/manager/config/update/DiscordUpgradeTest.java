@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
@@ -56,6 +55,7 @@ class DiscordUpgradeTest {
             enabled: true
             webhook: "https://discord.com/api/webhooks/1/abc"
             embed-title: "Alert on %server%"
+            embed-footer-text: "%uuid% v%cult_version%"
             embed-footer-url: "https://example.com/logo.png"
             embed-image-url: "https://example.com/banner.png"
             include-state: false
@@ -68,6 +68,25 @@ class DiscordUpgradeTest {
                 - "**Checks**: %checks%"
             config-flavor: V2
             config-version: 3
+            """;
+
+    private static final String V4_GRIM = """
+            enabled: true
+            webhook: "https://discord.com/api/webhooks/1/abc"
+            embed-title: "%player% has been detected for %check% [%violations%]"
+            embed-footer-text: "%uuid% v%cult_version%"
+            embed-footer-url: ""
+            include-state: true
+            violation-content:
+                - "**Version**: `%version%` **Brand**: `%brand%`"
+                - "**Server**: `%server%` **World**: `%world%` **Location**: `%location%`"
+                - "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Clock**: `%clock_behind%ms` **Time**: `%session_time%`"
+                - "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`"
+                - "**State**: %state%"
+                - "**Checks**: %checks%"
+                - "**Verbose**: %verbose%"
+            config-flavor: V2
+            config-version: 4
             """;
 
     @TempDir
@@ -100,18 +119,15 @@ class DiscordUpgradeTest {
         assertEquals("https://example.com/logo.png", data.get("embed-footer-url"));
         assertEquals(bundled.get("embed-footer-text"), data.get("embed-footer-text"));
         assertEquals("https://discord.com/api/webhooks/1/abc", data.get("webhook"));
-        assertEquals(4, data.get("config-version"));
+        assertEquals(5, data.get("config-version"));
     }
 
     @Test
-    void turnedOffSectionsStayOffAndUnbundledKeysStay() throws Exception {
+    void turnedOffSectionsAndUnbundledKeysStay() throws Exception {
         Map<String, Object> data = upgrade(V2_GLADIATOR.replace(
                 "include-state: true\n",
                 "include-state: false\ninclude-verbose: false\nembed-image-url: \"https://example.com/banner.png\"\n"));
-        List<?> content = (List<?>) data.get("violation-content");
-        assertEquals(((List<?>) bundled("en").get("violation-content")).size() - 2, content.size());
-        assertFalse(content.stream().anyMatch(line -> ((String) line).contains("%state%")));
-        assertFalse(content.stream().anyMatch(line -> ((String) line).contains("%verbose%")));
+        assertEquals(bundled("en").get("violation-content"), data.get("violation-content"));
         assertEquals(false, data.get("include-state"));
         assertEquals(false, data.get("include-verbose"));
         assertEquals("https://example.com/banner.png", data.get("embed-image-url"));
@@ -127,17 +143,39 @@ class DiscordUpgradeTest {
     }
 
     @Test
-    void shippedV3SensitivityShowsPercentages() throws Exception {
+    void shippedV3GrimLayoutTakesTheNewDefault() throws Exception {
         Map<String, Object> data = upgrade(V3_RAW_SENSITIVITY);
-        List<Object> expected = new ArrayList<>((List<?>) bundled("en").get("violation-content"));
-        expected.removeIf(line -> ((String) line).contains("%state%") || ((String) line).contains("%verbose%"));
-        assertEquals(expected, data.get("violation-content"));
+        assertEquals(bundled("en").get("violation-content"), data.get("violation-content"));
+        assertEquals("v%cult_version%", data.get("embed-footer-text"));
         assertEquals("Alert on %server%", data.get("embed-title"));
         assertEquals("https://example.com/logo.png", data.get("embed-footer-url"));
         assertEquals("https://example.com/banner.png", data.get("embed-image-url"));
         assertEquals(false, data.get("include-state"));
         assertEquals(false, data.get("include-verbose"));
-        assertEquals(4, data.get("config-version"));
+        assertEquals(5, data.get("config-version"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"**Brand**", "**Marke**", "**品牌**"})
+    void shippedV4GrimLayoutTakesTheNewDefault(String brandLabel) throws Exception {
+        Map<String, Object> data = upgrade(V4_GRIM.replace("**Brand**", brandLabel));
+        Map<String, Object> bundled = bundled("en");
+        assertEquals(bundled.get("violation-content"), data.get("violation-content"));
+        assertEquals(bundled.get("embed-title"), data.get("embed-title"));
+        assertEquals("v%cult_version%", data.get("embed-footer-text"));
+        assertEquals(5, data.get("config-version"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {" **Location**: `%location%`", "**Brand**", "    - \"**Checks**: %checks%\"\n"})
+    void operatorGrimLayoutStays(String edit) throws Exception {
+        String file = edit.equals("**Brand**")
+                ? V4_GRIM.replace(edit, "**Client**")
+                : V4_GRIM.replace(edit, "");
+        List<?> before = (List<?>) new Yaml().<Map<String, Object>>load(file).get("violation-content");
+        Map<String, Object> data = upgrade(file.replace("%uuid% v%cult_version%", "%uuid%"));
+        assertEquals(before, data.get("violation-content"));
+        assertEquals("%uuid%", data.get("embed-footer-text"));
     }
 
     @Test
@@ -170,10 +208,10 @@ class DiscordUpgradeTest {
     @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh"})
     void bundledLanguagesShipTheNewLayout(String language) throws Exception {
         Map<String, Object> data = bundled(language);
-        assertEquals(4, data.get("config-version"));
+        assertEquals(5, data.get("config-version"));
         assertEquals(true, data.get("include-state"));
         assertEquals("", data.get("embed-footer-url"));
-        assertEquals("%uuid% v%cult_version%", data.get("embed-footer-text"));
+        assertEquals("v%cult_version%", data.get("embed-footer-text"));
         assertEquals("https://crafthead.net/helm/%uuid%", data.get("embed-thumbnail-url"));
         String title = (String) data.get("embed-title");
         assertTrue(title.contains("%player%") && title.contains("%check%") && title.contains("%violations%"));
@@ -182,9 +220,7 @@ class DiscordUpgradeTest {
                 bundled("en").get("violation-content").toString().replaceAll("\\*\\*[^*]+\\*\\*", ""),
                 content.toString().replaceAll("\\*\\*[^*]+\\*\\*", ""));
         for (Object line : content) {
-            String text = (String) line;
-            if (text.contains("%state%") || text.contains("%checks%") || text.contains("%verbose%")) continue;
-            assertTrue(text.endsWith("`"), line + " is not in a code span");
+            assertTrue(((String) line).endsWith("`"), line + " is not in a code span");
         }
         assertFalse(content.stream().anyMatch(line -> ((String) line).contains("%violations%")));
     }

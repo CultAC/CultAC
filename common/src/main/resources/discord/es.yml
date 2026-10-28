@@ -18,7 +18,7 @@ embed-color: "#00FFFF"
 
 include-timestamp: true
 # The footer under the alert, and the icon beside it (an image URL, empty for none).
-embed-footer-text: "%uuid% v%cult_version%"
+embed-footer-text: "v%cult_version%"
 embed-footer-url: ""
 # The image at the top right of the alert; %uuid% is the flagged player.
 embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
@@ -32,14 +32,17 @@ backtick-replacement-char: "ˋ"
 
 # El contenido del embed que se mandara por este webhook.
 violation-content:
-    - "**Versión**: `%version%` **Marca**: `%brand%`"
-    - "**Servidor**: `%server%` **Mundo**: `%world%` **Ubicación**: `%location%`"
-    - "**TPS**: `%tps%` **Latencia**: `%ping%/%keepalive_ping%` **Reloj**: `%clock_behind%ms` **Tiempo**: `%session_time%`"
-    - "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`"
-    - "**Estado**: %state%"
-    - "**Comprobaciones**: %checks%"
-    - "**Detalles**: %verbose%"
+    - "**Jugador**: `%player%`"
+    - "**UUID**: `%uuid%`"
+    - "**Comprobación**: `%check%`"
+    - "**Version del cliente**: `%version%`"
+    - "**Marca del cliente**: `%brand%`"
+    - "**Sensibilidad**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**Latencia**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**Servidor**: `%server%`"
+    - "**Mundo**: `%world% (%world_type%)`"
 
 # Marcadores de esquema — ver el comentario de cabecera en config.yml.
 config-flavor: V2
-config-version: 4
+config-version: 5

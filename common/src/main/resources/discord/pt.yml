@@ -8,7 +8,7 @@ embed-title: "%player% foi detectado por %check% [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
 # The footer under the alert, and the icon beside it (an image URL, empty for none).
-embed-footer-text: "%uuid% v%cult_version%"
+embed-footer-text: "v%cult_version%"
 embed-footer-url: ""
 # The image at the top right of the alert; %uuid% is the flagged player.
 embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
@@ -19,14 +19,17 @@ include-state: true
 # Defina como "`" para desativar esta substituição.
 backtick-replacement-char: "ˋ"
 violation-content:
-    - "**Versão**: `%version%` **Marca**: `%brand%`"
-    - "**Servidor**: `%server%` **Mundo**: `%world%` **Localização**: `%location%`"
-    - "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Relógio**: `%clock_behind%ms` **Tempo**: `%session_time%`"
-    - "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`"
-    - "**Estado**: %state%"
-    - "**Verificações**: %checks%"
-    - "**Detalhes**: %verbose%"
+    - "**Jogador**: `%player%`"
+    - "**UUID**: `%uuid%`"
+    - "**Verificação**: `%check%`"
+    - "**Versão do Cliente**: `%version%`"
+    - "**Marca do Cliente**: `%brand%`"
+    - "**Sensibilidade**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**Ping**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**Servidor**: `%server%`"
+    - "**Mundo**: `%world% (%world_type%)`"
 
 # Marcadores de esquema — ver o comentário do cabeçalho em config.yml.
 config-flavor: V2
-config-version: 4
+config-version: 5
