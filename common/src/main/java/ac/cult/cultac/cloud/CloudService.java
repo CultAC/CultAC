@@ -7,6 +7,7 @@ import ac.cult.cultac.cloud.capture.Sections;
 import ac.cult.cultac.cloud.diag.Diagnostics;
 import ac.cult.cultac.cloud.findings.Finding;
 import ac.cult.cultac.cloud.findings.FindingsLog;
+import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.cloud.transport.CloudConnection;
 import ac.cult.cultac.cloud.transport.CloudConnections;
 import ac.cult.cultac.cloud.wire.IntakeWire;
@@ -89,6 +90,7 @@ public final class CloudService {
         if (!settings.enabled()) findings = null;
         else if (findings == null) findings = new FindingsLog(System::currentTimeMillis, CloudService::tracked);
         CONNECTIONS.configure(settings);
+        LabelClient.refreshCatalogWhile(settings.enabled());
         CloudCapture.uplinks(UPLINKS);
         boolean on = UPLINKS.enabled();
         if (on && !hooksOn) {
@@ -217,6 +219,7 @@ public final class CloudService {
 
     /** Plugin disable: every tap leaves its pipeline and every socket closes. Does not block. */
     static void shutdown() {
+        LabelClient.refreshCatalogWhile(false);
         for (CloudCapture capture : INSTALLED) capture.detach();
         CONNECTIONS.closeAll();
         UPLINKS.clear();
