@@ -39,7 +39,8 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     state.powderContact(),
                     state.playerEyeFluidContact(),
                     state.fluidTagOrder(),
-                    state.spinRebound()));
+                    state.spinRebound(),
+                    state.fallDistanceMax()));
         return withStates(next);
     }
 
@@ -58,10 +59,23 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     && start.support().getBlockPos() == null && !start.support().isOnGround();
             if (start.onGround() == ground && (ground || supportCleared)) continue;
             if (next == null) next = new ArrayList<>(states);
-            next.set(i, new State(state.velocity(), state.fallDistance(), state.stuckSpeed(), state.movementPatch(),
-                    new PistonStart(start.position(), ground,
-                            ground ? start.support() : new MainSupportingBlockData(null, false), start.pistonDeltas()),
-                    state.powderContact(), state.playerEyeFluidContact(), state.fluidTagOrder(), state.spinRebound()));
+            next.set(
+                    i,
+                    new State(
+                            state.velocity(),
+                            state.fallDistance(),
+                            state.stuckSpeed(),
+                            state.movementPatch(),
+                            new PistonStart(
+                                    start.position(),
+                                    ground,
+                                    ground ? start.support() : new MainSupportingBlockData(null, false),
+                                    start.pistonDeltas()),
+                            state.powderContact(),
+                            state.playerEyeFluidContact(),
+                            state.fluidTagOrder(),
+                            state.spinRebound(),
+                            state.fallDistanceMax()));
         }
         return next == null ? this : withStates(next);
     }
@@ -120,7 +134,8 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     state.powderContact(),
                     state.playerEyeFluidContact(),
                     state.fluidTagOrder(),
-                    state.spinRebound());
+                    state.spinRebound(),
+                    state.fallDistanceMax());
             if (!transformed.contains(next)) transformed.add(next);
         }
         return new JavaPredictionCarry(actor, fallDistance, transformed, powderContact);
@@ -130,7 +145,12 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
     public record PistonStart(
             Vec3 position, boolean onGround, MainSupportingBlockData support, ClientPistonDeltas pistonDeltas) {}
 
-    /** spinRebound records a completed hit; velocity already includes its rebound and every subsequent write. */
+    /**
+     * spinRebound records a completed hit; velocity already includes its rebound and every subsequent write. The fall
+     * distance is any value from fallDistance to fallDistanceMax: the debug allowance's readings can leave a range. The
+     * tick runs on fallDistance, and splits into both ends only where the value changes movement (powder snow, see
+     * {@link #fallRangeMovesDifferently}, and a sneaking player's edge backoff).
+     */
     public record State(
             Vec3 velocity,
             double fallDistance,
@@ -140,7 +160,59 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
             boolean powderContact,
             int playerEyeFluidContact,
             ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder,
-            boolean spinRebound) {
+            boolean spinRebound,
+            double fallDistanceMax) {
+        public State(
+                Vec3 velocity,
+                double fallDistance,
+                Vec3 stuckSpeed,
+                JavaMovementPatch movementPatch,
+                PistonStart pistonStart,
+                boolean powderContact,
+                int playerEyeFluidContact,
+                ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder,
+                boolean spinRebound) {
+            this(
+                    velocity,
+                    fallDistance,
+                    stuckSpeed,
+                    movementPatch,
+                    pistonStart,
+                    powderContact,
+                    playerEyeFluidContact,
+                    fluidTagOrder,
+                    spinRebound,
+                    fallDistance);
+        }
+
+        /** This state with fall distance {@code low} to {@code high}. */
+        public State withFallDistance(double low, double high) {
+            return new State(
+                    velocity,
+                    low,
+                    stuckSpeed,
+                    movementPatch,
+                    pistonStart,
+                    powderContact,
+                    playerEyeFluidContact,
+                    fluidTagOrder,
+                    spinRebound,
+                    high);
+        }
+
+        /** Whether the fall distance is a range rather than one value. */
+        public boolean hasFallDistanceRange() {
+            return fallDistanceMax > fallDistance;
+        }
+
+        /**
+         * Whether moving with either end of the fall distance range can differ: PowderSnowBlock#getCollisionShape is the
+         * only collision that reads it, past 2.5. LivingEntity#travelInLava halves it first, and the glide cap only
+         * lowers it, so the ends differ only when the high end is past 2.5 and the low end at most twice that.
+         */
+        public boolean fallRangeMovesDifferently() {
+            return hasFallDistanceRange() && fallDistanceMax > 2.5 && fallDistance <= 5.0;
+        }
         public State(
                 Vec3 velocity,
                 double fallDistance,
@@ -173,8 +245,17 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
         }
         /** This state carrying {@code velocity} instead. */
         public State withVelocity(Vec3 velocity) {
-            return new State(velocity, fallDistance, stuckSpeed, movementPatch, pistonStart, powderContact,
-                    playerEyeFluidContact, fluidTagOrder, spinRebound);
+            return new State(
+                    velocity,
+                    fallDistance,
+                    stuckSpeed,
+                    movementPatch,
+                    pistonStart,
+                    powderContact,
+                    playerEyeFluidContact,
+                    fluidTagOrder,
+                    spinRebound,
+                    fallDistanceMax);
         }
 
         /** WATER membership at refresh; the raw cache is the state carried into later queries. */
@@ -233,7 +314,8 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     powderContact,
                     playerEyeFluidContact,
                     fluidTagOrder,
-                    spinRebound);
+                    spinRebound,
+                    fallDistanceMax);
         }
 
         public State withFluidTagOrder(ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder order) {
@@ -246,11 +328,13 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     powderContact,
                     playerEyeFluidContact,
                     order,
-                    spinRebound);
+                    spinRebound,
+                    fallDistanceMax);
         }
 
         public State {
             requireDistance(fallDistance);
+            if (!(fallDistanceMax >= fallDistance)) fallDistanceMax = fallDistance;
         }
     }
 

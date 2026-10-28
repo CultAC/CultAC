@@ -128,6 +128,17 @@ public class PredVector extends Vec3 {
         return ranged;
     }
 
+    /**
+     * This vector after a transform mapped its range to {@code offsets}; the ends it moves with stay, so it still
+     * takes the same end of the mapped range.
+     */
+    public PredVector withMappedRange(SimpleCollisionBox offsets) {
+        if (velocityRange == null) return this;
+        PredVector mapped = new PredVector(this, this, "mapped velocity range");
+        mapped.velocityRange = offsets;
+        return mapped;
+    }
+
     /** This ranged velocity moving with the given end per axis (see {@link #getRangeEnd}). */
     public PredVector withRangeEnds(int x, int y, int z) {
         PredVector candidate = new PredVector(this, this, "velocity range end");
@@ -379,8 +390,53 @@ public class PredVector extends Vec3 {
         return this.withXYZ(vector.x, vector.y, vector.z, reason);
     }
 
+    /** This vector scaled by {@code v}; a velocity range scales with it, so it still bounds the same velocities. */
     public PredVector multiply(double v, String reason) {
-        return new PredVector(x * v, y * v, z * v, this, reason);
+        PredVector scaled = new PredVector(x * v, y * v, z * v, this, reason);
+        if (velocityRange != null) {
+            scaled.velocityRange = SimpleCollisionBox.between(
+                    velocityRange.minX * v,
+                    velocityRange.minY * v,
+                    velocityRange.minZ * v,
+                    velocityRange.maxX * v,
+                    velocityRange.maxY * v,
+                    velocityRange.maxZ * v);
+            if (v < 0) {
+                // A negative scale swaps the low and high ends.
+                scaled.rangeEndX = flipped(rangeEndX);
+                scaled.rangeEndY = flipped(rangeEndY);
+                scaled.rangeEndZ = flipped(rangeEndZ);
+            }
+        }
+        return scaled;
+    }
+
+    private static byte flipped(byte end) {
+        return end == -1 || end == 1 ? (byte) -end : end;
+    }
+
+    /**
+     * This vector after a per-axis clamp into {@code [low, high]} (LivingEntity#handleOnClimbable); a velocity range
+     * maps through the same clamp, so it holds exactly the clamped velocities.
+     */
+    public PredVector clamped(Vec3 low, Vec3 high, String reason) {
+        PredVector clamped = withXYZOrSelf(
+                Math.max(low.x, Math.min(high.x, x)),
+                Math.max(low.y, Math.min(high.y, y)),
+                Math.max(low.z, Math.min(high.z, z)),
+                reason);
+        if (velocityRange == null) return clamped;
+        SimpleCollisionBox range = velocityRange;
+        SimpleCollisionBox mapped = new SimpleCollisionBox(
+                Math.max(low.x, Math.min(high.x, x + range.minX)) - clamped.x,
+                Math.max(low.y, Math.min(high.y, y + range.minY)) - clamped.y,
+                Math.max(low.z, Math.min(high.z, z + range.minZ)) - clamped.z,
+                Math.max(low.x, Math.min(high.x, x + range.maxX)) - clamped.x,
+                Math.max(low.y, Math.min(high.y, y + range.maxY)) - clamped.y,
+                Math.max(low.z, Math.min(high.z, z + range.maxZ)) - clamped.z);
+        if (clamped == this) clamped = new PredVector(this, this, reason);
+        clamped.velocityRange = mapped;
+        return clamped;
     }
 
     public Vec3 multiply(double v) {

@@ -105,6 +105,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.Generated;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
@@ -144,6 +145,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private boolean predictingAtTickEnd;
     // PacketStateData#acceptedClientTick of the client tick whose entity moves before travel have been replayed.
     private int entityMovesTick = Integer.MIN_VALUE;
+    private int debugUncertaintyTick = Integer.MIN_VALUE;
+    private boolean debugUncertaintyOnTick;
     /** Whether the last client tick ended with the local player a passenger. */
     private boolean rideTicked;
     /** The on-foot candidates a mount temporarily replaces before the first actual passenger tick. */
@@ -374,19 +377,50 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             }
             if (first == null) first = result;
             JavaPassState end = result.state();
+            Vec3 velocity = end.velocity();
+            if (state.velocity() instanceof PredVector ranged && ranged.getVelocityRange() != null) {
+                // The pass moves every velocity of a carried range: replayed from the range's corners, they bound
+                // where it leaves the rest.
+                var range = ranged.getVelocityRange();
+                var corners = new ArrayList<Vec3>(2);
+                for (Vec3 corner : List.of(
+                        new Vec3(ranged.x + range.minX, ranged.y + range.minY, ranged.z + range.minZ),
+                        new Vec3(ranged.x + range.maxX, ranged.y + range.maxY, ranged.z + range.maxZ))) {
+                    try (var ignored = ClientFluidTagOrder.use(this.player, state.fluidTagOrder())) {
+                        corners.add(JavaBlockEntityPass.run(
+                                        this.player,
+                                        context,
+                                        pass,
+                                        start.withVelocity(corner),
+                                        this.player.pose,
+                                        sneaking,
+                                        context.getStart(),
+                                        state.movementPatch())
+                                .state()
+                                .velocity());
+                    }
+                }
+                velocity = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange.hull(
+                        velocity instanceof PredVector vector ? vector.withVelocityRange(null) : velocity, corners);
+            }
+            // The pass falls both ends of a carried fall distance range by the same move, or resets both.
+            double fallHigh = end.fallDistance() == 0 && state.fallDistance() != 0
+                    ? 0
+                    : state.fallDistanceMax() + end.fallDistance() - state.fallDistance();
             var next = new JavaPredictionCarry.State(
-                    end.velocity(),
-                    end.fallDistance(),
-                    end.stuckSpeed(),
-                    state.movementPatch(),
-                    state.movementPatch() == null
-                            ? null
-                            : new JavaPredictionCarry.PistonStart(
-                                    end.position(), end.onGround(), end.support(), end.pistonDeltas()),
-                    end.powderContact(),
-                    end.playerEyeFluidContact(),
-                    state.fluidTagOrder(),
-                    state.spinRebound());
+                            velocity,
+                            end.fallDistance(),
+                            end.stuckSpeed(),
+                            state.movementPatch(),
+                            state.movementPatch() == null
+                                    ? null
+                                    : new JavaPredictionCarry.PistonStart(
+                                            end.position(), end.onGround(), end.support(), end.pistonDeltas()),
+                            end.powderContact(),
+                            end.playerEyeFluidContact(),
+                            state.fluidTagOrder(),
+                            state.spinRebound())
+                    .withFallDistance(end.fallDistance(), fallHigh);
             if (!after.contains(next)) after.add(next);
         }
         if (!first.moved() && after.equals(starts)) return;
@@ -707,16 +741,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             for (Vec3 velocity :
                     ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks.afterPlayerTick(
                             this.player, context, this.lastPrediction.getInitialStartingVel(), end, state.velocity())) {
-                var next = new JavaPredictionCarry.State(
-                        velocity,
-                        state.fallDistance(),
-                        state.stuckSpeed(),
-                        state.movementPatch(),
-                        state.pistonStart(),
-                        state.powderContact(),
-                        state.playerEyeFluidContact(),
-                        state.fluidTagOrder(),
-                        state.spinRebound());
+                var next = state.withVelocity(velocity);
                 if (!states.contains(next)) states.add(next);
             }
         }
@@ -2139,6 +2164,90 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
     }
 
+    /** The distinct travels per simulation context whose debug allowance gap is read as velocity too. */
+    private static final int DEBUG_READ_TRAVELS = 4;
+
+    /**
+     * The debug allowance's gap may have been deltaMovement, and the allowance can make several travels fit. The
+     * distinct travels it moved that were nearest the report before it ran, a few per simulation context, read their
+     * gap as velocity too, even one a check flagged (a NoFall a landing reading would clear), and those readings
+     * compete as candidates. Every family that explains the report as well as the winner is carried with it: the
+     * allowance cannot tell them apart.
+     */
+    private PredictionResult withDebugVelocityReadings(
+            MovementEngine engine,
+            PredictionResult best,
+            PredictionResult lastPrediction,
+            List<PredictionResult> alternativeRealities,
+            List<PredictionResult> invalidOrValidRealities) {
+        var travels = new ArrayList<PredictionResult>();
+        for (PredictionResult candidate : invalidOrValidRealities)
+            if (candidate.getValidMovements().readsDebugVelocity(invalidOrValidRealities)) travels.add(candidate);
+        travels.sort(java.util.Comparator.comparingDouble(PredictionResult::getOffset)
+                .thenComparingDouble(PredictionResult::selectionOffset)
+                .thenComparingDouble(PredictionResult::getFlagSeverity));
+        var perContext = new java.util.IdentityHashMap<SimulationContext, Integer>();
+        for (PredictionResult candidate : travels) {
+            if (perContext.merge(candidate.getSimulationContext(), 1, Integer::sum) > DEBUG_READ_TRAVELS) continue;
+            for (PredictionResult reading : candidate.getValidMovements().debugVelocityReadings()) {
+                engine.evaluateCandidate(this.player, reading);
+                this.flagger.handleResult(reading, lastPrediction);
+                if (reading.getFlagSeverity() == 0.0) alternativeRealities.add(reading);
+                invalidOrValidRealities.add(reading);
+                if (engine.isBetterCandidate(reading, best)) best = reading;
+            }
+        }
+        if (best.getFlagSeverity() != 0.0) return best;
+        // PredictionResult's equality reads its candidate lists, which hold it: collect by identity.
+        var carried = new ArrayList<PredictionResult>();
+        addAllOnce(carried, best.getValidMovements().debugFamily());
+        for (PredictionResult candidate : invalidOrValidRealities) {
+            if (candidate.getFlagSeverity() != 0.0
+                    || candidate.getOffset() > best.getOffset() + 1.0E-9
+                    || candidate.selectionOffset() > best.selectionOffset() + 1.0E-9) continue;
+            List<PredictionResult> family = candidate.getValidMovements().debugFamily();
+            addAllOnce(carried, family.isEmpty() ? List.of(candidate) : family);
+        }
+        // Candidates that moved the same travel in the same context commit the same states.
+        var distinct = new ArrayList<PredictionResult>(carried.size());
+        for (PredictionResult candidate : carried)
+            if (candidate == best || !sameTravelEarlier(carried, candidate)) distinct.add(candidate);
+        if (distinct.size() > 1) best.getValidMovements().carryDebugReadings(List.copyOf(distinct));
+        return best;
+    }
+
+    private static boolean sameTravelEarlier(List<PredictionResult> carried, PredictionResult candidate) {
+        for (PredictionResult other : carried) {
+            if (other == candidate) return false;
+            if (other.getSimulationContext() == candidate.getSimulationContext()
+                    && other.getValidMovements().sameTravel(candidate.getValidMovements())) return true;
+        }
+        return false;
+    }
+
+    private static void addAllOnce(List<PredictionResult> into, List<PredictionResult> from) {
+        for (PredictionResult result : from) {
+            boolean present = false;
+            for (PredictionResult other : into) present |= other == result;
+            if (!present) into.add(result);
+        }
+    }
+
+    /** Replays and all candidates for one accepted Java/Bedrock tick share the same debug choice. */
+    private boolean shouldApplyDebugUncertainty() {
+        Vec3 radius = this.player.debugUncertainty;
+        if (radius.x == 0 && radius.y == 0 && radius.z == 0) return false;
+        double chance = this.player.debugUncertaintyChancePercent;
+        if (chance >= 100.0D) return true;
+        if (chance <= 0.0D) return false;
+        int tick = this.player.packetStateData.acceptedClientTick;
+        if (this.debugUncertaintyTick != tick) {
+            this.debugUncertaintyTick = tick;
+            this.debugUncertaintyOnTick = ThreadLocalRandom.current().nextDouble(100.0D) < chance;
+        }
+        return this.debugUncertaintyOnTick;
+    }
+
     private PredictionResult predict(
             CultPlayer player,
             Set<Vec3> startingVel,
@@ -2155,6 +2264,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         List<PredictionResult> invalidOrValidRealities = new ArrayList<>();
         List<ValidMovements> valid = new ArrayList<>();
         MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
+        boolean debugUncertainty = this.shouldApplyDebugUncertainty();
 
         for (SimulationContext curSimulationContext : this.createReleaseSimulationContexts(
                 player,
@@ -2238,6 +2348,14 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     validMovements.computeClosest(lastPrediction);
                 }
                 if (!player.isBedrockMovement() && !JavaSpinAttack.validSprintContext(player, thisResult)) break;
+                if (debugUncertainty) {
+                    if (forward) {
+                        // Rank by how far off the candidate was before the allowance, which can make many fit.
+                        engine.evaluateCandidate(player, thisResult);
+                        thisResult.selectionOffset();
+                    }
+                    validMovements.applyDebugUncertainty();
+                }
                 engine.evaluateCandidate(player, thisResult);
                 this.flagger.handleResult(thisResult, lastPrediction);
                 bestResult = engine.isBetterCandidate(thisResult, bestResult) ? thisResult : bestResult;
@@ -2280,6 +2398,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 }
             } while (allowStep);
         }
+
+        if (debugUncertainty && engine == JavaMovementEngine.INSTANCE && bestResult != null)
+            bestResult = this.withDebugVelocityReadings(
+                    engine, bestResult, lastPrediction, alternativeRealities, invalidOrValidRealities);
 
         if (!alternativeRealities.contains(bestResult)) {
             alternativeRealities.add(bestResult);
@@ -2537,7 +2659,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             // Every state's context is built from the same inputs before the state is applied to it.
             CarryWorld world = null;
             boolean worldSpinRebound = false;
-            for (var state : this.fluidOrderStates(this.movementPatchStates(carried.states()))) {
+            for (var state :
+                    this.fluidOrderStates(this.movementPatchStates(this.fallRangeStates(carried.states(), start)))) {
                 JavaPredictionCarry.PistonStart anchored = state.pistonStart();
                 // Packet processing/interpolation placed a shared vehicle start before travel.
                 // Preserve distinct physical alternatives; a common old anchor must not undo that placement.
@@ -2615,6 +2738,67 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             return List.of(primary, patched);
         }
         return List.of(primary);
+    }
+
+    /**
+     * A state carrying a fall distance range runs once, on its low end, unless its ends move differently: the range
+     * reaches across PowderSnowBlock#getCollisionShape's 2.5 with powder snow in reach of this travel, or a sneaking
+     * player's Player#isAboveGround, which lets Player#maybeBackOffFromEdge run, holds at one end and not the other.
+     * Then each end runs.
+     */
+    private List<JavaPredictionCarry.State> fallRangeStates(List<JavaPredictionCarry.State> states, Vec3 start) {
+        List<JavaPredictionCarry.State> split = null;
+        for (int i = 0; i < states.size(); i++) {
+            var state = states.get(i);
+            if (!(state.fallRangeMovesDifferently() && powderSnowInReach(state, start))
+                    && !edgeBackoffReadsFallRange(state, start)) {
+                if (split != null) split.add(state);
+                continue;
+            }
+            if (split == null) split = new ArrayList<>(states.subList(0, i));
+            split.add(state.withFallDistance(state.fallDistance(), state.fallDistance()));
+            split.add(state.withFallDistance(state.fallDistanceMax(), state.fallDistanceMax()));
+        }
+        return split == null ? states : split;
+    }
+
+    /** Whether Player#isAboveGround differs between the ends of this state's fall distance range. */
+    private boolean edgeBackoffReadsFallRange(JavaPredictionCarry.State state, Vec3 start) {
+        if (!state.hasFallDistanceRange()
+                || !this.player.isSneaking
+                || this.player.isFlying
+                || state.fallDistance() >= this.player.getMaxUpStep()) return false;
+        var anchored = state.pistonStart();
+        // On the ground Player#isAboveGround holds whatever the fall distance.
+        if (anchored != null ? anchored.onGround() : this.lastOnGround == DesyncStatus.TRUE) return false;
+        Vec3 at = anchored == null ? start : anchored.position();
+        SimpleCollisionBox box = GetBoundingBox.getCollisionBoxForPlayer(this.player, at.x, at.y, at.z);
+        return ac.cult.cultac.utils.nmsutil.SneakEdgeBackoff.groundWithinStep(this.player, box, state.fallDistance())
+                != ac.cult.cultac.utils.nmsutil.SneakEdgeBackoff.groundWithinStep(
+                        this.player, box, state.fallDistanceMax());
+    }
+
+    /** Whether powder snow lies within the box this state's travel could sweep from {@code start}, plus a block. */
+    private boolean powderSnowInReach(JavaPredictionCarry.State state, Vec3 start) {
+        Vec3 velocity = state.velocity();
+        var range = velocity instanceof PredVector vector ? vector.getVelocityRange() : null;
+        double reach = velocity.length()
+                + 1.0
+                + (range == null
+                        ? 0
+                        : Math.max(
+                                range.maxX - range.minX, Math.max(range.maxY - range.minY, range.maxZ - range.minZ)));
+        int minX = (int) Math.floor(start.x - 0.3 - reach), maxX = (int) Math.floor(start.x + 0.3 + reach);
+        int minY = (int) Math.floor(start.y - reach), maxY = (int) Math.floor(start.y + 1.8 + reach);
+        int minZ = (int) Math.floor(start.z - 0.3 - reach), maxZ = (int) Math.floor(start.z + 0.3 + reach);
+        for (int x = minX; x <= maxX; x++)
+            for (int y = minY; y <= maxY; y++)
+                for (int z = minZ; z <= maxZ; z++)
+                    if (ac.cult.blocksim.data.BlockIds.is(
+                            this.player.compensatedWorld.getBlockStateIdAt(
+                                    new ac.cult.cultac.protocol.value.BlockPos(x, y, z)),
+                            ac.cult.blocksim.data.BlockIds.POWDER_SNOW)) return true;
+        return false;
     }
 
     /** A JVM's tag order remains attached to its complete state across ticks, including dry ticks. */

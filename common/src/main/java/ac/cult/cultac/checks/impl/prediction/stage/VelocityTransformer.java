@@ -211,20 +211,39 @@ public class VelocityTransformer {
 
         List<PredVector> transformed = new ArrayList<>(input.size());
         for (PredVector vector : input) {
-            PredVector current = vector;
-            Vec3 water = WaterCurrent.calculateWaterCurrent(
-                    player, simulationContext, simulationContext.getStart(), current);
-            if (water != null && isFinite(water)) {
-                current = current.add(water, "water current");
-            }
-            Vec3 lava =
-                    WaterCurrent.calculateLavaCurrent(player, simulationContext, simulationContext.getStart(), current);
-            if (lava != null && isFinite(lava)) {
-                current = current.add(lava, "lava current");
-            }
-            transformed.add(current);
+            for (PredVector wet : withCurrent(player, vector, false))
+                transformed.addAll(withCurrent(player, wet, true));
         }
         return transformed;
+    }
+
+    /**
+     * {@code vector} after one fluid's current. A weak current grows to its minimum push only for velocities whose X
+     * and Z are both under 0.003, so a range that straddles that square splits, each part with its own current.
+     */
+    private List<PredVector> withCurrent(CultPlayer player, PredVector vector, boolean lava) {
+        Vec3 current = current(player, vector, lava);
+        if (current == null || !isFinite(current)) return List.of(vector);
+        String reason = lava ? "lava current" : "water current";
+        List<PredVector> parts = JavaVelocityRange.splitAtSlowSquare(vector);
+        // A current at or above the minimum push is the same on both sides: no split.
+        if (parts.size() == 1
+                || java.util.Objects.equals(current(player, Vec3.ZERO, lava), current(player, new Vec3(1, 0, 1), lava)))
+            return List.of(vector.add(current, reason));
+        var split = new ArrayList<PredVector>(parts.size());
+        for (PredVector part : parts) {
+            Vec3 own = current(player, part, lava);
+            split.add(own == null || !isFinite(own) ? part : part.add(own, reason));
+        }
+        return split;
+    }
+
+    /** Entity#baseTick's water or lava current at the start, for a velocity before it. */
+    private Vec3 current(CultPlayer player, Vec3 velocity, boolean lava) {
+        Vec3 start = simulationContext.getStart();
+        return lava
+                ? WaterCurrent.calculateLavaCurrent(player, simulationContext, start, velocity)
+                : WaterCurrent.calculateWaterCurrent(player, simulationContext, start, velocity);
     }
 
     private boolean isFinite(Vec3 vector) {

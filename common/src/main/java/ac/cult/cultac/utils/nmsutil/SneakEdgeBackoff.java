@@ -208,17 +208,40 @@ public final class SneakEdgeBackoff {
     private static boolean isAboveGround(CultPlayer player, PredictionResult result, SimulationContext context) {
         DesyncStatus onGround = context.getWorldData().getLastOnGround();
         if (onGround != DesyncStatus.FALSE) return onGround == DesyncStatus.TRUE;
-        float maxDownStep = player.getMaxUpStep();
         double fallDistance = JavaFallDistance.beforeMove(player, context, result.getInitialStartingVel())
                 .fallDistance();
+        return groundWithinStep(player, context.getFromActualPose(), fallDistance);
+    }
+
+    /**
+     * Player#isAboveGround off the ground: a fall distance under maxUpStep, with ground within the rest of maxUpStep
+     * below {@code box}.
+     */
+    public static boolean groundWithinStep(CultPlayer player, SimpleCollisionBox box, double fallDistance) {
+        float maxDownStep = player.getMaxUpStep();
         return fallDistance < maxDownStep
-                && !canFallAtLeast(
-                        player,
-                        context.getFromActualPose(),
-                        new SimpleCollisionBox(),
-                        0.0,
-                        0.0,
-                        maxDownStep - fallDistance);
+                && !canFallAtLeast(player, box, new SimpleCollisionBox(), 0.0, 0.0, maxDownStep - fallDistance);
+    }
+
+    /**
+     * How far a move along X ({@code axis} 0) or Z (2) toward {@code far} can go and still stand on ground, which
+     * Player#maybeBackOffFromEdge keeps and backs off past; NaN when the whole move stands or the start does not.
+     */
+    public static double supportedTo(
+            CultPlayer player, SimpleCollisionBox box, int axis, double far, float maxDownStep) {
+        SimpleCollisionBox probe = new SimpleCollisionBox();
+        if (canFallAtLeast(player, box, probe, 0.0, 0.0, maxDownStep)
+                || !canFallAtLeast(player, box, probe, axis == 0 ? far : 0.0, axis == 2 ? far : 0.0, maxDownStep))
+            return Double.NaN;
+        double supported = 0.0;
+        double unsupported = far;
+        for (int i = 0; i < 40; i++) {
+            double middle = (supported + unsupported) * 0.5;
+            if (canFallAtLeast(player, box, probe, axis == 0 ? middle : 0.0, axis == 2 ? middle : 0.0, maxDownStep))
+                unsupported = middle;
+            else supported = middle;
+        }
+        return supported;
     }
 
     /** Player#maybeBackOffFromEdge once its flying, mover, shift and Player#isAboveGround conditions hold. */

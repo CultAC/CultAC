@@ -121,7 +121,8 @@ public final class JavaFishingHookFlight {
         Vec3 bounded = borderHit(player, start, to);
         if (hit == null && bounded == to) return List.of(velocity);
         to = bounded;
-        Vec3 blocked = velocity.normalize().scale(Math.sqrt(start.distanceToSqr(to)));
+        // FishingHook#onHitBlock scales by HitResult#distanceTo, which returns the squared distance.
+        Vec3 blocked = velocity.normalize().scale(start.distanceToSqr(to));
         // onHitEntity is server-only; a client entity hit only suppresses onHitBlock's ray shortening.
         SimpleCollisionBox query = box(player, hook, start).expandToCoordinate(velocity.x, velocity.y, velocity.z)
                 .expand(1.0);

@@ -82,8 +82,8 @@ public class MovementModifiers {
                 && state.getVehicle() == null
                 && state.getSpinRebound() != SpinRebound.NONE) {
             for (Vec3 vector : initial) {
-                PredVector riptideAttack = JavaVelocityRange.scaled(
-                        PredVector.fromStartingVector(vector).multiply(-0.2, RIPTIDE_ATTACK), new Vec3(-0.2, -0.2, -0.2));
+                // PredVector#multiply scales a carried velocity range with the vector.
+                PredVector riptideAttack = PredVector.fromStartingVector(vector).multiply(-0.2, RIPTIDE_ATTACK);
                 start.add(riptideAttack);
 
                 // MCP-Reborn Player#causeExtraKnockback damps attacker X/Z by 0.6

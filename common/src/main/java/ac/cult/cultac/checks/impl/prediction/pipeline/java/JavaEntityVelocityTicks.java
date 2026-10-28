@@ -24,12 +24,14 @@ public final class JavaEntityVelocityTicks {
         var ticks = ticks(player, context, context.getStart(), true);
         if (ticks.isEmpty()) return velocities;
         var candidates = new ArrayList<PredVector>();
+        double scale = rangeScale(ticks);
         for (PredVector velocity : velocities) {
             var transformed = JavaMovementMath.calculate(
                     player,
                     velocity,
                     () -> apply(ticks, velocity, ReachUtils.getLook(player, context.getXRot(), context.getYRot())));
-            for (Vec3 vector : transformed) candidates.add(velocity.with(vector, "entities before player"));
+            for (Vec3 vector : transformed)
+                candidates.add(withScaledRange(velocity.with(vector, "entities before player"), scale));
         }
         return candidates;
     }
@@ -45,10 +47,30 @@ public final class JavaEntityVelocityTicks {
             CultPlayer player, SimulationContext context, PredVector candidate, Vec3 end, Vec3 velocity) {
         var ticks = ticks(player, context, end, false);
         if (ticks.isEmpty()) return List.of(velocity);
-        return JavaMovementMath.calculate(
+        List<Vec3> moved = JavaMovementMath.calculate(
                 player,
                 candidate,
                 () -> apply(ticks, velocity, ReachUtils.getLook(player, context.getXRot(), context.getYRot())));
+        if (!(velocity instanceof PredVector ranged) || ranged.getVelocityRange() == null) return moved;
+        // A carried velocity range moves with the velocity.
+        double scale = rangeScale(ticks);
+        var kept = new ArrayList<Vec3>(moved.size());
+        for (Vec3 vector : moved) kept.add(withScaledRange(ranged.with(vector, "entities after player"), scale));
+        return kept;
+    }
+
+    /**
+     * How the late ticks scale a velocity range: LivingEntity#push adds one impulse to every velocity in it, and
+     * FireworkRocketEntity's boost keeps half of each.
+     */
+    private static double rangeScale(List<Tick> ticks) {
+        double scale = 1;
+        for (Tick tick : ticks) if (tick.impulses == null) scale *= 0.5D;
+        return scale;
+    }
+
+    private static PredVector withScaledRange(PredVector vector, double scale) {
+        return scale == 1 ? vector : JavaVelocityRange.scaled(vector, new Vec3(scale, scale, scale));
     }
 
     private static List<Tick> ticks(CultPlayer player, SimulationContext context, Vec3 position, boolean before) {

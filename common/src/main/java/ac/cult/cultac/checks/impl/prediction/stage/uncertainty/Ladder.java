@@ -116,6 +116,12 @@ public class Ladder implements UncertaintyHandler {
         if (clamps == DesyncStatus.FALSE) return start;
 
         Vec3 clamped = handleOnClimbable(player, context, start);
+        if (clamps == DesyncStatus.TRUE && start.getVelocityRange() != null) {
+            // The clamp is per axis and monotonic, so a velocity range maps through it end by end.
+            Vec3 low = handleOnClimbable(player, context, new Vec3(-1.0E9, -1.0E9, -1.0E9));
+            Vec3 high = handleOnClimbable(player, context, new Vec3(1.0E9, 1.0E9, 1.0E9));
+            return start.clamped(low, high, "ladder");
+        }
         double clampedX = clamped.x;
         double clampedY = clamped.y;
         double clampedZ = clamped.z;

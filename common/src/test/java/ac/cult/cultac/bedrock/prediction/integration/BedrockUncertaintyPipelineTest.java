@@ -120,6 +120,15 @@ public final class BedrockUncertaintyPipelineTest {
         Assert.assertEquals(Vec3.ZERO, trace.positionOnlyDelta());
         Assert.assertEquals(Vec3.ZERO, trace.collisionBaseOffset());
         Assert.assertEquals(-0.2, start.collisionIgnoredExtents(Vec3.ZERO).minY, 0.0);
+
+        player.debugUncertainty = new Vec3(0.0, 0.05, 0.0);
+        valid.computeClosest(null);
+        valid.applyDebugUncertainty();
+        MovementTrace debug = valid.getClosestTrace();
+        Assert.assertEquals(0.05, debug.position().y, 1.0E-12);
+        Assert.assertSame(start, debug.preCollisionVelocity());
+        Assert.assertSame(start, debug.position().firstInLineage(BedrockPredVector.class));
+        Assert.assertEquals(-0.05, debug.positionOnlyDelta().y, 1.0E-12);
     }
 
     @Test

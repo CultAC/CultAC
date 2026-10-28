@@ -102,7 +102,20 @@ public final class JavaMovementEngine implements MovementEngine {
                                         JavaEntityVelocityTicks.beforeTravel(player, context, List.of(math))))));
             }
         }
-        return JavaVelocityRange.ends(player, context, ElytraTransform.candidates(context, candidates));
+        List<PredVector> gliding = ElytraTransform.candidates(context, candidates);
+        List<PredVector> ends = JavaVelocityRange.ends(player, context, gliding);
+        // LivingEntity#updateFallFlyingMovement turns one axis's range into others': a collision can switch inside an
+        // axis that had no range before the glide.
+        List<PredVector> withGlideWalls = null;
+        for (PredVector velocity : gliding) {
+            PredVector glided = ElytraTransform.glidedRange(player, context, velocity);
+            if (glided == null) continue;
+            List<PredVector> walls = JavaVelocityRange.glideWallEnds(player, context, velocity, glided);
+            if (walls.isEmpty()) continue;
+            if (withGlideWalls == null) withGlideWalls = new ArrayList<>(ends);
+            withGlideWalls.addAll(walls);
+        }
+        return withGlideWalls == null ? ends : withGlideWalls;
     }
 
     @Override
@@ -139,11 +152,17 @@ public final class JavaMovementEngine implements MovementEngine {
                 return !candidate.getInitialStartingVel().isJump();
             }
         }
-        if (currentBest == null
-                || candidate.getFlagSeverity() != currentBest.getFlagSeverity()
-                || !candidate.getInitialStartingVel().hasSameStartAs(currentBest.getInitialStartingVel())) {
+        if (currentBest == null || candidate.getFlagSeverity() != currentBest.getFlagSeverity())
             return candidate.isBetterThan(currentBest);
+        if (usedDebugAllowance(candidate) || usedDebugAllowance(currentBest)) {
+            // The debug allowance can make candidates from any start fit. What it could not cover counts first;
+            // then the candidate nearer before it ran is the move.
+            double remaining = candidate.getOffset() - currentBest.getOffset();
+            if (Math.abs(remaining) > 1.0E-9) return remaining < 0;
+            return candidate.selectionOffset() < currentBest.selectionOffset();
         }
+        if (!candidate.getInitialStartingVel().hasSameStartAs(currentBest.getInitialStartingVel()))
+            return candidate.isBetterThan(currentBest);
         return candidate.selectionOffset() < currentBest.selectionOffset();
     }
 
@@ -205,13 +224,34 @@ public final class JavaMovementEngine implements MovementEngine {
                 new ArrayList<>(result.getValidMovements().collisionVelocityAlternatives(lastPrediction));
         addCompatiblePatchCandidate(result, collisionAlternatives);
         boolean ranged = addRangeSiblings(result, collisionAlternatives);
+        var pinned = debugAllowanceSet(player) ? pinnedMovedRange(result) : null;
+        if (debugAllowanceSet(player)) ranged |= addHiddenEnds(result, collisionAlternatives) | pinned != null;
         boolean boxed = result.getValidMovements().getClosestTrace().position().hasReason(JavaForwardMove.SHOVE_BOX);
-        if (collisionAlternatives.isEmpty() && !boxed) return selected;
+        List<PredictionResult> family = result.getValidMovements().debugCarried();
+        if (collisionAlternatives.isEmpty() && !boxed && family.isEmpty()) return selected;
         boolean exact = contextUsesExactEffects(result.getSimulationContext());
         // Each alternative has already proved its own collisions. Commit its velocity with its own block effects.
         boolean replacePartialWater = replacesPartialWaterInput(result, collisionAlternatives);
         var states = new LinkedHashSet<JavaPredictionCarry.State>();
         if (!replacePartialWater) states.addAll(commitStates(selected));
+        // Which spin outcomes each committed candidate reached; -1 once two disagree.
+        int spinOutcomes = spinOutcomes(commitStates(selected));
+        if (!family.isEmpty()) {
+            // The debug allowance's gap was position or deltaMovement, or part of each, and a collision or a pass can
+            // hide deltaMovement: carry every velocity its readings leave possible, with each one's block effects.
+            for (PredictionResult reading : family) {
+                if (reading == result) continue;
+                NextTickVelocityDeriver.Scratch nested = scratch.take();
+                try {
+                    var readingStates =
+                            commitStates(commitCandidate(player, reading, lastPrediction, acceptedDiff, nested));
+                    states.addAll(readingStates);
+                    spinOutcomes = agreed(spinOutcomes, readingStates);
+                } finally {
+                    nested.release();
+                }
+            }
+        }
         for (PredictionResult other : collisionAlternatives) {
             NextTickVelocityDeriver.Scratch nested = scratch.take();
             try {
@@ -224,12 +264,17 @@ public final class JavaMovementEngine implements MovementEngine {
                                         .subtract(other.getSimulationContext().getStart());
                 PredictionCommit alternative = commitCandidate(player, other, lastPrediction, otherDiff, nested);
                 states.addAll(commitStates(alternative));
+                spinOutcomes = agreed(spinOutcomes, commitStates(alternative));
             } finally {
                 nested.release();
             }
         }
-        if (ranged || boxed)
-            states = withCarriedRange(states, boxed ? result.getInitialStartingVel().getVelocityRange() : null);
+        // When every candidate reached the same spin outcomes, a rebound is no value between them. Otherwise a hit
+        // starts somewhere inside their range, and the hull spans both.
+        boolean reboundApart = spinOutcomes != -1;
+        if (ranged || boxed) states = withCarriedRange(states, boxed ? movedRange(result) : pinned, reboundApart);
+        // The allowance leaves many readings: merge them, with every other alternative, into one state per class.
+        if (!family.isEmpty()) states = mergedByVelocity(states, reboundApart);
         var velocities = new LinkedHashSet<Vec3>();
         for (var state : states) velocities.add(state.velocity());
         JavaPredictionCarry carry = (JavaPredictionCarry) selected.carry();
@@ -247,6 +292,116 @@ public final class JavaMovementEngine implements MovementEngine {
                         exact ? stateList : List.of(),
                         carry.powderContact()),
                 velocities);
+    }
+
+    /** Which of LivingEntity#checkAutoSpinAttack's outcomes {@code states} hold: 1 without the rebound, 2 with. */
+    private static int spinOutcomes(List<JavaPredictionCarry.State> states) {
+        int outcomes = 0;
+        for (var state : states) outcomes |= state.spinRebound() ? 2 : 1;
+        return outcomes;
+    }
+
+    private static int agreed(int outcomes, List<JavaPredictionCarry.State> states) {
+        return outcomes == spinOutcomes(states) ? outcomes : -1;
+    }
+
+    /**
+     * The velocity range the shove-boxed travel moved with: the starting range after every handler that maps it
+     * (LivingEntity#updateFallFlyingMovement turns a vertical range horizontal), else the starting range.
+     */
+    private static ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox movedRange(PredictionResult result) {
+        var moved = result.getValidMovements().getClosestTrace().position().getVelocityRange();
+        return moved != null ? moved : result.getInitialStartingVel().getVelocityRange();
+    }
+
+    /**
+     * With the debug allowance set, the velocity range the travel moved with on the axes its block-entity pass pinned:
+     * the report shows nothing of them, and a transform before the move (LivingEntity#updateFallFlyingMovement) can
+     * have mixed another axis's range into them. Null when no pass pinned a ranged axis.
+     */
+    private static ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox pinnedMovedRange(
+            PredictionResult result) {
+        JavaPassAfterTravel pass = passAfterTravel(result);
+        var moved = result.getValidMovements().getClosestTrace().position().getVelocityRange();
+        if (pass == null || moved == null) return null;
+        boolean x = pass.result().fixedX(),
+                y = pass.result().fixedY(),
+                z = pass.result().fixedZ();
+        if (!(x && moved.minX != moved.maxX || y && moved.minY != moved.maxY || z && moved.minZ != moved.maxZ))
+            return null;
+        return new ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox(
+                x ? moved.minX : 0,
+                y ? moved.minY : 0,
+                z ? moved.minZ : 0,
+                x ? moved.maxX : 0,
+                y ? moved.maxY : 0,
+                z ? moved.maxZ : 0);
+    }
+
+    private static double component(Vec3 vector, int axis) {
+        return axis == 0 ? vector.x : axis == 1 ? vector.y : vector.z;
+    }
+
+    private static boolean debugAllowanceSet(CultPlayer player) {
+        Vec3 radius = player.debugUncertainty;
+        return radius.x != 0 || radius.y != 0 || radius.z != 0;
+    }
+
+    /**
+     * With the debug allowance set, a range end that fit on an axis a collision or an edge backoff hid, or any value
+     * on an axis this travel's block-entity pass pinned, tells nothing about where in the range the client was: carry
+     * the other ends of that axis too, so the whole range survives until a report pins it. Differences on any other
+     * axis keep the report's pin.
+     */
+    private static boolean addHiddenEnds(PredictionResult selected, List<PredictionResult> alternatives) {
+        PredVector start = selected.getInitialStartingVel();
+        PredVector origin = start.getRangeOrigin();
+        if (origin == null) return false;
+        JavaPassAfterTravel pass = passAfterTravel(selected);
+        MovementTrace trace = selected.getValidMovements().getClosestTrace();
+        Vec3 stuck = selected.getSimulationContext().getLastStuckSpeed();
+        JavaMoveCollision collision = selected.getCollideAxisData() instanceof JavaMoveCollision move ? move : null;
+        boolean[] hidden = new boolean[3];
+        for (int axis = 0; axis < 3; axis++) {
+            int mine = start.getRangeEnd(axis);
+            boolean pinned = pass != null
+                    && (axis == 0
+                            ? pass.result().fixedX()
+                            : axis == 1 ? pass.result().fixedY() : pass.result().fixedZ());
+            // Player#maybeBackOffFromEdge shortened the move, or a collision clipped it: the report shows no velocity.
+            double requested = component(trace.preCollisionVelocity(), axis) * component(stuck, axis);
+            boolean shortened = Math.abs(requested - component(trace.preCollisionMovement(), axis)) > 1.0E-9
+                    || collision != null
+                            && Math.abs(component(collision.attempted(), axis) - component(collision.collided(), axis))
+                                    > 1.0E-9;
+            hidden[axis] = mine == -1 || mine == 1 || pinned || shortened;
+        }
+        boolean added = false;
+        for (PredictionResult other : selected.getAnyReality()) {
+            if (other == selected || other.getInitialStartingVel().getRangeOrigin() != origin) continue;
+            PredVector end = other.getInitialStartingVel();
+            boolean differs = false;
+            boolean hiddenOnly = true;
+            for (int axis = 0; axis < 3; axis++) {
+                int theirs = end.getRangeEnd(axis);
+                if (start.getRangeEnd(axis) == theirs) continue;
+                differs = true;
+                if (!hidden[axis] || theirs == JavaVelocityRange.POINT) hiddenOnly = false;
+            }
+            if (!differs || !hiddenOnly) continue;
+            boolean present = false;
+            for (PredictionResult alternative : alternatives) present |= alternative == other;
+            if (present) continue;
+            alternatives.add(other);
+            added = true;
+        }
+        return added;
+    }
+
+    /** Whether the debug allowance moved {@code result}'s position. */
+    private static boolean usedDebugAllowance(PredictionResult result) {
+        return result.getValidMovements() != null
+                && result.getValidMovements().getDebugAllowance().lengthSqr() > 0;
     }
 
     /**
@@ -268,14 +423,59 @@ public final class JavaMovementEngine implements MovementEngine {
         return added;
     }
 
-    /** Every state carries the hull of the matching ends' velocities, so values between the ends stay possible. */
+    /**
+     * The debug readings' states, one per state other than velocity and fall distance (stuck speed, piston start...).
+     * Each carries the hull of the readings' velocities and the range of their fall distances: the readings sample a
+     * continuous range, so values between them stay possible. LivingEntity#checkAutoSpinAttack's rebound scales a
+     * velocity by -0.2: when {@code reboundApart}, velocities with and without it never share a hull.
+     */
+    private static LinkedHashSet<JavaPredictionCarry.State> mergedByVelocity(
+            LinkedHashSet<JavaPredictionCarry.State> states, boolean reboundApart) {
+        // Every velocity each state may hold: its value and, when it is already ranged, its range's corners.
+        var velocities = new ArrayList<Vec3>(states.size() * 3);
+        var rebounded = new ArrayList<Vec3>();
+        for (var state : states) {
+            var into = reboundApart && state.spinRebound() ? rebounded : velocities;
+            Vec3 velocity = state.velocity();
+            into.add(velocity);
+            var range = velocity instanceof PredVector vector ? vector.getVelocityRange() : null;
+            if (range == null) continue;
+            into.add(velocity.add(range.minX, range.minY, range.minZ));
+            into.add(velocity.add(range.maxX, range.maxY, range.maxZ));
+        }
+        var merged = new java.util.LinkedHashMap<JavaPredictionCarry.State, JavaPredictionCarry.State>();
+        for (var state : states) {
+            var key = state.withVelocity(Vec3.ZERO).withFallDistance(0, 0);
+            merged.merge(
+                    key,
+                    state,
+                    (a, b) -> a.withFallDistance(
+                            Math.min(a.fallDistance(), b.fallDistance()),
+                            Math.max(a.fallDistanceMax(), b.fallDistanceMax())));
+        }
+        var result = new LinkedHashSet<JavaPredictionCarry.State>(merged.size());
+        for (var state : merged.values())
+            result.add(state.withVelocity(JavaVelocityRange.hull(
+                    state.velocity(), reboundApart && state.spinRebound() ? rebounded : velocities)));
+        return result;
+    }
+
+    /**
+     * Every state carries the hull of the matching ends' velocities, so values between the ends stay possible. When
+     * {@code reboundApart}, LivingEntity#checkAutoSpinAttack's -0.2 rebound is no value between them: rebounded states
+     * hull only each other.
+     */
     private static LinkedHashSet<JavaPredictionCarry.State> withCarriedRange(
-            LinkedHashSet<JavaPredictionCarry.State> states, ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox kept) {
+            LinkedHashSet<JavaPredictionCarry.State> states,
+            ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox kept,
+            boolean reboundApart) {
         var velocities = new ArrayList<Vec3>(states.size());
-        for (var state : states) velocities.add(state.velocity());
+        var rebounded = new ArrayList<Vec3>();
+        for (var state : states) (reboundApart && state.spinRebound() ? rebounded : velocities).add(state.velocity());
         var ranged = new LinkedHashSet<JavaPredictionCarry.State>(states.size());
         for (var state : states) {
-            Vec3 velocity = JavaVelocityRange.hull(state.velocity(), velocities);
+            Vec3 velocity = JavaVelocityRange.hull(
+                    state.velocity(), reboundApart && state.spinRebound() ? rebounded : velocities);
             // A shove box hid the travel's velocity: the next tick keeps its range.
             if (kept != null) {
                 PredVector carried = velocity instanceof PredVector vector ? vector : new PredVector(velocity);
@@ -358,6 +558,7 @@ public final class JavaMovementEngine implements MovementEngine {
             // From 26.3 the report holds the block-entity pass after the travel; the travel's own move excludes it.
             var moved = JavaFallDistance.afterCollision(player, result, acceptedDiff);
             result.setJavaCommittedMove(moved);
+            double fallRange = fallRangeAfterMove(player, result, acceptedDiff, moved);
             Set<Vec3> velocities = NextTickVelocityDeriver.beforeBlockEffects(player, result, lastPrediction, scratch);
             JavaInsideBlockEffects.Scan scan = JavaInsideBlockEffects.scan(player, result, moved.movement());
             Vec3 end = result.getSimulationContext().getStart().add(moved.movement());
@@ -367,7 +568,7 @@ public final class JavaMovementEngine implements MovementEngine {
                     var effects = outcome.effects();
                     var pass = passAfterTravel(result);
                     if (pass != null) effects = afterPass(player, result, pass, end, effects);
-                    states.add(carriedState(result, moved, end, effects, outcome.spinRebound()));
+                    states.add(carriedState(result, moved, end, effects, outcome.spinRebound(), fallRange));
                 }
             }
             var stateList = List.copyOf(states);
@@ -412,12 +613,43 @@ public final class JavaMovementEngine implements MovementEngine {
                 new JavaPredictionCarry(carry.actor(), carry.fallDistance(), carry.states(), powder), velocities);
     }
 
+    /**
+     * How far above the travel's fall distance the high end of a carried fall distance range ends: Entity#move's fall
+     * bookkeeping replayed from the high end. Zero when the state carried one value.
+     */
+    private static double fallRangeAfterMove(
+            CultPlayer player, PredictionResult result, Vec3 acceptedDiff, JavaFallDistance.Moved moved) {
+        SimulationContext context = result.getSimulationContext();
+        if (!(context.getProfileCarry() instanceof JavaPredictionCarry carry)
+                || carry.states().size() != 1
+                || !carry.states().getFirst().hasFallDistanceRange()) return 0;
+        var state = carry.states().getFirst();
+        try {
+            context.setProfileCarry(new JavaPredictionCarry(
+                    carry.actor(), state.fallDistanceMax(), carry.states(), carry.powderContact()));
+            return Math.max(
+                    0,
+                    JavaFallDistance.afterCollision(player, result, acceptedDiff)
+                                    .fallDistance()
+                            - moved.fallDistance());
+        } finally {
+            context.setProfileCarry(carry);
+        }
+    }
+
     /** A carried velocity's end-of-tick state after {@code scan}'s block pass. */
     private static JavaPredictionCarry.State carriedState(
-            PredictionResult result, JavaFallDistance.Moved moved, Vec3 end, JavaInsideBlockEffects.State effects,
-            boolean spinRebound) {
+            PredictionResult result,
+            JavaFallDistance.Moved moved,
+            Vec3 end,
+            JavaInsideBlockEffects.State effects,
+            boolean spinRebound,
+            double fallRange) {
         SimulationContext context = result.getSimulationContext();
         var start = context.getPistonStartState();
+        // A block callback that reset the travel's fall distance (Entity#makeStuckInBlock...) reset both ends.
+        double fallHigh =
+                effects.fallDistance() == 0 && moved.fallDistance() != 0 ? 0 : effects.fallDistance() + fallRange;
         return new JavaPredictionCarry.State(
                 effects.velocity(),
                 effects.fallDistance(),
@@ -435,7 +667,8 @@ public final class JavaMovementEngine implements MovementEngine {
                         ? moved.playerEyeFluidContact()
                         : passAfterTravel(result).result().state().playerEyeFluidContact(),
                 context.getFluidTagOrder(),
-                spinRebound);
+                spinRebound,
+                fallHigh);
     }
 
     record TravelState(JavaInsideBlockEffects.State effects, boolean spinRebound) {}

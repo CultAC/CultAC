@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementMath;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
@@ -48,7 +49,26 @@ public class ElytraTransform implements UncertaintyHandler {
                 candidate == null ? result.getPossibleGravity(start.y, start.y).getFirst() : candidate.gravity;
         Vec3 movement =
                 JavaMovementMath.calculate(player, start, () -> transformElytra(player, context, start, gravity));
-        return start.with(movement, "elytra");
+        // Gliding turns vertical speed into horizontal: a carried range maps through the same glide.
+        java.util.function.UnaryOperator<Vec3> glide = velocity ->
+                JavaMovementMath.calculate(player, start, () -> transformElytra(player, context, velocity, gravity));
+        PredVector glided = start.with(movement, "elytra");
+        // A sample at a collision or an edge inside the range: the glide moves where the move meets it.
+        PredVector atSwitch = JavaVelocityRange.atSwitch(player, context, start, glided, glide);
+        return atSwitch != null ? atSwitch : JavaVelocityRange.mapped(start, glided, glide);
+    }
+
+    /**
+     * The glide of a ranged {@link #candidates} start, ranged over the glide of its range; null for a start without a
+     * range or a glide gravity.
+     */
+    public static PredVector glidedRange(CultPlayer player, SimulationContext context, PredVector start) {
+        Candidate candidate = start.firstInLineage(Candidate.class);
+        if (candidate == null || start.getVelocityRange() == null) return null;
+        var elytra = new ElytraTransform();
+        java.util.function.UnaryOperator<Vec3> glide = velocity -> JavaMovementMath.calculate(
+                player, start, () -> elytra.transformElytra(player, context, velocity, candidate.gravity));
+        return JavaVelocityRange.mapped(start, start.with(glide.apply(start), "elytra"), glide);
     }
 
     /** Each concrete gravity choice gets its own forward collision result. */

@@ -155,12 +155,12 @@ class JavaRiptideCarryOrderTest {
                 () -> "missing " + expected + " in " + carry.states());
     }
 
-    private static Vec3 drag(Vec3 velocity) {
+    static Vec3 drag(Vec3 velocity) {
         return new Vec3(velocity.x * .91F, (velocity.y - .08) * .98F, velocity.z * .91F);
     }
 
     /** LivingEntity#aiStep switches player X/Z from per-axis to horizontal-length thresholding in 1.21.5. */
-    private static Vec3 threshold(ClientVersion version, Vec3 velocity) {
+    static Vec3 threshold(ClientVersion version, Vec3 velocity) {
         boolean legacy = version.isOlderThan(ClientVersion.V_1_21_5);
         boolean horizontal = velocity.horizontalDistanceSqr() < 9e-6;
         return new Vec3(
@@ -170,7 +170,7 @@ class JavaRiptideCarryOrderTest {
     }
 
     /** Entity#push, after this stationary target's tick; its box overlaps all four local endpoints. */
-    private static Vec3 push(Vec3 target, Vec3 player) {
+    static Vec3 push(Vec3 target, Vec3 player) {
         double x = target.x - player.x, z = target.z - player.z;
         double root = Math.sqrt(Math.max(Math.abs(x), Math.abs(z)));
         double scale = Math.min(1 / root, 1);

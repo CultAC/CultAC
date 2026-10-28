@@ -7,10 +7,12 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaForwardMove;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
+import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
@@ -102,6 +104,22 @@ public class ValidMovements {
 
     // Freeze the withheld-position allowance used during prediction for carry derivation.
     private double reportRadius;
+
+    /** The collision-ignored trace this candidate's forward Entity#move ran on. */
+    private MovementTrace beforeForwardMove;
+
+    /** The selected trace before the debug allowance moved it, or null when the allowance did not run. */
+    private MovementTrace beforeDebugAllowance;
+
+    /** This candidate and its debug-allowance velocity readings, once read; see {@link #debugVelocityReadings}. */
+    private List<PredictionResult> debugFamily;
+
+    /** On the selected candidate, every tied reading the commit carries; see {@link #debugCarried}. */
+    private List<PredictionResult> debugCarried;
+
+    /** How far, in blocks, the debug allowance moved this candidate's position; zero when it fit without it. */
+    @Getter
+    private Vec3 debugAllowance = Vec3.ZERO;
 
     public void noteReportRadius(double radius) {
         reportRadius = Math.max(reportRadius, radius);
@@ -230,9 +248,169 @@ public class ValidMovements {
      * Replaces the selected collision-ignored movement with its forward Entity#move and that move's exact collision.
      */
     public void applyForwardMove(PredictionResult lastResult) {
+        beforeForwardMove = closestTrace;
         JavaForwardMove.Result moved = JavaForwardMove.move(player, result, closestTrace, result.getTarget());
         result.setCollideAxisData(moved.collision());
         setClosestTrace(withheldReport(moved.trace(), result.getTarget()));
+    }
+
+    /** Explicit debug-only position allowance, applied once after the candidate's normal collision resolution. */
+    public void applyDebugUncertainty() {
+        Vec3 radius = player.debugUncertainty;
+        if (radius.x == 0 && radius.y == 0 && radius.z == 0) return;
+        // A vehicle following its interpolation target reports that target, not this travel: no gap to allow.
+        if (result.getSimulationContext().getVehicle() != null
+                && ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVehicleReport.followsTarget(
+                        player, result.getSimulationContext())) return;
+        beforeDebugAllowance = closestTrace;
+        MovementTrace adjusted = withDebugAllowance(closestTrace, radius);
+        debugAllowance = adjusted.positionOnlyDelta().subtract(closestTrace.positionOnlyDelta());
+        setClosestTrace(adjusted);
+    }
+
+    /**
+     * {@code trace} moved toward the report by at most the debug allowance per axis. This is a position tolerance:
+     * its gap is position-only, never Entity#deltaMovement.
+     */
+    private MovementTrace withDebugAllowance(MovementTrace trace, Vec3 radius) {
+        Vec3 stuck = result.getSimulationContext().getLastStuckSpeed();
+        Vec3 target = result.getTarget();
+        PredVector start = trace.position();
+        // Prediction coordinates divide out stuck speed; command values remain physical blocks.
+        PredVector adjusted = start.withXYZOrSelf(
+                CultMath.clamp(target.x, start.x - radius.x / stuck.x, start.x + radius.x / stuck.x),
+                CultMath.clamp(target.y, start.y - radius.y / stuck.y, start.y + radius.y / stuck.y),
+                CultMath.clamp(target.z, start.z - radius.z / stuck.z, start.z + radius.z / stuck.z),
+                "debug uncertainty");
+        return trace.withPosition(adjusted)
+                .addPositionOnlyDelta(adjusted.subtract(start).multiply(stuck));
+    }
+
+    /**
+     * The debug allowance cannot tell whether its gap was position the engine missed (a shove) or deltaMovement the
+     * engine got wrong, and on an axis a collision or a block-entity pass hides, the report shows no deltaMovement at
+     * all. This candidate reads every gap as position. Its velocity readings re-run the same travel through Entity#move
+     * with a velocity range of the allowance's reach around this candidate's velocity: the value nearest the report,
+     * and the range ends where a collision or a later pass could hide the axis (JavaVelocityRange#ends). Each that ends
+     * within the allowance of the report is a complete candidate of its own; the carry keeps every reading, whichever
+     * wins, so a slime bounce or a piston-pinned axis keeps the velocities the allowance leaves possible.
+     */
+    public List<PredictionResult> debugVelocityReadings() {
+        if (debugFamily == null) debugFamily = readDebugFamily();
+        return debugFamily.isEmpty() ? List.of() : debugFamily.subList(1, debugFamily.size());
+    }
+
+    /**
+     * Whether this candidate's velocity readings are worth reading: the allowance ran on it and no earlier candidate
+     * of {@code candidates} moved the same travel in the same context, whose readings would be the same.
+     */
+    public boolean readsDebugVelocity(List<PredictionResult> candidates) {
+        if (beforeDebugAllowance == null || debugFamily != null) return false;
+        for (PredictionResult other : candidates) {
+            if (other == result) return true;
+            ValidMovements valid = other.getValidMovements();
+            if (valid.beforeDebugAllowance != null
+                    && other.getSimulationContext() == result.getSimulationContext()
+                    && sameCarryTrace(valid.beforeDebugAllowance, beforeDebugAllowance)) return false;
+        }
+        return true;
+    }
+
+    /** Whether {@code other} moved the same travel, before any allowance: its carry would be the same. */
+    public boolean sameTravel(ValidMovements other) {
+        MovementTrace mine = beforeDebugAllowance != null ? beforeDebugAllowance : closestTrace;
+        MovementTrace theirs = other.beforeDebugAllowance != null ? other.beforeDebugAllowance : other.closestTrace;
+        return mine != null && theirs != null && sameCarryTrace(mine, theirs);
+    }
+
+    /** This candidate and its velocity readings, or empty when the allowance left it none. */
+    public List<PredictionResult> debugFamily() {
+        return debugFamily == null ? List.of() : debugFamily;
+    }
+
+    /** Every candidate the debug allowance leaves as possible as this selected one, itself included. */
+    public List<PredictionResult> debugCarried() {
+        return debugCarried == null ? debugFamily() : debugCarried;
+    }
+
+    /** Sets {@link #debugCarried}: the readings of every travel that explains the report as well as this one. */
+    public void carryDebugReadings(List<PredictionResult> carried) {
+        debugCarried = carried;
+    }
+
+    private List<PredictionResult> readDebugFamily() {
+        Vec3 radius = player.debugUncertainty;
+        SimulationContext context = result.getSimulationContext();
+        if (beforeDebugAllowance == null
+                || beforeForwardMove == null
+                || player.isBedrockMovement()
+                || context.getVehicle() != null
+                || context.isNoPhysics()) return List.of();
+        Vec3 stuck = context.getLastStuckSpeed();
+        Vec3 target = result.getTarget();
+        PredVector travel = beforeForwardMove.position();
+        // Offsets from the travel's own value to the one this candidate moved with: JavaForwardMove shifts the velocity
+        // toward the report, after taking a later block-entity pass's shove out of it.
+        Vec3 selected = beforeDebugAllowance.preCollisionVelocity().subtract(beforeForwardMove.preCollisionVelocity());
+        double[] reach = {radius.x / stuck.x, radius.y / stuck.y, radius.z / stuck.z};
+        double[] low = {selected.x - reach[0], selected.y - reach[1], selected.z - reach[2]};
+        double[] high = {selected.x + reach[0], selected.y + reach[1], selected.z + reach[2]};
+        PredVector ranged =
+                travel.withVelocityRange(new SimpleCollisionBox(low[0], low[1], low[2], high[0], high[1], high[2]));
+        // A block-entity pass after the travel can pin any axis for some of the range and not for the rest: a piston
+        // pushes a player that travelled less further, to the same place. This travel's own pass does not show which
+        // axes, so a pass hides every axis, as JavaVelocityRange#ends reads it. Player#maybeBackOffFromEdge can hide
+        // X/Z.
+        boolean passHides = context.getPassAfterTravel() != null;
+        boolean sneaking = context.isSneaking();
+        // JavaVelocityRange#ends also reads the velocities beside a wall or floor inside the range.
+        var samples = new ArrayList<>(JavaVelocityRange.ends(
+                player, context, ranged, sneaking || passHides, passHides, sneaking || passHides));
+        var family = new ArrayList<PredictionResult>();
+        family.add(result);
+        for (PredVector end : samples) {
+            JavaForwardMove.Result moved =
+                    JavaForwardMove.move(player, result, beforeForwardMove.withPosition(end), target);
+            MovementTrace trace = withheldReport(moved.trace(), target);
+            if (!withinReach(trace.position(), target, reach)) continue;
+            boolean duplicate = false;
+            for (var other : family) duplicate |= sameCarryTrace(trace, other.getValidMovements().beforeDebugAllowance);
+            if (duplicate) continue;
+            var other = new PredictionResult(
+                    player,
+                    initialStartingVel,
+                    context,
+                    target,
+                    result.getSetBackData(),
+                    result.getRealities(),
+                    result.getAnyReality());
+            other.setCollideAxisData(moved.collision());
+            other.setSneakingInputMultiplier(result.getSneakingInputMultiplier());
+            var valid = new ValidMovements(initialStartingVel, player, other, canStep, uncertaintyHandlers);
+            valid.collisionIgnoredMaxStartingVelExtents = collisionIgnoredMaxStartingVelExtents;
+            valid.reportRadius = reportRadius;
+            valid.beforeForwardMove = beforeForwardMove.withPosition(end);
+            valid.beforeDebugAllowance = trace;
+            // Ranked by how far off the reading was before its own allowance, like every other candidate.
+            valid.setClosestTrace(trace);
+            other.selectionOffset();
+            MovementTrace adjusted = withDebugAllowance(trace, radius);
+            valid.debugAllowance = adjusted.positionOnlyDelta().subtract(trace.positionOnlyDelta());
+            valid.setClosestTrace(adjusted);
+            family.add(other);
+        }
+        if (family.size() == 1) return List.of();
+        List<PredictionResult> shared = List.copyOf(family);
+        for (PredictionResult member : shared) member.getValidMovements().debugFamily = shared;
+        return shared;
+    }
+
+    /** Whether {@code position} lies within {@code reach} of {@code target} on every axis. */
+    private static boolean withinReach(Vec3 position, Vec3 target, double[] reach) {
+        double epsilon = SimpleCollisionBox.COLLISION_EPSILON;
+        return Math.abs(target.x - position.x) <= reach[0] + epsilon
+                && Math.abs(target.y - position.y) <= reach[1] + epsilon
+                && Math.abs(target.z - position.z) <= reach[2] + epsilon;
     }
 
     /**

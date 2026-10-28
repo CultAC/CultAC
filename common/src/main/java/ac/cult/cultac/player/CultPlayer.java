@@ -1467,6 +1467,9 @@ public class CultPlayer implements GrimUser {
     public boolean debugPlaces = false;
     public boolean debugBreaks = false;
     public boolean debugNoSlow = false;
+    // Temporary command override, owned by the player's model thread and discarded on reconnect.
+    public Vec3 debugUncertainty = Vec3.ZERO;
+    public double debugUncertaintyChancePercent = 100.0D;
     // end config
 
     public void onReload() {
