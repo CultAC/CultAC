@@ -74,7 +74,13 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
     private static final int VIA_INTERPOLATION_STEP_TICKS = 3;
     private static final Vec3 SELF_DISMOUNT_VELOCITY = Vec3.ZERO;
-    private static final double VEHICLE_MOVE_RESYNC_SNAP_EPSILON = 2.0E-5D;
+    /**
+     * Per-axis size of the mount resync's snap nudge. Its length, about 1.21E-5, is past the 1.0E-5F at which
+     * ClientPacketListener#handleMoveVehicle snaps. Each axis stays under the 1.0E-5F by which Paper's
+     * ServerGamePacketListenerImpl#isEntityCollidingWithAnythingNew shrinks the box, so the client's echo of the
+     * nudge reaches no block the vehicle rests against.
+     */
+    private static final double VEHICLE_MOVE_RESYNC_SNAP_NUDGE = 7.0E-6D;
     /** Inserting past this many entries drops those from earlier client ticks, once per tick. */
     private static final int MAX_REUSED_TRANSFORMS = 1024;
     /** Live entries past this many are cleared; only a client that stops ending ticks reaches it. */
@@ -1411,7 +1417,9 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             @Nullable VehicleMountResyncState mountResyncState, @Nullable SelfDismountResyncState dismountResyncState) {
         var packets = new ArrayList<CultWrite>();
         if (mountResyncState != null && !isBedrockVehicleResync(mountResyncState.vehicleId())) {
-            packets.add(vehicleMovePacket(mountResyncState));
+            Vec3 snapNudge = mountResyncState.snapNudge();
+            if (snapNudge != null) packets.add(vehicleMovePacket(mountResyncState, snapNudge));
+            packets.add(vehicleMovePacket(mountResyncState, mountResyncState.position()));
             packets.add(entityMotion(mountResyncState.vehicleId(), mountResyncState.velocity()));
         }
         if (dismountResyncState != null) {
@@ -1427,8 +1435,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 new ClientboundEntityMotion(entityId, new Vec3d(velocity.x, velocity.y, velocity.z)), false);
     }
 
-    private CultWrite vehicleMovePacket(VehicleMountResyncState resyncState) {
-        Vec3 position = resyncState.position();
+    private CultWrite vehicleMovePacket(VehicleMountResyncState resyncState, Vec3 position) {
         return new CultWrite(
                 new ClientboundMoveVehicle(
                         new Vec3d(position.x, position.y, position.z), resyncState.yaw(), resyncState.pitch()),
@@ -1456,6 +1463,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             player.getSetbackTeleportUtil()
                     .addBedrockVehicleTeleport(resyncState.vehicleId(), transaction, resyncState.position());
         } else if (player.isBedrockMovement() || player.getClientVersion() != ClientVersion.V_1_21_2) {
+            // ClientPacketListener#handleMoveVehicle answers each packet, the snap nudge first.
+            if (resyncState.snapNudge() != null) {
+                player.getSetbackTeleportUtil()
+                        .addVehicleTeleport(resyncState.vehicleId(), transaction, resyncState.snapNudge());
+            }
             player.getSetbackTeleportUtil()
                     .addVehicleTeleport(resyncState.vehicleId(), transaction, resyncState.position());
         }
@@ -1501,24 +1513,15 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     @Nullable
     private VehicleMountResyncState vehicleMountResyncState(int vehicleId) {
-        return vehicleMountResyncState(vehicleId, false);
-    }
-
-    @Nullable
-    private VehicleMountResyncState vehicleMountResyncState(int vehicleId, boolean forceSnapNudge) {
         TrackerData trackedPosition = player.compensatedEntities.getTrackedEntity(vehicleId);
         if (trackedPosition == null) {
             return null;
         }
 
         Vec3 position = new Vec3(trackedPosition.getX(), trackedPosition.getY(), trackedPosition.getZ());
-        PacketEntity vehicle = player.compensatedEntities.getEntity(vehicleId);
-        if (!isBedrockVehicleResync(vehicleId) && (forceSnapNudge || vehicleMoveWouldNotSnap(vehicle, position))) {
-            position = nudgeVehicleMoveResyncPosition(position);
-        }
-
         return new VehicleMountResyncState(
                 position,
+                snapNudge(player.compensatedEntities.getEntity(vehicleId), position),
                 trackedPosition.getXRot(),
                 trackedPosition.getYRot(),
                 null,
@@ -1527,15 +1530,27 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 false);
     }
 
-    private boolean vehicleMoveWouldNotSnap(@Nullable PacketEntity vehicle, Vec3 packetPosition) {
-        Vec3 serializedPosition = currentSerializedVehiclePosition(vehicle);
-        return serializedPosition != null && packetPosition.distanceTo(serializedPosition) <= 1.0E-5F;
+    /**
+     * ClientPacketListener#handleMoveVehicle snaps, cancelling the vehicle's interpolation, only for a packet more
+     * than 1.0E-5F from the vehicle's interpolation target or position. When the resync position is closer, a first
+     * packet at the returned nudge forces that snap, and the resync packet behind it in the same bundle snaps the
+     * vehicle back before its next tick, so no tick runs at the nudge. Geyser's JavaMoveVehicleTranslator applies
+     * every MoveVehicle, so a Bedrock client never needs one.
+     */
+    @Nullable
+    private Vec3 snapNudge(@Nullable PacketEntity vehicle, Vec3 position) {
+        if (player.isBedrockMovement()) return null;
+        Vec3 target = currentSerializedVehiclePosition(vehicle);
+        if (target == null || position.distanceTo(target) > 1.0E-5F) return null;
+        // Each axis points away from the target, so the nudge is at least its own length from it.
+        return new Vec3(
+                position.x + snapNudgeAwayFrom(position.x, target.x),
+                position.y + snapNudgeAwayFrom(position.y, target.y),
+                position.z + snapNudgeAwayFrom(position.z, target.z));
     }
 
-    private Vec3 nudgeVehicleMoveResyncPosition(Vec3 position) {
-        long xBucket = Math.round(position.x / VEHICLE_MOVE_RESYNC_SNAP_EPSILON);
-        double offset = (xBucket & 1L) == 0L ? VEHICLE_MOVE_RESYNC_SNAP_EPSILON : -VEHICLE_MOVE_RESYNC_SNAP_EPSILON;
-        return position.add(offset, 0.0D, 0.0D);
+    private static double snapNudgeAwayFrom(double coordinate, double target) {
+        return coordinate < target ? -VEHICLE_MOVE_RESYNC_SNAP_NUDGE : VEHICLE_MOVE_RESYNC_SNAP_NUDGE;
     }
 
     @Nullable
@@ -1552,6 +1567,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private record VehicleMountResyncState(
             Vec3 position,
+            @Nullable Vec3 snapNudge,
             float yaw,
             float pitch,
             @Nullable Boolean onGround,
