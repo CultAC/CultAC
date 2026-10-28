@@ -3,12 +3,15 @@ package ac.cult.cultac.command.commands;
 import static ac.cult.cultac.command.commands.HistoryCommandLog.logBoth;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.cloud.history.HistoryClient;
+import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.command.render.HistoryComponentRenderer;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
+import ac.cult.cultac.network.NetworkPlayer;
+import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
-import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -18,6 +21,8 @@ import ac.grim.grimac.api.storage.backend.Backend;
 import ac.grim.grimac.api.storage.category.Categories;
 import ac.grim.grimac.api.storage.check.CheckCatalogRepairResult;
 import ac.grim.grimac.api.storage.check.CheckCatalogRow;
+import ac.grim.grimac.api.storage.config.DataStoreConfig;
+import ac.grim.grimac.api.storage.config.HistoryConfig;
 import ac.grim.grimac.api.storage.history.HistoryService;
 import ac.grim.grimac.api.storage.history.SessionDetail;
 import ac.grim.grimac.api.storage.history.SessionSummary;
@@ -38,6 +43,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
@@ -77,6 +85,14 @@ public class CultHistory implements BuildableCommand {
     private static final int MAX_SUGGESTIONS = 30;
     private static final int MAX_PLAYER_SUGGESTIONS = 25;
     private static final String LATEST_ALIAS = "latest";
+
+    private static final Executor LOOKUPS = Executors.newThreadPerTaskExecutor(
+            Thread.ofVirtual().name("cult-history-lookup-", 0).factory());
+    private static final HistoryTargets TARGETS = new HistoryTargets(
+            name -> NetworkRouting.current().locate(name),
+            CultHistory::knownUuid,
+            new TargetLookup(name -> null, MojangProfiles.live(), LOOKUPS, TargetLookup.TIMEOUT),
+            LOOKUPS);
 
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
@@ -214,7 +230,8 @@ public class CultHistory implements BuildableCommand {
                 sender,
                 target,
                 (uuid, displayName, lifecycle, history) ->
-                        renderList(sender, lifecycle, history, uuid, displayName, 1, filter));
+                        renderList(sender, lifecycle, history, uuid, displayName, 1, filter),
+                (source, uuid, displayName) -> renderCloudList(sender, source, uuid, displayName, 1, filter));
     }
 
     private void handleListPageN(CommandContext<Sender> context) {
@@ -227,7 +244,8 @@ public class CultHistory implements BuildableCommand {
                 sender,
                 target,
                 (uuid, displayName, lifecycle, history) ->
-                        renderList(sender, lifecycle, history, uuid, displayName, page, filter));
+                        renderList(sender, lifecycle, history, uuid, displayName, page, filter),
+                (source, uuid, displayName) -> renderCloudList(sender, source, uuid, displayName, page, filter));
     }
 
     private void handleDetailDefaultPage(CommandContext<Sender> context) {
@@ -238,26 +256,31 @@ public class CultHistory implements BuildableCommand {
         boolean verbose = context.flags().hasFlag("verbose");
         Predicate<ViolationEntry> filter = parseFilterFromContext(sender, context);
         if (filter == FILTER_ERROR) return;
-        runWithPrelude(sender, target, (uuid, displayName, lifecycle, history) -> {
-            Integer ordinal = resolveSessionOrdinal(sessionRaw, uuid, history);
-            if (ordinal == null) {
-                return List.of(message(
-                        "cult-history-session-not-found",
-                        "%prefix% &cSession &f%ordinal%&c not found for &f%player%&c.",
-                        Map.of("player", displayName, "ordinal", sessionRaw)));
-            }
-            return renderDetail(
-                    sender,
-                    lifecycle,
-                    history,
-                    uuid,
-                    displayName,
-                    ordinal,
-                    detailed,
-                    verbose, /*pageArg*/
-                    null,
-                    filter);
-        });
+        runWithPrelude(
+                sender,
+                target,
+                (uuid, displayName, lifecycle, history) -> {
+                    Integer ordinal = resolveSessionOrdinal(sessionRaw, uuid, history);
+                    if (ordinal == null) {
+                        return List.of(message(
+                                "cult-history-session-not-found",
+                                "%prefix% &cSession &f%ordinal%&c not found for &f%player%&c.",
+                                Map.of("player", displayName, "ordinal", sessionRaw)));
+                    }
+                    return renderDetail(
+                            sender,
+                            lifecycle,
+                            history,
+                            uuid,
+                            displayName,
+                            ordinal,
+                            detailed,
+                            verbose, /*pageArg*/
+                            null,
+                            filter);
+                },
+                (source, uuid, displayName) -> renderCloudDetail(
+                        sender, source, uuid, displayName, sessionRaw, detailed, verbose, null, filter));
     }
 
     private void handleDetailPageN(CommandContext<Sender> context) {
@@ -269,17 +292,22 @@ public class CultHistory implements BuildableCommand {
         boolean verbose = context.flags().hasFlag("verbose");
         Predicate<ViolationEntry> filter = parseFilterFromContext(sender, context);
         if (filter == FILTER_ERROR) return;
-        runWithPrelude(sender, target, (uuid, displayName, lifecycle, history) -> {
-            Integer ordinal = resolveSessionOrdinal(sessionRaw, uuid, history);
-            if (ordinal == null) {
-                return List.of(message(
-                        "cult-history-session-not-found",
-                        "%prefix% &cSession &f%ordinal%&c not found for &f%player%&c.",
-                        Map.of("player", displayName, "ordinal", sessionRaw)));
-            }
-            return renderDetail(
-                    sender, lifecycle, history, uuid, displayName, ordinal, detailed, verbose, page, filter);
-        });
+        runWithPrelude(
+                sender,
+                target,
+                (uuid, displayName, lifecycle, history) -> {
+                    Integer ordinal = resolveSessionOrdinal(sessionRaw, uuid, history);
+                    if (ordinal == null) {
+                        return List.of(message(
+                                "cult-history-session-not-found",
+                                "%prefix% &cSession &f%ordinal%&c not found for &f%player%&c.",
+                                Map.of("player", displayName, "ordinal", sessionRaw)));
+                    }
+                    return renderDetail(
+                            sender, lifecycle, history, uuid, displayName, ordinal, detailed, verbose, page, filter);
+                },
+                (source, uuid, displayName) -> renderCloudDetail(
+                        sender, source, uuid, displayName, sessionRaw, detailed, verbose, page, filter));
     }
 
     /** Prints usage for {@code /cult history <target> session} without an ordinal. */
@@ -411,57 +439,95 @@ public class CultHistory implements BuildableCommand {
                 throws Exception;
     }
 
-    private void runWithPrelude(Sender sender, String target, HistoryAction action) {
+    @FunctionalInterface
+    private interface CloudAction {
+        CompletableFuture<List<Component>> run(CloudHistory.Source source, UUID uuid, String displayName);
+    }
+
+    /**
+     * Resolves {@code target} and answers {@code sender} from the cloud when it is configured, else from this server's
+     * datastore; a failed cloud call is told, then answered from the datastore.
+     */
+    private void runWithPrelude(Sender sender, String target, HistoryAction action, CloudAction cloud) {
+        HistoryClient client = HistoryClient.configured();
+        if (client == null && !localHistoryReady(sender)) return;
+        TARGETS.resolve(target).whenComplete((outcome, error) -> {
+            if (error != null || outcome.target() == null) {
+                List<Component> lines = new ArrayList<>(2);
+                lines.add(message(
+                        "cult-history-unknown-player",
+                        "%prefix% &cUnknown player: &f%player%",
+                        Map.of("player", target)));
+                String problem = error != null
+                        ? "Could not look up " + target + ": " + LabelClient.unanswered(error) + "."
+                        : outcome.problem();
+                if (problem != null) lines.add(Component.text(problem, NamedTextColor.GRAY));
+                sendHistoryMessages(sender, lines);
+                return;
+            }
+            CloudArguments.Target found = outcome.target();
+            if (client == null) {
+                runLocal(sender, found, action);
+                return;
+            }
+            CompletableFuture<List<Component>> call;
+            try {
+                call = cloud.run(CloudHistory.of(client), found.id(), found.name());
+            } catch (RuntimeException failed) {
+                call = CompletableFuture.failedFuture(failed);
+            }
+            CloudHistory.answer(
+                    call, lines -> sendHistoryMessages(sender, lines), () -> runLocal(sender, found, action));
+        });
+    }
+
+    /** Whether this server's datastore can answer; when it cannot, tells {@code sender} why. */
+    private boolean localHistoryReady(Sender sender) {
         DataStoreLifecycle lifecycle = CultAPI.INSTANCE.getDataStoreLifecycle();
         // enabled=false when database.yml turns the feature off; loaded=false
         // when start() caught an init failure. Distinguish in the message so
         // the operator knows whether to flip config or check the log.
         if (lifecycle == null || !lifecycle.isEnabled()) {
             sender.sendMessage(message("cult-history-disabled", "%prefix% &cHistory subsystem is disabled!", Map.of()));
-            return;
+            return false;
         }
         if (!lifecycle.isLoaded()) {
             sender.sendMessage(message(
                     "cult-history-load-failure",
                     "%prefix% &cHistory subsystem failed to load! Check server console for errors.",
                     Map.of()));
-            return;
+            return false;
         }
+        return true;
+    }
 
-        UUID onlineUuid = onlineUuid(target);
+    private void runLocal(Sender sender, CloudArguments.Target target, HistoryAction action) {
         CultAPI.INSTANCE
                 .getScheduler()
                 .getAsyncScheduler()
-                .runNow(
-                        CultAPI.INSTANCE.getGrimPlugin(),
-                        () -> runWithPreludeAsync(sender, target, onlineUuid, lifecycle, action));
+                .runNow(CultAPI.INSTANCE.getGrimPlugin(), () -> runLocalAsync(sender, target, action));
     }
 
-    private void runWithPreludeAsync(
-            Sender sender,
-            String target,
-            @Nullable UUID onlineUuid,
-            DataStoreLifecycle lifecycle,
-            HistoryAction action) {
+    private void runLocalAsync(Sender sender, CloudArguments.Target target, HistoryAction action) {
         try {
-            HistoryService history = lifecycle.historyService();
+            DataStoreLifecycle lifecycle = CultAPI.INSTANCE.getDataStoreLifecycle();
+            if (lifecycle != null && lifecycle.isEnabled() && !lifecycle.isLoaded()) {
+                sendHistoryMessage(
+                        sender,
+                        message(
+                                "cult-history-load-failure",
+                                "%prefix% &cHistory subsystem failed to load! Check server console for errors.",
+                                Map.of()));
+                return;
+            }
+            HistoryService history = lifecycle == null || !lifecycle.isEnabled() ? null : lifecycle.historyService();
             if (history == null) {
                 sendHistoryMessage(
                         sender,
                         message("cult-history-disabled", "%prefix% &cHistory subsystem is disabled!", Map.of()));
                 return;
             }
-            UUID targetUuid = resolveUuid(target, lifecycle, onlineUuid);
-            if (targetUuid == null) {
-                sendHistoryMessage(
-                        sender,
-                        message(
-                                "cult-history-unknown-player",
-                                "%prefix% &cUnknown player: &f%player%",
-                                Map.of("player", target)));
-                return;
-            }
-            sendHistoryMessages(sender, action.run(targetUuid, target, lifecycle, history));
+            sendHistoryMessages(sender, action.run(target.id(), target.name(), lifecycle, history));
         } catch (Exception e) {
             // Some exception types carry a null message; fall back to the
             // class name so operators still see *something* useful.
@@ -474,6 +540,59 @@ public class CultHistory implements BuildableCommand {
                                     "error",
                                     e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())));
         }
+    }
+
+    private static CompletableFuture<List<Component>> renderCloudList(
+            Sender sender,
+            CloudHistory.Source source,
+            UUID uuid,
+            String displayName,
+            int page,
+            @Nullable Predicate<ViolationEntry> filter) {
+        return CloudHistory.list(source, uuid, page, historyConfig().entriesPerPage(), filter)
+                .thenApply(shown -> HistoryComponentRenderer.renderSessionList(
+                        sender,
+                        uuid,
+                        displayName,
+                        shown.page(),
+                        shown.maxPages(),
+                        new Page<>(shown.sessions(), null),
+                        shown.ongoing()));
+    }
+
+    private CompletableFuture<List<Component>> renderCloudDetail(
+            Sender sender,
+            CloudHistory.Source source,
+            UUID uuid,
+            String displayName,
+            String sessionRaw,
+            boolean detailed,
+            boolean verbose,
+            @Nullable Integer violationPage,
+            @Nullable Predicate<ViolationEntry> filter) {
+        HistoryConfig config = historyConfig();
+        return CloudHistory.detail(source, uuid, sessionRaw, config.groupIntervalMs(), filter)
+                .thenApply(shown -> shown == null
+                        ? List.of(message(
+                                "cult-history-session-not-found",
+                                "%prefix% &cSession &f%ordinal%&c not found for &f%player%&c.",
+                                Map.of("player", displayName, "ordinal", sessionRaw)))
+                        : HistoryComponentRenderer.renderSessionDetail(
+                                sender,
+                                displayName,
+                                shown.detail(),
+                                detailed,
+                                verbose,
+                                violationPage,
+                                config.entriesPerPage(),
+                                shown.ongoing()));
+    }
+
+    /** This server's history settings, or the defaults while its datastore has none. */
+    private static HistoryConfig historyConfig() {
+        DataStoreLifecycle lifecycle = CultAPI.INSTANCE.getDataStoreLifecycle();
+        DataStoreConfig config = lifecycle == null ? null : lifecycle.config();
+        return config == null || config.history() == null ? HistoryConfig.defaults() : config.history();
     }
 
     private List<Component> renderList(
@@ -737,9 +856,9 @@ public class CultHistory implements BuildableCommand {
     // ---- suggestion providers ----
 
     /**
-     * Online players + offline name-prefix matches from the datastore
-     * (sorted by {@code last_seen} desc). Empty prefix skips the offline
-     * lookup. Capped at {@link #MAX_PLAYER_SUGGESTIONS}.
+     * Online players, here and on the network roster, + offline name-prefix
+     * matches from the datastore (sorted by {@code last_seen} desc). Empty
+     * prefix skips the offline lookup. Capped at {@link #MAX_PLAYER_SUGGESTIONS}.
      */
     private static SuggestionProvider<Sender> targetSuggestions(CloudPlatformCommandArguments arguments) {
         SuggestionProvider<Sender> onlineProvider = arguments.onlinePlayerSuggestions();
@@ -759,6 +878,7 @@ public class CultHistory implements BuildableCommand {
                 onlineSuggestions = List.of();
             }
 
+            onlineSuggestions = withRoster(onlineSuggestions, partialLower);
             if (partialLower.isEmpty()) return onlineSuggestions;
 
             Set<String> seen = new HashSet<>();
@@ -791,6 +911,30 @@ public class CultHistory implements BuildableCommand {
             }
             return out;
         });
+    }
+
+    /**
+     * {@code online}, then the network roster's other names starting with {@code partialLower}: at most
+     * {@link #MAX_PLAYER_SUGGESTIONS} of those.
+     */
+    private static List<Suggestion> withRoster(List<Suggestion> online, String partialLower) {
+        Set<String> seen = new HashSet<>();
+        for (Suggestion s : online) seen.add(s.suggestion().toLowerCase(Locale.ROOT));
+        List<Suggestion> out = new ArrayList<>(online);
+        int added = 0;
+        try {
+            for (NetworkPlayer player : NetworkRouting.current().roster()) {
+                if (added >= MAX_PLAYER_SUGGESTIONS) break;
+                String lower = player.name().toLowerCase(Locale.ROOT);
+                if (lower.startsWith(partialLower) && seen.add(lower)) {
+                    out.add(Suggestion.suggestion(player.name()));
+                    added++;
+                }
+            }
+        } catch (RuntimeException rosterUnavailable) {
+            return online;
+        }
+        return out;
     }
 
     /** Suggest 1..maxPages for the list-pagination page number. */
@@ -909,9 +1053,17 @@ public class CultHistory implements BuildableCommand {
         }
     }
 
-    private static @Nullable UUID onlineUuid(String name) {
-        PlatformPlayer online = CultAPI.INSTANCE.getPlatformPlayerFactory().getFromName(name);
-        return online == null ? null : online.getUniqueId();
+    /** A player this server's identity store knows by {@code name}; blocks for up to two seconds. */
+    private static Optional<UUID> knownUuid(String name) {
+        DataStoreLifecycle lifecycle = CultAPI.INSTANCE.getDataStoreLifecycle();
+        if (lifecycle == null || !lifecycle.isLoaded()) return Optional.empty();
+        NameResolver resolver = lifecycle.nameResolver();
+        if (resolver == null) return Optional.empty();
+        try {
+            return resolver.resolveByName(name).toCompletableFuture().get(2, TimeUnit.SECONDS);
+        } catch (Exception unknown) {
+            return Optional.empty();
+        }
     }
 
     private static List<Suggestion> rangeSuggestions(int fromInclusive, int toInclusive) {
