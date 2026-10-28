@@ -5,6 +5,7 @@ import ac.cult.cultac.cloud.CloudService;
 import ac.cult.cultac.cloud.CloudSettings;
 import ac.cult.cultac.cloud.transport.CloudConnection.CappedBody;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -26,6 +27,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
@@ -63,6 +66,11 @@ public final class LabelClient {
     public static final int MAX_FIELD = 64;
     /** How many wrapping objects and lists {@link #ids} looks into. */
     private static final int MAX_DEPTH = 4;
+
+    /** How often the label catalog is fetched again while labelling is configured. */
+    static final Duration CATALOG_REFRESH = Duration.ofMinutes(30);
+    /** Bumped on every configure, so only the latest refresh chain keeps running. */
+    private static final AtomicLong CATALOG_CHAIN = new AtomicLong();
 
     private static final Pattern ID =
             Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
@@ -146,6 +154,72 @@ public final class LabelClient {
         } catch (JsonParseException | IllegalStateException | NumberFormatException notCounts) {
             return Map.of();
         }
+    }
+
+    /** The service's label catalog; null for any status but 200, a body that is not one, or no answer. */
+    public CompletableFuture<@Nullable LabelCatalog> catalog() {
+        return send(request("/api/v1/labels/catalog").GET())
+                .handle((reply, error) -> error == null ? catalog(reply) : null);
+    }
+
+    static @Nullable LabelCatalog catalog(Reply reply) {
+        if (reply.status() != 200) return null;
+        try {
+            JsonElement parsed = JsonParser.parseString(reply.body());
+            return parsed.isJsonObject() ? LabelCatalog.parse(parsed.getAsJsonObject()) : null;
+        } catch (JsonParseException | IllegalArgumentException | IllegalStateException notACatalog) {
+            return null;
+        }
+    }
+
+    /** Fetches the catalog and uses it when the service gave one; completes with whether it did. */
+    public CompletableFuture<Boolean> refreshCatalog() {
+        return catalog().thenApply(catalog -> {
+            if (catalog == null) return false;
+            LabelCatalog.use(catalog);
+            return true;
+        });
+    }
+
+    /**
+     * Applies a configure: while {@code on}, the catalog is fetched now and every {@link #CATALOG_REFRESH}; any chain an
+     * earlier configure started stops.
+     */
+    public static void refreshCatalogWhile(boolean on) {
+        long chain;
+        synchronized (CATALOG_CHAIN) {
+            chain = CATALOG_CHAIN.incrementAndGet();
+        }
+        if (on) refreshCatalog(chain);
+    }
+
+    static long catalogChain() {
+        return CATALOG_CHAIN.get();
+    }
+
+    /** Uses {@code catalog} unless a configure since {@code chain} began has started another chain or stopped it. */
+    static boolean useIfCurrent(long chain, LabelCatalog catalog) {
+        synchronized (CATALOG_CHAIN) {
+            if (CATALOG_CHAIN.get() != chain) return false;
+            LabelCatalog.use(catalog);
+            return true;
+        }
+    }
+
+    private static void refreshCatalog(long chain) {
+        if (CATALOG_CHAIN.get() != chain) return;
+        LabelClient client = configured();
+        if (client == null) return;
+        client.catalog().whenComplete((catalog, error) -> {
+            boolean replaced = catalog != null && useIfCurrent(chain, catalog);
+            if (CATALOG_CHAIN.get() != chain) return;
+            CompletableFuture.delayedExecutor(CATALOG_REFRESH.toMinutes(), TimeUnit.MINUTES, client.executor)
+                    .execute(() -> refreshCatalog(chain));
+            if (!replaced) {
+                LogUtil.debug("Label catalog not refreshed; keeping "
+                        + LabelCatalog.current().version());
+            }
+        });
     }
 
     /** Revokes {@code label}; {@code labellerId} is the revoking player's UUID. */
