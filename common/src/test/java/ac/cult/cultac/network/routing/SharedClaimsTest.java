@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import ac.cult.cultac.manager.alerts.AlertNetwork;
 import ac.cult.reload.api.HostContext;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,7 +29,7 @@ class SharedClaimsTest {
 
     @Test
     void theFirstClaimWinsUntilTheReplayWindowPasses() {
-        SharedClaims claims = new SharedClaims(null, "alert", clock::get);
+        SharedClaims claims = new SharedClaims(null, AlertNetwork.CLAIMS, clock::get);
         assertTrue(claims.claim("a"));
         assertFalse(claims.claim("a"));
         assertTrue(claims.claim("b"));
@@ -40,11 +41,11 @@ class SharedClaimsTest {
     }
 
     @Test
-    void generationsOnOneHostShareTheirClaimsPerName() {
+    void generationsOnOneHostShareTheirClaimsPerKey() {
         HostContext host = host();
-        SharedClaims older = new SharedClaims(host, "alert", clock::get);
-        SharedClaims newer = new SharedClaims(host, "alert", clock::get);
-        SharedClaims other = new SharedClaims(host, "command", clock::get);
+        SharedClaims older = new SharedClaims(host, AlertNetwork.CLAIMS, clock::get);
+        SharedClaims newer = new SharedClaims(host, AlertNetwork.CLAIMS, clock::get);
+        SharedClaims other = new SharedClaims(host, RemoteCommands.CLAIMS, clock::get);
 
         assertTrue(newer.claim("a"));
         assertFalse(older.claim("a"));
@@ -62,7 +63,7 @@ class SharedClaimsTest {
         };
         HostContext host = mock(HostContext.class);
         when(host.shared(any(), any())).thenReturn(racing);
-        SharedClaims claims = new SharedClaims(host, "alert", clock::get);
+        SharedClaims claims = new SharedClaims(host, AlertNetwork.CLAIMS, clock::get);
 
         assertTrue(claims.claim("a"));
         clock.addAndGet(EnvelopeCodec.REPLAY_WINDOW_MILLIS);
@@ -74,7 +75,7 @@ class SharedClaimsTest {
 
     @Test
     void withoutAHostEachHasItsOwn() {
-        assertTrue(new SharedClaims(null, "alert", clock::get).claim("a"));
-        assertTrue(new SharedClaims(null, "alert", clock::get).claim("a"));
+        assertTrue(new SharedClaims(null, AlertNetwork.CLAIMS, clock::get).claim("a"));
+        assertTrue(new SharedClaims(null, AlertNetwork.CLAIMS, clock::get).claim("a"));
     }
 }

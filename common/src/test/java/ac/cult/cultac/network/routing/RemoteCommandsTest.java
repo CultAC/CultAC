@@ -699,7 +699,7 @@ class RemoteCommandsTest {
         clock.addAndGet(EnvelopeCodec.REPLAY_WINDOW_MILLIS);
         assertTrue(a.run(staff, LINE, aliceOn("p7")).join());
         assertEquals(2, claims.size());
-        clock.addAndGet(1);
+        clock.addAndGet(SharedClaims.SWEEP_PERIOD_MILLIS);
         assertTrue(a.run(staff, LINE, aliceOn("p7")).join());
         assertEquals(2, claims.size());
     }

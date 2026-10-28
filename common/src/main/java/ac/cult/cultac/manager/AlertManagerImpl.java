@@ -170,7 +170,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         this.network = new AlertNetwork(
                 service,
                 new NetworkStaff(),
-                new SharedClaims(host, AlertNetwork.TYPE, System::currentTimeMillis),
+                new SharedClaims(host, AlertNetwork.CLAIMS, System::currentTimeMillis),
                 System::currentTimeMillis);
     }
 

@@ -44,7 +44,7 @@ final class RemoteCommands {
     static final String OUT = "cmd.out";
     static final String DONE = "cmd.done";
     static final String LEFT = "left";
-    /** The host-shared request ids already taken by a generation here, with when. */
+    /** The host-shared key of the request ids already taken by a generation here, with when. */
     static final String CLAIMS = "cultac.network.command-claims";
 
     static final long ANSWER_MILLIS = 10_000;
@@ -95,7 +95,7 @@ final class RemoteCommands {
     private final NetworkService service;
     private final LongSupplier clock;
     private final Map<UUID, Request> pending = new ConcurrentHashMap<>();
-    private final Map<String, Long> claims;
+    private final SharedClaims claims;
     private volatile Commands commands;
     /** Guarded by {@code this}. */
     private boolean closed;
@@ -105,14 +105,7 @@ final class RemoteCommands {
         this.service = service;
         this.clock = clock;
         this.commands = commands;
-        this.claims = claims(host);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Long> claims(@Nullable HostContext host) {
-        return host == null
-                ? new ConcurrentHashMap<>()
-                : (Map<String, Long>) host.shared(CLAIMS, ConcurrentHashMap::new);
+        this.claims = new SharedClaims(host, CLAIMS, clock);
     }
 
     void register() {
@@ -197,13 +190,6 @@ final class RemoteCommands {
         }
     }
 
-    /** Whether this generation is the first here to take request {@code id}; claims last the replay window. */
-    private boolean claim(UUID id) {
-        long now = clock.getAsLong();
-        claims.values().removeIf(at -> now - at > EnvelopeCodec.REPLAY_WINDOW_MILLIS);
-        return claims.putIfAbsent(id.toString(), now) == null;
-    }
-
     /** The command nodes {@code sender} holds; all of them for the console. */
     private List<String> granted(Sender sender) {
         List<String> granted = new ArrayList<>();
@@ -238,7 +224,7 @@ final class RemoteCommands {
         } catch (RuntimeException malformed) {
             return;
         }
-        if (!service.answers(target) || !claim(id)) return;
+        if (!service.answers(target) || !claims.claim(id.toString())) return;
         Relay relay = new Relay(envelope.from(), id);
         if (!service.online(target)) {
             relay.done(false, LEFT);

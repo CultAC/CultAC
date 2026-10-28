@@ -51,7 +51,7 @@ class AlertBroadcastTest {
         final AlertNetwork alerts;
 
         Instance(String id) {
-            this(id, new SharedClaims(null, AlertNetwork.TYPE, clock::get));
+            this(id, new SharedClaims(null, AlertNetwork.CLAIMS, clock::get));
         }
 
         /** {@code claims}: shared with the other engine generations of instance {@code id}. */
@@ -154,7 +154,7 @@ class AlertBroadcastTest {
                 new LogThrottle());
         Instance p7 = new Instance("p7");
         AlertNetwork alerts =
-                new AlertNetwork(() -> local, p7, new SharedClaims(null, AlertNetwork.TYPE, clock::get), clock::get);
+                new AlertNetwork(() -> local, p7, new SharedClaims(null, AlertNetwork.CLAIMS, clock::get), clock::get);
         alerts.attach(local);
         local.start();
 
@@ -165,7 +165,7 @@ class AlertBroadcastTest {
 
     @Test
     void ofTwoGenerationsOnOneInstanceOnlyOneTakesEachMessage() {
-        SharedClaims claims = new SharedClaims(null, AlertNetwork.TYPE, clock::get);
+        SharedClaims claims = new SharedClaims(null, AlertNetwork.CLAIMS, clock::get);
         Instance older = new Instance("p3", claims);
         Instance newer = new Instance("p3", claims);
         Instance p7 = new Instance("p7");

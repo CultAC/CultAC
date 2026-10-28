@@ -28,6 +28,8 @@ import org.jetbrains.annotations.Nullable;
 public final class AlertNetwork {
     public static final String TYPE = "alert";
     public static final String DEMAND_FLAG = "gv";
+    /** The host-shared key of the alert envelope ids already taken by a generation here, with when. */
+    public static final String CLAIMS = "cultac.network.claims.alert";
     /** Same-instance only: every generation republishes its demand flag. */
     static final String DEMAND_CHANGED = "alert.demand";
 
