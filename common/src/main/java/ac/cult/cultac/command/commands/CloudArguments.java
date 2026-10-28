@@ -73,7 +73,12 @@ final class CloudArguments {
      * when that completes. A lookup that fails, or a {@code then} that throws, is told to {@code sender} too.
      */
     static void resolve(Sender sender, String input, Consumer<Target> then) {
-        LOOKUP.resolve(input).whenComplete((outcome, error) -> {
+        resolve(sender, input, true, then);
+    }
+
+    /** As {@link #resolve(Sender, String, Consumer)}, {@code mojangNames} as in {@link TargetLookup#resolve}. */
+    static void resolve(Sender sender, String input, boolean mojangNames, Consumer<Target> then) {
+        LOOKUP.resolve(input, mojangNames).whenComplete((outcome, error) -> {
             try {
                 if (error != null) {
                     sender.sendMessage(Component.text(

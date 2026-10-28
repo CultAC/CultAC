@@ -47,6 +47,14 @@ final class TargetLookup {
     }
 
     CompletableFuture<Outcome> resolve(String input) {
+        return resolve(input, true);
+    }
+
+    /**
+     * @param mojangNames whether a name nobody online has goes to Mojang; false where players' UUIDs are not Mojang's
+     *     (an offline-mode server), so such a name is refused and the player must be named by UUID
+     */
+    CompletableFuture<Outcome> resolve(String input, boolean mojangNames) {
         UUID typed = uuid(input);
         if (typed != null) return done(new CloudArguments.Target(typed, input));
         CloudArguments.Target player = online.apply(input);
@@ -54,6 +62,10 @@ final class TargetLookup {
         if (!NAME.matcher(input).matches()) {
             return CompletableFuture.completedFuture(
                     new Outcome(null, input + " is not a player name (1-16 letters, digits or _), nor a UUID."));
+        }
+        if (!mojangNames) {
+            return CompletableFuture.completedFuture(new Outcome(
+                    null, input + " is not online, and this server is in offline mode; use their UUID."));
         }
         CloudArguments.Target remembered = mojang.cached(input);
         if (remembered != null) return done(remembered);

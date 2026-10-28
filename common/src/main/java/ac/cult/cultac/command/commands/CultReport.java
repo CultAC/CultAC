@@ -17,10 +17,10 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * {@code /cult report <reporter> <reported> <type> [reason…]}: files one player's report of another with the cloud,
- * which keeps a replay of the reported player around the report when it can. Players are named by UUID, online name or
- * a Mojang lookup; the type is one word such as {@code illegal_crossteaming}. The report names the reported player's
- * backend server when they are behind this proxy. Calls go out with the server's key, off the calling thread, once
- * each, and every invocation answers the sender with one line, whatever fails.
+ * which keeps a replay of the reported player around the report when it can. Players are named by UUID, online name or,
+ * on an online-mode server, a Mojang lookup; the type is one word such as {@code illegal_crossteaming}. The report
+ * names the reported player's backend server when they are behind this proxy. Calls go out with the server's key, off
+ * the calling thread, once each, and every invocation answers the sender with one line, whatever fails.
  */
 public class CultReport implements BuildableCommand {
     static final String NOT_FILED = "Report not filed: ";
@@ -55,10 +55,12 @@ public class CultReport implements BuildableCommand {
                 return;
             }
             long at = System.currentTimeMillis();
+            boolean mojangNames = CultAPI.INSTANCE.getPlatformServer().isOnlineMode();
             CloudArguments.resolve(
                     sender,
                     context.get("reporter"),
-                    reporter -> CloudArguments.resolve(sender, context.get("reported"), reported -> {
+                    mojangNames,
+                    reporter -> CloudArguments.resolve(sender, context.get("reported"), mojangNames, reported -> {
                         ReportClient.Report report = new ReportClient.Report(
                                 reporter.id(),
                                 name(reporter),
