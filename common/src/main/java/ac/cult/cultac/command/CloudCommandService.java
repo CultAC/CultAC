@@ -122,6 +122,7 @@ public class CloudCommandService implements CommandService {
         new CultFindings().register(commandManager, commandArguments);
         new CultTop().register(commandManager, commandArguments);
         new CultLabel().register(commandManager, commandArguments);
+        new CultReport().register(commandManager, commandArguments);
 
         final RequirementPostprocessor<Sender, SenderRequirement> senderRequirementPostprocessor =
                 RequirementPostprocessor.of(REQUIREMENT_KEY, new CultCommandFailureHandler());

@@ -76,6 +76,7 @@ help:
     - "/%command% findings <player> [count] &f- &7Nieuwste cloudbevindingen van een speler"
     - "/%command% top [check] [minutes] &f- &7Spelers met de zekerste cloudbevindingen"
     - "/%command% label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Label een speler in het labelregister van de cloud (ook list, revoke)"
+    - "/%command% report <reporter> <reported> <type> [reason] &f- &7Dien het rapport van een speler in bij de cloud, met een replay van de gerapporteerde speler"
     - "&7======================"
 
 # === /cult history ===

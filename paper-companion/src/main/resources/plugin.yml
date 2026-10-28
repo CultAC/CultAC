@@ -62,3 +62,6 @@ permissions:
   cult.cloud.label:
     description: Label players in the cloud
     default: op
+  cult.cloud.report:
+    description: File player reports with the cloud
+    default: op
