@@ -42,6 +42,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
@@ -700,18 +701,24 @@ class RemoteCommandsTest {
             Staff sender = new Staff(false, Set.of("cult.debug"));
             List<CompletableFuture<Boolean>> runs = new CopyOnWriteArrayList<>();
             CountDownLatch go = new CountDownLatch(1);
+            CountDownLatch halfway = new CountDownLatch(1);
             Thread forwarding = new Thread(() -> {
                 try {
                     go.await();
                 } catch (InterruptedException interrupted) {
                     return;
                 }
-                for (int i = 0; i < 50; i++) runs.add(a.run(sender, LINE, aliceOn("p7")));
+                for (int i = 0; i < 50; i++) {
+                    runs.add(a.run(sender, LINE, aliceOn("p7")));
+                    if (i == 24) halfway.countDown();
+                }
             });
             forwarding.start();
             go.countDown();
+            assertTrue(halfway.await(10, TimeUnit.SECONDS), "round " + round);
             a.stop();
-            forwarding.join();
+            forwarding.join(10_000);
+            assertFalse(forwarding.isAlive(), "round " + round);
             assertEquals(50, runs.size());
             for (CompletableFuture<Boolean> run : runs) {
                 assertTrue(run.isDone(), "round " + round);
