@@ -920,6 +920,8 @@ public class CompensatedEntities {
             return new PacketEntityInteraction(player, entityID, entityType, position);
         if (typeKey.equals("minecraft:spider") || typeKey.equals("minecraft:cave_spider"))
             return new PacketEntitySpider(player, entityID, entityType, position);
+        if (typeKey.equals("minecraft:polar_bear"))
+            return new PacketEntityPolarBear(player, entityID, entityType, position.x, position.y, position.z);
         if (EntityTypeUtil.isCamelFamily(entityType)) {
             return new PacketEntityCamel(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
@@ -1143,6 +1145,13 @@ public class CompensatedEntities {
         applySizeMetadata(entity, watchableObjects, layout);
         if (entity instanceof PacketEntityShulker) {
             applyShulkerMetadata(entity, watchableObjects, provenAt);
+        }
+        if (entity instanceof PacketEntityPolarBear bear) {
+            var standing = WatchableIndexUtil.getIndex(
+                    watchableObjects,
+                    WatchableIndexUtil.polarBearStanding(
+                            player.user.getCultConnection().getObservedProtocol()));
+            if (standing != null && standing.value() instanceof Boolean value) bear.onStanding(value, provenAt);
         }
         if (entity instanceof PacketEntityRideable) {
             applyRideableMetadata(entity, watchableObjects, layout);

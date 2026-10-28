@@ -46,6 +46,7 @@ import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
@@ -319,12 +320,76 @@ class InteractionVisibilityTest {
         }
     }
 
+    @Test
+    void aStandingPolarBearIsSelectedAboveTheWallOnceItsBoxGrows() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int x = 1; x <= 3; x++) {
+                setup.block(x, 64, 0, "stone");
+                setup.block(x, 65, 0, "stone");
+            }
+            setup.block(2, 64, 1, "smooth_stone_slab");
+            var mobs = setup.check(AttackMobVisibility.class);
+            var interact = setup.check(InteractEntityVisibility.class);
+            var type = EntityTypes.defaults().byKey("minecraft:polar_bear").id();
+            player.compensatedEntities.addEntity(42, type, new Vec3(2.5, 64, -.7), 0, 0, 0);
+            var bear = player.compensatedEntities.getEntity(42);
+            player.x = 2.5;
+            player.y = 64.5;
+            player.z = 1.5;
+            player.yRot = 180;
+            var click = new ServerboundInteract(
+                    42,
+                    InteractAction.INTERACT_AT,
+                    Hand.MAIN_HAND,
+                    Optional.of(new Vec3d(-0.1486907159860833, 2.1199414026735033, 0.700054934993591)),
+                    false);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            data(player, 18, true);
+            for (int tick = 0; tick < 3; tick++) bear.onMovement(player, true);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
+            bear.onMovement(player, true);
+            assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
+            assertEquals(2, mobs.violations);
+            assertEquals(1, interact.violations);
+            data(player, 18, false);
+            for (int tick = 0; tick < 2; tick++) bear.onMovement(player, true);
+            assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            bear.onMovement(player, true);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertEquals(3, mobs.violations);
+        }
+    }
+
+    @Test
+    void aFrozenPolarBearKeepsItsStandingBox() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            var type = EntityTypes.defaults().byKey("minecraft:polar_bear").id();
+            player.compensatedEntities.addEntity(42, type, new Vec3(2.5, 64, -.7), 0, 0, 0);
+            var bear = (PacketEntityPolarBear) player.compensatedEntities.getEntity(42);
+            data(player, 18, true);
+            for (int tick = 0; tick < 2; tick++) bear.onMovement(player, true);
+            assertEquals(1, bear.standAnimation());
+            player.packetStateData.serverTicksFrozen = true;
+            for (int tick = 0; tick < 10; tick++) bear.onMovement(player, true);
+            assertEquals(1, bear.standAnimation());
+            player.packetStateData.serverTicksFrozen = false;
+            bear.onMovement(player, true);
+            assertEquals(2, bear.standAnimation());
+        }
+    }
+
     private static void peek(CultPlayer player, int peek) {
+        data(player, WatchableIndexUtil.SHULKER_PEEK, (byte) peek);
+    }
+
+    private static void data(CultPlayer player, int index, Object value) {
         int proof = player.lastTransactionSent.get() + 1;
         player.compensatedEntities.updateEntityMetadata(
-                42,
-                List.of(new EntityMetadata.Entry(WatchableIndexUtil.SHULKER_PEEK, (byte) peek, ByteBuffer.allocate(0))),
-                proof);
+                42, List.of(new EntityMetadata.Entry(index, value, ByteBuffer.allocate(0))), proof);
         player.sendTrailingTransaction();
         player.lastTransactionReceived.set(proof);
         player.latencyUtils.handleNettySyncTransaction(proof);

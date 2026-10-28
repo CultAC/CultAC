@@ -61,12 +61,21 @@ public final class WatchableIndexUtil {
     }
     /** AgeableMob adds AGE_LOCKED in 26.1 before TamableAnimal's flags. */
     public static int tameableFlags(ProtocolVersion version) {
-        return version.atLeast(ProtocolVersion.V26_1) ? 18 : 17;
+        return afterAgeableMob(version);
     }
 
     /** HangingEntity adds DATA_DIRECTION in 1.21.6 before the painting variant and the frame's item and rotation. */
     public static int hangingData(ProtocolVersion version) {
         return version.atLeast(ProtocolVersion.V1_21_6) ? 9 : 8;
+    }
+
+    /** PolarBear's DATA_STANDING_ID follows AgeableMob's fields, which gain AGE_LOCKED in 26.1. */
+    public static int polarBearStanding(ProtocolVersion version) {
+        return afterAgeableMob(version);
+    }
+
+    private static int afterAgeableMob(ProtocolVersion version) {
+        return version.atLeast(ProtocolVersion.V26_1) ? 18 : 17;
     }
 
     public static EntityMetadata.Entry getIndex(List<EntityMetadata.Entry> objects, int index) {

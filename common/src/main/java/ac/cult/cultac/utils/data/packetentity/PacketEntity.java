@@ -1037,6 +1037,28 @@ public class PacketEntity {
         return passengers.contains(entity);
     }
 
+    /**
+     * Whether ClientLevel#tickEntities ticks the entity in the client tick in progress: TickRateManager#isEntityFrozen
+     * spares a player and a vehicle that carries one, and a passenger ticks with its root vehicle.
+     */
+    public boolean ticksOnClient(CultPlayer player) {
+        if (player.compensatedWorld.clientRunsNormally()) return true;
+        PacketEntity root = this;
+        while (root.riding != null) root = root.riding;
+        return isPlayer(root) || carriesPlayer(root);
+    }
+
+    private static boolean isPlayer(PacketEntity entity) {
+        return entity instanceof PacketEntityPlayer || entity instanceof PacketEntitySelf;
+    }
+
+    private static boolean carriesPlayer(PacketEntity entity) {
+        for (PacketEntity passenger : entity.passengers) {
+            if (isPlayer(passenger) || carriesPlayer(passenger)) return true;
+        }
+        return false;
+    }
+
     public void mount(PacketEntity vehicle) {
         if (riding != null) eject();
         vehicle.passengers.add(this);

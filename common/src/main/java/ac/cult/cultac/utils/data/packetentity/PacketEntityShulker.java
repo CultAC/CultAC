@@ -68,7 +68,7 @@ public class PacketEntityShulker extends PacketEntity {
      * TickRateManager#isEntityFrozen.
      */
     public void tickPeek() {
-        if (!ticks()) {
+        if (!ticksOnClient(player)) {
             lastStepGrew = false;
             return;
         }
@@ -88,7 +88,7 @@ public class PacketEntityShulker extends PacketEntity {
      * after the player.
      */
     public boolean mayPush() {
-        return lastStepGrew || nextStepGrows && ticks();
+        return lastStepGrew || nextStepGrows && ticksOnClient(player);
     }
 
     /**
@@ -97,7 +97,7 @@ public class PacketEntityShulker extends PacketEntity {
      * may hold before or after its step in that client tick.
      */
     public SimpleCollisionBox boundingBox(SimpleCollisionBox box) {
-        return grow(box, ticks() ? Math.max(physicalPeek, nextPhysicalPeek) : physicalPeek);
+        return grow(box, ticksOnClient(player) ? Math.max(physicalPeek, nextPhysicalPeek) : physicalPeek);
     }
 
     /** Shulker#makeBoundingBox after the client tick that ended last: {@code box}, the closed box, grown by it. */
@@ -110,28 +110,6 @@ public class PacketEntityShulker extends PacketEntity {
         Direction direction = facing.getOppositeFace();
         return box.expandToCoordinate(
                 direction.getModX() * grow, direction.getModY() * grow, direction.getModZ() * grow);
-    }
-
-    /**
-     * Whether ClientLevel#tickEntities ticks the shulker in the client tick in progress: TickRateManager#isEntityFrozen
-     * spares a player and a vehicle that carries one, and a passenger ticks with its root vehicle.
-     */
-    private boolean ticks() {
-        if (player.compensatedWorld.clientRunsNormally()) return true;
-        PacketEntity root = this;
-        while (root.riding != null) root = root.riding;
-        return isPlayer(root) || carriesPlayer(root);
-    }
-
-    private static boolean isPlayer(PacketEntity entity) {
-        return entity instanceof PacketEntityPlayer || entity instanceof PacketEntitySelf;
-    }
-
-    private static boolean carriesPlayer(PacketEntity entity) {
-        for (PacketEntity passenger : entity.passengers) {
-            if (isPlayer(passenger) || carriesPlayer(passenger)) return true;
-        }
-        return false;
     }
 
     // Each peek steps toward its target, or toward any later one the client handles before the step.
