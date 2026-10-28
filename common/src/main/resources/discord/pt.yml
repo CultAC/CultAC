@@ -22,11 +22,11 @@ violation-content:
     - "**Versão**: `%version%` **Marca**: `%brand%`"
     - "**Servidor**: `%server%` **Mundo**: `%world%` **Localização**: `%location%`"
     - "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Relógio**: `%clock_behind%ms` **Tempo**: `%session_time%`"
-    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
+    - "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`"
     - "**Estado**: %state%"
     - "**Verificações**: %checks%"
     - "**Detalhes**: %verbose%"
 
 # Marcadores de esquema — ver o comentário do cabeçalho em config.yml.
 config-flavor: V2
-config-version: 3
+config-version: 4

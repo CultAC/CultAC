@@ -24,11 +24,11 @@ violation-content:
     - "**バージョン**: `%version%` **ブランド**: `%brand%`"
     - "**サーバー**: `%server%` **ワールド**: `%world%` **座標**: `%location%`"
     - "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **クロック**: `%clock_behind%ms` **時間**: `%session_time%`"
-    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
+    - "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`"
     - "**状態**: %state%"
     - "**違反項目**: %checks%"
     - "**詳細**: %verbose%"
 
 # スキーマ用マーカー — config.yml のヘッダーコメントを参照。
 config-flavor: V2
-config-version: 3
+config-version: 4

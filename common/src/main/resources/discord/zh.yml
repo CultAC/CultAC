@@ -22,11 +22,11 @@ violation-content:
     - "**版本**: `%version%` **品牌**: `%brand%`"
     - "**服务器**: `%server%` **世界**: `%world%` **位置**: `%location%`"
     - "**TPS**: `%tps%` **延迟**: `%ping%/%keepalive_ping%` **时钟**: `%clock_behind%ms` **时长**: `%session_time%`"
-    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
+    - "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`"
     - "**状态**: %state%"
     - "**检查**: %checks%"
     - "**详情**: %verbose%"
 
 # 模式标记 — 参见 config.yml 顶部的注释。
 config-flavor: V2
-config-version: 3
+config-version: 4
