@@ -11,7 +11,8 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Runs this runtime's {@link NetworkService}: started with the plugin, restarted by a reload that changes the
  * {@code network} block, stopped on disable. The platform names itself with {@link #platform} before the plugin
- * starts; without one there is no service. While a transport runs, the service is {@code NetworkRouting.current()}.
+ * starts; without one there is no service. The running service is {@code NetworkRouting.current()}; without a
+ * transport it knows only this instance and reaches its other engine generations.
  */
 public final class NetworkModule {
     private static volatile @Nullable NetworkPlatform platform;
@@ -26,6 +27,12 @@ public final class NetworkModule {
     /** The running service, which later features register handlers on and send through; null before start. */
     public static @Nullable NetworkService service() {
         return service;
+    }
+
+    /** Whether this instance looks like one of several on a network: RedisBungee runs here. */
+    public static boolean networked() {
+        NetworkPlatform hooks = platform;
+        return hooks != null && hooks.redisBungeeId() != null;
     }
 
     public static void start() {
@@ -72,8 +79,8 @@ public final class NetworkModule {
         NetworkService started = NetworkService.create(settings, hooks, RuntimeEnvironment.host());
         started.start();
         service = started;
-        if (!started.enabled()) return;
         RoutingHolder.install(started);
+        if (!started.enabled()) return;
         LogUtil.info("Network routing on over " + started.transportName() + " as instance " + started.instanceId()
                 + " of network " + settings.network());
     }

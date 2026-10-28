@@ -4,10 +4,12 @@ import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.network.routing.MessageHandler.Origin;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
+import ac.cult.cultac.network.routing.RemoteCommands.Commands;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -31,8 +33,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -46,6 +46,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class NetworkService implements NetworkRouting {
     static final long ROSTER_PERIOD_MILLIS = 15_000;
+    static final long SWEEP_PERIOD_MILLIS = 1_000;
     static final int MAX_QUEUED_MESSAGES = 4096;
     static final long MAX_QUEUED_BYTES = 16L * 1024 * 1024;
     /** The host-shared {@code AtomicReference<String>} holding the id of the generation that published last. */
@@ -81,6 +82,7 @@ public final class NetworkService implements NetworkRouting {
     private final Lock rosterLock;
     private final Backlog inbox;
     private final LogThrottle badSignatures = new LogThrottle();
+    private final RemoteCommands commands;
 
     private @Nullable InProcessBus bus;
     private volatile boolean running;
@@ -115,6 +117,8 @@ public final class NetworkService implements NetworkRouting {
                 MAX_QUEUED_MESSAGES,
                 MAX_QUEUED_BYTES,
                 dropWarnings);
+        this.commands = new RemoteCommands(this, clock, RemoteCommands.CULT, host);
+        commands.register();
     }
 
     @SuppressWarnings("unchecked")
@@ -211,9 +215,12 @@ public final class NetworkService implements NetworkRouting {
                     (channel, text) -> enqueue(text, channel.equals(broadcastChannel), false));
             publishRoster(platform.onlinePlayers(), true, List.of());
         }
-        if (scheduler != null)
+        if (scheduler != null) {
             scheduler.scheduleAtFixedRate(
                     this::tick, ROSTER_PERIOD_MILLIS, ROSTER_PERIOD_MILLIS, TimeUnit.MILLISECONDS);
+            scheduler.scheduleAtFixedRate(
+                    this::sweepCommands, SWEEP_PERIOD_MILLIS, SWEEP_PERIOD_MILLIS, TimeUnit.MILLISECONDS);
+        }
     }
 
     /**
@@ -239,6 +246,7 @@ public final class NetworkService implements NetworkRouting {
         }
         if (scheduler != null) scheduler.shutdownNow();
         if (receiver != null) receiver.shutdownNow();
+        commands.close();
     }
 
     NetworkSettings settings() {
@@ -267,6 +275,12 @@ public final class NetworkService implements NetworkRouting {
         if (instance.equals(instanceId)) return sendLocal(type, body);
         if (!running) return false;
         return publish(instance, type, body);
+    }
+
+    /** Whether {@code body} sent to {@code instance} as {@code type} fits in one message. */
+    boolean fits(String instance, String type, JsonObject body) {
+        String text = codec.encode(Envelope.create(type, instanceId, instance, clock.getAsLong(), body));
+        return EnvelopeCodec.utf8Length(text) <= EnvelopeCodec.MAX_BYTES;
     }
 
     /** Sends {@code body} to every other instance; false without a transport. */
@@ -321,6 +335,41 @@ public final class NetworkService implements NetworkRouting {
     /** Whether no host runs other generations, or this one published the roster since any other did. */
     private boolean publishedLast() {
         return host == null || host.generationId().equals(rosterPublisher.get());
+    }
+
+    /** Whether this generation answers for {@code player}: it holds them, or no generation does and it is current. */
+    boolean answers(UUID player) {
+        return switch (platform.holder(player)) {
+            case THIS -> true;
+            case OTHER -> false;
+            case NONE -> current();
+        };
+    }
+
+    /** Whether {@code player} is online on this instance, whichever generation holds them. */
+    boolean online(UUID player) {
+        for (OnlinePlayer each : platform.onlinePlayers()) {
+            if (each.uuid().equals(player)) return true;
+        }
+        return false;
+    }
+
+    @Nullable
+    Object remoteSenderBase() {
+        return platform.remoteSenderBase();
+    }
+
+    void commands(Commands hooks) {
+        commands.commands(hooks);
+    }
+
+    /** Fails forwarded commands nothing answered in time. */
+    void sweepCommands() {
+        try {
+            commands.sweep();
+        } catch (RuntimeException failure) {
+            LogUtil.warn("Network command timeout check failed", failure);
+        }
     }
 
     private void publishRoster(Collection<OnlinePlayer> players, boolean full, Collection<UUID> left) {
@@ -452,21 +501,26 @@ public final class NetworkService implements NetworkRouting {
         return List.copyOf(players.values());
     }
 
+    /**
+     * Runs {@code line} here when this generation answers for {@code where}, else on the generation or instance that
+     * does. A command forwarded here is never forwarded again.
+     */
     @Override
     public CompletableFuture<Boolean> run(Sender sender, String line, NetworkPlayer where) {
-        if (where.instance().equals(instanceId)) {
-            sender.performCommand(line);
-            return CompletableFuture.completedFuture(true);
+        if (where.instance().equals(instanceId) && answers(where.uuid())) return commands.runHere(sender, line, where);
+        if (sender instanceof RemoteCommandSource forwarded) {
+            forwarded.targetLeft();
+            return CompletableFuture.completedFuture(false);
         }
-        return forward(sender, line, where);
-    }
-
-    /** Runs {@code line} on {@code where}'s instance; until commands are forwarded, it tells the sender so. */
-    CompletableFuture<Boolean> forward(Sender sender, String line, NetworkPlayer where) {
-        sender.sendMessage(Component.text(
-                "The command could not be forwarded to " + where.instance() + ", where " + where.name() + " is.",
-                NamedTextColor.RED));
-        return CompletableFuture.completedFuture(false);
+        if (transport == null && !where.instance().equals(instanceId)) {
+            sender.sendMessage(MessageUtil.getParsedComponent(
+                    sender,
+                    "network-disabled-command",
+                    "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to"
+                            + " configure a messaging backend (Redis or NATS) in the CultAC configuration."));
+            return CompletableFuture.completedFuture(false);
+        }
+        return commands.forward(sender, line, where);
     }
 
     private NetworkPlayer local(OnlinePlayer player) {

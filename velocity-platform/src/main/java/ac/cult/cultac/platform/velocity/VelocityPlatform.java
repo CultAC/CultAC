@@ -117,7 +117,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
             this.bridge =
                     new BridgeService(proxy, nativePlugin, transport::channel, manager::connection, plugin.getLogger());
             this.server = new VelocityServer(proxy, senders, bridge::tps);
-            this.network = new VelocityNetwork(proxy, nativePlugin);
+            this.network = new VelocityNetwork(proxy, nativePlugin, transport::channel);
             manager.setPacketOwnerResolver(channel -> {
                 var connection = manager.connection(channel);
                 if (connection == null) return null;

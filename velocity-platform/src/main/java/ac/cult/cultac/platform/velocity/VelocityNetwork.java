@@ -4,14 +4,19 @@ import ac.cult.cultac.network.routing.MessageTransport;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.network.routing.NetworkPlatform;
 import ac.cult.cultac.platform.velocity.bridge.BridgeService;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.reload.api.HostContext;
 import com.velocitypowered.api.event.EventHandler;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import io.netty.channel.Channel;
 import java.net.InetSocketAddress;
 import java.util.Collection;
+import java.util.UUID;
+import java.util.function.Function;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -21,14 +26,16 @@ import org.jetbrains.annotations.Nullable;
 final class VelocityNetwork implements NetworkPlatform {
     private final ProxyServer proxy;
     private final Object plugin;
+    private final Function<Player, Channel> channels;
     private final EventHandler<PostLoginEvent> joined = event -> changed(event.getPlayer());
     private final EventHandler<ServerPostConnectEvent> switched = event -> changed(event.getPlayer());
     private final EventHandler<DisconnectEvent> left = this::left;
     private boolean listening;
 
-    VelocityNetwork(ProxyServer proxy, Object plugin) {
+    VelocityNetwork(ProxyServer proxy, Object plugin, Function<Player, Channel> channels) {
         this.proxy = proxy;
         this.plugin = plugin;
+        this.channels = channels;
     }
 
     synchronized void listen() {
@@ -68,6 +75,20 @@ final class VelocityNetwork implements NetworkPlatform {
         return proxy.getAllPlayers().stream()
                 .map(player -> new OnlinePlayer(player.getUniqueId(), player.getUsername(), server(player)))
                 .toList();
+    }
+
+    @Override
+    public Holder holder(UUID uuid) {
+        var player = proxy.getPlayer(uuid).orElse(null);
+        return holder(RuntimeEnvironment.host(), player == null ? null : channels.apply(player));
+    }
+
+    /** The runtime holding {@code connection} relative to this one; without a host, this one holds every player. */
+    static Holder holder(@Nullable HostContext host, @Nullable Channel connection) {
+        if (host == null) return Holder.THIS;
+        String owner = connection == null ? null : host.ownerOf(connection);
+        if (owner == null) return Holder.NONE;
+        return owner.equals(host.generationId()) ? Holder.THIS : Holder.OTHER;
     }
 
     @Override

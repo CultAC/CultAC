@@ -27,9 +27,13 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -44,7 +48,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import java.util.logging.Level;
-import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -345,9 +348,9 @@ class NetworkServiceTest {
         }
     }
 
-    /** One scheduler thread; the task scheduled on it at a fixed rate runs each time {@link #fire} asks, and only then. */
+    /** One scheduler thread; the tasks scheduled on it at a fixed rate run each time {@link #fire} asks, and only then. */
     private static final class ManualScheduler extends ScheduledThreadPoolExecutor {
-        private volatile Runnable periodic;
+        private final List<Runnable> periodic = new CopyOnWriteArrayList<>();
 
         ManualScheduler() {
             super(1);
@@ -355,13 +358,13 @@ class NetworkServiceTest {
 
         @Override
         public ScheduledFuture<?> scheduleAtFixedRate(Runnable command, long initialDelay, long period, TimeUnit unit) {
-            periodic = command;
+            periodic.add(command);
             return schedule(() -> {}, 1, TimeUnit.DAYS);
         }
 
-        /** Runs the fixed-rate task on the scheduler thread and waits for it to finish. */
+        /** Runs the fixed-rate tasks on the scheduler thread, in the order they were scheduled, and waits for them. */
         void fire() throws Exception {
-            submit(periodic).get(10, TimeUnit.SECONDS);
+            submit(() -> periodic.forEach(Runnable::run)).get(10, TimeUnit.SECONDS);
         }
     }
 
@@ -568,19 +571,40 @@ class NetworkServiceTest {
     }
 
     @Test
-    void runRunsALocalPlayersCommandHereAndCannotYetForwardOne() {
+    void runRunsALocalPlayersCommandThroughTheCommandManagerAndForwardsARemoteOne() {
         NetworkService a = started("p3", new Players().with(BOB, "Bob", null));
-        started("p7", new Players().with(ALICE, "Alice", "lobby"));
+        NetworkService b = started("p7", new Players().with(ALICE, "Alice", "lobby"));
+        List<String> ranHere = new ArrayList<>();
+        List<String> ranThere = new ArrayList<>();
+        a.commands(commands(ranHere));
+        b.commands(commands(ranThere));
         Sender sender = mock(Sender.class);
+        when(sender.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(sender.getName()).thenReturn("Mod");
 
         assertTrue(
                 a.run(sender, "cult profile Bob", a.locate("Bob").orElseThrow()).join());
-        verify(sender).performCommand("cult profile Bob");
+        assertEquals(List.of("cult profile Bob"), ranHere);
 
-        assertFalse(a.run(sender, "cult profile Alice", a.locate("Alice").orElseThrow())
+        assertTrue(a.run(sender, "cult profile Alice", a.locate("Alice").orElseThrow())
                 .join());
-        verify(sender, never()).performCommand("cult profile Alice");
-        verify(sender).sendMessage(any(Component.class));
+        assertEquals(List.of("cult profile Alice"), ranThere);
+        verify(sender, never()).performCommand(anyString());
+    }
+
+    private static RemoteCommands.Commands commands(List<String> ran) {
+        return new RemoteCommands.Commands() {
+            @Override
+            public CompletionStage<?> execute(Sender sender, String line) {
+                ran.add(line);
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public Set<String> permissionNodes() {
+                return Set.of();
+            }
+        };
     }
 
     @Test

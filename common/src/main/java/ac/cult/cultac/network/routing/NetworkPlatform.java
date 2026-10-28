@@ -15,6 +15,19 @@ public interface NetworkPlatform {
     /** Every player online on this instance, whichever runtime holds their connection. Any thread. */
     Collection<OnlinePlayer> onlinePlayers();
 
+    /** Which engine generation holds {@code uuid}'s connection here. Any thread. */
+    default Holder holder(UUID uuid) {
+        return Holder.THIS;
+    }
+
+    /**
+     * The platform's own sender that a command run for another instance's sender stands on, where the platform's
+     * command pipeline needs one; null where any sender object will do.
+     */
+    default @Nullable Object remoteSenderBase() {
+        return null;
+    }
+
     /** {@code <host>:<port>}, the instance id when nothing else names one. */
     String address();
 
@@ -40,6 +53,16 @@ public interface NetworkPlatform {
 
     /** A player online here; {@code server} is their backend server on a proxy and null elsewhere. */
     record OnlinePlayer(UUID uuid, String name, @Nullable String server) {}
+
+    /** The generation holding a player's connection, relative to the one asking. */
+    enum Holder {
+        /** This generation, or the only one there is. */
+        THIS,
+        /** Another engine generation in this process. */
+        OTHER,
+        /** No generation: the player is not connected here, or no runtime took their connection. */
+        NONE
+    }
 
     /** {@code <host>:<port>}, this machine's name standing in for a null or empty {@code host}. */
     static String address(@Nullable String host, int port) {
