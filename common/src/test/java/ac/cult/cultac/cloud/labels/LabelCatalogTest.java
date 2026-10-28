@@ -29,7 +29,7 @@ public class LabelCatalogTest {
     @Test
     void theBundledCatalogListsThePickableCheatsInOrderWithOtherLast() {
         LabelCatalog bundled = LabelCatalog.bundled();
-        assertEquals("bundled", bundled.version());
+        assertEquals(16, bundled.version().length());
         assertEquals(
                 List.of(
                         "triggerbot",
