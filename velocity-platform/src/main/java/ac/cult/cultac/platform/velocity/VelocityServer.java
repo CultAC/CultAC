@@ -8,6 +8,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.Result;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.ValidationBlock;
 import ac.cult.cultac.bridge.protocol.ListenerKind;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
+import ac.cult.cultac.platform.api.CommandOutcome;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
@@ -57,7 +58,8 @@ final class VelocityServer implements PlatformServer {
      * Commands the proxy does not know run on the subject's backend console when its companion allows it; without such
      * a companion every command dispatches on the proxy as on an unbridged proxy, silently.
      */
-    void dispatchCommand(Sender sender, String command, @Nullable PlatformPlayer subject) {
+    @Override
+    public void dispatchCommand(Sender sender, String command, @Nullable PlatformPlayer subject) {
         var session = subject instanceof VelocityPlayer player ? player.bridge(ServerCapability.CONSOLE_EXEC) : null;
         if (session == null) {
             dispatchCommand(sender, command);
@@ -78,6 +80,32 @@ final class VelocityServer implements PlatformServer {
             return;
         }
         dispatchCommand(sender, command);
+    }
+
+    /**
+     * Routes like {@link #dispatchCommand(Sender, String, PlatformPlayer)}. On the proxy, {@code false} from Velocity
+     * is an unknown command; on a backend, the companion's answer, and no answer in time means the command was sent.
+     */
+    @Override
+    public CompletableFuture<CommandOutcome> runCommand(
+            Sender sender, String command, @Nullable PlatformPlayer subject) {
+        var session = subject instanceof VelocityPlayer player ? player.bridge(ServerCapability.CONSOLE_EXEC) : null;
+        if (session == null || proxy.getCommandManager().hasCommand(root(command))) {
+            return proxy.getCommandManager()
+                    .executeAsync(senders.unwrap(sender), command)
+                    .thenApply(CommandOutcome::of);
+        }
+        String server = session.serverName();
+        if (!BridgeFrames.fits(new ConsoleExec(BridgeFrames.WORST_CASE_REQUEST_ID, command))) {
+            return CompletableFuture.completedFuture(new CommandOutcome(false, "too long to forward to " + server));
+        }
+        return session.exchange(requestId -> new ConsoleExec(requestId, command), REQUEST_TIMEOUT_MILLIS)
+                .thenApply(answer -> {
+                    if (answer == null) return CommandOutcome.SENT_TO_BACKEND;
+                    return answer instanceof Result result && result.success()
+                            ? new CommandOutcome(true, "ran on " + server)
+                            : new CommandOutcome(false, "did not run on " + server);
+                });
     }
 
     /**

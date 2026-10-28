@@ -1,13 +1,16 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.platform.api.CommandOutcome;
 import ac.cult.cultac.platform.api.OnlineMode;
 import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.ServerFacts;
+import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.jetbrains.annotations.Nullable;
@@ -25,6 +28,15 @@ public class BukkitPlatformServer implements PlatformServer {
         CommandSender commandSender =
                 CultACBukkitLoaderPlugin.INSTANCE.getBukkitSenderFactory().reverse(sender);
         Bukkit.dispatchCommand(commandSender, command);
+    }
+
+    /** On the main thread; {@code false} from Bukkit is an unknown command. */
+    @Override
+    public CompletableFuture<CommandOutcome> runCommand(
+            Sender sender, String command, @Nullable PlatformPlayer subject) {
+        CommandSender commandSender =
+                CultACBukkitLoaderPlugin.INSTANCE.getBukkitSenderFactory().reverse(sender);
+        return CompletableFuture.completedFuture(CommandOutcome.of(Bukkit.dispatchCommand(commandSender, command)));
     }
 
     @Override

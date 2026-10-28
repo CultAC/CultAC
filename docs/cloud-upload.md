@@ -174,6 +174,49 @@ On Velocity the online check asks the proxy's permission provider (LuckPerms-Vel
 change listener and offline sweep run when LuckPerms is installed on the proxy. On Paper they use Paper's permissions
 and LuckPerms the same way.
 
+### Staff bans
+
+Staff can ban a player from the cloud panel. The cloud service holds the ban until one of your organization's
+servers claims it and runs it with that server's own command:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `cloud.staff-ban.command` | `""` | Runs for a permanent ban. |
+| `cloud.staff-ban.temp-command` | `""` | Runs for a timed ban. |
+
+Placeholders: `%player%` (the name, or the UUID when it is unknown or has characters other than letters, digits,
+`_`, `.`, `*` and `-`), `%uuid%`, `%reason%`, `%cheat%` (the cheat's display name), `%cheat_id%`, `%duration%`
+(`30m`, `12h`, `7d`: the largest of days, hours and minutes that divides it, else seconds as `90s`; empty when
+permanent), `%seconds%` (empty when permanent), `%staff%`, `%ban_id%` and `%link%` (the player's page on the cloud
+panel). Control characters and line breaks are removed from every value and its whitespace collapsed; `%reason%` and
+`%staff%` keep at most 200 characters. For example `tempban %player% %duration% %reason%` or
+`ban %player% %reason% (%staff%)`. `%reason%` and `%staff%` are free text, so put `%reason%` last, after
+`%duration%`: a ban plugin may read a reason such as `1d spam` as a duration. A value starting with `-` gets a
+leading `'` so it is never read as a flag. A ban for something other than a cheat has no cheat: `%cheat%` and `%cheat_id%` are
+empty then.
+
+While the upload is configured and either command is set, CultAC asks the service for the pending bans its commands
+cover (permanent, timed or both) every 10 seconds, or as often as the service says (5 to 60 seconds). A server where
+the player is online claims the ban at once; the others wait 15 seconds, or the service's grace, so the player's own
+server can take it. The claimed ban runs as console on the main thread (on Velocity from the proxy console, or on the
+player's backend through the CultAC Companion when the proxy has no such command), and the outcome goes back to the
+service:
+
+| Result | Meaning |
+|---|---|
+| `dispatched` | The server or proxy found the command and ran it. |
+| `ran on <backend>` / `did not run on <backend>` | The player's backend ran the command, or did not know it or failed. |
+| `sent to backend` | The command went to the player's backend, which did not answer within 2 seconds; it may still run there. |
+| `unknown command` | The server or proxy has no such command. |
+| `not run: the server was busy` | The main thread did not take the command within 30 seconds; it never runs later. |
+| anything else | The error the command threw. |
+
+When the service cannot be reached to take a result, CultAC retries every 10 seconds until it can, also across
+`/cult reload`; a result the service refuses (for example a revoked key) is not sent again. A claimed ban not yet run when `/cult reload` happens is not run; the service offers it again once its
+claim lapses. Staff bans are not punishments: `punishments.yml` and observe-only do not apply to them. A server never
+runs the same ban twice, and a server without the matching command never claims one, so leave both empty on servers
+that should not ban. `/cult reload` applies changes.
+
 ## Commands
 
 | Command | Permission | What it does |
