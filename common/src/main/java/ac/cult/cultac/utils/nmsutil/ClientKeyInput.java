@@ -226,19 +226,25 @@ public final class ClientKeyInput {
         return inputs;
     }
 
-    /** The moveRelative speeds of the travel: on dry ground every speed the sprint modifier allows. */
+    /**
+     * The moveRelative speeds of the travel: in LivingEntity#travelInAir on the ground every speed the sprint modifier
+     * allows. Player#isAffectedByFluids is false in flight, so a flyer travels in air even in water or lava, and
+     * LivingEntity#getFrictionInfluencedSpeed reads getSpeed() on the ground before Player#getFlyingSpeed. A flyer is
+     * on the ground for the travel after LocalPlayer#aiStep's double-tap takeoff: jumpFromGround keeps onGround.
+     */
     private static List<Float> moveRelativeSpeeds(CultPlayer player, SimulationContext context, PredVector candidate) {
         WorldData world = context.getWorldData();
         List<Float> speeds = new ArrayList<>(2);
         boolean water = world.isInWater();
         boolean lava = world.isInLava();
-        boolean dry = !water && !lava && context.getVehicle() == null && !player.isFlying;
+        boolean flying = player.isFlying;
+        boolean inAir = context.getVehicle() == null && (flying || !water && !lava);
         for (boolean onGround : world.getLastOnGround().getStates()) {
-            if (dry && onGround && context.isSprintModifier()) {
+            if (inAir && onGround && context.isSprintModifier()) {
                 for (float speed :
                         context.getGroundMoveRelativeSpeeds(player, context.getSprintOutcome(player, candidate)))
                     if (!speeds.contains(speed)) speeds.add(speed);
-            } else if (dry && !onGround) {
+            } else if (inAir && !onGround && !flying) {
                 // Player#getFlyingSpeed reads the sprint flag.
                 for (boolean sprinting : context.getIsSprinting().getStates()) {
                     float speed = sprinting ? 0.025999999F : 0.02F;

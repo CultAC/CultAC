@@ -15,6 +15,7 @@ import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
 import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.PacketPlayerAbilities;
 import ac.cult.cultac.events.packets.PacketServerRegistries;
+import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
@@ -33,6 +34,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerAbilities;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.AttributeModifier;
@@ -40,6 +42,7 @@ import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameEventType;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -74,9 +77,14 @@ class CreativeFlightTest {
             new ServerboundPlayerInput(true, false, false, false, false, true, false);
     private static final ServerboundPlayerInput FORWARD_JUMP_SHIFT =
             new ServerboundPlayerInput(true, false, false, false, true, true, false);
+    private static final ServerboundPlayerInput FORWARD_JUMP_SPRINT =
+            new ServerboundPlayerInput(true, false, false, false, true, false, true);
     private static final float FLYING_SPEED = 0.05F;
     /** LivingEntity#getFrictionInfluencedSpeed on stone at 0.1 movement speed. */
     private static final float GROUND_SPEED = 0.1F * (0.21600002F / (0.6F * 0.6F * 0.6F));
+    /** As {@link #GROUND_SPEED}, with LivingEntity's 0.3F minecraft:sprinting modifier on the movement speed. */
+    private static final float SPRINT_GROUND_SPEED =
+            (float) (0.1F * (1.0D + 0.3F)) * (0.21600002F / (0.6F * 0.6F * 0.6F));
     private static final double IMPULSE = FLYING_SPEED * 3.0F;
     private static final Vec3 HOVER = new Vec3(0.5, FLOOR_Y + 3, 0.5);
     private static final Vec3 GROUND = new Vec3(0.5, FLOOR_Y, 0.5);
@@ -1084,6 +1092,27 @@ class CreativeFlightTest {
     }
 
     /**
+     * LivingEntity#getFrictionInfluencedSpeed reads getSpeed() on the ground before Player#getFlyingSpeed, and the
+     * takeoff's jumpFromGround leaves onGround for its travel. A sprinting grounded takeoff therefore moves at the
+     * minecraft:sprinting modifier's ground speed on top of the sprint jump's push.
+     */
+    @Test
+    void aSprintingGroundedFlightToggleMovesAtTheSprintingGroundSpeed() throws Exception {
+        try (var f = armedOnTheGround(true)) {
+            assertPredicted(takeOffSprinting(f, SPRINT_GROUND_SPEED));
+        }
+    }
+
+    /** The takeoff is still on the ground, so a sprinting takeoff at the flying speed flags. */
+    @Test
+    void aSprintingGroundedFlightToggleAtTheFlyingSpeedFlags() throws Exception {
+        try (var f = armedOnTheGround(true)) {
+            PredictionResult result = takeOffSprinting(f, FLYING_SPEED * 2.0F);
+            assertTrue(result.getOffset() > 1.0E-3, describe(result));
+        }
+    }
+
+    /**
      * LocalPlayer#aiStep reads Abilities#flying for crouching before an airborne double-tap stops flight, so the
      * stopping tick's input is unscaled although shift is held.
      */
@@ -1301,6 +1330,23 @@ class CreativeFlightTest {
         assertPredicted(f.tick(GROUND, true));
         f.abilities(true);
         f.input(FORWARD_JUMP_SHIFT);
+    }
+
+    /**
+     * A grounded double-tap with forward, jump and sprint held that moves at {@code speed}: player_abilities,
+     * player_input and LocalPlayer#sendIsSprintingIfNeeded's START_SPRINTING before the move.
+     * LivingEntity#jumpFromGround pushes the sprinting jumper 0.2 along its yaw, and the flight impulse adds to the jump.
+     */
+    private static PredictionResult takeOffSprinting(JavaTickFixture f, float speed) {
+        f.abilities(true);
+        f.input(FORWARD_JUMP_SPRINT);
+        var sprint = new ServerboundPlayerCommand(f.player.entityID, PlayerCommandAction.START_SPRINTING, 0);
+        new PacketEntityAction().onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, sprint), f.player, sprint);
+        float yaw = f.player.xRot * ((float) Math.PI / 180F);
+        double pushX = -f.player.trigHandler.sin(yaw) * 0.2;
+        double pushZ = f.player.trigHandler.cos(yaw) * 0.2;
+        Vec3 input = ClientMoveInput.of(f, FORWARD_JUMP_SPRINT, 1.0F, speed, f.player.xRot);
+        return f.tick(GROUND.add(pushX + input.x, JUMP_POWER + IMPULSE, pushZ + input.z), false);
     }
 
     /** Water at the feet of a player hovering at {@link #HOVER}. */
