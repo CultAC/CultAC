@@ -22,6 +22,7 @@ import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
@@ -603,14 +604,7 @@ class JavaEntityPushTest {
             seatSlime(f, vehicle);
             PacketEntity rider = f.player.compensatedEntities.getEntity(RIDER);
             // A piston west of the vehicle extends stone east through the vehicle's lower half, below the rider.
-            BlockRegistry blocks = DataTables.defaults().registry();
-            int piston = blocks.with(blocks.block("minecraft:piston").defaultState(), "facing", "east");
-            BlockPos base = new BlockPos(-2, FLOOR_Y + 8, 1);
-            f.player.compensatedWorld.updateBlock(base, piston);
-            f.player.compensatedWorld.updateBlock(
-                    base.relative(Direction.EAST),
-                    blocks.block("minecraft:stone").defaultState());
-            f.player.compensatedWorld.pistons.handleBlockEvent(base, blocks.blockIndex(piston), 0, 5, 0);
+            extendStoneEast(f, FLOOR_Y + 8);
 
             assertExact(f.tick(CONTACT, false));
             assertEquals(
@@ -631,6 +625,57 @@ class JavaEntityPushTest {
             Vec3 push = JavaLivingEntityPushes.impulse(new Vec3(BELOW_TOUCHING.x, 0, BELOW_TOUCHING.z), second);
             assertEquals(0.0, push.x, 0.0, "the kept seat is straight ahead of the player");
             assertExact(f.tick(second.add(0, fall(SECOND_FALL), PUSH * 0.91F + push.z), false));
+        }
+    }
+
+    /**
+     * LivingEntity#handleEntityEvent(3) leaves a dying mob in the level until the server removes it, and its aiStep
+     * still pushes the player. PistonMovingBlockEntity#moveCollidedEntities shoves it like any other non-spectator, so
+     * its next push comes from where the stone left it.
+     */
+    @Test
+    void aDyingMobPushesFromWhereAPistonShovedIt() throws Exception {
+        try (var f = falling()) {
+            PacketEntity zombie = entity(f, 100, TOUCHING);
+            kill(f, 100);
+            // A piston west of the zombie extends stone east through its lower half, beside the player.
+            extendStoneEast(f, FLOOR_Y + 9);
+
+            assertExact(f.tick(CONTACT, false));
+            Vec3 shoved = new Vec3(TOUCHING.x + 0.31, 0, TOUCHING.z);
+            assertEquals(shoved.x, zombie.clientPhysicalPosition.x, 1.0E-6, "the stone shoves the dying zombie");
+
+            Vec3 second = START.add(0, FIRST_FALL + SECOND_FALL, PUSH);
+            assertExact(f.tick(second, false));
+            Vec3 push = JavaLivingEntityPushes.impulse(shoved, second);
+            assertExact(f.tick(second.add(push.x, fall(SECOND_FALL), PUSH * 0.91F + push.z), false));
+        }
+    }
+
+    /** LivingEntity#die does not dismount a dying rider: it pushes from where the piston shoved it, as a living one. */
+    @Test
+    void aDyingRiderPushesFromWhereAPistonShovedIt() throws Exception {
+        try (var f = falling()) {
+            PacketEntity vehicle = entity(f, 100, BELOW_TOUCHING);
+            seatSlime(f, vehicle);
+            PacketEntity rider = f.player.compensatedEntities.getEntity(RIDER);
+            kill(f, RIDER);
+            // The stone extends east through the rider's seat and the top of its vehicle.
+            extendStoneEast(f, FLOOR_Y + 9);
+
+            assertExact(f.tick(CONTACT, false));
+            SimpleCollisionBox near = GetBoundingBox.getPlayerBoundingBox(f.player, 0.5, CONTACT.y, 0.5);
+            var seats = f.player.compensatedEntities.untrackedRiderPushBoxes(
+                    rider, near, new SimpleCollisionBox(), new SimpleCollisionBox());
+            assertEquals(1, seats.size());
+            SimpleCollisionBox seat = seats.getFirst();
+            // The stone's face reaches half a block east this tick; the shove clears it by 0.01.
+            assertEquals(0.51, seat.minX, 1.0E-6, "the stone shoves the dying rider off its seat");
+
+            Vec3 second = START.add(0, FIRST_FALL + SECOND_FALL, PUSH);
+            assertExact(f.tick(second, false));
+            Vec3 push = JavaLivingEntityPushes.impulse(seat, second);
+            assertExact(f.tick(second.add(push.x, fall(SECOND_FALL), PUSH * 0.91F + push.z), false));
         }
     }
 
@@ -800,6 +845,28 @@ class JavaEntityPushTest {
     private static void seatSlime(JavaTickFixture f, PacketEntity vehicle) {
         f.player.compensatedEntities.addEntity(RIDER, EntityTypeIds.SLIME, AWAY, 0, 0, 0);
         f.player.compensatedEntities.entityMap.get(RIDER).mount(vehicle);
+    }
+
+    /** A piston at x -2, z 1 and height {@code y}, facing east, starts pushing the stone beside it east to x 0. */
+    private static void extendStoneEast(JavaTickFixture f, int y) {
+        BlockRegistry blocks = DataTables.defaults().registry();
+        int piston = blocks.with(blocks.block("minecraft:piston").defaultState(), "facing", "east");
+        BlockPos base = new BlockPos(-2, y, 1);
+        f.player.compensatedWorld.updateBlock(base, piston);
+        f.player.compensatedWorld.updateBlock(
+                base.relative(Direction.EAST), blocks.block("minecraft:stone").defaultState());
+        f.player.compensatedWorld.pistons.handleBlockEvent(base, blocks.blockIndex(piston), 0, 5, 0);
+    }
+
+    /** LivingEntity#handleEntityEvent(3): the mob is dying, and stays in the level until the server removes it. */
+    private static void kill(JavaTickFixture f, int id) {
+        var packet = new ClientboundEntityEvent(id, (byte) 3);
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_EVENT, packet, false);
+        f.player.packetEntityReplication.onEntityEvent(event, f.player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+        assertTrue(f.player.compensatedEntities.getEntity(id).isDead);
     }
 
     /** A set_passengers putting zombie 100 on the player, its ping answered or not. */

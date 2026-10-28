@@ -38,12 +38,12 @@ public final class JavaRemoteBlockEntityPass {
             // Controlled roots receive the authoritative local pass. A passive own root still receives
             // the same non-authoritative pass as other roots; its passengers keep their earlier seats.
             // Other riders are never ticked or positioned here: recordRiders only notes where the pass
-            // leaves the living ones, for their next push.
+            // leaves the living ones, for their next push. PistonMovingBlockEntity#moveCollidedEntities
+            // selects every non-spectator, so a dying entity, which pushes until it is removed, is moved too.
             if (actor == entities.getSelf()
                     || actor.getRiding() != null
                     || (actor == selfRoot || actor == serverRoot)
                             && entities.vehicles.isLocallyTickedVelocityRoot(actor)
-                    || actor.isDead
                     || actor.newPacketLocation == null
                     || !actor.clientPhysicalPositionExact
                     || actor.oldPacketLocation != null) continue;
@@ -120,7 +120,7 @@ public final class JavaRemoteBlockEntityPass {
         var passengers = vehicle.passengers;
         for (int i = 0; i < passengers.size(); i++) {
             PacketEntity rider = passengers.get(i);
-            if (!rider.isDead && JavaLivingEntityPushes.ticksPush(rider)) {
+            if (JavaLivingEntityPushes.ticksPush(rider)) {
                 SimpleCollisionBox seat = player.compensatedEntities.untrackedRiderSeatOn(rider, rootStart);
                 if (seat != null) {
                     boolean reached = mayReach(pass, seat);
