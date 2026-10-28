@@ -156,7 +156,7 @@ class DiscordUpgradeTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"**Brand**", "**Marke**", "**品牌**"})
+    @ValueSource(strings = {"**Brand**", "**Marke**"})
     void shippedV4GrimLayoutTakesTheNewDefault(String brandLabel) throws Exception {
         Map<String, Object> data = upgrade(V4_GRIM.replace("**Brand**", brandLabel));
         Map<String, Object> bundled = bundled("en");
@@ -166,12 +166,35 @@ class DiscordUpgradeTest {
         assertEquals(5, data.get("config-version"));
     }
 
+    @Test
+    void shippedChineseGrimLayoutTakesTheNewDefault() throws Exception {
+        Map<String, Object> data = upgrade(V4_GRIM.replace("**Version**", "**版本**")
+                .replace("**Brand**", "**品牌**")
+                .replace("**Server**", "**服务器**")
+                .replace("**World**", "**世界**")
+                .replace("**Location**", "**位置**")
+                .replace("**Ping**", "**延迟**")
+                .replace("**Clock**", "**时钟**")
+                .replace("**Time**", "**时长**")
+                .replace("**State**", "**状态**")
+                .replace("**Checks**", "**检查**")
+                .replace("**Verbose**", "**详情**"));
+        assertEquals(bundled("en").get("violation-content"), data.get("violation-content"));
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {" **Location**: `%location%`", "**Brand**", "    - \"**Checks**: %checks%\"\n"})
+    @ValueSource(
+            strings = {
+                " **Location**: `%location%`|",
+                "**Brand**|**Client**",
+                "**Brand**|**品牌**",
+                "**Clock**|**Time**",
+                "**State**|****",
+                "    - \"**Checks**: %checks%\"\n|"
+            })
     void operatorGrimLayoutStays(String edit) throws Exception {
-        String file = edit.equals("**Brand**")
-                ? V4_GRIM.replace(edit, "**Client**")
-                : V4_GRIM.replace(edit, "");
+        String[] change = edit.split("\\|", -1);
+        String file = V4_GRIM.replace(change[0], change[1]);
         List<?> before = (List<?>) new Yaml().<Map<String, Object>>load(file).get("violation-content");
         Map<String, Object> data = upgrade(file.replace("%uuid% v%cult_version%", "%uuid%"));
         assertEquals(before, data.get("violation-content"));
