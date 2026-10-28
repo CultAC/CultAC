@@ -2,8 +2,10 @@ package ac.cult.cultac.manager;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.when;
@@ -18,13 +20,17 @@ import ac.cult.cultac.network.routing.TestNetworks;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
+import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import org.junit.jupiter.api.AfterEach;
@@ -35,6 +41,7 @@ import org.junit.jupiter.api.Test;
 /** Instance p3 delivers and broadcasts; p7 is a peer on the same broker. */
 class AlertScopeDeliveryTest {
     private static final AlertSubject ON_PVP = new AlertSubject(UUID.randomUUID(), "Bob", "pvp");
+    private static final AlertSubject BETWEEN_SERVERS = new AlertSubject(UUID.randomUUID(), "Cat", null);
 
     private final TestNetworks networks = new TestNetworks();
     private final NetworkService service = networks.started("p3");
@@ -42,8 +49,9 @@ class AlertScopeDeliveryTest {
     private final Sender console = mock(Sender.class);
     private final List<PlatformPlayer> staff = new ArrayList<>();
     private final AlertScopes scopes = new AlertScopes(null, () -> null);
+    private final HostContext host = host();
     private boolean proxy = true;
-    private boolean current = true;
+    private boolean relay;
     private AlertManagerImpl alerts;
     private Object previousServer;
     private boolean consoleAlerts;
@@ -78,10 +86,21 @@ class AlertScopeDeliveryTest {
         platformServer().set(null, previousServer);
     }
 
+    /** An engine generation of instance {@code running.instanceId()}, sharing the host with every other. */
     private AlertManagerImpl manager(NetworkService running) {
-        AlertManagerImpl manager = new AlertManagerImpl(scopes, () -> running, () -> proxy, () -> current);
+        AlertManagerImpl manager = new AlertManagerImpl(scopes, () -> running, () -> proxy, host, () -> relay);
         manager.network().attach(running);
         return manager;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static HostContext host() {
+        Map<String, Object> shared = new ConcurrentHashMap<>();
+        HostContext host = mock(HostContext.class);
+        when(host.shared(any(), any()))
+                .thenAnswer(invocation -> shared.computeIfAbsent(
+                        invocation.getArgument(0), key -> ((Supplier<Object>) invocation.getArgument(1)).get()));
+        return host;
     }
 
     private static Field platformServer() throws NoSuchFieldException {
@@ -140,6 +159,22 @@ class AlertScopeDeliveryTest {
         return peer.peerFlags().get("p3").get("gv").getAsBoolean();
     }
 
+    private static JsonObject body(String kind, String text, String server, boolean withPlayer) {
+        JsonObject body = new JsonObject();
+        body.addProperty("kind", kind);
+        if (withPlayer) {
+            JsonObject player = new JsonObject();
+            player.addProperty("u", UUID.randomUUID().toString());
+            player.addProperty("n", "Bob");
+            body.add("player", player);
+        }
+        body.addProperty("server", server);
+        JsonObject component = new JsonObject();
+        component.addProperty("text", text);
+        body.add("component", component);
+        return body;
+    }
+
     @Test
     void localMessagesOnAProxyReachGlobalStaffAndServerStaffOnTheSubjectsServer() {
         for (AlertKind kind : AlertKind.values()) {
@@ -169,8 +204,8 @@ class AlertScopeDeliveryTest {
             PlatformPlayer otherServer = staff("lobby", AlertScope.SERVER);
             subscribe(kind, global, sameServer, otherServer);
 
-            alerts.deliverReceived(kind, Component.text(kind.id()), "pvp", false);
-            alerts.deliverReceived(kind, Component.text(kind.id()), null, false);
+            alerts.deliverReceived(kind, Component.text(kind.id()), "pvp", null);
+            alerts.deliverReceived(kind, Component.text(kind.id()), null, null);
 
             assertEquals(2, messages(global), kind.id());
             assertEquals(1, messages(sameServer), kind.id());
@@ -184,7 +219,7 @@ class AlertScopeDeliveryTest {
     void theConsoleGetsEveryLocalMessage() {
         alerts.setConsoleVerboseEnabled(true, true);
         alerts.setConsoleBrandsEnabled(true, true);
-        for (AlertKind kind : AlertKind.values()) raise(kind, AlertSubject.UNKNOWN);
+        for (AlertKind kind : AlertKind.values()) raise(kind, AlertSubject.NONE);
         assertEquals(3, messages(console));
     }
 
@@ -195,11 +230,11 @@ class AlertScopeDeliveryTest {
         PlatformPlayer local = staff(null, AlertScope.SERVER);
         subscribe(AlertKind.ALERT, global, local);
 
-        alerts.sendAlert(AlertSubject.UNKNOWN, Component.text("here"), null);
+        alerts.sendAlert(BETWEEN_SERVERS, Component.text("here"), null);
         assertEquals(1, messages(global));
         assertEquals(1, messages(local));
 
-        alerts.deliverReceived(AlertKind.ALERT, Component.text("elsewhere"), null, false);
+        alerts.deliverReceived(AlertKind.ALERT, Component.text("elsewhere"), null, null);
         assertEquals(2, messages(global));
         assertEquals(1, messages(local));
     }
@@ -210,10 +245,66 @@ class AlertScopeDeliveryTest {
         PlatformPlayer server = staff(null, AlertScope.SERVER);
         subscribe(AlertKind.ALERT, global, server);
 
-        alerts.sendAlert(Component.text("unknown"), null);
+        alerts.sendAlert(BETWEEN_SERVERS, Component.text("unknown"), null);
 
         assertEquals(1, messages(global));
         assertEquals(0, messages(server));
+    }
+
+    @Test
+    void anAlertAboutNoPlayerReachesEverySubscriberHereAndOnlyGlobalStaffWhenReceived() {
+        PlatformPlayer global = staff("lobby", AlertScope.GLOBAL);
+        PlatformPlayer sameServer = staff("pvp", AlertScope.SERVER);
+        PlatformPlayer betweenServers = staff(null, AlertScope.SERVER);
+        subscribe(AlertKind.ALERT, global, sameServer, betweenServers);
+
+        alerts.sendAlert(Component.text("sent"), null);
+        assertEquals(1, messages(global));
+        assertEquals(1, messages(sameServer));
+        assertEquals(1, messages(betweenServers));
+        JsonObject sent = networks.broadcasts("alert").get(0);
+        assertFalse(sent.has("player"));
+        assertTrue(sent.get("server").isJsonNull());
+
+        peer.broadcast("alert", body("alert", "received", "pvp", false));
+        assertEquals(2, messages(global));
+        assertEquals(1, messages(sameServer));
+        assertEquals(1, messages(betweenServers));
+    }
+
+    @Test
+    void aServerNamesItselfAsItsPlayersServerOnTheWire() {
+        proxy = false;
+        alerts.sendAlert(BETWEEN_SERVERS, Component.text("flag"), null);
+        alerts.sendAlert(Component.text("no player"), null);
+
+        List<JsonObject> sent = networks.broadcasts("alert");
+        assertEquals("p3", sent.get(0).get("server").getAsString());
+        assertTrue(sent.get(1).get("server").isJsonNull());
+    }
+
+    @Test
+    void relayedAlertsReachGlobalStaffOnlyAndAllowGlobalWithoutATransport() {
+        proxy = false;
+        relay = true;
+        AlertManagerImpl server = manager(networks.withoutTransport("p9"));
+        alerts.setConsoleAlertsEnabled(true, true);
+        PlatformPlayer global = staff(null, AlertScope.GLOBAL);
+        PlatformPlayer local = staff(null, AlertScope.SERVER);
+        subscribe(AlertKind.ALERT, global, local);
+
+        assertTrue(server.networkAlerts());
+        assertEquals(AlertScope.GLOBAL, server.scope(global));
+        server.relayAlert(Component.text("from another server"));
+
+        assertEquals(1, messages(global));
+        assertEquals(0, messages(local));
+        assertEquals(0, messages(console));
+        assertTrue(networks.broadcasts("alert").isEmpty());
+
+        relay = false;
+        assertFalse(server.networkAlerts());
+        assertEquals(AlertScope.SERVER, server.scope(global));
     }
 
     @Test
@@ -250,7 +341,7 @@ class AlertScopeDeliveryTest {
                 Component.text("flag"),
                 GsonComponentSerializer.gson()
                         .deserialize(alert.get("component").toString()));
-        assertFalse(alert.has("verbose"));
+        assertFalse(alert.has("pair"));
         assertEquals("brand", sent.get(1).get("kind").getAsString());
         assertFalse(alerts.hasVerboseListeners());
     }
@@ -267,8 +358,9 @@ class AlertScopeDeliveryTest {
         List<JsonObject> sent = networks.broadcasts("alert");
         assertEquals(3, sent.size());
         assertEquals("verbose", sent.get(0).get("kind").getAsString());
-        assertTrue(sent.get(1).get("verbose").getAsBoolean());
-        assertFalse(sent.get(2).has("verbose"));
+        assertNotNull(sent.get(0).get("pair"));
+        assertEquals(sent.get(0).get("pair"), sent.get(1).get("pair"));
+        assertFalse(sent.get(2).has("pair"));
     }
 
     @Test
@@ -283,37 +375,80 @@ class AlertScopeDeliveryTest {
         assertEquals(1, messages(verbose));
         assertEquals(1, messages(alertsOnly));
 
-        alerts.deliverReceived(AlertKind.VERBOSE, Component.text("verbose"), "pvp", false);
-        alerts.deliverReceived(AlertKind.ALERT, Component.text("flag"), "pvp", true);
+        alerts.deliverReceived(AlertKind.VERBOSE, Component.text("verbose"), "pvp", "pair");
+        alerts.deliverReceived(AlertKind.ALERT, Component.text("flag"), "pvp", "pair");
         assertEquals(2, messages(verbose));
         assertEquals(2, messages(alertsOnly));
 
-        // No verbose copy came first, so the verbose subscriber takes the alert.
-        alerts.deliverReceived(AlertKind.ALERT, Component.text("flag"), "pvp", false);
+        alerts.deliverReceived(AlertKind.ALERT, Component.text("flag"), "pvp", null);
         assertEquals(3, messages(verbose));
         assertEquals(3, messages(alertsOnly));
     }
 
     @Test
-    void aPeersAlertReachesStaffThroughTheCurrentGenerationOnly() {
-        PlatformPlayer global = staff("lobby", AlertScope.GLOBAL);
-        subscribe(AlertKind.ALERT, global);
-        JsonObject body = new JsonObject();
-        body.addProperty("kind", "alert");
-        body.addProperty("server", "pvp");
-        JsonObject component = new JsonObject();
-        component.addProperty("text", "flag");
-        body.add("component", component);
+    void verboseToggledBetweenAReceivedPairGivesEachStaffMemberOneMessage() {
+        PlatformPlayer turnsOff = staff("pvp", AlertScope.SERVER);
+        PlatformPlayer turnsOn = staff("pvp", AlertScope.SERVER);
+        subscribe(AlertKind.VERBOSE, turnsOff);
+        subscribe(AlertKind.ALERT, turnsOn);
 
-        current = false;
-        peer.broadcast("alert", body);
-        assertEquals(0, messages(global));
+        alerts.deliverReceived(AlertKind.VERBOSE, Component.text("verbose"), "pvp", "pair");
+        alerts.setVerboseEnabled(turnsOff, false, true);
+        alerts.setVerboseEnabled(turnsOn, true, true);
+        alerts.deliverReceived(AlertKind.ALERT, Component.text("flag"), "pvp", "pair");
 
-        current = true;
-        service.sendLocal("alert", body);
-        assertEquals(0, messages(global));
-        peer.broadcast("alert", body);
-        assertEquals(1, messages(global));
+        assertEquals(1, messages(turnsOff));
+        assertEquals(1, messages(turnsOn));
+    }
+
+    @Test
+    void anAlertReceivedBeforeItsVerboseCopyKeepsItsRecipientsFromTheCopy() {
+        PlatformPlayer verbose = staff("pvp", AlertScope.SERVER);
+        PlatformPlayer alertsOnly = staff("pvp", AlertScope.SERVER);
+        subscribe(AlertKind.VERBOSE, verbose);
+        subscribe(AlertKind.ALERT, alertsOnly);
+
+        alerts.deliverReceived(AlertKind.ALERT, Component.text("flag"), "pvp", "pair");
+        alerts.deliverReceived(AlertKind.VERBOSE, Component.text("verbose"), "pvp", "pair");
+
+        assertEquals(1, messages(verbose));
+        assertEquals(1, messages(alertsOnly));
+    }
+
+    @Test
+    void twoGenerationsReceivingOnePeersAlertDeliverItOnceWhicheverReceivesFirst() {
+        for (boolean newerFirst : new boolean[] {false, true}) {
+            TestNetworks broker = new TestNetworks();
+            NetworkService first = broker.started("p3");
+            NetworkService second = broker.started("p3");
+            NetworkService sender = broker.started("p7");
+            manager(newerFirst ? second : first);
+            manager(newerFirst ? first : second);
+            PlatformPlayer global = staff("lobby", AlertScope.GLOBAL);
+            subscribe(AlertKind.ALERT, global);
+
+            sender.broadcast("alert", body("alert", "flag", "pvp", true));
+            assertEquals(1, messages(global), "newer first: " + newerFirst);
+
+            first.sendLocal("alert", body("alert", "flag", "pvp", true));
+            assertEquals(1, messages(global), "newer first: " + newerFirst);
+            leave();
+        }
+    }
+
+    @Test
+    void aPairSplitBetweenTwoGenerationsStillGivesEachStaffMemberOneMessage() {
+        AlertManagerImpl newer = manager(networks.started("p3"));
+        PlatformPlayer verbose = staff("pvp", AlertScope.SERVER);
+        PlatformPlayer alertsOnly = staff("pvp", AlertScope.SERVER);
+        subscribe(AlertKind.VERBOSE, verbose);
+        subscribe(AlertKind.ALERT, alertsOnly);
+
+        alerts.deliverReceived(AlertKind.VERBOSE, Component.text("verbose"), "pvp", "pair");
+        newer.deliverReceived(AlertKind.ALERT, Component.text("flag"), "pvp", "pair");
+
+        assertEquals(1, messages(verbose));
+        assertEquals(1, messages(alertsOnly));
     }
 
     @Test
@@ -351,5 +486,18 @@ class AlertScopeDeliveryTest {
 
         alerts.handlePlayerQuit(global);
         assertFalse(peerSeesGlobalVerbose());
+    }
+
+    @Test
+    void theGlobalVerboseFlagFollowsAPermissionChangeAtTheNextSnapshot() {
+        PlatformPlayer staff = staff("lobby");
+        alerts.setVerboseEnabled(staff, true, true);
+        assertFalse(peerSeesGlobalVerbose());
+
+        when(staff.hasPermission(AlertScopes.GLOBAL_PERMISSION, false)).thenReturn(true);
+        assertFalse(peerSeesGlobalVerbose());
+
+        networks.tick(service);
+        assertTrue(peerSeesGlobalVerbose());
     }
 }

@@ -32,6 +32,11 @@ public interface PlatformServer {
 
     void forwardAlert(String message);
 
+    /** Whether this server shows the alerts other servers forward to it through the proxy's plugin messaging. */
+    default boolean receivesForwardedAlerts() {
+        return false;
+    }
+
     boolean isProxyForwardingEnabled();
 
     /**

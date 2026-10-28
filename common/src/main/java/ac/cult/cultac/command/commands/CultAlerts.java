@@ -59,7 +59,7 @@ public class CultAlerts implements BuildableCommand {
         sender.sendMessage(scopeLine(sender, player));
     }
 
-    /** Sets the sender's scope; {@code global} needs a running transport. */
+    /** Sets the sender's scope; {@code global} needs {@link AlertManagerImpl#networkAlerts}. */
     static void chooseScope(Sender sender, AlertScope scope) {
         PlatformPlayer player = sender.isPlayer() ? sender.getPlatformPlayer() : null;
         if (player == null) {

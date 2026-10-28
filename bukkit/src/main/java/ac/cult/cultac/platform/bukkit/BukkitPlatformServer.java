@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.events.packets.ProxyAlertMessenger;
 import ac.cult.cultac.platform.api.OnlineMode;
 import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.PlatformServer;
@@ -43,6 +44,11 @@ public class BukkitPlatformServer implements PlatformServer {
     @Override
     public void forwardAlert(String message) {
         ac.cult.cultac.events.packets.ProxyAlertMessenger.sendPluginMessage(message);
+    }
+
+    @Override
+    public boolean receivesForwardedAlerts() {
+        return ProxyAlertMessenger.receivesAlerts();
     }
 
     @Override

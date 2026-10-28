@@ -3,6 +3,7 @@ package ac.cult.cultac.manager;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.alerts.AlertKind;
 import ac.cult.cultac.manager.alerts.AlertNetwork;
+import ac.cult.cultac.manager.alerts.AlertPairs;
 import ac.cult.cultac.manager.alerts.AlertScope;
 import ac.cult.cultac.manager.alerts.AlertScopes;
 import ac.cult.cultac.manager.alerts.AlertSubject;
@@ -10,6 +11,7 @@ import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.network.routing.NetworkService;
+import ac.cult.cultac.network.routing.SharedClaims;
 import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -17,6 +19,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.runtime.NativePlayerSet;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
+import ac.cult.reload.api.HostContext;
 import ac.cult.reload.host.AlertSubscriptions;
 import ac.grim.grimac.api.GrimUser;
 import ac.grim.grimac.api.alerts.AlertManager;
@@ -48,13 +51,16 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     private static @MonotonicNonNull PlatformServer platformServer;
 
     private final AlertScopes scopes;
+    private final AlertPairs pairs;
     private final AlertNetwork network;
     private final BooleanSupplier proxy;
+    private final BooleanSupplier relay;
     private final AtomicBoolean networkHooked = new AtomicBoolean();
 
-    /** Who a message reached; {@code broadcast} when it also went to the other instances. */
+    /** Who a message reached; {@code pair} is set on a verbose line that also went to the other instances. */
     private static final class Recipients extends HashSet<@Nullable PlatformPlayer> {
-        boolean broadcast;
+        @Nullable
+        String pair;
     }
 
     private enum AlertType {
@@ -142,30 +148,36 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
                 new AlertScopes(RuntimeEnvironment.host(), AlertManagerImpl::dataStore),
                 NetworkModule::service,
                 () -> CultAPI.INSTANCE.getPlatform() == Platform.VELOCITY,
-                () -> {
-                    var host = RuntimeEnvironment.host();
-                    return host == null || host.current();
-                });
+                RuntimeEnvironment.host(),
+                () -> platformServer != null && platformServer.receivesForwardedAlerts());
     }
 
     /**
      * @param proxy whether this instance is a proxy, whose players are on backend servers
-     * @param current whether this engine generation answers for the instance
+     * @param host the host every engine generation on this instance shares, if any
+     * @param relay whether this server shows alerts other servers forward through the proxy's plugin messaging
      */
     AlertManagerImpl(
             AlertScopes scopes,
             Supplier<@Nullable NetworkService> service,
             BooleanSupplier proxy,
-            BooleanSupplier current) {
+            @Nullable HostContext host,
+            BooleanSupplier relay) {
         this.scopes = scopes;
         this.proxy = proxy;
-        this.network = new AlertNetwork(service, new NetworkStaff(), current, System::currentTimeMillis);
+        this.relay = relay;
+        this.pairs = new AlertPairs(host, System::currentTimeMillis);
+        this.network = new AlertNetwork(
+                service,
+                new NetworkStaff(),
+                new SharedClaims(host, AlertNetwork.TYPE, System::currentTimeMillis),
+                System::currentTimeMillis);
     }
 
     private final class NetworkStaff implements AlertNetwork.Staff {
         @Override
-        public void received(AlertKind kind, Component component, @Nullable String server, boolean afterVerbose) {
-            deliverReceived(kind, component, server, afterVerbose);
+        public void received(AlertKind kind, Component component, @Nullable String server, @Nullable String pair) {
+            deliverReceived(kind, component, server, pair);
         }
 
         @Override
@@ -324,9 +336,9 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         scopes.load(player, network::demandChanged);
     }
 
-    /** {@code player}'s alert scope as it applies now: {@code server} for everyone while no transport runs. */
+    /** {@code player}'s alert scope as it applies now: {@code server} for everyone unless {@link #networkAlerts}. */
     public @NotNull AlertScope scope(@NotNull PlatformPlayer player) {
-        return network.running() ? scopes.scope(player) : AlertScope.SERVER;
+        return networkAlerts() ? scopes.scope(player) : AlertScope.SERVER;
     }
 
     /** The scope {@code player} chose; null when the permission default applies. */
@@ -340,9 +352,9 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         if (hasVerboseEnabled(player)) network.demandChanged();
     }
 
-    /** Whether a transport carries alerts between this instance and the others. */
+    /** Whether other instances' alerts reach this one: over a network transport, or the proxy's plugin messaging. */
     public boolean networkAlerts() {
-        return network.running();
+        return network.running() || relay.getAsBoolean();
     }
 
     public boolean toggleConsoleAlerts() {
@@ -485,15 +497,14 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     }
 
     /**
-     * A brand message about a player whose server is unknown: global-scope staff only, unless this instance is the
-     * server.
+     * A brand message about no player: every subscriber here, whatever their scope, and global-scope staff elsewhere.
      *
      * @param component the message to send to listeners
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
     public Set<PlatformPlayer> sendBrand(Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
-        return sendBrand(AlertSubject.UNKNOWN, component, excluding);
+        return sendBrand(AlertSubject.NONE, component, excluding);
     }
 
     /**
@@ -515,15 +526,14 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     }
 
     /**
-     * A verbose line about a player whose server is unknown: global-scope staff only, unless this instance is the
-     * server.
+     * A verbose line about no player: every subscriber here, whatever their scope, and global-scope staff elsewhere.
      *
      * @param component the message to send to listeners
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
     public Set<PlatformPlayer> sendVerbose(Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
-        return sendVerbose(AlertSubject.UNKNOWN, component, excluding);
+        return sendVerbose(AlertSubject.NONE, component, excluding);
     }
 
     /**
@@ -546,14 +556,14 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     }
 
     /**
-     * An alert about no known player or server: global-scope staff only, unless this instance is the server.
+     * An alert about no player: every subscriber here, whatever their scope, and global-scope staff elsewhere.
      *
      * @param component the message to send to listeners
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
     public Set<PlatformPlayer> sendAlert(Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
-        return sendAlert(AlertSubject.UNKNOWN, component, excluding);
+        return sendAlert(AlertSubject.NONE, component, excluding);
     }
 
     /**
@@ -575,11 +585,11 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     }
 
     /**
-     * Shows an alert another server forwarded through the proxy's plugin messaging, as one raised here about an unknown
-     * player; it is not broadcast again.
+     * Shows an alert another server forwarded through the proxy's plugin messaging as one received about an unknown
+     * server: global-scope staff only, never the console, and not broadcast again.
      */
     public void relayAlert(Component component) {
-        AlertType.NORMAL.send(component, null, staff -> covers(staff, null, true), true);
+        deliverReceived(AlertKind.ALERT, component, null, null);
     }
 
     private Set<PlatformPlayer> raise(
@@ -587,18 +597,27 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
             AlertSubject subject,
             Component component,
             @Nullable Set<@Nullable PlatformPlayer> excluding) {
-        Recipients recipients = type.send(component, excluding, staff -> covers(staff, subject.server(), true), true);
-        boolean afterVerbose = type == AlertType.NORMAL && excluding instanceof Recipients verbose && verbose.broadcast;
-        recipients.broadcast = network.publish(type.kind, subject, component, afterVerbose);
+        Predicate<PlatformPlayer> covered =
+                subject.none() ? staff -> true : staff -> covers(staff, subject.server(), true);
+        Recipients recipients = type.send(component, excluding, covered, true);
+        String pair = switch (type) {
+            case VERBOSE -> AlertNetwork.newPair();
+            case NORMAL -> excluding instanceof Recipients verbose ? verbose.pair : null;
+            case BRAND -> null;
+        };
+        AlertSubject wire = proxy.getAsBoolean() || subject.none() ? subject : subject.on(network.instanceId());
+        if (network.publish(type.kind, wire, component, pair) && type == AlertType.VERBOSE) recipients.pair = pair;
         return recipients;
     }
 
-    /** Shows staff here an alert another instance raised; the console never gets one. */
-    void deliverReceived(AlertKind kind, Component component, @Nullable String server, boolean afterVerbose) {
-        AlertType type = AlertType.of(kind);
+    /**
+     * Shows staff here an alert another instance raised; the console never gets one. Of a verbose line and the alert
+     * sharing its {@code pair}, each staff member gets the first that reaches them.
+     */
+    void deliverReceived(AlertKind kind, Component component, @Nullable String server, @Nullable String pair) {
         Predicate<PlatformPlayer> covered = staff -> covers(staff, server, false);
-        if (type == AlertType.NORMAL && afterVerbose) covered = covered.and(staff -> !hasVerboseEnabled(staff));
-        type.send(component, null, covered, false);
+        if (pair != null) covered = covered.and(staff -> pairs.take(pair, staff.getNative()));
+        AlertType.of(kind).send(component, null, covered, false);
     }
 
     private boolean covers(PlatformPlayer staff, @Nullable String server, boolean local) {

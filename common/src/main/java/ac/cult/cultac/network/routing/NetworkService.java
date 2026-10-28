@@ -65,6 +65,7 @@ public final class NetworkService implements NetworkRouting {
     private final RosterCache roster = new RosterCache();
     private final Map<String, List<MessageHandler>> handlers = new ConcurrentHashMap<>();
     private final Map<String, JsonElement> flags = new ConcurrentHashMap<>();
+    private final List<Runnable> snapshotTasks = new CopyOnWriteArrayList<>();
     private final AtomicLong badSignatureWarned = new AtomicLong(Long.MIN_VALUE);
 
     private @Nullable InProcessBus bus;
@@ -236,6 +237,12 @@ public final class NetworkService implements NetworkRouting {
         if (running && !Objects.equals(previous, value)) publishRoster(List.of(), false, List.of());
     }
 
+    /** Runs {@code task} on the service's thread before each periodic roster snapshot, so it can refresh a flag. */
+    public Registration beforeSnapshot(Runnable task) {
+        snapshotTasks.add(task);
+        return () -> snapshotTasks.remove(task);
+    }
+
     /** The roster flags of each instance heard from lately, this one left out. */
     public Map<String, JsonObject> peerFlags() {
         return roster.flags(clock.getAsLong());
@@ -255,7 +262,15 @@ public final class NetworkService implements NetworkRouting {
     void tick() {
         try {
             roster.expire(clock.getAsLong());
-            if (running) publishRoster(platform.onlinePlayers(), true, List.of());
+            if (!running) return;
+            for (Runnable task : snapshotTasks) {
+                try {
+                    task.run();
+                } catch (RuntimeException failure) {
+                    LogUtil.warn("A network feature failed before a roster snapshot", failure);
+                }
+            }
+            publishRoster(platform.onlinePlayers(), true, List.of());
         } catch (RuntimeException failure) {
             LogUtil.warn("Network roster update failed", failure);
         }

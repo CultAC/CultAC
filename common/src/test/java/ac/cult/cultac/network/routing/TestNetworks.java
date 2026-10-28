@@ -45,6 +45,11 @@ public final class TestNetworks {
         return service;
     }
 
+    /** Runs {@code service}'s periodic roster tick now. */
+    public void tick(NetworkService service) {
+        service.tick();
+    }
+
     /** The body of every {@code type} message broadcast so far, oldest first. */
     public List<JsonObject> broadcasts(String type) {
         List<JsonObject> bodies = new ArrayList<>();

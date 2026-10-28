@@ -3,12 +3,14 @@ package ac.cult.cultac.manager.alerts;
 import ac.cult.cultac.network.routing.Envelope;
 import ac.cult.cultac.network.routing.MessageHandler.Origin;
 import ac.cult.cultac.network.routing.NetworkService;
+import ac.cult.cultac.network.routing.SharedClaims;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
-import java.util.function.BooleanSupplier;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
@@ -17,10 +19,11 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Carries alerts between instances while a network transport runs. Each alert, verbose line and brand message raised
- * here is broadcast as an {@value #TYPE} message {@code {kind, player:{u,n}, server, component, verbose?}}, where
- * {@code component} is adventure JSON and {@code verbose} marks an alert whose verbose copy was broadcast first.
- * Verbose goes out only while a peer's roster flags {@value #DEMAND_FLAG}, which this instance raises while one of its
- * staff takes verbose with global scope. Received messages reach {@link Staff} in the current engine generation only.
+ * here is broadcast as an {@value #TYPE} message {@code {kind, player:{u,n}, server, component, pair?}}, where
+ * {@code component} is adventure JSON, {@code player} is absent for an alert about no player, and {@code pair} is the
+ * id a verbose line shares with the alert it precedes. Verbose goes out only while a peer's roster flags
+ * {@value #DEMAND_FLAG}, which this instance raises while one of its staff takes verbose with global scope. Each
+ * received message reaches {@link Staff} through the one engine generation here that claims it.
  */
 public final class AlertNetwork {
     public static final String TYPE = "alert";
@@ -32,8 +35,13 @@ public final class AlertNetwork {
 
     /** This instance's staff, as the network sees them. */
     public interface Staff {
-        /** Shows an alert another instance raised; never to the console. */
-        void received(AlertKind kind, Component component, @Nullable String server, boolean afterVerbose);
+        /**
+         * Shows an alert another instance raised; never to the console.
+         *
+         * @param server the subject's server; null when unknown or the alert is about no player
+         * @param pair the id this message shares with the other of its verbose and alert pair
+         */
+        void received(AlertKind kind, Component component, @Nullable String server, @Nullable String pair);
 
         /** Whether a staff member here has verbose on with global scope. */
         boolean wantGlobalVerbose();
@@ -41,7 +49,7 @@ public final class AlertNetwork {
 
     private final Supplier<@Nullable NetworkService> service;
     private final Staff staff;
-    private final BooleanSupplier current;
+    private final SharedClaims claims;
     private final LongSupplier clock;
 
     private volatile long nextDemandCheck = Long.MIN_VALUE;
@@ -49,20 +57,24 @@ public final class AlertNetwork {
 
     /**
      * @param service this generation's running network service
-     * @param current whether this engine generation answers for the instance
+     * @param claims the claims every engine generation on this instance shares
      */
     public AlertNetwork(
-            Supplier<@Nullable NetworkService> service, Staff staff, BooleanSupplier current, LongSupplier clock) {
+            Supplier<@Nullable NetworkService> service, Staff staff, SharedClaims claims, LongSupplier clock) {
         this.service = service;
         this.staff = staff;
-        this.current = current;
+        this.claims = claims;
         this.clock = clock;
     }
 
-    /** Takes {@code started}'s alert messages and sets its demand flag; for every service, before it subscribes. */
+    /**
+     * Takes {@code started}'s alert messages and sets its demand flag, again before each roster snapshot; for every
+     * service, before it subscribes.
+     */
     public void attach(NetworkService started) {
         started.on(TYPE, this::receive);
         started.on(DEMAND_CHANGED, (envelope, origin) -> publishDemand(started));
+        started.beforeSnapshot(() -> publishDemand(started));
         nextDemandCheck = Long.MIN_VALUE;
         publishDemand(started);
     }
@@ -71,6 +83,18 @@ public final class AlertNetwork {
     public boolean running() {
         NetworkService running = service.get();
         return running != null && running.enabled();
+    }
+
+    /** This instance's id on the network while a transport runs; null otherwise. */
+    public @Nullable String instanceId() {
+        NetworkService running = service.get();
+        return running != null && running.enabled() ? running.instanceId() : null;
+    }
+
+    /** A new id for a verbose line and the alert it precedes. */
+    public static String newPair() {
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        return new UUID(random.nextLong(), random.nextLong()).toString();
     }
 
     /** Whether a peer's staff take verbose network-wide; re-read at most once a second. */
@@ -94,13 +118,13 @@ public final class AlertNetwork {
     /**
      * Broadcasts a message raised here; verbose only while {@link #verboseWanted}. False when it was not sent.
      *
-     * @param afterVerbose the verbose copy of this alert was broadcast first
+     * @param pair for a verbose line, a {@link #newPair}; for an alert, the pair its verbose line was broadcast with
      */
-    public boolean publish(AlertKind kind, AlertSubject subject, Component component, boolean afterVerbose) {
+    public boolean publish(AlertKind kind, AlertSubject subject, Component component, @Nullable String pair) {
         NetworkService running = service.get();
         if (running == null || !running.enabled()) return false;
         if (kind == AlertKind.VERBOSE && !verboseWanted()) return false;
-        return running.broadcast(TYPE, body(kind, subject, component, afterVerbose));
+        return running.broadcast(TYPE, body(kind, subject, component, pair));
     }
 
     /** Has every engine generation here republish its demand flag; only the current one's reaches the roster. */
@@ -114,19 +138,20 @@ public final class AlertNetwork {
     }
 
     void receive(Envelope envelope, Origin origin) {
-        if (origin == Origin.LOCAL || !current.getAsBoolean()) return;
+        if (origin == Origin.LOCAL) return;
         JsonObject body = envelope.body();
         AlertKind kind = AlertKind.parse(string(body, "kind"));
         JsonElement component = body.get("component");
         if (kind == null || component == null || component.isJsonNull()) return;
+        if (!claims.claim(envelope.id().toString())) return;
         staff.received(
                 kind,
                 GsonComponentSerializer.gson().deserialize(component.toString()),
-                string(body, "server"),
-                body.get("verbose") instanceof JsonPrimitive verbose && verbose.isBoolean() && verbose.getAsBoolean());
+                body.has("player") ? string(body, "server") : null,
+                string(body, "pair"));
     }
 
-    static JsonObject body(AlertKind kind, AlertSubject subject, Component component, boolean afterVerbose) {
+    static JsonObject body(AlertKind kind, AlertSubject subject, Component component, @Nullable String pair) {
         JsonObject body = new JsonObject();
         body.addProperty("kind", kind.id());
         if (subject.uuid() != null) {
@@ -141,7 +166,7 @@ public final class AlertNetwork {
         body.add(
                 "component",
                 JsonParser.parseString(GsonComponentSerializer.gson().serialize(component)));
-        if (afterVerbose) body.addProperty("verbose", true);
+        if (pair != null) body.addProperty("pair", pair);
         return body;
     }
 
