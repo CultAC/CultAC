@@ -26,12 +26,14 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
-import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -319,19 +321,40 @@ class NetworkServiceTest {
     }
 
     @Test
-    void runRunsALocalPlayersCommandHereAndCannotYetForwardOne() {
+    void runRunsALocalPlayersCommandThroughTheCommandManagerAndForwardsARemoteOne() {
         NetworkService a = started("p3", new Players().with(BOB, "Bob", null));
-        started("p7", new Players().with(ALICE, "Alice", "lobby"));
+        NetworkService b = started("p7", new Players().with(ALICE, "Alice", "lobby"));
+        List<String> ranHere = new ArrayList<>();
+        List<String> ranThere = new ArrayList<>();
+        a.commands(commands(ranHere));
+        b.commands(commands(ranThere));
         Sender sender = mock(Sender.class);
+        when(sender.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(sender.getName()).thenReturn("Mod");
 
         assertTrue(
                 a.run(sender, "cult profile Bob", a.locate("Bob").orElseThrow()).join());
-        verify(sender).performCommand("cult profile Bob");
+        assertEquals(List.of("cult profile Bob"), ranHere);
 
-        assertFalse(a.run(sender, "cult profile Alice", a.locate("Alice").orElseThrow())
+        assertTrue(a.run(sender, "cult profile Alice", a.locate("Alice").orElseThrow())
                 .join());
-        verify(sender, never()).performCommand("cult profile Alice");
-        verify(sender).sendMessage(any(Component.class));
+        assertEquals(List.of("cult profile Alice"), ranThere);
+        verify(sender, never()).performCommand(anyString());
+    }
+
+    private static RemoteCommands.Commands commands(List<String> ran) {
+        return new RemoteCommands.Commands() {
+            @Override
+            public CompletionStage<?> execute(Sender sender, String line) {
+                ran.add(line);
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public Set<String> permissionNodes() {
+                return Set.of();
+            }
+        };
     }
 
     @Test

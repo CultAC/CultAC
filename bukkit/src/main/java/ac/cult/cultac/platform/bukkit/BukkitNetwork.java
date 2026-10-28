@@ -34,6 +34,11 @@ public final class BukkitNetwork implements NetworkPlatform, Listener {
     }
 
     @Override
+    public Object remoteSenderBase() {
+        return Bukkit.getConsoleSender();
+    }
+
+    @Override
     public String address() {
         return NetworkPlatform.address(Bukkit.getIp(), Bukkit.getPort());
     }

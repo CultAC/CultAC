@@ -10,7 +10,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ac.cult.cultac.network.routing.NetworkPlatform.Holder;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
+import ac.cult.reload.api.HostContext;
 import com.velocitypowered.api.event.EventHandler;
 import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
@@ -21,6 +23,7 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.server.ServerInfo;
+import io.netty.channel.Channel;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Optional;
@@ -31,7 +34,7 @@ class VelocityNetworkTest {
     private final ProxyServer proxy = mock(ProxyServer.class);
     private final EventManager events = mock(EventManager.class);
     private final Object plugin = new Object();
-    private final VelocityNetwork network = new VelocityNetwork(proxy, plugin);
+    private final VelocityNetwork network = new VelocityNetwork(proxy, plugin, player -> mock(Channel.class));
 
     private static Player player(UUID uuid, String name, String server) {
         Player player = mock(Player.class);
@@ -79,6 +82,30 @@ class VelocityNetworkTest {
         assertNull(network.defaultSecret());
         assertNull(network.redisBungeeId());
         assertNull(network.redisBungee());
+    }
+
+    @Test
+    void theRuntimeHoldingAConnectionIsThisOneAnotherOrNone() {
+        Channel channel = mock(Channel.class);
+        assertEquals(Holder.THIS, VelocityNetwork.holder(null, channel));
+        assertEquals(Holder.THIS, VelocityNetwork.holder(null, null));
+        assertEquals(Holder.THIS, VelocityNetwork.holder(host("new", channel, "new"), channel));
+        assertEquals(Holder.OTHER, VelocityNetwork.holder(host("new", channel, "old"), channel));
+        assertEquals(Holder.NONE, VelocityNetwork.holder(host("new", channel, null), channel));
+        assertEquals(Holder.NONE, VelocityNetwork.holder(host("new", null, null), null));
+    }
+
+    @Test
+    void withoutAHostThisRuntimeHoldsEveryPlayer() {
+        when(proxy.getPlayer(any(UUID.class))).thenReturn(Optional.empty());
+        assertEquals(Holder.THIS, network.holder(UUID.randomUUID()));
+    }
+
+    private static HostContext host(String generation, Channel channel, String owner) {
+        HostContext host = mock(HostContext.class);
+        when(host.generationId()).thenReturn(generation);
+        if (channel != null) when(host.ownerOf(channel)).thenReturn(owner);
+        return host;
     }
 
     @Test
