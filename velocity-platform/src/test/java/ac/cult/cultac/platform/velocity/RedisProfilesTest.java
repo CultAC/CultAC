@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.command.profile.RemoteProfiles;
+import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -15,9 +16,11 @@ import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.plugin.PluginContainer;
 import com.velocitypowered.api.plugin.PluginManager;
 import com.velocitypowered.api.proxy.ProxyServer;
+import io.netty.channel.Channel;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.logging.Logger;
@@ -96,6 +99,50 @@ class RedisProfilesTest {
         handler.execute(event(response(sentRequestId(), List.of())));
 
         assertEquals(List.of(), request.get(RedisProfiles.EMPTY_ANSWER_GRACE_MILLIS + 2_000, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    void closingCancelsARequestWaitingOutAnEmptyAnswer() throws Exception {
+        var handler = start(uuid -> true);
+        var request = profiles.request(new RemoteProfiles.Remote(PLAYER, "Target", "proxy-b", null));
+
+        handler.execute(event(response(sentRequestId(), List.of())));
+        profiles.close();
+
+        assertThrows(CancellationException.class, () -> request.get(1, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void withoutAHostThisRuntimeReportsUntrackedPlayers() {
+        assertTrue(VelocityPlatform.reportsUntracked(null, mock(Channel.class)));
+    }
+
+    @Test
+    void runtimeHoldingTheConnectionReportsItUntrackedEvenWhileDraining() {
+        Channel channel = mock(Channel.class);
+        assertTrue(VelocityPlatform.reportsUntracked(host("old", false, channel, "old"), channel));
+        assertFalse(VelocityPlatform.reportsUntracked(host("new", true, channel, "old"), channel));
+    }
+
+    @Test
+    void currentRuntimeAloneReportsAConnectionNoRuntimeHolds() {
+        Channel channel = mock(Channel.class);
+        assertTrue(VelocityPlatform.reportsUntracked(host("new", true, channel, null), channel));
+        assertFalse(VelocityPlatform.reportsUntracked(host("old", false, channel, null), channel));
+    }
+
+    @Test
+    void currentRuntimeAloneReportsAPlayerNotConnectedHere() {
+        assertTrue(VelocityPlatform.reportsUntracked(host("new", true, null, null), null));
+        assertFalse(VelocityPlatform.reportsUntracked(host("old", false, null, null), null));
+    }
+
+    private static HostContext host(String generation, boolean current, Channel channel, String owner) {
+        HostContext host = mock(HostContext.class);
+        when(host.generationId()).thenReturn(generation);
+        when(host.current()).thenReturn(current);
+        if (channel != null) when(host.ownerOf(channel)).thenReturn(owner);
+        return host;
     }
 
     @SuppressWarnings("unchecked")
