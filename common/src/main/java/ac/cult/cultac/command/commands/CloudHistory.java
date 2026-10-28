@@ -1,6 +1,7 @@
 package ac.cult.cultac.command.commands;
 
 import ac.cult.cultac.cloud.history.HistoryClient;
+import ac.cult.cultac.cloud.history.HistoryClient.Check;
 import ac.cult.cultac.cloud.history.HistoryClient.Finding;
 import ac.cult.cultac.cloud.history.HistoryClient.Session;
 import ac.cult.cultac.cloud.history.HistoryClient.Sessions;
@@ -195,8 +196,13 @@ final class CloudHistory {
                 session.server(),
                 session.protocol(),
                 session.brand(),
-                session.findings(),
-                session.checks().size());
+                session.checks().stream()
+                        .filter(check -> ENGINE.equals(check.source()))
+                        .mapToLong(Check::flags)
+                        .sum(),
+                (int) session.checks().stream()
+                        .filter(check -> ENGINE.equals(check.source()))
+                        .count());
     }
 
     static SessionDetail detail(

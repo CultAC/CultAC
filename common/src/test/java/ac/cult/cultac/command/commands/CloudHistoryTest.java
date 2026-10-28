@@ -236,6 +236,32 @@ class CloudHistoryTest {
     }
 
     @Test
+    void aSummaryCountsOnlyEngineChecks() {
+        Session session = new Session(
+                new UUID(1, 0),
+                NEWEST_START,
+                null,
+                "",
+                NEWEST_START + 60_000,
+                "server-0",
+                "Steve",
+                "vanilla",
+                773,
+                "2.1.0",
+                9,
+                List.of(
+                        new Check("engine", "Reach", 3, 4.0, NEWEST_START, NEWEST_START),
+                        new Check("engine", "Timer", 2, 5.0, NEWEST_START, NEWEST_START),
+                        new Check("cloud-check", "Reach", 3, 0.9, NEWEST_START, NEWEST_START),
+                        new Check("cloud-model", "killaura", 1, 0.5, NEWEST_START, NEWEST_START)));
+
+        SessionSummary summary = CloudHistory.summary(PLAYER, session, 1);
+
+        assertEquals(5, summary.violationCount());
+        assertEquals(2, summary.uniqueCheckCount());
+    }
+
+    @Test
     void aSessionIsFoundByOrdinalOrLatest() throws Exception {
         Cloud cloud = new Cloud(120);
 
