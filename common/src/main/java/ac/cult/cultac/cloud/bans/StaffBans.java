@@ -31,7 +31,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -67,6 +66,7 @@ public final class StaffBans {
     static final int MAX_BODY = 256 << 10;
     static final int MAX_HANDLED = 1000;
     static final CommandOutcome BUSY = new CommandOutcome(false, "not run: the server was busy");
+    static final String FAILED = "the command failed";
 
     /** Bumped on every configure, so only the latest poller claims and dispatches. */
     private static final Generation GENERATION = new Generation();
@@ -108,8 +108,8 @@ public final class StaffBans {
     }
 
     /**
-     * One pending ban; a null {@code durationSeconds} is permanent, a zero {@code createdAtMillis} unknown, and a null
-     * {@code cheat} a gameplay ban.
+     * One pending ban; a null {@code durationSeconds} is permanent, a zero {@code createdAtMillis} unknown, a null
+     * {@code cheat} a gameplay ban, and a null {@code staffUuid} or {@code evidence} unknown to the service.
      */
     public record Ban(
             String id,
@@ -121,7 +121,9 @@ public final class StaffBans {
             @Nullable Long durationSeconds,
             String staff,
             long createdAtMillis,
-            String link) {}
+            String link,
+            @Nullable String staffUuid,
+            @Nullable String evidence) {}
 
     /** Where bans run: whether a player is connected here, and the dispatch of a command as console. */
     interface Host {
@@ -415,11 +417,22 @@ public final class StaffBans {
                 });
     }
 
-    /** What a failed dispatch says: its exception's message, else the exception's type. */
+    /**
+     * What a failed dispatch says: the message of the innermost cause that has its own, since platforms wrap what the
+     * command threw; else {@link #FAILED}. A message that only repeats its cause, as a wrapper made from the cause
+     * alone has, is not its own.
+     */
     static String why(Throwable error) {
-        Throwable cause = error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
-        String message = cause.getMessage();
-        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
+        String why = FAILED;
+        Set<Throwable> seen = new HashSet<>();
+        for (Throwable cause = error; cause != null && seen.add(cause); cause = cause.getCause()) {
+            String message = cause.getMessage();
+            Throwable inner = cause.getCause();
+            if (message != null
+                    && !message.isBlank()
+                    && (inner == null || !message.equals(inner.toString()))) why = message;
+        }
+        return why;
     }
 
     private void problem(String kind, String message) {
@@ -454,7 +467,9 @@ public final class StaffBans {
                 duration,
                 orEmpty(text(ban, "staff")),
                 createdAt(ban.get("createdAt")),
-                orEmpty(text(ban, "link")));
+                orEmpty(text(ban, "link")),
+                text(ban, "staffUuid"),
+                text(ban, "evidence"));
     }
 
     /** An ISO instant or epoch millis; 0 when it is neither. */

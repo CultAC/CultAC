@@ -3,6 +3,8 @@ package ac.cult.cultac.platform.velocity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -36,6 +38,7 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.function.IntFunction;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -187,6 +190,20 @@ class VelocityServerTest {
                 .thenReturn(CompletableFuture.completedFuture(true));
         assertEquals(
                 CommandOutcome.RAN, server.runCommand(console, BAN, subject).get());
+    }
+
+    @Test
+    void aProxyCommandThatThrowsFailsTheOutcomeWithWhatItThrew() {
+        VelocityBridge.install(BridgeSessions.NONE);
+        IllegalStateException thrown = new IllegalStateException("the punishment was not stored");
+        when(proxy.getCommandManager().executeAsync(any(), anyString()))
+                .thenReturn(CompletableFuture.failedFuture(
+                        new RuntimeException("Unable to invoke command " + BAN + "for console", thrown)));
+
+        CompletionException failed = assertThrows(
+                CompletionException.class, () -> server.runCommand(console, BAN, subject).join());
+
+        assertSame(thrown, failed.getCause().getCause());
     }
 
     @Test

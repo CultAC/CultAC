@@ -10,6 +10,11 @@ class BanCommandTest {
     private static final String ID = "0f0e0d0c-0b0a-4908-8706-050403020100";
 
     private static StaffBans.Ban ban(String name, String reason, Long seconds, String staff) {
+        return ban(name, reason, seconds, staff, null, null);
+    }
+
+    private static StaffBans.Ban ban(
+            String name, String reason, Long seconds, String staff, String staffUuid, String evidence) {
         return new StaffBans.Ban(
                 ID,
                 PLAYER,
@@ -20,7 +25,9 @@ class BanCommandTest {
                 seconds,
                 staff,
                 0,
-                "https://panel/players/" + PLAYER);
+                "https://panel/players/" + PLAYER,
+                staffUuid,
+                evidence);
     }
 
     @Test
@@ -57,7 +64,8 @@ class BanCommandTest {
     @Test
     void aGameplayBanLeavesTheCheatEmpty() {
         StaffBans.Ban gameplay =
-                new StaffBans.Ban(ID, PLAYER, "Notch", "griefing", null, null, null, "Mod", 0, "https://panel/x");
+                new StaffBans.Ban(
+                        ID, PLAYER, "Notch", "griefing", null, null, null, "Mod", 0, "https://panel/x", null, null);
         assertEquals("ban Notch griefing [|]", BanCommand.fill("ban %player% %reason% [%cheat%|%cheat_id%]", gameplay));
     }
 
@@ -93,6 +101,44 @@ class BanCommandTest {
         assertEquals("ban " + PLAYER, BanCommand.fill("ban %player%", ban("Notch;op", "r", null, "s")));
         assertEquals("ban " + PLAYER, BanCommand.fill("ban %player%", ban(null, "r", null, "s")));
         assertEquals("ban *Bedrock.Name-1_", BanCommand.fill("ban %player%", ban("*Bedrock.Name-1_", "r", null, "s")));
+    }
+
+    @Test
+    void aStaffNameNeverReadsAsAKey() {
+        assertEquals(
+                "gban by=Alice reasonx reason=r",
+                BanCommand.fill("gban by=%staff% reason=%reason%", ban("Notch", "r", null, "Alice reason=x")));
+        assertEquals("by='-x a b", BanCommand.fill("by=%staff%", ban("Notch", "r", null, "=-x = a == b")));
+    }
+
+    @Test
+    void staffUuidAndEvidenceAreFilledWhenKnown() {
+        String staff = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+        String evidence = "https://panel.example/replays/watch?window=w-1_a.b~c&x=%20";
+        assertEquals(
+                "gban " + staff + " " + evidence,
+                BanCommand.fill("gban %staff_uuid% %evidence%", ban("Notch", "r", null, "s", staff, evidence)));
+    }
+
+    @Test
+    void staffUuidAndEvidenceAreEmptyWhenUnknown() {
+        assertEquals("gban staff= evidence= x", BanCommand.fill(
+                "gban staff=%staff_uuid% evidence=%evidence% x", ban("Notch", "r", null, "s")));
+    }
+
+    @Test
+    void staffUuidAndEvidenceDropHostileCharacters() {
+        assertEquals(
+                "gban 0a1b-ffeecAB evidence=https://x.example/a?b=1&c=2op",
+                BanCommand.fill(
+                        "gban %staff_uuid% evidence=%evidence%",
+                        ban(
+                                "Notch",
+                                "r",
+                                null,
+                                "s",
+                                "0a1b-ffee; op\nNotch\u0000 gz AB",
+                                "https://x.example/a?b=1&c=2 ;op\n\"<'`$(é)\\>")));
     }
 
     @Test
