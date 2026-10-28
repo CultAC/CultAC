@@ -85,6 +85,29 @@ class DiscordUpgradeTest {
     }
 
     @Test
+    void turnedOffSectionsStayOffAndUnbundledKeysStay() throws Exception {
+        Map<String, Object> data = upgrade(V2_GLADIATOR.replace(
+                "include-state: true\n",
+                "include-state: false\ninclude-verbose: false\nembed-image-url: \"https://example.com/banner.png\"\n"));
+        List<?> content = (List<?>) data.get("violation-content");
+        assertEquals(((List<?>) bundled("en").get("violation-content")).size() - 2, content.size());
+        assertFalse(content.stream().anyMatch(line -> ((String) line).contains("%state%")));
+        assertFalse(content.stream().anyMatch(line -> ((String) line).contains("%verbose%")));
+        assertEquals(false, data.get("include-state"));
+        assertEquals(false, data.get("include-verbose"));
+        assertEquals("https://example.com/banner.png", data.get("embed-image-url"));
+    }
+
+    @Test
+    void relabelledV2LayoutAndCustomBrandedTitleStay() throws Exception {
+        Map<String, Object> data = upgrade(V2_GLADIATOR
+                .replace("**Gladiator Alert**", "**Gladiator Staff Review Queue**")
+                .replace("**Player**", "**Suspect**"));
+        assertEquals("**Gladiator Staff Review Queue**", data.get("embed-title"));
+        assertEquals("**Suspect**: `%player%`", ((List<?>) data.get("violation-content")).get(0));
+    }
+
+    @Test
     void operatorV2LayoutStays() throws Exception {
         Map<String, Object> data = upgrade(V2_GLADIATOR
                 .replace("**Gladiator Alert**", "**Gladiator** on %server%")

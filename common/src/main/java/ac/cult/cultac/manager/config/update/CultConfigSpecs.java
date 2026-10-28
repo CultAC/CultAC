@@ -327,7 +327,9 @@ public final class CultConfigSpecs {
      * v2 → v3: the description takes Grim's alert layout (location, both pings, clock, session time, raw sensitivity,
      * state, checks and verbose) and the footer and thumbnail keys are written out. A title or {@code
      * violation-content} still in a shipped shape, in any language, takes the new default; one the operator wrote
-     * stays. {@code include-state} is added by the default rewrite.
+     * stays. The new layout leaves out the state or verbose line the operator turned off. {@code include-state} is
+     * added by the default rewrite; {@code embed-image-url} and {@code include-verbose}, which no bundled file
+     * carries, are kept.
      */
     public static @NotNull ConfigUpdater.Spec discord() {
         return ConfigUpdater.Spec.builder("/discord/", 3, ConfigUpdater.ConfigFlavor.V2)
@@ -336,8 +338,9 @@ public final class CultConfigSpecs {
                 .build();
     }
 
-    private static final Pattern SHIPPED_DISCORD_TITLE = Pattern.compile("\\*\\*(?:Cult|Grim|Gladiator) [^%*]+\\*\\*");
-    private static final Pattern SHIPPED_DISCORD_LINE = Pattern.compile("\\*\\*[^*]+\\*\\*: (.+)");
+    private static final Pattern SHIPPED_DISCORD_TITLE = Pattern.compile("\\*\\*(?:Cult|Grim|Gladiator) "
+            + "(?:Alert|Alerta|Alerte|Avviso|Uyarı|Waarschuwing|Warnung|Оповещение|警告|警报)\\*\\*");
+    private static final Pattern SHIPPED_DISCORD_LINE = Pattern.compile("\\*\\*([^*]+)\\*\\*: (.+)");
     private static final List<String> SHIPPED_V1_DISCORD_PLACEHOLDERS =
             List.of("player", "check", "violations", "version", "brand", "ping", "tps");
     private static final List<String> SHIPPED_V2_DISCORD_VALUES = List.of(
@@ -351,6 +354,24 @@ public final class CultConfigSpecs {
             "`%tps%`",
             "`%server%`",
             "`%world% (%world_type%)`");
+    private static final List<List<String>> SHIPPED_V2_DISCORD_LABELS = List.of(
+            List.of("Player", "Spieler", "Jugador", "Joueur", "Giocatore", "プレイヤー", "Speler", "Jogador", "Игрок",
+                    "Oyuncu", "玩家名"),
+            List.of("UUID"),
+            List.of("Check", "Überprüfung", "Comprobación", "Vérification", "Controllo", "違反項目", "Controle",
+                    "Verificação", "Проверка", "Kontrol", "检查"),
+            List.of("Client Version", "Client-Version", "Version del cliente", "Version du client",
+                    "Versione del client", "クライアントバージョン", "Client-versie", "Versão do Cliente", "Версия Клиента",
+                    "Client Versiyonu", "游戏版本"),
+            List.of("Brand", "Marke", "Marca del cliente", "Marque du client", "Marca del client", "ブランド",
+                    "Client-merk", "Marca do Cliente", "Бренд", "Client Markası", "客户端品牌"),
+            List.of("Sensitivity", "Empfindlichkeit", "Sensibilidad", "Sensibilité", "Sensibilità", "感度",
+                    "Gevoeligheid", "Sensibilidade", "Чувствительность", "Hassasiyet", "灵敏度"),
+            List.of("Ping", "Latencia", "Latence", "Пинг", "Gecikme", "延迟"),
+            List.of("TPS", "ТПС"),
+            List.of("Server", "Servidor", "Serveur", "サーバー", "Сервер", "Sunucu", "服务器"),
+            List.of("World", "Welt", "Mundo", "Monde", "Mondo", "ワールド", "Wereld", "Мир", "Dünya", "世界"));
+    private static final List<String> UNBUNDLED_DISCORD_KEYS = List.of("embed-image-url", "include-verbose");
 
     static void discordAlertLayout(MigrationContext ctx) {
         String title = ctx.input().getString("embed-title");
@@ -363,32 +384,49 @@ public final class CultConfigSpecs {
         List<?> content = ctx.input().getList("violation-content");
         List<?> newContent = ctx.defaults().getList("violation-content");
         if (content != null && newContent != null && isShippedDiscordContent(content)) {
-            ctx.output().put("violation-content", newContent);
+            List<Object> layout = new ArrayList<>(newContent);
+            if (Boolean.FALSE.equals(ctx.input().get("include-state"))) layout.removeIf(line -> uses(line, "%state%"));
+            if (Boolean.FALSE.equals(ctx.input().get("include-verbose")))
+                layout.removeIf(line -> uses(line, "%verbose%"));
+            ctx.output().put("violation-content", layout);
         }
+        for (String key : UNBUNDLED_DISCORD_KEYS) {
+            Object value = ctx.input().get(key);
+            if (value != null && ctx.defaults().get(key) == null) ctx.output().put(key, value);
+        }
+    }
+
+    private static boolean uses(Object line, String placeholder) {
+        return line instanceof String text && text.contains(placeholder);
     }
 
     private static boolean isShippedDiscordContent(List<?> content) {
         if (content.size() == SHIPPED_V1_DISCORD_PLACEHOLDERS.size()) {
             for (int i = 0; i < content.size(); i++) {
-                String value = shippedLineValue(content.get(i));
+                Matcher line = shippedLine(content.get(i));
+                if (line == null) return false;
                 String placeholder = "%" + SHIPPED_V1_DISCORD_PLACEHOLDERS.get(i) + "%";
+                String value = line.group(2);
                 if (!placeholder.equals(value) && !("`" + placeholder + "`").equals(value)) return false;
             }
             return true;
         }
         if (content.size() == SHIPPED_V2_DISCORD_VALUES.size()) {
             for (int i = 0; i < content.size(); i++) {
-                if (!SHIPPED_V2_DISCORD_VALUES.get(i).equals(shippedLineValue(content.get(i)))) return false;
+                Matcher line = shippedLine(content.get(i));
+                if (line == null
+                        || !SHIPPED_V2_DISCORD_LABELS.get(i).contains(line.group(1))
+                        || !SHIPPED_V2_DISCORD_VALUES.get(i).equals(line.group(2))) return false;
             }
             return true;
         }
         return false;
     }
 
-    private static @Nullable String shippedLineValue(Object line) {
+    private static @Nullable Matcher shippedLine(Object line) {
         if (!(line instanceof String text)) return null;
         Matcher matcher = SHIPPED_DISCORD_LINE.matcher(text);
-        return matcher.matches() ? matcher.group(1) : null;
+        return matcher.matches() ? matcher : null;
     }
 
     public static @NotNull ConfigUpdater.Spec messages() {
