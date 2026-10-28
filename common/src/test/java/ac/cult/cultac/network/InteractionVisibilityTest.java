@@ -743,6 +743,34 @@ class InteractionVisibilityTest {
         }
     }
 
+    @Test
+    void anEyeInsideScaffoldingTakesTheInteractionShapesInsideFace() throws Exception {
+        try (var setup = new Setup()) {
+            for (int y = 64; y <= 66; y++) setup.block(4, y, 4, "scaffolding[distance=0,bottom=false]");
+            var eyeBlock = new BlockPos(4, 65, 4);
+            var player = setup.fixture.player;
+            player.x = 4.5;
+            player.y = 64;
+            player.z = 4.5;
+            // Issue #192: yaw -129.2, pitch 42.5 aims at the south face of this block's north-east pole, but the
+            // full-block interaction shape's inside sample makes the client report the face opposite DOWN.
+            double yaw = Math.toRadians(-129.2), pitch = Math.toRadians(42.5);
+            var look = new Vec3(-Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+            var eye = new Vec3(player.x, player.y + player.getEyeHeight(), player.z);
+            var pick =
+                    player.compensatedWorld.geometry().clipOutline(eye, eye.add(look.scale(4.5)), player, s -> false);
+            assertNotNull(pick);
+            assertEquals(
+                    List.of(4, 65, 4),
+                    List.of(pick.pos().x(), pick.pos().y(), pick.pos().z()));
+            assertEquals(ac.cult.blocksim.engine.Direction.UP, pick.face());
+            assertFalse(setup.visibility.blockFaceHidden(eyeBlock, Direction.UP, 0));
+            // Below the poles' reach, a downward ray leaves this block first: its own UP face stays impossible.
+            player.y = 63.75;
+            assertTrue(setup.visibility.blockFaceHidden(eyeBlock, Direction.UP, 0));
+        }
+    }
+
     private static int state(String key) {
         var registry = DataTables.defaults().registry();
         int bracket = key.indexOf('[');

@@ -24,7 +24,7 @@ public final class OcclusionGeometry {
     public static List<Vec3> visiblePoints(
             Vec3 eye, SimpleCollisionBox target, Direction face, List<SimpleCollisionBox> occluders) {
         List<Vec3> points = new ArrayList<>();
-        findVisible(eye, target, face, occluders, null, Double.POSITIVE_INFINITY, points);
+        findVisible(eye, target, face, occluders, null, null, Double.POSITIVE_INFINITY, points);
         return points;
     }
 
@@ -37,7 +37,20 @@ public final class OcclusionGeometry {
             List<SimpleCollisionBox> masks,
             double range) {
         Boolean proof = OcclusionProofs.visible(eye, target, face, occluders, masks, range);
-        return proof != null ? proof : findVisible(eye, target, face, occluders, masks, range, null);
+        return proof != null ? proof : findVisible(eye, target, face, occluders, masks, null, range, null);
+    }
+
+    /**
+     * A visible point {@code p} whose ray {@code r = p - eye} satisfies {@code n·r <= 0} for every normal in
+     * {@code rays}. The cheap proofs ignore that restriction, so this always clips exactly.
+     */
+    static boolean hasVisiblePointInCone(
+            Vec3 eye,
+            SimpleCollisionBox target,
+            List<SimpleCollisionBox> occluders,
+            List<ExactFraction[]> rays,
+            double range) {
+        return findVisible(eye, target, null, occluders, null, rays, range, null);
     }
 
     /** A null output requests only existence, avoiding later faces and witness construction. */
@@ -47,6 +60,7 @@ public final class OcclusionGeometry {
             Direction face,
             List<SimpleCollisionBox> occluders,
             List<SimpleCollisionBox> masks,
+            List<ExactFraction[]> rays,
             double range,
             List<Vec3> visible) {
         ExactFraction[] origin = {ExactFraction.of(eye.x), ExactFraction.of(eye.y), ExactFraction.of(eye.z)};
@@ -92,6 +106,19 @@ public final class OcclusionGeometry {
                     if (region != null) selected.add(region);
                 }
                 regions = selected;
+            }
+            if (rays != null) {
+                // On this face r[axis] = coordinate, so each n·r <= 0 is a half-plane in the face's coordinates.
+                List<ConvexRegion> bounded = new ArrayList<>();
+                for (ConvexRegion region : regions) {
+                    for (ExactFraction[] normal : rays) {
+                        region = region.clip(new ConvexRegion.HalfPlane(
+                                normal[first], normal[second], normal[axis].multiply(coordinate), false));
+                        if (region == null) break;
+                    }
+                    if (region != null) bounded.add(region);
+                }
+                regions = bounded;
             }
             for (List<Row> shadow : shadows) {
                 List<ConvexRegion.HalfPlane> planes = new ArrayList<>(shadow.size());

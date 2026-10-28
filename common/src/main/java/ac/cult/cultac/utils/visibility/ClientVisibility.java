@@ -236,24 +236,22 @@ public final class ClientVisibility {
         }
         double error = CLIP_EPSILON;
         double range = player.compensatedEntities.getSelf().getBlockInteractionRange();
+        double minimumSample = Math.nextDown(.001 * Math.sqrt(CLIP_EPSILON));
+        double maximumSample = Math.nextUp(.001 * nativePickRange());
         for (Vec3 eye : eyes(positionError, targets, position, range)) {
             List<SimpleCollisionBox> overrides = new ArrayList<>();
+            boolean insideInteraction = false;
             for (SimpleCollisionBox interaction : interactions) {
                 if (frontFacing(face, eye, interaction, error)) overrides.add(faceEnvelope(interaction, face));
+                insideInteraction = insideInteraction
+                        || NativeInsideSelection.possible(
+                                eye, interaction, face, error, minimumSample, maximumSample, range);
             }
             for (SimpleCollisionBox target : targets) {
                 SimpleCollisionBox envelope = target.copy();
                 if (!withinRange(eye, envelope, range)) continue;
                 List<SimpleCollisionBox> blockers = blockers(eye, envelope, position, range);
-                double pickRange = nativePickRange();
-                if (NativeInsideSelection.possible(
-                                eye,
-                                target,
-                                face,
-                                error,
-                                Math.nextDown(.001 * Math.sqrt(CLIP_EPSILON)),
-                                Math.nextUp(.001 * pickRange),
-                                range)
+                if (NativeInsideSelection.possible(eye, target, face, error, minimumSample, maximumSample, range)
                         && !OcclusionGeometry.fullyOccluded(eye, envelope, blockers)) return false;
                 if (contains(target, eye, 0)) continue;
                 for (SimpleCollisionBox other : targets)
@@ -269,6 +267,11 @@ public final class ClientVisibility {
                 if (!overrides.isEmpty()
                         && OcclusionGeometry.hasVisiblePoint(eye, envelope, null, blockers, overrides, range))
                     return false;
+                // When VoxelShape.clip's sample is inside the interaction shape (an eye inside scaffolding), it
+                // reports the face opposite the ray's dominant axis, so that same ray must reach the outline.
+                if (insideInteraction
+                        && OcclusionGeometry.hasVisiblePointInCone(
+                                eye, envelope, blockers, NativeInsideSelection.rays(face), range)) return false;
             }
         }
         return true;
