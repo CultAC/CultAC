@@ -2,14 +2,17 @@ package ac.cult.cultac.cloud.bans;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.cloud.CloudSettings;
 import ac.cult.cultac.platform.api.CommandOutcome;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -25,6 +28,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
@@ -281,6 +285,114 @@ class StaffBansTest {
         assertEquals(
                 JsonParser.parseString("{\"server\":\"arena-1\",\"ok\":false,\"message\":\"Unknown command ban\"}"),
                 JsonParser.parseString(result.body()));
+    }
+
+    @Test
+    void aCommandThatFailsInsideThePlatformReportsWhatItThrew() throws Exception {
+        outcome = CompletableFuture.failedFuture(new CompletionException(new RuntimeException(
+                "Unable to invoke command ban Notch for console",
+                new IllegalStateException("already banned: x"))));
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertResult(results().get(0), false, "already banned: x");
+    }
+
+    @Test
+    void aWrappedThrowReportsItsCauseAndASilentOneSaysTheCommandFailed() throws Exception {
+        dispatchFailure = new IllegalStateException(
+                "Unhandled exception executing 'ban Notch'",
+                new IllegalStateException("x".repeat(300), new NullPointerException()));
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertResult(results().get(0), false, "x".repeat(199) + "…");
+        assertEquals(StaffBans.FAILED, StaffBans.why(new CompletionException(new NullPointerException()), "ban x"));
+        IllegalStateException inner = new IllegalStateException("inner");
+        RuntimeException outer = new RuntimeException("outer", inner);
+        inner.initCause(outer);
+        assertEquals("inner", StaffBans.why(outer, "ban x"));
+    }
+
+    @Test
+    void aWrapperNamingTheCommandAroundASilentCauseNeverSendsTheCommand() throws Exception {
+        outcome = CompletableFuture.failedFuture(new CompletionException(new RuntimeException(
+                "Unable to invoke command ban Notch fly hacks for console", new NullPointerException())));
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertResult(results().get(0), false, StaffBans.FAILED);
+        assertEquals(
+                StaffBans.FAILED,
+                StaffBans.why(
+                        new IllegalStateException("could not run ban Notch fly hacks", new NullPointerException()),
+                        "ban  Notch   fly hacks"));
+    }
+
+    @Test
+    void aWrapperNamingTheCommandAroundAnInnerMessageSendsOnlyTheInnerMessage() throws Exception {
+        dispatchFailure = new IllegalStateException(
+                "Unhandled exception executing 'ban Notch fly hacks' in console",
+                new IllegalStateException("already banned: x"));
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertResult(results().get(0), false, "already banned: x");
+        assertFalse(results().get(0).body().contains("fly hacks"));
+        assertEquals(
+                "already banned: x",
+                StaffBans.why(
+                        new RuntimeException(
+                                "failed: ban Notch fly hacks",
+                                new IllegalStateException(
+                                        "already banned: x",
+                                        new IllegalStateException("ban Notch fly hacks was refused"))),
+                        "ban Notch fly hacks"));
+    }
+
+    @Test
+    void staffUuidAndEvidenceOfAnotherTypeThanStringAreAbsent() {
+        List<JsonElement> others = List.of(
+                new JsonPrimitive(true), new JsonPrimitive(123), new JsonObject(), new JsonArray());
+        for (JsonElement other : others) {
+            JsonObject json = ban(BAN, PLAYER, null, NOW - 60_000);
+            json.add("staffUuid", other);
+            json.add("evidence", other);
+
+            StaffBans.Ban ban = StaffBans.ban(json);
+
+            assertNull(ban.staffUuid(), other.toString());
+            assertNull(ban.evidence(), other.toString());
+            assertEquals("gban s= e=", BanCommand.fill("gban s=%staff_uuid% e=%evidence%", ban));
+        }
+    }
+
+    @Test
+    void staffUuidAndEvidenceReachTheCommandAndOlderServicesLeaveThemEmpty() throws Exception {
+        JsonObject withBoth = ban(BAN, PLAYER, null, NOW - 60_000);
+        withBoth.addProperty("staffUuid", "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
+        withBoth.addProperty("evidence", "https://panel.example/replays/watch?window=w1");
+        JsonObject older = ban(TIMED, OTHER, null, NOW - 60_000);
+        JsonObject nulls = ban("2f0e0d0c-0b0a-4908-8706-050403020102", OTHER, null, NOW - 60_000);
+        nulls.add("staffUuid", JsonNull.INSTANCE);
+        nulls.add("evidence", JsonNull.INSTANCE);
+        pending(withBoth, older, nulls);
+
+        bans("arena-1", new StaffBans.Commands("gban staff=%staff_uuid% evidence=%evidence% %player%", ""))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                List.of(
+                        "gban staff= evidence= Other",
+                        "gban staff= evidence= Other",
+                        "gban staff=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+                                + " evidence=https://panel.example/replays/watch?window=w1 Notch"),
+                dispatched.stream().sorted().toList());
     }
 
     @Test

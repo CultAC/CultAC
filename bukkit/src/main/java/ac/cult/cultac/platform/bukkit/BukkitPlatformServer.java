@@ -30,13 +30,18 @@ public class BukkitPlatformServer implements PlatformServer {
         Bukkit.dispatchCommand(commandSender, command);
     }
 
-    /** On the main thread; {@code false} from Bukkit is an unknown command. */
+    /** On the main thread; {@code false} from Bukkit is an unknown command, and what the command threw fails it. */
     @Override
     public CompletableFuture<CommandOutcome> runCommand(
             Sender sender, String command, @Nullable PlatformPlayer subject) {
         CommandSender commandSender =
                 CultACBukkitLoaderPlugin.INSTANCE.getBukkitSenderFactory().reverse(sender);
-        return CompletableFuture.completedFuture(CommandOutcome.of(Bukkit.dispatchCommand(commandSender, command)));
+        try {
+            return CompletableFuture.completedFuture(
+                    CommandOutcome.of(Bukkit.dispatchCommand(commandSender, command)));
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
     }
 
     @Override

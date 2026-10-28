@@ -295,7 +295,9 @@ cloud:
   team-sync: false
   # Panel bans: staff ban a player from the cloud panel, and one server that has the command for it runs it as
   # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %cheat% %cheat_id% %duration%
-  # (30m, 12h, 7d; empty when permanent) %seconds% %staff% %ban_id% %link%.
+  # (30m, 12h, 7d; empty when permanent) %seconds% %staff% %ban_id% %link% %staff_uuid% (the banning staff
+  # member's Minecraft UUID when the panel knows it) %evidence% (a link to the evidence the ban rests on, such as a
+  # replay); both are empty when unknown.
   # %reason% and %staff% are free text: put %reason% last, after %duration%, so it is never read as a duration.
   staff-ban:
     # Runs when staff ban a player from the cloud panel. Empty: this server never runs panel bans.
