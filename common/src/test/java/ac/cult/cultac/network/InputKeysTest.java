@@ -319,6 +319,51 @@ class InputKeysTest {
     }
 
     @Test
+    void walkingPastAShulkersCornerAlongItsSideIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.compensatedEntities.addEntity(100, EntityTypeIds.SHULKER, new Vec3(0.5, FLOOR_Y, 0.5), 0, 0, 0);
+            f.player.compensatedEntities.entityMap.get(100).setClientTickOrder(-1L);
+            Vec3 start = new Vec3(1.23274584128289, FLOOR_Y, (1.0 + (1.0 + 0.6F)) / 2);
+            double velocity = 0.044379499469431094;
+            f.place(start, new Vec3(velocity, GROUNDED.y, 0));
+            float yaw = 154.91962F;
+            f.player.xRot = yaw;
+            f.player.yRot = 36.494892F;
+            var keys = new ServerboundPlayerInput(true, false, false, true, false, false, false);
+            f.input(keys);
+            Vec3 input = ClientMoveInput.of(f, keys, 1.0F, 0.1F, yaw);
+            // Direction#axisStepOrder moves the longer z first, into the shulker's side; x then clears its corner.
+            assertTrue(Math.abs(input.z) > Math.abs(velocity + input.x) && start.x - 0.3F < 1.0);
+            assertExact(f.tick(start.add(velocity + input.x, 0, 0), true));
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void aPushedPlayerStoppedByAShulkersSideBesideABlockIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var registry = DataTables.defaults().registry();
+            f.player.compensatedWorld.updateBlock(
+                    new BlockPos(2, FLOOR_Y, 0),
+                    registry.block("minecraft:stone").defaultState());
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            double face = 0.994;
+            f.player.compensatedEntities.addEntity(
+                    100, EntityTypeIds.SHULKER, new Vec3(1, FLOOR_Y, face - 0.5), 0, 0, 0);
+            Vec3 target = new Vec3(2 - 0.3F, FLOOR_Y, face + 0.3F);
+            Vec3 start = target.add(-0.01, 0, 0.012);
+            f.player.compensatedEntities.entityMap.get(100).setClientTickOrder(-1L);
+            f.place(start, new Vec3(0, GROUNDED.y, -0.09));
+            f.player.xRot = -90.0F;
+            f.player.yRot = 0.0F;
+            f.input(FORWARD);
+            assertExact(f.tick(target, true));
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
     void knockedUpAgainstASlabUnderALedgeIsNotFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
             var registry = DataTables.defaults().registry();
