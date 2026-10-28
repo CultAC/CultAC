@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -78,6 +79,7 @@ public final class NetworkService implements NetworkRouting {
     private final RosterCache roster = new RosterCache();
     private final Map<String, List<MessageHandler>> handlers = new ConcurrentHashMap<>();
     private final Map<String, JsonElement> flags = new ConcurrentHashMap<>();
+    private final List<Runnable> snapshotTasks = new CopyOnWriteArrayList<>();
     private final AtomicReference<String> rosterPublisher;
     private final Lock rosterLock;
     private final Backlog inbox;
@@ -296,10 +298,19 @@ public final class NetworkService implements NetworkRouting {
         return true;
     }
 
-    /** Sets {@code key} in the flags each roster message carries, or removes it when {@code value} is null. */
+    /**
+     * Sets {@code key} in the flags each roster message carries, or removes it when {@code value} is null. A change is
+     * published at once as a roster delta.
+     */
     public void flag(String key, @Nullable JsonElement value) {
-        if (value == null) flags.remove(key);
-        else flags.put(key, value);
+        JsonElement previous = value == null ? flags.remove(key) : flags.put(key, value);
+        if (running && !Objects.equals(previous, value)) publishRoster(List.of(), false, List.of());
+    }
+
+    /** Runs {@code task} on the service's thread before each periodic roster snapshot, so it can refresh a flag. */
+    public Registration beforeSnapshot(Runnable task) {
+        snapshotTasks.add(task);
+        return () -> snapshotTasks.remove(task);
     }
 
     /** The roster flags of each instance heard from lately, this one left out. */
@@ -321,7 +332,15 @@ public final class NetworkService implements NetworkRouting {
     void tick() {
         try {
             roster.expire(clock.getAsLong());
-            if (running) publishRoster(platform.onlinePlayers(), true, List.of());
+            if (!running) return;
+            for (Runnable task : snapshotTasks) {
+                try {
+                    task.run();
+                } catch (RuntimeException failure) {
+                    LogUtil.warn("A network feature failed before a roster snapshot", failure);
+                }
+            }
+            publishRoster(platform.onlinePlayers(), true, List.of());
         } catch (RuntimeException failure) {
             LogUtil.warn("Network roster update failed", failure);
         }

@@ -67,6 +67,11 @@ public interface PlatformPlayer extends CultEntity, OfflinePlatformPlayer {
 
     void sendPluginMessage(String channelName, byte[] byteArray);
 
+    /** The backend server this player is on behind a proxy; null on a server, or before the first backend. */
+    default @Nullable String serverName() {
+        return null;
+    }
+
     /** This player's settings for its capture's JOIN, such as its attack speed; read on the event loop. */
     default ServerFacts cloudFacts() {
         return ServerFacts.NONE;

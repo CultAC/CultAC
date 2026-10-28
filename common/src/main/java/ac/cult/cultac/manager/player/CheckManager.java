@@ -124,7 +124,8 @@ public class CheckManager {
             BadPacketsP.class,
             BadPacketsM.class,
             PostCheck.class,
-            ExplosionHandler.class);
+            ExplosionHandler.class,
+            ClientBrand.class);
 
     private final CultPlayer player;
 

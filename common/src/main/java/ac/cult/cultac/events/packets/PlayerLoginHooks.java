@@ -35,6 +35,12 @@ public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHoo
             return;
         }
 
+        if (platformPlayer.hasPermission("cult.alerts")
+                || platformPlayer.hasPermission("cult.verbose")
+                || platformPlayer.hasPermission("cult.brand")) {
+            CultAPI.INSTANCE.getAlertManager().loadScope(platformPlayer);
+        }
+
         PlayerToggleStore toggles = CultAPI.INSTANCE.getDataStoreLifecycle().playerToggleStore();
         applyToggle(
                 platformPlayer,

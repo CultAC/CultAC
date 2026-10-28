@@ -165,7 +165,7 @@ public class PunishmentManager implements ConfigReloadable {
                                     replaceAlertPlaceholders(command.command, vl, check, verboseForListeners);
                             verboseListeners = CultAPI.INSTANCE
                                     .getAlertManager()
-                                    .sendVerbose(MessageUtil.miniMessage(listenerCmd), null);
+                                    .sendVerbose(player, MessageUtil.miniMessage(listenerCmd), null);
                         } catch (RuntimeException e) {
                             logDeliveryFailure(command, check, e);
                         }
@@ -222,7 +222,9 @@ public class PunishmentManager implements ConfigReloadable {
                                                 player.sendMessage(message);
                                             }
                                         } else {
-                                            CultAPI.INSTANCE.getAlertManager().sendAlert(message, verboseListeners);
+                                            CultAPI.INSTANCE
+                                                    .getAlertManager()
+                                                    .sendAlert(player, message, verboseListeners);
                                         }
                                     }
                                     default -> {
