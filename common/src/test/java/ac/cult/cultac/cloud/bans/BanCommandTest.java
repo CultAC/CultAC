@@ -46,6 +46,13 @@ class BanCommandTest {
     }
 
     @Test
+    void aGameplayBanLeavesTheCheatEmpty() {
+        StaffBans.Ban gameplay =
+                new StaffBans.Ban(ID, PLAYER, "Notch", "griefing", null, null, null, "Mod", 0, "https://panel/x");
+        assertEquals("ban Notch griefing [|]", BanCommand.fill("ban %player% %reason% [%cheat%|%cheat_id%]", gameplay));
+    }
+
+    @Test
     void aPermanentBanLeavesDurationAndSecondsEmpty() {
         assertEquals(
                 "ban Notch  x", BanCommand.fill("ban %player% %duration%%seconds% x", ban("Notch", "r", null, "s")));

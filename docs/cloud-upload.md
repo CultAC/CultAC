@@ -190,16 +190,30 @@ Placeholders: `%player%` (the name, or the UUID when it is unknown or has charac
 permanent), `%seconds%` (empty when permanent), `%staff%`, `%ban_id%` and `%link%` (the player's page on the cloud
 panel). Control characters and line breaks are removed from every value and its whitespace collapsed; `%reason%` and
 `%staff%` keep at most 200 characters. For example `tempban %player% %duration% %reason%` or
-`ban %player% %reason% (%staff%)`.
+`ban %player% %reason% (%staff%)`. A ban for something other than a cheat has no cheat: `%cheat%` and `%cheat_id%` are
+empty then.
 
-While the upload is configured and either command is set, CultAC asks the service for pending bans every 10 seconds,
-or as often as the service says (5 to 60 seconds). A server where the player is online claims the ban at once; the
-others wait 15 seconds, or the service's grace, so the player's own server can take it. The claimed ban runs as
-console on the main thread (on Velocity from the proxy console, or on the player's backend through the CultAC
-Companion when the proxy has no such command), and the outcome goes back to the service: the command was dispatched,
-or the error it threw. Staff bans are not punishments: `punishments.yml` and observe-only do not apply to them. A
-server never runs the same ban twice, and a server without the matching command never claims one, so leave both
-empty on servers that should not ban. `/cult reload` applies changes.
+While the upload is configured and either command is set, CultAC asks the service for the pending bans its commands
+cover (permanent, timed or both) every 10 seconds, or as often as the service says (5 to 60 seconds). A server where
+the player is online claims the ban at once; the others wait 15 seconds, or the service's grace, so the player's own
+server can take it. The claimed ban runs as console on the main thread (on Velocity from the proxy console, or on the
+player's backend through the CultAC Companion when the proxy has no such command), and the outcome goes back to the
+service:
+
+| Result | Meaning |
+|---|---|
+| `dispatched` | The server or proxy found the command and ran it. |
+| `ran on <backend>` / `did not run on <backend>` | The player's backend ran the command, or did not know it or failed. |
+| `sent to backend` | The command went to the player's backend, which did not answer within 2 seconds; it may still run there. |
+| `unknown command` | The server or proxy has no such command. |
+| `not run: the server was busy` | The main thread did not take the command within 30 seconds; it never runs later. |
+| anything else | The error the command threw. |
+
+When the service cannot be reached to take a result, CultAC retries every 10 seconds until it can, also across
+`/cult reload`. A claimed ban not yet run when `/cult reload` happens is not run; the service offers it again once its
+claim lapses. Staff bans are not punishments: `punishments.yml` and observe-only do not apply to them. A server never
+runs the same ban twice, and a server without the matching command never claims one, so leave both empty on servers
+that should not ban. `/cult reload` applies changes.
 
 ## Commands
 

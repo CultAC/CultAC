@@ -4,6 +4,7 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.grim.grimac.api.AbstractCheck;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import org.jetbrains.annotations.Nullable;
 
 public interface PlatformServer {
@@ -15,6 +16,16 @@ public interface PlatformServer {
     /** Dispatches {@code command} for {@code subject}; a proxy may run it on the subject's backend console. */
     default void dispatchCommand(Sender sender, String command, @Nullable PlatformPlayer subject) {
         dispatchCommand(sender, command);
+    }
+
+    /**
+     * Runs {@code command} like {@link #dispatchCommand(Sender, String, PlatformPlayer)}, on the thread that method needs;
+     * completes once the platform reports what became of it, exceptionally when it threw.
+     */
+    default CompletableFuture<CommandOutcome> runCommand(
+            Sender sender, String command, @Nullable PlatformPlayer subject) {
+        dispatchCommand(sender, command, subject);
+        return CompletableFuture.completedFuture(CommandOutcome.SENT);
     }
 
     /**

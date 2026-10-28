@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.cloud.CloudSettings;
+import ac.cult.cultac.platform.api.CommandOutcome;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
@@ -19,10 +21,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -48,12 +52,17 @@ class StaffBansTest {
     private volatile JsonArray pending = new JsonArray();
     private volatile int pendingStatus = 200;
     private volatile int claimStatus = 200;
+    private final Queue<Integer> resultStatuses = new ConcurrentLinkedQueue<>();
+    private volatile Runnable beforePending = () -> {};
 
     private final Set<UUID> online = ConcurrentHashMap.newKeySet();
     private final List<String> dispatched = Collections.synchronizedList(new ArrayList<>());
     private volatile RuntimeException dispatchFailure;
+    private volatile CompletableFuture<CommandOutcome> outcome = CompletableFuture.completedFuture(CommandOutcome.RAN);
+    private volatile boolean holdTasks;
+    private final List<Runnable> held = Collections.synchronizedList(new ArrayList<>());
     private final AtomicLong clock = new AtomicLong(NOW);
-    private final AtomicLong chains = new AtomicLong();
+    private final StaffBans.Generation generation = new StaffBans.Generation();
     private final StaffBans.Handled handled = new StaffBans.Handled(StaffBans.MAX_HANDLED);
 
     private final StaffBans.Host host = new StaffBans.Host() {
@@ -63,10 +72,19 @@ class StaffBansTest {
         }
 
         @Override
-        public CompletableFuture<Void> dispatch(String command, UUID player) {
+        public void schedule(Runnable task) {
+            if (holdTasks) {
+                held.add(task);
+            } else {
+                task.run();
+            }
+        }
+
+        @Override
+        public CompletableFuture<CommandOutcome> dispatch(String command, UUID player) {
             if (dispatchFailure != null) throw dispatchFailure;
             dispatched.add(command);
-            return CompletableFuture.completedFuture(null);
+            return outcome;
         }
     };
 
@@ -79,7 +97,7 @@ class StaffBansTest {
 
     @AfterEach
     void stop() {
-        chains.incrementAndGet();
+        generation.next();
         StaffBans.stop();
         server.stop(0);
         calls.shutdownNow();
@@ -93,6 +111,7 @@ class StaffBansTest {
         int status;
         String reply;
         if (uri.startsWith("/api/v1/bans/pending")) {
+            beforePending.run();
             status = pendingStatus;
             JsonObject answer = new JsonObject();
             answer.addProperty("pollSeconds", 1);
@@ -103,7 +122,8 @@ class StaffBansTest {
             status = claimStatus;
             reply = "{\"leaseSeconds\":60}";
         } else {
-            status = 200;
+            Integer result = resultStatuses.poll();
+            status = result == null ? 200 : result;
             reply = "{}";
         }
         byte[] bytes = reply.getBytes(StandardCharsets.UTF_8);
@@ -126,7 +146,7 @@ class StaffBansTest {
                 calls,
                 host,
                 clock::get,
-                chains,
+                generation,
                 handled,
                 seconds -> CompletableFuture.delayedExecutor(seconds * 10, TimeUnit.MILLISECONDS));
     }
@@ -165,9 +185,21 @@ class StaffBansTest {
     private long gets(String serverId) {
         synchronized (seen) {
             return seen.stream()
-                    .filter(s -> s.uri().equals("/api/v1/bans/pending?server=" + serverId))
+                    .filter(s -> s.uri().startsWith("/api/v1/bans/pending?server=" + serverId + "&"))
                     .count();
         }
+    }
+
+    private List<Seen> results() {
+        return posts().stream().filter(s -> s.uri().endsWith("/result")).toList();
+    }
+
+    private void assertResult(Seen result, boolean ok, String message) {
+        JsonObject body = new JsonObject();
+        body.addProperty("server", "arena-1");
+        body.addProperty("ok", ok);
+        body.addProperty("message", message);
+        assertEquals(body, JsonParser.parseString(result.body()));
     }
 
     @Test
@@ -179,7 +211,7 @@ class StaffBansTest {
         assertEquals(List.of("ban Notch fly hacks"), dispatched);
         Seen get = seen.get(0);
         assertEquals("GET", get.method());
-        assertEquals("/api/v1/bans/pending?server=arena-1", get.uri());
+        assertEquals("/api/v1/bans/pending?server=arena-1&durations=all", get.uri());
         assertEquals("Bearer " + KEY, get.authorization());
         List<Seen> posts = posts();
         assertEquals(2, posts.size());
@@ -257,6 +289,143 @@ class StaffBansTest {
 
         assertEquals(1, dispatched.size());
         assertEquals(2, posts().size());
+    }
+
+    @Test
+    void theResultSaysWhatThePlatformReported() throws Exception {
+        List<CommandOutcome> outcomes =
+                List.of(CommandOutcome.RAN, CommandOutcome.UNKNOWN, CommandOutcome.SENT_TO_BACKEND);
+        for (int i = 0; i < outcomes.size(); i++) {
+            outcome = CompletableFuture.completedFuture(outcomes.get(i));
+            pending(ban("2f0e0d0c-0b0a-4908-8706-05040302010" + i, PLAYER, null, NOW - 60_000));
+
+            bans().pollOnce().get(5, TimeUnit.SECONDS);
+
+            assertResult(results().get(i), outcomes.get(i).ok(), outcomes.get(i).message());
+        }
+        assertResult(results().get(1), false, "unknown command");
+        assertResult(results().get(2), true, "sent to backend");
+    }
+
+    @Test
+    void aRunningDispatchIsAwaitedWithoutATimeout() throws Exception {
+        CompletableFuture<CommandOutcome> later = new CompletableFuture<>();
+        outcome = later;
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+
+        CompletableFuture<Long> round = bans().pollOnce();
+        waitFor(() -> dispatched.size() == 1);
+        Thread.sleep(StaffBans.DISPATCH_TIMEOUT.toSeconds() * 10 + 200);
+
+        assertTrue(results().isEmpty());
+        later.complete(CommandOutcome.RAN);
+        round.get(5, TimeUnit.SECONDS);
+        assertResult(results().get(0), true, "dispatched");
+    }
+
+    @Test
+    void aDispatchThatTimesOutNeverRunsLate() throws Exception {
+        holdTasks = true;
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+        assertResult(results().get(0), false, "not run: the server was busy");
+        synchronized (held) {
+            held.forEach(Runnable::run);
+        }
+
+        assertTrue(dispatched.isEmpty());
+        assertEquals(2, posts().size());
+    }
+
+    @Test
+    void aFailedResultIsRetriedUntilTakenAndNeverDispatchedAgain() throws Exception {
+        resultStatuses.add(503);
+        resultStatuses.add(503);
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+        assertTrue(handled.owes(BAN));
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+        waitFor(() -> !handled.owes(BAN));
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertEquals(List.of("ban Notch fly hacks"), dispatched);
+        List<Seen> results = results();
+        assertEquals(3, results.size());
+        for (Seen result : results) assertResult(result, true, "dispatched");
+        assertEquals(4, posts().size());
+    }
+
+    @Test
+    void anOwedResultOutlivesTheHandledLimit() {
+        StaffBans.Handled small = new StaffBans.Handled(1);
+        assertTrue(small.add(BAN));
+        small.owe(BAN);
+        assertTrue(small.add(TIMED));
+
+        assertFalse(small.add(BAN));
+        small.paid(BAN);
+        assertTrue(small.add(BAN));
+    }
+
+    @Test
+    void aPollAnsweredAfterAReloadClaimsNothing() throws Exception {
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+        StaffBans bans = bans();
+        beforePending = generation::next;
+
+        bans.pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertTrue(posts().isEmpty());
+        assertFalse(handled.contains(BAN));
+    }
+
+    @Test
+    void aClaimNotYetDispatchedAtAReloadIsLetGo() throws Exception {
+        holdTasks = true;
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+
+        CompletableFuture<Long> round = bans().pollOnce();
+        waitFor(() -> held.size() == 1);
+        generation.next();
+        held.get(0).run();
+        round.get(5, TimeUnit.SECONDS);
+
+        assertTrue(dispatched.isEmpty());
+        assertEquals(1, posts().size());
+        assertFalse(handled.contains(BAN));
+    }
+
+    @Test
+    void thePendingQueryAsksOnlyForBansACommandCovers() throws Exception {
+        bans("perm", new StaffBans.Commands("ban %player%", "")).pollOnce().get(5, TimeUnit.SECONDS);
+        bans("temp", new StaffBans.Commands("", "tempban %player%")).pollOnce().get(5, TimeUnit.SECONDS);
+        bans("both", new StaffBans.Commands("ban %player%", "tempban %player%"))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                List.of(
+                        "/api/v1/bans/pending?server=perm&durations=permanent",
+                        "/api/v1/bans/pending?server=temp&durations=timed",
+                        "/api/v1/bans/pending?server=both&durations=all"),
+                seen.stream().map(Seen::uri).toList());
+    }
+
+    @Test
+    void aGameplayBanRunsWithTheCheatEmpty() throws Exception {
+        JsonObject gameplay = ban(BAN, PLAYER, null, NOW - 60_000);
+        gameplay.add("cheat", JsonNull.INSTANCE);
+        gameplay.add("cheatName", JsonNull.INSTANCE);
+        pending(gameplay);
+
+        bans("arena-1", new StaffBans.Commands("ban %player% [%cheat%|%cheat_id%] %reason%", ""))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+
+        assertEquals(List.of("ban Notch [|] fly hacks"), dispatched);
+        assertResult(results().get(0), true, "dispatched");
     }
 
     @Test

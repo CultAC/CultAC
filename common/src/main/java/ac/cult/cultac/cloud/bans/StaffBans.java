@@ -6,6 +6,7 @@ import ac.cult.cultac.cloud.CloudSettings;
 import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.cloud.transport.CloudConnection.CappedBody;
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.platform.api.CommandOutcome;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -23,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,8 +35,8 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.LongFunction;
 import java.util.function.LongSupplier;
@@ -55,17 +57,19 @@ public final class StaffBans {
     static final long ABSENT_POLL_SECONDS = 300;
 
     static final long DEFAULT_GRACE_SECONDS = 15;
-    /** How long a dispatch may wait for the server's thread before it counts as failed, inside the claim's lease. */
+    /** How long a dispatch may wait for the server's thread before it is given up unrun, inside the claim's lease. */
     static final Duration DISPATCH_TIMEOUT = Duration.ofSeconds(30);
+
+    static final long RESULT_RETRY_SECONDS = 10;
 
     static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     static final int MAX_BODY = 256 << 10;
     static final int MAX_HANDLED = 1000;
-    static final String DISPATCHED = "dispatched";
+    static final CommandOutcome BUSY = new CommandOutcome(false, "not run: the server was busy");
 
-    /** Bumped on every configure, so only the latest poll chain keeps running. */
-    private static final AtomicLong CHAIN = new AtomicLong();
-    /** Ban ids this instance claimed, across reloads. */
+    /** Bumped on every configure, so only the latest poller claims and dispatches. */
+    private static final Generation GENERATION = new Generation();
+    /** Ban ids this instance claimed and results it still owes, across reloads. */
     private static final Handled HANDLED = new Handled(MAX_HANDLED);
 
     private static final Pattern ID =
@@ -94,15 +98,24 @@ public final class StaffBans {
         String of(Ban ban) {
             return ban.durationSeconds() == null ? command : tempCommand;
         }
+
+        /** The bans these commands can run, as the pending query's {@code durations}. */
+        String durations() {
+            if (command.isEmpty()) return "timed";
+            return tempCommand.isEmpty() ? "permanent" : "all";
+        }
     }
 
-    /** One pending ban; a null {@code durationSeconds} is permanent, a zero {@code createdAtMillis} unknown. */
+    /**
+     * One pending ban; a null {@code durationSeconds} is permanent, a zero {@code createdAtMillis} unknown, and a null
+     * {@code cheat} a gameplay ban.
+     */
     public record Ban(
             String id,
             UUID player,
             @Nullable String name,
             String reason,
-            String cheat,
+            @Nullable String cheat,
             @Nullable String cheatName,
             @Nullable Long durationSeconds,
             String staff,
@@ -113,8 +126,14 @@ public final class StaffBans {
     interface Host {
         boolean online(UUID player);
 
-        /** Completes once {@code command} ran, exceptionally when it threw. */
-        CompletableFuture<Void> dispatch(String command, UUID player);
+        /** Runs {@code task} on the thread commands run on. */
+        void schedule(Runnable task);
+
+        /**
+         * Dispatches {@code command} from a {@link #schedule} task; completes with what the platform reports,
+         * exceptionally when it threw.
+         */
+        CompletableFuture<CommandOutcome> dispatch(String command, UUID player);
     }
 
     private final String base;
@@ -125,7 +144,7 @@ public final class StaffBans {
     private final Executor executor;
     private final Host host;
     private final LongSupplier clock;
-    private final AtomicLong chains;
+    private final Generation generation;
     private final Handled handled;
     private final LongFunction<Executor> after;
     /** The kinds of problem already logged by this poller. */
@@ -142,7 +161,7 @@ public final class StaffBans {
             Executor executor,
             Host host,
             LongSupplier clock,
-            AtomicLong chains,
+            Generation generation,
             Handled handled,
             LongFunction<Executor> after) {
         this.base = base;
@@ -153,7 +172,7 @@ public final class StaffBans {
         this.executor = executor;
         this.host = host;
         this.clock = clock;
-        this.chains = chains;
+        this.generation = generation;
         this.handled = handled;
         this.after = after;
     }
@@ -181,24 +200,27 @@ public final class StaffBans {
                         CloudHttp.CALLS,
                         new PlatformHost(),
                         System::currentTimeMillis,
-                        CHAIN,
+                        GENERATION,
                         HANDLED,
                         seconds -> CompletableFuture.delayedExecutor(seconds, TimeUnit.SECONDS, CloudHttp.CALLS))
                 .start();
     }
 
-    /** Stops the running chain; a claimed ban still finishes. */
+    /**
+     * Stops the running poller: it claims and dispatches nothing more, a claim not yet dispatched is let go for its
+     * lease to run out, and results already owed are still delivered.
+     */
     public static void stop() {
-        CHAIN.incrementAndGet();
+        GENERATION.next();
     }
 
     void start() {
-        chain = chains.incrementAndGet();
+        chain = generation.next();
         poll();
     }
 
     private void poll() {
-        if (chains.get() != chain) return;
+        if (!generation.latest(chain)) return;
         pollOnce()
                 .whenComplete((next, error) ->
                         after.apply(error == null ? next : DEFAULT_POLL_SECONDS).execute(this::poll));
@@ -206,7 +228,8 @@ public final class StaffBans {
 
     /** One round: fetches the pending bans and runs each this instance should; completes with the seconds to wait. */
     CompletableFuture<Long> pollOnce() {
-        return send(request("/api/v1/bans/pending?server=" + URLEncoder.encode(serverId, StandardCharsets.UTF_8))
+        return send(request("/api/v1/bans/pending?server=" + URLEncoder.encode(serverId, StandardCharsets.UTF_8)
+                                + "&durations=" + commands.durations())
                         .GET())
                 .handle((reply, error) -> {
                     if (error != null) {
@@ -252,7 +275,9 @@ public final class StaffBans {
         if (bans != null && bans.isJsonArray()) {
             for (JsonElement item : bans.getAsJsonArray()) {
                 Ban ban = item.isJsonObject() ? ban(item.getAsJsonObject()) : null;
-                if (ban != null && due(ban, grace) && handled.add(ban.id())) runs.add(claim(ban));
+                if (ban != null && generation.whileLatest(chain, () -> due(ban, grace) && handled.add(ban.id()))) {
+                    runs.add(claim(ban));
+                }
             }
         }
         return CompletableFuture.allOf(runs.toArray(CompletableFuture[]::new)).handle((done, error) -> next);
@@ -307,44 +332,78 @@ public final class StaffBans {
 
     private CompletableFuture<Void> run(Ban ban) {
         String command = BanCommand.fill(commands.of(ban), ban);
-        CompletableFuture<Void> dispatched;
+        Dispatch dispatch = new Dispatch();
+        after.apply(DISPATCH_TIMEOUT.toSeconds()).execute(() -> dispatch.abandon(BUSY));
         try {
-            dispatched = host.dispatch(command, ban.player());
+            host.schedule(() -> {
+                if (generation.whileLatest(chain, dispatch::start)) {
+                    dispatch.finish(command, ban.player(), host);
+                } else {
+                    dispatch.abandon(null);
+                }
+            });
         } catch (RuntimeException failure) {
-            dispatched = CompletableFuture.failedFuture(failure);
+            dispatch.fail(failure);
         }
-        return dispatched
-                .orTimeout(DISPATCH_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
-                .handle((done, error) -> {
-                    if (error == null) {
-                        LogUtil.info("Ran staff ban " + ban.id() + " from the cloud panel: " + command);
-                        return result(ban, true, DISPATCHED);
+        return dispatch.outcome
+                .handle((outcome, error) -> {
+                    if (error == null && outcome == null) {
+                        handled.remove(ban.id());
+                        LogUtil.info("Staff ban " + ban.id() + " from the cloud panel was not run: CultAC reloaded;"
+                                + " it can be claimed again once its lease runs out");
+                        return CompletableFuture.<Void>completedFuture(null);
                     }
-                    String why = why(error);
+                    if (error == null && outcome.ok()) {
+                        LogUtil.info("Ran staff ban " + ban.id() + " from the cloud panel (" + outcome.message() + "): "
+                                + command);
+                        return report(ban, true, outcome.message());
+                    }
+                    String why = error == null ? outcome.message() : why(error);
                     LogUtil.warn("Staff ban " + ban.id() + " from the cloud panel failed: " + why + ": " + command);
-                    return result(ban, false, why);
+                    return report(ban, false, why);
                 })
                 .thenCompose(Function.identity());
     }
 
-    private CompletableFuture<Void> result(Ban ban, boolean ok, String message) {
+    /** Owes the service {@code ban}'s result until it takes it; completes after the first attempt. */
+    private CompletableFuture<Void> report(Ban ban, boolean ok, String message) {
         JsonObject body = new JsonObject();
         body.addProperty("server", serverId);
         body.addProperty("ok", ok);
         body.addProperty("message", LogThrottle.oneLine(message, BanCommand.MAX_TEXT));
-        return send(request("/api/v1/bans/" + ban.id() + "/result")
-                        .POST(HttpRequest.BodyPublishers.ofString(body.toString())))
+        handled.owe(ban.id());
+        return deliver(ban.id(), body.toString());
+    }
+
+    /**
+     * Posts a result, again every {@link #RESULT_RETRY_SECONDS} until the service takes it (200) or says it is not this
+     * instance's to give (404, 409), whatever configure comes meanwhile.
+     */
+    private CompletableFuture<Void> deliver(String id, String body) {
+        return send(request("/api/v1/bans/" + id + "/result").POST(HttpRequest.BodyPublishers.ofString(body)))
                 .handle((reply, error) -> {
+                    if (error == null && (reply.status() == 200 || reply.status() == 404 || reply.status() == 409)) {
+                        handled.paid(id);
+                        if (reply.status() != 200) {
+                            problem(
+                                    "result " + reply.status(),
+                                    "Staff bans: the cloud service answered HTTP " + reply.status() + " to a result");
+                        }
+                        return null;
+                    }
                     if (error != null) {
                         problem(
                                 "result " + LabelClient.unanswered(error),
-                                "Staff bans: no answer from the cloud" + " service to a result ("
-                                        + LabelClient.unanswered(error) + ")");
-                    } else if (reply.status() != 200) {
+                                "Staff bans: no answer from the cloud service to a result ("
+                                        + LabelClient.unanswered(error) + "); retrying every "
+                                        + RESULT_RETRY_SECONDS + " s");
+                    } else {
                         problem(
                                 "result " + reply.status(),
-                                "Staff bans: the cloud service answered HTTP " + reply.status() + " to a result");
+                                "Staff bans: the cloud service answered HTTP " + reply.status()
+                                        + " to a result; retrying every " + RESULT_RETRY_SECONDS + " s");
                     }
+                    after.apply(RESULT_RETRY_SECONDS).execute(() -> deliver(id, body));
                     return null;
                 });
     }
@@ -352,9 +411,6 @@ public final class StaffBans {
     /** What a failed dispatch says: its exception's message, else the exception's type. */
     static String why(Throwable error) {
         Throwable cause = error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
-        if (cause instanceof TimeoutException) {
-            return "did not run within " + DISPATCH_TIMEOUT.toSeconds() + " s";
-        }
         String message = cause.getMessage();
         return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
     }
@@ -386,7 +442,7 @@ public final class StaffBans {
                 UUID.fromString(player),
                 text(ban, "name"),
                 orEmpty(text(ban, "reason")),
-                orEmpty(text(ban, "cheat")),
+                text(ban, "cheat"),
                 text(ban, "cheatName"),
                 duration,
                 orEmpty(text(ban, "staff")),
@@ -437,9 +493,13 @@ public final class StaffBans {
                 .thenApply(response -> new LabelClient.Reply(response.statusCode(), response.body()));
     }
 
-    /** The ids this instance claimed, the oldest forgotten past {@code max}. */
+    /**
+     * The ids this instance claimed, the oldest forgotten past {@code max}, and those whose result it still owes, kept
+     * until the service takes it.
+     */
     static final class Handled {
         private final Map<String, Boolean> ids;
+        private final Set<String> owed = new HashSet<>();
 
         Handled(int max) {
             ids = new LinkedHashMap<>() {
@@ -452,15 +512,93 @@ public final class StaffBans {
 
         /** Whether {@code id} was not handled yet; it is from here on. */
         synchronized boolean add(String id) {
-            return ids.putIfAbsent(id, Boolean.TRUE) == null;
+            return !owed.contains(id) && ids.putIfAbsent(id, Boolean.TRUE) == null;
         }
 
         synchronized boolean contains(String id) {
-            return ids.containsKey(id);
+            return ids.containsKey(id) || owed.contains(id);
         }
 
+        /** Forgets a claim that was never dispatched. */
         synchronized void remove(String id) {
             ids.remove(id);
+        }
+
+        synchronized void owe(String id) {
+            owed.add(id);
+        }
+
+        synchronized void paid(String id) {
+            owed.remove(id);
+        }
+
+        synchronized boolean owes(String id) {
+            return owed.contains(id);
+        }
+    }
+
+    /** The configure generation: a poller claims and dispatches only while its own is the latest. */
+    static final class Generation {
+        private long latest;
+
+        synchronized long next() {
+            return ++latest;
+        }
+
+        synchronized boolean latest(long generation) {
+            return generation == latest;
+        }
+
+        /** {@code action}'s answer while {@code generation} is the latest, no configure between; else false. */
+        synchronized boolean whileLatest(long generation, BooleanSupplier action) {
+            return generation == latest && action.getAsBoolean();
+        }
+    }
+
+    /**
+     * One claimed ban's command: QUEUED until the server's thread starts it (RUNNING, then DONE) or it is given up
+     * unrun (ABANDONED), so a dispatch that waited too long never runs late.
+     */
+    static final class Dispatch {
+        enum State {
+            QUEUED,
+            RUNNING,
+            DONE,
+            ABANDONED
+        }
+
+        private final AtomicReference<State> state = new AtomicReference<>(State.QUEUED);
+        /** What the platform reported; null when the dispatch was let go unrun for a reload. */
+        final CompletableFuture<@Nullable CommandOutcome> outcome = new CompletableFuture<>();
+
+        boolean start() {
+            return state.compareAndSet(State.QUEUED, State.RUNNING);
+        }
+
+        /** Waits for a started dispatch however long the platform takes. */
+        void finish(String command, UUID player, Host host) {
+            CompletableFuture<CommandOutcome> ran;
+            try {
+                ran = host.dispatch(command, player);
+            } catch (RuntimeException failure) {
+                ran = CompletableFuture.failedFuture(failure);
+            }
+            ran.whenComplete((reported, error) -> {
+                state.set(State.DONE);
+                if (error != null) {
+                    outcome.completeExceptionally(error);
+                } else {
+                    outcome.complete(reported);
+                }
+            });
+        }
+
+        void abandon(@Nullable CommandOutcome why) {
+            if (state.compareAndSet(State.QUEUED, State.ABANDONED)) outcome.complete(why);
+        }
+
+        void fail(Throwable failure) {
+            if (state.compareAndSet(State.QUEUED, State.ABANDONED)) outcome.completeExceptionally(failure);
         }
     }
 
@@ -476,22 +614,19 @@ public final class StaffBans {
         }
 
         @Override
-        public CompletableFuture<Void> dispatch(String command, UUID player) {
-            CompletableFuture<Void> done = new CompletableFuture<>();
+        public void schedule(Runnable task) {
             CultAPI api = CultAPI.INSTANCE;
-            api.getScheduler().getGlobalRegionScheduler().run(api.getGrimPlugin(), () -> {
-                try {
-                    PlatformServer server = api.getPlatformServer();
-                    server.dispatchCommand(
-                            server.getConsoleSender(),
-                            command,
-                            api.getPlatformPlayerFactory().getFromUUID(player));
-                    done.complete(null);
-                } catch (RuntimeException failure) {
-                    done.completeExceptionally(failure);
-                }
-            });
-            return done;
+            api.getScheduler().getGlobalRegionScheduler().run(api.getGrimPlugin(), task);
+        }
+
+        @Override
+        public CompletableFuture<CommandOutcome> dispatch(String command, UUID player) {
+            CultAPI api = CultAPI.INSTANCE;
+            PlatformServer server = api.getPlatformServer();
+            return server.runCommand(
+                    server.getConsoleSender(),
+                    command,
+                    api.getPlatformPlayerFactory().getFromUUID(player));
         }
     }
 }
