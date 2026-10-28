@@ -79,6 +79,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
+import ac.cult.cultac.utils.nmsutil.SprintKeyStart;
 import ac.cult.cultac.utils.nmsutil.TraverseBlocks;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
@@ -431,7 +432,10 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
         if (player.compensatedEntities.getSelf().inVehicle()) return;
         player.onFootClientTick();
-        player.sprintState.onClientTick(player.isSprinting);
+        // The sprint key can start sprinting and a stop check end it within aiStep, announcing nothing.
+        boolean keyStart =
+                player.sprintState.unannouncedStartPossible(player.isSprinting) && SprintKeyStart.certain(player);
+        player.sprintState.onClientTick(player.isSprinting, keyStart);
     }
 
     // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced.

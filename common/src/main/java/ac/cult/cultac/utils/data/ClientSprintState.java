@@ -101,20 +101,41 @@ public final class ClientSprintState {
     }
 
     /**
+     * Whether a start and stop in this tick's aiStep can still be unannounced: this is the tick's first reconcile, the
+     * flag was known to be clear before aiStep, and the tick announces no sprint.
+     */
+    public boolean unannouncedStartPossible(boolean sprinting) {
+        return !aiStepReconciled && !flag && !flagUncertain && !sprinting;
+    }
+
+    /** {@link #onClientTick(boolean, boolean)} for an aiStep not known to have started sprinting from the key. */
+    public void onClientTick(boolean sprinting) {
+        onClientTick(sprinting, false);
+    }
+
+    /**
      * Reconciles a completed LocalPlayer#aiStep with its known sprint flag. A tick that reaches
      * sendIsSprintingIfNeeded makes it equal the last announcement; a noncontrolling passenger can stop sprinting
-     * without announcing it. A changed flag proves setSprinting ran and resynchronized the modifier. An already-false
-     * flag does not remove a modifier installed independently by an attribute packet.
+     * without announcing it. A changed flag proves setSprinting ran and resynchronized the modifier.
+     *
+     * <p>An unchanged clear flag keeps a modifier an attribute packet installed, unless {@code keyStart}: aiStep
+     * certainly ran canStartSprinting's setSprinting(true) from the held sprint key. The tick still announced no
+     * sprint, so a stop check ran setSprinting(false) in the same aiStep. The flag ends where it began and nothing is
+     * sent, but LivingEntity#setSprinting(false) removed the modifier. Only the tick's first reconcile sees the flag
+     * from before aiStep, so only it applies {@code keyStart}.
      */
-    public void onClientTick(boolean sprinting) {
+    public void onClientTick(boolean sprinting, boolean keyStart) {
+        boolean beforeAiStep = unannouncedStartPossible(sprinting);
         if (!aiStepReconciled) {
             flagBeforeAiStep = flag;
             aiStepReconciled = true;
         }
-        // Unmodeled: wall-sprinting start->stop in one aiStep can clear the modifier early; this only errs lenient.
         // An attack reset that aiStep re-sprinted re-added the modifier.
         if (flag != sprinting) {
             modifier = sprinting ? CompensatedEntities.SPRINTING_SPEED_MODIFIER : null;
+            onCertainEvent();
+        } else if (keyStart && beforeAiStep) {
+            modifier = null;
             onCertainEvent();
         } else if (sprintResetThisTick && sprinting) {
             // Only a possible reset leaves the flag: Player#attack resets only after damage and positive knockback.

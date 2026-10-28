@@ -63,6 +63,7 @@ public final class FlightToggle {
         }
         data.jumpTriggerTimes = (times >>> 1) | (times & UNARMED);
         data.lastTickJump = data.knownInput.jump();
+        data.lastTickShift = data.knownInput.shift();
         data.autoJumpPossible = autoJumpCanFire(player);
         data.eyeFluidContactBeforeTick =
                 player.checkManager.getSimulationProcessor().getLastWorldEyeFluidContact();
@@ -75,6 +76,7 @@ public final class FlightToggle {
     public static void reset(PacketStateData data, boolean keepEntityData) {
         data.jumpTriggerTimes = UNARMED;
         data.lastTickJump = false;
+        data.lastTickShift = false;
         data.autoJumpPossible = false;
         data.eyeFluidContactBeforeTick = 0;
         if (!keepEntityData) data.swimmingPossible = false;

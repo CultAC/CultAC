@@ -274,6 +274,11 @@ public final class ClientItemUseState {
         return obligation != null;
     }
 
+    /** Whether LocalPlayer#isUsingItem may be set: a use the client may hold, or one the server still requires. */
+    public boolean possiblyUsing() {
+        return !candidates.isEmpty() || obligation != null;
+    }
+
     public void reset() {
         release();
         lastPreparedTick = Integer.MIN_VALUE;

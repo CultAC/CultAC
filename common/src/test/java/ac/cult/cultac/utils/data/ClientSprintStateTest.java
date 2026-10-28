@@ -275,6 +275,50 @@ class ClientSprintStateTest {
     }
 
     @Test
+    void sprintKeyStartAndStopInOneAiStepDropsAStaleServerModifier() {
+        ClientSprintState state = sprinting();
+        state.onClientTickEnd();
+        // LocalPlayer#aiStep stops at a wall and sends STOP_SPRINTING.
+        state.onClientTick(false);
+        state.onClientTickEnd();
+        // A movement_speed snapshot the server built before it handled that STOP_SPRINTING.
+        state.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+        assertTrue(state.modifier());
+        // canStartSprinting -> setSprinting(true), then shouldStopRunSprinting -> setSprinting(false); nothing is sent.
+        assertTrue(state.unannouncedStartPossible(false));
+        state.onClientTick(false, true);
+        assertFalse(state.flag());
+        assertFalse(state.modifier());
+    }
+
+    @Test
+    void onlyATicksFirstReconcileAppliesASprintKeyStart() {
+        ClientSprintState state = new ClientSprintState();
+        state.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+        state.onClientMove();
+        state.onClientTick(false, false);
+        // The tick end reconciles the same aiStep again.
+        assertFalse(state.unannouncedStartPossible(false));
+        state.onClientTick(false, true);
+        assertTrue(state.modifier());
+        state.onClientTickEnd();
+        assertTrue(state.unannouncedStartPossible(false));
+    }
+
+    @Test
+    void aStartThatTheTickAnnouncesOrAFlagSetBeforeAiStepIsNotUnannounced() {
+        ClientSprintState state = new ClientSprintState();
+        assertFalse(state.unannouncedStartPossible(true));
+        state.onClientTick(true, true);
+        assertSame(CompensatedEntities.SPRINTING_SPEED_MODIFIER, state.heldModifier());
+        state.onClientTickEnd();
+        // Set before aiStep, the flag's stop is announced and resynchronizes the modifier on its own.
+        assertFalse(state.unannouncedStartPossible(false));
+        state.onClientTick(false, true);
+        assertNull(state.heldModifier());
+    }
+
+    @Test
     void attackResetThatAiStepResprintedRestoresModifier() {
         ClientSprintState state = sprinting();
         // A movement_speed sync while the server believes the player is not sprinting.
