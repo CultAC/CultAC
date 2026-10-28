@@ -28,6 +28,7 @@ import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -47,6 +48,7 @@ import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import ac.cult.cultac.utils.visibility.ClientVisibility;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.config.ConfigManager;
@@ -278,6 +280,54 @@ class InteractionVisibilityTest {
             assertEquals(1, mobs.violations);
             assertEquals(1, interact.violations);
         }
+    }
+
+    @Test
+    void aPeekingShulkerIsSelectedAboveTheWallItHidesBehind() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int x = -1; x <= 1; x++) {
+                setup.block(x, 64, 0, "stone");
+                setup.block(x, 65, 0, "smooth_stone_slab");
+            }
+            var mobs = setup.check(AttackMobVisibility.class);
+            var interact = setup.check(InteractEntityVisibility.class);
+            player.compensatedEntities.addEntity(42, EntityTypeIds.SHULKER, new Vec3(.5, 64, -.5), 0, 0, 0);
+            player.x = .5;
+            player.y = 64;
+            player.z = 1.5;
+            player.yRot = 180;
+            var click = new ServerboundInteract(
+                    42,
+                    InteractAction.INTERACT_AT,
+                    Hand.MAIN_HAND,
+                    Optional.of(new Vec3d(0, 1.6199719221143867, 0.5000305194408838)),
+                    false);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
+            peek(player, 100);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            for (int tick = 0; tick < 20; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
+            assertEquals(2, mobs.violations);
+            assertEquals(1, interact.violations);
+            peek(player, 0);
+            for (int tick = 0; tick < 20; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertEquals(3, mobs.violations);
+        }
+    }
+
+    private static void peek(CultPlayer player, int peek) {
+        int proof = player.lastTransactionSent.get() + 1;
+        player.compensatedEntities.updateEntityMetadata(
+                42,
+                List.of(new EntityMetadata.Entry(WatchableIndexUtil.SHULKER_PEEK, (byte) peek, ByteBuffer.allocate(0))),
+                proof);
+        player.sendTrailingTransaction();
+        player.lastTransactionReceived.set(proof);
+        player.latencyUtils.handleNettySyncTransaction(proof);
     }
 
     private static ServerboundInteract interactAt(int entityId) {

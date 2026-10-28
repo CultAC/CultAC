@@ -14,6 +14,7 @@ import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
@@ -321,12 +322,20 @@ public final class ClientVisibility {
         // inflated only by the native pick radius/item margin. Reach's separate
         // 0.03125 expansion can invent an exposed point across a solid corner.
         boolean[] inRange = {false};
-        if (!hiddenForEverySelection(() -> entityHidden(
-                entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes()),
-                positionError,
-                pickRadius(entity),
-                inRange))) return Sight.VISIBLE;
+        if (!hiddenForEverySelection(() -> entityHidden(pickedBox(entity), positionError, pickRadius(entity), inRange)))
+            return Sight.VISIBLE;
         return inRange[0] ? Sight.BLOCKED : Sight.OUT_OF_RANGE;
+    }
+
+    /**
+     * The bounding box LocalPlayer#pick clips, which Minecraft#tick picks before it ticks the level: a shulker's is
+     * the one its last client tick gave it.
+     */
+    private SimpleCollisionBox pickedBox(PacketEntity entity) {
+        var box = entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes());
+        return entity instanceof PacketEntityShulker shulker && !player.isBedrockMovement()
+                ? shulker.tickedBoundingBox(box)
+                : box;
     }
 
     /** Whether no selection selects any part of {@code box}, a box the entity's picked box may lie in. */
@@ -345,7 +354,7 @@ public final class ClientVisibility {
     public boolean entityInteractionHidden(PacketEntity entity, double positionError) {
         double pickRadius = EntityTypeUtil.modelType(entity.type).has(EntityTypes.PROJECTILE) ? 1.0F : 0;
         return hiddenForEverySelection(() -> {
-            var target = entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes());
+            var target = pickedBox(entity);
             var self = player.compensatedEntities.getSelf();
             double range = self.getEntityInteractionRange();
             if (!(range > 0)) return true;

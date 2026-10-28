@@ -97,7 +97,16 @@ public class PacketEntityShulker extends PacketEntity {
      * may hold before or after its step in that client tick.
      */
     public SimpleCollisionBox boundingBox(SimpleCollisionBox box) {
-        double grow = (double) (ticks() ? Math.max(physicalPeek, nextPhysicalPeek) : physicalPeek) * scale;
+        return grow(box, ticks() ? Math.max(physicalPeek, nextPhysicalPeek) : physicalPeek);
+    }
+
+    /** Shulker#makeBoundingBox after the client tick that ended last: {@code box}, the closed box, grown by it. */
+    public SimpleCollisionBox tickedBoundingBox(SimpleCollisionBox box) {
+        return grow(box, physicalPeek);
+    }
+
+    private SimpleCollisionBox grow(SimpleCollisionBox box, float physicalPeek) {
+        double grow = (double) physicalPeek * scale;
         Direction direction = facing.getOppositeFace();
         return box.expandToCoordinate(
                 direction.getModX() * grow, direction.getModY() * grow, direction.getModZ() * grow);
