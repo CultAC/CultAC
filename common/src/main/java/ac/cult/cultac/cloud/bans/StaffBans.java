@@ -34,6 +34,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
@@ -334,23 +335,29 @@ public final class StaffBans {
         String command = BanCommand.fill(commands.of(ban), ban);
         Dispatch dispatch = new Dispatch();
         after.apply(DISPATCH_TIMEOUT.toSeconds()).execute(() -> dispatch.abandon(BUSY));
-        try {
-            host.schedule(() -> {
-                if (generation.whileLatest(chain, dispatch::start)) {
-                    dispatch.finish(command, ban.player(), host);
-                } else {
-                    dispatch.abandon(null);
-                }
-            });
-        } catch (RuntimeException failure) {
-            dispatch.fail(failure);
+        if (!generation.latest(chain)) {
+            dispatch.abandon(null);
+        } else {
+            try {
+                host.schedule(() -> {
+                    if (generation.whileLatest(chain, dispatch::start)) {
+                        dispatch.finish(command, ban.player(), host);
+                    } else {
+                        dispatch.abandon(null);
+                    }
+                });
+            } catch (RejectedExecutionException stopped) {
+                dispatch.abandon(null);
+            } catch (RuntimeException failure) {
+                dispatch.fail(failure);
+            }
         }
         return dispatch.outcome
                 .handle((outcome, error) -> {
                     if (error == null && outcome == null) {
                         handled.remove(ban.id());
-                        LogUtil.info("Staff ban " + ban.id() + " from the cloud panel was not run: CultAC reloaded;"
-                                + " it can be claimed again once its lease runs out");
+                        LogUtil.info("Staff ban " + ban.id() + " from the cloud panel was not run: CultAC stopped or"
+                                + " reloaded; it can be claimed again once its lease runs out");
                         return CompletableFuture.<Void>completedFuture(null);
                     }
                     if (error == null && outcome.ok()) {
@@ -376,13 +383,13 @@ public final class StaffBans {
     }
 
     /**
-     * Posts a result, again every {@link #RESULT_RETRY_SECONDS} until the service takes it (200) or says it is not this
-     * instance's to give (404, 409), whatever configure comes meanwhile.
+     * Posts a result, again every {@link #RESULT_RETRY_SECONDS} after no answer or a 5xx, whatever configure comes
+     * meanwhile, until the service takes it (200) or refuses it for good (any 4xx).
      */
     private CompletableFuture<Void> deliver(String id, String body) {
         return send(request("/api/v1/bans/" + id + "/result").POST(HttpRequest.BodyPublishers.ofString(body)))
                 .handle((reply, error) -> {
-                    if (error == null && (reply.status() == 200 || reply.status() == 404 || reply.status() == 409)) {
+                    if (error == null && (reply.status() == 200 || reply.status() / 100 == 4)) {
                         handled.paid(id);
                         if (reply.status() != 200) {
                             problem(

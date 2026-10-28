@@ -46,6 +46,15 @@ class BanCommandTest {
     }
 
     @Test
+    void aReasonOrStaffStartingWithADashIsNeverAFlag() {
+        assertEquals(
+                "ban Notch '-s silent '--Mod 1d grief",
+                BanCommand.fill(
+                        "ban %player% %reason% %staff% %duration% grief", ban("Notch", "-s silent", 86400L, "--Mod")));
+        assertEquals("ban Notch a-b", BanCommand.fill("ban %player% %reason%", ban("Notch", "  a-b", null, "s")));
+    }
+
+    @Test
     void aGameplayBanLeavesTheCheatEmpty() {
         StaffBans.Ban gameplay =
                 new StaffBans.Ban(ID, PLAYER, "Notch", "griefing", null, null, null, "Mod", 0, "https://panel/x");

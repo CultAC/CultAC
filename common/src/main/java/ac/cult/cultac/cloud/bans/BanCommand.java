@@ -7,8 +7,9 @@ import java.util.regex.Pattern;
 
 /**
  * Fills a staff-ban command template. Every value is made safe first: control characters and newlines go, whitespace
- * collapses to single spaces, {@code reason} and {@code staff} keep at most {@link #MAX_TEXT} characters, and a
- * {@code player} name outside {@code [A-Za-z0-9_.*-]} becomes the uuid.
+ * collapses to single spaces, {@code reason} and {@code staff} keep at most {@link #MAX_TEXT} characters and gain a
+ * leading {@code '} when they start with {@code -}, and a {@code player} name outside {@code [A-Za-z0-9_.*-]} becomes
+ * the uuid.
  */
 public final class BanCommand {
     static final int MAX_TEXT = 200;
@@ -40,15 +41,20 @@ public final class BanCommand {
         Map<String, String> values = new HashMap<>();
         values.put("player", NAME.matcher(name).matches() ? name : uuid);
         values.put("uuid", uuid);
-        values.put("reason", clean(ban.reason(), MAX_TEXT));
+        values.put("reason", unflagged(clean(ban.reason(), MAX_TEXT)));
         values.put("cheat", clean(ban.cheatName() == null ? ban.cheat() : ban.cheatName(), Integer.MAX_VALUE));
         values.put("cheat_id", clean(ban.cheat(), Integer.MAX_VALUE));
         values.put("duration", ban.durationSeconds() == null ? "" : duration(ban.durationSeconds()));
         values.put("seconds", ban.durationSeconds() == null ? "" : Long.toString(ban.durationSeconds()));
-        values.put("staff", clean(ban.staff(), MAX_TEXT));
+        values.put("staff", unflagged(clean(ban.staff(), MAX_TEXT)));
         values.put("ban_id", clean(ban.id(), Integer.MAX_VALUE));
         values.put("link", clean(ban.link(), Integer.MAX_VALUE));
         return values;
+    }
+
+    /** {@code text} with a {@code '} before a leading {@code -}, so a ban plugin never reads it as a flag. */
+    static String unflagged(String text) {
+        return text.startsWith("-") ? "'" + text : text;
     }
 
     /** {@code seconds} in the largest of days, hours and minutes that divides it evenly, else in seconds. */

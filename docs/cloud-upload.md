@@ -190,7 +190,9 @@ Placeholders: `%player%` (the name, or the UUID when it is unknown or has charac
 permanent), `%seconds%` (empty when permanent), `%staff%`, `%ban_id%` and `%link%` (the player's page on the cloud
 panel). Control characters and line breaks are removed from every value and its whitespace collapsed; `%reason%` and
 `%staff%` keep at most 200 characters. For example `tempban %player% %duration% %reason%` or
-`ban %player% %reason% (%staff%)`. A ban for something other than a cheat has no cheat: `%cheat%` and `%cheat_id%` are
+`ban %player% %reason% (%staff%)`. `%reason%` and `%staff%` are free text, so put `%reason%` last, after
+`%duration%`: a ban plugin may read a reason such as `1d spam` as a duration. A value starting with `-` gets a
+leading `'` so it is never read as a flag. A ban for something other than a cheat has no cheat: `%cheat%` and `%cheat_id%` are
 empty then.
 
 While the upload is configured and either command is set, CultAC asks the service for the pending bans its commands
@@ -210,7 +212,7 @@ service:
 | anything else | The error the command threw. |
 
 When the service cannot be reached to take a result, CultAC retries every 10 seconds until it can, also across
-`/cult reload`. A claimed ban not yet run when `/cult reload` happens is not run; the service offers it again once its
+`/cult reload`; a result the service refuses (for example a revoked key) is not sent again. A claimed ban not yet run when `/cult reload` happens is not run; the service offers it again once its
 claim lapses. Staff bans are not punishments: `punishments.yml` and observe-only do not apply to them. A server never
 runs the same ban twice, and a server without the matching command never claims one, so leave both empty on servers
 that should not ban. `/cult reload` applies changes.

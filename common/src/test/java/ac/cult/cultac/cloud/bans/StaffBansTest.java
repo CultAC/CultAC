@@ -28,6 +28,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -60,6 +61,8 @@ class StaffBansTest {
     private volatile RuntimeException dispatchFailure;
     private volatile CompletableFuture<CommandOutcome> outcome = CompletableFuture.completedFuture(CommandOutcome.RAN);
     private volatile boolean holdTasks;
+    private volatile boolean schedulerClosed;
+    private volatile Runnable beforeClaim = () -> {};
     private final List<Runnable> held = Collections.synchronizedList(new ArrayList<>());
     private final AtomicLong clock = new AtomicLong(NOW);
     private final StaffBans.Generation generation = new StaffBans.Generation();
@@ -73,6 +76,7 @@ class StaffBansTest {
 
         @Override
         public void schedule(Runnable task) {
+            if (schedulerClosed) throw new RejectedExecutionException("scheduler shut down");
             if (holdTasks) {
                 held.add(task);
             } else {
@@ -119,6 +123,7 @@ class StaffBansTest {
             answer.add("bans", pending);
             reply = answer.toString();
         } else if (uri.endsWith("/claim")) {
+            beforeClaim.run();
             status = claimStatus;
             reply = "{\"leaseSeconds\":60}";
         } else {
@@ -355,6 +360,46 @@ class StaffBansTest {
         assertEquals(3, results.size());
         for (Seen result : results) assertResult(result, true, "dispatched");
         assertEquals(4, posts().size());
+    }
+
+    @Test
+    void aResultRefusedWithAnyClientErrorIsNotRetried() throws Exception {
+        String[] ids = {BAN, TIMED, "2f0e0d0c-0b0a-4908-8706-050403020109"};
+        int[] statuses = {400, 401, 403};
+        for (int i = 0; i < ids.length; i++) {
+            resultStatuses.add(statuses[i]);
+            pending(ban(ids[i], PLAYER, null, NOW - 60_000));
+            bans().pollOnce().get(5, TimeUnit.SECONDS);
+            assertFalse(handled.owes(ids[i]));
+        }
+        Thread.sleep(StaffBans.RESULT_RETRY_SECONDS * 10 + 200);
+
+        assertEquals(3, results().size());
+        assertEquals(3, dispatched.size());
+    }
+
+    @Test
+    void aClaimAnsweredAfterTheSchedulerClosedIsLetGoUnreported() throws Exception {
+        schedulerClosed = true;
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertTrue(dispatched.isEmpty());
+        assertTrue(results().isEmpty());
+        assertFalse(handled.contains(BAN));
+    }
+
+    @Test
+    void aClaimAnsweredAfterAStopIsLetGoUnreported() throws Exception {
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+        beforeClaim = generation::next;
+
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertTrue(dispatched.isEmpty());
+        assertEquals(1, posts().size());
+        assertFalse(handled.contains(BAN));
     }
 
     @Test
