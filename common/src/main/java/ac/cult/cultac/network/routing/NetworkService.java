@@ -9,8 +9,10 @@ import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.reload.api.HostContext;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.lang.management.ManagementFactory;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -27,6 +29,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -41,7 +44,8 @@ import org.jetbrains.annotations.Nullable;
  * this instance never reach the broker and need no transport. Only the current generation publishes the roster: a
  * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and a delta on each join, quit and backend switch. The
  * generation that published it last sends an empty snapshot when it stops. The generations of one host check that they
- * are current, publish and decide on that goodbye one at a time. At most {@value #MAX_QUEUED_MESSAGES}
+ * are current, publish and decide on that goodbye one at a time, and number each roster message from one sequence so
+ * that other instances drop one arriving after a later one. At most {@value #MAX_QUEUED_MESSAGES}
  * received messages of {@value #MAX_QUEUED_BYTES} bytes in all wait to be read; the rest are dropped.
  */
 public final class NetworkService implements NetworkRouting {
@@ -52,6 +56,13 @@ public final class NetworkService implements NetworkRouting {
     static final String ROSTER_PUBLISHER_KEY = "cultac.network.roster-publisher";
     /** The host-shared {@code ReentrantLock} held from a roster message's current check until it is sent. */
     static final String ROSTER_LOCK_KEY = "cultac.network.roster-lock";
+    /** The host-shared {@code Long}: this JVM's start time in ms, the first half of each roster message's order. */
+    static final String ROSTER_EPOCH_KEY = "cultac.network.roster-epoch";
+    /** The host-shared {@code AtomicLong} each roster message's sequence number is drawn from, under the roster lock. */
+    static final String ROSTER_SEQUENCE_KEY = "cultac.network.roster-sequence";
+
+    /** The roster sequence without a host, shared by every service this runtime starts. */
+    private static final AtomicLong UNHOSTED_ROSTER_SEQUENCE = new AtomicLong();
 
     /** A registered handler, removed by {@link #close}. */
     @FunctionalInterface
@@ -79,6 +90,8 @@ public final class NetworkService implements NetworkRouting {
     private final Map<String, JsonElement> flags = new ConcurrentHashMap<>();
     private final AtomicReference<String> rosterPublisher;
     private final Lock rosterLock;
+    private final long rosterEpoch;
+    private final AtomicLong rosterSequence;
     private final Backlog inbox;
     private final LogThrottle badSignatures = new LogThrottle();
 
@@ -109,12 +122,20 @@ public final class NetworkService implements NetworkRouting {
         this.broadcastChannel = settings.channel(NetworkSettings.ALL);
         this.rosterPublisher = host == null ? new AtomicReference<>() : rosterPublisher(host);
         this.rosterLock = host == null ? new ReentrantLock() : (Lock) host.shared(ROSTER_LOCK_KEY, ReentrantLock::new);
+        this.rosterEpoch = host == null ? jvmStart() : (Long) host.shared(ROSTER_EPOCH_KEY, NetworkService::jvmStart);
+        this.rosterSequence = host == null
+                ? UNHOSTED_ROSTER_SEQUENCE
+                : (AtomicLong) host.shared(ROSTER_SEQUENCE_KEY, AtomicLong::new);
         this.inbox = new Backlog(
                 "Dropped a received network message: " + MAX_QUEUED_MESSAGES + " messages or "
                         + MAX_QUEUED_BYTES / (1024 * 1024) + " MB are already waiting",
                 MAX_QUEUED_MESSAGES,
                 MAX_QUEUED_BYTES,
                 dropWarnings);
+    }
+
+    private static long jvmStart() {
+        return ManagementFactory.getRuntimeMXBean().getStartTime();
     }
 
     @SuppressWarnings("unchecked")
@@ -129,6 +150,7 @@ public final class NetworkService implements NetworkRouting {
     static NetworkService create(NetworkSettings settings, NetworkPlatform platform, @Nullable HostContext host) {
         String instanceId = settings.resolveInstanceId(platform::redisBungeeId, platform::address);
         byte[] key = settings.resolveSecret(platform.defaultSecret());
+        Redaction redaction = Redaction.of(settings);
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(daemon("CultAC network"));
         RuntimeEnvironment.track(scheduler, scheduler::shutdownNow);
         ExecutorService receiver = Executors.newSingleThreadExecutor(daemon("CultAC network receiver"));
@@ -139,7 +161,7 @@ public final class NetworkService implements NetworkRouting {
                 host,
                 instanceId,
                 key,
-                transport(settings, platform, instanceId, key),
+                transport(settings, platform, instanceId, key, redaction),
                 System::currentTimeMillis,
                 scheduler,
                 receiver,
@@ -155,7 +177,11 @@ public final class NetworkService implements NetworkRouting {
     }
 
     private static @Nullable MessageTransport transport(
-            NetworkSettings settings, NetworkPlatform platform, String instanceId, byte @Nullable [] key) {
+            NetworkSettings settings,
+            NetworkPlatform platform,
+            String instanceId,
+            byte @Nullable [] key,
+            Redaction redaction) {
         String name = settings.transport();
         if (name.equals(NetworkSettings.NONE)) return null;
         if (!settings.knownTransport()) {
@@ -186,8 +212,8 @@ public final class NetworkService implements NetworkRouting {
         }
         try {
             MessageTransport transport = switch (name) {
-                case NetworkSettings.REDIS -> RedisTransport.create(settings.redisUri());
-                case NetworkSettings.NATS -> NatsTransport.create(settings);
+                case NetworkSettings.REDIS -> RedisTransport.create(settings.redisUri(), redaction);
+                case NetworkSettings.NATS -> NatsTransport.create(settings, redaction);
                 default -> platform.redisBungee();
             };
             if (transport == null)
@@ -195,7 +221,7 @@ public final class NetworkService implements NetworkRouting {
                         + " on this proxy or cannot be reached");
             return transport;
         } catch (IllegalArgumentException invalidSetting) {
-            LogUtil.error("Network routing off: " + Redaction.text(invalidSetting.getMessage()));
+            LogUtil.error("Network routing off: " + redaction.redact(invalidSetting.getMessage()));
             return null;
         }
     }
@@ -231,7 +257,7 @@ public final class NetworkService implements NetworkRouting {
                     publish(
                             NetworkSettings.ALL,
                             RosterCache.TYPE,
-                            RosterCache.body(List.of(), true, List.of(), new JsonObject()));
+                            ordered(RosterCache.body(List.of(), true, List.of(), new JsonObject())));
             } finally {
                 rosterLock.unlock();
             }
@@ -331,10 +357,19 @@ public final class NetworkService implements NetworkRouting {
             if (host != null) rosterPublisher.set(host.generationId());
             JsonObject carried = new JsonObject();
             flags.forEach(carried::add);
-            publish(NetworkSettings.ALL, RosterCache.TYPE, RosterCache.body(players, full, left, carried));
+            publish(NetworkSettings.ALL, RosterCache.TYPE, ordered(RosterCache.body(players, full, left, carried)));
         } finally {
             rosterLock.unlock();
         }
+    }
+
+    /** {@code body} with the next {@code [epoch, sequence]} of this instance's roster; called under the roster lock. */
+    private JsonObject ordered(JsonObject body) {
+        JsonArray order = new JsonArray(2);
+        order.add(rosterEpoch);
+        order.add(rosterSequence.incrementAndGet());
+        body.add(RosterCache.ORDER, order);
+        return body;
     }
 
     private boolean publish(String to, String type, JsonObject body) {
