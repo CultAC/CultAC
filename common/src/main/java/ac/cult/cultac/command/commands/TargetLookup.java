@@ -67,7 +67,8 @@ final class TargetLookup {
         return CompletableFuture.completedFuture(new Outcome(target, null));
     }
 
-    private static @Nullable UUID uuid(String input) {
+    /** The UUID {@code input} spells, dashed or not; null when it spells none. */
+    static @Nullable UUID uuid(String input) {
         if (DASHED.matcher(input).matches()) return UUID.fromString(input);
         if (PLAIN.matcher(input).matches()) {
             return new UUID(

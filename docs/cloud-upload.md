@@ -186,9 +186,12 @@ and LuckPerms the same way.
 | `/cult label list <player>` | `cult.cloud.label` | The player's labels. |
 | `/cult label revoke <id> [reason]` | `cult.cloud.label` | Revokes a label. |
 | `/cult label <player>` | `cult.cloud.label` | On Paper, for a Java player: the label menu, a dialog for the verdict (Cheating, Suspected, or Clean with `cult.cloud.label.clean`), the checks, the confidence and a 1 to 30 day span (each staff member's last span is remembered), then a review with each check's flags over the span and any clashing label on file. Confirm closes the menu and one chat line says what was labelled. Bedrock players are pointed at the commands above. |
+| `/cult report <reporter> <reported> <type> [reason]` | `cult.cloud.report` | Files a player's report with the service; see [Reports](#reports). |
 
-On Paper the four permissions default to operators. Behind Velocity these commands run only on the proxy, from its
-console or from a player in game: the proxy refuses them when a backend forwards them, whoever it names as the sender.
+On Paper the five permissions default to operators; on Velocity a player needs them granted, and the console has them
+all. Behind Velocity these commands run only on the proxy, from its console or from a player in game: the proxy refuses
+them when a backend forwards them, whoever it names as the sender. `/cult report` is the exception: a backend's console
+can forward it, so a report plugin on a backend can run it as a console command, and it is filed with the proxy's key.
 
 Findings come from the intake service while the upload is configured and are kept in memory: 200 per player and
 20,000 in all, for up to 30 minutes after the player leaves. Past 20,000 the findings of the player gone longest go
@@ -200,6 +203,24 @@ list. `/cult label list` shows the first 50 labels. Players are named by UUID, o
 8 at once, each name remembered for 10 minutes), so `/cult findings` and `/cult label` refuse on an offline-mode
 server that has no online-mode proxy in front. The service calls run off the calling thread, and the service's text is
 shown on one line.
+
+### Reports
+
+`/cult report <reporter> <reported> <type> [reason]` files one player's report of another, such as
+`/cult report Alice Bob illegal_crossteaming kept teaming at spawn`, for the console and players with
+`cult.cloud.report`. It posts to the service's report API (`/api/v1/reports` under `cloud.url`) with `cloud.api-key`:
+
+- `reporter` and `reported`: each player's UUID and, when known, their name. Players are named by UUID, online name or
+  a Mojang lookup, as for `/cult label`; one that cannot be found is refused with the reason.
+- `type`: one word of 1 to 64 letters, digits, `_`, `.`, `:` or `-`, sent in lower case.
+- `reason`: the rest of the line, at most 500 characters, or none.
+- `server`: behind Velocity, the backend the reported player is on; otherwise empty.
+- `at`: when the command ran.
+
+The service records the report and keeps a replay of the reported player from a minute before it to a minute after,
+when it can. The command answers with one line: `Report filed: <id>, replay recording.`, or `no replay` and why (the
+player is offline, on Bedrock or not streamed, or a replay limit is reached), or why the report was not filed. The
+call runs once, off the calling thread, and the key is never shown.
 
 ## When the upload turns itself off
 
