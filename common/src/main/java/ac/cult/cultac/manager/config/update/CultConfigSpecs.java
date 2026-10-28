@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.experimental.UtilityClass;
@@ -326,17 +327,24 @@ public final class CultConfigSpecs {
      * Spec for {@code discord.yml}.
      *
      * <p>v1 → v2: the alert names the player, check and violations in its title and puts every value in a code span.
-     * v2 → v3: the description takes Grim's alert layout (location, both pings, clock, session time, raw sensitivity,
+     * v2 → v3: the description takes Grim's alert layout (location, both pings, clock, session time, sensitivity,
      * state, checks and verbose) and the footer and thumbnail keys are written out. A title or {@code
      * violation-content} still in a shipped shape, in any language, takes the new default; one the operator wrote
      * stays. The new layout leaves out the state or verbose line the operator turned off. {@code include-state} is
      * added by the default rewrite; {@code embed-image-url} and {@code include-verbose}, which no bundled file
      * carries, are kept.
+     * v3 → v4: the shipped sensitivity line shows percentages; the rest of the file is kept.
+     * v4 → v5: the description goes back to one value per line, with verbose and state as fields, and the footer
+     * shows only the version. A description still in the shipped v3/v4 layout, in any language and with or without
+     * its state and verbose lines, takes the new default, and the shipped footer text does too; anything the operator
+     * wrote stays.
      */
     public static @NotNull ConfigUpdater.Spec discord() {
-        return ConfigUpdater.Spec.builder("/discord/", 3, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/discord/", 5, ConfigUpdater.ConfigFlavor.V2)
                 .migration(2, CultConfigSpecs::discordAlertLayout)
                 .migration(3, CultConfigSpecs::discordAlertLayout)
+                .migration(4, CultConfigSpecs::discordPercentSensitivity)
+                .migration(5, CultConfigSpecs::discordValuePerLine)
                 .build();
     }
 
@@ -374,6 +382,45 @@ public final class CultConfigSpecs {
             List.of("Server", "Servidor", "Serveur", "サーバー", "Сервер", "Sunucu", "服务器"),
             List.of("World", "Welt", "Mundo", "Monde", "Mondo", "ワールド", "Wereld", "Мир", "Dünya", "世界"));
     private static final List<String> UNBUNDLED_DISCORD_KEYS = List.of("embed-image-url", "include-verbose");
+    private static final String SHIPPED_V3_DISCORD_SENSITIVITY =
+            "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`";
+    private static final String PERCENT_DISCORD_SENSITIVITY =
+            "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`";
+    private static final Pattern DISCORD_LABEL = Pattern.compile("\\*\\*([^*]+)\\*\\*");
+    private static final List<String> SHIPPED_V4_DISCORD_LAYOUT = List.of(
+            "**Version**: `%version%` **Brand**: `%brand%`",
+            "**Server**: `%server%` **World**: `%world%` **Location**: `%location%`",
+            "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Clock**: `%clock_behind%ms` **Time**: `%session_time%`",
+            PERCENT_DISCORD_SENSITIVITY,
+            "**State**: %state%",
+            "**Checks**: %checks%",
+            "**Verbose**: %verbose%");
+    private static final List<Set<List<String>>> SHIPPED_V4_DISCORD_LABELS = List.of(
+            Set.of(List.of("Version", "Brand"), List.of("Version", "Marke"), List.of("Versión", "Marca"),
+                    List.of("Version", "Marque"), List.of("Versione", "Marca"), List.of("バージョン", "ブランド"),
+                    List.of("Versie", "Merk"), List.of("Versão", "Marca"), List.of("Версия", "Бренд"),
+                    List.of("Versiyon", "Marka"), List.of("版本", "品牌")),
+            Set.of(List.of("Server", "World", "Location"), List.of("Server", "Welt", "Position"),
+                    List.of("Servidor", "Mundo", "Ubicación"), List.of("Serveur", "Monde", "Position"),
+                    List.of("Server", "Mondo", "Posizione"), List.of("サーバー", "ワールド", "座標"),
+                    List.of("Server", "Wereld", "Locatie"), List.of("Servidor", "Mundo", "Localização"),
+                    List.of("Сервер", "Мир", "Позиция"), List.of("Sunucu", "Dünya", "Konum"),
+                    List.of("服务器", "世界", "位置")),
+            Set.of(List.of("TPS", "Ping", "Clock", "Time"), List.of("TPS", "Ping", "Uhr", "Zeit"),
+                    List.of("TPS", "Latencia", "Reloj", "Tiempo"), List.of("TPS", "Latence", "Horloge", "Temps"),
+                    List.of("TPS", "Ping", "Orologio", "Tempo"), List.of("TPS", "Ping", "クロック", "時間"),
+                    List.of("TPS", "Ping", "Klok", "Tijd"), List.of("TPS", "Ping", "Relógio", "Tempo"),
+                    List.of("TPS", "Пинг", "Часы", "Время"), List.of("TPS", "Gecikme", "Saat", "Süre"),
+                    List.of("TPS", "延迟", "时钟", "时长")),
+            Set.of(List.of("xsens", "ysens")),
+            Set.of(List.of("State"), List.of("Zustand"), List.of("Estado"), List.of("État"), List.of("Stato"),
+                    List.of("状態"), List.of("Status"), List.of("Состояние"), List.of("Durum"), List.of("状态")),
+            Set.of(List.of("Checks"), List.of("Prüfungen"), List.of("Comprobaciones"), List.of("Vérifications"),
+                    List.of("Controlli"), List.of("違反項目"), List.of("Controles"), List.of("Verificações"),
+                    List.of("Проверки"), List.of("Kontroller"), List.of("检查")),
+            Set.of(List.of("Verbose"), List.of("Details"), List.of("Detalles"), List.of("Détails"), List.of("Dettagli"),
+                    List.of("詳細"), List.of("Detalhes"), List.of("Подробности"), List.of("Ayrıntılar"), List.of("详情")));
+    private static final String SHIPPED_V4_DISCORD_FOOTER = "%uuid% v%cult_version%";
 
     static void discordAlertLayout(MigrationContext ctx) {
         String title = ctx.input().getString("embed-title");
@@ -392,6 +439,60 @@ public final class CultConfigSpecs {
                 layout.removeIf(line -> uses(line, "%verbose%"));
             ctx.output().put("violation-content", layout);
         }
+        keepUnbundledDiscordKeys(ctx);
+    }
+
+    static void discordPercentSensitivity(MigrationContext ctx) {
+        keepUnbundledDiscordKeys(ctx);
+        List<?> content = ctx.output().getList("violation-content");
+        if (content == null || !content.contains(SHIPPED_V3_DISCORD_SENSITIVITY)) return;
+        List<Object> layout = new ArrayList<>(content);
+        layout.replaceAll(line -> SHIPPED_V3_DISCORD_SENSITIVITY.equals(line) ? PERCENT_DISCORD_SENSITIVITY : line);
+        ctx.output().put("violation-content", layout);
+    }
+
+    static void discordValuePerLine(MigrationContext ctx) {
+        keepUnbundledDiscordKeys(ctx);
+        List<?> content = ctx.output().getList("violation-content");
+        List<?> newContent = ctx.defaults().getList("violation-content");
+        if (content != null && newContent != null && isShippedV4DiscordLayout(content)) {
+            ctx.output().put("violation-content", new ArrayList<>(newContent));
+        }
+        String footer = ctx.defaults().getString("embed-footer-text");
+        if (footer != null && SHIPPED_V4_DISCORD_FOOTER.equals(ctx.output().getString("embed-footer-text"))) {
+            ctx.output().put("embed-footer-text", footer);
+        }
+    }
+
+    private static boolean isShippedV4DiscordLayout(List<?> content) {
+        int next = 0;
+        for (int i = 0; i < SHIPPED_V4_DISCORD_LAYOUT.size(); i++) {
+            String shipped = SHIPPED_V4_DISCORD_LAYOUT.get(i);
+            if (next < content.size() && sameShippedV4Line(content.get(next), i)) {
+                next++;
+            } else if (!uses(shipped, "%state%") && !uses(shipped, "%verbose%")) {
+                return false;
+            }
+        }
+        return next == content.size();
+    }
+
+    private static boolean sameShippedV4Line(Object line, int index) {
+        if (!(line instanceof String text)) return false;
+        Matcher matcher = DISCORD_LABEL.matcher(text);
+        List<String> labels = new ArrayList<>();
+        StringBuilder skeleton = new StringBuilder();
+        while (matcher.find()) {
+            labels.add(matcher.group(1));
+            matcher.appendReplacement(skeleton, "****");
+        }
+        matcher.appendTail(skeleton);
+        return SHIPPED_V4_DISCORD_LABELS.get(index).contains(labels)
+                && skeleton.toString()
+                        .equals(DISCORD_LABEL.matcher(SHIPPED_V4_DISCORD_LAYOUT.get(index)).replaceAll("****"));
+    }
+
+    private static void keepUnbundledDiscordKeys(MigrationContext ctx) {
         for (String key : UNBUNDLED_DISCORD_KEYS) {
             Object value = ctx.input().get(key);
             if (value != null && ctx.defaults().get(key) == null) ctx.output().put(key, value);

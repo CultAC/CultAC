@@ -262,10 +262,13 @@ class ObserveOnlyCallSiteTest {
             platform/velocity/bridge/api/BridgeApiService.java#stop() cancel
             [] platform implementations; each caller is listed
             network/protocol/player/User.java#closeConnection() close
+            platform/api/PlatformServer.java#dispatchCommand(Sender,String,PlatformPlayer) dispatchCommand
             platform/api/PlatformServer.java#dispatchCommand(Sender,String,PlatformPlayer,AbstractCheck,double,String) dispatchCommand
+            platform/api/PlatformServer.java#runCommand(Sender,String,PlatformPlayer) dispatchCommand
             platform/bukkit/BukkitConnectionAdapter.java#disconnect(Component) disconnect x2
             platform/bukkit/BukkitConnectionAdapter.java#disconnect(Component) kick
             platform/bukkit/BukkitPlatformServer.java#dispatchCommand(Sender,String) dispatchCommand
+            platform/bukkit/BukkitPlatformServer.java#runCommand(Sender,String,PlatformPlayer) dispatchCommand
             platform/bukkit/BukkitValidationBlocks.java#apply(PlatformPlayer,int,int,int,String,Runnable) setBlockData
             platform/bukkit/PaperInjector.java#injectNew(Channel) inject
             platform/bukkit/PaperInjector.java#register() inject x2

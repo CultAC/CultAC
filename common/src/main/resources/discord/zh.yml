@@ -8,7 +8,7 @@ embed-title: "%player% 被 %check% 检测到 [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
 # The footer under the alert, and the icon beside it (an image URL, empty for none).
-embed-footer-text: "%uuid% v%cult_version%"
+embed-footer-text: "v%cult_version%"
 embed-footer-url: ""
 # The image at the top right of the alert; %uuid% is the flagged player.
 embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
@@ -19,14 +19,17 @@ include-state: true
 # 将其设置为 "`" 即可禁用此替换。
 backtick-replacement-char: "ˋ"
 violation-content:
-    - "**版本**: `%version%` **品牌**: `%brand%`"
-    - "**服务器**: `%server%` **世界**: `%world%` **位置**: `%location%`"
-    - "**TPS**: `%tps%` **延迟**: `%ping%/%keepalive_ping%` **时钟**: `%clock_behind%ms` **时长**: `%session_time%`"
-    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
-    - "**状态**: %state%"
-    - "**检查**: %checks%"
-    - "**详情**: %verbose%"
+    - "**玩家名**: `%player%`"
+    - "**UUID**: `%uuid%`"
+    - "**检查**: `%check%`"
+    - "**游戏版本**: `%version%`"
+    - "**客户端品牌**: `%brand%`"
+    - "**灵敏度**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**延迟**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**服务器**: `%server%`"
+    - "**世界**: `%world% (%world_type%)`"
 
 # 模式标记 — 参见 config.yml 顶部的注释。
 config-flavor: V2
-config-version: 3
+config-version: 5

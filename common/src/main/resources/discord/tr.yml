@@ -8,7 +8,7 @@ embed-title: "%player%, %check% tarafından tespit edildi [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
 # The footer under the alert, and the icon beside it (an image URL, empty for none).
-embed-footer-text: "%uuid% v%cult_version%"
+embed-footer-text: "v%cult_version%"
 embed-footer-url: ""
 # The image at the top right of the alert; %uuid% is the flagged player.
 embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
@@ -19,14 +19,17 @@ include-state: true
 # Bu değiştirmeyi devre dışı bırakmak için "`" olarak ayarlayın.
 backtick-replacement-char: "ˋ"
 violation-content:
-    - "**Versiyon**: `%version%` **Marka**: `%brand%`"
-    - "**Sunucu**: `%server%` **Dünya**: `%world%` **Konum**: `%location%`"
-    - "**TPS**: `%tps%` **Gecikme**: `%ping%/%keepalive_ping%` **Saat**: `%clock_behind%ms` **Süre**: `%session_time%`"
-    - "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`"
-    - "**Durum**: %state%"
-    - "**Kontroller**: %checks%"
-    - "**Ayrıntılar**: %verbose%"
+    - "**Oyuncu**: `%player%`"
+    - "**UUID**: `%uuid%`"
+    - "**Kontrol**: `%check%`"
+    - "**Client Versiyonu**: `%version%`"
+    - "**Client Markası**: `%brand%`"
+    - "**Hassasiyet**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**Gecikme**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**Sunucu**: `%server%`"
+    - "**Dünya**: `%world% (%world_type%)`"
 
 # Şema işaretçileri — bkz. config.yml'deki başlık yorumu.
 config-flavor: V2
-config-version: 3
+config-version: 5
