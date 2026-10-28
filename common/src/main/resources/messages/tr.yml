@@ -76,6 +76,7 @@ help:
     - "/%command% findings <player> [count] &f- &7Bir oyuncunun en son bulut bulguları"
     - "/%command% top [check] [minutes] &f- &7En güvenilir bulut bulgularına sahip oyuncular"
     - "/%command% label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Bir oyuncuyu bulutun etiket kaydında etiketle (ayrıca list, revoke)"
+    - "/%command% report <reporter> <reported> <type> [reason] &f- &7Bir oyuncunun şikayetini buluta gönder, şikayet edilen oyuncunun tekrarıyla"
     - "&7======================"
 
 # === /cult history ===

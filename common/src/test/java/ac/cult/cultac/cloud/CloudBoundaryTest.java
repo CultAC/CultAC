@@ -26,11 +26,14 @@ class CloudBoundaryTest {
     /** Files outside the cloud packages that use more of it than {@link CloudModule}, and why. */
     private static final Map<String, String> ALLOWED = Map.ofEntries(
             Map.entry("ac/cult/cultac/command/commands/CloudArguments.java", "cloud command: the findings log"),
+            Map.entry("ac/cult/cultac/command/commands/CloudHistory.java", "cloud command: the history service"),
             Map.entry("ac/cult/cultac/command/commands/CultFindings.java", "cloud command: the findings log"),
+            Map.entry("ac/cult/cultac/command/commands/CultHistory.java", "cloud command: the history service"),
             Map.entry("ac/cult/cultac/command/commands/CultTop.java", "cloud command: the findings log"),
             Map.entry("ac/cult/cultac/command/commands/FindingLines.java", "cloud command: the findings log"),
             Map.entry("ac/cult/cultac/command/commands/CultLabel.java", "cloud command: the label service"),
             Map.entry("ac/cult/cultac/command/commands/CultLabelMenu.java", "cloud command: the label menu"),
+            Map.entry("ac/cult/cultac/command/commands/CultReport.java", "cloud command: the report service"),
             Map.entry("ac/cult/cultac/command/commands/LabelConfirm.java", "cloud command: the label menu"),
             Map.entry("ac/cult/cultac/command/commands/LabelDialogs.java", "cloud command: the label menu"),
             Map.entry("ac/cult/cultac/command/commands/LabelLines.java", "cloud command: the label menu"),
