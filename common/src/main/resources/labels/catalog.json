@@ -1,5 +1,5 @@
 {
-  "version": "86ca6a24c1dc3878",
+  "version": "4cd37ea7d3d4926e",
   "cheats": [
     {
       "id": "triggerbot",
@@ -39,7 +39,7 @@
     },
     {
       "id": "jumpreset",
-      "name": "Jump Reset"
+      "name": "Auto Jump Reset"
     },
     {
       "id": "chest-stealer",

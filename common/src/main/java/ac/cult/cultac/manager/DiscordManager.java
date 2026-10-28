@@ -58,7 +58,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             new WebhookQueue(DiscordManager::post, System::currentTimeMillis, LogUtil::getLogger);
     private static final AtomicBoolean taskStarted = new AtomicBoolean();
     static final String DEFAULT_TITLE = "%player% has been detected for %check% [%violations%]";
-    static final String DEFAULT_FOOTER_TEXT = "%uuid% v%cult_version%";
+    static final String DEFAULT_FOOTER_TEXT = "v%cult_version%";
     private URI url;
     private int embedColor;
     private CompiledDiscordTemplate compiledContent;
@@ -166,13 +166,16 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
     @Contract(value = " -> new", pure = true)
     private @NotNull @Unmodifiable List<@NotNull String> getDefaultContents() {
         return List.of(
-                "**Version**: `%version%` **Brand**: `%brand%`",
-                "**Server**: `%server%` **World**: `%world%` **Location**: `%location%`",
-                "**TPS**: `%tps%` **Ping**: `%ping%/%keepalive_ping%` **Clock**: `%clock_behind%ms` **Time**: `%session_time%`",
-                "**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`",
-                "**State**: %state%",
-                "**Checks**: %checks%",
-                "**Verbose**: %verbose%");
+                "**Player**: `%player%`",
+                "**UUID**: `%uuid%`",
+                "**Check**: `%check%`",
+                "**Client Version**: `%version%`",
+                "**Brand**: `%brand%`",
+                "**Sensitivity**: `H %h_sensitivity%% / V %v_sensitivity%%`",
+                "**Ping**: `%ping%`",
+                "**TPS**: `%tps%`",
+                "**Server**: `%server%`",
+                "**World**: `%world% (%world_type%)`");
     }
 
     public void sendAlert(@NotNull CultPlayer player, String verbose, String checkName, int violations) {
