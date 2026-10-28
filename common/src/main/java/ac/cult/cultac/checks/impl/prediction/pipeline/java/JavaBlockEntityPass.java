@@ -34,7 +34,8 @@ public final class JavaBlockEntityPass {
      * What the pass left. {@code moved} is whether an Entity#move set onGround and the collision flags. A
      * {@code fixed} axis ends where the pass put it whatever the position it started from on that axis: a partial
      * shove ends 0.01 past the moving face and a collided move at the collider. {@code boatLastYd} is the latest
-     * virtual fall callback's deltaMovement.y sample, or null when this pass ran no such callback.
+     * virtual fall callback's deltaMovement.y sample, or null when this pass ran no such callback. {@code lastMove} is
+     * the last Entity#move that set the collision flags, or null when none did.
      */
     public record Result(
             JavaPassState state,
@@ -44,7 +45,13 @@ public final class JavaBlockEntityPass {
             boolean fixedZ,
             ReachInterpolationData interpolation,
             Double boatLastYd,
-            ClientFluidHeights fluidHeights) {
+            ClientFluidHeights fluidHeights,
+            LastMove lastMove) {
+        public Result(JavaPassState state, boolean moved, boolean fixedX, boolean fixedY, boolean fixedZ,
+                ReachInterpolationData interpolation, Double boatLastYd, ClientFluidHeights fluidHeights) {
+            this(state, moved, fixedX, fixedY, fixedZ, interpolation, boatLastYd, fluidHeights, null);
+        }
+
         public Result(JavaPassState state, boolean moved, boolean fixedX, boolean fixedY, boolean fixedZ,
                 ReachInterpolationData interpolation, Double boatLastYd) {
             this(state, moved, fixedX, fixedY, fixedZ, interpolation, boatLastYd, null);
@@ -58,6 +65,12 @@ public final class JavaBlockEntityPass {
             return state.position().subtract(start);
         }
     }
+
+    /**
+     * One Entity#move's delta after its stuck multiplier and its collided movement: Entity#move sets horizontalCollision
+     * and minorHorizontalCollision from them, which LocalPlayer#aiStep reads before the next travel.
+     */
+    public record LastMove(Vec3 delta, Vec3 movement) {}
 
     /**
      * Whether {@code version}'s LocalPlayer reports its position after Level#tickBlockEntities: from 26.3
@@ -180,7 +193,8 @@ public final class JavaBlockEntityPass {
                 replay.fixed[2],
                 replay.interpolation,
                 replay.boatLastYd,
-                replay.fluidHeights);
+                replay.fluidHeights,
+                replay.lastMove);
     }
 
     private static final class Replay {
@@ -189,6 +203,7 @@ public final class JavaBlockEntityPass {
         private boolean moved;
         private Double boatLastYd;
         private ClientFluidHeights fluidHeights;
+        private LastMove lastMove;
         private final ReachInterpolationData interpolation;
         private final boolean[] fixed = new boolean[3];
 
@@ -351,6 +366,7 @@ public final class JavaBlockEntityPass {
 
         private void record(JavaBlockEntityMove.Moved result, int axis, boolean partial) {
             if (!result.moved()) return;
+            lastMove = new LastMove(result.delta(), result.movement());
             if (result.boatLastYd() != null) boatLastYd = result.boatLastYd();
             if (result.fluidHeights() != null) fluidHeights = result.fluidHeights();
             if (interpolation != null && result.recordedMovement())

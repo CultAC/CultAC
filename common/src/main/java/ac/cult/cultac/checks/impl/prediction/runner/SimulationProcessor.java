@@ -125,6 +125,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     PredictionResult lastPrediction = null;
     /** The committed tick's LivingEntity#checkAutoSpinAttack certainly hit, so the next tick starts from the rebound. */
     private boolean certainSpinHit;
+    /**
+     * The flags the last pass replayed between client ticks left for LocalPlayer#shouldStopRunSprinting, or null when
+     * no such pass moved the local player since the last read.
+     */
+    private DesyncStatus hardCollisionAfterPass;
 
     int lastWorldEyeFluidContact = 0;
     PredCheckRunner flagger = new PredCheckRunner(this.player);
@@ -348,6 +353,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         boolean waterAfterTravel = travelled == null ? world.isInWater() : travelled.touchingWater();
         boolean lavaAfterTravel = travelled == null ? world.isInLava() : travelled.touchingLava();
         JavaBlockEntityPass.Result first = null;
+        DesyncStatus passHard = null;
+        boolean movedSelf = false;
         List<JavaPredictionCarry.State> after = new ArrayList<>(starts.size());
         for (JavaPredictionCarry.State state : starts) {
             JavaPredictionCarry.PistonStart anchored = state.pistonStart();
@@ -376,6 +383,21 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         state.movementPatch());
             }
             if (first == null) first = result;
+            if (vehicle == null) {
+                // Each Entity#move sets the collision flags the next LocalPlayer#aiStep reads; a state the pass did
+                // not move keeps the travel's.
+                var last = result.lastMove();
+                movedSelf |= last != null;
+                DesyncStatus hard = last == null
+                        ? DesyncStatus.UNKNOWN
+                        : ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision.afterMove(
+                                this.lastPrediction.getInitialStartingVel() == null
+                                        ? null
+                                        : this.lastPrediction.getInitialStartingVel().getTravelInput(),
+                                last.delta(),
+                                last.movement());
+                passHard = passHard == null || passHard == hard ? hard : DesyncStatus.UNKNOWN;
+            }
             JavaPassState end = result.state();
             Vec3 velocity = end.velocity();
             if (state.velocity() instanceof PredVector ranged && ranged.getVelocityRange() != null) {
@@ -423,6 +445,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     .withFallDistance(end.fallDistance(), fallHigh);
             if (!after.contains(next)) after.add(next);
         }
+        if (movedSelf) this.hardCollisionAfterPass = passHard;
         if (!first.moved() && after.equals(starts)) return;
 
         JavaPassState end = first.state();
@@ -1689,6 +1712,16 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             }
             this.profileCarry = commit.carry();
         }
+    }
+
+    /**
+     * The collision flags a pass replayed since the last read left for the next LocalPlayer#aiStep, or null when none
+     * moved the local player; reading clears it.
+     */
+    public DesyncStatus takeHardCollisionAfterPass() {
+        DesyncStatus hard = this.hardCollisionAfterPass;
+        this.hardCollisionAfterPass = null;
+        return hard;
     }
 
     /** ClientPacketListener#applyPlayerInfoUpdate -> LocalPlayer#onGameModeChanged, at the packet proof. */

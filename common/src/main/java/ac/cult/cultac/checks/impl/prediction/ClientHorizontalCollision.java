@@ -34,6 +34,20 @@ public final class ClientHorizontalCollision {
 
     private ClientHorizontalCollision() {}
 
+    /**
+     * {@link #hard} over every candidate that explains the report: the engine picks one of them as the move, but the
+     * client may have run any. TRUE only when all end in a hard collision, FALSE only when none does, else UNKNOWN.
+     */
+    public static DesyncStatus hardForEveryReality(PredictionResult result) {
+        DesyncStatus verdict = hard(result);
+        if (verdict == DesyncStatus.UNKNOWN || result.getRealities() == null) return verdict;
+        for (PredictionResult other : result.getRealities()) {
+            if (other == result || other.getFlagSeverity() != 0.0) continue;
+            if (hard(other) != verdict) return DesyncStatus.UNKNOWN;
+        }
+        return verdict;
+    }
+
     /** TRUE only when every key input consistent with the accepted move ends in a hard collision. */
     public static DesyncStatus hard(PredictionResult result) {
         SimulationContext context = result.getSimulationContext();
@@ -43,6 +57,17 @@ public final class ClientHorizontalCollision {
                 || result.getCollideAxisData() == null) return DesyncStatus.UNKNOWN;
         MovementTrace trace = result.getValidMovements().getClosestTrace();
         if (trace == null) return DesyncStatus.UNKNOWN;
+        // From 26.3 the block-entity pass runs after the travel; its last Entity#move sets the flags aiStep reads.
+        // A pass move that left no certain hard collision clears the travel's. One that did only counts when the travel
+        // was hard too.
+        var pass = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine.passAfterTravel(result);
+        if (pass != null && pass.result().lastMove() != null) {
+            DesyncStatus afterPass = afterMove(
+                    result.getInitialStartingVel().getTravelInput(),
+                    pass.result().lastMove().delta(),
+                    pass.result().lastMove().movement());
+            if (afterPass != DesyncStatus.TRUE) return afterPass;
+        }
         if (result.getCollideAxisData() instanceof JavaMoveCollision move) return forwardHard(result, move);
 
         Vec3 target = result.getTarget();
@@ -110,6 +135,21 @@ public final class ClientHorizontalCollision {
         if (length == 0) return DesyncStatus.TRUE;
         Vec3 collided = move.collided();
         return isMinor(input.x / length, input.z / length, collided.x, collided.z)
+                ? DesyncStatus.FALSE
+                : DesyncStatus.TRUE;
+    }
+
+    /**
+     * The flags one Entity#move other than the travel left, from its {@code delta} and collided {@code movement}:
+     * horizontalCollision past Mth.equal's 1.0E-5F on X or Z, and minorHorizontalCollision from the travel's
+     * {@code input} direction.
+     */
+    public static DesyncStatus afterMove(Vec3 input, Vec3 delta, Vec3 movement) {
+        if (Math.abs(delta.x - movement.x) < 1.0E-5F && Math.abs(delta.z - movement.z) < 1.0E-5F)
+            return DesyncStatus.FALSE;
+        double length = input == null ? 0 : Math.sqrt(input.x * input.x + input.z * input.z);
+        if (length == 0) return DesyncStatus.TRUE;
+        return isMinor(input.x / length, input.z / length, movement.x, movement.z)
                 ? DesyncStatus.FALSE
                 : DesyncStatus.TRUE;
     }
