@@ -44,26 +44,36 @@ public final class HistoryClient {
     public record Check(String source, String check, long flags, double peak, long first, long last) {}
 
     /**
-     * A session on one of the organization's servers. {@code ended} is null while it is open; {@code findings} counts
-     * every finding in it.
+     * A session on one of the organization's servers. {@code ended} is null while it is open; {@code endReason} is
+     * empty while it is open and {@code lost} when its stream ended without a close; {@code agentVersion} is the
+     * version of this anticheat that recorded it, or empty; {@code findings} counts every finding in it.
      */
     public record Session(
             UUID id,
             long started,
             @Nullable Long ended,
+            String endReason,
             long lastSeen,
             @Nullable String server,
             @Nullable String name,
             @Nullable String brand,
             int protocol,
+            String agentVersion,
             long findings,
             List<Check> checks) {}
 
-    /** One page of a player's sessions; {@code total} counts all of them, {@code next} is null on the last page. */
+    /**
+     * One page of a player's sessions; {@code total} counts all of them, {@code next} is the opaque cursor that asks
+     * for the following page, null on the last.
+     */
     public record Sessions(
-            long total, List<Session> sessions, @Nullable Long next) {}
+            long total, List<Session> sessions, @Nullable String next) {}
 
-    /** A finding: for this server's own checks, {@code value} is the violation level and {@code detail} the verbose. */
+    /**
+     * A finding. With {@code source} {@code engine}, one of this anticheat's own checks, {@code value} is the violation
+     * level and {@code detail} the verbose; any other source is one of the cloud's detections, whose {@code value} is a
+     * confidence from 0 to 1.
+     */
     public record Finding(long at, long tick, String source, String check, double value, String detail) {}
 
     /** One page of a session's findings; {@code next} is null on the last page. */
@@ -102,9 +112,10 @@ public final class HistoryClient {
         return new HistoryClient(settings.url(), settings.apiKey(), CloudHttp.HTTP, CloudHttp.CALLS);
     }
 
-    /** Up to {@code limit} of {@code player}'s sessions that started before {@code before}, or the newest. */
-    public CompletableFuture<Sessions> sessions(UUID player, @Nullable Long before, int limit) {
-        String query = "?limit=" + Math.clamp(limit, 1, MAX_SESSIONS) + (before == null ? "" : "&before=" + before);
+    /** Up to {@code limit} of {@code player}'s sessions from the cursor {@code before} a page gave, or the newest. */
+    public CompletableFuture<Sessions> sessions(UUID player, @Nullable String before, int limit) {
+        String query = "?limit=" + Math.clamp(limit, 1, MAX_SESSIONS)
+                + (before == null ? "" : "&before=" + URLEncoder.encode(before, StandardCharsets.UTF_8));
         return get("/api/v1/players/" + player + "/sessions" + query, HistoryClient::readSessions);
     }
 
@@ -145,8 +156,7 @@ public final class HistoryClient {
                 if (sessions.size() >= MAX_SESSIONS) break;
                 sessions.add(session(object(item)));
             }
-            Long next = optionalNumber(answer, "next");
-            return new Sessions(total, List.copyOf(sessions), next);
+            return new Sessions(total, List.copyOf(sessions), optionalText(answer, "next"));
         } catch (JsonParseException | IllegalStateException | IllegalArgumentException unreadable) {
             throw unreadable("sessions", unreadable);
         }
@@ -198,11 +208,13 @@ public final class HistoryClient {
                 UUID.fromString(text(session, "session")),
                 started,
                 ended,
+                orEmpty(optionalText(session, "endReason")),
                 lastSeen != null ? lastSeen : ended != null ? ended : started,
                 optionalText(session, "server"),
                 optionalText(session, "name"),
                 optionalText(session, "brand"),
                 protocol == null ? 0 : Math.clamp(protocol, 0, Integer.MAX_VALUE),
+                orEmpty(optionalText(session, "agentVersion")),
                 findings != null
                         ? findings
                         : checks.stream().mapToLong(Check::flags).sum(),

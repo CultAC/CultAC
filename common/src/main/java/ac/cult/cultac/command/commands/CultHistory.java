@@ -557,7 +557,8 @@ public class CultHistory implements BuildableCommand {
                         shown.page(),
                         shown.maxPages(),
                         new Page<>(shown.sessions(), null),
-                        shown.ongoing()));
+                        shown.ongoing(),
+                        CloudHistory.ORIGIN));
     }
 
     private CompletableFuture<List<Component>> renderCloudDetail(
@@ -585,7 +586,8 @@ public class CultHistory implements BuildableCommand {
                                 verbose,
                                 violationPage,
                                 config.entriesPerPage(),
-                                shown.ongoing()));
+                                shown.ongoing(),
+                                CloudHistory.ORIGIN));
     }
 
     /** This server's history settings, or the defaults while its datastore has none. */
@@ -937,9 +939,10 @@ public class CultHistory implements BuildableCommand {
         return out;
     }
 
-    /** Suggest 1..maxPages for the list-pagination page number. */
+    /** Suggest 1..maxPages for the list-pagination page number; nothing while history reads from the cloud. */
     private static SuggestionProvider<Sender> listPageSuggestions() {
         return SuggestionProvider.blocking((ctx, in) -> {
+            if (readsFromCloud()) return List.of();
             UUID uuid = resolveTargetUuid(ctx);
             if (uuid == null) return List.of();
             DataStoreLifecycle dsl = CultAPI.INSTANCE.getDataStoreLifecycle();
@@ -958,9 +961,10 @@ public class CultHistory implements BuildableCommand {
         });
     }
 
-    /** Suggest 1..totalSessions (capped) plus "latest". */
+    /** Suggest 1..totalSessions (capped) plus "latest"; only "latest" while history reads from the cloud. */
     private static SuggestionProvider<Sender> sessionSuggestions() {
         return SuggestionProvider.blocking((ctx, in) -> {
+            if (readsFromCloud()) return List.of(Suggestion.suggestion(LATEST_ALIAS));
             UUID uuid = resolveTargetUuid(ctx);
             if (uuid == null) return List.of(Suggestion.suggestion(LATEST_ALIAS));
             DataStoreLifecycle dsl = CultAPI.INSTANCE.getDataStoreLifecycle();
@@ -986,10 +990,12 @@ public class CultHistory implements BuildableCommand {
     /**
      * Suggest 1..violationPages for the violation-page argument inside a session.
      * Relies on the already-parsed {@code session} argument in the context to
-     * find the matching sessionId and count its violations.
+     * find the matching sessionId and count its violations. Nothing while
+     * history reads from the cloud.
      */
     private static SuggestionProvider<Sender> violationPageSuggestions() {
         return SuggestionProvider.blocking((ctx, in) -> {
+            if (readsFromCloud()) return List.of();
             UUID uuid = resolveTargetUuid(ctx);
             if (uuid == null) return List.of();
             DataStoreLifecycle dsl = CultAPI.INSTANCE.getDataStoreLifecycle();
@@ -1018,6 +1024,11 @@ public class CultHistory implements BuildableCommand {
                 return List.of();
             }
         });
+    }
+
+    /** Whether history commands answer from the cloud, whose counts suggestions cannot ask for. */
+    private static boolean readsFromCloud() {
+        return HistoryClient.configured() != null;
     }
 
     private static @Nullable UUID resolveTargetUuid(CommandContext<Sender> ctx) {

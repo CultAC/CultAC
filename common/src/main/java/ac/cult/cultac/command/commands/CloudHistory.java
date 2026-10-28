@@ -25,19 +25,30 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * {@code /cult history} read from the cloud: a player's sessions on every server of the organization and a session's
- * findings, shaped as this server's history so {@link HistoryComponentRenderer} draws them alike. Ordinals number a
- * player's sessions from 1 for the oldest to the cloud's {@code total} for the newest, as this server's history does.
- * A finding's source is its description.
+ * findings, shaped as this server's history so {@link HistoryComponentRenderer} draws them alike, with {@link #ORIGIN}.
+ * Ordinals number a player's sessions from 1 for the oldest to the cloud's {@code total} for the newest, as this
+ * server's history does. A finding's source is its description; the cloud's detections carry a label in their check
+ * name, so they count apart from this anticheat's checks of the same name.
  */
 final class CloudHistory {
     static final String UNAVAILABLE = "Cloud history is unavailable; showing this server's history.";
     static final String REFUSED = "The cloud refused this server's key; showing this server's history.";
     /** The most findings read for one session, as many as this server's history reads. */
     static final int MAX_FINDINGS = 10_000;
+    /** The source of this anticheat's own findings; every other source is one of the cloud's detections. */
+    static final String ENGINE = "engine";
+
+    static final String CLOUD_CHECK = "cloud-check";
+    static final String CLOUD_MODEL = "cloud-model";
+    /** The {@code endReason} of a session whose stream ended without a close. */
+    static final String LOST = "lost";
+    /** How the renderer draws the cloud's records. */
+    static final HistoryComponentRenderer.Origin ORIGIN =
+            HistoryComponentRenderer.Origin.cloud(CloudHistory::isDetection);
 
     /** The cloud's two history calls. */
     interface Source {
-        CompletableFuture<Sessions> sessions(UUID player, @Nullable Long before, int limit);
+        CompletableFuture<Sessions> sessions(UUID player, @Nullable String before, int limit);
 
         CompletableFuture<HistoryClient.Findings> findings(
                 UUID player, UUID session, @Nullable String after, int limit);
@@ -58,7 +69,7 @@ final class CloudHistory {
     static Source of(HistoryClient client) {
         return new Source() {
             @Override
-            public CompletableFuture<Sessions> sessions(UUID player, @Nullable Long before, int limit) {
+            public CompletableFuture<Sessions> sessions(UUID player, @Nullable String before, int limit) {
                 return client.sessions(player, before, limit);
             }
 
@@ -72,7 +83,8 @@ final class CloudHistory {
 
     /**
      * Page {@code page} of {@code player}'s sessions, newest first, {@code pageSize} to a page; with a {@code filter},
-     * only the sessions holding a finding it matches, and those whose findings cannot be read are left out.
+     * only the sessions holding a finding it matches. A session the cloud lacks is left out; any other failure to read
+     * a session's findings fails the page.
      */
     static CompletableFuture<ListPage> list(
             Source source, UUID player, int page, int pageSize, @Nullable Predicate<ViolationEntry> filter) {
@@ -170,16 +182,16 @@ final class CloudHistory {
     }
 
     static SessionSummary summary(UUID player, Session session, int ordinal) {
-        // The cloud does not say how a session ended, so none reads as crashed.
-        long closedAt = 0;
+        long lastActivity = lastActivity(session);
         return new SessionSummary(
                 session.id(),
                 player,
                 ordinal,
                 session.started(),
-                lastActivity(session),
-                closedAt,
-                null,
+                lastActivity,
+                // A summary reads as crashed when it closed at its last activity.
+                LOST.equals(session.endReason()) ? lastActivity : 0,
+                version(session),
                 session.server(),
                 session.protocol(),
                 session.brand(),
@@ -200,7 +212,7 @@ final class CloudHistory {
                 ordinal,
                 session.started(),
                 lastActivity(session),
-                null,
+                version(session),
                 session.server(),
                 session.protocol(),
                 session.brand(),
@@ -211,11 +223,24 @@ final class CloudHistory {
         return HistoryComponentRenderer.applyFilter(all, filter == null ? violation -> true : filter);
     }
 
+    /**
+     * {@code finding} as a violation, its stable key its kind and check. The cloud's detections are labelled as such in
+     * their check name; an unknown source counts as {@link #CLOUD_CHECK}.
+     */
     static ViolationEntry violation(Finding finding, long started) {
+        String kind = switch (finding.source()) {
+            case ENGINE, CLOUD_MODEL -> finding.source();
+            default -> CLOUD_CHECK;
+        };
+        String name = switch (kind) {
+            case ENGINE -> finding.check();
+            case CLOUD_MODEL -> finding.check() + " (cloud model)";
+            default -> finding.check() + " (cloud check)";
+        };
         return new ViolationEntry(
                 0,
-                finding.check(),
-                finding.check(),
+                kind + ":" + finding.check(),
+                name,
                 finding.source(),
                 Math.max(0, finding.at() - started),
                 finding.value(),
@@ -223,28 +248,36 @@ final class CloudHistory {
                 VerboseFormat.TEXT);
     }
 
+    /** Whether {@code violation} is one of the cloud's detections, whose value is a confidence from 0 to 1. */
+    static boolean isDetection(ViolationEntry violation) {
+        return !violation.stableKey().startsWith(ENGINE + ":");
+    }
+
     private static long lastActivity(Session session) {
         return session.ended() != null ? session.ended() : session.lastSeen();
+    }
+
+    private static @Nullable String version(Session session) {
+        return session.agentVersion().isBlank() ? null : session.agentVersion();
     }
 
     /** The sessions at positions {@code [start, start + count)} of the newest-first list that {@code first} opens. */
     private static CompletableFuture<List<Session>> window(
             Source source, UUID player, Sessions first, long start, int count, int limit) {
         List<Session> out = new ArrayList<>(count);
-        return walk(source, player, first, Long.MAX_VALUE, 0, start, count, limit, out)
-                .thenApply(done -> out);
+        return walk(source, player, first, null, 0, start, count, limit, out).thenApply(done -> out);
     }
 
     /**
-     * Takes the wanted sessions from {@code page}, which starts at {@code offset} and was asked for with
-     * {@code before}, then follows its {@code next} while more are wanted. A {@code next} that does not move back in
-     * time ends the walk.
+     * Takes the wanted sessions from {@code page}, which starts at {@code offset} and was asked for with the cursor
+     * {@code before}, then follows its {@code next} while more are wanted. A {@code next} equal to {@code before} ends
+     * the walk.
      */
     private static CompletableFuture<Void> walk(
             Source source,
             UUID player,
             Sessions page,
-            long before,
+            @Nullable String before,
             long offset,
             long start,
             int count,
@@ -256,8 +289,8 @@ final class CloudHistory {
             if (position >= start && position < start + count) out.add(sessions.get(i));
         }
         long end = offset + sessions.size();
-        Long next = page.next();
-        if (end >= start + count || next == null || next >= before || sessions.isEmpty()) {
+        String next = page.next();
+        if (end >= start + count || next == null || next.equals(before) || sessions.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
         return source.sessions(player, next, limit)
@@ -280,7 +313,7 @@ final class CloudHistory {
                 });
     }
 
-    /** The summaries whose sessions hold a finding {@code filter} matches. */
+    /** The summaries whose sessions hold a finding {@code filter} matches; a session the cloud lacks is left out. */
     private static CompletableFuture<List<SessionSummary>> matching(
             Source source,
             UUID player,
@@ -289,9 +322,9 @@ final class CloudHistory {
             Predicate<ViolationEntry> filter) {
         List<CompletableFuture<Boolean>> matches = new ArrayList<>(sessions.size());
         for (Session session : sessions) {
-            matches.add(violations(source, player, session)
-                    .thenApply(violations -> violations.stream().anyMatch(filter))
-                    .exceptionally(unread -> false));
+            matches.add(missingAsNull(violations(source, player, session))
+                    .thenApply(violations ->
+                            violations != null && violations.stream().anyMatch(filter)));
         }
         return CompletableFuture.allOf(matches.toArray(CompletableFuture[]::new))
                 .thenApply(done -> {

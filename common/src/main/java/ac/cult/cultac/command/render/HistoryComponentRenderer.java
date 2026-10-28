@@ -21,6 +21,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 import lombok.experimental.UtilityClass;
 import net.kyori.adventure.text.Component;
@@ -64,6 +65,18 @@ public final class HistoryComponentRenderer {
     private record RenderedTemplate(Component component, String raw) {}
 
     /**
+     * Whose records a view draws. This server's own draw as its templates say; the cloud's draw every string as plain
+     * text, and the violations {@code confidence} accepts show their value as a confidence, not a violation level.
+     */
+    public record Origin(boolean plainText, @NotNull Predicate<ViolationEntry> confidence) {
+        public static final Origin LOCAL = new Origin(false, violation -> false);
+
+        public static @NotNull Origin cloud(@NotNull Predicate<ViolationEntry> confidence) {
+            return new Origin(true, confidence);
+        }
+    }
+
+    /**
      * Session-list view. {@code page} is 1-indexed; {@code maxPages} ≥ 1.
      * {@code ongoingSessionId} (optional) is the player's currently-active
      * sessionId from SessionTracker; the matching row shows "current" as its
@@ -79,6 +92,20 @@ public final class HistoryComponentRenderer {
             int maxPages,
             @NotNull Page<SessionSummary> result,
             @Nullable UUID ongoingSessionId) {
+        return renderSessionList(
+                sender, player, playerDisplayName, page, maxPages, result, ongoingSessionId, Origin.LOCAL);
+    }
+
+    /** {@link #renderSessionList(Sender, UUID, String, int, int, Page, UUID)} of records from {@code origin}. */
+    public static @NotNull List<Component> renderSessionList(
+            @NotNull Sender sender,
+            @NotNull UUID player,
+            @NotNull String playerDisplayName,
+            int page,
+            int maxPages,
+            @NotNull Page<SessionSummary> result,
+            @Nullable UUID ongoingSessionId,
+            @NotNull Origin origin) {
         ConfigManager cfg = CultAPI.INSTANCE.getConfigManager().getConfig();
         String safePlayer = mmSafe(playerDisplayName);
         if (result.items().isEmpty()) {
@@ -108,13 +135,18 @@ public final class HistoryComponentRenderer {
                 .component());
         for (SessionSummary s : result.items()) {
             boolean ongoing = ongoingSessionId != null && ongoingSessionId.equals(s.sessionId());
-            out.add(renderSummaryLine(sender, cfg, s, ongoing, playerDisplayName));
+            out.add(renderSummaryLine(sender, cfg, s, ongoing, playerDisplayName, origin));
         }
         return out;
     }
 
     private static Component renderSummaryLine(
-            Sender sender, ConfigManager cfg, SessionSummary s, boolean ongoing, String playerDisplayName) {
+            Sender sender,
+            ConfigManager cfg,
+            SessionSummary s,
+            boolean ongoing,
+            String playerDisplayName,
+            Origin origin) {
         long elapsedNow = Math.max(0, System.currentTimeMillis() - s.startedEpochMs());
         String durationText = ongoing ? "current" : formatDuration(s.durationMs());
         // Crashed-session marker: closed_at == last_activity means the
@@ -136,10 +168,12 @@ public final class HistoryComponentRenderer {
                 Map.ofEntries(
                         // Only sanitize untrusted leaves; keep operator-configured fragments intact.
                         Map.entry("player", TemplateValue.raw(mmSafe(playerDisplayName))),
-                        Map.entry("cult_version", TemplateValue.raw(nullToUnknown(s.grimVersion()))),
-                        Map.entry("server_name", TemplateValue.raw(nullToUnknown(s.serverName()))),
+                        Map.entry("cult_version", recordText(origin, nullToUnknown(s.grimVersion()), AS_IS)),
+                        Map.entry("server_name", recordText(origin, nullToUnknown(s.serverName()), AS_IS)),
                         Map.entry("client_version", TemplateValue.raw(clientVersionDisplay(s.clientVersion()))),
-                        Map.entry("client_brand", TemplateValue.raw(mmSafe(nullToUnknown(s.clientBrand())))),
+                        Map.entry(
+                                "client_brand",
+                                recordText(origin, nullToUnknown(s.clientBrand()), HistoryComponentRenderer::mmSafe)),
                         Map.entry("ordinal", TemplateValue.raw(Integer.toString(s.sessionOrdinal()))),
                         Map.entry("duration", TemplateValue.raw(durationText)),
                         Map.entry("violations", TemplateValue.raw(Long.toString(s.violationCount()))),
@@ -176,6 +210,24 @@ public final class HistoryComponentRenderer {
             @Nullable Integer pageArg,
             int pageSize,
             boolean isOngoing) {
+        return renderSessionDetail(
+                sender, playerDisplayName, d, detailed, verbose, pageArg, pageSize, isOngoing, Origin.LOCAL);
+    }
+
+    /**
+     * {@link #renderSessionDetail(Sender, String, SessionDetail, boolean, boolean, Integer, int, boolean)} of a record
+     * from {@code origin}.
+     */
+    public static @NotNull List<Component> renderSessionDetail(
+            @NotNull Sender sender,
+            @NotNull String playerDisplayName,
+            @NotNull SessionDetail d,
+            boolean detailed,
+            boolean verbose,
+            @Nullable Integer pageArg,
+            int pageSize,
+            boolean isOngoing,
+            @NotNull Origin origin) {
         ConfigManager cfg = CultAPI.INSTANCE.getConfigManager().getConfig();
         List<Component> out = new ArrayList<>();
         int perPage = Math.max(1, pageSize);
@@ -194,10 +246,12 @@ public final class HistoryComponentRenderer {
                 // Only sanitize untrusted leaves; keep operator-configured fragments intact.
                 Map.entry("player", TemplateValue.raw(mmSafe(playerDisplayName))),
                 Map.entry("ordinal", TemplateValue.raw(Integer.toString(d.sessionOrdinal()))),
-                Map.entry("cult_version", TemplateValue.raw(nullToUnknown(d.grimVersion()))),
-                Map.entry("server_name", TemplateValue.raw(nullToUnknown(d.serverName()))),
+                Map.entry("cult_version", recordText(origin, nullToUnknown(d.grimVersion()), AS_IS)),
+                Map.entry("server_name", recordText(origin, nullToUnknown(d.serverName()), AS_IS)),
                 Map.entry("client_version", TemplateValue.raw(clientVersionDisplay(d.clientVersion()))),
-                Map.entry("client_brand", TemplateValue.raw(mmSafe(nullToUnknown(d.clientBrand())))),
+                Map.entry(
+                        "client_brand",
+                        recordText(origin, nullToUnknown(d.clientBrand()), HistoryComponentRenderer::mmSafe)),
                 Map.entry("duration", TemplateValue.raw(durationText)),
                 Map.entry("timeago", TemplateValue.raw(formatDuration(elapsedNow))),
                 Map.entry(
@@ -246,28 +300,21 @@ public final class HistoryComponentRenderer {
         int to = Math.min(from + perPage, totalRows);
         if (detailed) {
             for (int i = from; i < to; i++)
-                out.add(renderViolationLine(sender, cfg, d.violations().get(i), verbose));
+                out.add(renderViolationLine(sender, cfg, d.violations().get(i), verbose, origin));
         } else {
             // Group violations in the same bucket. The %checks_list% is built by
             // joining per-check entries rendered via cult-history-check-count.
             for (int i = from; i < to; i++)
-                out.add(renderBucketLine(sender, cfg, d.buckets().get(i), d, verbose));
+                out.add(renderBucketLine(sender, cfg, d.buckets().get(i), d, verbose, origin));
         }
         return out;
     }
 
     private static Component renderBucketLine(
-            Sender sender, ConfigManager cfg, CheckBucket bucket, SessionDetail d, boolean verbose) {
-        StringBuilder checksList = new StringBuilder();
-        boolean first = true;
-        for (CheckCount c : bucket.checks()) {
-            if (!first) checksList.append("&7, ");
-            first = false;
-            // Check names can be plugin-authored; render them as plain text.
-            checksList.append(cfg.getStringElse("cult-history-check-count", "&f%check_name%&7 x&c%count%")
-                    .replace("%check_name%", mmSafe(c.displayName()))
-                    .replace("%count%", Integer.toString(c.count())));
-        }
+            Sender sender, ConfigManager cfg, CheckBucket bucket, SessionDetail d, boolean verbose, Origin origin) {
+        TemplateValue checksList = origin.plainText()
+                ? TemplateValue.component(checkCounts(sender, cfg, bucket))
+                : TemplateValue.raw(checkCounts(cfg, bucket));
         Component bucketHoverEntries = buildBucketHoverEntries(sender, cfg, d, bucket, verbose);
         String bucketStart = formatDuration(bucket.bucketStartOffsetMs());
         String bucketEnd = formatDuration(bucket.bucketStartOffsetMs() + d.bucketSizeMs());
@@ -277,7 +324,7 @@ public final class HistoryComponentRenderer {
                 "cult-history-detail-group",
                 GROUP_ROW_FALLBACK,
                 Map.of(
-                        "checks_list", TemplateValue.raw(checksList.toString()),
+                        "checks_list", checksList,
                         "offset", TemplateValue.raw(bucketStart),
                         "bucket_start", TemplateValue.raw(bucketStart),
                         "bucket_end", TemplateValue.raw(bucketEnd),
@@ -288,6 +335,40 @@ public final class HistoryComponentRenderer {
                     HoverEvent.showText(bucketHover(sender, cfg, bucketStart, bucketEnd, bucketHoverEntries)));
         }
         return line;
+    }
+
+    private static String checkCounts(ConfigManager cfg, CheckBucket bucket) {
+        StringBuilder checksList = new StringBuilder();
+        boolean first = true;
+        for (CheckCount c : bucket.checks()) {
+            if (!first) checksList.append("&7, ");
+            first = false;
+            // Check names can be plugin-authored; render them as plain text.
+            checksList.append(cfg.getStringElse("cult-history-check-count", "&f%check_name%&7 x&c%count%")
+                    .replace("%check_name%", mmSafe(c.displayName()))
+                    .replace("%count%", Integer.toString(c.count())));
+        }
+        return checksList.toString();
+    }
+
+    /** The bucket's per-check counts with every check name drawn as plain text. */
+    private static Component checkCounts(Sender sender, ConfigManager cfg, CheckBucket bucket) {
+        Component checksList = Component.empty();
+        boolean first = true;
+        for (CheckCount c : bucket.checks()) {
+            if (!first) checksList = checksList.append(parseRaw(sender, "&7, ", Map.of()));
+            first = false;
+            checksList = checksList.append(parse(
+                            sender,
+                            cfg,
+                            "cult-history-check-count",
+                            "&f%check_name%&7 x&c%count%",
+                            Map.of(
+                                    "check_name", TemplateValue.text(c.displayName()),
+                                    "count", TemplateValue.raw(Integer.toString(c.count()))))
+                    .component());
+        }
+        return checksList;
     }
 
     private static Component buildBucketHoverEntries(
@@ -345,8 +426,10 @@ public final class HistoryComponentRenderer {
                 .component();
     }
 
-    private static Component renderViolationLine(Sender sender, ConfigManager cfg, ViolationEntry v, boolean verbose) {
+    private static Component renderViolationLine(
+            Sender sender, ConfigManager cfg, ViolationEntry v, boolean verbose, Origin origin) {
         String verboseText = v.verbose() == null ? "" : v.verbose();
+        boolean detection = origin.confidence().test(v);
         // Verbose/check metadata can include user or plugin text; render substitutions as plain text.
         RenderedTemplate rendered = parse(
                 sender,
@@ -354,11 +437,15 @@ public final class HistoryComponentRenderer {
                 "cult-history-detail-entry",
                 "&7- &f%check% &8(&b%offset%&8)&7 %verbose%",
                 Map.of(
-                        "check", TemplateValue.raw(mmSafe(v.displayName())),
-                        "description", TemplateValue.raw(mmSafe(v.description())),
+                        "check", recordText(origin, v.displayName(), HistoryComponentRenderer::mmSafe),
+                        "description", recordText(origin, v.description(), HistoryComponentRenderer::mmSafe),
                         "offset", TemplateValue.raw(formatDuration(v.offsetFromSessionStartMs())),
-                        "vl", TemplateValue.raw(Double.toString(v.vl())),
-                        "verbose", TemplateValue.raw(verbose ? mmSafe(verboseText) : "")));
+                        "vl", TemplateValue.raw(detection ? "" : Double.toString(v.vl())),
+                        "confidence", TemplateValue.raw(detection ? confidence(v.vl()) : ""),
+                        "verbose",
+                                verbose
+                                        ? recordText(origin, verboseText, HistoryComponentRenderer::mmSafe)
+                                        : TemplateValue.raw("")));
         // Hover carries the richer disambiguation — description on its own
         // line, then the raw verbose below. Shown regardless of the -v
         // flag, because operators scanning a dense list still want the
@@ -366,13 +453,19 @@ public final class HistoryComponentRenderer {
         Component line = rendered.component();
         boolean hasDescription = !v.description().isBlank();
         if (!hasInlineHover(rendered.raw()) && (!verboseText.isBlank() || hasDescription)) {
-            line = line.hoverEvent(HoverEvent.showText(violationHover(sender, cfg, v, verboseText, hasDescription)));
+            line = line.hoverEvent(
+                    HoverEvent.showText(violationHover(sender, cfg, v, verboseText, hasDescription, detection)));
         }
         return line;
     }
 
     private static Component violationHover(
-            Sender sender, ConfigManager cfg, ViolationEntry v, String verboseText, boolean hasDescription) {
+            Sender sender,
+            ConfigManager cfg,
+            ViolationEntry v,
+            String verboseText,
+            boolean hasDescription,
+            boolean detection) {
         Component description = hasDescription
                 ? parse(
                                 sender,
@@ -391,6 +484,20 @@ public final class HistoryComponentRenderer {
                                 Map.of("verbose", TemplateValue.text(verboseText)))
                         .component()
                 : Component.empty();
+        if (detection) {
+            return parse(
+                            sender,
+                            cfg,
+                            "cult-history-detail-entry-hover-confidence",
+                            "&b%check%%description%<newline>&8@ %offset% — confidence %confidence%%verbose%",
+                            Map.of(
+                                    "check", TemplateValue.text(v.displayName()),
+                                    "description", TemplateValue.component(description),
+                                    "offset", TemplateValue.text(formatDuration(v.offsetFromSessionStartMs())),
+                                    "confidence", TemplateValue.text(confidence(v.vl())),
+                                    "verbose", TemplateValue.component(verbose)))
+                    .component();
+        }
         return parse(
                         sender,
                         cfg,
@@ -475,6 +582,17 @@ public final class HistoryComponentRenderer {
     }
 
     // ---- helpers ----
+
+    private static final UnaryOperator<String> AS_IS = UnaryOperator.identity();
+
+    /** A record's string: plain text when {@code origin} says so, else {@code local}'s template text for it. */
+    private static TemplateValue recordText(Origin origin, String value, UnaryOperator<String> local) {
+        return origin.plainText() ? TemplateValue.text(value) : TemplateValue.raw(local.apply(value));
+    }
+
+    private static String confidence(double value) {
+        return String.format(Locale.ROOT, "%.2f", value);
+    }
 
     private static RenderedTemplate parse(
             Sender sender, ConfigManager cfg, String key, String fallback, Map<String, TemplateValue> vars) {

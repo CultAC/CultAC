@@ -65,30 +65,35 @@ class HistoryClientTest {
     @Test
     void readsASessionPageWithItsPagingFields() throws Exception {
         answer = "{\"player\":\"" + PLAYER + "\",\"total\":42,\"region\":\"eu\",\"sessions\":["
-                + "{\"session\":\"" + OPEN + "\",\"started\":1793150000000,\"ended\":null,\"lastSeen\":1793150060000,"
-                + "\"server\":\"lobby-2\",\"name\":\"Steve\",\"brand\":\"fabric\",\"protocol\":774,\"findings\":0,"
-                + "\"checks\":[],\"colour\":\"blue\"},"
+                + "{\"session\":\"" + OPEN + "\",\"started\":1793150000000,\"ended\":null,\"endReason\":\"\","
+                + "\"lastSeen\":1793150060000,\"server\":\"lobby-2\",\"name\":\"Steve\",\"brand\":\"fabric\","
+                + "\"protocol\":774,\"agentVersion\":\"2.4.0\",\"findings\":0,\"checks\":[],\"colour\":\"blue\"},"
                 + "{\"session\":\"" + SESSION + "\",\"started\":1793140000000,\"ended\":1793143600000,"
-                + "\"lastSeen\":1793143600000,\"server\":\"survival-1\",\"name\":\"Steve\",\"brand\":\"vanilla\","
-                + "\"protocol\":773,\"findings\":17,\"checks\":[{\"source\":\"engine\",\"check\":\"Reach\",\"flags\":12,"
+                + "\"endReason\":\"lost\",\"lastSeen\":1793143600000,\"server\":\"survival-1\",\"name\":\"Steve\","
+                + "\"brand\":\"vanilla\",\"protocol\":773,\"agentVersion\":\"\",\"findings\":17,"
+                + "\"checks\":[{\"source\":\"engine\",\"check\":\"Reach\",\"flags\":12,"
                 + "\"peak\":4.0,\"first\":1793140100000,\"last\":1793143500000,\"weight\":3},"
-                + "{\"source\":\"model\",\"check\":\"killaura\",\"flags\":5,\"peak\":0.9,\"first\":1,\"last\":2}]}],"
-                + "\"next\":1793140000000}";
+                + "{\"source\":\"cloud-model\",\"check\":\"killaura\",\"flags\":5,\"peak\":0.9,"
+                + "\"first\":1,\"last\":2}]}],"
+                + "\"next\":\"s/2+=?&x\"}";
 
-        HistoryClient.Sessions page =
-                client().sessions(PLAYER, 1793160000000L, 10).get(10, TimeUnit.SECONDS);
+        HistoryClient.Sessions page = client().sessions(PLAYER, "s/1+=?&x", 10).get(10, TimeUnit.SECONDS);
 
         assertEquals(42, page.total());
-        assertEquals(1793140000000L, page.next());
+        assertEquals("s/2+=?&x", page.next());
         assertEquals(2, page.sessions().size());
         HistoryClient.Session open = page.sessions().get(0);
         assertEquals(OPEN, open.id());
         assertNull(open.ended());
+        assertEquals("", open.endReason());
+        assertEquals("2.4.0", open.agentVersion());
         assertEquals(1793150060000L, open.lastSeen());
         assertEquals("lobby-2", open.server());
         HistoryClient.Session closed = page.sessions().get(1);
         assertEquals(SESSION, closed.id());
         assertEquals(1793143600000L, closed.ended());
+        assertEquals("lost", closed.endReason());
+        assertEquals("", closed.agentVersion());
         assertEquals("survival-1", closed.server());
         assertEquals("vanilla", closed.brand());
         assertEquals(773, closed.protocol());
@@ -96,12 +101,28 @@ class HistoryClientTest {
         assertEquals(
                 new HistoryClient.Check("engine", "Reach", 12, 4.0, 1793140100000L, 1793143500000L),
                 closed.checks().get(0));
-        assertEquals("killaura", closed.checks().get(1).check());
+        assertEquals(
+                new HistoryClient.Check("cloud-model", "killaura", 5, 0.9, 1, 2),
+                closed.checks().get(1));
 
         Seen request = seen.get(0);
         assertEquals("GET", request.method());
-        assertEquals("/api/v1/players/" + PLAYER + "/sessions?limit=10&before=1793160000000", request.uri());
+        assertEquals("/api/v1/players/" + PLAYER + "/sessions?limit=10&before=s%2F1%2B%3D%3F%26x", request.uri());
         assertEquals("Bearer " + KEY, request.authorization());
+    }
+
+    @Test
+    void theNextCursorGoesBackUnchanged() throws Exception {
+        answer = "{\"total\":3,\"sessions\":[],\"next\":\"eyJ0IjoxNzkzfQ==\"}";
+        HistoryClient.Sessions first = client().sessions(PLAYER, null, 10).get(10, TimeUnit.SECONDS);
+
+        answer = "{\"total\":3,\"sessions\":[],\"next\":null}";
+        client().sessions(PLAYER, first.next(), 10).get(10, TimeUnit.SECONDS);
+
+        assertEquals("eyJ0IjoxNzkzfQ==", first.next());
+        assertEquals(
+                "/api/v1/players/" + PLAYER + "/sessions?limit=10&before=eyJ0IjoxNzkzfQ%3D%3D",
+                seen.get(1).uri());
     }
 
     @Test
@@ -199,6 +220,8 @@ class HistoryClientTest {
         HistoryClient.Session session = page.sessions().get(0);
         assertNull(page.next());
         assertEquals(250, session.lastSeen());
+        assertEquals("", session.endReason());
+        assertEquals("", session.agentVersion());
         assertNull(session.server());
         assertNull(session.brand());
         assertEquals(0, session.protocol());
