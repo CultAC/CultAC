@@ -39,6 +39,15 @@ public final class ClientBlockShapes {
         return selectIfDifferent(latestJava, movementAlternative(player, state, x, y, z, entityBottom));
     }
 
+    /**
+     * The client's BlockState#getCollisionShape(BlockGetter, BlockPos): the shape under CollisionContext.empty(), not
+     * the moving entity's. Vanilla queries it where no entity is passed, e.g. AbstractBoat#getGroundFriction.
+     */
+    public static CollisionBox contextFreeMovement(CultPlayer player, int state, int x, int y, int z) {
+        CollisionBox latestJava = NativeBlockCollisionHelper.getContextFreeCollisionBox(player, state, x, y, z);
+        return selectIfDifferent(latestJava, contextFreeMovementAlternative(player, state, x, y, z));
+    }
+
     /** Source-proven unit cube with no client mapping override; safe for a boolean-only scan. */
     public static boolean hasStaticFullMovement(
             CultPlayer player, int state, int x, int y, int z, double entityBottom) {
@@ -139,6 +148,19 @@ public final class ClientBlockShapes {
         }
         Optional<CollisionBox> viaReplacement =
                 ViaClientBlockShapeMappings.movement(player, state, x, y, z, entityBottom);
+        if (viaReplacement.isPresent()) {
+            return viaReplacement;
+        }
+        return VersionedJavaBlockShapes.movement(player, state, x, y, z);
+    }
+
+    private static Optional<CollisionBox> contextFreeMovementAlternative(
+            CultPlayer player, int state, int x, int y, int z) {
+        Optional<CollisionBox> bedrock = BedrockClientBlockShapeMappings.movement(player, state, x, y, z);
+        if (bedrock.isPresent()) {
+            return bedrock;
+        }
+        Optional<CollisionBox> viaReplacement = ViaClientBlockShapeMappings.contextFreeMovement(player, state, x, y, z);
         if (viaReplacement.isPresent()) {
             return viaReplacement;
         }

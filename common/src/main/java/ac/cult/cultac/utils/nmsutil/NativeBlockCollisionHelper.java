@@ -43,6 +43,34 @@ public final class NativeBlockCollisionHelper {
         return collider(player, getCollisionShape(player, state, x, y, z, entityBottom, actor), x, y, z);
     }
 
+    /** {@link #getContextFreeCollisionShape} as a collider at the block's position. */
+    public static CollisionBox getContextFreeCollisionBox(CultPlayer player, int state, int x, int y, int z) {
+        if (player == null
+                || player.compensatedWorld == null
+                || state < 0
+                || DataTables.defaults().registry().facts(state).has(StateFacts.AIR)) {
+            return NoCollisionBox.INSTANCE;
+        }
+
+        return collider(player, getContextFreeCollisionShape(player, state, x, y, z), x, y, z);
+    }
+
+    /**
+     * BlockState#getCollisionShape(BlockGetter, BlockPos), which queries CollisionContext.empty(): no moving entity,
+     * so its isAbove returns the caller's default and it never descends. Scaffolding is therefore its stable shape
+     * and powder snow, which reads only an entity, is empty. Vanilla probes that pass no entity use this shape, never
+     * the actor's.
+     */
+    public static VoxelShape getContextFreeCollisionShape(CultPlayer player, int state, int x, int y, int z) {
+        return getCollisionShape(
+                player,
+                state,
+                new ac.cult.blocksim.engine.BlockPos(x, y, z),
+                Double.NaN,
+                null,
+                EntityCollisionContext.emptyContext());
+    }
+
     static CollisionBox collider(CultPlayer player, VoxelShape shape, int x, int y, int z) {
         // Entity#collideWithShapes scans VoxelShape's cells, including internal
         // faces when a server update places the actor partly inside a shape.

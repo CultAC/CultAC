@@ -237,8 +237,11 @@ public class BoatData {
                         if (j2 <= 0 || k2 != k && k2 != l - 1) {
                             int blockData = player.compensatedWorld.getBlockStateIdAt(l1, k2, i2);
 
+                            // AbstractBoat#getGroundFriction reads BlockState#getCollisionShape(level, pos), the
+                            // CollisionContext.empty() shape: scaffolding's legs count below its top, powder snow
+                            // never does, whatever the boat's own height or fall distance.
                             if (!BlockIds.is(blockData, BlockIds.LILY_PAD)
-                                    && ClientBlockShapes.movement(player, blockData, l1, k2, i2)
+                                    && ClientBlockShapes.contextFreeMovement(player, blockData, l1, k2, i2)
                                             .isIntersected(axisalignedbb1)) {
                                 f += BlockProperties.getMaterialFriction(blockData);
                                 ++k1;
