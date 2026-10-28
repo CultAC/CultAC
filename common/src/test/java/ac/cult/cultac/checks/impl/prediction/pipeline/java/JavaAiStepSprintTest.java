@@ -13,6 +13,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.KnownInput;
@@ -20,7 +21,9 @@ import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.util.List;
 import java.util.UUID;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
@@ -113,6 +116,52 @@ class JavaAiStepSprintTest {
         }));
     }
 
+    @Test
+    void anAnnouncedSprintIsNeverASilentClear() {
+        assertEquals(DesyncStatus.FALSE, verdict(ClientVersion.V_26_3, tick -> tick.player.isSprinting = true));
+        assertEquals(DesyncStatus.FALSE, afterTravel(ClientVersion.V_26_3, tick -> {
+            tick.player.isSprinting = true;
+            tick.spinReset = true;
+        }));
+    }
+
+    @Test
+    void aSpinThatMayHitAPlayerLeavesAStartedSprintUnknownThroughTravel() {
+        // The start may have outlasted aiStep, travelled with the modifier, and been reset after travel.
+        assertEquals(
+                DesyncStatus.UNKNOWN, verdict(ClientVersion.V_26_3, tick -> tick.sprinting = DesyncStatus.UNKNOWN));
+        // Without a start, 1.21.4's shouldStopSprinting still clears before travel.
+        assertEquals(DesyncStatus.TRUE, verdict(ClientVersion.V_1_21_4, tick -> {
+            tick.sprinting = DesyncStatus.UNKNOWN;
+            tick.lastSneaking = true;
+            tick.keys = KnownInput.DEFAULT;
+        }));
+    }
+
+    @Test
+    void aSpinHitOnAPlayerResetsTheModifierAfterTravel() {
+        // The candidate whose travel needed the reset proves it.
+        assertEquals(DesyncStatus.TRUE, afterTravel(ClientVersion.V_26_3, tick -> tick.spinReset = true));
+        // causeExtraKnockback needs positive knockback: attack_knockback, or a sprint attack.
+        assertEquals(DesyncStatus.FALSE, afterTravel(ClientVersion.V_26_3, tick -> tick.spinPlayer = true));
+        assertEquals(DesyncStatus.UNKNOWN, afterTravel(ClientVersion.V_26_3, tick -> {
+            tick.spinPlayer = true;
+            tick.player.combatAttributes.onServerSnapshot(
+                    new AttributeSnapshot("minecraft:attack_knockback", 1.0D, List.of()));
+        }));
+        assertEquals(DesyncStatus.UNKNOWN, afterTravel(ClientVersion.V_26_3, tick -> {
+            tick.spinPlayer = true;
+            tick.sprinting = DesyncStatus.UNKNOWN;
+        }));
+        // Nothing to hit, nothing to reset.
+        assertEquals(
+                DesyncStatus.FALSE,
+                afterTravel(
+                        ClientVersion.V_26_3,
+                        tick -> tick.player.combatAttributes.onServerSnapshot(
+                                new AttributeSnapshot("minecraft:attack_knockback", 1.0D, List.of()))));
+    }
+
     /** The context state one case varies. */
     private static final class Tick {
         final CultPlayer player;
@@ -123,6 +172,8 @@ class JavaAiStepSprintTest {
         boolean underwater;
         boolean lastSneaking;
         boolean gliding;
+        boolean spinPlayer;
+        boolean spinReset;
 
         Tick(CultPlayer player) {
             this.player = player;
@@ -130,6 +181,15 @@ class JavaAiStepSprintTest {
     }
 
     private static DesyncStatus verdict(ClientVersion version, Consumer<Tick> setup) {
+        return evaluate(version, setup, JavaAiStepSprint::clearsModifier);
+    }
+
+    private static DesyncStatus afterTravel(ClientVersion version, Consumer<Tick> setup) {
+        return evaluate(version, setup, JavaAiStepSprint::clearsModifierAfterTravel);
+    }
+
+    private static DesyncStatus evaluate(
+            ClientVersion version, Consumer<Tick> setup, BiFunction<CultPlayer, SimulationContext, DesyncStatus> rule) {
         OfflineCultTestBootstrap.installConfig();
         User user = TestUsers.create(new User.Profile(UUID.randomUUID(), "AiStep_Sprint"), new EmbeddedChannel());
         CultPlayer player = new CultPlayer(user);
@@ -145,6 +205,7 @@ class JavaAiStepSprintTest {
             WorldData world = mock(WorldData.class);
             when(world.isInWater()).thenReturn(tick.inWater);
             when(world.isUnderwater()).thenReturn(tick.underwater);
+            when(world.isSpinAttackPlayer()).thenReturn(tick.spinPlayer);
             SimulationContext context = mock(SimulationContext.class);
             when(context.getVersion()).thenReturn(version);
             when(context.getWorldData()).thenReturn(world);
@@ -154,7 +215,8 @@ class JavaAiStepSprintTest {
             when(context.getStart()).thenReturn(new Vec3(0.5D, 64.0D, 0.5D));
             when(context.isLastSneaking()).thenReturn(tick.lastSneaking);
             when(context.isGliding()).thenReturn(tick.gliding);
-            return JavaAiStepSprint.clearsModifier(player, context);
+            when(context.isSpinSprintResetRequired()).thenReturn(tick.spinReset);
+            return rule.apply(player, context);
         } finally {
             Object channel = player.user.getChannel();
             player.onRemove();

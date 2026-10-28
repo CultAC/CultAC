@@ -33,6 +33,7 @@ import ac.cult.cultac.checks.impl.prediction.checks.StepCollisionMemo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPass;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
@@ -1658,7 +1659,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
      */
     private void commitSprintOutcomes(PredictionResult result) {
         ClientSprintState state = this.player.sprintState;
-        // The tick's LocalPlayer#aiStep ran before its travel, whatever a setback restores below.
+        // The client ran this tick's aiStep and spin, whatever a setback restores below.
         switch (aiStepSprintClear(this.player, result)) {
             case TRUE -> state.onModifierCleared();
             case UNKNOWN -> state.onModifierPossiblyCleared();
@@ -1675,20 +1676,22 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     /**
-     * Whether the committed tick's aiStep removed the sprint modifier, over every accepted candidate's context: they
-     * all ran one aiStep, so one that disagrees leaves it possible.
+     * Whether the committed tick removed the sprint modifier with the flag clear, in aiStep or by the spin after
+     * travel, over every accepted candidate's context: they all ran one tick, so one that disagrees leaves it possible.
      */
     private static DesyncStatus aiStepSprintClear(CultPlayer player, PredictionResult result) {
         if (result == null || result.getSimulationContext() == null) return DesyncStatus.FALSE;
         DesyncStatus cleared = null;
         if (result.getRealities() != null) {
             for (PredictionResult reality : result.getRealities()) {
-                if (reality.getFlagSeverity() != 0.0 || reality.getSimulationContext() == null) continue;
-                DesyncStatus verdict = reality.getSimulationContext().aiStepSprintClear(player);
+                SimulationContext context = reality.getSimulationContext();
+                if (reality.getFlagSeverity() != 0.0 || context == null) continue;
+                DesyncStatus verdict = JavaAiStepSprint.clearsModifierThisTick(player, context);
                 cleared = cleared == null || cleared == verdict ? verdict : DesyncStatus.UNKNOWN;
             }
         }
-        return cleared != null ? cleared : result.getSimulationContext().aiStepSprintClear(player);
+        if (cleared != null) return cleared;
+        return JavaAiStepSprint.clearsModifierThisTick(player, result.getSimulationContext());
     }
 
     /**

@@ -77,7 +77,8 @@ public final class ClientSprintState {
 
     /**
      * MultiPlayerGameMode#attack ran Player#attack before this tick's aiStep. When its causeExtraKnockback called
-     * setSprinting(false), aiStep can re-sprint without a START_SPRINTING, re-adding the modifier.
+     * setSprinting(false), aiStep can re-sprint without a START_SPRINTING, re-adding the modifier. With the flag
+     * already clear the call announces nothing either, but still removes the modifier.
      */
     public void onAttack(AttackReset reset) {
         if (reset == AttackReset.NONE) return;
@@ -87,6 +88,7 @@ public final class ClientSprintState {
             modifier = null;
             onCertainEvent();
         } else {
+            if (!flag) onModifierPossiblyCleared();
             flagUncertain = true;
         }
     }

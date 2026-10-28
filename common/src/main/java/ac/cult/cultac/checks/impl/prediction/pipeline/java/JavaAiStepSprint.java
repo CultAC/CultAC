@@ -16,7 +16,7 @@ import ac.cult.cultac.utils.nmsutil.FlightToggle;
 /**
  * LocalPlayer#aiStep's LivingEntity#setSprinting(false) on a tick that starts and ends with the sprint flag clear. It
  * removes minecraft:sprinting even though the flag does not change and nothing is announced, so it drops a modifier an
- * attribute snapshot installed on a player that was not sprinting. Two calls reach it (1.21.2 to 26.3):
+ * attribute snapshot installed on a player that was not sprinting. Three calls reach it (1.21.2 to 26.3):
  *
  * <ul>
  *   <li>The start: canStartSprinting and the held sprint key run setSprinting(true) before the stop checks. A tick that
@@ -24,7 +24,10 @@ import ac.cult.cultac.utils.nmsutil.FlightToggle;
  *       start reads the client's sprintWindow option, and 1.21.2-1.21.4's ground start its trigger timer and last
  *       impulse, which the server never sees, so those starts are only possible.
  *   <li>1.21.4 only: setSprinting(false) whenever shouldStopSprinting holds after KeyboardInput#tick.
+ *   <li>After travel, a riptide spin's Player#attack through causeExtraKnockback.
  * </ul>
+ *
+ * Player#attack before the tick reaches causeExtraKnockback too; ClientSprintState#onAttack owns that one.
  *
  * Every input is the state this tick's aiStep reads: the keys PLAYER_INPUT reported, the flag before aiStep, effects,
  * food and abilities at their bundled proofs, the use the tick's snapshot holds, and the water, pose and crouching the
@@ -40,11 +43,8 @@ public final class JavaAiStepSprint {
      * have, FALSE otherwise or when no modifier can be held.
      */
     public static DesyncStatus clearsModifier(CultPlayer player, SimulationContext context) {
-        if (player.isBedrockMovement()
-                || context.getVehicle() != null
-                || !player.sprintState.modifier()
-                || player.sprintState.flagBeforeAiStep()
-                || context.getIsSprinting() != DesyncStatus.FALSE
+        if (!flagStaysClear(player, context)
+                || context.getIsSprinting() == DesyncStatus.TRUE
                 || context.isSpinSprintResetRequired()) return DesyncStatus.FALSE;
         ClientVersion version = context.getVersion();
         // Without the reported keys a sprint-key start may have run and stopped.
@@ -72,7 +72,48 @@ public final class JavaAiStepSprint {
             // shouldStopSprinting: isFallFlying, hasBlindness, isMovingSlowly, or isUsingItem out from under water.
             stop = or(DesyncStatus.fromBoolean(gliding || blind), or(slowly, underwater ? DesyncStatus.FALSE : using));
         }
-        return or(stop, start(player, context, version, food && !blind, gliding, slowly, using, use));
+        DesyncStatus start = start(player, context, version, food && !blind, gliding, slowly, using, use);
+        DesyncStatus cleared = or(stop, start);
+        // A spin that may hit a RemotePlayer leaves the travel's flag unknown: a start no stop check ended lasts
+        // through
+        // travel until checkAutoSpinAttack resets it, announcing nothing, so only a tick without a start travels
+        // cleared.
+        if (context.getIsSprinting() != DesyncStatus.FALSE
+                && start != DesyncStatus.FALSE
+                && cleared != DesyncStatus.FALSE) return DesyncStatus.UNKNOWN;
+        return cleared;
+    }
+
+    /**
+     * Whether this tick's LivingEntity#checkAutoSpinAttack removed the modifier after travel with the flag clear.
+     * Player#attack reaches causeExtraKnockback's setSprinting(false) only on a RemotePlayer it hurt
+     * (RemotePlayer#hurtClient) with positive knockback: attack_knockback / 2, plus 0.5 for a sprint attack. TRUE for
+     * a candidate whose travel needed that reset, UNKNOWN where the spin may hit a RemotePlayer with positive
+     * knockback.
+     */
+    public static DesyncStatus clearsModifierAfterTravel(CultPlayer player, SimulationContext context) {
+        if (!flagStaysClear(player, context)) return DesyncStatus.FALSE;
+        if (context.isSpinSprintResetRequired()) return DesyncStatus.TRUE;
+        return context.getWorldData().isSpinAttackPlayer() && JavaSpinAttack.extraKnockbackPossible(player, context)
+                ? DesyncStatus.UNKNOWN
+                : DesyncStatus.FALSE;
+    }
+
+    /** The removal the committed tick leaves: by aiStep before {@code context}'s travel, or by the spin after it. */
+    public static DesyncStatus clearsModifierThisTick(CultPlayer player, SimulationContext context) {
+        return or(context.aiStepSprintClear(player), clearsModifierAfterTravel(player, context));
+    }
+
+    /**
+     * Whether a modifier may be held while the flag is clear before aiStep and the tick announces no sprint, the only
+     * ticks where setSprinting(false) removes it silently. A Java player on foot.
+     */
+    private static boolean flagStaysClear(CultPlayer player, SimulationContext context) {
+        return !player.isBedrockMovement()
+                && context.getVehicle() == null
+                && player.sprintState.modifier()
+                && !player.sprintState.flagBeforeAiStep()
+                && !player.isSprinting;
     }
 
     /**

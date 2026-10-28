@@ -359,6 +359,24 @@ class ClientSprintStateTest {
     }
 
     @Test
+    void aPossibleResetWithTheFlagClearMayDropAStaleModifier() {
+        ClientSprintState state = new ClientSprintState();
+        state.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+        state.onClientTick(false);
+        state.onClientTickEnd();
+        // A knockback hit: causeExtraKnockback's setSprinting(false) keeps the clear flag and announces nothing.
+        state.onAttack(ClientSprintState.AttackReset.POSSIBLE);
+        state.onClientTick(false);
+        assertTrue(state.clearedPossible());
+        assertSame(CompensatedEntities.SPRINTING_SPEED_MODIFIER, state.heldModifier());
+
+        // With the flag set, the reset's STOP_SPRINTING or aiStep's re-sprint decides the modifier instead.
+        ClientSprintState sprinting = sprinting();
+        sprinting.onAttack(ClientSprintState.AttackReset.POSSIBLE);
+        assertFalse(sprinting.clearedPossible());
+    }
+
+    @Test
     void certainResetFollowsTheClientExactly() {
         ClientSprintState state = sprinting();
         state.onServerModifier(null);

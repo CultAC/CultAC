@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.SpinRebound;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaSpinAttack;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
@@ -89,7 +90,7 @@ public class MovementModifiers {
                 // MCP-Reborn Player#causeExtraKnockback damps attacker X/Z by 0.6
                 // before LivingEntity#checkAutoSpinAttack applies the -0.2 rebound.
                 if (lastResult.getSimulationContext().getWorldData().isSpinAttackPlayer()
-                        && lastResult.getSimulationContext().getIsSprinting().determineOptimistically()) {
+                        && JavaSpinAttack.extraKnockbackPossible(player, lastResult.getSimulationContext())) {
                     start.add(JavaVelocityRange.scaled(
                             riptideAttack.withXYZ(
                                     riptideAttack.x * 0.6, riptideAttack.y, riptideAttack.z * 0.6, "riptide sprint attack"),

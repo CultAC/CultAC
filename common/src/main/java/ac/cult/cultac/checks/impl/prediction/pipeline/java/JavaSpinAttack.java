@@ -42,11 +42,20 @@ public final class JavaSpinAttack {
         if (!player.riptideSpinCertain || hit.living() != Presence.CERTAIN)
             outcomes.add(new Velocity(velocity, false));
         outcomes.add(new Velocity(velocity.scale(-0.2), true));
-        if (hit.player() && context.getIsSprinting().determineOptimistically()) {
+        if (hit.player() && extraKnockbackPossible(player, context)) {
             // Player#attack -> causeExtraKnockback, then LivingEntity#checkAutoSpinAttack's rebound.
             outcomes.add(new Velocity(velocity.multiply(0.6, 1.0, 0.6).scale(-0.2), true));
         }
         return outcomes;
+    }
+
+    /**
+     * Whether the spin's Player#attack may pass causeExtraKnockback's positive knockback, which damps X/Z by 0.6 and
+     * calls setSprinting(false): the client's LivingEntity#getKnockback is attack_knockback / 2, and a sprint attack
+     * adds 0.5.
+     */
+    public static boolean extraKnockbackPossible(CultPlayer player, SimulationContext context) {
+        return context.getIsSprinting().determineOptimistically() || player.combatAttributes.attackKnockback() > 0.0;
     }
 
     /** A post-travel shove cannot decide a pre-travel sprint flag. Validate the extra state against its own travel. */
