@@ -1,14 +1,13 @@
 package ac.cult.cultac.network.routing;
 
 import ac.grim.grimac.api.config.ConfigManager;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -34,6 +33,11 @@ public record NetworkSettings(
     public static final String ALL = "all";
 
     public static final NetworkSettings OFF = new NetworkSettings(NONE, "", "default", "", "", List.of(), "", "", "");
+
+    /** What one part of a channel name may hold, on every broker. */
+    private static final Pattern TOKEN = Pattern.compile("[A-Za-z0-9_-]+");
+
+    private static final Pattern NOT_TOKEN = Pattern.compile("[^A-Za-z0-9_-]");
 
     public NetworkSettings {
         transport = transport == null || transport.isBlank()
@@ -94,25 +98,27 @@ public record NetworkSettings(
 
     /**
      * This instance's id: {@code instance-id}, else RedisBungee's proxy id, else {@link #cloudProxyId}, else
-     * {@code address}. Each supplier runs only when the ones before it named nothing.
+     * {@code address} with each character a channel cannot carry made a {@code -}. Each supplier runs only when the
+     * ones before it named nothing.
      */
     public String resolveInstanceId(Supplier<@Nullable String> redisBungeeId, Supplier<String> address) {
         if (!instanceId.isEmpty()) return instanceId;
         String proxyId = redisBungeeId.get();
         if (proxyId != null && !proxyId.isBlank()) return proxyId.strip();
         if (!cloudProxyId.isEmpty()) return cloudProxyId;
-        return address.get();
+        return NOT_TOKEN.matcher(address.get()).replaceAll("-");
     }
 
     /** Why {@code id} cannot name an instance in a channel, or null when it can. */
     public static @Nullable String invalidInstanceId(String id) {
-        if (id.isEmpty()) return "it is empty";
         if (id.equalsIgnoreCase(ALL)) return "\"" + ALL + "\" names the broadcast channel";
-        for (int i = 0; i < id.length(); i++) {
-            char c = id.charAt(i);
-            if (Character.isWhitespace(c) || Character.isISOControl(c) || c == '*' || c == '>')
-                return "it has a space, a control character, '*' or '>'";
-        }
+        return invalidToken(id);
+    }
+
+    /** Why {@code token} cannot be one part of a channel name, or null when it can. */
+    public static @Nullable String invalidToken(String token) {
+        if (token.isEmpty()) return "it is empty";
+        if (!TOKEN.matcher(token).matches()) return "it holds a character other than A-Z, a-z, 0-9, '_' and '-'";
         return null;
     }
 
@@ -131,34 +137,14 @@ public record NetworkSettings(
         return value == null ? "" : value.strip();
     }
 
-    /** Every setting, with the secret, the token and the Redis password left out. */
+    /** Every setting, with the secret, the token and each URL's user info left out. */
     @Override
     public String toString() {
         return "NetworkSettings[transport=" + transport + ", instanceId=" + instanceId + ", network=" + network
-                + ", secret=" + (secret.isEmpty() ? "" : "<set>") + ", redisUri=" + redactedUri(redisUri)
+                + ", secret=" + (secret.isEmpty() ? "" : "<set>") + ", redisUri=" + Redaction.text(redisUri)
                 + ", natsServers="
-                + natsServers.stream().map(NetworkSettings::redactedUri).toList()
+                + natsServers.stream().map(Redaction::text).toList()
                 + ", natsToken=" + (natsToken.isEmpty() ? "" : "<set>") + ", natsCredentialsFile="
                 + natsCredentialsFile + ", cloudProxyId=" + cloudProxyId + "]";
-    }
-
-    /** {@code uri} without its user info. */
-    static String redactedUri(String uri) {
-        if (uri.isEmpty()) return uri;
-        try {
-            URI parsed = new URI(uri);
-            if (parsed.getRawUserInfo() == null) return uri;
-            return new URI(
-                            parsed.getScheme(),
-                            "<redacted>",
-                            parsed.getHost(),
-                            parsed.getPort(),
-                            parsed.getPath(),
-                            parsed.getQuery(),
-                            parsed.getFragment())
-                    .toString();
-        } catch (URISyntaxException malformed) {
-            return "<unparsable>";
-        }
     }
 }

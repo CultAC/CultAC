@@ -106,7 +106,10 @@ class NetworkSettingsTest {
         assertEquals(
                 "edge-env",
                 read(unnamed, Map.of("CULTAC_PROXY_ID", "edge-env")).resolveInstanceId(() -> " ", noAddress));
-        assertEquals("host:25577", read(unnamed, Map.of()).resolveInstanceId(() -> null, () -> "host:25577"));
+        assertEquals("host-25577", read(unnamed, Map.of()).resolveInstanceId(() -> null, () -> "host:25577"));
+        assertEquals(
+                "mc-example-com-25577",
+                read(unnamed, Map.of()).resolveInstanceId(() -> null, () -> "mc.example.com:25577"));
     }
 
     @Test
@@ -126,13 +129,18 @@ class NetworkSettingsTest {
     @Test
     void anInstanceIdMustNameAChannel() {
         assertNull(NetworkSettings.invalidInstanceId("p3"));
-        assertNull(NetworkSettings.invalidInstanceId("host.example:25577"));
-        assertNotNull(NetworkSettings.invalidInstanceId(""));
-        assertNotNull(NetworkSettings.invalidInstanceId("all"));
-        assertNotNull(NetworkSettings.invalidInstanceId("ALL"));
-        assertNotNull(NetworkSettings.invalidInstanceId("p 3"));
-        assertNotNull(NetworkSettings.invalidInstanceId("p*"));
-        assertNotNull(NetworkSettings.invalidInstanceId("p>"));
+        assertNull(NetworkSettings.invalidInstanceId("proxy_1"));
+        assertNull(NetworkSettings.invalidInstanceId("edge-1"));
+        for (String bad : List.of("", "all", "ALL", "p 3", "p*", "p>", "p.3", "host.example:25577", "p\t3", "é"))
+            assertNotNull(NetworkSettings.invalidInstanceId(bad), bad);
+    }
+
+    @Test
+    void aNetworkNameMustBeOnePartOfAChannel() {
+        assertNull(NetworkSettings.invalidToken("default"));
+        assertNull(NetworkSettings.invalidToken("eu-west_2"));
+        for (String bad : List.of("", "eu.west", "eu west", "eu*", "eu>", "eu/west"))
+            assertNotNull(NetworkSettings.invalidToken(bad), bad);
     }
 
     @Test
@@ -152,11 +160,14 @@ class NetworkSettingsTest {
 
     @Test
     void toStringLeavesTheCredentialsOut() {
-        String text = read(BLOCK, Map.of()).toString();
+        String text = NetworkSettings.read(config(BLOCK, List.of("nats://user:natspw@a:4222")), name -> null)
+                .toString();
         assertFalse(text.contains("config-secret"), text);
         assertFalse(text.contains("config-token"), text);
         assertFalse(text.contains(":pw@"), text);
-        assertTrue(text.contains("cache"), text);
+        assertFalse(text.contains("natspw"), text);
+        assertTrue(text.contains("redisUri=redis://***@cache:6379/0"), text);
+        assertTrue(text.contains("natsServers=[nats://***@a:4222]"), text);
     }
 
     @Test

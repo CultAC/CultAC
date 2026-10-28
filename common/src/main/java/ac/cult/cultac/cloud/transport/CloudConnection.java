@@ -180,6 +180,7 @@ public final class CloudConnection {
             List.of("cloud", "api-key"),
             List.of("network", "secret"),
             List.of("network", "redis", "uri"),
+            List.of("network", "nats", "servers"),
             List.of("network", "nats", "token"));
 
     private static final String SECRET_MARKER = "<secret>";

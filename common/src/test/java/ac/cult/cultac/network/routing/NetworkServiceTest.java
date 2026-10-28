@@ -16,6 +16,7 @@ import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.routing.MessageHandler.Origin;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
+import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -28,9 +29,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import java.util.logging.Level;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -72,7 +80,16 @@ class NetworkServiceTest {
 
     private NetworkService service(String instance, Players players, HostContext host, byte[] key, boolean transport) {
         return new NetworkService(
-                SETTINGS, players, host, instance, key, transport ? broker.transport() : null, clock::get, null);
+                SETTINGS,
+                players,
+                host,
+                instance,
+                key,
+                transport ? broker.transport() : null,
+                clock::get,
+                null,
+                null,
+                new LogThrottle());
     }
 
     private NetworkService started(String instance, Players players) {
@@ -81,9 +98,14 @@ class NetworkServiceTest {
         return service;
     }
 
-    @SuppressWarnings("unchecked")
     private static HostContext host(Map<String, Object> shared, AtomicBoolean current) {
+        return host(shared, current, UUID.randomUUID().toString());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static HostContext host(Map<String, Object> shared, AtomicBoolean current, String generation) {
         HostContext host = mock(HostContext.class);
+        when(host.generationId()).thenReturn(generation);
         when(host.current()).thenAnswer(invocation -> current.get());
         when(host.shared(anyString(), any()))
                 .thenAnswer(invocation -> shared.computeIfAbsent(
@@ -208,6 +230,138 @@ class NetworkServiceTest {
         assertEquals(2, rosterBodiesFrom("p3").size());
         promoted.stop();
         assertTrue(rosterBodiesFrom("p3").getLast().getAsJsonArray("players").isEmpty());
+    }
+
+    @Test
+    void atShutdownTheGenerationThatPublishedLastSaysGoodbyeAndASupersededOneDoesNot() {
+        Map<String, Object> shared = new HashMap<>();
+        AtomicBoolean olderCurrent = new AtomicBoolean(true);
+        AtomicBoolean newerCurrent = new AtomicBoolean(false);
+        Players here = new Players().with(BOB, "Bob", "lobby");
+        NetworkService older = service("p3", here, host(shared, olderCurrent, "g1"), KEY, true);
+        older.start();
+        NetworkService peer = started("p7", new Players());
+
+        olderCurrent.set(false);
+        newerCurrent.set(true);
+        NetworkService newer = service("p3", here, host(shared, newerCurrent, "g2"), KEY, true);
+        newer.start();
+        assertEquals("p3", peer.locate("Bob").orElseThrow().instance());
+
+        newerCurrent.set(false);
+        int published = rosterBodiesFrom("p3").size();
+        older.stop();
+        assertEquals(published, rosterBodiesFrom("p3").size());
+        assertTrue(peer.locate("Bob").isPresent());
+
+        newer.stop();
+        JsonObject goodbye = rosterBodiesFrom("p3").getLast();
+        assertEquals(published + 1, rosterBodiesFrom("p3").size());
+        assertTrue(goodbye.get("full").getAsBoolean());
+        assertTrue(goodbye.getAsJsonArray("players").isEmpty());
+        assertTrue(peer.locate("Bob").isEmpty());
+    }
+
+    private static void await(BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (!condition.getAsBoolean()) {
+            if (System.nanoTime() > deadline) throw new AssertionError("timed out");
+            Thread.sleep(20);
+        }
+    }
+
+    /** One receiving thread that counts the messages handed to it. */
+    private static final class Receiver extends ThreadPoolExecutor {
+        final AtomicInteger queued = new AtomicInteger();
+
+        Receiver() {
+            super(1, 1, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+        }
+
+        @Override
+        public void execute(Runnable task) {
+            queued.incrementAndGet();
+            super.execute(task);
+        }
+    }
+
+    private NetworkService withReceiver(String instance, Receiver receiver, LogThrottle drops) {
+        return new NetworkService(
+                SETTINGS, new Players(), null, instance, KEY, broker.transport(), clock::get, null, receiver, drops);
+    }
+
+    @Test
+    void aMessageOverTheSizeCapIsDroppedBeforeItIsQueued() {
+        Receiver receiver = new Receiver();
+        try {
+            NetworkService a = withReceiver("p3", receiver, new LogThrottle());
+            a.start();
+            int queued = receiver.queued.get();
+            broker.transport().publish("cultac.default.all", "x".repeat(EnvelopeCodec.MAX_BYTES - 1) + "\u00e9");
+            broker.transport().publish("cultac.default.p3", "y".repeat(EnvelopeCodec.MAX_BYTES + 1));
+            assertEquals(queued, receiver.queued.get());
+            broker.transport().publish("cultac.default.p3", "z".repeat(EnvelopeCodec.MAX_BYTES));
+            assertEquals(queued + 1, receiver.queued.get());
+            a.stop();
+        } finally {
+            receiver.shutdownNow();
+        }
+    }
+
+    @Test
+    void aFullReceiveQueueDropsWarnsOnceAWindowAndTheRosterKeepsExpiring() throws Exception {
+        Receiver receiver = new Receiver();
+        AtomicLong nanos = new AtomicLong();
+        CountDownLatch release = new CountDownLatch(1);
+        try (CapturedLog log = new CapturedLog(Level.WARNING, "Dropped a received network message")) {
+            NetworkService a = withReceiver("p3", receiver, new LogThrottle(TimeUnit.MINUTES.toNanos(1), nanos::get));
+            a.start();
+            NetworkService b = started("p7", new Players().with(ALICE, "Alice", "lobby"));
+            await(() -> a.locate("Alice").isPresent());
+            a.on("probe", (envelope, origin) -> {
+                try {
+                    release.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+
+            for (int i = 0; i < NetworkService.MAX_QUEUED_MESSAGES + 5; i++) b.send("p3", "probe", new JsonObject());
+            assertEquals(1, log.messages().size());
+            nanos.addAndGet(TimeUnit.MINUTES.toNanos(1));
+            b.send("p3", "probe", new JsonObject());
+            assertEquals(2, log.messages().size());
+            assertTrue(
+                    log.messages().get(1).endsWith("(4 more since the last report)"),
+                    log.messages().get(1));
+
+            clock.addAndGet(RosterCache.EXPIRY_MILLIS + 1);
+            broker.published.clear();
+            a.tick();
+            assertTrue(a.locate("Alice").isEmpty());
+            assertEquals(1, broker.on("cultac.default.all").size());
+        } finally {
+            release.countDown();
+            receiver.shutdownNow();
+        }
+    }
+
+    @Test
+    void theFirstBadSignatureWarnsAndTheNextAreThrottled() {
+        try (CapturedLog log = new CapturedLog(Level.WARNING, "Dropped a network message with a bad signature")) {
+            started("p3", new Players());
+            NetworkService stranger = service(
+                    "p9",
+                    new Players().with(ALICE, "Alice", "lobby"),
+                    null,
+                    "a different secret".getBytes(StandardCharsets.UTF_8),
+                    true);
+            stranger.start();
+            assertEquals(1, log.messages().size());
+            stranger.tick();
+            stranger.tick();
+            assertEquals(1, log.messages().size());
+        }
     }
 
     @Test

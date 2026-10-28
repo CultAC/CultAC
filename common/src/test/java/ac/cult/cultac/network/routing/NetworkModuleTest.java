@@ -14,6 +14,7 @@ import com.google.gson.JsonObject;
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.List;
+import java.util.logging.Level;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -129,6 +130,56 @@ class NetworkModuleTest {
         NetworkModule.platform(new Proxy());
         NetworkModule.start(new NetworkSettings("redisbungee", "all", "default", "", "", List.of(), "", "", ""));
         assertFalse(NetworkRouting.current().enabled());
+    }
+
+    @Test
+    void aNetworkOrInstanceIdNoChannelCanCarryStaysLocalWithOneErrorNamingTheKey() {
+        NetworkModule.platform(new Proxy());
+        for (String transport : List.of("redisbungee", "redis", "nats")) {
+            for (String network : List.of("eu.west", "eu west", "eu*", "eu>")) {
+                assertStaysLocal(
+                        new NetworkSettings(
+                                transport,
+                                "p3",
+                                network,
+                                "",
+                                "redis://cache:6379",
+                                List.of("nats://host:4222"),
+                                "",
+                                "",
+                                ""),
+                        "network.network");
+            }
+            for (String instance : List.of("p.3", "p 3", "p*", "p>", "all")) {
+                assertStaysLocal(
+                        new NetworkSettings(
+                                transport,
+                                instance,
+                                "default",
+                                "",
+                                "redis://cache:6379",
+                                List.of("nats://host:4222"),
+                                "",
+                                "",
+                                ""),
+                        "network.instance-id");
+            }
+        }
+        assertTrue(broker.published.isEmpty());
+    }
+
+    private static void assertStaysLocal(NetworkSettings settings, String key) {
+        try (CapturedLog errors = new CapturedLog(Level.SEVERE, "Network routing off")) {
+            NetworkModule.start(settings);
+            assertFalse(NetworkRouting.current().enabled(), settings.toString());
+            assertEquals("none", NetworkModule.service().transportName());
+            assertEquals(1, errors.messages().size(), errors.messages().toString());
+            assertTrue(
+                    errors.messages().getFirst().contains(key),
+                    errors.messages().getFirst());
+        } finally {
+            NetworkModule.stop();
+        }
     }
 
     @Test

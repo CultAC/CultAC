@@ -1,5 +1,6 @@
 package ac.cult.cultac.network.routing;
 
+import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import io.nats.client.Connection;
 import io.nats.client.ConnectionListener;
@@ -19,25 +20,38 @@ import org.jetbrains.annotations.Nullable;
 /**
  * NATS through jnats. The first connection is retried on its own thread with a backoff capped at
  * {@value #MAX_BACKOFF_MILLIS} ms; after that jnats reconnects by itself and restores the subscriptions. A token or a
- * {@code .creds} file authenticates; {@code tls://} servers connect over TLS.
+ * {@code .creds} file authenticates; {@code tls://} servers connect over TLS. A connection that fails before it is
+ * subscribed is closed before the next try.
  */
 final class NatsTransport implements MessageTransport {
     static final long MIN_BACKOFF_MILLIS = 1_000;
     static final long MAX_BACKOFF_MILLIS = 30_000;
 
+    /** Opens a connection: {@link Nats#connect(Options)}, or a stand-in in tests. */
+    @FunctionalInterface
+    interface Opener {
+        Connection open(Options options) throws IOException, InterruptedException;
+    }
+
     private final Options options;
+    private final Opener opener;
     private volatile boolean closed;
     private volatile @Nullable Connection connection;
     private @Nullable Thread connector;
 
-    private NatsTransport(Options.Builder options) {
+    private NatsTransport(Options.Builder options, Opener opener) {
         this.options = options.connectionListener(this::connectionEvent)
                 .errorListener(new Errors())
                 .build();
+        this.opener = opener;
     }
 
     /** A transport for {@code nats.servers}, authenticated by {@code nats.token} or {@code nats.credentials-file}. */
     static NatsTransport create(NetworkSettings settings) {
+        return create(settings, Nats::connect);
+    }
+
+    static NatsTransport create(NetworkSettings settings, Opener opener) {
         if (settings.natsServers().isEmpty())
             throw new IllegalArgumentException("network.nats.servers lists no server");
         Options.Builder options = new Options.Builder()
@@ -55,7 +69,7 @@ final class NatsTransport implements MessageTransport {
             options.authHandler(Nats.credentials(credentials.toString()));
         }
         try {
-            return new NatsTransport(options);
+            return new NatsTransport(options, opener);
         } catch (IllegalArgumentException | IllegalStateException invalid) {
             throw new IllegalArgumentException("network.nats: " + invalid.getMessage());
         }
@@ -80,17 +94,15 @@ final class NatsTransport implements MessageTransport {
         boolean warned = false;
         while (!closed) {
             try {
-                Connection opened = Nats.connect(options);
-                Dispatcher dispatcher = opened.createDispatcher(message ->
-                        receiver.receive(message.getSubject(), new String(message.getData(), StandardCharsets.UTF_8)));
-                for (String channel : channels) dispatcher.subscribe(channel);
+                Connection opened = subscribed(channels, receiver);
                 connection = opened;
                 if (closed) close(opened);
-                else LogUtil.info("Network transport NATS: connected to " + opened.getConnectedUrl());
+                else LogUtil.info("Network transport NATS: connected to " + Redaction.text(opened.getConnectedUrl()));
                 return;
             } catch (IOException | RuntimeException failure) {
                 if (!warned)
-                    LogUtil.warn("Network transport NATS: cannot connect (" + failure.getMessage() + "); retrying");
+                    LogUtil.warn("Network transport NATS: cannot connect (" + Redaction.text(failure.getMessage())
+                            + "); retrying");
                 warned = true;
             } catch (InterruptedException interrupted) {
                 return;
@@ -101,6 +113,20 @@ final class NatsTransport implements MessageTransport {
                 return;
             }
             backoff = Math.min(backoff * 2, MAX_BACKOFF_MILLIS);
+        }
+    }
+
+    /** A connection subscribed to {@code channels}; one that fails on the way is closed before the failure is thrown. */
+    private Connection subscribed(List<String> channels, Receiver receiver) throws IOException, InterruptedException {
+        Connection opened = opener.open(options);
+        try {
+            Dispatcher dispatcher = opened.createDispatcher(message ->
+                    receiver.receive(message.getSubject(), new String(message.getData(), StandardCharsets.UTF_8)));
+            for (String channel : channels) dispatcher.subscribe(channel);
+            return opened;
+        } catch (RuntimeException failure) {
+            close(opened);
+            throw failure;
         }
     }
 
@@ -144,7 +170,8 @@ final class NatsTransport implements MessageTransport {
         if (closed) return;
         switch (type) {
             case DISCONNECTED -> LogUtil.warn("Network transport NATS: disconnected; reconnecting");
-            case RECONNECTED -> LogUtil.info("Network transport NATS: reconnected to " + opened.getConnectedUrl());
+            case RECONNECTED ->
+                LogUtil.info("Network transport NATS: reconnected to " + Redaction.text(opened.getConnectedUrl()));
             default -> {}
         }
     }
@@ -153,7 +180,7 @@ final class NatsTransport implements MessageTransport {
     private static final class Errors implements ErrorListener {
         @Override
         public void errorOccurred(Connection connection, String error) {
-            LogUtil.warn("Network transport NATS: the server reported " + error);
+            LogUtil.warn("Network transport NATS: the server reported " + LogThrottle.clip(Redaction.text(error)));
         }
 
         @Override

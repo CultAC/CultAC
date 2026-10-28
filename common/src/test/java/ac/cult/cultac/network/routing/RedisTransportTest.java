@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import java.net.URI;
@@ -94,6 +95,52 @@ class RedisTransportTest {
         subscriber.publish("cultac.default.p3", "after close");
         Thread.sleep(200);
         assertTrue(received.isEmpty());
+    }
+
+    @Test
+    void closingClosesThePublishingConnection() throws Exception {
+        publisher.publish("cultac.default.p3", "one");
+        await(() -> server.publishes() == 1 && server.connections() == 1);
+        publisher.close();
+        await(() -> server.connections() == 0);
+    }
+
+    @Test
+    void closingCutsOffAPublishTheServerNeverAnswers() throws Exception {
+        server.stalled = true;
+        publisher.publish("cultac.default.p3", "unanswered");
+        publisher.publish("cultac.default.p3", "queued behind it");
+        await(() -> server.publishes() == 1 && server.connections() == 1);
+
+        long started = System.nanoTime();
+        publisher.close();
+        long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+        assertTrue(closing < RedisTransport.DRAIN_MILLIS + 1_000, closing + " ms");
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(RedisTransport.READ_TIMEOUT_MILLIS / 4);
+        while (server.connections() > 0) {
+            if (System.nanoTime() > deadline) fail("the publishing connection outlasted close");
+            Thread.sleep(20);
+        }
+        Thread.sleep(200);
+        assertEquals(1, server.publishes());
+        assertEquals(0, server.connections());
+    }
+
+    @Test
+    void theWatchdogPingsWhilePublishesBlock() throws Exception {
+        RedisTransport watched = RedisTransport.create("redis://127.0.0.1:" + server.port(), 50, 10_000);
+        try {
+            watched.start(CHANNELS, (channel, text) -> received.add(text));
+            subscribed();
+            server.stalled = true;
+            watched.publish("cultac.default.p3", "unanswered");
+            await(() -> server.publishes() == 1);
+            int before = server.pings();
+            await(() -> server.pings() >= before + 5);
+            assertEquals(1, server.publishes());
+        } finally {
+            watched.close();
+        }
     }
 
     @Test

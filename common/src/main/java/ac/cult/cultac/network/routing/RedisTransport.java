@@ -1,10 +1,12 @@
 package ac.cult.cultac.network.routing;
 
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -15,9 +17,12 @@ import redis.clients.jedis.JedisPubSub;
 
 /**
  * Redis pub/sub through Jedis. One connection subscribes on its own thread and reconnects with a backoff capped at
- * {@value #MAX_BACKOFF_MILLIS} ms. A subscribed connection reads without a timeout, so it is pinged every
- * {@value #PING_MILLIS} ms and dropped when no pong came back within {@value #PONG_TIMEOUT_MILLIS} ms. A second
- * connection publishes from one worker thread. A {@code rediss://} URI connects over TLS.
+ * {@value #MAX_BACKOFF_MILLIS} ms. A subscribed connection reads without a timeout, so a watchdog thread of its own
+ * pings it every {@value #PING_MILLIS} ms and drops it when no pong came back within {@value #PONG_TIMEOUT_MILLIS} ms.
+ * A second connection publishes from one worker thread, at most {@value #MAX_BACKLOG_MESSAGES} messages of
+ * {@value #MAX_BACKLOG_BYTES} bytes in all waiting for it; the rest are dropped. Closing waits
+ * {@value #DRAIN_MILLIS} ms for the backlog, then closes the publishing socket under a blocked send. A
+ * {@code rediss://} URI connects over TLS.
  */
 final class RedisTransport implements MessageTransport {
     static final int CONNECT_TIMEOUT_MILLIS = 10_000;
@@ -27,21 +32,52 @@ final class RedisTransport implements MessageTransport {
     static final int DEFAULT_PORT = 6379;
     static final long MIN_BACKOFF_MILLIS = 1_000;
     static final long MAX_BACKOFF_MILLIS = 30_000;
+    static final long DRAIN_MILLIS = 2_000;
+    static final int MAX_BACKLOG_MESSAGES = 4096;
+    static final long MAX_BACKLOG_BYTES = 16L * 1024 * 1024;
 
     private final URI uri;
-    private final ScheduledExecutorService worker;
+    private final long pingMillis;
+    private final long pongTimeoutMillis;
+    /** Publishes in order on one thread, which closes its connection when it ends. */
+    private final ExecutorService worker;
+
+    private final ScheduledExecutorService watchdog;
+    private final Backlog backlog = new Backlog(
+            "Network transport Redis: dropped a message to publish; " + MAX_BACKLOG_MESSAGES + " messages or "
+                    + MAX_BACKLOG_BYTES / (1024 * 1024) + " MB are already waiting",
+            MAX_BACKLOG_MESSAGES,
+            MAX_BACKLOG_BYTES);
     private volatile boolean closed;
+    /** Set once {@link #close} stops waiting for the backlog; the worker tries no further send once it sees it. */
+    private volatile boolean abandoned;
+
     private volatile @Nullable Subscriber subscriber;
     private @Nullable Thread subscriberThread;
-    /** The worker thread's publishing connection. */
-    private @Nullable Jedis publisher;
+    /** The worker thread's publishing connection; only the worker opens and closes it. */
+    private volatile @Nullable Jedis publisher;
 
     private volatile boolean publishFailing;
 
-    private RedisTransport(URI uri) {
+    private RedisTransport(URI uri, long pingMillis, long pongTimeoutMillis) {
         this.uri = uri;
-        this.worker = Executors.newSingleThreadScheduledExecutor(task -> {
-            Thread thread = new Thread(task, "CultAC network Redis publisher");
+        this.pingMillis = pingMillis;
+        this.pongTimeoutMillis = pongTimeoutMillis;
+        this.worker = Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(
+                    () -> {
+                        try {
+                            task.run();
+                        } finally {
+                            closePublisher();
+                        }
+                    },
+                    "CultAC network Redis publisher");
+            thread.setDaemon(true);
+            return thread;
+        });
+        this.watchdog = Executors.newSingleThreadScheduledExecutor(task -> {
+            Thread thread = new Thread(task, "CultAC network Redis watchdog");
             thread.setDaemon(true);
             return thread;
         });
@@ -49,7 +85,11 @@ final class RedisTransport implements MessageTransport {
 
     /** A transport for {@code uri}, {@code redis://} or {@code rediss://} with a host. */
     static RedisTransport create(String uri) {
-        return new RedisTransport(parse(uri));
+        return create(uri, PING_MILLIS, PONG_TIMEOUT_MILLIS);
+    }
+
+    static RedisTransport create(String uri, long pingMillis, long pongTimeoutMillis) {
+        return new RedisTransport(parse(uri), pingMillis, pongTimeoutMillis);
     }
 
     static URI parse(String uri) {
@@ -87,7 +127,7 @@ final class RedisTransport implements MessageTransport {
         thread.setDaemon(true);
         subscriberThread = thread;
         thread.start();
-        worker.scheduleAtFixedRate(this::ping, PING_MILLIS, PING_MILLIS, TimeUnit.MILLISECONDS);
+        watchdog.scheduleAtFixedRate(this::ping, pingMillis, pingMillis, TimeUnit.MILLISECONDS);
     }
 
     private void subscribe(String[] channels, Receiver receiver) {
@@ -106,7 +146,7 @@ final class RedisTransport implements MessageTransport {
                 if (!warned || listener.confirmed)
                     LogUtil.warn("Network transport Redis: "
                             + (listener.confirmed ? "lost the connection" : "cannot" + " connect") + " ("
-                            + failure.getMessage() + "); retrying");
+                            + Redaction.text(failure.getMessage()) + "); retrying");
                 warned = true;
             } finally {
                 subscriber = null;
@@ -126,7 +166,7 @@ final class RedisTransport implements MessageTransport {
         if (listener == null || !listener.isSubscribed()) return;
         long now = System.nanoTime();
         long pinged = listener.unansweredPing;
-        if (pinged != 0 && now - pinged > TimeUnit.MILLISECONDS.toNanos(PONG_TIMEOUT_MILLIS)) {
+        if (pinged != 0 && now - pinged > TimeUnit.MILLISECONDS.toNanos(pongTimeoutMillis)) {
             listener.disconnect();
             return;
         }
@@ -140,25 +180,37 @@ final class RedisTransport implements MessageTransport {
 
     @Override
     public void publish(String channel, String text) {
+        if (closed) return;
+        int size = EnvelopeCodec.utf8Length(text);
+        if (!backlog.admit(size)) return;
         try {
-            worker.execute(() -> send(channel, text));
+            worker.execute(() -> {
+                try {
+                    send(channel, text);
+                } finally {
+                    backlog.release(size);
+                }
+            });
         } catch (RejectedExecutionException stopped) {
-            // A closed transport sends nothing.
+            backlog.release(size);
         }
     }
 
     private void send(String channel, String text) {
-        for (int attempt = 0; attempt < 2; attempt++) {
+        for (int attempt = 0; attempt < 2 && !abandoned; attempt++) {
             try {
-                if (publisher == null) publisher = new Jedis(uri, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS);
-                publisher.publish(channel, text);
+                Jedis connection = publisher;
+                if (connection == null)
+                    publisher = connection = new Jedis(uri, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS);
+                connection.publish(channel, text);
                 publishFailing = false;
                 return;
             } catch (RuntimeException failure) {
                 closePublisher();
                 if (attempt == 1 && !publishFailing) {
                     publishFailing = true;
-                    LogUtil.warn("Network transport Redis: cannot publish (" + failure.getMessage() + ")");
+                    LogUtil.warn(
+                            "Network transport Redis: cannot publish (" + Redaction.text(failure.getMessage()) + ")");
                 }
             }
         }
@@ -175,6 +227,17 @@ final class RedisTransport implements MessageTransport {
         }
     }
 
+    /** Closes the publishing connection's socket without flushing, so a send blocked on it fails at once. */
+    private void dropPublisher() {
+        Jedis connection = publisher;
+        if (connection == null) return;
+        try {
+            connection.getConnection().forceDisconnect();
+        } catch (IOException | RuntimeException ignored) {
+            // The socket is closed or was never opened.
+        }
+    }
+
     @Override
     public void close() {
         Thread thread;
@@ -182,21 +245,19 @@ final class RedisTransport implements MessageTransport {
             closed = true;
             thread = subscriberThread;
         }
+        watchdog.shutdownNow();
         Subscriber listener = subscriber;
         if (listener != null) listener.disconnect();
         if (thread != null) thread.interrupt();
-        try {
-            worker.execute(this::closePublisher);
-        } catch (RejectedExecutionException alreadyClosed) {
-            return;
-        }
         worker.shutdown();
         try {
-            if (!worker.awaitTermination(2, TimeUnit.SECONDS)) worker.shutdownNow();
+            if (worker.awaitTermination(DRAIN_MILLIS, TimeUnit.MILLISECONDS)) return;
         } catch (InterruptedException interrupted) {
-            worker.shutdownNow();
             Thread.currentThread().interrupt();
         }
+        abandoned = true;
+        worker.shutdownNow();
+        dropPublisher();
     }
 
     private static final class Subscriber extends JedisPubSub {

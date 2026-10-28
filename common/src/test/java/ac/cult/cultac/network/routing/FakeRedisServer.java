@@ -14,11 +14,17 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
-/** Enough of a Redis server for pub/sub over RESP2: SUBSCRIBE, UNSUBSCRIBE, PUBLISH and PING; +OK to the rest. */
+/**
+ * Enough of a Redis server for pub/sub over RESP2: SUBSCRIBE, UNSUBSCRIBE, PUBLISH and PING; +OK to the rest. A stalled
+ * server reads each PUBLISH and neither delivers nor answers it, as a broker that stopped responding would.
+ */
 final class FakeRedisServer implements AutoCloseable {
     private final ServerSocket server;
     private final Set<Client> clients = ConcurrentHashMap.newKeySet();
+    private final AtomicInteger publishes = new AtomicInteger();
+    volatile boolean stalled;
 
     FakeRedisServer() throws IOException {
         server = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
@@ -35,6 +41,16 @@ final class FakeRedisServer implements AutoCloseable {
         int count = 0;
         for (Client client : clients) if (client.channels.contains(channel)) count++;
         return count;
+    }
+
+    /** The open connections. */
+    int connections() {
+        return clients.size();
+    }
+
+    /** Every PUBLISH read so far, stalled ones included. */
+    int publishes() {
+        return publishes.get();
     }
 
     int pings() {
@@ -111,6 +127,8 @@ final class FakeRedisServer implements AutoCloseable {
                     }
                 }
                 case "PUBLISH" -> {
+                    publishes.incrementAndGet();
+                    if (stalled) return;
                     int delivered = 0;
                     for (Client client : clients) {
                         if (!client.channels.contains(command.get(1))) continue;

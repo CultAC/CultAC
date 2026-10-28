@@ -6,6 +6,7 @@ import ac.cult.cultac.network.routing.MessageHandler.Origin;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonElement;
@@ -20,11 +21,13 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -34,13 +37,16 @@ import org.jetbrains.annotations.Nullable;
  * This instance's network routing: the roster of every instance, handlers per message type, and messages to one
  * instance, to every other instance, or to this instance's engine generations over the in-process bus. Messages for
  * this instance never reach the broker and need no transport. Only the current generation publishes the roster: a
- * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms, a delta on each join, quit and backend switch, and an empty
- * snapshot when it stops.
+ * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and a delta on each join, quit and backend switch. The
+ * generation that published it last sends an empty snapshot when it stops. At most {@value #MAX_QUEUED_MESSAGES}
+ * received messages of {@value #MAX_QUEUED_BYTES} bytes in all wait to be read; the rest are dropped.
  */
 public final class NetworkService implements NetworkRouting {
     static final long ROSTER_PERIOD_MILLIS = 15_000;
-
-    private static final long WARNING_PERIOD_MILLIS = 60_000;
+    static final int MAX_QUEUED_MESSAGES = 4096;
+    static final long MAX_QUEUED_BYTES = 16L * 1024 * 1024;
+    /** The host-shared {@code AtomicReference<String>} holding the id of the generation that published last. */
+    static final String ROSTER_PUBLISHER_KEY = "cultac.network.roster-publisher";
 
     /** A registered handler, removed by {@link #close}. */
     @FunctionalInterface
@@ -56,15 +62,19 @@ public final class NetworkService implements NetworkRouting {
     private final @Nullable MessageTransport transport;
     private final EnvelopeCodec codec;
     private final LongSupplier clock;
-    /** Runs every received message and roster tick; null runs messages on the caller's thread and schedules no tick. */
-    private final @Nullable ScheduledExecutorService executor;
+    /** Runs the roster tick; null schedules none. */
+    private final @Nullable ScheduledExecutorService scheduler;
+    /** Reads received messages in arrival order; null reads them on the caller's thread. */
+    private final @Nullable ExecutorService receiver;
 
     private final String directChannel;
     private final String broadcastChannel;
     private final RosterCache roster = new RosterCache();
     private final Map<String, List<MessageHandler>> handlers = new ConcurrentHashMap<>();
     private final Map<String, JsonElement> flags = new ConcurrentHashMap<>();
-    private final AtomicLong badSignatureWarned = new AtomicLong(Long.MIN_VALUE);
+    private final AtomicReference<String> rosterPublisher;
+    private final Backlog inbox;
+    private final LogThrottle badSignatures = new LogThrottle();
 
     private @Nullable InProcessBus bus;
     private volatile boolean running;
@@ -77,17 +87,32 @@ public final class NetworkService implements NetworkRouting {
             byte @Nullable [] key,
             @Nullable MessageTransport transport,
             LongSupplier clock,
-            @Nullable ScheduledExecutorService executor) {
+            @Nullable ScheduledExecutorService scheduler,
+            @Nullable ExecutorService receiver,
+            LogThrottle dropWarnings) {
         this.settings = settings;
         this.platform = platform;
         this.host = host;
         this.instanceId = instanceId;
         this.transport = transport;
         this.clock = clock;
-        this.executor = executor;
+        this.scheduler = scheduler;
+        this.receiver = receiver;
         this.codec = new EnvelopeCodec(key, instanceId, this::knownType);
         this.directChannel = settings.channel(instanceId);
         this.broadcastChannel = settings.channel(NetworkSettings.ALL);
+        this.rosterPublisher = host == null ? new AtomicReference<>() : rosterPublisher(host);
+        this.inbox = new Backlog(
+                "Dropped a received network message: " + MAX_QUEUED_MESSAGES + " messages or "
+                        + MAX_QUEUED_BYTES / (1024 * 1024) + " MB are already waiting",
+                MAX_QUEUED_MESSAGES,
+                MAX_QUEUED_BYTES,
+                dropWarnings);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static AtomicReference<String> rosterPublisher(HostContext host) {
+        return (AtomicReference<String>) host.shared(ROSTER_PUBLISHER_KEY, AtomicReference::new);
     }
 
     /**
@@ -97,12 +122,10 @@ public final class NetworkService implements NetworkRouting {
     static NetworkService create(NetworkSettings settings, NetworkPlatform platform, @Nullable HostContext host) {
         String instanceId = settings.resolveInstanceId(platform::redisBungeeId, platform::address);
         byte[] key = settings.resolveSecret(platform.defaultSecret());
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(task -> {
-            Thread thread = new Thread(task, "CultAC network");
-            thread.setDaemon(true);
-            return thread;
-        });
-        RuntimeEnvironment.track(executor, executor::shutdownNow);
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(daemon("CultAC network"));
+        RuntimeEnvironment.track(scheduler, scheduler::shutdownNow);
+        ExecutorService receiver = Executors.newSingleThreadExecutor(daemon("CultAC network receiver"));
+        RuntimeEnvironment.track(receiver, receiver::shutdownNow);
         return new NetworkService(
                 settings,
                 platform,
@@ -111,7 +134,17 @@ public final class NetworkService implements NetworkRouting {
                 key,
                 transport(settings, platform, instanceId, key),
                 System::currentTimeMillis,
-                executor);
+                scheduler,
+                receiver,
+                new LogThrottle());
+    }
+
+    private static ThreadFactory daemon(String name) {
+        return task -> {
+            Thread thread = new Thread(task, name);
+            thread.setDaemon(true);
+            return thread;
+        };
     }
 
     private static @Nullable MessageTransport transport(
@@ -121,6 +154,12 @@ public final class NetworkService implements NetworkRouting {
         if (!settings.knownTransport()) {
             LogUtil.error("Network routing off: network.transport \"" + name + "\" is not none, redis, nats or"
                     + " redisbungee");
+            return null;
+        }
+        String invalidNetwork = NetworkSettings.invalidToken(settings.network());
+        if (invalidNetwork != null) {
+            LogUtil.error("Network routing off: network.network \"" + settings.network() + "\" cannot name a channel"
+                    + " because " + invalidNetwork + "; set network.network");
             return null;
         }
         String invalid = NetworkSettings.invalidInstanceId(instanceId);
@@ -149,7 +188,7 @@ public final class NetworkService implements NetworkRouting {
                         + " on this proxy or cannot be reached");
             return transport;
         } catch (IllegalArgumentException invalidSetting) {
-            LogUtil.error("Network routing off: " + invalidSetting.getMessage());
+            LogUtil.error("Network routing off: " + Redaction.text(invalidSetting.getMessage()));
             return null;
         }
     }
@@ -158,31 +197,36 @@ public final class NetworkService implements NetworkRouting {
     synchronized void start() {
         if (running) return;
         running = true;
-        bus = InProcessBus.join(host, text -> execute(() -> receive(text, false, true)));
+        bus = InProcessBus.join(host, text -> enqueue(text, false, true));
         if (transport != null) {
             transport.start(
                     List.of(directChannel, broadcastChannel),
-                    (channel, text) -> execute(() -> receive(text, channel.equals(broadcastChannel), false)));
+                    (channel, text) -> enqueue(text, channel.equals(broadcastChannel), false));
             publishRoster(platform.onlinePlayers(), true, List.of());
         }
-        if (executor != null)
-            executor.scheduleAtFixedRate(this::tick, ROSTER_PERIOD_MILLIS, ROSTER_PERIOD_MILLIS, TimeUnit.MILLISECONDS);
+        if (scheduler != null)
+            scheduler.scheduleAtFixedRate(
+                    this::tick, ROSTER_PERIOD_MILLIS, ROSTER_PERIOD_MILLIS, TimeUnit.MILLISECONDS);
     }
 
-    /** Leaves the bus and, while this generation is current, tells the other instances this one is gone. */
+    /**
+     * Leaves the bus and, when this generation published the roster last, tells the other instances this one is gone.
+     * A host stopping clears its current generation first, so being current cannot decide it.
+     */
     synchronized void stop() {
         if (!running) return;
         running = false;
         if (bus != null) bus.leave();
         if (transport != null) {
-            if (current())
+            if (publishedLast())
                 publish(
                         NetworkSettings.ALL,
                         RosterCache.TYPE,
                         RosterCache.body(List.of(), true, List.of(), new JsonObject()));
             transport.close();
         }
-        if (executor != null) executor.shutdownNow();
+        if (scheduler != null) scheduler.shutdownNow();
+        if (receiver != null) receiver.shutdownNow();
     }
 
     NetworkSettings settings() {
@@ -262,8 +306,14 @@ public final class NetworkService implements NetworkRouting {
         return host == null || host.current();
     }
 
+    /** Whether no host runs other generations, or this one published the roster since any other did. */
+    private boolean publishedLast() {
+        return host == null || host.generationId().equals(rosterPublisher.get());
+    }
+
     private void publishRoster(Collection<OnlinePlayer> players, boolean full, Collection<UUID> left) {
         if (transport == null || !current()) return;
+        if (host != null) rosterPublisher.set(host.generationId());
         JsonObject carried = new JsonObject();
         flags.forEach(carried::add);
         publish(NetworkSettings.ALL, RosterCache.TYPE, RosterCache.body(players, full, left, carried));
@@ -282,15 +332,27 @@ public final class NetworkService implements NetworkRouting {
         return true;
     }
 
-    private void execute(Runnable task) {
-        if (executor == null) {
-            task.run();
+    /** Queues {@code text} for {@link #receive}, unless this service stopped, it is too large or the queue is full. */
+    private void enqueue(String text, boolean broadcast, boolean local) {
+        if (!running) return;
+        int size = EnvelopeCodec.utf8Length(text);
+        if (size > EnvelopeCodec.MAX_BYTES) return;
+        ExecutorService receiver = this.receiver;
+        if (receiver == null) {
+            receive(text, broadcast, local);
             return;
         }
+        if (!inbox.admit(size)) return;
         try {
-            executor.execute(task);
+            receiver.execute(() -> {
+                try {
+                    receive(text, broadcast, local);
+                } finally {
+                    inbox.release(size);
+                }
+            });
         } catch (RejectedExecutionException stopped) {
-            // A stopped service takes no more messages.
+            inbox.release(size);
         }
     }
 
@@ -299,7 +361,11 @@ public final class NetworkService implements NetworkRouting {
         EnvelopeCodec.Result result = codec.decode(text, broadcast, local, now);
         Envelope envelope = result.envelope();
         if (envelope == null) {
-            if (result.drop() == EnvelopeCodec.Drop.BAD_SIGNATURE) warnBadSignature(now);
+            if (result.drop() == EnvelopeCodec.Drop.BAD_SIGNATURE)
+                badSignatures.warn(
+                        "bad-signature",
+                        "Dropped a network message with a bad signature; every instance needs the same network.secret",
+                        null);
             return;
         }
         if (!local && !envelope.from().equals(instanceId)) {
@@ -319,12 +385,6 @@ public final class NetworkService implements NetworkRouting {
 
     private boolean knownType(String type) {
         return type.equals(RosterCache.TYPE) || handlers.containsKey(type);
-    }
-
-    private void warnBadSignature(long now) {
-        long last = badSignatureWarned.get();
-        if (now - last < WARNING_PERIOD_MILLIS || !badSignatureWarned.compareAndSet(last, now)) return;
-        LogUtil.warn("Dropped a network message with a bad signature; every instance needs the same network.secret");
     }
 
     @Override
