@@ -107,24 +107,6 @@ class TargetLookupTest {
     }
 
     @Test
-    void withoutMojangNamesAnAbsentNameNeedsAUuid() {
-        TargetLookup lookup = lookup(url -> reply(200, MOJANG_BODY));
-        TargetLookup.Outcome outcome = lookup.resolve("notch", false).join();
-        assertNull(outcome.target());
-        assertEquals("notch is not online, and this server is in offline mode; use their UUID.", outcome.problem());
-        assertEquals(0, calls.get());
-        assertEquals(TYPED, lookup.resolve(TYPED_PLAIN, false).join().target().id());
-    }
-
-    @Test
-    void withoutMojangNamesAnOnlinePlayerIsStillFound() {
-        CloudArguments.Target steve = new CloudArguments.Target(ONLINE, "Steve");
-        TargetLookup lookup = lookup(name -> steve, url -> reply(200, MOJANG_BODY), Duration.ofSeconds(5));
-        assertEquals(steve, lookup.resolve("steve", false).join().target());
-        assertEquals(0, calls.get());
-    }
-
-    @Test
     void mojangNotKnowingTheNameIsAClearMiss() {
         TargetLookup.Outcome outcome =
                 lookup(url -> reply(404, "{}")).resolve("ghost").join();

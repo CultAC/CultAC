@@ -10,7 +10,6 @@ import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.command.commands.CultCloud;
 import ac.cult.cultac.command.commands.CultFindings;
 import ac.cult.cultac.command.commands.CultLabel;
-import ac.cult.cultac.command.commands.CultReport;
 import ac.cult.cultac.command.commands.CultTop;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.network.CultConnection;
@@ -103,7 +102,6 @@ class CloudOffTest {
             new CultFindings().register(commands, null);
             new CultTop().register(commands, null);
             new CultLabel().register(commands, null);
-            new CultReport().register(commands, null);
             EmbeddedChannel channel = new EmbeddedChannel();
             CultConnection connection = new CultConnection(
                     OfflineCultTestBootstrap.platformConnection(),

@@ -182,11 +182,6 @@ bukkit {
             default = Permission.Default.OP
         }
 
-        register("cult.cloud.report") {
-            description = "File player reports with the cloud"
-            default = Permission.Default.OP
-        }
-
         register("cult.portal.admin") {
             description = "Reported to the cloud portal as an admin of this server's organization"
             default = Permission.Default.FALSE
