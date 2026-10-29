@@ -52,9 +52,12 @@ public class PacketPlayerDigging {
             int other = Math.min(held, used);
 
             if (j > 0 && RiptideUtil.isValidRiptideRelease(player, hand)) {
-                state.riptideLevel = j;
-                state.riptideAlternativeLevel = other != j ? other : 0;
-                state.riptideReleaseCertain = other > 0 && RiptideUtil.isCertainRiptideRelease(player);
+                // Entity#rideTick zeroes a passenger's delta before its tick, so its release pushes nothing.
+                if (!player.compensatedEntities.getSelf().inVehicle()) {
+                    state.riptideLevel = j;
+                    state.riptideAlternativeLevel = other != j ? other : 0;
+                    state.riptideReleaseCertain = other > 0 && RiptideUtil.isCertainRiptideRelease(player);
+                }
                 player.riptideSpinAttackTicks = 20;
                 player.riptideSpinCertain = state.riptideReleaseCertain;
             }

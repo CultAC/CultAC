@@ -13,9 +13,11 @@ import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
@@ -28,10 +30,12 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.data.ClientItemUseState;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.List;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -41,6 +45,7 @@ import org.junit.jupiter.params.provider.EnumSource;
  * spins at the released trident's riptide level once the use has run ten ticks.
  */
 class JavaRiptideReleaseTest {
+    private static final int VEHICLE = 100;
     private static final Vec3 RESTED = SHALLOWS.add(SETTLED);
 
     @ParameterizedTest
@@ -230,6 +235,31 @@ class JavaRiptideReleaseTest {
             hold(f, 10);
             release(f);
             assertRelease(f, level, exact);
+        }
+    }
+
+    /** Entity#rideTick zeroes a passenger's delta, so its spin leaves the vehicle's travel in water unchanged. */
+    @Test
+    void aPassengersSpinLeavesItsVehicleInWater() throws Exception {
+        try (var f = fixture(ClientVersion.V_1_21_11)) {
+            f.water(new BlockPos(-8, FLOOR_Y, -8), new BlockPos(8, FLOOR_Y + 3, 8));
+            f.player.getInventory().inventory.getInventoryStorage().setItem(Inventory.HOTBAR_OFFSET, trident(3));
+            f.place(SHALLOWS.add(0, 1, 0), Vec3.ZERO);
+            f.player.compensatedEntities.addEntity(
+                    VEHICLE, EntityTypes.defaults().byKey("minecraft:camel").id(), SHALLOWS, 0, 0, 0);
+            ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
+            f.setPassengers(VEHICLE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            for (int tick = 0; tick < 2; tick++) f.rideTick(SHALLOWS, true);
+            use(f, Hand.MAIN_HAND);
+            for (int tick = 0; tick < 10; tick++) f.rideTick(SHALLOWS, true);
+            release(f);
+            assertEquals(20, f.player.riptideSpinAttackTicks);
+            PredictionResult result = f.rideTick(SHALLOWS, true);
+            assertTrue(
+                    result.getSimulationContext().getWorldData().getInWater().determinePessimistically(),
+                    describe(result));
+            assertTrue(exact(result), describe(result));
         }
     }
 
