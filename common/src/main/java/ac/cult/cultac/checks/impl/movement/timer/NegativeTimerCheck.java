@@ -23,7 +23,13 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
     float lastYRot = 0;
 
     public NegativeTimerCheck(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("NegativeTimer").setback(10).build());
+        super(
+                cultPlayer,
+                CheckInfo.builder()
+                        .name("NegativeTimer")
+                        .description("Game ran slower than normal speed")
+                        .setback(10)
+                        .build());
         this.timerBalanceRealTime = System.nanoTime() + this.clockDrift;
     }
 

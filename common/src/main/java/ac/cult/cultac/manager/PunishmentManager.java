@@ -2,6 +2,7 @@ package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.command.commands.CultInfo;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -40,7 +41,7 @@ public class PunishmentManager implements ConfigReloadable {
 
         alertString = config.getStringElse(
                 "alerts-format",
-                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\\n&8Description: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
+                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click to learn more\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
 
         testMode = config.getBooleanElse("test-mode", false);
 
@@ -215,7 +216,7 @@ public class PunishmentManager implements ConfigReloadable {
                                         CultAPI.INSTANCE.getPlatformServer().forwardAlert(cmd);
                                     case "[alert]" -> {
                                         sentDebug = true;
-                                        Component message = MessageUtil.miniMessage(cmd);
+                                        Component message = CultInfo.linkCheckName(MessageUtil.miniMessage(cmd), check);
                                         if (testMode) { // secret test mode
                                             if (verboseListeners == null
                                                     || verboseListeners.contains(player.platformPlayer)) {

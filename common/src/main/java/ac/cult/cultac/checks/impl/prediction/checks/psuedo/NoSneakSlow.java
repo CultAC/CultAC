@@ -7,6 +7,11 @@ import ac.cult.cultac.player.CultPlayer;
 
 public class NoSneakSlow extends Check implements PostPredictionListener {
     public NoSneakSlow(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("NoSneakSlow").build());
+        super(
+                cultPlayer,
+                CheckInfo.builder()
+                        .name("NoSneakSlow")
+                        .description("Moved too fast while sneaking")
+                        .build());
     }
 }

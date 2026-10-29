@@ -7,6 +7,11 @@ import ac.cult.cultac.player.CultPlayer;
 
 public class Strafe extends Check implements PostPredictionListener {
     public Strafe(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("Strafe").build());
+        super(
+                cultPlayer,
+                CheckInfo.builder()
+                        .name("Strafe")
+                        .description("Changed their movement in the air in a way the game does not allow")
+                        .build());
     }
 }
