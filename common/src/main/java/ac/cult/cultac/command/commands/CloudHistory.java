@@ -1,7 +1,6 @@
 package ac.cult.cultac.command.commands;
 
 import ac.cult.cultac.cloud.history.HistoryClient;
-import ac.cult.cultac.cloud.history.HistoryClient.Check;
 import ac.cult.cultac.cloud.history.HistoryClient.Finding;
 import ac.cult.cultac.cloud.history.HistoryClient.Session;
 import ac.cult.cultac.cloud.history.HistoryClient.Sessions;
@@ -28,24 +27,17 @@ import org.jetbrains.annotations.Nullable;
  * {@code /cult history} read from the cloud: a player's sessions on every server of the organization and a session's
  * findings, shaped as this server's history so {@link HistoryComponentRenderer} draws them alike, with {@link #ORIGIN}.
  * Ordinals number a player's sessions from 1 for the oldest to the cloud's {@code total} for the newest, as this
- * server's history does. A finding's source is its description; the cloud's detections carry a label in their check
- * name, so they count apart from this anticheat's checks of the same name.
+ * server's history does. A finding's source is its description.
  */
 final class CloudHistory {
     static final String UNAVAILABLE = "Cloud history is unavailable; showing this server's history.";
     static final String REFUSED = "The cloud refused this server's key; showing this server's history.";
     /** The most findings read for one session, as many as this server's history reads. */
     static final int MAX_FINDINGS = 10_000;
-    /** The source of this anticheat's own findings; every other source is one of the cloud's detections. */
-    static final String ENGINE = "engine";
-
-    static final String CLOUD_CHECK = "cloud-check";
-    static final String CLOUD_MODEL = "cloud-model";
     /** The {@code endReason} of a session whose stream ended without a close. */
     static final String LOST = "lost";
     /** How the renderer draws the cloud's records. */
-    static final HistoryComponentRenderer.Origin ORIGIN =
-            HistoryComponentRenderer.Origin.cloud(CloudHistory::isDetection);
+    static final HistoryComponentRenderer.Origin ORIGIN = HistoryComponentRenderer.Origin.CLOUD;
 
     /** The cloud's two history calls. */
     interface Source {
@@ -196,13 +188,8 @@ final class CloudHistory {
                 session.server(),
                 session.protocol(),
                 session.brand(),
-                session.checks().stream()
-                        .filter(check -> ENGINE.equals(check.source()))
-                        .mapToLong(Check::flags)
-                        .sum(),
-                (int) session.checks().stream()
-                        .filter(check -> ENGINE.equals(check.source()))
-                        .count());
+                session.findings(),
+                session.checks().size());
     }
 
     static SessionDetail detail(
@@ -229,34 +216,17 @@ final class CloudHistory {
         return HistoryComponentRenderer.applyFilter(all, filter == null ? violation -> true : filter);
     }
 
-    /**
-     * {@code finding} as a violation, its stable key its kind and check. The cloud's detections are labelled as such in
-     * their check name; an unknown source counts as {@link #CLOUD_CHECK}.
-     */
+    /** {@code finding} as a violation, its stable key its source and check. */
     static ViolationEntry violation(Finding finding, long started) {
-        String kind = switch (finding.source()) {
-            case ENGINE, CLOUD_MODEL -> finding.source();
-            default -> CLOUD_CHECK;
-        };
-        String name = switch (kind) {
-            case ENGINE -> finding.check();
-            case CLOUD_MODEL -> finding.check() + " (cloud model)";
-            default -> finding.check() + " (cloud check)";
-        };
         return new ViolationEntry(
                 0,
-                kind + ":" + finding.check(),
-                name,
+                finding.source() + ":" + finding.check(),
+                finding.check(),
                 finding.source(),
                 Math.max(0, finding.at() - started),
                 finding.value(),
                 finding.detail(),
                 VerboseFormat.TEXT);
-    }
-
-    /** Whether {@code violation} is one of the cloud's detections, whose value is a confidence from 0 to 1. */
-    static boolean isDetection(ViolationEntry violation) {
-        return !violation.stableKey().startsWith(ENGINE + ":");
     }
 
     private static long lastActivity(Session session) {

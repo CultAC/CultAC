@@ -69,11 +69,7 @@ public final class HistoryClient {
     public record Sessions(
             long total, List<Session> sessions, @Nullable String next) {}
 
-    /**
-     * A finding. With {@code source} {@code engine}, one of this anticheat's own checks, {@code value} is the violation
-     * level and {@code detail} the verbose; any other source is one of the cloud's detections, whose {@code value} is a
-     * confidence from 0 to 1.
-     */
+    /** A finding: {@code value} is its violation level and {@code detail} its verbose. */
     public record Finding(long at, long tick, String source, String check, double value, String detail) {}
 
     /** One page of a session's findings; {@code next} is null on the last page. */
