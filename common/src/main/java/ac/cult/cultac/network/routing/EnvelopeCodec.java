@@ -7,9 +7,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.Base64;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.UUID;
 import java.util.function.Predicate;
 import javax.crypto.Mac;
@@ -52,14 +49,18 @@ final class EnvelopeCodec {
     private final @Nullable SecretKeySpec key;
     private final String self;
     private final Predicate<String> knownType;
-    /** Accepted ids by arrival time, oldest first; guarded by itself. */
-    private final LinkedHashMap<UUID, Long> seen = new LinkedHashMap<>();
+    /** The accepted ids, in a scope of this codec's own. */
+    private final SharedClaims seen;
 
-    /** {@code key} null writes unsigned text, which only {@link #decode} with {@code trusted} accepts. */
-    EnvelopeCodec(byte @Nullable [] key, String self, Predicate<String> knownType) {
+    /**
+     * {@code key} null writes unsigned text, which only {@link #decode} with {@code trusted} accepts. {@code seen}
+     * remembers the accepted ids and is this codec's alone.
+     */
+    EnvelopeCodec(byte @Nullable [] key, String self, Predicate<String> knownType, SharedClaims seen) {
         this.key = key == null || key.length == 0 ? null : new SecretKeySpec(key, HMAC);
         this.self = self;
         this.knownType = knownType;
+        this.seen = seen;
     }
 
     String encode(Envelope envelope) {
@@ -89,7 +90,7 @@ final class EnvelopeCodec {
         if (!trusted && broadcast && envelope.from().equals(self)) return new Result(envelope, Drop.OWN_BROADCAST);
         if (Math.abs(now - envelope.ts()) > MAX_SKEW_MILLIS) return new Result(envelope, Drop.STALE);
         if (!knownType.test(envelope.type())) return new Result(envelope, Drop.UNKNOWN_TYPE);
-        if (!firstSighting(envelope.id(), now)) return Result.dropped(Drop.REPLAYED);
+        if (!seen.claim(envelope.id().toString(), now)) return Result.dropped(Drop.REPLAYED);
         return new Result(envelope, null);
     }
 
@@ -130,17 +131,6 @@ final class EnvelopeCodec {
     private static String nonEmpty(String value) {
         if (value.isEmpty()) throw new IllegalArgumentException("empty instance");
         return value;
-    }
-
-    private boolean firstSighting(UUID id, long now) {
-        synchronized (seen) {
-            Iterator<Map.Entry<UUID, Long>> oldest = seen.entrySet().iterator();
-            while (oldest.hasNext()) {
-                if (now - oldest.next().getValue() <= REPLAY_WINDOW_MILLIS) break;
-                oldest.remove();
-            }
-            return seen.putIfAbsent(id, now) == null;
-        }
     }
 
     /** The UTF-8 length of {@code text}; past {@link #MAX_BYTES} characters, its character count, already too large. */

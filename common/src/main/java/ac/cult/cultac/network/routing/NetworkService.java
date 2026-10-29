@@ -142,7 +142,8 @@ public final class NetworkService implements NetworkRouting {
         this.clock = clock;
         this.scheduler = scheduler;
         this.receiver = receiver;
-        this.codec = new EnvelopeCodec(key, instanceId, this::knownType);
+        this.codec = new EnvelopeCodec(
+                key, instanceId, this::knownType, new SharedClaims(host, "envelope/" + UUID.randomUUID(), clock));
         this.directChannel = NetworkSettings.channel(key, instanceId);
         this.broadcastChannel = NetworkSettings.channel(key, NetworkSettings.ALL);
         this.channelPrefix = NetworkSettings.channel(key, "");

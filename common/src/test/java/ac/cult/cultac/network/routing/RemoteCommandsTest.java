@@ -552,14 +552,20 @@ class RemoteCommandsTest {
                 .start();
 
         assertTrue(a.run(staff, LINE, aliceOn("p7")).join());
-        Map<?, ?> claims = assertInstanceOf(Map.class, shared.get(RemoteCommands.CLAIMS));
-        assertEquals(1, claims.size());
+        Map<?, ?> claims = assertInstanceOf(Map.class, shared.get(SharedClaims.KEY));
+        assertEquals(1, commandClaims(claims));
         clock.addAndGet(EnvelopeCodec.REPLAY_WINDOW_MILLIS);
         assertTrue(a.run(staff, LINE, aliceOn("p7")).join());
-        assertEquals(2, claims.size());
+        assertEquals(2, commandClaims(claims));
         clock.addAndGet(SharedClaims.SWEEP_PERIOD_MILLIS);
         assertTrue(a.run(staff, LINE, aliceOn("p7")).join());
-        assertEquals(2, claims.size());
+        assertEquals(2, commandClaims(claims));
+    }
+
+    private static long commandClaims(Map<?, ?> claims) {
+        return claims.keySet().stream()
+                .filter(key -> key.toString().startsWith(RemoteCommands.CLAIMS + ":"))
+                .count();
     }
 
     @Test

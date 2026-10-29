@@ -25,8 +25,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class AlertNetwork {
     public static final String TYPE = "alert";
-    /** The host-shared key of the alert envelope ids already taken by a generation here, with when. */
-    public static final String CLAIMS = "cultac.network.claims.alert";
+    /** The {@link SharedClaims} scope of the alert envelope ids already taken by a generation here. */
+    public static final String CLAIMS = "alert";
     /** Same-instance only: the current generation republishes whether staff here take verbose. */
     static final String DEMAND_CHANGED = "alert.demand";
 

@@ -40,8 +40,8 @@ final class RemoteCommands {
     static final String CMD = "cmd";
     static final String DONE = "cmd.done";
     static final String LEFT = "left";
-    /** The host-shared key of the request ids already taken by a generation here, with when. */
-    static final String CLAIMS = "cultac.network.command-claims";
+    /** The {@link SharedClaims} scope of the request ids already taken by a generation here. */
+    static final String CLAIMS = "command";
 
     static final long RUN_MILLIS = 20_000;
     static final long ANSWER_MILLIS = 30_000;
