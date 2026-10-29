@@ -177,14 +177,17 @@ public final class NetworkService implements NetworkRouting {
         String instanceId = settings.resolveInstanceId(platform::redisBungeeId, platform::address);
         byte[] key = settings.resolveSecret(platform.defaultSecret());
         Redaction redaction = Redaction.of(settings);
-        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(daemon("CultAC network"));
-        RuntimeEnvironment.track(scheduler, scheduler::shutdownNow);
-        ExecutorService receiver = Executors.newSingleThreadExecutor(daemon("CultAC network receiver"));
-        RuntimeEnvironment.track(receiver, receiver::shutdownNow);
         MessageTransport transport = transport(settings, platform, instanceId, key, redaction);
-        if (transport != null)
+        ScheduledExecutorService scheduler = null;
+        ExecutorService receiver = null;
+        if (transport != null) {
             LogUtil.info("Network routing over " + transport.name() + " as instance " + instanceId + ", signing with "
                     + keySource(settings, platform) + ", on channels " + NetworkSettings.channel(key, "") + "*");
+            scheduler = Executors.newSingleThreadScheduledExecutor(daemon("CultAC network"));
+            RuntimeEnvironment.track(scheduler, scheduler::shutdownNow);
+            receiver = Executors.newSingleThreadExecutor(daemon("CultAC network receiver"));
+            RuntimeEnvironment.track(receiver, receiver::shutdownNow);
+        }
         return new NetworkService(
                 settings,
                 platform,
