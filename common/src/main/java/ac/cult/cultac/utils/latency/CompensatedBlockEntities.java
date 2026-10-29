@@ -175,6 +175,11 @@ public final class CompensatedBlockEntities {
         lastTickShoves.clear();
     }
 
+    public void positionSet(boolean relativeX, boolean relativeY, boolean relativeZ) {
+        lastTickShoves.removeIf(shove ->
+                shove.x() != 0.0D && !relativeX || shove.y() != 0.0D && !relativeY || shove.z() != 0.0D && !relativeZ);
+    }
+
     /**
      * Adds the ShulkerBoxBlockEntity#moveCollidedEntities calls of the client tick that ended last, or with
      * {@code next} those of the client tick that runs next, whose block entities tick when {@code runsNormally}.

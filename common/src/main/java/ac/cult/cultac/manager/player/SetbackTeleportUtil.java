@@ -1183,6 +1183,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             if (exactTeleportPosition
                     && (teleportPos.isPositionOnly() || receivedTransaction == teleportPos.getTransaction())) {
                 pendingTeleports.poll();
+                player.compensatedWorld.onClientPositionSet(
+                        teleportPos.isRelativeX(), teleportPos.isRelativeY(), teleportPos.isRelativeZ());
                 return completeTeleport(teleportPos, clamped, true);
             } else if (teleportPos.isPositionOnly() && receivedTransaction <= teleportPos.getTransaction()) {
                 break;

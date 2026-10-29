@@ -523,6 +523,10 @@ public class CompensatedWorld {
         lastTeleportPredictionSequence = clientPredictionSequence;
     }
 
+    public void onClientPositionSet(boolean relativeX, boolean relativeY, boolean relativeZ) {
+        clientBlockEntities.positionSet(relativeX, relativeY, relativeZ);
+    }
+
     /** BlockStatePredictionHandler#lastTeleportSequence exists from 26.1; older clients always snap back. */
     private boolean tracksTeleportSequence() {
         return !player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1);
