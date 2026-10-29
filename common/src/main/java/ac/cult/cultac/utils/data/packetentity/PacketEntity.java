@@ -1519,6 +1519,14 @@ public class PacketEntity {
         return box;
     }
 
+    /**
+     * The movement box this entity has while it holds {@code positionBox}, one of its position boxes, written into it:
+     * the box a position this entity's own candidates do not hold, such as a rider's seat, gives a reader.
+     */
+    public SimpleCollisionBox movementBoxAt(SimpleCollisionBox positionBox) {
+        return positionBox;
+    }
+
     public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidates() {
         List<SimpleCollisionBox> view = tickPositionView();
         if (view != null) return view;

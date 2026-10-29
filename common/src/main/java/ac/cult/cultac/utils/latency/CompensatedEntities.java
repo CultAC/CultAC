@@ -405,8 +405,18 @@ public class CompensatedEntities {
             PacketEntity rider, SimpleCollisionBox near, SimpleCollisionBox rootBox, SimpleCollisionBox scratch) {
         List<SimpleCollisionBox> moved = rider.riderPushBoxes(riderPushPass);
         if (moved != null) return moved;
+        if (rootOf(rider) == null || !seatMayReach(rider, near, rootBox, scratch, true)) return List.of();
+        return untrackedRiderSeatsBeforeTick(rider);
+    }
+
+    /**
+     * The seats untracked {@code rider} may hold when its own Entity#rideTick begins in the client tick in progress:
+     * where the last tick's Entity#positionRider left it, on each place its root held before this tick stepped it.
+     * Empty inside a riding cycle. Allocates.
+     */
+    public List<SimpleCollisionBox> untrackedRiderSeatsBeforeTick(PacketEntity rider) {
         PacketEntity root = rootOf(rider);
-        if (root == null || !seatMayReach(rider, near, rootBox, scratch, true)) return List.of();
+        if (root == null) return List.of();
         List<SimpleCollisionBox> roots = root.movementCollisionBoxCandidatesBeforeTick();
         if (roots.size() == 1) {
             SimpleCollisionBox seat = untrackedRiderSeat(rider, 0, roots.getFirst());
@@ -418,6 +428,58 @@ public class CompensatedEntities {
             if (seat != null) seats.add(seat);
         }
         return seats;
+    }
+
+    /**
+     * The movement box untracked {@code rider} holds where the client tick in progress reads entity boxes, for
+     * EntityGetter#getEntityCollisions: Entity#canCollideWith admits a rider like any other entity.
+     * ClientLevel#tickPassenger reseats it on its root right after the root's tick. Until then it holds where the last
+     * block-entity pass left it, else where the last tick seated it, which is the seat on the place its root holds
+     * now. Null inside a riding cycle. Allocates; rule far riders out with {@link #untrackedRiderMayReach} first.
+     */
+    @Nullable
+    public SimpleCollisionBox untrackedRiderCollisionBox(PacketEntity rider) {
+        PacketEntity root = rootOf(rider);
+        if (root == null) return null;
+        List<SimpleCollisionBox> moved = rider.riderPushBoxes(riderPushPass);
+        boolean reseated = clientTickOrder(rider) <= tickedThroughOrder() && ticksInClientTick(root);
+        SimpleCollisionBox position;
+        if (moved != null && !reseated) {
+            position = moved.getFirst();
+            for (int i = 1, size = moved.size(); i < size && position != null; i++) {
+                if (!sameBox(position, moved.get(i))) position = null;
+            }
+            position = Objects.requireNonNull(position, "Entity collision requires exact compensated client-tick state")
+                    .copy();
+        } else {
+            position = untrackedRiderSeat(rider, 0, root.getClientMovementCollisionBox());
+            if (position == null) return null;
+        }
+        return rider.movementBoxAt(position);
+    }
+
+    private static boolean sameBox(SimpleCollisionBox a, SimpleCollisionBox b) {
+        return a.minX == b.minX
+                && a.minY == b.minY
+                && a.minZ == b.minZ
+                && a.maxX == b.maxX
+                && a.maxY == b.maxY
+                && a.maxZ == b.maxZ;
+    }
+
+    /**
+     * Steps the peek of each shulker riding outside the local player's riding trees, which ClientLevel#tickPassenger
+     * ticks after its root although nothing here positions it, so its box and Shulker#onPeekAmountChange match a
+     * tracked shulker's. Runs before the roots step; a closed shulker allocates nothing.
+     */
+    public void tickUntrackedShulkerRiders() {
+        if (player.isBedrockMovement()) return;
+        List<PacketEntity> candidates = unknownCollisionCandidates();
+        for (int i = 0, size = candidates.size(); i < size; i++) {
+            if (candidates.get(i) instanceof PacketEntityShulker shulker
+                    && shulker.getRiding() != null
+                    && isUntrackedRider(shulker)) shulker.tickAsUntrackedRider();
+        }
     }
 
     /** The seat untracked {@code rider} takes while the root of its vehicle chain holds {@code rootBox}; null in a cycle. */
@@ -1561,7 +1623,8 @@ public class CompensatedEntities {
 
     /**
      * The Shulker#onPeekAmountChange moves of the client tick in progress whose shulkers tick before, or after, the
-     * local player in ClientLevel#tickEntities, in that order. Each moves no passenger of its own root vehicle.
+     * local player in ClientLevel#tickEntities, in that order. Each moves no passenger of its own root vehicle; a
+     * shulker riding outside the player's riding trees opens from the seat its rideTick begins on.
      */
     public List<ClientBlockEntityPass.ShulkerPeek> shulkerPeekMoves(boolean beforePlayer) {
         if (player.isBedrockMovement()) return List.of();
@@ -1571,7 +1634,7 @@ public class CompensatedEntities {
         for (PacketEntity entity : unknownCollisionCandidates()) {
             if (!(entity instanceof PacketEntityShulker shulker)) continue;
             if (clientTickOrder(shulker) < playerOrder != beforePlayer) continue;
-            if (isUntrackedRider(shulker) || sharesRootVehicleWithSelf(shulker, rootOfSelf)) continue;
+            if (sharesRootVehicleWithSelf(shulker, rootOfSelf)) continue;
             ClientBlockEntityPass.ShulkerPeek move = shulker.peekMove();
             if (move == null) continue;
             if (moves == null) moves = new ArrayList<>(2);

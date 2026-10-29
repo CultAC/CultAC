@@ -1286,8 +1286,13 @@ public class CultPlayer implements GrimUser {
             List<SimpleCollisionBox> boxes = new ArrayList<>();
             var selection = new EntityCollisionSelection(this, compensatedEntities.getSelf(), new Vec3(x, y, z));
             for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
-                if (compensatedEntities.isUntrackedRider(entity) || !selection.mayCollide(entity)) continue;
-                SimpleCollisionBox box = selection.collisionBox(entity, entity.getClientMovementCollisionBox());
+                if (!selection.mayCollide(entity)) continue;
+                // A rider outside the player's riding trees collides at the place its vehicle chain gives it.
+                SimpleCollisionBox position = compensatedEntities.isUntrackedRider(entity)
+                        ? compensatedEntities.untrackedRiderCollisionBox(entity)
+                        : entity.getClientMovementCollisionBox();
+                if (position == null) continue;
+                SimpleCollisionBox box = selection.collisionBox(entity, position);
                 if (selection.collidesAt(entity, box)) boxes.add(box);
             }
             return boxes;

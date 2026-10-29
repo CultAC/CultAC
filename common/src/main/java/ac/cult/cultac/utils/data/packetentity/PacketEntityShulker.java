@@ -18,7 +18,8 @@ import org.jetbrains.annotations.Nullable;
  * A Shulker as a Java client ticks it. Shulker#makeBoundingBox opens the box from the attach face by the physical peek
  * of currentPeekAmount, which Shulker#tick steps 0.05 towards DATA_PEEK_ID each client tick; a growing peek moves every
  * entity in the newly opened part with MoverType.SHULKER (Shulker#onPeekAmountChange). Shulker#setPos puts a root on
- * its block's bottom centre. Bedrock clients keep the plain entity box.
+ * its block's bottom centre. A shulker riding outside the local player's riding trees ticks its peek alone, at the seat
+ * its vehicle chain gives it, since nothing positions it. Bedrock clients keep the plain entity box.
  */
 public class PacketEntityShulker extends PacketEntity {
     /** Shulker#getAttachFace (DATA_ATTACH_FACE_ID). */
@@ -79,6 +80,27 @@ public class PacketEntityShulker extends PacketEntity {
             block = blockOf(clientPosition());
             peekDataSinceBlock = false;
         }
+        stepPeek();
+    }
+
+    /**
+     * Shulker#tick through Entity#rideTick for a shulker riding outside the local player's riding trees, which no
+     * entity pass ticks or positions: updatePeekAmount at the seat the last Entity#positionRider gave it. A closed
+     * shulker with nothing to open towards needs no seat, so it allocates nothing.
+     */
+    public void tickAsUntrackedRider() {
+        if (!modelled()) return;
+        Vec3 position = closedRider() ? null : riderTickPosition();
+        if (!ridesInClientTick(position)) return;
+        rawPeek = rawPeekForRiderTick(position);
+        if (position != null) {
+            block = blockOf(position);
+            peekDataSinceBlock = false;
+        }
+        stepPeek();
+    }
+
+    private void stepPeek() {
         peekO = peek;
         peek = step(peek, rawPeek);
         ticked = true;
@@ -93,6 +115,50 @@ public class PacketEntityShulker extends PacketEntity {
     private byte rawPeekForTick() {
         if (!ticked || peekDataSinceBlock || oldPacketLocation != null) return rawPeek;
         return blockOf(clientPosition()) == block ? rawPeek : 0;
+    }
+
+    /** {@link #rawPeekForTick()} for an untracked rider at {@code position}, null when its seat is not one position. */
+    private byte rawPeekForRiderTick(@Nullable Vec3 position) {
+        if (!ticked || peekDataSinceBlock || position == null) return rawPeek;
+        return blockOf(position) == block ? rawPeek : 0;
+    }
+
+    private boolean untrackedRider() {
+        return riding != null && player.compensatedEntities.isUntrackedRider(this);
+    }
+
+    // A closed peek stays closed and needs no position: neither its box nor DATA_PEEK_ID's block reset can change.
+    private boolean closedRider() {
+        return rawPeek == 0 && peek == 0.0F && peekO == 0.0F;
+    }
+
+    /**
+     * Where this untracked rider's own tick finds it: the seat the last Entity#positionRider gave it, on the place its
+     * root held before the client tick in progress stepped it. Null when that is not one position. Allocates.
+     */
+    private @Nullable Vec3 riderTickPosition() {
+        Vec3 position = null;
+        for (SimpleCollisionBox seat : player.compensatedEntities.untrackedRiderSeatsBeforeTick(this)) {
+            Vec3 candidate = clientPosition(seat);
+            if (position == null) position = candidate;
+            else if (!position.equals(candidate)) return null;
+        }
+        return position;
+    }
+
+    /**
+     * Whether ClientLevel#tickPassenger runs this untracked rider's Entity#rideTick in the client tick in progress: its
+     * root ticks, and from 1.17 the rider's own chunk at {@code position} ticks entities. A seat that is not one
+     * position is taken to tick with its root.
+     */
+    private boolean ridesInClientTick(@Nullable Vec3 position) {
+        CompensatedEntities entities = player.compensatedEntities;
+        PacketEntity root = entities.rootOf(this);
+        if (root == null || !entities.ticksInClientTick(root)) return false;
+        return position == null
+                || player.getClientVersion().isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_17)
+                || player.compensatedWorld.isClientEntityTickingChunk(
+                        CultMath.floor(position.x) >> 4, CultMath.floor(position.z) >> 4);
     }
 
     /** Shulker#updatePeekAmount's step of {@code peek} towards DATA_PEEK_ID {@code raw}. */
@@ -114,7 +180,11 @@ public class PacketEntityShulker extends PacketEntity {
         CompensatedEntities entities = player.compensatedEntities;
         boolean stepped = entities.clientTickOrder(this) <= entities.tickedThroughOrder();
         if (tickedThisClientTick()) return stepped ? peek : peekO;
-        return stepped && entities.ticksInClientTick(this) ? step(peek, rawPeekForTick()) : peek;
+        if (!stepped) return peek;
+        if (!untrackedRider()) return entities.ticksInClientTick(this) ? step(peek, rawPeekForTick()) : peek;
+        if (closedRider()) return peek;
+        Vec3 position = riderTickPosition();
+        return ridesInClientTick(position) ? step(peek, rawPeekForRiderTick(position)) : peek;
     }
 
     /**
@@ -124,11 +194,19 @@ public class PacketEntityShulker extends PacketEntity {
      */
     public @Nullable ShulkerPeek peekMove() {
         if (!modelled()) return null;
+        boolean rider = untrackedRider();
+        // An untracked rider opens from where its rideTick begins, before positionRider reseats it.
+        if (rider && closedRider()) return null;
+        Vec3 riderPosition = rider ? riderTickPosition() : null;
         float from;
         float to;
         if (tickedThisClientTick()) {
             from = peekO;
             to = peek;
+        } else if (rider) {
+            if (!ridesInClientTick(riderPosition)) return null;
+            from = peek;
+            to = step(peek, rawPeekForRiderTick(riderPosition));
         } else {
             if (!player.compensatedEntities.ticksInClientTick(this)) return null;
             from = peek;
@@ -139,7 +217,7 @@ public class PacketEntityShulker extends PacketEntity {
         float size = size();
         float push = (physicalTo - physicalFrom) * size;
         if (push <= 0.0F) return null;
-        Vec3 position = singleClientPosition();
+        Vec3 position = rider ? riderPosition : singleClientPosition();
         if (position == null) return null;
         Direction direction = facing.getOpposite();
         Box area = ShulkerGeometry.progressDeltaBounds(
@@ -235,6 +313,11 @@ public class PacketEntityShulker extends PacketEntity {
     public SimpleCollisionBox getExactMovementCollisionBox() {
         SimpleCollisionBox position = super.getExactMovementCollisionBox();
         return position == null || !modelled() ? position : shape(position.copy(), peekRead());
+    }
+
+    @Override
+    public SimpleCollisionBox movementBoxAt(SimpleCollisionBox positionBox) {
+        return modelled() ? shape(positionBox, peekRead()) : positionBox;
     }
 
     /** Shulker#makeBoundingBox with currentPeekAmount {@code peek} at the position {@code positionBox} holds. */

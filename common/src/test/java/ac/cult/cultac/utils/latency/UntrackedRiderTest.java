@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.combat.EntityHitboxes;
@@ -35,6 +36,7 @@ import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -49,9 +51,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mockito;
 
 /**
- * Riders outside the local player's own riding trees are untracked: never positioned, never ticked, skipped by
- * checks and collision, and anchored at their current seat when they dismount so their normal tracking resumes from
- * the position the client leaves the vehicle from.
+ * Riders outside the local player's own riding trees are untracked: never positioned or ticked, skipped by checks,
+ * and anchored at their current seat when they dismount so their normal tracking resumes from the position the client
+ * leaves the vehicle from. Entity collision still meets them at that seat, and a shulker rider's peek steps there.
  */
 class UntrackedRiderTest {
     private static final int SELF = 7;
@@ -61,6 +63,10 @@ class UntrackedRiderTest {
     private static final int CO_RIDER = 2101;
     private static final int BOAT_VEHICLE = 2200;
     private static final int RIDING_BOAT = 2201;
+    private static final int MINECART = 2300;
+    private static final int CART_SHULKER = 2301;
+    private static final int SHULKER_MOUNT = 2400;
+    private static final int OPEN_SHULKER = 2401;
 
     enum Client {
         LEGACY(ClientVersion.V_1_21_11),
@@ -134,23 +140,128 @@ class UntrackedRiderTest {
 
     @ParameterizedTest
     @EnumSource(Client.class)
-    void untrackedRidersAreSkippedByEntityCollision(Client client) {
+    void untrackedRidersCollideAtTheirSeat(Client client) {
         CultPlayer player = world(client.version);
         try {
+            PacketEntity vehicle = entity(player, BOAT_VEHICLE);
             PacketEntity boat = entity(player, RIDING_BOAT);
             assertTrue(player.compensatedEntities.isUntrackedRider(boat));
             Vec3 at = boat.clientPhysicalPosition;
+            Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(vehicle, boat, player);
+            SimpleCollisionBox seatBox =
+                    GetBoundingBox.getPacketEntityBoundingBox(player, seat.x, seat.y, seat.z, boat);
             List<SimpleCollisionBox> unknown = unknownCollisions(player, at);
-            SimpleCollisionBox vehicleBox = entity(player, BOAT_VEHICLE).getPossibleCollisionBoxes();
-            assertEquals(1, unknown.size(), "only the boat's vehicle, which is a root, is an unknown collision");
-            assertTrue(unknown.getFirst().isIntersected(vehicleBox));
+            assertEquals(2, unknown.size(), "Entity#canCollideWith admits a riding boat like any other: " + unknown);
+            assertContainsBox(vehicle.getPossibleMovementCollisionBoxes(), unknown);
+            assertContainsBox(seatBox, unknown);
 
+            // It dismounts from the seat it collided at.
             mount(player, BOAT_VEHICLE);
             assertFalse(player.compensatedEntities.isUntrackedRider(boat));
-            assertEquals(2, unknownCollisions(player, at).size());
+            unknown = unknownCollisions(player, at);
+            assertEquals(2, unknown.size());
+            assertContainsBox(seatBox, unknown);
         } finally {
             close(player);
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    void closedShulkerRidingAMinecartCollidesAtItsSeat(Client client) {
+        CultPlayer player = world(client.version);
+        try {
+            int minecart = EntityTypes.defaults().byKey("minecraft:minecart").id();
+            add(player, MINECART, minecart, -20.5, 8.5);
+            add(player, CART_SHULKER, EntityTypeIds.SHULKER, -20.5, 8.5);
+            mount(player, MINECART, CART_SHULKER);
+            assertTrue(player.compensatedEntities.isUntrackedRider(entity(player, CART_SHULKER)));
+
+            // EntityTypes#MINECART seats a rider 0.1875 above the cart, and a closed shell is the unit box over it, so
+            // a player on the block beside the cart's floor steps 0.1875 up onto it.
+            SimpleCollisionBox shell = new SimpleCollisionBox(-21.0, 64.1875, 8.0, -20.0, 65.1875, 9.0);
+            List<SimpleCollisionBox> unknown = unknownCollisions(player, new Vec3(-20.5, 65.0, 8.5));
+            assertEquals(1, unknown.size(), "the minecart itself never collides with a player: " + unknown);
+            assertContainsBox(shell, unknown);
+            Vec3 beside = new Vec3(-21.5, 65.0, 8.5);
+            assertTrue(UnknownCollisionProvider.hasEntityCollision(
+                    player, beside, new SimpleCollisionBox(-21.2, 65.0, 8.2, -20.6, 65.1, 8.8)));
+            assertFalse(UnknownCollisionProvider.hasEntityCollision(
+                    player, beside, new SimpleCollisionBox(-21.2, 65.19, 8.2, -20.6, 66.0, 8.8)));
+        } finally {
+            close(player);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    void untrackedShulkerRiderPeeksAtItsSeat(Client client) {
+        CultPlayer player = world(client.version);
+        try {
+            CompensatedEntities entities = player.compensatedEntities;
+            // ClientLevel#tickPassenger ticks the rider only in a chunk that ticks entities.
+            var column = new CompensatedWorld.CachedChunk(new CompensatedWorld.CachedSection[24], 0);
+            player.compensatedWorld.addToCache(column, 1, 0);
+            add(player, SHULKER_MOUNT, EntityTypeIds.PLAYER, 20.5, 0.5);
+            add(player, OPEN_SHULKER, EntityTypeIds.SHULKER, 20.5, 0.5);
+            mount(player, SHULKER_MOUNT, OPEN_SHULKER);
+            var shulker = (PacketEntityShulker) entity(player, OPEN_SHULKER);
+            assertTrue(entities.isUntrackedRider(shulker));
+            assertShell(
+                    1.0, seatBox(player, SHULKER_MOUNT, OPEN_SHULKER), entities.untrackedRiderCollisionBox(shulker));
+
+            // Shulker#onPeekAmountChange opens it upward from its seat, moving what the opened part meets.
+            shulker.onShapeData(null, (byte) 100);
+            List<ClientBlockEntityPass.ShulkerPeek> opening = new ArrayList<>(entities.shulkerPeekMoves(true));
+            opening.addAll(entities.shulkerPeekMoves(false));
+            assertEquals(1, opening.size(), "an opening rider moved nothing");
+            assertEquals(
+                    seatBox(player, SHULKER_MOUNT, OPEN_SHULKER).maxY,
+                    opening.getFirst().area().minY,
+                    1.0E-6);
+            assertTrue(opening.getFirst().movement().y > 0.0D);
+            for (int tick = 1; tick <= 25; tick++) step(player, tick, VEHICLE);
+            assertShell(
+                    2.0, seatBox(player, SHULKER_MOUNT, OPEN_SHULKER), entities.untrackedRiderCollisionBox(shulker));
+
+            // Shulker#setPos clears DATA_PEEK_ID on the client once positionRider moves it into another block.
+            for (int tick = 26; tick <= 28; tick++) step(player, tick, SHULKER_MOUNT);
+            for (int tick = 29; tick <= 55; tick++) step(player, tick, VEHICLE);
+            assertShell(
+                    1.0, seatBox(player, SHULKER_MOUNT, OPEN_SHULKER), entities.untrackedRiderCollisionBox(shulker));
+        } finally {
+            close(player);
+        }
+    }
+
+    private static void assertContainsBox(SimpleCollisionBox expected, List<SimpleCollisionBox> boxes) {
+        for (SimpleCollisionBox box : boxes) {
+            if (Math.abs(box.minX - expected.minX) < 1.0E-9
+                    && Math.abs(box.minY - expected.minY) < 1.0E-9
+                    && Math.abs(box.minZ - expected.minZ) < 1.0E-9
+                    && Math.abs(box.maxX - expected.maxX) < 1.0E-9
+                    && Math.abs(box.maxY - expected.maxY) < 1.0E-9
+                    && Math.abs(box.maxZ - expected.maxZ) < 1.0E-9) return;
+        }
+        throw new AssertionError("no " + expected + " in " + boxes);
+    }
+
+    // The position box positionRider gives rider on vehicle, a root that holds one place.
+    private static SimpleCollisionBox seatBox(CultPlayer player, int vehicle, int rider) {
+        PacketEntity mounted = entity(player, rider);
+        Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(entity(player, vehicle), mounted, player);
+        return GetBoundingBox.getPacketEntityBoundingBox(player, seat.x, seat.y, seat.z, mounted);
+    }
+
+    // A shulker shell rising height blocks above seat, attached to the floor.
+    private static void assertShell(double height, SimpleCollisionBox seat, SimpleCollisionBox shell) {
+        assertNotNull(shell);
+        assertEquals(seat.minX, shell.minX, 1.0E-9);
+        assertEquals(seat.minY, shell.minY, 1.0E-9);
+        assertEquals(seat.minZ, shell.minZ, 1.0E-9);
+        assertEquals(seat.maxX, shell.maxX, 1.0E-9);
+        assertEquals(seat.minY + height, shell.maxY, 1.0E-6);
+        assertEquals(seat.maxZ, shell.maxZ, 1.0E-9);
     }
 
     @ParameterizedTest

@@ -124,7 +124,8 @@ public final class UnknownCollisionProvider {
     /**
      * Whether EntityGetter#getEntityCollisions gives a Java player outside a vehicle, at {@code playerPos}, a shape for
      * {@code box}, which CollisionGetter#noCollision counts with the blocks: a box of a boat, live shulker or happy
-     * ghast it collides with meets {@code box} inflated by 1.0E-7, at its compensated client-tick position.
+     * ghast it collides with meets {@code box} inflated by 1.0E-7, at its compensated client-tick position, a rider's
+     * at its seat.
      */
     public static boolean hasEntityCollision(CultPlayer player, Vec3 playerPos, SimpleCollisionBox box) {
         if (player.isBedrockMovement() || player.compensatedEntities.getSelf().inVehicle()) return false;
@@ -135,28 +136,18 @@ public final class UnknownCollisionProvider {
         if (candidates.isEmpty()) return false;
         PacketEntity selfRidingRoot = entities.selfRidingRoot();
         PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
+        SimpleCollisionBox query = box.copy().expand(1.0E-7);
         SimpleCollisionBox envelope = new SimpleCollisionBox();
         SimpleCollisionBox scratch = new SimpleCollisionBox();
         var selection = new EntityCollisionSelection(player, entities.getSelf(), playerPos);
         for (int e = 0, size = candidates.size(); e < size; e++) {
             PacketEntity entity = candidates.get(e);
-            if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) continue;
             if (!selection.mayCollide(entity)) continue;
-            if (!intersectsInflated(entity.getPossibleMovementCollisionBoxes(envelope, scratch), box)) continue;
-            SimpleCollisionBox candidate = selection.collisionBox(entity, entity.getClientMovementCollisionBox());
-            if (intersectsInflated(candidate, box) && selection.collidesAt(entity, candidate)) return true;
+            boolean rider = entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot);
+            if (EntityPositionWorlds.collider(player, selection, entity, query, rider, envelope, scratch) != null)
+                return true;
         }
         return false;
-    }
-
-    /** AABB#intersects of {@code entity} with {@code box} inflated by 1.0E-7. */
-    private static boolean intersectsInflated(SimpleCollisionBox entity, SimpleCollisionBox box) {
-        return entity.minX < box.maxX + 1.0E-7
-                && entity.maxX > box.minX - 1.0E-7
-                && entity.minY < box.maxY + 1.0E-7
-                && entity.maxY > box.minY - 1.0E-7
-                && entity.minZ < box.maxZ + 1.0E-7
-                && entity.maxZ > box.minZ - 1.0E-7;
     }
 
     private static void addIntersecting(
