@@ -34,6 +34,8 @@ import lombok.Data;
 
 public class HorizontalAnalyzer implements EngineCheck {
     public static final double HORIZONTAL_INPUT_UNCERTAINTY = 0.001D;
+    // Read only within one handleResult call on the owning player's thread; never stored.
+    private final SimpleCollisionBox crawlBox = new SimpleCollisionBox();
 
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
         if (result.getProfileResult(BedrockPredictionResult.class) != null) {
@@ -110,7 +112,8 @@ public class HorizontalAnalyzer implements EngineCheck {
         Vec3 from = result.getSimulationContext().getStart();
 
         // The logic is that if the player has collisions above this, they will simply go into swimming position
-        SimpleCollisionBox oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(from.x, from.y, from.z, 0.6f, 0.6f)
+        SimpleCollisionBox oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                        crawlBox, from.x, from.y, from.z, 0.6f, 0.6f)
                 .expand(-SimpleCollisionBox.COLLISION_EPSILON);
         if (!Collisions.isEmpty(player, oldBox)) {
             isSlowed = false;
