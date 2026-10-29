@@ -154,9 +154,6 @@ network-command-stopped: "&cThe command could not be forwarded to %instance%: ne
 network-command-not-forwarded: "&cThe command could not be forwarded to %instance%."
 network-command-target-left: "&c%player% is no longer on %instance%."
 network-command-failed: "&c%instance% could not run the command: %reason%"
-network-command-line-too-large: "&7One line of output was too large to relay."
-network-command-output-lost: "&cSome output from %instance% was lost."
-network-command-unfinished: "&7%instance% did not report that the command finished; its output may be incomplete."
 network-command-no-answer: "&c%instance% did not answer."
 network-command-output-cut: "&cThe rest of the output from %instance% was cut: it is over %lines% lines or %kb% KB."
 # /cult findplayer [brand=<text>]: the client brands online, or the players whose brand contains the text.

@@ -24,6 +24,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -209,21 +210,13 @@ class RemoteCommandsTest {
         return bodies;
     }
 
-    private static JsonObject output(String id, int seq, Component component) {
-        JsonObject body = new JsonObject();
-        body.addProperty("id", id);
-        body.addProperty("seq", seq);
-        body.add(
-                "component",
-                JsonParser.parseString(GsonComponentSerializer.gson().serialize(component)));
-        return body;
-    }
-
-    private static JsonObject done(String id, boolean ok, int count) {
+    private static JsonObject done(String id, boolean ok, Component... output) {
         JsonObject body = new JsonObject();
         body.addProperty("id", id);
         body.addProperty("ok", ok);
-        body.addProperty("count", count);
+        JsonArray lines = new JsonArray();
+        for (Component component : output) lines.add(GsonComponentSerializer.gson().serialize(component));
+        body.add("output", lines);
         return body;
     }
 
@@ -321,7 +314,7 @@ class RemoteCommandsTest {
     }
 
     @Test
-    void anInstanceThatNeverAnswersFailsAfterTenSeconds() {
+    void anInstanceThatNeverAnswersFailsAfterThirtySeconds() {
         NetworkService a = started("p3", new Players(), new Recorder());
         NetworkService b = started("p7", new Players().with(ALICE, "Alice"), new Recorder());
         b.stop();
@@ -349,128 +342,48 @@ class RemoteCommandsTest {
     }
 
     @Test
-    void outputWithoutAnAnswerCountsAsRunOnceItWentQuietForSixtySecondsWithANote() {
-        NetworkService a = started("p3", new Players(), new Recorder());
-        Recorder there = new Recorder();
-        AtomicReference<Sender> source = new AtomicReference<>();
-        there.behaviour = (sender, line) -> {
-            source.set(sender);
-            sender.sendMessage(Component.text("working"));
-            return new CompletableFuture<>();
-        };
-        started("p7", new Players().with(ALICE, "Alice"), there);
-
-        CompletableFuture<Boolean> ran = a.run(staff, LINE, aliceOn("p7"));
-        clock.addAndGet(RemoteCommands.ANSWER_MILLIS);
-        a.sweepCommands();
-        assertFalse(ran.isDone());
-        clock.addAndGet(20_000);
-        source.get().sendMessage(Component.text("still working"));
-        clock.addAndGet(RemoteCommands.QUIET_MILLIS - 1);
-        a.sweepCommands();
-        assertFalse(ran.isDone());
-
-        clock.addAndGet(1);
-        a.sweepCommands();
-        assertTrue(ran.join());
-        List<String> heard = staff.plain();
-        assertEquals(List.of("working", "still working"), heard.subList(0, 2));
-        assertEquals(
-                List.of("p7 did not report that the command finished; its output may be incomplete."),
-                heard.subList(2, heard.size()));
-        assertEquals(NamedTextColor.GRAY, staff.heard.getLast().color());
-    }
-
-    @Test
-    void outputBeforeTheAnswerAndLateOutputWithinThirtySecondsOfItAreAllRelayed() {
+    void theOutputArrivesAtOnceWhenTheCommandCompletes() {
         NetworkService a = started("p3", new Players(), new Recorder());
         Recorder there = new Recorder();
         AtomicReference<Sender> source = new AtomicReference<>();
         CompletableFuture<Void> command = new CompletableFuture<>();
         there.behaviour = (sender, line) -> {
             source.set(sender);
+            sender.sendMessage(Component.text("one"));
             return command;
         };
         started("p7", new Players().with(ALICE, "Alice"), there);
 
         CompletableFuture<Boolean> ran = a.run(staff, LINE, aliceOn("p7"));
-        clock.addAndGet(1_000);
-        source.get().sendMessage(Component.text("one"));
-        clock.addAndGet(10_000);
-        a.sweepCommands();
+        source.get().sendMessage(Component.text("two"));
         assertFalse(ran.isDone());
-        clock.addAndGet(9_000);
+        assertTrue(staff.plain().isEmpty());
         command.complete(null);
         assertTrue(ran.join());
-        clock.addAndGet(25_000);
-        a.sweepCommands();
-        source.get().sendMessage(Component.text("late"));
-        assertEquals(List.of("one", "late"), staff.plain());
+        assertEquals(List.of("one", "two"), staff.plain());
     }
 
     @Test
-    void outputArrivingAfterTheAnswerBehindItIsStillRelayedFirst() {
-        NetworkService a = started("p3", new Players(), new Recorder());
-        Recorder there = new Recorder();
-        there.behaviour = (sender, line) -> new CompletableFuture<>();
-        NetworkService b = started("p7", new Players().with(ALICE, "Alice"), there);
-        List<JsonObject> requests = requests(b);
-
-        CompletableFuture<Boolean> ran = a.run(staff, LINE, aliceOn("p7"));
-        String id = requests.getFirst().get("id").getAsString();
-        b.send("p3", RemoteCommands.OUT, output(id, 1, Component.text("second")));
-        b.send("p3", RemoteCommands.DONE, done(id, true, 2));
-        assertTrue(ran.join());
-        assertTrue(staff.plain().isEmpty());
-        b.send("p3", RemoteCommands.OUT, output(id, 0, Component.text("first")));
-        assertEquals(List.of("first", "second"), staff.plain());
-    }
-
-    @Test
-    void outputTheAnswerCountedButThatNeverArrivedIsReportedLost() {
-        NetworkService a = started("p3", new Players(), new Recorder());
-        Recorder there = new Recorder();
-        there.behaviour = (sender, line) -> new CompletableFuture<>();
-        NetworkService b = started("p7", new Players().with(ALICE, "Alice"), there);
-        List<JsonObject> requests = requests(b);
-
-        CompletableFuture<Boolean> ran = a.run(staff, LINE, aliceOn("p7"));
-        String id = requests.getFirst().get("id").getAsString();
-        b.send("p3", RemoteCommands.OUT, output(id, 0, Component.text("first")));
-        b.send("p3", RemoteCommands.DONE, done(id, true, 2));
-        assertTrue(ran.join());
-        clock.addAndGet(RemoteCommands.LINGER_MILLIS + 1);
-        a.sweepCommands();
-        assertEquals(List.of("first", "Some output from p7 was lost."), staff.plain());
-    }
-
-    @Test
-    void lateOutputReachesTheSenderForThirtySecondsAfterTheCommandCompleted() {
+    void outputSentAfterTheCommandCompletedIsDropped() {
         NetworkService a = started("p3", new Players(), new Recorder());
         Recorder there = new Recorder();
         AtomicReference<Sender> source = new AtomicReference<>();
         there.behaviour = (sender, line) -> {
             source.set(sender);
+            sender.sendMessage(Component.text("in time"));
             return CompletableFuture.completedFuture(null);
         };
-        NetworkService b = started("p7", new Players().with(ALICE, "Alice"), there);
-        List<JsonObject> requests = requests(b);
+        started("p7", new Players().with(ALICE, "Alice"), there);
 
         assertTrue(a.run(staff, LINE, aliceOn("p7")).join());
-        clock.addAndGet(RemoteCommands.LINGER_MILLIS);
-        source.get().sendMessage(Component.text("late"));
-        assertEquals(List.of("late"), staff.plain());
-
-        clock.addAndGet(1);
-        String id = requests.getFirst().get("id").getAsString();
-        b.send("p3", RemoteCommands.OUT, output(id, 1, Component.text("too late")));
-        source.get().sendMessage(Component.text("also too late"));
+        source.get().sendMessage(Component.text("too late"));
         assertFalse(source.get().isValid());
-        assertEquals(List.of("late"), staff.plain());
+        assertEquals(List.of("in time"), staff.plain());
+        assertEquals(1, envelopes(TestNetworks.channel("p3"), RemoteCommands.DONE).size());
     }
 
     @Test
-    void outputOutOfOrderIsRelayedInOrderAndAGapLeftWhenTheLateWindowClosesIsReported() {
+    void theAnswerIsTakenOnceAndItsOutputShownInOrder() {
         NetworkService a = started("p3", new Players(), new Recorder());
         Recorder there = new Recorder();
         there.behaviour = (sender, line) -> new CompletableFuture<>();
@@ -479,24 +392,10 @@ class RemoteCommandsTest {
 
         CompletableFuture<Boolean> ran = a.run(staff, LINE, aliceOn("p7"));
         String id = requests.getFirst().get("id").getAsString();
-        b.send("p3", RemoteCommands.OUT, output(id, 1, Component.text("second")));
-        assertTrue(staff.plain().isEmpty());
-        b.send("p3", RemoteCommands.OUT, output(id, 0, Component.text("first")));
-        assertEquals(List.of("first", "second"), staff.plain());
-
-        b.send("p3", RemoteCommands.OUT, output(id, 3, Component.text("fourth")));
-        b.send("p3", RemoteCommands.DONE, done(id, true, 4));
+        b.send("p3", RemoteCommands.DONE, done(id, true, Component.text("first"), Component.text("second")));
         assertTrue(ran.join());
-        b.send("p3", RemoteCommands.OUT, output(id, 0, Component.text("again")));
-        clock.addAndGet(RemoteCommands.LINGER_MILLIS);
-        a.sweepCommands();
+        b.send("p3", RemoteCommands.DONE, done(id, true, Component.text("again")));
         assertEquals(List.of("first", "second"), staff.plain());
-
-        clock.addAndGet(1);
-        a.sweepCommands();
-        assertEquals(List.of("first", "second", "fourth", "Some output from p7 was lost."), staff.plain());
-        b.send("p3", RemoteCommands.OUT, output(id, 2, Component.text("third")));
-        assertEquals(4, staff.heard.size());
     }
 
     @Test
@@ -515,56 +414,11 @@ class RemoteCommandsTest {
         assertEquals(RemoteCommands.MAX_COMPONENTS + 1, heard.size());
         assertEquals("line 199", heard.get(RemoteCommands.MAX_COMPONENTS - 1));
         assertTrue(heard.getLast().contains("was cut"), heard.getLast());
-        assertEquals(
-                RemoteCommands.MAX_COMPONENTS,
-                envelopes(TestNetworks.channel("p3"), RemoteCommands.OUT).size());
         JsonObject done = envelopes(TestNetworks.channel("p3"), RemoteCommands.DONE)
                 .getFirst()
                 .getAsJsonObject("body");
-        assertEquals(RemoteCommands.MAX_COMPONENTS, done.get("count").getAsInt());
+        assertEquals(RemoteCommands.MAX_COMPONENTS, done.getAsJsonArray("output").size());
         assertTrue(done.get("cut").getAsBoolean());
-    }
-
-    @Test
-    void theSenderKeepsItsOwnCapOnWhatAnInstanceSends() {
-        NetworkService a = started("p3", new Players(), new Recorder());
-        Recorder there = new Recorder();
-        there.behaviour = (sender, line) -> new CompletableFuture<>();
-        NetworkService b = started("p7", new Players().with(ALICE, "Alice"), there);
-        List<JsonObject> requests = requests(b);
-
-        a.run(staff, LINE, aliceOn("p7"));
-        String id = requests.getFirst().get("id").getAsString();
-        for (int i = 0; i <= RemoteCommands.MAX_COMPONENTS + 5; i++)
-            b.send("p3", RemoteCommands.OUT, output(id, i, Component.text("line " + i)));
-        List<String> heard = staff.plain();
-        assertEquals(RemoteCommands.MAX_COMPONENTS + 1, heard.size());
-        assertTrue(heard.getLast().contains("was cut"), heard.getLast());
-    }
-
-    @Test
-    void outputOutOfOrderIsHeldOnlyWithinTheCapsAsItArrives() {
-        NetworkService a = started("p3", new Players(), new Recorder());
-        Recorder there = new Recorder();
-        there.behaviour = (sender, line) -> new CompletableFuture<>();
-        NetworkService b = started("p7", new Players().with(ALICE, "Alice"), there);
-        List<JsonObject> requests = requests(b);
-
-        a.run(staff, LINE, aliceOn("p7"));
-        String id = requests.getFirst().get("id").getAsString();
-        String filler = "x".repeat(20_000);
-        for (int seq = RemoteCommands.MAX_COMPONENTS + 1_000; seq > 0; seq--)
-            b.send("p3", RemoteCommands.OUT, output(id, seq, Component.text(seq + filler)));
-        assertTrue(staff.plain().isEmpty());
-
-        b.send("p3", RemoteCommands.OUT, output(id, 0, Component.text("first")));
-        List<String> heard = staff.plain();
-        assertTrue(
-                heard.size() > 2 && heard.size() <= RemoteCommands.MAX_OUTPUT_BYTES / filler.length() + 2,
-                heard::toString);
-        assertEquals("first", heard.getFirst());
-        for (int seq = 1; seq < heard.size() - 1; seq++) assertEquals(seq + filler, heard.get(seq));
-        assertTrue(heard.getLast().contains("was cut"), heard.getLast());
     }
 
     @Test
@@ -593,30 +447,31 @@ class RemoteCommandsTest {
     }
 
     @Test
-    void aComponentTooLargeForOneMessageIsReplacedAndTheRestStillArrives() {
+    void aComponentOverTheByteCapCutsTheOutputThere() {
         NetworkService a = started("p3", new Players(), new Recorder());
         Recorder there = new Recorder();
         there.behaviour = (sender, line) -> {
+            sender.sendMessage(Component.text("before"));
             sender.sendMessage(Component.text("x".repeat(EnvelopeCodec.MAX_BYTES)));
             sender.sendMessage(Component.text("after"));
             return CompletableFuture.completedFuture(null);
         };
         started("p7", new Players().with(ALICE, "Alice"), there);
-        broker.published.clear();
 
         assertTrue(a.run(staff, LINE, aliceOn("p7")).join());
-        assertEquals(List.of("One line of output was too large to relay.", "after"), staff.plain());
-        List<Integer> seqs = new ArrayList<>();
-        for (JsonObject out : envelopes(TestNetworks.channel("p3"), RemoteCommands.OUT))
-            seqs.add(out.getAsJsonObject("body").get("seq").getAsInt());
-        assertEquals(List.of(0, 1), seqs);
+        List<String> heard = staff.plain();
+        assertEquals("before", heard.getFirst());
+        assertEquals(2, heard.size());
+        assertTrue(heard.getLast().contains("was cut"), heard.getLast());
     }
 
     @Test
     void relayedOutputStopsAtTwoHundredFiftySixKilobytes() {
         NetworkService a = started("p3", new Players(), new Recorder());
         Component big = Component.text("x".repeat(20_000));
-        int size = GsonComponentSerializer.gson().serialize(big).length();
+        int size = new JsonPrimitive(GsonComponentSerializer.gson().serialize(big))
+                .toString()
+                .length();
         Recorder there = new Recorder();
         there.behaviour = (sender, line) -> {
             for (int i = 0; i < 40; i++) sender.sendMessage(big);
@@ -790,7 +645,7 @@ class RemoteCommandsTest {
         Recorder there = new Recorder();
         started("p7", new Players().with(ALICE, "Alice"), there);
         RemoteCommandSource forwarded = new RemoteCommandSource(
-                MOD, "Mod", false, List.of("cult.debug"), NODES, component -> {}, clock::get, null);
+                MOD, "Mod", false, List.of("cult.debug"), NODES, component -> {}, null);
 
         assertFalse(a.run(forwarded, LINE, aliceOn("p7")).join());
         assertTrue(forwarded.left());
@@ -807,7 +662,7 @@ class RemoteCommandsTest {
         commands.registerCommands();
         List<Component> heard = new ArrayList<>();
         RemoteCommandSource forwarded = new RemoteCommandSource(
-                MOD, "Mod", false, List.of("cult.debug"), commands.permissionNodes(), heard::add, clock::get, null);
+                MOD, "Mod", false, List.of("cult.debug"), commands.permissionNodes(), heard::add, null);
         TestNetworks.install(a);
         try {
             commands.execute(forwarded, LINE)
@@ -900,7 +755,6 @@ class RemoteCommandsTest {
                         "cult.update",
                         "cult.consoledebug"),
                 component -> {},
-                clock::get,
                 null);
         assertTrue(source.hasPermission("cult.debug"));
         assertTrue(source.hasPermission("cult.debug", false));
@@ -920,7 +774,6 @@ class RemoteCommandsTest {
                 List.of("cult.debug", "cult.devswap"),
                 Set.of("cult.debug", "cult.devswap", "cult.consoledebug"),
                 component -> {},
-                clock::get,
                 "platform console");
         assertTrue(console.isConsole());
         assertTrue(console.hasPermission("cult.debug"));
@@ -930,10 +783,10 @@ class RemoteCommandsTest {
     }
 
     @Test
-    void aRemoteSourceRelaysOutputUntilThirtySecondsAfterItsCommandCompleted() {
+    void aRemoteSourceRelaysOutputUntilItsCommandCompleted() {
         List<Component> relayed = new ArrayList<>();
         RemoteCommandSource source =
-                new RemoteCommandSource(MOD, "Mod", false, List.of(), NODES, relayed::add, clock::get, null);
+                new RemoteCommandSource(MOD, "Mod", false, List.of(), NODES, relayed::add, null);
         source.performCommand("cult reload");
         assertTrue(relayed.isEmpty());
         source.sendMessage(Component.text("a"));
@@ -944,14 +797,12 @@ class RemoteCommandsTest {
                         ? relayed.get(1).color()
                         : relayed.get(1).children().getFirst().color());
 
+        assertTrue(source.isValid());
         source.done();
-        clock.addAndGet(RemoteCommandSource.LINGER_MILLIS);
         source.sendMessage(Component.text("c"));
-        clock.addAndGet(1);
-        source.sendMessage(Component.text("d"));
         assertFalse(source.isValid());
         assertEquals(
-                List.of("a", "b", "c"),
+                List.of("a", "b"),
                 relayed.stream()
                         .map(PlainTextComponentSerializer.plainText()::serialize)
                         .toList());

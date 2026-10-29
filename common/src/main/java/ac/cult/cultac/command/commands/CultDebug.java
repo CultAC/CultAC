@@ -19,6 +19,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.incendo.cloud.Command;
@@ -63,14 +64,14 @@ public class CultDebug implements BuildableCommand {
                 .literal("channels", Description.of("List the plugin channels a player's client opened"))
                 .permission("cult.debug")
                 .required("target", arguments.singlePlayerSelectorParser())
-                .handler(this::handleDebugChannels));
+                .futureHandler(this::handleDebugChannels));
 
         commandManager.command(cultCommand
                 .literal("debug")
                 .literal("mods", Description.of("List a player's Lunar Client mods reported through Apollo"))
                 .permission("cult.debug")
                 .required("target", arguments.singlePlayerSelectorParser())
-                .handler(this::handleDebugMods));
+                .futureHandler(this::handleDebugMods));
 
         commandManager.command(cultCommand
                 .literal("debug")
@@ -236,16 +237,19 @@ public class CultDebug implements BuildableCommand {
         });
     }
 
-    private void handleDebugChannels(@NotNull CommandContext<Sender> context) {
+    /** Completes once the channels were listed. */
+    private CompletableFuture<Void> handleDebugChannels(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         PlayerSelector selector = context.get("target");
         CultPlayer target = parseTarget(sender, selector.getSinglePlayer());
-        if (target == null) return;
+        if (target == null) return CompletableFuture.completedFuture(null);
+        CompletableFuture<Void> listed = new CompletableFuture<>();
         target.runSafely(() -> {
             var channels = target.pluginChannelManager.channels();
             if (channels.isEmpty()) {
                 sender.sendMessage(
                         line(target, "debug-channels-none", "%prefix% &f%player% &bhas no plugin channels open"));
+                listed.complete(null);
                 return;
             }
             sender.sendMessage(line(
@@ -257,21 +261,25 @@ public class CultDebug implements BuildableCommand {
             for (String channel : channels) {
                 sender.sendMessage(line(target, "debug-channels-entry", "&8- &f%channel%", "%channel%", channel));
             }
+            listed.complete(null);
         });
+        return listed;
     }
 
-    private void handleDebugMods(@NotNull CommandContext<Sender> context) {
+    /** Completes once the mods were listed. */
+    private CompletableFuture<Void> handleDebugMods(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         PlayerSelector selector = context.get("target");
         CultPlayer target = parseTarget(sender, selector.getSinglePlayer());
-        if (target == null) return;
+        if (target == null) return CompletableFuture.completedFuture(null);
         PlatformPlayer platformPlayer = target.platformPlayer;
         var request = platformPlayer == null
-                ? java.util.concurrent.CompletableFuture.<ClientMods>completedFuture(null)
+                ? CompletableFuture.<ClientMods>completedFuture(null)
                 : platformPlayer.requestClientMods();
-        request.whenComplete((fresh, failure) -> {
+        return request.handle((fresh, failure) -> {
             if (fresh != null) target.clientMods = fresh;
             sendMods(sender, target, fresh != null ? fresh : target.clientMods);
+            return null;
         });
     }
 

@@ -54,9 +54,6 @@ class NetworkMessagesTest {
                 Map.entry("network-command-not-forwarded", List.of("%instance%")),
                 Map.entry("network-command-target-left", List.of("%player%", "%instance%")),
                 Map.entry("network-command-failed", List.of("%instance%", "%reason%")),
-                Map.entry("network-command-line-too-large", List.of()),
-                Map.entry("network-command-output-lost", List.of("%instance%")),
-                Map.entry("network-command-unfinished", List.of("%instance%")),
                 Map.entry("network-command-no-answer", List.of("%instance%")),
                 Map.entry("network-command-output-cut", List.of("%instance%", "%lines%", "%kb%")));
         for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh")) {

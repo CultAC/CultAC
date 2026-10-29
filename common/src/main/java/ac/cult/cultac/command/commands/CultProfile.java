@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import net.kyori.adventure.text.Component;
 import org.incendo.cloud.CommandManager;
@@ -41,10 +42,11 @@ public class CultProfile implements BuildableCommand {
                         "target",
                         NetworkPlayerArguments.playerName(StringParser.stringParser()),
                         arguments.onlinePlayerSuggestions())
-                .handler(this::handleProfile));
+                .futureHandler(this::handleProfile));
     }
 
-    private void handleProfile(@NotNull CommandContext<Sender> context) {
+    /** Completes once the profile was sent. */
+    private CompletableFuture<Void> handleProfile(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         String target = context.get("target");
 
@@ -54,17 +56,22 @@ public class CultProfile implements BuildableCommand {
             if (cultPlayer == null) {
                 sender.sendMessage(MessageUtil.getParsedComponent(
                         sender, "player-not-found", "%prefix% &cPlayer is exempt or offline!"));
-                return;
+                return CompletableFuture.completedFuture(null);
             }
             render(cultPlayer).forEach(sender::sendMessage);
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         // Reading the datastore blocks on I/O.
-        CultAPI.INSTANCE
-                .getScheduler()
-                .getAsyncScheduler()
-                .runNow(CultAPI.INSTANCE.getGrimPlugin(), () -> sendStored(sender, target));
+        CompletableFuture<Void> sent = new CompletableFuture<>();
+        CultAPI.INSTANCE.getScheduler().getAsyncScheduler().runNow(CultAPI.INSTANCE.getGrimPlugin(), () -> {
+            try {
+                sendStored(sender, target);
+            } finally {
+                sent.complete(null);
+            }
+        });
+        return sent;
     }
 
     /** The profile lines of a player tracked by this instance. */
