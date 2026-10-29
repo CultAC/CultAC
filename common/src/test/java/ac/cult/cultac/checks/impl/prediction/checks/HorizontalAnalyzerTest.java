@@ -1,6 +1,7 @@
 package ac.cult.cultac.checks.impl.prediction.checks;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.Test;
 
@@ -61,6 +62,28 @@ public class HorizontalAnalyzerTest {
         // Each axis is under 0.98 of the sprint speed, the diagonal is past the unit circle moveRelative allows
         assertTrue(HorizontalAnalyzer.getHorizontalInputFlagAmount(0.093, 0.093, 0.1f, 1.3, false) > 0);
         assertEquals(0, HorizontalAnalyzer.getHorizontalInputFlagAmount(0.09, 0.09, 0.1f, 1.3, false), 0);
+    }
+
+    @Test public void aForwardInputWithinAWideStartingRangeHasForwardImpulse() {
+        for (ClientVersion version : new ClientVersion[]{ClientVersion.V_1_21_4, ClientVersion.V_26_3}) {
+            SimpleCollisionBox wideOnX = new SimpleCollisionBox(-0.2, 0, 0, 0.2, 0, 0.001);
+            assertEquals(0, HorizontalAnalyzer.distanceToForwardImpulse(wideOnX, farCorner(wideOnX), new Vec3(0, 0, 0.13), 0, version), 0);
+            SimpleCollisionBox wideOnZ = new SimpleCollisionBox(0, 0, -0.2, 0.001, 0, 0.2);
+            assertEquals(0, HorizontalAnalyzer.distanceToForwardImpulse(wideOnZ, farCorner(wideOnZ), new Vec3(-0.13, 0, 0), 90, version), 0);
+        }
+    }
+
+    @Test public void aBackwardInputOutsideAWideStartingRangeIsItsDistanceToForwardImpulse() {
+        for (ClientVersion version : new ClientVersion[]{ClientVersion.V_1_21_4, ClientVersion.V_26_3}) {
+            SimpleCollisionBox wideOnX = new SimpleCollisionBox(-0.2, 0, 0, 0.2, 0, 0.001);
+            assertEquals(0.13, HorizontalAnalyzer.distanceToForwardImpulse(wideOnX, farCorner(wideOnX), new Vec3(0, 0, -0.13), 0, version), 1.0E-6);
+            SimpleCollisionBox narrow = new SimpleCollisionBox(-0.01, 0, -0.01, 0.01, 0, 0.01);
+            assertEquals(0.06 / Math.sqrt(2), HorizontalAnalyzer.distanceToForwardImpulse(narrow, farCorner(narrow), new Vec3(0.09, 0, 0.01), 0, version), 1.0E-6);
+        }
+    }
+
+    private static Vec3 farCorner(SimpleCollisionBox box) {
+        return new Vec3(box.maxX, 0, box.maxZ);
     }
 
     @Test public void saneYawInputMatchesRotation() {

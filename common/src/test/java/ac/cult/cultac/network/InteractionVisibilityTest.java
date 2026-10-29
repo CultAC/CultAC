@@ -13,6 +13,8 @@ import static org.mockito.Mockito.when;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
+import ac.cult.blocksim.entity.PaintingSize;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.checks.Check;
@@ -24,7 +26,9 @@ import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -42,12 +46,15 @@ import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import ac.cult.cultac.utils.visibility.ClientVisibility;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.event.events.FlagEvent;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -237,6 +244,160 @@ class InteractionVisibilityTest {
                             "BreakVisibility: action=START_DESTROY_BLOCK, block=minecraft:stone, pos=0, 64, 2, face=NORTH"),
                     verbose);
         }
+    }
+
+    /** CultAC#172: a pointer painting summoned on a wall, hit and clicked from in front of it and from behind. */
+    @Test
+    void aPaintingIsSelectedThroughItsVariantBox() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int x = 5; x <= 8; x++) for (int y = 64; y <= 67; y++) setup.block(x, y, 5, "stone");
+            var mobs = setup.check(AttackMobVisibility.class);
+            var interact = setup.check(InteractEntityVisibility.class);
+            var painting = EntityTypes.defaults().byKey("minecraft:painting").id();
+            // Painting#getAddEntityPacket sends the block position with SOUTH's 3D data value.
+            player.compensatedEntities.addEntity(42, painting, new Vec3(6, 65, 6), 0, 0, 3);
+            player.compensatedEntities.updateEntityMetadata(
+                    42, List.of(new EntityMetadata.Entry(9, new PaintingSize(4, 4), ByteBuffer.allocate(0))));
+            player.x = 8.9;
+            player.y = 64;
+            player.z = 8.5;
+            player.yRot = 180;
+            var click = new ServerboundInteract(
+                    42,
+                    InteractAction.INTERACT_AT,
+                    Hand.MAIN_HAND,
+                    Optional.of(new Vec3d(1.9030702557529144, -0.3800280778856131, 0.03125190746505524)),
+                    false);
+            assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
+            assertEquals(0, mobs.violations);
+            assertEquals(0, interact.violations);
+            player.x = 7.5;
+            player.z = 3.5;
+            player.yRot = 0;
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
+            assertEquals(1, mobs.violations);
+            assertEquals(1, interact.violations);
+        }
+    }
+
+    @Test
+    void aPeekingShulkerIsSelectedAboveTheWallItHidesBehind() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int x = -1; x <= 1; x++) {
+                setup.block(x, 64, 0, "stone");
+                setup.block(x, 65, 0, "smooth_stone_slab");
+            }
+            var mobs = setup.check(AttackMobVisibility.class);
+            var interact = setup.check(InteractEntityVisibility.class);
+            player.compensatedEntities.addEntity(42, EntityTypeIds.SHULKER, new Vec3(.5, 64, -.5), 0, 0, 0);
+            player.x = .5;
+            player.y = 64;
+            player.z = 1.5;
+            player.yRot = 180;
+            var click = new ServerboundInteract(
+                    42,
+                    InteractAction.INTERACT_AT,
+                    Hand.MAIN_HAND,
+                    Optional.of(new Vec3d(0, 1.6199719221143867, 0.5000305194408838)),
+                    false);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
+            peek(player, 100);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            for (int tick = 0; tick < 20; tick++) tickEntities(player);
+            assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
+            assertEquals(2, mobs.violations);
+            assertEquals(1, interact.violations);
+            peek(player, 0);
+            for (int tick = 0; tick < 20; tick++) tickEntities(player);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertEquals(3, mobs.violations);
+        }
+    }
+
+    @Test
+    void aStandingPolarBearIsSelectedAboveTheWallOnceItsBoxGrows() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int x = 1; x <= 3; x++) {
+                setup.block(x, 64, 0, "stone");
+                setup.block(x, 65, 0, "stone");
+            }
+            setup.block(2, 64, 1, "smooth_stone_slab");
+            var mobs = setup.check(AttackMobVisibility.class);
+            var interact = setup.check(InteractEntityVisibility.class);
+            var type = EntityTypes.defaults().byKey("minecraft:polar_bear").id();
+            player.compensatedEntities.addEntity(42, type, new Vec3(2.5, 64, -.7), 0, 0, 0);
+            var bear = player.compensatedEntities.getEntity(42);
+            player.x = 2.5;
+            player.y = 64.5;
+            player.z = 1.5;
+            player.yRot = 180;
+            var click = new ServerboundInteract(
+                    42,
+                    InteractAction.INTERACT_AT,
+                    Hand.MAIN_HAND,
+                    Optional.of(new Vec3d(-0.1486907159860833, 2.1199414026735033, 0.700054934993591)),
+                    false);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            data(player, 18, true);
+            for (int tick = 0; tick < 3; tick++) tickEntities(player);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
+            tickEntities(player);
+            assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
+            assertEquals(2, mobs.violations);
+            assertEquals(1, interact.violations);
+            data(player, 18, false);
+            for (int tick = 0; tick < 2; tick++) tickEntities(player);
+            assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            tickEntities(player);
+            assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
+            assertEquals(3, mobs.violations);
+        }
+    }
+
+    @Test
+    void aFrozenPolarBearKeepsItsStandingBox() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            var type = EntityTypes.defaults().byKey("minecraft:polar_bear").id();
+            player.compensatedEntities.addEntity(42, type, new Vec3(2.5, 64, -.7), 0, 0, 0);
+            var bear = (PacketEntityPolarBear) player.compensatedEntities.getEntity(42);
+            data(player, 18, true);
+            for (int tick = 0; tick < 2; tick++) tickEntities(player);
+            assertEquals(1, bear.standAnimation());
+            player.packetStateData.serverTicksFrozen = true;
+            for (int tick = 0; tick < 10; tick++) tickEntities(player);
+            assertEquals(1, bear.standAnimation());
+            player.packetStateData.serverTicksFrozen = false;
+            tickEntities(player);
+            assertEquals(2, bear.standAnimation());
+        }
+    }
+
+    private static void tickEntities(CultPlayer player) {
+        player.packetStateData.acceptedClientTick++;
+        player.compensatedEntities.tickClientEntities(entity -> entity.onMovement(player));
+    }
+
+    private static void peek(CultPlayer player, int peek) {
+        data(player, WatchableIndexUtil.SHULKER_PEEK, (byte) peek);
+    }
+
+    private static void data(CultPlayer player, int index, Object value) {
+        int proof = player.lastTransactionSent.get() + 1;
+        player.compensatedEntities.updateEntityMetadata(
+                42, List.of(new EntityMetadata.Entry(index, value, ByteBuffer.allocate(0))), proof);
+        player.sendTrailingTransaction();
+        player.lastTransactionReceived.set(proof);
+        player.latencyUtils.handleNettySyncTransaction(proof);
     }
 
     private static ServerboundInteract interactAt(int entityId) {

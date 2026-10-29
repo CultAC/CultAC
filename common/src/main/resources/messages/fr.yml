@@ -144,7 +144,7 @@ network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this
 alerts-scope: "%prefix% &fAlert scope: &b%scope% &7(%source%)"
 alerts-scope-set: "%prefix% &fAlert scope set to &b%scope%"
 alerts-scope-chosen: "chosen"
-alerts-scope-permission: "permission default"
+alerts-scope-default: "default"
 alerts-scope-local: "network-wide alerts are not enabled on this server"
 
 # Marqueurs de schéma — voir le commentaire d'en-tête dans config.yml.

@@ -3,15 +3,19 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.PacketServerTickingState;
 import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
+import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -19,12 +23,16 @@ import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundTickingState;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -44,6 +52,9 @@ class JavaShulkerLidPushTest {
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
     private static final double FALL = 0.0784000015258789;
     private static final BlockPos BOX = new BlockPos(0, FLOOR_Y, 0);
+    private static final Map<Integer, Double> LIFT = Map.of(2, 1.33);
+    private static final int SERVER_TELEPORT = 900;
+    private static final int BOAT = 50;
 
     /**
      * A 26.1 client standing on a shulker box while it opens. Each ShulkerBoxBlockEntity#updateAnimation after
@@ -53,13 +64,59 @@ class JavaShulkerLidPushTest {
      */
     @Test
     void aShovedPlayerFallingPastAnOpeningShulkerLidIsNotOnGround() throws Exception {
-        rideOpeningLid(ClientVersion.V_26_1, 6, 0, true, -1, 0, false);
+        rideOpeningLid(ClientVersion.V_26_1, 6, 0, LIFT, -1, 0, false);
     }
 
     /** The last shove of the opening, at progress 1.0F, is reported with the landing on the fully open lid. */
     @Test
     void aShovedPlayerLandsOnTheFullyOpenShulkerLid() throws Exception {
-        rideOpeningLid(ClientVersion.V_26_1, 14, 0, true, -1, 0, false);
+        rideOpeningLid(ClientVersion.V_26_1, 14, 0, LIFT, -1, 0, false);
+    }
+
+    /**
+     * Before 26.3 ShulkerBoxBlockEntity#moveCollidedEntities moves the player after LocalPlayer#sendPosition, and a
+     * player_position the client handles before its next tick sets the position that tick's travel starts from. The
+     * server places the player inside the next delta box after the fifth update, and that tick reports only its travel.
+     */
+    @Test
+    void aTeleportReplacesTheShovesOfTheTickBeforeIt() throws Exception {
+        rideOpeningLid(ClientVersion.V_26_1, 8, 0, Map.of(2, 1.22000000298023, 5, 1.36160000443458), -1, 0, false);
+    }
+
+    /** ClientPacketListener#handleMovePlayer leaves a passenger in place, so the last tick's shoves still apply. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void onlyATeleportThatMovesThePlayerReplacesTheShovedPosition(boolean mounted) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_26_1);
+            int box = REGISTRY.block("minecraft:shulker_box").defaultState();
+            f.player.compensatedWorld.updateBlock(BOX, box);
+            f.place(new Vec3(0.5, lidTop(0.0F), 0.5), Vec3.ZERO);
+            blockEvent(f, BOX, 1, 1, box, true);
+            f.tickEnd();
+            // The refactored runner commits the whole pass at tick end rather than deferring lid shoves.
+            Vec3 shoved = new Vec3(f.player.x, f.player.y, f.player.z);
+            assertTrue(shoved.y > lidTop(0.0F));
+            if (mounted) {
+                f.player.compensatedEntities.addEntity(
+                        BOAT, EntityTypeIds.OAK_BOAT, new Vec3(3.5, FLOOR_Y, 3.5), 0, 0, 0);
+                f.setPassengers(BOAT, List.of(f.player.entityID));
+                f.pongThrough(f.player.lastTransactionSent.get());
+                assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
+            }
+            Vec3 target = new Vec3(0.5, FLOOR_Y + 3.0, 0.5);
+            serverTeleport(f, target, new RelativeFlag(0), target);
+            assertEquals(mounted ? shoved : target, new Vec3(f.player.x, f.player.y, f.player.z));
+        }
+    }
+
+    /**
+     * ClientPacketListener#handleMovePlayer adds a relative axis to the position the last tick's shove left, so the
+     * accepted position includes it, and the next tick travels from there without it.
+     */
+    @Test
+    void aRelativeTeleportStartsFromTheShovedPosition() throws Exception {
+        rideOpeningLid(ClientVersion.V_26_1, 8, 0, Map.of(), Map.of(3, 0.5), -1, 0, false);
     }
 
     /**
@@ -69,8 +126,8 @@ class JavaShulkerLidPushTest {
     @ParameterizedTest
     @ValueSource(ints = {0, 1, 2})
     void theLidOpensFromTheClientTickThatHandlesItsBlockEvent(int ticksBeforeHandled) throws Exception {
-        rideOpeningLid(ClientVersion.V_26_1, 14, ticksBeforeHandled, true, -1, 0, false);
-        rideOpeningLid(ClientVersion.V_26_1, 14, ticksBeforeHandled, false, -1, 0, false);
+        rideOpeningLid(ClientVersion.V_26_1, 14, ticksBeforeHandled, LIFT, -1, 0, false);
+        rideOpeningLid(ClientVersion.V_26_1, 14, ticksBeforeHandled, Map.of(), -1, 0, false);
     }
 
     /**
@@ -82,13 +139,40 @@ class JavaShulkerLidPushTest {
     @CsvSource({"10, 65.9", "10, 65.56", "11, 65.9", "11, 65.56"})
     void aLandingAboveTheOpeningLidIsRejected(int tick, double y) throws Exception {
         JavaTickFixture.assertRejected(
-                rideOpeningLid(ClientVersion.V_26_1, 14, 0, false, tick, y, true), "VerticalOffset");
+                rideOpeningLid(ClientVersion.V_26_1, 14, 0, Map.of(), tick, y, true), "VerticalOffset");
+    }
+
+    /**
+     * ClientPacketListener#handleBlockEvent starts the lid when the client handles the packet, however far the box is
+     * from the position the server last had for the player.
+     */
+    @Test
+    void aDistantLidOpensWhenTheClientHandlesItsBlockEvent() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_26_1);
+            BlockPos far = new BlockPos(20, FLOOR_Y, 0);
+            int box = REGISTRY.block("minecraft:shulker_box").defaultState();
+            f.player.compensatedWorld.updateBlock(far, box);
+            f.place(new Vec3(0.5, FLOOR_Y, 0.5), Vec3.ZERO);
+            blockEvent(f, far, 1, 1, box, false);
+            f.tickEnd();
+            assertEquals(0.0F, progress(f, far));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.tickEnd();
+            assertEquals(0.1F, progress(f, far));
+        }
+    }
+
+    private static float progress(JavaTickFixture f, BlockPos pos) {
+        var data = f.player.compensatedWorld.getClientBlockEntityData(pos);
+        var progress = data == null ? null : data.data().get("progress");
+        return progress == null ? 0.0F : progress.getAsFloat();
     }
 
     /** From 26.3 Minecraft#tick sends the position after ClientLevel#tickBlockEntities, so it carries the shove. */
     @Test
     void aShulkerBoxShovesA26_3PlayerAfterItsTravel() throws Exception {
-        rideOpeningLid(ClientVersion.V_26_3, 14, 0, false, -1, 0, false);
+        rideOpeningLid(ClientVersion.V_26_3, 14, 0, Map.of(), -1, 0, false);
     }
 
     /**
@@ -98,7 +182,7 @@ class JavaShulkerLidPushTest {
     @Test
     void aShoved26_3PlayerIsNotOnGround() throws Exception {
         JavaTickFixture.assertRejected(
-                rideOpeningLid(ClientVersion.V_26_3, 14, 0, false, 1, Double.NaN, true), "GroundSpoof");
+                rideOpeningLid(ClientVersion.V_26_3, 14, 0, Map.of(), 1, Double.NaN, true), "GroundSpoof");
     }
 
     /**
@@ -595,7 +679,21 @@ class JavaShulkerLidPushTest {
             ClientVersion version,
             int ticks,
             int ticksBeforeHandled,
-            boolean lift,
+            Map<Integer, Double> lifts,
+            int fakeTick,
+            double fakeY,
+            boolean fakeOnGround)
+            throws Exception {
+        return rideOpeningLid(version, ticks, ticksBeforeHandled, lifts, Map.of(), fakeTick, fakeY, fakeOnGround);
+    }
+
+    /** As above, with a teleport raising the player by the value of {@code raises} relative to where it is. */
+    private static PredictionResult rideOpeningLid(
+            ClientVersion version,
+            int ticks,
+            int ticksBeforeHandled,
+            Map<Integer, Double> lifts,
+            Map<Integer, Double> raises,
             int fakeTick,
             double fakeY,
             boolean fakeOnGround)
@@ -622,10 +720,17 @@ class JavaShulkerLidPushTest {
             float[] progress = {0.0F};
             double velocity = -FALL;
             for (int tick = 0; tick < ticks; tick++) {
-                if (lift && tick == 2) {
-                    y = BOX.getY() + 1.33;
+                Double lift = lifts.get(tick);
+                if (lift != null) {
+                    y = BOX.getY() + lift;
                     velocity = 0.0;
                     f.teleport(new Vec3(0.5, y, 0.5), new RelativeFlag(0));
+                }
+                Double raise = raises.get(tick);
+                if (raise != null) {
+                    y += raise;
+                    velocity = 0.0;
+                    relativeTeleport(f, raise, y);
                 }
                 double lid = lidTop(progress[0]);
                 boolean onGround = y + velocity <= lid;
@@ -682,6 +787,24 @@ class JavaShulkerLidPushTest {
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         if (handled) f.pongThrough(f.player.lastTransactionSent.get());
+    }
+
+    /** A server player_position moving the player by {@code dy} on every relative axis, accepted at {@code y}. */
+    private static void relativeTeleport(JavaTickFixture f, double dy, double y) {
+        int mask = RelativeFlag.X.getMask() | RelativeFlag.Y.getMask() | RelativeFlag.Z.getMask();
+        serverTeleport(f, new Vec3(0, dy, 0), new RelativeFlag(mask), new Vec3(0.5, y, 0.5));
+    }
+
+    /** A server player_position to {@code location} under {@code flags}, accepted at {@code accepted}. */
+    private static void serverTeleport(JavaTickFixture f, Vec3 location, RelativeFlag flags, Vec3 accepted) {
+        int transaction = f.player.sendTrailingTransaction();
+        f.player.getSetbackTeleportUtil().addSentTeleport(location, transaction, flags, true, SERVER_TELEPORT);
+        f.pongThrough(transaction);
+        var packet = new ServerboundAcceptTeleportation(
+                SERVER_TELEPORT, new Vec3d(accepted.x, accepted.y, accepted.z), 0, 0);
+        var event = f.event(ServerboundPackets.ACCEPT_TELEPORTATION, packet);
+        new PacketServerTeleport().onAcceptTeleportation(event, f.player, packet);
+        assertFalse(event.isCancelled(), "the teleport acceptance was rejected");
     }
 
     private static void assertExact(PredictionResult result) {

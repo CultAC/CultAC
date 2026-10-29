@@ -27,6 +27,7 @@ import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
@@ -79,6 +80,47 @@ class InputKeysTest {
     private static final double SNEAK_STEP = (double) (0.98F * 0.3F) * (double) 0.1F;
     private static final Vec3 SHULKER_OVER_THE_HEAD = new Vec3(0.5, FLOOR_Y + 1, -2.5);
     private static final Vec3 SHULKER_CLEAR_OF_THE_PLAYER = new Vec3(5.5, FLOOR_Y + 1, -2.5);
+    private static final ServerboundPlayerInput SPRINT_BACK =
+            new ServerboundPlayerInput(false, true, false, false, false, false, true);
+    private static final ServerboundPlayerInput SPRINT_BACK_LEFT =
+            new ServerboundPlayerInput(false, true, true, false, false, false, true);
+    private static final ServerboundPlayerInput SPRINT_LEFT =
+            new ServerboundPlayerInput(false, false, true, false, false, false, true);
+    private static final ServerboundPlayerInput SPRINT_FORWARD_LEFT =
+            new ServerboundPlayerInput(true, false, true, false, false, false, true);
+    private static final ServerboundPlayerInput SPRINT_FORWARD_RIGHT =
+            new ServerboundPlayerInput(true, false, false, true, false, false, true);
+    private static final float SPRINTING_SPEED = (float) ((double) 0.1F * (1.0D + (double) 0.3F));
+    private static final double CAPTURE_SHIFT_X = 271;
+    private static final double CAPTURE_SHIFT_Z = -272;
+    private static final double[][] CAPTURED_BACKWARD_RUN = {
+        {-270.7928108610354, 273.6888251723098, 206.0403},
+        {-270.88745851906776, 273.882823763336, 206.0403},
+        {-270.9950597641237, 274.1032167028535, 206.0403},
+        {-271.10973366851607, 274.3380209583212, 206.0403},
+        {-271.2284009037546, 274.5806293840209, 206.10739},
+        {-271.34978533353376, 274.8272342870383, 206.37576},
+        {-271.47331990937334, 275.0756883468893, 206.71123},
+        {-271.60041600946215, 275.3239191063504, 207.91896},
+    };
+    private static final double[][] CAPTURED_SIDEWAYS_RUN = {
+        {-267.5365415194631, 269.84182987161887, 511.3436},
+        {-267.61373065225865, 270.1160644745327, 511.3436},
+        {-267.76766935071606, 270.3268948153968, 511.3436},
+        {-267.9635133168923, 270.5031064251607, 511.3436},
+        {-268.18223756190065, 270.66041620554836, 511.3436},
+        {-268.4131661787196, 270.8079300932808, 511.07516},
+        {-268.64936025130186, 270.9525601566403, 509.80014},
+    };
+    private static final double[][] CAPTURED_DIAGONAL_RUN = {
+        {-268.9056159321453, 271.0051404492622, 506.7137},
+        {-269.17454010897364, 271.017824580888, 502.08386},
+        {-269.45113641362155, 271.01691526516476, 498.46057},
+        {-269.73207489590686, 271.0117708500871, 497.0514},
+        {-270.0153998721764, 271.0047749551218, 496.85007},
+        {-270.3000326082465, 270.9969176435168, 496.78296},
+        {-270.5853793812508, 270.98858999837194, 496.78296},
+    };
     private static final double MINECART_MIN_X = 0.01;
     private static final double MINECART_MAX_X = 0.99;
 
@@ -319,6 +361,52 @@ class InputKeysTest {
     }
 
     @Test
+    void walkingPastAShulkersCornerAlongItsSideIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.compensatedEntities.addEntity(100, EntityTypeIds.SHULKER, new Vec3(0.5, FLOOR_Y, 0.5), 0, 0, 0);
+            f.player.compensatedEntities.entityMap.get(100).setClientTickOrder(-1L);
+            Vec3 start = new Vec3(1.23274584128289, FLOOR_Y, (1.0 + (1.0 + 0.6F)) / 2);
+            double velocity = 0.044379499469431094;
+            f.place(start, new Vec3(velocity, GROUNDED.y, 0));
+            float yaw = 154.91962F;
+            f.player.xRot = yaw;
+            f.player.yRot = 36.494892F;
+            var keys = new ServerboundPlayerInput(true, false, false, true, false, false, false);
+            f.input(keys);
+            Vec3 input = ClientMoveInput.of(f, keys, 1.0F, 0.1F, yaw);
+            // Direction#axisStepOrder moves the longer z first, into the shulker's side; x then clears its corner.
+            assertTrue(Math.abs(input.z) > Math.abs(velocity + input.x) && start.x - 0.3F < 1.0);
+            assertExact(f.tick(start.add(velocity + input.x, 0, 0), true));
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void aPushedPlayerStoppedByAShulkersSideBesideABlockIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var registry = DataTables.defaults().registry();
+            f.player.compensatedWorld.updateBlock(
+                    new BlockPos(2, FLOOR_Y, 1),
+                    registry.block("minecraft:stone").defaultState());
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            double face = 1.0;
+            // Shulker#setPos snaps an unmounted shell to its block; the neighboring block meets that side.
+            f.player.compensatedEntities.addEntity(
+                    100, EntityTypeIds.SHULKER, new Vec3(1.5, FLOOR_Y, face - 0.5), 0, 0, 0);
+            Vec3 target = new Vec3(2 - 0.3F, FLOOR_Y, face + 0.3F);
+            Vec3 start = target.add(-0.01, 0, 0.012);
+            f.player.compensatedEntities.entityMap.get(100).setClientTickOrder(-1L);
+            f.place(start, new Vec3(0, GROUNDED.y, -0.09));
+            f.player.xRot = -90.0F;
+            f.player.yRot = 0.0F;
+            f.input(FORWARD);
+            assertExact(f.tick(target, true));
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
     void knockedUpAgainstASlabUnderALedgeIsNotFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
             var registry = DataTables.defaults().registry();
@@ -358,6 +446,61 @@ class InputKeysTest {
                 z += velocity + SPRINT;
                 assertExact(f.tick(new Vec3(0.5, FLOOR_Y, z), true));
                 velocity = (velocity + SPRINT) * FRICTION;
+            }
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void sprintingBackwardIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            startCapturedRun(f, SPRINT_BACK, CAPTURED_BACKWARD_RUN[0], CAPTURED_BACKWARD_RUN[1]);
+            f.command(PlayerCommandAction.START_SPRINTING);
+            assertRunFlagged(f, CAPTURED_BACKWARD_RUN);
+        }
+    }
+
+    @Test
+    void sprintingSidewaysIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.command(PlayerCommandAction.START_SPRINTING);
+            startCapturedRun(f, SPRINT_BACK_LEFT, CAPTURED_SIDEWAYS_RUN[0], CAPTURED_SIDEWAYS_RUN[1]);
+            f.input(SPRINT_LEFT);
+            assertRunFlagged(f, CAPTURED_SIDEWAYS_RUN);
+        }
+    }
+
+    @Test
+    void sprintingDiagonallyForwardIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.command(PlayerCommandAction.START_SPRINTING);
+            startCapturedRun(f, SPRINT_FORWARD_LEFT, CAPTURED_DIAGONAL_RUN[0], CAPTURED_DIAGONAL_RUN[1]);
+            for (int row = 2; row < CAPTURED_DIAGONAL_RUN.length; row++) {
+                assertExact(replay(f, CAPTURED_DIAGONAL_RUN[row]));
+            }
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void sprintStrafingIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(0.5, FLOOR_Y, -4.5), GROUNDED);
+            f.command(PlayerCommandAction.START_SPRINTING);
+            f.input(SPRINT_FORWARD);
+            Vec3 position = new Vec3(0.5, FLOOR_Y, -4.5);
+            Vec3 velocity = Vec3.ZERO;
+            for (int tick = 0; tick < 12; tick++) {
+                ServerboundPlayerInput keys =
+                        tick < 4 ? SPRINT_FORWARD : tick < 8 ? SPRINT_FORWARD_RIGHT : SPRINT_FORWARD_LEFT;
+                f.input(keys);
+                f.player.xRot = tick * 7.5F;
+                Vec3 move = velocity.add(ClientMoveInput.of(f, keys, 1.0F, SPRINTING_SPEED, f.player.xRot));
+                position = position.add(move.x, 0, move.z);
+                assertExact(f.tick(position, true));
+                velocity = new Vec3(move.x * FRICTION, 0, move.z * FRICTION);
             }
 
             assertNoFlags(f);
@@ -776,8 +919,7 @@ class InputKeysTest {
      * answered and so may be at either position. A shulker over the head overlaps both the crouching and the standing
      * box, so in no world does LocalPlayer#aiStep crouch the player.
      */
-    private static double moveOnceWithoutShiftBesideAShulker(
-            JavaTickFixture f, Vec3 at, boolean moving, double accel) {
+    private static double moveOnceWithoutShiftBesideAShulker(JavaTickFixture f, Vec3 at, boolean moving, double accel) {
         f.place(new Vec3(0.5, FLOOR_Y, -2.5), GROUNDED);
         f.player.xRot = 0;
         f.input(NONE);
@@ -890,5 +1032,29 @@ class InputKeysTest {
 
     private static void assertExact(PredictionResult result) {
         assertTrue(exact(result), describe(result));
+    }
+
+    private static void startCapturedRun(JavaTickFixture f, ServerboundPlayerInput keys, double[] from, double[] to) {
+        f.player.xRot = (float) to[2];
+        f.place(captured(to), new Vec3((to[0] - from[0]) * FRICTION, GROUNDED.y, (to[1] - from[1]) * FRICTION));
+        f.input(keys);
+    }
+
+    private static void assertRunFlagged(JavaTickFixture f, double[][] run) {
+        for (int row = 2; row < run.length; row++) {
+            PredictionResult result = replay(f, run[row]);
+            assertTrue(
+                    result.hasFlag(ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint.class),
+                    "row " + row + " " + describe(result));
+        }
+    }
+
+    private static PredictionResult replay(JavaTickFixture f, double[] row) {
+        f.player.xRot = (float) row[2];
+        return f.tick(captured(row), true);
+    }
+
+    private static Vec3 captured(double[] row) {
+        return new Vec3(row[0] + CAPTURE_SHIFT_X, FLOOR_Y, row[1] + CAPTURE_SHIFT_Z);
     }
 }

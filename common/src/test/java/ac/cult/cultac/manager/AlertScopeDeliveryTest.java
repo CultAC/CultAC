@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.when;
@@ -452,20 +454,19 @@ class AlertScopeDeliveryTest {
     }
 
     @Test
-    void thePermissionDefaultAppliesUntilAChoiceAndIsNeverStored() {
+    void theDefaultIsServerUntilAChoiceAndIsNeverStored() {
         PlatformPlayer player = staff("lobby");
+        when(player.hasPermission(anyString(), anyBoolean())).thenReturn(true);
         assertEquals(AlertScope.SERVER, alerts.scope(player));
-        when(player.hasPermission(AlertScopes.GLOBAL_PERMISSION, false)).thenReturn(true);
-        assertEquals(AlertScope.GLOBAL, alerts.scope(player));
         assertNull(alerts.chosenScope(player));
 
-        alerts.chooseScope(player, AlertScope.SERVER);
-        assertEquals(AlertScope.SERVER, alerts.scope(player));
-        assertEquals(AlertScope.SERVER, alerts.chosenScope(player));
+        alerts.chooseScope(player, AlertScope.GLOBAL);
+        assertEquals(AlertScope.GLOBAL, alerts.scope(player));
+        assertEquals(AlertScope.GLOBAL, alerts.chosenScope(player));
 
         alerts.handlePlayerQuit(player);
         assertNull(alerts.chosenScope(player));
-        assertEquals(AlertScope.GLOBAL, alerts.scope(player));
+        assertEquals(AlertScope.SERVER, alerts.scope(player));
     }
 
     @Test
@@ -486,18 +487,5 @@ class AlertScopeDeliveryTest {
 
         alerts.handlePlayerQuit(global);
         assertFalse(peerSeesGlobalVerbose());
-    }
-
-    @Test
-    void theGlobalVerboseFlagFollowsAPermissionChangeAtTheNextSnapshot() {
-        PlatformPlayer staff = staff("lobby");
-        alerts.setVerboseEnabled(staff, true, true);
-        assertFalse(peerSeesGlobalVerbose());
-
-        when(staff.hasPermission(AlertScopes.GLOBAL_PERMISSION, false)).thenReturn(true);
-        assertFalse(peerSeesGlobalVerbose());
-
-        networks.tick(service);
-        assertTrue(peerSeesGlobalVerbose());
     }
 }

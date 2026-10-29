@@ -89,7 +89,7 @@ public class CultAlerts implements BuildableCommand {
         } else if (alerts.chosenScope(player) != null) {
             source = text("alerts-scope-chosen", "chosen");
         } else {
-            source = text("alerts-scope-permission", "permission default");
+            source = text("alerts-scope-default", "default");
         }
         return message(
                 sender, "alerts-scope", "%prefix% &fAlert scope: &b%scope% &7(%source%)", alerts.scope(player), source);

@@ -1237,6 +1237,8 @@ public class CompensatedEntities {
             return new PacketEntityInteraction(player, entityID, entityType, position);
         if (typeKey.equals("minecraft:spider") || typeKey.equals("minecraft:cave_spider"))
             return new PacketEntitySpider(player, entityID, entityType, position);
+        if (typeKey.equals("minecraft:polar_bear"))
+            return new PacketEntityPolarBear(player, entityID, entityType, position.x, position.y, position.z);
         if (EntityTypeUtil.isCamelFamily(entityType)) {
             return new PacketEntityCamel(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
@@ -1406,7 +1408,9 @@ public class CompensatedEntities {
         PacketEntity entity = player.compensatedEntities.getEntity(entityID);
         if (entity == null) return;
         entity.onData(provenAt);
-        if (entity instanceof PacketEntityHanging hanging) hanging.updateActionMetadata(watchableObjects);
+        if (entity instanceof PacketEntityHanging hanging)
+            hanging.updateActionMetadata(
+                    watchableObjects, player.user.getCultConnection().getObservedProtocol());
         if (entity instanceof PacketEntityCat cat)
             cat.updateActionMetadata(
                     watchableObjects, player.user.getCultConnection().getObservedProtocol());
@@ -1462,6 +1466,13 @@ public class CompensatedEntities {
         applySizeMetadata(entity, watchableObjects, layout);
         if (entity instanceof PacketEntityShulker) {
             applyShulkerMetadata(entity, watchableObjects);
+        }
+        if (entity instanceof PacketEntityPolarBear bear) {
+            var standing = WatchableIndexUtil.getIndex(
+                    watchableObjects,
+                    WatchableIndexUtil.polarBearStanding(
+                            player.user.getCultConnection().getObservedProtocol()));
+            if (standing != null && standing.value() instanceof Boolean value) bear.onStanding(value, provenAt);
         }
         if (entity instanceof PacketEntityRideable) {
             applyRideableMetadata(entity, watchableObjects, layout);

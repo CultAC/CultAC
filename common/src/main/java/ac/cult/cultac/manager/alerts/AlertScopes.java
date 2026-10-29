@@ -19,13 +19,12 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Each staff member's alert scope: their own choice, persisted as the player setting {@value #SETTING_KEY}, else
- * {@link AlertScope#GLOBAL} for holders of {@value #GLOBAL_PERMISSION} and {@link AlertScope#SERVER} for the rest. The
- * permission default is never persisted. Choices are held per native player, from the join that loads them to the
+ * {@link #DEFAULT}, which is never persisted. Choices are held per native player, from the join that loads them to the
  * quit, in an object every engine generation on the proxy shares.
  */
 public final class AlertScopes {
     public static final String SETTING_KEY = "alert-scope";
-    public static final String GLOBAL_PERMISSION = "cult.alerts.scope.global";
+    public static final AlertScope DEFAULT = AlertScope.SERVER;
     static final String SHARED_KEY = "cultac.alerts.scope";
     /** Held while the persisted choice is being read; counts as no choice. */
     private static final String LOADING = "";
@@ -46,8 +45,8 @@ public final class AlertScopes {
     }
 
     /**
-     * Starts reading {@code player}'s persisted choice without blocking; the permission default applies until it
-     * lands. Runs {@code loaded} once a choice is applied. A choice made meanwhile wins over the one read.
+     * Starts reading {@code player}'s persisted choice without blocking; {@link #DEFAULT} applies until it lands. Runs
+     * {@code loaded} once a choice is applied. A choice made meanwhile wins over the one read.
      */
     public void load(PlatformPlayer player, Runnable loaded) {
         DataStore store = this.store.get();
@@ -72,14 +71,10 @@ public final class AlertScopes {
         return AlertScope.parse(chosen.get(player.getNative()));
     }
 
-    public static AlertScope permissionDefault(PlatformPlayer player) {
-        return player.hasPermission(GLOBAL_PERMISSION, false) ? AlertScope.GLOBAL : AlertScope.SERVER;
-    }
-
-    /** The choice, else the permission default. */
+    /** The choice, else {@link #DEFAULT}. */
     public AlertScope scope(PlatformPlayer player) {
         AlertScope choice = chosen(player);
-        return choice != null ? choice : permissionDefault(player);
+        return choice != null ? choice : DEFAULT;
     }
 
     /** Sets {@code player}'s choice and persists it. */

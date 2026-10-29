@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
@@ -41,6 +42,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAbilities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
@@ -49,6 +51,7 @@ import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
@@ -391,6 +394,15 @@ final class JavaTickFixture implements AutoCloseable {
         listener.onPlayerAbilities(event, player, packet);
     }
 
+    void command(PlayerCommandAction action) {
+        command(action, 0);
+    }
+
+    void command(PlayerCommandAction action, int data) {
+        var packet = new ServerboundPlayerCommand(player.entityID, action, data);
+        new PacketEntityAction().onPlayerCommand(event(ServerboundPackets.PLAYER_COMMAND, packet), player, packet);
+    }
+
     /** The client answers every ping up to {@code transaction}. */
     void pongThrough(int transaction) {
         for (int id = player.lastTransactionReceived.get() + 1; id <= transaction; id++) {
@@ -427,7 +439,8 @@ final class JavaTickFixture implements AutoCloseable {
 
     /** VehicleOffset's own comparison: the reported move against the closest simulated one, input included. */
     static void assertVehicleExact(PredictionResult result, int tick) {
-        double offset = result.getTarget().subtract(result.getAcceptedClosestToTarget()).length();
+        double offset =
+                result.getTarget().subtract(result.getAcceptedClosestToTarget()).length();
         StringBuilder report =
                 new StringBuilder("tick " + tick + " vehicle offset " + offset + " ").append(describe(result));
         for (PredictionResult.Flag flag : result.getFlags()) {

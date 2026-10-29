@@ -2,8 +2,10 @@ package ac.cult.cultac.checks.impl.prediction.checks;
 
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.ItemUseTickResult;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed;
@@ -63,6 +65,22 @@ public class HorizontalAnalyzer implements EngineCheck {
         // A moving face can hide travel input on its axis. Measure the independently replayed input there;
         // the engine still requires the report to reach the exact face after that travel.
         boolean exactInput = JavaTravelInputs.isExact(result.getInitialStartingVel());
+        if (exactInput && sprintHasForwardImpulse(result.getSimulationContext())) {
+            // The refactored travel already consumed moveRelative's input, so its residual cannot show direction.
+            // LocalPlayer#shouldStopRunSprinting requires forward impulse before that travel, even in the air.
+            double sprintOffset = distanceToForwardImpulse(
+                    new SimpleCollisionBox(0, 0, 0, 0, 0, 0),
+                    Vec3.ZERO,
+                    result.getInitialStartingVel().getTravelInput(),
+                    result.getSimulationContext().getXRot(),
+                    result.getSimulationContext().getVersion());
+            if (sprintOffset > HORIZONTAL_INPUT_UNCERTAINTY) {
+                result.addFlag(
+                        player.checkManager.getListener(OmniSprint.class),
+                        () -> NumFormatter.formatNumberStandard(sprintOffset),
+                        sprintOffset);
+            }
+        }
         if (pass != null && !exactInput) {
             if (pass.result().fixedX()) horizDiffX = pass.input().x;
             if (pass.result().fixedZ()) horizDiffZ = pass.input().z;
@@ -197,13 +215,19 @@ public class HorizontalAnalyzer implements EngineCheck {
         double playerAngle = normalizeAngle(result.getSimulationContext().getXRot());
         AngleResult angleResult = inputAngleRange(result, target, playerAngle);
 
-        double minAngle = CultMath.clamp(0, angleResult.getMinAngle(), angleResult.getMaxAngle());
-
-        // We exempted on ground because you can flag for one tick when off the ground
-        // We don't actually increase flag severity due to a netcode bug.
-        if (wasOnGround && Math.abs(minAngle) > 50 && inputScaledToSpeed > 1.01 && inputScaledToSpeed < 1.301) {
-            // TODO: Why does 0.01 offset cause antikb to flag
-            result.addFlag(player.checkManager.getListener(OmniSprint.class), () -> minAngle + "", 1e-6);
+        if (!exactInput && sprintHasForwardImpulse(result.getSimulationContext())) {
+            double sprintOffset = distanceToForwardImpulse(
+                    result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents(),
+                    closestForSpeed,
+                    pass == null ? target : target.subtract(pass.movement()),
+                    result.getSimulationContext().getXRot(),
+                    result.getSimulationContext().getVersion());
+            if (sprintOffset > HORIZONTAL_INPUT_UNCERTAINTY) {
+                result.addFlag(
+                        player.checkManager.getListener(OmniSprint.class),
+                        () -> NumFormatter.formatNumberStandard(sprintOffset),
+                        sprintOffset);
+            }
         }
 
         final Check angleCheck = player.checkManager.getAngleCheck();
@@ -232,6 +256,90 @@ public class HorizontalAnalyzer implements EngineCheck {
                         distanceToValid / 500); // Not that bad to flag
             }
         }
+    }
+
+    static boolean sprintHasForwardImpulse(SimulationContext context) {
+        if (context.getIsSprinting() != DesyncStatus.TRUE) return false;
+        if (!context.getWorldData().isSwimming()) return true;
+        return context.getLastOnGround() == DesyncStatus.FALSE && !context.isSneaking() && !context.isLastSneaking();
+    }
+
+    static double distanceToForwardImpulse(
+            SimpleCollisionBox starts, Vec3 closest, Vec3 target, float yaw, ClientVersion version) {
+        if (target.x >= starts.minX && target.x <= starts.maxX && target.z >= starts.minZ && target.z <= starts.maxZ) {
+            return 0.0D;
+        }
+        float radians = yaw * 0.017453292f;
+        double vanilla = distanceToForwardImpulse(
+                starts, closest, target, VanillaMath.sin(version, radians), VanillaMath.cos(version, radians));
+        if (vanilla == 0.0D) return 0.0D;
+        return Math.min(
+                vanilla,
+                distanceToForwardImpulse(
+                        starts, closest, target, OptifineFastMath.sin(radians), OptifineFastMath.cos(radians)));
+    }
+
+    private static double distanceToForwardImpulse(
+            SimpleCollisionBox starts, Vec3 closest, Vec3 target, float sin, float cos) {
+        double scale = (double) sin * sin + (double) cos * cos;
+        if (scale == 0) return Float.MAX_VALUE;
+        double closestX = target.x - closest.x;
+        double closestZ = target.z - closest.z;
+        double fromClosest = distanceToForwardCone(
+                (closestX * cos + closestZ * sin) / scale, (closestZ * cos - closestX * sin) / scale);
+        if (fromClosest == 0.0D) return 0.0D;
+        double lowX = target.x - starts.maxX;
+        double highX = target.x - starts.minX;
+        double lowZ = target.z - starts.maxZ;
+        double highZ = target.z - starts.minZ;
+        double s0 = (lowX * cos + lowZ * sin) / scale;
+        double f0 = (lowZ * cos - lowX * sin) / scale;
+        double s1 = (highX * cos + lowZ * sin) / scale;
+        double f1 = (lowZ * cos - highX * sin) / scale;
+        double s2 = (highX * cos + highZ * sin) / scale;
+        double f2 = (highZ * cos - highX * sin) / scale;
+        double s3 = (lowX * cos + highZ * sin) / scale;
+        double f3 = (highZ * cos - lowX * sin) / scale;
+        return Math.min(
+                fromClosest,
+                Math.min(
+                        Math.min(segmentToForwardCone(s0, f0, s1, f1), segmentToForwardCone(s1, f1, s2, f2)),
+                        Math.min(segmentToForwardCone(s2, f2, s3, f3), segmentToForwardCone(s3, f3, s0, f0))));
+    }
+
+    private static double segmentToForwardCone(double as, double af, double bs, double bf) {
+        double toA = distanceToForwardCone(as, af);
+        if (toA == 0.0D) return 0.0D;
+        double toB = distanceToForwardCone(bs, bf);
+        if (toB == 0.0D) return 0.0D;
+        double ds = bs - as;
+        double df = bf - af;
+        if (crossesBoundary(as, af, ds, df, 1.0D) || crossesBoundary(as, af, ds, df, -1.0D)) return 0.0D;
+        double lengthSqr = ds * ds + df * df;
+        double along = lengthSqr == 0.0D ? 0.0D : CultMath.clamp(-(as * ds + af * df) / lengthSqr, 0.0D, 1.0D);
+        double toApex = Math.hypot(as + along * ds, af + along * df);
+        return Math.min(Math.min(toA, toB), toApex);
+    }
+
+    private static boolean crossesBoundary(double as, double af, double ds, double df, double side) {
+        double denominator = ds - df * side;
+        if (denominator == 0.0D) return false;
+        double along = -(as - af * side) / denominator;
+        double ray = (af * ds - as * df) / denominator;
+        return along >= 0.0D && along <= 1.0D && ray >= 0.0D;
+    }
+
+    private static double distanceToForwardCone(double strafe, double forward) {
+        if (forward >= Math.abs(strafe)) return 0.0D;
+        double best = Math.sqrt(strafe * strafe + forward * forward);
+        for (int side = -1; side <= 1; side += 2) {
+            double along = (side * strafe + forward) / Math.sqrt(2.0D);
+            if (along <= 0.0D) continue;
+            double offX = strafe - along * side / Math.sqrt(2.0D);
+            double offZ = forward - along / Math.sqrt(2.0D);
+            best = Math.min(best, Math.sqrt(offX * offX + offZ * offZ));
+        }
+        return best;
     }
 
     /** The flag amount for the horizontal input {@code (absX, 0, absZ)}. */

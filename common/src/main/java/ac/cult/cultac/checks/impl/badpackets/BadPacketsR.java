@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.badpackets;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -21,11 +22,14 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
         experimental = true)
 public class BadPacketsR extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("time={ulong}ms, lst={ulong}ms, positions={uint}");
+    // LocalPlayer#sendPosition sends a position at least every 20 client ticks.
+    private static final int WINDOW_TICKS = 40;
 
     private int positions = 0;
     private long clock = 0;
     private long lastTransTime;
     private int oldTransId = 0;
+    private long windowTickNanos = ItemUseBurst.periodNanos(20F, false);
 
     public BadPacketsR(final CultPlayer player) {
         super(player);
@@ -36,11 +40,18 @@ public class BadPacketsR extends Check implements CheckListener {
     public void onPong(final PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
         if (!event.isAcceptedTransactionResponse()) return;
 
+        long tickNanos = ItemUseBurst.periodNanos(
+                player.packetStateData.serverTickRate,
+                player.packetStateData.serverTicksFrozen && player.packetStateData.serverFrozenTickStepsRemaining == 0);
+        boolean periodChanged = tickNanos != windowTickNanos;
+        long window = WINDOW_TICKS * windowTickNanos / 1000000L;
         long ms = (player.getPlayerClockAtLeast() - clock) / 1000000L;
         long diff = (System.currentTimeMillis() - lastTransTime);
-        if (diff > 2000 && ms > 2000) {
+        if (periodChanged || (diff > window && ms > window)) {
             // LocalPlayer#tick, which sends every position, runs only once ClientPacketListener#hasClientLoaded.
-            if (positions == 0
+            if (periodChanged) {
+                windowTickNanos = tickNanos;
+            } else if (positions == 0
                     && clock != 0
                     && (player.packetStateData.playerLoadedIntoLevel
                             || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4))

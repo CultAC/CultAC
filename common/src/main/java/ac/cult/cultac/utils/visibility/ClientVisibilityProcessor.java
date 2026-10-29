@@ -76,6 +76,10 @@ public final class ClientVisibilityProcessor extends CultProcessor implements Ch
                 () -> visibility.blockFaceHidden(position, face, positionError()));
     }
 
+    public List<SimpleCollisionBox> outlineBoxes(BlockPos position) {
+        return player.compensatedWorld.withSelectionSnapshot(() -> visibility.outlineBoxes(position));
+    }
+
     public ClientVisibility.Sight entitySight(PacketEntity entity) {
         return player.compensatedWorld.withSelectionSnapshot(() -> visibility.entitySight(entity, positionError()));
     }

@@ -331,7 +331,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         if (verbose) network.demandChanged();
     }
 
-    /** Starts loading {@code player}'s persisted alert scope; the permission default applies until it lands. */
+    /** Starts loading {@code player}'s persisted alert scope; the default applies until it lands. */
     public void loadScope(@NotNull PlatformPlayer player) {
         scopes.load(player, network::demandChanged);
     }
@@ -341,7 +341,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         return networkAlerts() ? scopes.scope(player) : AlertScope.SERVER;
     }
 
-    /** The scope {@code player} chose; null when the permission default applies. */
+    /** The scope {@code player} chose; null when the default applies. */
     public @Nullable AlertScope chosenScope(@NotNull PlatformPlayer player) {
         return scopes.chosen(player);
     }

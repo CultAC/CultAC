@@ -85,7 +85,7 @@ class AlertScopesTest {
     }
 
     @Test
-    void withNothingStoredThePermissionDefaultApplies() {
+    void withNothingStoredTheDefaultApplies() {
         DataStore store = store();
         AlertScopes scopes = new AlertScopes(null, () -> store);
         PlatformPlayer player = player(UUID.randomUUID());
