@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.dialog.DialogClickListener;
 import ac.cult.cultac.events.packets.PacketModelRegistryNames;
 import ac.cult.cultac.events.packets.PacketServerPlayerRotation;
 import ac.cult.cultac.events.packets.PacketServerRegistries;
@@ -49,6 +50,7 @@ class ProductionPacketHandlerBindingTest {
             CheckManagerListener.class,
             PacketConfigurationListener.class,
             PacketPingListener.class,
+            DialogClickListener.class,
             PacketPlayerWindow.class,
             PacketPlayerDigging.class,
             PacketPlayerAttack.class,
