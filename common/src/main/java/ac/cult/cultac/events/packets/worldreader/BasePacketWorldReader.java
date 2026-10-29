@@ -1,5 +1,7 @@
 package ac.cult.cultac.events.packets.worldreader;
 
+import ac.cult.blocksim.data.BlockFamilies;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate;
@@ -218,7 +220,7 @@ public class BasePacketWorldReader {
                 blockEvent.position().y(),
                 blockEvent.position().z());
         String dimension = packetDimension(player);
-        if (isNearPlayer(player, blockPosition, range)) {
+        if (isNearPlayer(player, blockPosition, range) || isShulkerBox(blockEvent.blockId())) {
             // ClientPacketListener#handleBlockEvent runs Level#blockEvent in the bundle's task, so
             // the flush proof proves the event exactly as it does the block updates around it.
             int transaction = player.appendFlushProofTransaction(event);
@@ -277,6 +279,13 @@ public class BasePacketWorldReader {
         }
 
         player.compensatedWorld.queueServerBlockUpdates(multiBlockChange, player.lastTransactionSent.get());
+    }
+
+    private static boolean isShulkerBox(int blockId) {
+        var blocks = DataTables.defaults().registry().blocks();
+        return blockId >= 0
+                && blockId < blocks.size()
+                && BlockFamilies.SHULKER_BOX.test(blocks.get(blockId).defaultState());
     }
 
     private boolean isNearPlayer(CultPlayer player, BlockPos pos, int range) {

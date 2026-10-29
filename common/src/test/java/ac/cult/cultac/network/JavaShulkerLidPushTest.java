@@ -144,6 +144,33 @@ class JavaShulkerLidPushTest {
                 rideOpeningLid(ClientVersion.V_26_1, 14, 0, Map.of(), tick, y, true), "VerticalOffset");
     }
 
+    /**
+     * ClientPacketListener#handleBlockEvent starts the lid when the client handles the packet, however far the box is
+     * from the position the server last had for the player.
+     */
+    @Test
+    void aDistantLidOpensWhenTheClientHandlesItsBlockEvent() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_26_1);
+            BlockPos far = new BlockPos(20, FLOOR_Y, 0);
+            int box = REGISTRY.block("minecraft:shulker_box").defaultState();
+            f.player.compensatedWorld.updateBlock(far, box);
+            f.place(new Vec3(0.5, FLOOR_Y, 0.5), Vec3.ZERO);
+            blockEvent(f, far, 1, 1, box, false);
+            f.tickEnd();
+            assertEquals(0.0F, progress(f, far));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.tickEnd();
+            assertEquals(0.1F, progress(f, far));
+        }
+    }
+
+    private static float progress(JavaTickFixture f, BlockPos pos) {
+        var data = f.player.compensatedWorld.getClientBlockEntityData(pos);
+        var progress = data == null ? null : data.data().get("progress");
+        return progress == null ? 0.0F : progress.getAsFloat();
+    }
+
     /** From 26.3 Minecraft#tick sends the position after ClientLevel#tickBlockEntities, so it carries the shove. */
     @Test
     void aShulkerBoxShovesA26_3PlayerAfterItsTravel() throws Exception {
