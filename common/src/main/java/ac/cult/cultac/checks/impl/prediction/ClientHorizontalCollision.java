@@ -63,7 +63,7 @@ public final class ClientHorizontalCollision {
         var pass = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine.passAfterTravel(result);
         if (pass != null && pass.result().lastMove() != null) {
             DesyncStatus afterPass = afterMove(
-                    result.getInitialStartingVel().getTravelInput(),
+                    result,
                     pass.result().lastMove().delta(),
                     pass.result().lastMove().movement());
             if (afterPass != DesyncStatus.TRUE) return afterPass;
@@ -126,17 +126,30 @@ public final class ClientHorizontalCollision {
 
     /**
      * Entity#move's horizontalCollision and minorHorizontalCollision for a forward move: Player#isHorizontalCollisionMinor
-     * compares the collided movement with xxa/zza turned by the yaw, whose direction is the travel input's.
+     * compares the collided movement with xxa/zza turned by the yaw. Gliding can leave those nonzero while adding
+     * no moveRelative acceleration.
      */
     private static DesyncStatus forwardHard(PredictionResult result, JavaMoveCollision move) {
         if (!move.horizontalCollision()) return DesyncStatus.FALSE;
-        Vec3 input = result.getInitialStartingVel().getTravelInput();
-        double length = input == null ? 0 : Math.sqrt(input.x * input.x + input.z * input.z);
-        if (length == 0) return DesyncStatus.TRUE;
-        Vec3 collided = move.collided();
-        return isMinor(input.x / length, input.z / length, collided.x, collided.z)
-                ? DesyncStatus.FALSE
-                : DesyncStatus.TRUE;
+        return afterMove(result, move.attempted(), move.collided());
+    }
+
+    /** The travel's steering keys, including when its movement mode added zero acceleration. */
+    public static DesyncStatus afterMove(PredictionResult result, Vec3 delta, Vec3 movement) {
+        if (Math.abs(delta.x - movement.x) < 1.0E-5F && Math.abs(delta.z - movement.z) < 1.0E-5F)
+            return DesyncStatus.FALSE;
+        PredVector start = result.getInitialStartingVel();
+        Vec3 input = start == null ? null : start.getTravelInput();
+        if (input == null || input.horizontalDistanceSqr() != 0 || start.getCollisionInputs() == null)
+            return afterMove(input, delta, movement);
+        DesyncStatus verdict = null;
+        for (Vec3 steering : start.getCollisionInputs()) {
+            DesyncStatus candidate =
+                    afterMove(steering.horizontalDistanceSqr() < 1.0E-5F ? Vec3.ZERO : steering, delta, movement);
+            if (verdict != null && candidate != verdict) return DesyncStatus.UNKNOWN;
+            verdict = candidate;
+        }
+        return verdict == null ? DesyncStatus.UNKNOWN : verdict;
     }
 
     /**
@@ -233,7 +246,10 @@ public final class ClientHorizontalCollision {
             double length = Math.sqrt(strafe * strafe + forward * forward);
             if (length == 0) return false;
             return isMinor(
-                    (strafe * cos - forward * sin) / length, (forward * cos + strafe * sin) / length, target.x, target.z);
+                    (strafe * cos - forward * sin) / length,
+                    (forward * cos + strafe * sin) / length,
+                    target.x,
+                    target.z);
         }
     }
 

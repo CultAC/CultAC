@@ -160,13 +160,32 @@ public final class ClientKeyInput {
      */
     public static List<Vec3> exactTravelInputs(
             CultPlayer player, SimulationContext context, PredVector candidate, boolean reportedKeys) {
+        return exactInputs(player, context, candidate, reportedKeys, false);
+    }
+
+    /**
+     * LocalPlayer#isHorizontalCollisionMinor reads xxa/zza even when travelFallFlying never calls moveRelative, or
+     * its speed is zero. Rotate those same modified keys at unit speed, independently of travel's acceleration.
+     */
+    public static List<Vec3> collisionInputs(
+            CultPlayer player, SimulationContext context, PredVector candidate, boolean reportedKeys) {
+        return exactInputs(player, context, candidate, reportedKeys, true);
+    }
+
+    private static List<Vec3> exactInputs(
+            CultPlayer player,
+            SimulationContext context,
+            PredVector candidate,
+            boolean reportedKeys,
+            boolean collisionInput) {
         // Before 1.21.5 travelFallFlying still glides on a climbable and never calls moveRelative.
         // From 1.21.5 usesFallFlyingMovement excludes the certain travelInAir branch; an unknown climbable
         // can still supply both source branches below.
         boolean gliding =
                 context.usesFallFlyingMovement() && !context.getWorldData().isInLiquid();
         DesyncStatus climbing = context.getWorldData().getClimbingAtStart();
-        if (gliding
+        if (!collisionInput
+                && gliding
                 && (context.getVersion().isOlderThan(ClientVersion.V_1_21_5) || !climbing.determineOptimistically()))
             return List.of(Vec3.ZERO);
         // LivingEntity#aiStep clears xxa/zza after applyInput when health <= 0.
@@ -177,9 +196,9 @@ public final class ClientKeyInput {
                 ? new float[] {use.legalMultiplier(), use.requiredMultiplier(), use.slowestMultiplier(), 1.0F}
                 : new float[] {use.legalMultiplier(), use.requiredMultiplier(), use.slowestMultiplier()};
         float[] slows = movingSlowlyFactors(player, context);
-        List<Float> speeds = moveRelativeSpeeds(player, context, candidate);
+        List<Float> speeds = collisionInput ? List.of(1.0F) : moveRelativeSpeeds(player, context, candidate);
         var inputs = new ArrayList<Vec3>(4);
-        if (gliding && climbing.isDesync()) inputs.add(Vec3.ZERO);
+        if (!collisionInput && gliding && climbing.isDesync()) inputs.add(Vec3.ZERO);
         if (reportedKeys) {
             addInputs(inputs, context, player.packetStateData.knownInput, speeds, slows, itemUses);
             return inputs;

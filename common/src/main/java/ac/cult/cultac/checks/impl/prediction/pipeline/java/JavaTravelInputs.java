@@ -45,7 +45,11 @@ public final class JavaTravelInputs {
         for (int i = 0, size = velocities.size(); i < size; i++) {
             PredVector velocity = velocities.get(i);
             for (Vec3 input : ClientKeyInput.exactTravelInputs(player, context, velocity, keys)) {
-                candidates.add(velocity.withTravelInput(input));
+                candidates.add(velocity.withTravelInput(
+                        input,
+                        input.horizontalDistanceSqr() == 0
+                                ? ClientKeyInput.collisionInputs(player, context, velocity, keys)
+                                : null));
             }
         }
         return candidates;

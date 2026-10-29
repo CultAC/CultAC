@@ -46,6 +46,11 @@ public class PredVector extends Vec3 {
     @Getter
     Vec3 travelInput = null;
 
+    // LocalPlayer#applyInput's steering when travel added no acceleration. Kept at this tick's input/yaw so a
+    // later piston/shulker move can read it after the next tick's keys have arrived.
+    @Getter
+    List<Vec3> collisionInputs = null;
+
     List<TransactionVel> packetModifiers = null;
 
     // A bounded deltaMovement the client may hold, as offsets around this vector, or null when exact.
@@ -73,6 +78,7 @@ public class PredVector extends Vec3 {
         this.attackSlows = lastVector.attackSlows;
         this.sprintOutcome = lastVector.sprintOutcome;
         this.travelInput = lastVector.travelInput;
+        this.collisionInputs = lastVector.collisionInputs;
         this.reason = reason;
         this.packetModifiers = lastVector.packetModifiers;
         this.velocityRange = lastVector.velocityRange;
@@ -88,8 +94,13 @@ public class PredVector extends Vec3 {
 
     /** This deltaMovement after LivingEntity#moveRelative added the exact {@code input}. */
     public PredVector withTravelInput(Vec3 input) {
+        return withTravelInput(input, null);
+    }
+
+    public PredVector withTravelInput(Vec3 input, List<Vec3> collisionInputs) {
         PredVector candidate = new PredVector(x + input.x, y + input.y, z + input.z, this, "travel input");
         candidate.travelInput = input;
+        candidate.collisionInputs = collisionInputs;
         return candidate;
     }
 

@@ -393,9 +393,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 DesyncStatus hard = last == null
                         ? DesyncStatus.UNKNOWN
                         : ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision.afterMove(
-                                this.lastPrediction.getInitialStartingVel() == null
-                                        ? null
-                                        : this.lastPrediction.getInitialStartingVel().getTravelInput(),
+                                this.lastPrediction,
                                 last.delta(),
                                 last.movement());
                 passHard = passHard == null || passHard == hard ? hard : DesyncStatus.UNKNOWN;
