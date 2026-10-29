@@ -9,6 +9,7 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundShowDialog;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomClickAction;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -19,10 +20,12 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Shows {@link Dialog}s and runs their buttons, on any platform: CultAC writes the dialog to the client itself and takes
  * the clicks back out of the stream before the server sees them. Each viewer has at most one dialog that answers
- * clicks, the last one shown to them; a click on an older one, or on one that was closed, does nothing.
+ * clicks, the last one shown to them; a click on an older one, or on one that was closed, does nothing. Click ids carry
+ * a token of this CultAC instance, so a proxy passes on the clicks of a dialog its backend's CultAC drew.
  */
 public final class Dialogs {
-    static final String CLICK_PREFIX = "cultac:dialog/";
+    static final String CLICK_PREFIX =
+            "cultac:dialog/" + Long.toHexString(new SecureRandom().nextLong() >>> 1) + "/";
     private static final long MAX_PAYLOAD_HEAP = 65_536L;
     private static final Map<UUID, Shown> SHOWN = new ConcurrentHashMap<>();
     private static final AtomicInteger NEXT_ID = new AtomicInteger();
@@ -100,7 +103,7 @@ public final class Dialogs {
 
     /**
      * Runs the button {@code click} names when it is on the dialog {@code viewer} was last shown. Called on their
-     * thread; true for any click on a CultAC dialog, which the server must not see.
+     * thread; true for any click on a dialog this instance drew, which the server must not see.
      */
     static boolean clicked(CultPlayer viewer, ServerboundCustomClickAction click) {
         if (!click.id().startsWith(CLICK_PREFIX)) return false;
@@ -127,8 +130,7 @@ public final class Dialogs {
         } catch (NumberFormatException notAButton) {
             return null;
         }
-        if (index >= 0 && index < dialog.buttons().size())
-            return dialog.buttons().get(index);
+        if (index >= 0 && index < dialog.buttons().size()) return dialog.buttons().get(index);
         return index == dialog.buttons().size() ? dialog.exit() : null;
     }
 

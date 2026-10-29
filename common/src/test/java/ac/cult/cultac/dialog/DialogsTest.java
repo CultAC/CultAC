@@ -3,6 +3,7 @@ package ac.cult.cultac.dialog;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.nbt.BinaryNbt;
 import ac.cult.blocksim.data.nbt.NbtValue;
@@ -20,17 +21,23 @@ class DialogsTest {
 
     @Test
     void aClickNamesAButtonOfTheDialogShownUnderItsId() {
-        assertSame(DIALOG.buttons().get(1), Dialogs.button(DIALOG, 7, "cultac:dialog/7/1"));
-        assertSame(DIALOG.exit(), Dialogs.button(DIALOG, 7, "cultac:dialog/7/2"));
+        assertSame(DIALOG.buttons().get(1), Dialogs.button(DIALOG, 7, Dialogs.CLICK_PREFIX + "7/1"));
+        assertSame(DIALOG.exit(), Dialogs.button(DIALOG, 7, Dialogs.CLICK_PREFIX + "7/2"));
     }
 
     @Test
     void aClickOnAnOlderDialogOrOnNoButtonFindsNothing() {
-        assertNull(Dialogs.button(DIALOG, 7, "cultac:dialog/6/1"));
-        assertNull(Dialogs.button(DIALOG, 7, "cultac:dialog/70/1"));
-        assertNull(Dialogs.button(DIALOG, 7, "cultac:dialog/7/3"));
-        assertNull(Dialogs.button(DIALOG, 7, "cultac:dialog/7/-1"));
-        assertNull(Dialogs.button(DIALOG, 7, "cultac:dialog/7/x"));
+        assertNull(Dialogs.button(DIALOG, 7, Dialogs.CLICK_PREFIX + "6/1"));
+        assertNull(Dialogs.button(DIALOG, 7, Dialogs.CLICK_PREFIX + "70/1"));
+        assertNull(Dialogs.button(DIALOG, 7, Dialogs.CLICK_PREFIX + "7/3"));
+        assertNull(Dialogs.button(DIALOG, 7, Dialogs.CLICK_PREFIX + "7/-1"));
+        assertNull(Dialogs.button(DIALOG, 7, Dialogs.CLICK_PREFIX + "7/x"));
+    }
+
+    @Test
+    void eachInstanceNamesItsClicksApart() {
+        assertTrue(Dialogs.CLICK_PREFIX.matches("cultac:dialog/[0-9a-f]+/"), Dialogs.CLICK_PREFIX);
+        assertNull(Dialogs.button(DIALOG, 7, "cultac:dialog/0/7/1"));
     }
 
     @Test
