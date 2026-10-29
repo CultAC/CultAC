@@ -541,3 +541,27 @@ checks:
   Cloud:
     summary: "Flagged by the cloud review"
     details: "The player's recent play was sent to the cloud anticheat service for a deeper review, and the review found it matches cheating. The alert names the kind of cheat it found."
+  CloudCombat:
+    summary: "Flagged by the cloud review: combat"
+    details: "The cloud anticheat service reviewed the player's play and flagged it under its combat category. Punishment groups that select this check decide what a flag does."
+  CloudCombatExperimental:
+    summary: "Flagged by an experimental cloud review: combat"
+    details: "Like CloudCombat, from the cloud service's experimental checks, which are still being tested. Treat it as a lead for staff to review rather than proof."
+  CloudAutomation:
+    summary: "Flagged by the cloud review: automation"
+    details: "The cloud anticheat service reviewed the player's play and flagged it under its automation category. Punishment groups that select this check decide what a flag does."
+  CloudAutomationExperimental:
+    summary: "Flagged by an experimental cloud review: automation"
+    details: "Like CloudAutomation, from the cloud service's experimental checks, which are still being tested. Treat it as a lead for staff to review rather than proof."
+  CloudClient:
+    summary: "Flagged by the cloud review: client"
+    details: "The cloud anticheat service reviewed the player's play and flagged it under its client category. Punishment groups that select this check decide what a flag does."
+  CloudClientExperimental:
+    summary: "Flagged by an experimental cloud review: client"
+    details: "Like CloudClient, from the cloud service's experimental checks, which are still being tested. Treat it as a lead for staff to review rather than proof."
+  CloudExploit:
+    summary: "Flagged by the cloud review: exploit"
+    details: "The cloud anticheat service reviewed the player's play and flagged it under its exploit category. Punishment groups that select this check decide what a flag does."
+  CloudExploitExperimental:
+    summary: "Flagged by an experimental cloud review: exploit"
+    details: "Like CloudExploit, from the cloud service's experimental checks, which are still being tested. Treat it as a lead for staff to review rather than proof."

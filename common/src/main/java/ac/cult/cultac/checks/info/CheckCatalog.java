@@ -257,7 +257,15 @@ public final class CheckCatalog {
             check("ExploitA", CRASH),
             check("ExploitB", CRASH),
             check("ExploitC", CRASH),
-            check("Cloud", CLOUD));
+            check("Cloud", CLOUD),
+            check("CloudCombat", CLOUD),
+            check("CloudCombatExperimental", CLOUD),
+            check("CloudAutomation", CLOUD),
+            check("CloudAutomationExperimental", CLOUD),
+            check("CloudClient", CLOUD),
+            check("CloudClientExperimental", CLOUD),
+            check("CloudExploit", CLOUD),
+            check("CloudExploitExperimental", CLOUD));
 
     private CheckCatalog() {}
 
