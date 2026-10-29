@@ -86,6 +86,7 @@ public class CompensatedEntities {
     private long passTickedThroughOrder = Long.MIN_VALUE;
     // Numbers each client tick's block-entity pass; a rider's recorded push boxes hold until the next one starts.
     private int riderPushPass;
+    private final Set<PacketEntity> riderInterpolations = new HashSet<>();
     private int movementPositionReads;
     private long movementPositionEpoch;
 
@@ -403,10 +404,44 @@ public class CompensatedEntities {
      */
     public List<SimpleCollisionBox> untrackedRiderPushBoxes(
             PacketEntity rider, SimpleCollisionBox near, SimpleCollisionBox rootBox, SimpleCollisionBox scratch) {
+        List<SimpleCollisionBox> interpolated = rider.interpolatedRiderPushBoxes(player);
+        if (interpolated != null) return interpolated;
         List<SimpleCollisionBox> moved = rider.riderPushBoxes(riderPushPass);
         if (moved != null) return moved;
         if (rootOf(rider) == null || !seatMayReach(rider, near, rootBox, scratch, true)) return List.of();
         return untrackedRiderSeatsBeforeTick(rider);
+    }
+
+    /** Packet-time position: a previous block-entity shove still holds until the rider's next commonTick. */
+    public SimpleCollisionBox untrackedRiderPacketBox(PacketEntity rider) {
+        List<SimpleCollisionBox> moved = rider.riderPushBoxes(riderPushPass);
+        if (moved != null) return moved.getFirst();
+        return currentMovementBox(rider);
+    }
+
+    public void replayRiderInterpolation(PacketEntity rider) {
+        riderInterpolations.add(rider);
+    }
+
+    public void stopRiderInterpolation(PacketEntity rider) {
+        riderInterpolations.remove(rider);
+    }
+
+    private void finishRiderInterpolations() {
+        if (riderInterpolations.isEmpty()) return;
+        var iterator = riderInterpolations.iterator();
+        while (iterator.hasNext()) {
+            PacketEntity rider = iterator.next();
+            PacketEntity root = rootOf(rider);
+            if (rider.getTracker() != this || !isUntrackedRider(rider) || root == null) {
+                iterator.remove();
+                continue;
+            }
+            if (!ticksInClientTick(root)) continue;
+            SimpleCollisionBox seat = untrackedRiderSeat(rider, 0, root.getClientMovementCollisionBox());
+            if (seat != null) rider.finishRiderInterpolation(player, seat);
+            if (!rider.hasRiderInterpolation()) iterator.remove();
+        }
     }
 
     /**
@@ -1474,7 +1509,8 @@ public class CompensatedEntities {
                 ((PacketEntityRideable) entity).boost.onSynced(boost);
             }
             // Strider defines DATA_SUFFOCATING immediately after DATA_BOOST_TIME in every supported layout.
-            EntityMetadata.Entry coldData = WatchableIndexUtil.getIndex(watchableObjects, layout.striderBoostTime() + 1);
+            EntityMetadata.Entry coldData =
+                    WatchableIndexUtil.getIndex(watchableObjects, layout.striderBoostTime() + 1);
             if (!player.isBedrockMovement() && coldData != null && coldData.value() instanceof Boolean cold) {
                 strider.onSuffocatingMetadata(cold);
             }
@@ -1582,6 +1618,7 @@ public class CompensatedEntities {
                 tick.accept(root);
             }
         }
+        finishRiderInterpolations();
     }
 
     /**

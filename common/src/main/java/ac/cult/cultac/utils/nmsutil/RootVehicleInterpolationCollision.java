@@ -18,6 +18,12 @@ public final class RootVehicleInterpolationCollision {
 
     public static boolean shouldShiftRootInterpolationTarget(
             CultPlayer player, PacketEntity vehicle, Vec3 target, Vec3 delta) {
+        return shouldShiftRootInterpolationTarget(player, vehicle, target, delta, vehicle.clientPhysicalPosition);
+    }
+
+    /** Detached Entity#move replays supply their physical position instead of the actor's tracked position. */
+    public static boolean shouldShiftRootInterpolationTarget(
+            CultPlayer player, PacketEntity vehicle, Vec3 target, Vec3 delta, Vec3 physicalPosition) {
         if (delta.lengthSqr() <= SAME_POSITION_DISTANCE_SQ) {
             return false;
         }
@@ -28,7 +34,7 @@ public final class RootVehicleInterpolationCollision {
         if (!player.isBedrockMovement() && player.getClientVersion() == ClientVersion.V_1_21_5) {
             // That release uses makeBoundingBox().move(target + delta), adding the current position twice.
             // 1.21.6 fixes it to makeBoundingBox(target + delta).
-            Vec3 physical = vehicle.clientPhysicalPosition;
+            Vec3 physical = physicalPosition;
             shiftedBox = GetBoundingBox.getPacketEntityBoundingBox(player, physical.x, physical.y, physical.z, vehicle)
                     .move(shiftedTarget.x, shiftedTarget.y, shiftedTarget.z);
         }
@@ -39,7 +45,7 @@ public final class RootVehicleInterpolationCollision {
                         vehicle,
                         vehicle.blockEntityState == null ? 0.0 : vehicle.blockEntityState.fallDistance());
         return !Collisions.getCollisionBoxes(player, shiftedBox, null, true, shiftedTarget.y, actor)
-                && hasNoRootVehicleEntityCollision(player, vehicle, shiftedBox);
+                && hasNoRootVehicleEntityCollision(player, vehicle, shiftedBox, physicalPosition);
     }
 
     /**
@@ -132,11 +138,10 @@ public final class RootVehicleInterpolationCollision {
     }
 
     private static boolean hasNoRootVehicleEntityCollision(
-            CultPlayer player, PacketEntity vehicle, SimpleCollisionBox box) {
+            CultPlayer player, PacketEntity vehicle, SimpleCollisionBox box, Vec3 physicalPosition) {
         SimpleCollisionBox inflatedBox = entityCollisionArea(box);
         // AbstractInterpolationHandler#adjustInterpolationPosition asks Level#noCollision for the vehicle itself.
-        Vec3 vehiclePosition =
-                vehicle.clientPhysicalPosition == null ? Collisions.feet(box) : vehicle.clientPhysicalPosition;
+        Vec3 vehiclePosition = physicalPosition == null ? Collisions.feet(box) : physicalPosition;
         if (!player.isBedrockMovement())
             return entityCollisionBoxes(player, vehicle, vehiclePosition, box).isEmpty();
         var selection = new EntityCollisionSelection(player, vehicle, vehiclePosition);

@@ -120,6 +120,7 @@ public class PacketEntity {
     // Where the last block-entity pass left this untracked rider; allocated only once a pass reaches its vehicle.
     private List<SimpleCollisionBox> riderPushBoxes;
     private int riderPushPass;
+    private ClientRiderInterpolation riderInterpolation;
 
     public void ensurePistonPatchStates() {
         if (pistonStates == null) pistonStates = new JavaPistonEntityStates(this);
@@ -138,7 +139,10 @@ public class PacketEntity {
     }
 
     private void clientPositionChanged() {
-        if (tracker != null && !readingTickPositions && (pistonStates == null || !pistonStates.running()))
+        if (tracker != null
+                && !readingTickPositions
+                && (pistonStates == null || !pistonStates.running())
+                && (riderInterpolation == null || !riderInterpolation.running()))
             tracker.onClientEntityPositionChanged(this);
     }
 
@@ -363,7 +367,10 @@ public class PacketEntity {
             @Nullable Float pitch,
             CultPlayer player,
             boolean uncertainInitialSteps) {
-        if (runPhysicsPaths(() -> onFirstTransaction(relative, hasPos, relX, relY, relZ, yaw, pitch, player, uncertainInitialSteps))) return;
+        prepareRiderInterpolation(player);
+        if (runPhysicsPaths(() ->
+                onFirstTransaction(relative, hasPos, relX, relY, relZ, yaw, pitch, player, uncertainInitialSteps)))
+            return;
         if (pistonStates != null
                 && runPistonPatchStates(() -> onFirstTransaction(
                         relative, hasPos, relX, relY, relZ, yaw, pitch, player, uncertainInitialSteps))) return;
@@ -442,6 +449,7 @@ public class PacketEntity {
             @Nullable Float pitch,
             CultPlayer player,
             boolean bundled) {
+        prepareRiderInterpolation(player);
         if (runPhysicsPaths(() -> onPositionPath(path, hasPosition, yaw, pitch, player, bundled))) return;
         if (pistonStates != null
                 && runPistonPatchStates(() -> onPositionPath(path, hasPosition, yaw, pitch, player, bundled))) return;
@@ -541,6 +549,7 @@ public class PacketEntity {
             @Nullable Float yaw,
             @Nullable Float pitch,
             CultPlayer player) {
+        prepareRiderInterpolation(player);
         if (runPhysicsPaths(() -> onBundleTransaction(relative, hasPos, relX, relY, relZ, yaw, pitch, player))) return;
         if (pistonStates != null
                 && runPistonPatchStates(
@@ -656,9 +665,84 @@ public class PacketEntity {
      * boats, minecarts, fishing hooks and experience orbs interpolate. From 1.21.11 a display's handler takes its steps
      * from teleport_duration, and with 0 steps {@code interpolateTo} calls {@code snapTo}.
      */
-    /** Additional discrete client physics paths, allocated only by entities with autonomous movement. */
+    /** Detached client physics paths, allocated only when a replay needs them. */
     public boolean runPhysicsPaths(Runnable operation) {
+        resumeTrackedRiderInterpolation();
+        if (riderInterpolation != null && !riderInterpolation.running()) {
+            riderInterpolation.run(this, operation);
+            if (riderInterpolation.active() && tracker != null) tracker.replayRiderInterpolation(this);
+            return true;
+        }
         return false;
+    }
+
+    private void resumeTrackedRiderInterpolation() {
+        if (riderInterpolation == null
+                || riderInterpolation.running()
+                || tracker == null
+                || tracker.isUntrackedRider(this)) return;
+        // The local player joined this riding tree. It now owns ordinary tracked passenger interpolation.
+        riderInterpolation.resumeTracked(this);
+        tracker.stopRiderInterpolation(this);
+        riderInterpolation = null;
+        clientPositionChanged();
+    }
+
+    private void prepareRiderInterpolation(CultPlayer player) {
+        if (riderInterpolation != null && !riderInterpolation.running() && !riderInterpolation.active()) {
+            riderInterpolation.run(
+                    this, () -> setRiderReplayPosition(player.compensatedEntities.untrackedRiderPacketBox(this)));
+        }
+        if (riderInterpolation != null
+                || player.isBedrockMovement()
+                || !living
+                || type == EntityTypeIds.SHULKER
+                || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
+                || !player.compensatedEntities.isUntrackedRider(this)) return;
+        riderInterpolation =
+                new ClientRiderInterpolation(this, player.compensatedEntities.untrackedRiderPacketBox(this));
+    }
+
+    /** Active packet interpolation only; this never runs the rider's entity tick or commits its position. */
+    public boolean hasRiderInterpolation() {
+        return riderInterpolation != null && riderInterpolation.active();
+    }
+
+    public List<SimpleCollisionBox> interpolatedRiderPushBoxes(CultPlayer player) {
+        return riderInterpolation == null || !riderInterpolation.applies(player)
+                ? null
+                : riderInterpolation.pushBoxes(player, this);
+    }
+
+    public void finishRiderInterpolation(CultPlayer player, SimpleCollisionBox seat) {
+        riderInterpolation.finishTick(player, this, seat);
+    }
+
+    public ReachInterpolationData riderInterpolationPath(boolean old) {
+        return riderInterpolation == null ? null : riderInterpolation.path(old);
+    }
+
+    public void recordRiderInterpolationPass(
+            SimpleCollisionBox box, ReachInterpolationData path, ReachInterpolationData oldPath) {
+        if (riderInterpolation != null) riderInterpolation.afterPass(this, box, path, oldPath);
+    }
+
+    void setRiderReplayPosition(SimpleCollisionBox box) {
+        blockEntityPhysicalBox = null;
+        clientPhysicalPosition = positionFromCollisionBox(box);
+        clientPhysicalPositionExact = true;
+    }
+
+    /** ClientLevel#tickPassenger calls commonTick before rideTick's push and subsequent positionRider. */
+    void replayRiderCommonTick(CultPlayer player) {
+        blockEntityPhysicalBox = null;
+        tickWithUnprovenUnbundledPath();
+        if (!hasActiveLocalRootInterpolation()) return;
+        stepInterpolation(player);
+        if (oldPacketLocation != null) {
+            oldPacketLocation.tickMovement(true);
+            widenStartingLocationByOldLocation();
+        }
     }
 
     protected boolean ignoresLerp(CultPlayer player) {
@@ -667,7 +751,8 @@ public class PacketEntity {
 
     private boolean skipsInterpolation(CultPlayer player) {
         // FishingHook lost its no-op lerpTo in 1.21.5, before gaining a handler in 1.21.6.
-        if (!player.isBedrockMovement() && this instanceof PacketEntityHook
+        if (!player.isBedrockMovement()
+                && this instanceof PacketEntityHook
                 && player.getClientVersion() == ClientVersion.V_1_21_5) return true;
         if (type == EntityTypeIds.SHULKER) return true;
         if (living
@@ -849,6 +934,7 @@ public class PacketEntity {
     }
 
     public void onMovement(CultPlayer player) {
+        resumeTrackedRiderInterpolation();
         if (!player.isBedrockMovement()) {
             orderAtClientTickStart = player.compensatedEntities.clientTickOrder(this);
             tickedAtClientTick = player.packetStateData.acceptedClientTick;
@@ -1211,6 +1297,10 @@ public class PacketEntity {
         vehicle.passengers.add(this);
         if (vehicle.tracker != null) vehicle.tracker.onPassengerAdded();
         riding = vehicle;
+        if (newPacketLocation != null && newPacketLocation.hasActiveInterpolationTarget()) {
+            prepareRiderInterpolation(positionPlayer);
+            if (hasRiderInterpolation()) tracker.replayRiderInterpolation(this);
+        }
     }
 
     public void eject() {
@@ -1218,6 +1308,10 @@ public class PacketEntity {
             riding.tracker.onPassengerRemoved();
         }
         this.riding = null;
+        if (riderInterpolation != null) {
+            if (tracker != null) tracker.stopRiderInterpolation(this);
+            riderInterpolation = null;
+        }
     }
 
     public @Nullable CompensatedEntities getTracker() {
@@ -1264,8 +1358,7 @@ public class PacketEntity {
         if (!newPacketLocation.hasActiveInterpolationTarget()) {
             // An idle handler's interpolate cancels without setting the entity's position.
             newPacketLocation = new ReachInterpolationData(box);
-        } else if (recordedMovement != null
-                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
+        } else if (recordedMovement != null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
             newPacketLocation.applyPredictedMovement(player, this, recordedMovement);
         }
         blockEntityPhysicalBox = box.copy();
@@ -1296,6 +1389,10 @@ public class PacketEntity {
         Vec3 codecBase = desyncClientPos;
         passengerPhysicalBox = null;
         riderPushBoxes = null;
+        if (riderInterpolation != null) {
+            if (tracker != null) tracker.stopRiderInterpolation(this);
+            riderInterpolation = null;
+        }
         oldPacketLocation = null;
         bedrockInterpolation = null;
         setPositionRaw(seat, clientPhysicalYaw, clientPhysicalPitch);
@@ -1391,6 +1488,7 @@ public class PacketEntity {
 
     /** {@code Entity#refreshDimensions}: the current, pending and seated positions take the entity's new dimensions. */
     public void refreshDimensions(CultPlayer player) {
+        if (runPhysicsPaths(() -> refreshDimensions(player))) return;
         if (pistonStates != null && runPistonPatchStates(() -> refreshDimensions(player))) return;
         float width = BoundingBoxSize.getWidth(player, this);
         float height = BoundingBoxSize.getHeight(player, this);
@@ -1600,9 +1698,7 @@ public class PacketEntity {
 
     /** The discrete client positions have proven paths; readers enumerate pending avatar dimensions separately. */
     public boolean hasProvenMovementCandidates(int received) {
-        return received >= dataProvenAt
-                && !hasInexactPosition()
-                && unprovenUnbundledPaths == 0;
+        return received >= dataProvenAt && !hasInexactPosition() && unprovenUnbundledPaths == 0;
     }
 
     public SimpleCollisionBox getExactMovementCollisionBox() {

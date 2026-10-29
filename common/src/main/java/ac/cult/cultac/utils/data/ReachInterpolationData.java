@@ -493,7 +493,8 @@ public class ReachInterpolationData {
     }
 
     private static int vanillaInterpolationStepsFor(CultPlayer player, PacketEntity entity) {
-        if (!player.isBedrockMovement() && entity.type == EntityTypeIds.FISHING_BOBBER
+        if (!player.isBedrockMovement()
+                && entity.type == EntityTypeIds.FISHING_BOBBER
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_6)) return 3;
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
             // ExperienceOrb's handler takes the default 3 steps.
@@ -895,14 +896,23 @@ public class ReachInterpolationData {
 
     /** 26.3 AbstractInterpolationHandler#applyPredictedMovement: target collision gates only the path shift. */
     public void applyPredictedMovement(CultPlayer player, PacketEntity entity, Vec3 movement) {
+        applyPredictedMovement(player, entity, movement, entity.clientPhysicalPosition);
+    }
+
+    public void applyPredictedMovement(CultPlayer player, PacketEntity entity, Vec3 movement, Vec3 physicalPosition) {
         SimpleCollisionBox previous = getExactMovementLocation();
-        shiftRootVehicleTargetIfCollisionFree(player, entity, movement);
+        shiftRootVehicleTargetIfCollisionFree(player, entity, movement, physicalPosition);
         // lastPositionAndRotation always receives the mover's delta, even when its target is blocked.
         // Keep ordinary travel outside this update so interpolate can carry that travel next tick.
         if (previous != null) setExactMovementLocation(previous.offset(movement));
     }
 
     public void shiftRootVehicleTargetIfCollisionFree(CultPlayer player, PacketEntity entity, Vec3 movement) {
+        shiftRootVehicleTargetIfCollisionFree(player, entity, movement, entity.clientPhysicalPosition);
+    }
+
+    private void shiftRootVehicleTargetIfCollisionFree(
+            CultPlayer player, PacketEntity entity, Vec3 movement, Vec3 physicalPosition) {
         settled = false;
         if (movement.lengthSqr() == 0.0D) {
             return;
@@ -913,7 +923,7 @@ public class ReachInterpolationData {
                 targetLocation.minY,
                 (targetLocation.minZ + targetLocation.maxZ) / 2.0D);
         if (RootVehicleInterpolationCollision.shouldShiftRootInterpolationTarget(
-                player, entity, targetPosition, movement)) {
+                player, entity, targetPosition, movement, physicalPosition)) {
             boundsValid = false;
             targetLocation.offset(movement);
             if (interpolationQueue != null) shiftSteppedPath(movement, 0, 0);

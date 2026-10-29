@@ -9,8 +9,8 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.ReachInterpolationData;
 import ac.cult.cultac.utils.data.ClientFluidHeights;
+import ac.cult.cultac.utils.data.ReachInterpolationData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
@@ -46,14 +46,41 @@ public final class JavaBlockEntityPass {
             ReachInterpolationData interpolation,
             Double boatLastYd,
             ClientFluidHeights fluidHeights,
-            LastMove lastMove) {
-        public Result(JavaPassState state, boolean moved, boolean fixedX, boolean fixedY, boolean fixedZ,
-                ReachInterpolationData interpolation, Double boatLastYd, ClientFluidHeights fluidHeights) {
+            LastMove lastMove,
+            ReachInterpolationData oldInterpolation) {
+        public Result(
+                JavaPassState state,
+                boolean moved,
+                boolean fixedX,
+                boolean fixedY,
+                boolean fixedZ,
+                ReachInterpolationData interpolation,
+                Double boatLastYd,
+                ClientFluidHeights fluidHeights,
+                LastMove lastMove) {
+            this(state, moved, fixedX, fixedY, fixedZ, interpolation, boatLastYd, fluidHeights, lastMove, null);
+        }
+
+        public Result(
+                JavaPassState state,
+                boolean moved,
+                boolean fixedX,
+                boolean fixedY,
+                boolean fixedZ,
+                ReachInterpolationData interpolation,
+                Double boatLastYd,
+                ClientFluidHeights fluidHeights) {
             this(state, moved, fixedX, fixedY, fixedZ, interpolation, boatLastYd, fluidHeights, null);
         }
 
-        public Result(JavaPassState state, boolean moved, boolean fixedX, boolean fixedY, boolean fixedZ,
-                ReachInterpolationData interpolation, Double boatLastYd) {
+        public Result(
+                JavaPassState state,
+                boolean moved,
+                boolean fixedX,
+                boolean fixedY,
+                boolean fixedZ,
+                ReachInterpolationData interpolation,
+                Double boatLastYd) {
             this(state, moved, fixedX, fixedY, fixedZ, interpolation, boatLastYd, null);
         }
 
@@ -194,7 +221,8 @@ public final class JavaBlockEntityPass {
                 replay.interpolation,
                 replay.boatLastYd,
                 replay.fluidHeights,
-                replay.lastMove);
+                replay.lastMove,
+                replay.oldInterpolation);
     }
 
     private static final class Replay {
@@ -205,18 +233,24 @@ public final class JavaBlockEntityPass {
         private ClientFluidHeights fluidHeights;
         private LastMove lastMove;
         private final ReachInterpolationData interpolation;
+        private final ReachInterpolationData oldInterpolation;
         private final boolean[] fixed = new boolean[3];
 
         private Replay(JavaBlockEntityMove.Environment env, JavaPassState state) {
             this.env = env;
             this.state = state;
             PacketEntity actor = env.actor();
-            this.interpolation = env.authoritative()
-                            && env.context().getVehicle() != null
-                            && env.version().isNewerThanOrEquals(ClientVersion.V_26_3)
-                            && actor.newPacketLocation.hasActiveInterpolationTarget()
-                    ? actor.newPacketLocation.copy()
-                    : null;
+            ReachInterpolationData riderPath = env.detached() ? actor.riderInterpolationPath(false) : null;
+            ReachInterpolationData oldRiderPath = env.detached() ? actor.riderInterpolationPath(true) : null;
+            this.oldInterpolation = oldRiderPath == null ? null : oldRiderPath.copy();
+            this.interpolation = riderPath != null
+                    ? riderPath.copy()
+                    : env.authoritative()
+                                    && env.context().getVehicle() != null
+                                    && env.version().isNewerThanOrEquals(ClientVersion.V_26_3)
+                                    && actor.newPacketLocation.hasActiveInterpolationTarget()
+                            ? actor.newPacketLocation.copy()
+                            : null;
         }
 
         private SimpleCollisionBox box() {
@@ -243,7 +277,8 @@ public final class JavaBlockEntityPass {
             // Level#getEntities matches the entities whose box intersects the movement area.
             if (!intersects(box(), query)) return;
 
-            if ((env.authoritative() || env.version().isOlderThan(ClientVersion.V_26_3)
+            if ((env.authoritative()
+                            || env.version().isOlderThan(ClientVersion.V_26_3)
                             || env.actor().type == EntityTypeIds.FISHING_BOBBER)
                     && BlockIds.is(piston.movedState(), BlockIds.SLIME_BLOCK)) {
                 // Through 26.2 only ServerPlayer is excluded, and no client-side entity is a ServerPlayer.
@@ -370,7 +405,17 @@ public final class JavaBlockEntityPass {
             if (result.boatLastYd() != null) boatLastYd = result.boatLastYd();
             if (result.fluidHeights() != null) fluidHeights = result.fluidHeights();
             if (interpolation != null && result.recordedMovement())
-                interpolation.applyPredictedMovement(env.player(), env.actor(), result.movement());
+                interpolation.applyPredictedMovement(
+                        env.player(),
+                        env.actor(),
+                        result.movement(),
+                        result.state().position());
+            if (oldInterpolation != null && result.recordedMovement())
+                oldInterpolation.applyPredictedMovement(
+                        env.player(),
+                        env.actor(),
+                        result.movement(),
+                        result.state().position());
             moved = true;
             if (partial || result.clipped(axis)) fixed[axis] = true;
             // Entity#collide's step raises a horizontal move to whatever height the obstacle needs.

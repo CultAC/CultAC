@@ -215,11 +215,13 @@ public final class JavaRemoteBlockEntityPass {
                 0,
                 ClientPistonDeltas.NONE,
                 false);
-        Vec3 end = JavaBlockEntityPass.runDetachedEntity(player, rider, pass, state, patch)
-                .state()
-                .position();
-        if (end.equals(start)) return seat;
-        return GetBoundingBox.getPacketEntityBoundingBox(player, end.x, end.y, end.z, rider);
+        var replay = JavaBlockEntityPass.runDetachedEntity(player, rider, pass, state, patch);
+        Vec3 end = replay.state().position();
+        SimpleCollisionBox box = end.equals(start)
+                ? seat
+                : GetBoundingBox.getPacketEntityBoundingBox(player, end.x, end.y, end.z, rider);
+        rider.recordRiderInterpolationPass(box, replay.interpolation(), replay.oldInterpolation());
+        return box;
     }
 
     /**
@@ -239,9 +241,18 @@ public final class JavaRemoteBlockEntityPass {
                     clamp((area.minX + area.maxX) / 2, at.x + range.minX, at.x + range.maxX),
                     clamp((area.minY + area.maxY - height) / 2, at.y + range.minY, at.y + range.maxY),
                     clamp((area.minZ + area.maxZ) / 2, at.z + range.minZ, at.z + range.maxZ));
-            var state = new JavaPassState(start, hook.deltaMovement, hook.onGround,
-                    new MainSupportingBlockData(null, hook.onGround), null, 0, ClientPistonDeltas.NONE, false);
-            Vec3 end = hook.withoutCommitting(() -> JavaBlockEntityPass.runEntity(player, hook, pass, state).state().position());
+            var state = new JavaPassState(
+                    start,
+                    hook.deltaMovement,
+                    hook.onGround,
+                    new MainSupportingBlockData(null, hook.onGround),
+                    null,
+                    0,
+                    ClientPistonDeltas.NONE,
+                    false);
+            Vec3 end = hook.withoutCommitting(() -> JavaBlockEntityPass.runEntity(player, hook, pass, state)
+                    .state()
+                    .position());
             hook.addPush(end.subtract(start));
             return;
         }
@@ -252,7 +263,8 @@ public final class JavaRemoteBlockEntityPass {
     }
 
     private static SimpleCollisionBox area(ClientBlockEntityPass.Mover mover) {
-        if (mover instanceof ClientBlockEntityPass.Piston piston) return new SimpleCollisionBox(piston.pos()).expand(1.0);
+        if (mover instanceof ClientBlockEntityPass.Piston piston)
+            return new SimpleCollisionBox(piston.pos()).expand(1.0);
         if (mover instanceof ClientBlockEntityPass.ShulkerBox box) return box.area();
         if (mover instanceof ClientBlockEntityPass.ShulkerPeek peek) return peek.area();
         return null;
