@@ -448,20 +448,46 @@ class NetworkPlayerArgumentsTest {
         assertEquals(List.of("Adam", "Bob"), suggestions(arguments.onlinePlayerSuggestions(), ""));
     }
 
+    @Test
+    void commandsThatRunHereSuggestThisInstancesPlayersOnly() {
+        NetworkPlayerArguments arguments = new NetworkPlayerArguments(local);
+        assertEquals(
+                List.of("Adam", "Bob"),
+                suggestions(arguments.singlePlayerSelectorParser(), "cult debug rewind ", ""));
+        assertEquals(
+                List.of("Adam", "Bob", "Alice", "Dana"),
+                suggestions(
+                        NetworkPlayerArguments.anyInstance(arguments.singlePlayerSelectorParser())
+                                .parser()
+                                .suggestionProvider(),
+                        "cult spectate ",
+                        ""));
+    }
+
     private List<String> suggestions(ParserDescriptor<Sender, ?> descriptor, String typed) {
-        return suggestions(descriptor.parser().suggestionProvider(), typed);
+        return suggestions(descriptor, "cult debug mods ", typed);
+    }
+
+    private List<String> suggestions(ParserDescriptor<Sender, ?> descriptor, String command, String typed) {
+        return suggestions(descriptor.parser().suggestionProvider(), command, typed);
     }
 
     private List<String> suggestions(SuggestionProvider<Sender> provider, String typed) {
+        return suggestions(provider, "cult profile ", typed);
+    }
+
+    private List<String> suggestions(SuggestionProvider<Sender> provider, String command, String typed) {
+        CommandContext<Sender> context = new CommandContext<>(true, sender, manager);
+        context.store("__raw_input__", CommandInput.of(command + typed));
         List<String> names = new ArrayList<>();
-        provider.suggestionsFuture(new CommandContext<>(true, sender, manager), CommandInput.of(typed))
+        provider.suggestionsFuture(context, CommandInput.of(typed))
                 .join()
                 .forEach(suggestion -> names.add(suggestion.suggestion()));
         return names;
     }
 
     @Test
-    void theRoutedSubcommandsAreTheAllowlistedLiterals() {
+    void theRoutedSubcommandsAreTheRegisteredOnesWithoutTheLocalMark() {
         for (String line : List.of(
                 "cult debug mods x",
                 "GRIM Debug Channels x",
@@ -477,8 +503,9 @@ class NetworkPlayerArgumentsTest {
                 "cult debug places x",
                 "cult debug itemslow x",
                 "cult debug proxyticks x",
+                "cult debug proxyticks --reset x",
                 "cult spectate x",
-                "cult top")) assertFalse(NetworkPlayerArguments.routed(line), line);
+                "cult nosuchcommand x")) assertFalse(NetworkPlayerArguments.routed(line), line);
     }
 
     @Test

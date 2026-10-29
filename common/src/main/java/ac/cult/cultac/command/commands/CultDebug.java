@@ -7,6 +7,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.ClientMods;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
+import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.manager.player.SmoketestControlBridge;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
@@ -38,6 +39,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("debug", Description.of("Toggle debug output for a player"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebug);
 
         commandManager.command(cultCommand
@@ -45,6 +47,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("rewind", Description.of("Toggle Bedrock rewind positions and offsets"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebugRewind));
 
         commandManager.command(cultCommand
@@ -52,6 +55,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("places", Description.of("Toggle processed block-state changes for you or a player"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebugPlaces));
 
         commandManager.command(cultCommand
@@ -79,12 +83,14 @@ public class CultDebug implements BuildableCommand {
                 .literal("itemslow", Description.of("Toggle item-use balance and server-view use tracking"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebugItemSlow));
 
         Command.Builder<Sender> proxyTicksCommand = cultCommand
                 .literal("debug")
                 .literal("proxyticks", Description.of("Show observed proxy tick-end hits and misses"))
-                .permission("cult.debug");
+                .permission("cult.debug")
+                .meta(NetworkPlayerArguments.LOCAL, true);
         commandManager.command(proxyTicksCommand
                 .optional("target", arguments.singlePlayerSelectorParser())
                 .flag(commandManager.flagBuilder("reset"))

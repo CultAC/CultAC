@@ -27,6 +27,7 @@ public class CultSpectate implements BuildableCommand {
                 .literal("spectate")
                 .permission("cult.spectate")
                 .required("target", NetworkPlayerArguments.anyInstance(arguments.singlePlayerSelectorParser()))
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleSpectate)
                 .apply(CloudCommandService.REQUIREMENT_FACTORY.create(PlayerSenderRequirement.INSTANCE)));
     }

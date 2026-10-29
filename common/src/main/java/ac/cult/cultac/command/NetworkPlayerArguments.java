@@ -7,6 +7,7 @@ import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -14,10 +15,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
+import org.incendo.cloud.Command;
+import org.incendo.cloud.component.CommandComponent;
 import org.incendo.cloud.context.CommandContext;
 import org.incendo.cloud.context.CommandInput;
 import org.incendo.cloud.exception.ArgumentParseException;
 import org.incendo.cloud.exception.handling.ExceptionContext;
+import org.incendo.cloud.key.CloudKey;
 import org.incendo.cloud.parser.ArgumentParseResult;
 import org.incendo.cloud.parser.ArgumentParser;
 import org.incendo.cloud.parser.ParserDescriptor;
@@ -31,21 +35,15 @@ import org.jetbrains.annotations.Nullable;
  * instance or engine generation for the commands that work across instances, and tells the sender the others only work
  * on the same server.
  * Without a transport, a player who is not here fails as with the platform's parser. While a transport runs, player
- * suggestions add the roster's names.
+ * suggestions of the commands that work across instances add the roster's names.
  */
 public final class NetworkPlayerArguments implements CloudPlatformCommandArguments {
     static final int MAX_SUGGESTIONS = 25;
 
-    /** The subcommands, after the root, that run on the instance holding their player. */
-    private static final List<List<String>> ROUTED = List.of(
-            List.of("debug", "mods"),
-            List.of("debug", "channels"),
-            List.of("consoledebug"),
-            List.of("debug", "javapacketlog"),
-            List.of("debug", "geyserpacketlog"),
-            List.of("profile"),
-            List.of("findings"),
-            List.of("testwebhook"));
+    /** Marks a command that runs on this instance whichever instance its player is on. */
+    public static final CloudKey<Boolean> LOCAL = CloudKey.of("cultac:local", Boolean.class);
+
+    private static volatile List<Route> routes = List.of();
 
     private final CloudPlatformCommandArguments platform;
 
@@ -57,7 +55,8 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
     public ParserDescriptor<Sender, PlayerSelector> singlePlayerSelectorParser() {
         ArgumentParser<Sender, PlayerSelector> base =
                 platform.singlePlayerSelectorParser().parser();
-        SuggestionProvider<Sender> players = merged(base.suggestionProvider(), platform.onlinePlayerSuggestions());
+        SuggestionProvider<Sender> players =
+                merged(base.suggestionProvider(), platform.onlinePlayerSuggestions(), false);
         return ParserDescriptor.of(
                 new ArgumentParser.FutureArgumentParser<Sender, PlayerSelector>() {
                     @Override
@@ -81,7 +80,7 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
 
     @Override
     public SuggestionProvider<Sender> onlinePlayerSuggestions() {
-        return merged(SuggestionProvider.noSuggestions(), platform.onlinePlayerSuggestions());
+        return merged(SuggestionProvider.noSuggestions(), platform.onlinePlayerSuggestions(), false);
     }
 
     /**
@@ -126,7 +125,7 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
 
                     @Override
                     public SuggestionProvider<Sender> suggestionProvider() {
-                        return base.suggestionProvider();
+                        return merged(base.suggestionProvider(), SuggestionProvider.noSuggestions(), true);
                     }
                 },
                 NetworkTarget.class);
@@ -162,15 +161,16 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
     }
 
     /**
-     * {@code first}'s suggestions, then {@code local}'s; while a transport runs, the roster's names too, all matching
-     * the typed prefix, without duplicates and at most {@value #MAX_SUGGESTIONS}.
+     * {@code first}'s suggestions, then {@code local}'s; while a transport runs and the command works across instances
+     * or {@code always} holds, the roster's names too, all matching the typed prefix, without duplicates and at most
+     * {@value #MAX_SUGGESTIONS}.
      */
     private static SuggestionProvider<Sender> merged(
-            SuggestionProvider<Sender> first, SuggestionProvider<Sender> local) {
+            SuggestionProvider<Sender> first, SuggestionProvider<Sender> local, boolean always) {
         return (context, input) -> first.suggestionsFuture(context, input.copy())
                 .thenCombine(local.suggestionsFuture(context, input.copy()), (base, players) -> {
                     NetworkRouting routing = NetworkRouting.current();
-                    boolean network = routing.enabled();
+                    boolean network = routing.enabled() && (always || routed(line(context)));
                     String prefix = input.copy().skipWhitespace().peekString().toLowerCase(Locale.ROOT);
                     Set<String> seen = new HashSet<>();
                     List<Suggestion> out = new ArrayList<>();
@@ -221,17 +221,50 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                 sender, key, fallback, Map.of("player", where.name(), "location", location));
     }
 
-    /** Whether {@code line}, root first, is one of the subcommands that run where their player is. */
+    /**
+     * Takes the literal paths after the root of {@code commands}. A command runs where its player is unless it carries
+     * {@link #LOCAL}.
+     */
+    static void register(Collection<Command<Sender>> commands) {
+        List<Route> registered = new ArrayList<>();
+        for (Command<Sender> command : commands) {
+            List<Set<String>> path = new ArrayList<>();
+            List<CommandComponent<Sender>> components = command.components();
+            for (int i = 1; i < components.size(); i++) {
+                CommandComponent<Sender> component = components.get(i);
+                if (component.type() != CommandComponent.ComponentType.LITERAL) break;
+                Set<String> names = new HashSet<>();
+                names.add(component.name().toLowerCase(Locale.ROOT));
+                for (String alias : component.aliases()) names.add(alias.toLowerCase(Locale.ROOT));
+                path.add(names);
+            }
+            if (!path.isEmpty())
+                registered.add(new Route(path, !command.commandMeta().getOrDefault(LOCAL, false)));
+        }
+        routes = List.copyOf(registered);
+    }
+
+    /**
+     * Whether {@code line}, root first, names a registered command that runs where its player is. The longest literal
+     * path matching the line decides; a line no command matches is not routed.
+     */
     static boolean routed(String line) {
         String[] tokens = line.toLowerCase(Locale.ROOT).split("\\s+");
-        for (List<String> path : ROUTED) {
-            if (tokens.length <= path.size()) continue;
+        int longest = 0;
+        boolean routed = false;
+        for (Route route : routes) {
+            List<Set<String>> path = route.path();
+            if (tokens.length <= path.size() || path.size() < longest) continue;
             boolean matches = true;
-            for (int i = 0; i < path.size() && matches; i++) matches = tokens[i + 1].equals(path.get(i));
-            if (matches) return true;
+            for (int i = 0; i < path.size() && matches; i++) matches = path.get(i).contains(tokens[i + 1]);
+            if (!matches) continue;
+            routed = path.size() > longest ? route.routed() : routed && route.routed();
+            longest = path.size();
         }
-        return false;
+        return routed;
     }
+
+    private record Route(List<Set<String>> path, boolean routed) {}
 
     /** A typed online player: {@code here} on this instance, otherwise {@code elsewhere} as the roster lists them. */
     public record NetworkTarget(
