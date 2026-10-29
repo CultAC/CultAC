@@ -6,6 +6,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
@@ -20,11 +21,27 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * @param webhook where each update's result line is posted; empty for none
  * @param stateFile where the installed build number is kept for the next boot
  * @param pinnedBuild the build to start on boot when the state file names none; 0 for none
+ * @param followBranch the channel whose newest build every boot starts, over the state file and pinned build; empty
+ *     for the bundled jar's own channel, null to follow none. {@code build: latest} or {@code latest:<channel>}, the
+ *     channel being the branch name except main's {@code stable}
  */
 public record UpdateSettings(
-        String repository, String token, String publicKey, String webhook, Path stateFile, long pinnedBuild) {
+        String repository,
+        String token,
+        String publicKey,
+        String webhook,
+        Path stateFile,
+        long pinnedBuild,
+        String followBranch) {
     /** The official builds' signing key. */
     public static final String OFFICIAL_PUBLIC_KEY = "MCowBQYDK2VwAyEAxE6sl2rSssawl6S3SA62aWafFKFfvnI5EAkzdQXvBOM=";
+
+    private static final Pattern FOLLOW = Pattern.compile("(?i:latest)(?:\\s*:\\s*([A-Za-z0-9._/-]{0,200}))?");
+
+    public UpdateSettings(
+            String repository, String token, String publicKey, String webhook, Path stateFile, long pinnedBuild) {
+        this(repository, token, publicKey, webhook, stateFile, pinnedBuild, null);
+    }
 
     /**
      * @param dataDirectory the plugin's data directory, holding {@code config.yml} and the default state file
@@ -48,13 +65,15 @@ public record UpdateSettings(
         String publicKey = value(update, "public-key", "CULTAC_UPDATE_PUBKEY", env);
         String stateFile = value(update, "state-file", "CULTAC_UPDATE_STATE", env);
         String build = value(update, "build", "CULTAC_UPDATE_BUILD", env);
+        var follow = FOLLOW.matcher(build);
         return new UpdateSettings(
                 repository.isEmpty() ? defaultRepository : repository,
                 value(update, "token", "CULTAC_UPDATE_TOKEN", env),
                 publicKey.isEmpty() ? OFFICIAL_PUBLIC_KEY : publicKey,
                 value(update, "webhook", "CULTAC_UPDATE_WEBHOOK", env),
                 stateFile(dataDirectory, stateFile),
-                build.matches("[0-9]{1,18}") ? Long.parseLong(build) : 0);
+                build.matches("[0-9]{1,18}") ? Long.parseLong(build) : 0,
+                follow.matches() ? (follow.group(1) == null ? "" : follow.group(1)) : null);
     }
 
     /** An unusable path falls back to the default, so a typo never stops the loader from starting. */

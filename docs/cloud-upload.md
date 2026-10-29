@@ -174,6 +174,53 @@ On Velocity the online check asks the proxy's permission provider (LuckPerms-Vel
 change listener and offline sweep run when LuckPerms is installed on the proxy. On Paper they use Paper's permissions
 and LuckPerms the same way.
 
+### Staff bans
+
+Staff can ban a player from the cloud panel. The cloud service holds the ban until one of your organization's
+servers claims it and runs it with that server's own command:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `cloud.staff-ban.command` | `""` | Runs for a permanent ban. |
+| `cloud.staff-ban.temp-command` | `""` | Runs for a timed ban. |
+
+Placeholders: `%player%` (the name, or the UUID when it is unknown, starts with `-` or has characters other than
+letters, digits, `_`, `.`, `*` and `-`), `%uuid%`, `%reason%`, `%cheat%` (the cheat's display name), `%cheat_id%`,
+`%duration%` (`30m`, `12h`, `7d`: the largest of days, hours and minutes that divides it, else seconds as `90s`; empty
+when permanent), `%seconds%` (empty when permanent), `%staff%`, `%ban_id%`, `%link%` (the player's page on the cloud
+panel), `%staff_uuid%` (the banning staff member's Minecraft UUID when the panel knows it, else empty) and
+`%evidence%` (a link to the evidence the ban rests on, such as a replay, else empty). Control characters and line
+breaks are removed from every value and its whitespace collapsed; `%reason%` and `%staff%` keep at most 200
+characters. `%link%` and `%evidence%` keep only letters, digits and `:/?=&.%_-~`, and are empty unless they then start
+with `https://` or `http://`; `%staff_uuid%` is empty unless it is a dashed UUID. For example
+`tempban %player% %duration% %reason%` or `ban %player% %reason% (%staff%)`. `%reason%` and `%staff%` are free text,
+so put `%reason%` last, after `%duration%`: a ban plugin may read a reason such as `1d spam` as a duration. Text other
+than `%reason%` never contains `=`, so it cannot read as a key in a `key=value` command, and a value that would start
+with `-` gets a leading `'` (within the 200 characters) so it is never read as a flag. A ban for something other than a cheat has no cheat: `%cheat%` and `%cheat_id%` are
+empty then.
+
+While the upload is configured and either command is set, CultAC asks the service for the pending bans its commands
+cover (permanent, timed or both) every 10 seconds, or as often as the service says (5 to 60 seconds). A server where
+the player is online claims the ban at once; the others wait 15 seconds, or the service's grace, so the player's own
+server can take it. The claimed ban runs as console on the main thread (on Velocity from the proxy console, or on the
+player's backend through the CultAC Companion when the proxy has no such command), and the outcome goes back to the
+service:
+
+| Result | Meaning |
+|---|---|
+| `dispatched` | The server or proxy found the command and ran it. |
+| `ran on <backend>` / `did not run on <backend>` | The player's backend ran the command, or did not know it or failed. |
+| `sent to backend` | The command went to the player's backend, which did not answer within 2 seconds; it may still run there. |
+| `unknown command` | The server or proxy has no such command. |
+| `not run: the server was busy` | The main thread did not take the command within 30 seconds; it never runs later. |
+| anything else | The error the command threw. |
+
+When the service cannot be reached to take a result, CultAC retries every 10 seconds until it can, also across
+`/cult reload`; a result the service refuses (for example a revoked key) is not sent again. A claimed ban not yet run when `/cult reload` happens is not run; the service offers it again once its
+claim lapses. Staff bans are not punishments: `punishments.yml` and observe-only do not apply to them. A server never
+runs the same ban twice, and a server without the matching command never claims one, so leave both empty on servers
+that should not ban. `/cult reload` applies changes.
+
 ## Commands
 
 | Command | Permission | What it does |
@@ -196,7 +243,10 @@ first. Each socket's findings are taken only for players uploaded on that socket
 minutes and are among the last 4,096 to leave it; others are dropped, so a late finding can be lost. Labels go to the
 service's label API with the server's API key, naming the labelling player's UUID; the service takes them only from a
 moderator (or above) of the key's organization with that Minecraft account on their profile, so the console can only
-list. `/cult label list` shows the first 50 labels. Players are named by UUID, online name or a Mojang lookup (at most
+list. The cheats a label may name, their order and their display names come from the cloud service, fetched when the
+upload is configured and every 30 minutes after; until it answers, or when it does not, the list shipped in the plugin
+is used. Cheats the service no longer offers still show their names on stored labels but cannot be labelled anew.
+`/cult label list` shows the first 50 labels. Players are named by UUID, online name or a Mojang lookup (at most
 8 at once, each name remembered for 10 minutes), so `/cult findings` and `/cult label` refuse on an offline-mode
 server that has no online-mode proxy in front. The service calls run off the calling thread, and the service's text is
 shown on one line.

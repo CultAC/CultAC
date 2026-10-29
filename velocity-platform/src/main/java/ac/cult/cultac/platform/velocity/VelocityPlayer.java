@@ -145,6 +145,13 @@ final class VelocityPlayer implements PlatformPlayer {
     }
 
     @Override
+    public String serverName() {
+        return player.getCurrentServer()
+                .map(server -> server.getServerInfo().getName())
+                .orElse(null);
+    }
+
+    @Override
     public int getEntityId() {
         var state = observed();
         return state == null || state.world == null ? -1 : state.entityID;

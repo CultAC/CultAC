@@ -34,6 +34,13 @@ val supportedDataVersions = setOf(
 
 tasks.shadowJar {
     archiveFileName.set("vialib.jar")
+    // Link against the host's gson and the runtime's snakeyaml instead of Via's private copies. These
+    // must precede the broader com.viaversion.viaversion relocation. fastutil stays private: Velocity
+    // 3.x ships an incomplete fastutil whose classes cannot load supertypes from a plugin's copy.
+    relocate("com.viaversion.viaversion.libs.gson", "com.google.gson")
+    exclude("com/viaversion/viaversion/libs/gson/**")
+    relocate("com.viaversion.viaversion.libs.snakeyaml", "org.yaml.snakeyaml")
+    exclude("com/viaversion/viaversion/libs/snakeyaml/**")
     relocate("com.viaversion.viaversion", "ac.cult.shaded.vialib")
     relocate("com.viaversion.viabackwards", "ac.cult.shaded.vialib.backwards")
     relocate("com.viaversion.nbt", "ac.cult.shaded.vialib.nbt")

@@ -15,9 +15,9 @@ public final class EntityTypeIds {
     public static final int COW = id("cow");
     public static final int DOLPHIN = id("dolphin");
     public static final int DONKEY = id("donkey");
-    public static final int ENDER_DRAGON = id("ender_dragon");
     public static final int DRAGON_FIREBALL = id("dragon_fireball");
     public static final int ENDERMITE = id("endermite");
+    public static final int ENDER_DRAGON = id("ender_dragon");
     public static final int END_CRYSTAL = id("end_crystal");
     public static final int EVOKER = id("evoker");
     public static final int EXPERIENCE_ORB = id("experience_orb");

@@ -9,6 +9,7 @@ import ac.cult.shaded.vialib.api.data.MappingData;
 import ac.cult.shaded.vialib.api.minecraft.codec.CodecContext;
 import ac.cult.shaded.vialib.api.minecraft.data.StructuredDataKey;
 import ac.cult.shaded.vialib.util.Key;
+import java.util.HashMap;
 
 /** Borrowed read-only registry snapshot, scoped to one decode. */
 final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
@@ -113,10 +114,15 @@ final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
         return new ValueContext(names, version, mappings);
     }
 
+    /** The live references; a {@link WireValueDecoder.ComponentEncoding} built from them copies them. */
     java.util.Map<String, java.util.Map<Integer, String>> references() {
-        var copy = new java.util.HashMap<String, java.util.Map<Integer, String>>();
-        references.forEach((key, value) -> copy.put(key, java.util.Map.copyOf(value)));
-        return java.util.Map.copyOf(copy);
+        return references;
+    }
+
+    /** Adds the references {@code fork} recorded, as if its reads had used this context. */
+    void include(ValueContext fork) {
+        fork.references.forEach((registry, entries) ->
+                references.computeIfAbsent(registry, key -> new HashMap<>()).putAll(entries));
     }
 
     String modelName(String registry, String name) {

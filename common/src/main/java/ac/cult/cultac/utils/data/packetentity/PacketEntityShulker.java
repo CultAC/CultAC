@@ -360,6 +360,11 @@ public class PacketEntityShulker extends PacketEntity {
         return 0.5F - player.trigHandler.clientSin((0.5F + amount) * (float) Math.PI) * 0.5F;
     }
 
+    @Override
+    protected float sanitizeScale(float scale) {
+        return player.isBedrockMovement() ? scale : Math.min(scale, 3.0F);
+    }
+
     /** LivingEntity#getScale through Shulker#sanitizeScale. */
     private float size() {
         return Math.min(scale, 3.0F);

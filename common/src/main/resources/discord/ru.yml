@@ -7,7 +7,13 @@ disable-webhook-validation: false
 embed-title: "%player% обнаружен проверкой %check% [%violations%]"
 embed-color: "#00FFFF"
 include-timestamp: true
-# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+# The footer under the alert, and the icon beside it (an image URL, empty for none).
+embed-footer-text: "v%cult_version%"
+embed-footer-url: ""
+# The image at the top right of the alert; %uuid% is the flagged player.
+embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...),
+# unless violation-content places %state%, which lists only the entries that are set.
 include-state: true
 # Заменяет обратные кавычки (`) в значениях (например, в названиях клиентов), чтобы не нарушать форматирование текста в Discord.
 # Установите значение "`", чтобы отключить эту замену.
@@ -26,4 +32,4 @@ violation-content:
 
 # Маркеры схемы — см. шапку config.yml.
 config-flavor: V2
-config-version: 2
+config-version: 5

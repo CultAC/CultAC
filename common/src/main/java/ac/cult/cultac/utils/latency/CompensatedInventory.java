@@ -4,6 +4,7 @@ import ac.cult.blocksim.data.ItemDefinition;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.CultProcessor;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsA;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -1338,6 +1339,9 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 // A clientbound selected-slot packet changes the client's inventory.
                 // It does not prove the server has stopped its outstanding use.
                 player.packetStateData.lastSlotSelected = slot;
+                int carried = player.checkManager.getListener(BadPacketsA.class).carriedIndex();
+                player.packetStateData.heldSlotEcho = slot != carried ? slot : -1;
+                player.packetStateData.heldSlotSetWithScreenOpen = player.openWindow.mustBeOpen();
             });
         }
     }

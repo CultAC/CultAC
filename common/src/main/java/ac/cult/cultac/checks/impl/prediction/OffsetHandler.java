@@ -70,7 +70,7 @@ public class OffsetHandler extends Check implements PostPredictionListener {
             boolean isSetback = advantageGained >= maxAdvantage || offset >= immediateSetbackThreshold;
 
             if (isSetback) {
-                player.getSetbackTeleportUtil().executeViolationSetback();
+                player.getSetbackTeleportUtil().executeViolationSetback(predictionResult);
             }
 
             advantageGained = Math.min(advantageGained, maxCeiling);

@@ -124,7 +124,8 @@ public class CheckManager {
             BadPacketsP.class,
             BadPacketsM.class,
             PostCheck.class,
-            ExplosionHandler.class);
+            ExplosionHandler.class,
+            ClientBrand.class);
 
     private final CultPlayer player;
 
@@ -557,6 +558,7 @@ public class CheckManager {
         registerNonAsyncReceive(packetOrder, packetOrder::onNonAsyncPacket);
         registerDecodedReceive(packetChecks.get(MultiActionsS.class));
         registerDecodedReceive(packetChecks.get(BadPacketsJ.class));
+        registerDecodedReceive(packetChecks.get(PacketOrderProcessor.class));
         registerDecodedReceive(postPredictionCheck.get(BadPacketsX.class));
         registerDecodedReceive(postPredictionCheck.get(ElytraC.class));
 

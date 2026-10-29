@@ -192,8 +192,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
         // The teleport ID acknowledgement interrupts a Rot -> MoveVehicle pair.
         player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
-        player.checkManager.dispatchDecodedReceiveObservers(event);
-        player.checkManager.dispatchNonAsyncReceive(event);
+        player.checkManager.dispatchReceiveHandlers(event);
     }
 
     @CultPacketHandler
@@ -377,10 +376,18 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // glide starts used to terminate at the pre-Via boundary, so they must
         // not enter the ordinary check route. Keep every other ordinary-phase
         // cancellation on the existing same-phase semantics.
+        if (!player.isBedrockMovement() && sentByLocalPlayerTick(packet.action())) {
+            player.packetStateData.localPlayerTickCommandThisClientTick = true;
+        }
         if (event.isCancelled() && packet.action() == PlayerCommandAction.START_FLYING_WITH_ELYTRA) {
             return;
         }
         processGenericReceive(event, player);
+    }
+
+    // InBedChatScreen sends STOP_SLEEPING and Minecraft#handleKeybinds OPEN_INVENTORY; LocalPlayer#tick sends the rest.
+    private static boolean sentByLocalPlayerTick(PlayerCommandAction action) {
+        return action != PlayerCommandAction.STOP_SLEEPING && action != PlayerCommandAction.OPEN_INVENTORY;
     }
 
     @CultPacketHandler
@@ -440,6 +447,13 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.onFootClientTick();
         // The travel decides whether this aiStep's setSprinting(false) removed the modifier (JavaAiStepSprint).
         player.sprintState.onClientTick(player.isSprinting);
+    }
+
+    // A respawned LocalPlayer's KeyboardInput#tick reads the held shift its kept lastSentInput holds.
+    private static void applyRespawnShift(CultPlayer player) {
+        if (!player.packetStateData.respawnShiftPending) return;
+        player.packetStateData.respawnShiftPending = false;
+        player.isSneaking = true;
     }
 
     // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced, and
@@ -612,6 +626,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.packetStateData.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             player.packetStateData.playerLoadedIntoLevel = true;
+            applyRespawnShift(player);
             if (packet.hasPosition()) player.packetStateData.lastSentTickPosition = position;
             if (packet.hasRotation()) {
                 player.packetStateData.lastSentTickYaw = packet.yaw();
@@ -1218,6 +1233,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             boolean playerTicked = localPlayerTicked(player);
             if (playerTicked) player.compensatedEntities.getSelf().tickDeath();
             // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
+            if (localPlayerTicked(player)) applyRespawnShift(player);
             onLocalPlayerSprintTick(player);
             if (playerTicked) onLocalPlayerAttackTick(player);
             dispatchPrePredictionReceive(event, player);
@@ -1232,6 +1248,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.serverOpenedInventoryThisTick = false;
             player.packetStateData.carriedItemChangedThisClientTick = false;
             player.packetStateData.carriedItemClaimedThisClientTick = false;
+            player.packetStateData.heldSlotEcho = -1;
+            player.packetStateData.heldSlotSetWithScreenOpen = false;
         }
         player.packetStateData.receivedMovementThisClientTick = false;
         player.packetStateData.glidingBeforeClientAction = null;
@@ -1239,6 +1257,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.packetStateData.flightStopThisClientTick = false;
         player.packetStateData.bedrockTranslatedMovement.clear();
         player.packetStateData.clientMovementInputUpdatedThisClientTick = false;
+        player.packetStateData.localPlayerTickCommandThisClientTick = false;
         player.packetStateData.vehicleMovePacketsThisClientTick = 0;
         player.packetStateData.clientTickVehicleMovePacketsThisClientTick = 0;
         player.packetStateData.localAuthoritativeVehicleMovePacketsThisClientTick = 0;

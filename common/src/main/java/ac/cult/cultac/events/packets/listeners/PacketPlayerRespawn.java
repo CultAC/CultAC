@@ -18,6 +18,7 @@ import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.RegistryGenerationAlerts;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.packet.Opaque;
@@ -159,6 +160,7 @@ public class PacketPlayerRespawn {
                 player.compensatedWorld.initializeClientChunkCache(packet.chunkRadius());
                 player.compensatedWorld.clearPistonLikeState();
                 player.compensatedEntities.clearClientLevel();
+                // ClientPacketListener#handleLogin's LocalPlayer#resetPos zeroes the new player's velocity.
                 player.compensatedWorld.isRaining = false;
                 player.checkManager.getListener(BadPacketsA.class).resetCarriedIndex();
                 player.checkManager.getListener(AirLiquidBreak.class).resetPending();
@@ -177,6 +179,7 @@ public class PacketPlayerRespawn {
                     player.boatData.clearInput();
                     player.onGround = player.lastOnGround = false;
                     player.isSneaking = false;
+                    player.packetStateData.respawnShiftPending = false;
                     player.isGliding = false;
                     player.isInBed = false;
                     player.packetStateData.packetPlayerOnGround = false;
@@ -281,10 +284,14 @@ public class PacketPlayerRespawn {
         final Runnable applyRespawnState = () -> {
             setbacks.respawnUnread = false;
             if (level != player.compensatedWorld.level()) return;
-            player.isSneaking = false;
-            // ClientPacketListener#handleRespawn starts the new LocalPlayer from Input.EMPTY unless KEEP_ENTITY_DATA.
-            if (!keepEntityData) {
+            // KEEP_ENTITY_DATA preserves lastSentInput from 1.21.6, but every new KeyboardInput starts empty.
+            if (!keepEntityData || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_6)) {
                 player.packetStateData.knownInput = KnownInput.DEFAULT;
+            }
+            player.packetStateData.respawnShiftPending =
+                    !player.isBedrockMovement() && player.packetStateData.knownInput.shift();
+            if (!keepEntityData || player.isBedrockMovement()) player.isSneaking = false;
+            if (!keepEntityData) {
                 player.powderSnowFrozenTicks = 0;
             }
             // ClientPacketListener#handleRespawn gives every new LocalPlayer a fresh KeyboardInput.
@@ -383,6 +390,8 @@ public class PacketPlayerRespawn {
             player.vehicleData.camelSprintingState = SprintingState.STOPPED;
             badPacketsF.lastSprinting = player.isSprinting;
             player.refreshPlayerPose();
+            // LocalPlayer#isShiftKeyDown reads the fresh KeyboardInput's Input.EMPTY until the first aiStep.
+            player.isSneaking = false;
             player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
                     spawnInfo.gameMode().name());
             player.canInstabuild = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE;

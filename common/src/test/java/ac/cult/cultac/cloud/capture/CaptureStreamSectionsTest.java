@@ -782,7 +782,7 @@ class CaptureStreamSectionsTest {
         }
 
         @Override
-        public byte[] blocks(int x, int y, int z) {
+        public byte[] section(int x, int y, int z) {
             if (!loaded.contains(SyntheticTerrain.pack(x, z))) return null;
             long section = Sections.pack(x, y, z);
             reads.merge(section, 1, Integer::sum);
@@ -790,7 +790,7 @@ class CaptureStreamSectionsTest {
             blocks[1] = (byte) x;
             blocks[2] = (byte) y;
             blocks[3] = (byte) z;
-            return blocks;
+            return IntakeWire.section(x, y, z, blocks);
         }
     }
 

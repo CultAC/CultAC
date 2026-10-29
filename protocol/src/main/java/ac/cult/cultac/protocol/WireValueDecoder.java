@@ -2,6 +2,7 @@ package ac.cult.cultac.protocol;
 
 import ac.cult.cultac.protocol.data.ModelIdMappings;
 import io.netty.buffer.ByteBuf;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -66,12 +67,8 @@ public interface WireValueDecoder extends AutoCloseable {
             Map<String, Map<String, ComponentEncoding>> items) {
         public ComponentEncoding {
             bytes = bytes.clone();
-            var copy = new java.util.HashMap<String, Map<Integer, String>>();
-            references.forEach((key, value) -> copy.put(key, Map.copyOf(value)));
-            references = Map.copyOf(copy);
-            var children = new java.util.HashMap<String, Map<String, ComponentEncoding>>();
-            items.forEach((key, value) -> children.put(key, Map.copyOf(value)));
-            items = Map.copyOf(children);
+            references = immutable(references);
+            items = immutable(items);
         }
 
         public ComponentEncoding(int protocol, byte[] bytes, Map<String, Map<Integer, String>> references) {
@@ -81,6 +78,13 @@ public interface WireValueDecoder extends AutoCloseable {
         @Override
         public byte[] bytes() {
             return bytes.clone();
+        }
+
+        private static <K, V> Map<String, Map<K, V>> immutable(Map<String, Map<K, V>> source) {
+            if (source.isEmpty()) return Map.of();
+            var copy = new HashMap<String, Map<K, V>>();
+            source.forEach((key, value) -> copy.put(key, Map.copyOf(value)));
+            return Map.copyOf(copy);
         }
     }
 
@@ -189,6 +193,30 @@ public interface WireValueDecoder extends AutoCloseable {
     default <T> DecodedItem<T> item(
             ProtocolVersion version, ByteBuf input, boolean creative, Registries registries, NbtFactory<T> factory) {
         return decoded(item(version, input, creative, registries), factory);
+    }
+
+    /**
+     * A stack in {@code item}'s non-creative framing, decoded, or offered for reuse once the same structure checks
+     * have accepted it where the decoder supports that.
+     */
+    default <T, R> R item(
+            ProtocolVersion version,
+            ByteBuf input,
+            Registries registries,
+            NbtFactory<T> factory,
+            ItemReuse<T, R> reuse) {
+        int start = input.readerIndex();
+        var item = item(version, input, false, registries, factory);
+        return reuse.decoded(item, input, start, input.readerIndex());
+    }
+
+    /** Values for accepted stacks, by their bytes: {@code input} from {@code start} up to {@code end}. */
+    interface ItemReuse<T, R> {
+        /** What {@link #decoded} returned for these bytes, or null to decode them; the input is not consumed. */
+        R reuse(ByteBuf input, int start, int end);
+
+        /** The value of a stack decoded from {@code start}; {@code input} is positioned after it. */
+        R decoded(DecodedItem<T> item, ByteBuf input, int start, int end);
     }
 
     ItemValue itemCost(ProtocolVersion version, ByteBuf input, boolean optional, Registries registries);

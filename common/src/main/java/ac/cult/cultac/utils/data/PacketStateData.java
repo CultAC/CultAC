@@ -51,6 +51,8 @@ public class PacketStateData {
     public Hand itemInUseHand = Hand.MAIN_HAND;
     private int slowedByUsingItemSlot = Integer.MIN_VALUE;
     public KnownInput knownInput = KnownInput.DEFAULT;
+    // A respawned LocalPlayer's kept lastSentInput holds shift, which its KeyboardInput reads at the first aiStep.
+    public boolean respawnShiftPending;
     public int riptideLevel = 0;
     // Other riptide levels this tick's release may spin with: through 1.21.4 it releases whichever trident the last
     // entity tick bound, which an unreported hotbar selection leaves open.
@@ -90,11 +92,25 @@ public class PacketStateData {
     public int localAuthoritativeVehicleMovePacketsThisClientTick = 0;
     public boolean carriedItemChangedThisClientTick = false;
     public boolean carriedItemClaimedThisClientTick = false;
+    // A player_command or player_abilities LocalPlayer#tick sent this client tick.
+    public boolean localPlayerTickCommandThisClientTick = false;
+    // ClientPacketListener#handleSetHeldSlot leaves MultiPlayerGameMode#carriedIndex, so the next tick sends this
+    // slot back; -1 when no echo is due.
+    public int heldSlotEcho = -1;
+    // The last set_held_slot before the next tick applied while a screen was open, so it fixed that tick's slot.
+    public boolean heldSlotSetWithScreenOpen = false;
     public boolean vehicleMovementStartOnGround = false;
     // Original-client-reported ground, excluding fields synthesized by protocol translation.
     public boolean vehicleMovementOnGroundPresent = true;
     // Transaction observed at the last tick-end packet; used to prove tick-boundary state ordering.
     public int lastClientTickEndTransaction = Integer.MIN_VALUE;
+
+    /** LocalPlayer#tick sent its player_input, a player_command, player_abilities or its movement this client tick. */
+    public boolean localPlayerTickSentThisClientTick() {
+        return receivedMovementThisClientTick
+                || clientMovementInputUpdatedThisClientTick
+                || localPlayerTickCommandThisClientTick;
+    }
 
     public boolean isVehicleMovementFromClientTick() {
         return vehicleMovementFromClientTick;

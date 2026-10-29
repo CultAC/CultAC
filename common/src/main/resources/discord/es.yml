@@ -17,7 +17,13 @@ embed-title: "%player% ha sido detectado por %check% [%violations%]"
 embed-color: "#00FFFF"
 
 include-timestamp: true
-# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...).
+# The footer under the alert, and the icon beside it (an image URL, empty for none).
+embed-footer-text: "v%cult_version%"
+embed-footer-url: ""
+# The image at the top right of the alert; %uuid% is the flagged player.
+embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
+# Adds a "State" field with the client state Cult tracks at the alert (game mode, sprint, held items, ...),
+# unless violation-content places %state%, which lists only the entries that are set.
 include-state: true
 
 # Reemplaza las comillas invertidas (`) en los valores (como las marcas de clientes) para no romper el formato de texto de Discord.
@@ -39,4 +45,4 @@ violation-content:
 
 # Marcadores de esquema — ver el comentario de cabecera en config.yml.
 config-flavor: V2
-config-version: 2
+config-version: 5

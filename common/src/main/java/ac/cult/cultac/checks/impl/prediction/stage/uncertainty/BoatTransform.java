@@ -99,6 +99,21 @@ public class BoatTransform implements UncertaintyHandler {
                     .setClientPhysicalRotation(tick.postControlYaw(), context.getVehicle().clientPhysicalPitch);
     }
 
+    /**
+     * The yaw AbstractBoat#controlBoat leaves a driven boat with for {@code result}: the yaw it ended the last tick with
+     * turned by this tick's deltaRotation. NaN when that last yaw is not known.
+     */
+    public static float predictedBoatYaw(CultPlayer player, PredictionResult result) {
+        if (Float.isNaN(player.boatYawBeforeTurn)) return Float.NaN;
+        BoatTickResult tick = selectBoatTick(
+                player,
+                result.getSimulationContext(),
+                result.getInitialStartingVel(),
+                BoatTickState.capture(player),
+                result.getTarget());
+        return player.boatYawBeforeTurn + tick.state().deltaRotation();
+    }
+
     public static String debugBoatTick(CultPlayer player, SimulationContext context, Vec3 vector) {
         if (context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type)) {
             return null;

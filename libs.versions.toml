@@ -26,6 +26,8 @@ snakeyaml = "2.2"
 configuralize = "1.4.1" # :slim classifier is applied in build.gradle.kts
 protobuf = "4.36.2"
 zstd-jni = "1.5.7-15"
+jedis = "7.5.3"
+jnats = "2.26.4"
 
 # --- Build & Tooling ---
 lombok = "9.0.0"
@@ -36,6 +38,7 @@ protobuf-plugin = "0.10.0"
 [libraries]
 # --- Core Frameworks: Adventure (Text) & Cloud (Commands) ---
 adventure-text-minimessage = { group = "net.kyori", name = "adventure-text-minimessage", version.ref = "adventure" }
+adventure-text-serializer-gson = { group = "net.kyori", name = "adventure-text-serializer-gson", version.ref = "adventure" }
 cloud-core = { group = "org.incendo", name = "cloud-core", version.ref = "cloud" }
 cloud-paper = { group = "org.incendo", name = "cloud-paper", version.ref = "cloud-paper" }
 cloud-processors-requirements = { group = "org.incendo", name = "cloud-processors-requirements", version.ref = "cloud-processors-requirements" }
@@ -69,6 +72,8 @@ snakeyaml = { group = "org.yaml", name = "snakeyaml", version.ref = "snakeyaml" 
 protobuf-javalite = { group = "com.google.protobuf", name = "protobuf-javalite", version.ref = "protobuf" }
 protobuf-protoc = { group = "com.google.protobuf", name = "protoc", version.ref = "protobuf" }
 zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstd-jni" }
+jedis = { group = "redis.clients", name = "jedis", version.ref = "jedis" }
+jnats = { group = "io.nats", name = "jnats", version.ref = "jnats" }
 
 # --- Gradle Plugin Definitions ---
 # These are referenced by the [plugins] section or applied directly in build scripts

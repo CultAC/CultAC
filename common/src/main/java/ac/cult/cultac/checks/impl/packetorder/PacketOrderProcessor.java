@@ -1,11 +1,13 @@
 package ac.cult.cultac.checks.impl.packetorder;
 
 import ac.cult.cultac.checks.Check;
-import ac.cult.cultac.checks.type.CheckListener;
+import ac.cult.cultac.checks.type.DecodedPacketReceiveListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundContainerClose;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -17,12 +19,14 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundSpectatorAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.inventory.InventoryClick;
+import lombok.AccessLevel;
 import lombok.Getter;
 import org.jetbrains.annotations.Contract;
 
 @Getter
-public final class PacketOrderProcessor extends Check implements CheckListener {
+public final class PacketOrderProcessor extends Check implements DecodedPacketReceiveListener {
     public PacketOrderProcessor(final CultPlayer player) {
         super(player);
     }
@@ -44,6 +48,37 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
     private boolean startingToGlide;
     private boolean jumpingWithMount;
     private boolean stabbing;
+
+    @Getter(AccessLevel.NONE)
+    private boolean acceptedTeleport;
+    // 26.3 ClientPacketListener#handleMovePlayer ends a dig with stopDestroyBlock right after the acceptance
+    private boolean teleportAbort;
+
+    @Override
+    public void onDecodedPacketReceive(PacketReceiveEvent event) {
+        teleportAbort = acceptedTeleport
+                && event.getPacket() instanceof ServerboundPlayerAction action
+                && action.action() == PlayerAction.ABORT_DESTROY_BLOCK;
+        acceptedTeleport = event.getPacketType() == ServerboundPackets.ACCEPT_TELEPORTATION
+                && !event.isCancelled()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
+                && !hasInTickAction();
+    }
+
+    // Minecraft#runTick handles packets before the tick, so an acceptance follows no packet the tick sent.
+    private boolean hasInTickAction() {
+        return attacking
+                || interacting
+                || placing
+                || using
+                || releasing
+                || digging
+                || picking
+                || stabbing
+                || dropping
+                || sprinting
+                || sneaking;
+    }
 
     @CultPacketHandler
     public void onClientCommand(
@@ -68,7 +103,8 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
             PacketReceiveEvent<ServerboundSpectatorAction> event,
             CultPlayer player,
             ServerboundSpectatorAction packet) {
-        attacking = true;
+        // Minecraft#startAttack sends an empty target when the spectator's hit result is a block or a miss
+        attacking |= packet.target().isPresent();
 
         maybeReset(player, false);
     }
@@ -80,7 +116,8 @@ public final class PacketOrderProcessor extends Check implements CheckListener {
             case DROP_ITEM, DROP_ALL_ITEMS -> dropping = true;
             case RELEASE_USE_ITEM -> releasing = true;
 
-            case STOP_DESTROY_BLOCK, ABORT_DESTROY_BLOCK, START_DESTROY_BLOCK -> digging = true;
+            case STOP_DESTROY_BLOCK, START_DESTROY_BLOCK -> digging = true;
+            case ABORT_DESTROY_BLOCK -> digging |= !teleportAbort;
             case STAB -> stabbing = true;
         }
 

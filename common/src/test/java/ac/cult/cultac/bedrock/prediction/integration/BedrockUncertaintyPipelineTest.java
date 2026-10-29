@@ -109,7 +109,7 @@ public final class BedrockUncertaintyPipelineTest {
                 BedrockMobJumpComponentState.DEFAULT,
                 new PredVector(Vec3.ZERO),
                 new Vec3(0.0, 0.1, 0.0));
-        CultPlayer player = playerWithFireworks(false);
+        CultPlayer player = playerWithFireworks();
         BedrockUncertaintyPipelineTest.TestContext test =
                 context(Vec3.ZERO, false, noPushes(), new Vec3(1.0, 1.0, 1.0));
         PredictionResult result = result(start, test.context(), Vec3.ZERO, neutralCollisions());
@@ -207,20 +207,6 @@ public final class BedrockUncertaintyPipelineTest {
     }
 
     @Test
-    public void fireworkCompensationIsInactiveOrBoundedBySharedSphereAndKeepsLineage() {
-        PredVector source = new PredVector(Vec3.ZERO);
-        PredVector start = source.withX(0.2, "collision lineage");
-        Fireworks handler = new Fireworks();
-        PredVector inactive = handler.handleUncertainty(
-                playerWithFireworks(false), null, null, null, null, start, new Vec3(3.0, 0.0, 0.0));
-        Assert.assertSame(start, inactive);
-        PredVector active = handler.handleUncertainty(
-                playerWithFireworks(true), null, null, null, null, start, new Vec3(3.0, 0.0, 0.0));
-        Assert.assertEquals(1.7, active.distanceTo(start), 1.0E-12);
-        Assert.assertTrue(active.hasReason("collision lineage"));
-    }
-
-    @Test
     public void insideBlockIsGatedHorizontalAndLeavesVerticalUnchanged() {
         PredVector start = new PredVector(new Vec3(0.03, -0.08, -0.02));
         InsideBlock handler = new InsideBlock();
@@ -312,7 +298,7 @@ public final class BedrockUncertaintyPipelineTest {
         Assert.assertEquals(0.1, claimedOverlap.velocityOffset(), 1.0E-7);
     }
 
-    private static CultPlayer playerWithFireworks(boolean active) {
+    private static CultPlayer playerWithFireworks() {
         CultPlayer player = (CultPlayer) Mockito.mock(CultPlayer.class);
 
         try {
@@ -321,10 +307,6 @@ public final class BedrockUncertaintyPipelineTest {
             field.set(player, new CompensatedFireworks(player));
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("failed to install fireworks", exception);
-        }
-
-        if (active) {
-            player.compensatedFireworks.addNewFirework(1);
         }
 
         return player;

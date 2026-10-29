@@ -302,7 +302,7 @@ class DeadPlayerSetbackTest {
         respawn(f, 0, f.player.compensatedWorld.getLastClientboundDimension().dimension());
     }
 
-    private static void respawn(JavaTickFixture f, int dataToKeep, String dimension) {
+    static void respawn(JavaTickFixture f, int dataToKeep, String dimension) {
         var spawnInfo = new PlayerSpawnInfo(
                 ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:the_end"),
                 dimension,

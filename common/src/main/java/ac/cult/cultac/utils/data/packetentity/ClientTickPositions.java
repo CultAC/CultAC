@@ -61,14 +61,10 @@ final class ClientTickPositions {
         entity.carryInterpolationTargetForPreview(player, next, state);
         SimpleCollisionBox exact = null;
         if (state.oldLocation() == null && next.interpolatesFromPhysicalAfterClientTick() && state.exact()) {
-            var at = state.physicalPosition();
-            exact = next.getExactMovementLocationAfterClientTickFromPhysical(
-                    GetBoundingBox.getBoundingBoxFromPosAndSize(
-                            at.x,
-                            at.y,
-                            at.z,
-                            BoundingBoxSize.getWidth(player, entity),
-                            BoundingBoxSize.getHeight(player, entity)));
+            var at = next.exactPositionAfterClientTickFromPhysical(state.physicalPosition());
+            exact = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                    at.x, at.y, at.z,
+                    BoundingBoxSize.getWidth(player, entity), BoundingBoxSize.getHeight(player, entity));
         } else if (next.hasExactMovementLocationAfterClientTick()) {
             exact = next.exactMovementLocationAfterClientTick(new SimpleCollisionBox());
         }

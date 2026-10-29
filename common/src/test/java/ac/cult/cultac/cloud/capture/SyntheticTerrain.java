@@ -110,11 +110,11 @@ final class SyntheticTerrain implements Sections.Terrain {
     }
 
     @Override
-    public byte[] blocks(int x, int y, int z) {
+    public byte[] section(int x, int y, int z) {
         if (!loaded(x, z)) return null;
         int index = y - minSection();
         if (index < 0 || index >= SECTIONS) return null;
-        return SectionBytes.of(column(x, z)[index]);
+        return SectionBytes.record(x, y, z, column(x, z)[index]);
     }
 
     /**

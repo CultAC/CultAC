@@ -31,9 +31,7 @@ class EntityTypeViewParityTest {
         assertEquals(filtered(entities, PacketEntity::mayPushOrCollide), entities.pushOrCollideCandidates(), step);
         assertEquals(filtered(entities, PacketEntity::isBoat), entities.boats(), step);
         assertEquals(
-                filtered(
-                        entities,
-                        e -> e.isBoat() || e.isMinecart() || e.type == EntityTypeIds.SHULKER || e.isHappyGhast()),
+                filtered(entities, e -> e.isBoat() || e.type == EntityTypeIds.SHULKER || e.isHappyGhast()),
                 entities.poseCollisionCandidates(),
                 step);
         assertEquals(

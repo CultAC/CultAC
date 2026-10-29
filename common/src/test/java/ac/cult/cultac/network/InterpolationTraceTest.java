@@ -35,12 +35,12 @@ class InterpolationTraceTest {
 
     @Test
     void legacyTrace() throws Exception {
-        assertEquals(-1609902577819013976L, trace(ClientVersion.V_1_21_4, 11L));
+        assertEquals(-374780735555985414L, trace(ClientVersion.V_1_21_4, 11L));
     }
 
     @Test
     void oldClientTrace() throws Exception {
-        assertEquals(3415501462072160507L, trace(ClientVersion.V_1_8, 12L));
+        assertEquals(5275923346041693005L, trace(ClientVersion.V_1_8, 12L));
     }
 
     @Test
@@ -61,6 +61,29 @@ class InterpolationTraceTest {
         }
     }
 
+    /**
+     * The local player rides the first entity beside a rider carrying another, and two entities carry riders outside
+     * its tree; every movement repositions the trees, as the movement tasks do, and client ticks take the production
+     * entity pass.
+     */
+    private static long riddenTrace(ClientVersion version, long seed) throws Exception {
+        try (Workload w = new Workload(version, seed, 24)) {
+            var vehicles = w.tracker.vehicles;
+            vehicles.applyVehiclePassengers(100, new int[] {w.player.entityID, 101});
+            vehicles.applyVehiclePassengers(101, new int[] {102});
+            vehicles.applyVehiclePassengers(103, new int[] {104, 105});
+            vehicles.applyVehiclePassengers(104, new int[] {106});
+            long digest = 0xcbf29ce484222325L;
+            for (int i = 0; i < 6000; i++) {
+                w.riddenStep();
+                digest = w.digest(digest);
+                digest = Workload.mix(digest, w.player.packetStateData.clientSidePosition);
+                digest = Workload.mix(digest, w.tracker.getSelf().getPossibleMovementCollisionBoxes());
+            }
+            return digest;
+        }
+    }
+
     /** Tracked entities fed packet movement and client ticks the way PacketEntityReplication applies them. */
     static final class Workload implements AutoCloseable {
         final JavaTickFixture fixture;
@@ -68,8 +91,10 @@ class InterpolationTraceTest {
         final CompensatedEntities tracker;
         final List<PacketEntity> entities = new ArrayList<>();
         final Random random;
+        final ClientVersion version;
 
         Workload(ClientVersion version, long seed, int count) throws Exception {
+            this.version = version;
             fixture = new JavaTickFixture();
             player = fixture.player;
             JavaTickFixture.setField(CultPlayer.class, player, "resolvedClientVersion", version);
@@ -86,6 +111,18 @@ class InterpolationTraceTest {
 
         void tick() {
             tracker.tickClientEntities(entity -> entity.onMovement(player));
+        }
+
+        void riddenStep() {
+            if (random.nextInt(12) >= 9) {
+                boolean reliably = random.nextInt(3) != 0;
+                if (version.isNewerThanOrEquals(ClientVersion.V_26_3)) tick();
+                else tracker.forEachTrackedEntity(entity -> entity.onMovement(player));
+                tracker.updatePassengerPositions();
+                return;
+            }
+            randomStep();
+            tracker.updatePassengerPositions();
         }
 
         void randomStep() {
@@ -160,7 +197,7 @@ class InterpolationTraceTest {
             return mix(digest, data.getTargetLocation());
         }
 
-        private static long mix(long digest, SimpleCollisionBox box) {
+        static long mix(long digest, SimpleCollisionBox box) {
             if (box == null) return mix(digest, 3L);
             digest = mix(digest, Double.doubleToRawLongBits(box.minX));
             digest = mix(digest, Double.doubleToRawLongBits(box.minY));
@@ -171,7 +208,7 @@ class InterpolationTraceTest {
             return mix(digest, box.isFullBlock() ? 1 : 0);
         }
 
-        private static long mix(long digest, Vec3 position) {
+        static long mix(long digest, Vec3 position) {
             if (position == null) return mix(digest, 5L);
             digest = mix(digest, Double.doubleToRawLongBits(position.x));
             digest = mix(digest, Double.doubleToRawLongBits(position.y));

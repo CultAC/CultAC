@@ -58,6 +58,7 @@ profile:
 help:
     - "&7======================"
     - "/%command% alerts &f- &7显示/隐藏 警报"
+    - "/%command% alerts scope [server|global] &f- &7Show or set whose alerts you see"
     - "/%command% brands &f- &7显示/隐藏 客户端名牌"
     - "/%command% profile <player> &f- &7查看玩家信息"
     - "/%command% help &f- &7查看此帮助消息"
@@ -129,6 +130,17 @@ cult-history-detail-entry-hover: "&b%check%%description%<newline>&8@ %offset% �
 cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
 # %checks_list% 中每个检查项的内部格式 — 可用占位符: %check_name% %count%
 cult-history-check-count: "&f%check_name%&7 x&c%count%"
+
+# A command names a player on another instance, or a staff member asks for network-wide alerts, while
+# network.transport in config.yml is none.
+network-disabled-command: "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+# /cult alerts scope [server|global]: %scope% is server or global, %source% one of the alerts-scope-* texts below.
+alerts-scope: "%prefix% &fAlert scope: &b%scope% &7(%source%)"
+alerts-scope-set: "%prefix% &fAlert scope set to &b%scope%"
+alerts-scope-chosen: "chosen"
+alerts-scope-permission: "permission default"
+alerts-scope-local: "network-wide alerts are not enabled on this server"
 
 # 模式标记 — 参见 config.yml 顶部的注释。
 config-flavor: V2

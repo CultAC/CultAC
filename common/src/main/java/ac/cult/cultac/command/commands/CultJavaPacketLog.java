@@ -2,6 +2,7 @@ package ac.cult.cultac.command.commands;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.BuildableCommand;
+import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import net.kyori.adventure.text.Component;
@@ -16,7 +17,7 @@ public final class CultJavaPacketLog implements BuildableCommand {
                 .literal("debug")
                 .literal("javapacketlog")
                 .permission("cult.debug")
-                .optional("username", StringParser.quotedStringParser())
+                .optional("username", NetworkPlayerArguments.playerName(StringParser.quotedStringParser()))
                 .flag(manager.flagBuilder("onjoin"))
                 .handler(this::handle));
     }

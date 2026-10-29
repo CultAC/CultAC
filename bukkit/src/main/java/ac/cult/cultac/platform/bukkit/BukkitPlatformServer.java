@@ -1,13 +1,17 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.events.packets.ProxyAlertMessenger;
+import ac.cult.cultac.platform.api.CommandOutcome;
 import ac.cult.cultac.platform.api.OnlineMode;
 import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.ServerFacts;
+import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.jetbrains.annotations.Nullable;
@@ -27,6 +31,20 @@ public class BukkitPlatformServer implements PlatformServer {
         Bukkit.dispatchCommand(commandSender, command);
     }
 
+    /** On the main thread; {@code false} from Bukkit is an unknown command, and what the command threw fails it. */
+    @Override
+    public CompletableFuture<CommandOutcome> runCommand(
+            Sender sender, String command, @Nullable PlatformPlayer subject) {
+        CommandSender commandSender =
+                CultACBukkitLoaderPlugin.INSTANCE.getBukkitSenderFactory().reverse(sender);
+        try {
+            return CompletableFuture.completedFuture(
+                    CommandOutcome.of(Bukkit.dispatchCommand(commandSender, command)));
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
+    }
+
     @Override
     public Sender getConsoleSender() {
         return CultACBukkitLoaderPlugin.INSTANCE.getBukkitSenderFactory().map(Bukkit.getConsoleSender());
@@ -43,6 +61,11 @@ public class BukkitPlatformServer implements PlatformServer {
     @Override
     public void forwardAlert(String message) {
         ac.cult.cultac.events.packets.ProxyAlertMessenger.sendPluginMessage(message);
+    }
+
+    @Override
+    public boolean receivesForwardedAlerts() {
+        return ProxyAlertMessenger.receivesAlerts();
     }
 
     @Override

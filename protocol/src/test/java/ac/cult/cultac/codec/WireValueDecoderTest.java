@@ -1140,6 +1140,77 @@ class WireValueDecoderTest {
         }
     }
 
+    @Test
+    void nestedItemEncodingsHoldEachChildComponentsOwnBytes() {
+        for (var version : ProtocolVersion.values()) {
+            var types = PrivateCodecService.types(version);
+            var ids = ModelRegistryData.load(version).registry("minecraft:data_component_type");
+            var names = names(version);
+            int repairCost = ids.id("minecraft:repair_cost");
+            int customName = ids.id("minecraft:custom_name");
+            // One component per child: a nested item writes its components in hash-map iteration order.
+            var large = new StructuredItem(
+                    names.id("minecraft:item", "minecraft:stone"), 2, new StructuredDataContainer(new StructuredData[] {
+                        data(types.structuredData().key(customName), new StringTag("a much longer name"), customName)
+                    }));
+            var small = new StructuredItem(
+                    names.id("minecraft:item", "minecraft:dirt"), 1, new StructuredDataContainer(new StructuredData[] {
+                        data(types.structuredData().key(repairCost), 3, repairCost)
+                    }));
+            var outer = new ArrayList<StructuredData<?>>();
+            for (String name : List.of("bundle_contents", "container")) {
+                int id = ids.id("minecraft:" + name);
+                if (id < 0) continue;
+                Item[] children = name.equals("container") ? new Item[] {small, large} : new Item[] {large, small};
+                outer.add(data(types.structuredData().key(id), children, id));
+            }
+            assertEquals(2, outer.size(), version.toString());
+            var item = new StructuredItem(
+                    names.id("minecraft:item", "minecraft:stone"),
+                    1,
+                    new StructuredDataContainer(outer.toArray(StructuredData[]::new)));
+            var input = Unpooled.buffer();
+            try {
+                types.item().write(input, item);
+                var encodings = decoder.item(version, input, false, names).componentEncodings();
+                for (var parent : outer) {
+                    var encoding = encodings.get("minecraft:" + parent.key().identifier());
+                    assertArrayEquals(
+                            written(parent),
+                            encoding.bytes(),
+                            version + "/" + parent.key().identifier());
+                    var children = (Item[]) parent.value();
+                    assertEquals(children.length, encoding.items().size());
+                    for (int slot = 0; slot < children.length; slot++) {
+                        var components = encoding.items().get(Integer.toString(slot));
+                        var childData = children[slot].dataContainer().data().values();
+                        assertEquals(childData.size(), components.size());
+                        for (var child : childData)
+                            assertArrayEquals(
+                                    written(child),
+                                    components
+                                            .get("minecraft:" + child.key().identifier())
+                                            .bytes(),
+                                    version + "/" + parent.key().identifier() + "/" + slot + "/"
+                                            + child.key().identifier());
+                    }
+                }
+            } finally {
+                input.release();
+            }
+        }
+    }
+
+    private static byte[] written(StructuredData<?> data) {
+        var buffer = Unpooled.buffer();
+        try {
+            data.write(buffer);
+            return ByteBufUtil.getBytes(buffer);
+        } finally {
+            buffer.release();
+        }
+    }
+
     private static WireValueDecoder.ItemValue checkedItem(
             ProtocolVersion version, ByteBuf input, boolean creative, WireValueDecoder.Registries names) {
         int start = input.readerIndex();

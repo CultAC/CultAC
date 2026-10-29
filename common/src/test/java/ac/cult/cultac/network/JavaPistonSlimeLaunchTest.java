@@ -21,6 +21,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,10 @@ import org.junit.jupiter.api.Test;
 class JavaPistonSlimeLaunchTest {
     private static final ServerboundPlayerInput SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
+    private static final ServerboundPlayerInput JUMP =
+            new ServerboundPlayerInput(false, false, false, false, true, false, false);
+    private static final ServerboundPlayerInput NONE =
+            new ServerboundPlayerInput(false, false, false, false, false, false, false);
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
     private static final double FALL = 0.0784000015258789;
     private static final double PLAYER_HALF_WIDTH = 0.6F / 2.0F;
@@ -102,6 +107,49 @@ class JavaPistonSlimeLaunchTest {
                 velocity *= ICE_FRICTION;
                 assertExact(f.tick(position, true));
             }
+        }
+    }
+
+    /**
+     * A 26.3 player jumps beside a sticky piston that pulls the stone above its head down. The player's box touches
+     * the column's face without overlapping it, so PistonMovingBlockEntity#moveCollidedEntities, whose AABB#intersects
+     * is strict, never shoves it, and the jump arc runs untouched.
+     */
+    @Test
+    void aJumpBesideARetractingPistonColumnIsNotShoved() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            BlockPos piston = new BlockPos(0, FLOOR_Y, 0);
+            int stickyPiston = REGISTRY.with(
+                    REGISTRY.with(REGISTRY.block("minecraft:sticky_piston").defaultState(), "facing", "up"),
+                    "extended",
+                    "true");
+            int head = REGISTRY.with(
+                    REGISTRY.with(REGISTRY.block("minecraft:piston_head").defaultState(), "facing", "up"),
+                    "type",
+                    "sticky");
+            f.player.compensatedWorld.updateBlock(piston, stickyPiston);
+            f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 1, 0), head);
+            f.player.compensatedWorld.updateBlock(
+                    new BlockPos(0, FLOOR_Y + 2, 0), REGISTRY.block("minecraft:stone").defaultState());
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+
+            Vec3 position = new Vec3(1.0 + PLAYER_HALF_WIDTH, FLOOR_Y, 0.5);
+            f.place(position, new Vec3(0, -FALL, 0));
+            assertExact(f.tick(position, true));
+
+            double velocity = 0.42F;
+            StringBuilder trace = new StringBuilder();
+            boolean exact = true;
+            for (int tick = 0; tick < 6; tick++) {
+                if (tick == 2) blockEvent(f, piston, 1, Direction.UP.get3DDataValue(), stickyPiston);
+                f.input(tick == 0 ? JUMP : NONE);
+                position = position.add(new Vec3(0, velocity, 0));
+                velocity = (velocity - 0.08) * 0.98F;
+                PredictionResult result = f.tick(position, false);
+                trace.append(" tick ").append(tick).append(": ").append(describe(result)).append(';');
+                exact &= exact(result);
+            }
+            assertTrue(exact, trace.toString());
         }
     }
 

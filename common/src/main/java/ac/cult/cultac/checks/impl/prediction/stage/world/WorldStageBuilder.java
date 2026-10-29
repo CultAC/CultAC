@@ -29,6 +29,7 @@ import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.enums.Pose;
@@ -149,9 +150,10 @@ public class WorldStageBuilder {
 
         DesyncStatus climbing = climbingAtPosition(player, simulationContext, to);
 
-        // Pigs and striders are the only vehicle that can climb
+        // Pigs, striders and nautiluses keep LivingEntity#onClimbable; AbstractHorse and HappyGhast return false
         if (simulationContext.getVehicle() != null
                 && !(simulationContext.getVehicle() instanceof PacketEntityStrider
+                        || simulationContext.getVehicle() instanceof PacketEntityNautilus
                         || simulationContext.getVehicle().type == EntityTypeIds.PIG)) {
             climbingAtStart = DesyncStatus.FALSE;
         }
@@ -1239,7 +1241,7 @@ public class WorldStageBuilder {
     }
 
     /** The per-block test of {@link #findSupportingBlock}: never matches, it keeps the closest supporting block. */
-    private final class SupportScan implements Collisions.StatePredicate {
+    private final class SupportScan implements Collisions.StateAtPredicate {
         private boolean inUse;
         private CultPlayer player;
         private SimpleCollisionBox searchBox;
@@ -1271,39 +1273,44 @@ public class WorldStageBuilder {
         }
 
         @Override
-        public boolean test(int block, BlockPos blockPos) {
+        public boolean test(int block, int x, int y, int z) {
             // BlockCollisions#computeNext: an outer cell on one axis holds only a block with a large collision
             // shape, on two axes only a moving piston, and on all three none.
-            int outer = (blockPos.getX() == cells.minX || blockPos.getX() == cells.maxX ? 1 : 0)
-                    + (blockPos.getY() == cells.minY || blockPos.getY() == cells.maxY ? 1 : 0)
-                    + (blockPos.getZ() == cells.minZ || blockPos.getZ() == cells.maxZ ? 1 : 0);
+            int outer = (x == cells.minX || x == cells.maxX ? 1 : 0)
+                    + (y == cells.minY || y == cells.maxY ? 1 : 0)
+                    + (z == cells.minZ || z == cells.maxZ ? 1 : 0);
             if (outer == 3
                     || outer == 1 && !BLOCKS.facts(block).has(StateFacts.LARGE_COLLISION)
                     || outer == 2 && !BlockIds.is(block, BlockIds.MOVING_PISTON)) return false;
 
             CollisionBox collision =
-                    ClientBlockShapes.movement(player, block, blockPos.getX(), blockPos.getY(), blockPos.getZ());
+                    ClientBlockShapes.movement(player, block, x, y, z);
             // BlockCollisions uses AABB#intersects for Shapes.block(), without the voxel join's 1.0E-7 epsilon.
             // A sub-epsilon overlap can therefore retain a full stone support beside a lower honey block.
             boolean fullBlock = collision instanceof VoxelShapeCollisionBox voxel
                     ? voxel.usesStrictFullBlockIntersection() : collision.isFullBlock();
             boolean intersects = !player.isBedrockMovement() && fullBlock
                     ? searchBox.intersects(
-                            blockPos.getX(), blockPos.getY(), blockPos.getZ(),
-                            blockPos.getX() + 1.0, blockPos.getY() + 1.0, blockPos.getZ() + 1.0)
+                            x, y, z,
+                            x + 1.0, y + 1.0, z + 1.0)
                     : collision.isIntersected(searchBox);
             if (!intersects) return false;
 
-            double distanceX = blockPos.getX() + 0.5 - playerX;
-            double distanceY = blockPos.getY() + 0.5 - playerY;
-            double distanceZ = blockPos.getZ() + 0.5 - playerZ;
+            double distanceX = x + 0.5 - playerX;
+            double distanceY = y + 0.5 - playerY;
+            double distanceZ = z + 0.5 - playerZ;
             double distance = distanceX * distanceX + distanceY * distanceY + distanceZ * distanceZ;
 
-            if (distance < bestDistance
-                    // CollisionGetter#findSupportingBlock keeps the greatest BlockPos#compareTo among equal distances.
-                    || distance == bestDistance && (best == null || best.compareTo(blockPos) < 0)) {
-                best = blockPos;
+            if (distance < bestDistance) {
+                best = new BlockPos(x, y, z);
                 bestDistance = distance;
+            } else if (distance == bestDistance) {
+                // CollisionGetter#findSupportingBlock keeps the greatest BlockPos#compareTo among equal distances.
+                BlockPos blockPos = new BlockPos(x, y, z);
+                if (best == null || best.compareTo(blockPos) < 0) {
+                    best = blockPos;
+                    bestDistance = distance;
+                }
             }
 
             return false;

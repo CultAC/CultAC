@@ -17,6 +17,7 @@ import ac.cult.cultac.checks.impl.prediction.checks.ItemUseDesync;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UnknownCollisionProvider;
 import ac.cult.cultac.checks.verdict.FlagArbiter;
 import ac.cult.cultac.events.packets.PacketEntityReplication;
 import ac.cult.cultac.manager.LastInstanceManager;
@@ -53,6 +54,7 @@ import ac.cult.cultac.utils.data.ClientSwimState;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.VehicleData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.latency.CompensatedCameraEntity;
@@ -215,6 +217,8 @@ public class CultPlayer implements GrimUser {
             new ac.cult.cultac.utils.latency.BlockActionReconciler(this);
     public long rawTransactionPing = 0;
     public long lastTransSent = 0;
+
+    public final long connectedAt = System.nanoTime();
 
     @Getter
     private long playerClockAtLeast = System.nanoTime();
@@ -1307,12 +1311,12 @@ public class CultPlayer implements GrimUser {
         return boxes;
     }
 
+    /**
+     * Entity#canBeCollidedWith admits this player for boats, shulkers and happy ghasts; AbstractMinecart keeps its
+     * false, so a minecart never blocks a pose or a move.
+     */
     private boolean canCollideWithForPoseCheck(@Nullable PacketEntity riding, PacketEntity entity) {
-        if (entity == null
-                || !(entity.isBoat()
-                        || entity.isMinecart()
-                        || entity.type == EntityTypeIds.SHULKER
-                        || entity.isHappyGhast())) {
+        if (entity == null || !(entity.isBoat() || entity.type == EntityTypeIds.SHULKER || entity.isHappyGhast())) {
             return false;
         }
 
@@ -1345,6 +1349,8 @@ public class CultPlayer implements GrimUser {
             CultAPI.INSTANCE.getPlayerDataManager().exemptUser(user);
             return;
         }
+        // The kick lands on the player's scheduler, so pollData keeps timing out until the connection closes.
+        if (hasDisconnected.get()) return;
         LogUtil.warn(getName() + " " + what);
         disconnect(MessageUtil.miniMessage(MessageUtil.replacePlaceholders(
                 this, CultAPI.INSTANCE.getConfigManager().getDisconnectTimeout())));
@@ -1769,8 +1775,7 @@ public class CultPlayer implements GrimUser {
      * the passenger list the client has applied.
      */
     public void onMountedClientTick(PacketEntity vehicle) {
-        sprintClearedAsPassenger = !EntityTypeUtil.isCamelFamily(vehicle.type)
-                || !compensatedEntities.vehicles.mayLocalPlayerControl(vehicle);
+        sprintClearedAsPassenger = !compensatedEntities.vehicles.vehicleCanSprint(vehicle);
     }
 
     /** A client tick on foot: LocalPlayer#sendPosition ends it in LocalPlayer#sendIsSprintingIfNeeded. */

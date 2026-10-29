@@ -18,6 +18,8 @@ public final class Components {
     private final Map<String, NbtValue.Compound> layouts;
     private final BundleContents bundle;
     private final Map<String, ComponentWireEncoding> wireEncodings;
+    /** 0 until known, 1 when every key has a typed encoding, 2 when one lacks it. */
+    private byte encodedComplete;
 
     public Components(Map<String, JsonElement> values) {
         this(values, Map.of());
@@ -35,15 +37,25 @@ public final class Components {
                        Map<String, ComponentWireEncoding> wireEncodings) {
         this(values, encodedNbt, layouts, bundle, wireEncodings, true);
     }
+    /** As the public constructor, adopting {@code values}' trees, which nothing else may hold or change. */
+    static Components adopt(Map<String, JsonElement> values, Map<String, NbtValue> encodedNbt,
+                            Map<String, NbtValue.Compound> layouts) {
+        return new Components(values, encodedNbt, layouts, null, Map.of(), true, false);
+    }
     /** Only this class can assemble trees it already owns; public boundaries always copy. */
     private Components(Map<String, JsonElement> values, Map<String, NbtValue> encodedNbt,
                        Map<String, NbtValue.Compound> layouts, BundleContents bundle,
                        Map<String, ComponentWireEncoding> wireEncodings, boolean copyJson) {
-        if (copyJson) {
+        this(values, encodedNbt, layouts, bundle, wireEncodings, copyJson, copyJson);
+    }
+    private Components(Map<String, JsonElement> values, Map<String, NbtValue> encodedNbt,
+                       Map<String, NbtValue.Compound> layouts, BundleContents bundle,
+                       Map<String, ComponentWireEncoding> wireEncodings, boolean restore, boolean deepCopy) {
+        if (restore) {
             var copy = new HashMap<String, JsonElement>();
             values.forEach((key, value) -> {
                 var layout = layouts.get(key);
-                copy.put(key, ComponentNumbers.restore(value.deepCopy(), layout == null ? null : layout.values().get("negative_zero")));
+                copy.put(key, ComponentNumbers.restore(deepCopy ? value.deepCopy() : value, layout == null ? null : layout.values().get("negative_zero")));
             });
             this.values = Map.copyOf(copy);
         } else this.values = Map.copyOf(values);
@@ -85,11 +97,17 @@ public final class Components {
     }
     /** {@code encodedNbt().equals(other.encodedNbt())}, throwing what either call throws, this side first. */
     public boolean sameEncodedNbt(Components other) {
+        if (other == this && encodedComplete()) return true;
         for (String key : keys()) encodedNbt(key);
         for (String key : other.keys()) other.encodedNbt(key);
         if (keys().size() != other.keys().size()) return false;
         for (String key : keys()) if (!encodedNbt(key).equals(other.encodedNbt(key))) return false;
         return true;
+    }
+    private boolean encodedComplete() {
+        byte known = encodedComplete;
+        if (known == 0) encodedComplete = known = encodedNbt.keySet().containsAll(values.keySet()) ? (byte) 1 : (byte) 2;
+        return known == 1;
     }
     public Components subset(Set<String> keys) {
         if (keys.isEmpty()) return EMPTY;

@@ -2,6 +2,7 @@ package ac.cult.cultac.command.commands;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.BuildableCommand;
+import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.command.profile.RemoteProfiles;
 import ac.cult.cultac.command.render.HistoryComponentRenderer;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
@@ -39,7 +40,10 @@ public class CultProfile implements BuildableCommand {
                 .literal("profile")
                 .permission("cult.profile")
                 // A name rather than an online-player selector: the player may be on another instance.
-                .required("target", StringParser.stringParser(), arguments.onlinePlayerSuggestions())
+                .required(
+                        "target",
+                        NetworkPlayerArguments.playerName(StringParser.stringParser()),
+                        arguments.onlinePlayerSuggestions())
                 .handler(this::handleProfile));
     }
 

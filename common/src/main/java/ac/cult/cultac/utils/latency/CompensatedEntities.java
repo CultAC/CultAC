@@ -41,6 +41,8 @@ public class CompensatedEntities {
     /** LivingEntity#SPEED_MODIFIER_SPRINTING, which LivingEntity#setSprinting adds to movement_speed. */
     public static final AttributeModifier SPRINTING_SPEED_MODIFIER =
             new AttributeModifier(SPRINTING_MODIFIER_ID, 0.3F, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+    /** EnderDragon#subEntities: head, neck, body, three tail segments and two wings. */
+    private static final int ENDER_DRAGON_PARTS = 8;
 
     public static final String SNOW_MODIFIER_ID = "minecraft:powder_snow";
     public static final Set<String> EXCLUDED_MODIFIER_IDS = Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID);
@@ -64,6 +66,10 @@ public class CompensatedEntities {
     private int addOrderMappedAt;
     // The sum of passengers.size() over entityMap values.
     private int trackedPassengers;
+    // Working space for committed passenger seat updates.
+    private final SimpleCollisionBox seatVehicleBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox seatVehicleScratch = new SimpleCollisionBox();
+    private final SimpleCollisionBox seatBox = new SimpleCollisionBox();
     // Reused only by the sequential client entity traversal, never exposed to readers.
     private final SimpleCollisionBox riderTickBox = new SimpleCollisionBox();
     private final SimpleCollisionBox riderTickPoint = new SimpleCollisionBox();
@@ -717,6 +723,8 @@ public class CompensatedEntities {
         if (player.isBedrockMovement()) {
             vehicles.seedStartingVelocityIfRootChanged(previousRoot);
             if (previousRoot == null) player.getSetbackTeleportUtil().transferBedrockVehicleSetback(entityID);
+        } else if (previousRoot != null) {
+            player.getSetbackTeleportUtil().reissueDroppedVehicleSetback();
         }
     }
 
@@ -1152,12 +1160,13 @@ public class CompensatedEntities {
     }
 
     private void seatPassenger(PacketEntity riding, PacketEntity passenger) {
-        Vec3 passengerPosition = BoundingBoxSize.getRidingOffsetFromVehicle(riding, passenger, player);
+        Vec3 passengerPosition = BoundingBoxSize.getRidingOffsetFromVehicle(
+                riding, passenger, player, riding.getPossibleMovementCollisionBoxes(seatVehicleBox, seatVehicleScratch));
         passenger.inheritPositionCertainty(riding);
         passenger.setPassengerPosition(
                 player,
                 GetBoundingBox.getPacketEntityBoundingBox(
-                        player, passengerPosition.x, passengerPosition.y, passengerPosition.z, passenger));
+                        seatBox, player, passengerPosition.x, passengerPosition.y, passengerPosition.z, passenger));
         if (passenger == playerEntity) {
             player.packetStateData.clientSidePosition = passengerPosition;
         }
@@ -1272,6 +1281,21 @@ public class CompensatedEntities {
             return playerEntity;
         }
         return entityMap.get(entityID);
+    }
+
+    /**
+     * The ender dragon in entityMap or serverPositionsMap that {@code entityID} is one of the eight EnderDragonParts of,
+     * which EnderDragon#recreateFromPacket numbers from the dragon's id plus one.
+     */
+    public OptionalInt enderDragonOfPart(int entityID) {
+        for (int parent = entityID - ENDER_DRAGON_PARTS; parent < entityID; parent++) {
+            PacketEntity entity = entityMap.get(parent);
+            TrackerData tracked = serverPositionsMap.get(parent);
+            if ((entity != null && entity.type == EntityTypeIds.ENDER_DRAGON)
+                    || (tracked != null && tracked.getEntityType() == EntityTypeIds.ENDER_DRAGON))
+                return OptionalInt.of(parent);
+        }
+        return OptionalInt.empty();
     }
 
     public PacketEntitySelf getSelf() {
@@ -1803,9 +1827,11 @@ public class CompensatedEntities {
 
     /** Runs legacy client entity state ticks in entity-map order; Java remote riders retain lazy position storage. */
     public void forEachTrackedEntity(Consumer<PacketEntity> tick) {
+        PacketEntity selfRoot = selfRidingRoot();
+        PacketEntity serverRoot = serverVehicleRoot();
         for (PacketEntity entity : entityMap.values()) {
-            if (player.isBedrockMovement() && isUntrackedRider(entity)) continue;
-            if (!player.isBedrockMovement() && isUntrackedRider(entity)) tickLazyRider(entity, tick);
+            if (player.isBedrockMovement() && isUntrackedRider(entity, selfRoot, serverRoot)) continue;
+            if (!player.isBedrockMovement() && isUntrackedRider(entity, selfRoot, serverRoot)) tickLazyRider(entity, tick);
             else tick.accept(entity);
         }
     }

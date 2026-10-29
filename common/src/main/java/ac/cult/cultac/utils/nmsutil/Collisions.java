@@ -1994,6 +1994,12 @@ public class Collisions {
         boolean test(int state, BlockPos pos);
     }
 
+    /** A {@link StatePredicate} over the block's coordinates. */
+    @FunctionalInterface
+    public interface StateAtPredicate {
+        boolean test(int state, int x, int y, int z);
+    }
+
     public static boolean hasState(CultPlayer player, SimpleCollisionBox checkBox, StatePredicate searchingFor) {
         return hasState(player, checkBox, state -> true, searchingFor);
     }
@@ -2001,6 +2007,20 @@ public class Collisions {
     /** {@code searchingFor} sees only states passing {@code stateFilter} and must be false for every other state. */
     public static boolean hasState(
             CultPlayer player, SimpleCollisionBox checkBox, IntPredicate stateFilter, StatePredicate searchingFor) {
+        return hasState(player, checkBox, stateFilter, searchingFor, null);
+    }
+
+    public static boolean hasState(CultPlayer player, SimpleCollisionBox checkBox, StateAtPredicate searchingFor) {
+        return hasState(player, checkBox, state -> true, null, searchingFor);
+    }
+
+    /** Exactly one of {@code positioned} and {@code at} is non-null. */
+    private static boolean hasState(
+            CultPlayer player,
+            SimpleCollisionBox checkBox,
+            IntPredicate stateFilter,
+            StatePredicate positioned,
+            StateAtPredicate at) {
         int minBlockX = (int) Math.floor(checkBox.minX);
         int maxBlockX = (int) Math.floor(checkBox.maxX);
         int minBlockY = (int) Math.floor(checkBox.minY);
@@ -2052,7 +2072,8 @@ public class Collisions {
 
                             int data = section.getStateId(CachedChunk.index(x & 0xF, y & 0xF, z & 0xF));
                             if (!stateFilter.test(data)) continue;
-                            if (searchingFor.test(data, new BlockPos(x, y, z))) return true;
+                            if (at != null ? at.test(data, x, y, z) : positioned.test(data, new BlockPos(x, y, z)))
+                                return true;
                         }
                     }
                 }

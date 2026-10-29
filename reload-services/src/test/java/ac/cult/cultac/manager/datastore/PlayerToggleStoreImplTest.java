@@ -59,24 +59,4 @@ class PlayerToggleStoreImplTest {
             toggles.shutdown();
         }
     }
-
-    // TODO(cultLoaderVersion>5): remove with PlayerToggleStore's one-argument methods.
-    @Test
-    void runtimesBuiltBeforeConnectionHoldsStillHoldAndReleaseTheSlot() {
-        DataStore store = mock(DataStore.class);
-        doReturn(new CompletableFuture<>()).when(store).query(any(), any());
-        var scheduler = PlayerToggleStoreImpl.defaultScheduler();
-        var toggles = new PlayerToggleStoreImpl(store, Logger.getAnonymousLogger(), scheduler, 60_000, true);
-        try {
-            UUID player = UUID.randomUUID();
-            toggles.prefetch(player);
-            toggles.applyUserToggle(player, PlayerToggleStore.KEY_ALERTS, true);
-            assertEquals(Boolean.TRUE, toggles.current(player, PlayerToggleStore.KEY_ALERTS));
-
-            toggles.evict(player);
-            assertNull(toggles.current(player, PlayerToggleStore.KEY_ALERTS));
-        } finally {
-            toggles.shutdown();
-        }
-    }
 }

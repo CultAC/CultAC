@@ -112,7 +112,7 @@ class ObserveOnlyCallSiteTest {
     private static final String ALLOWED = """
             [isExempt()] SetbackTeleportUtil.isExempt() is true in observe-only
             manager/player/SetbackTeleportUtil.java#executeTooHighLatencySetback(String) blockMovementsUntilResync
-            manager/player/SetbackTeleportUtil.java#executeViolationSetback() blockMovementsUntilResync
+            manager/player/SetbackTeleportUtil.java#executeViolationSetback(PredictionResult) blockMovementsUntilResync
             [shouldBlockMovement()] true in observe-only only before the world loads; the codec forwards the client's packet
             checks/impl/combat/ReachCheck.java#handleInteract(PacketReceiveEvent,ServerboundInteract) setCancelled
             checks/impl/movement/timer/AbstractTimerCheck.java#recordModernMovePlayerPacket(PacketReceiveEvent,boolean) setCancelled
@@ -130,7 +130,7 @@ class ObserveOnlyCallSiteTest {
             [] reached only from callers that return first in observe-only
             checks/impl/prediction/checks/NoSlow.java#clearFlaggedUse() clearActiveItem
             events/packets/patch/ResyncWorldUtil.java#resyncOnOwner(CultPlayer,int,int,int,int,int,int) sendServerStates
-            manager/player/SetbackTeleportUtil.java#blockMovementsUntilResync(boolean,boolean,boolean) sendSetback
+            manager/player/SetbackTeleportUtil.java#blockMovementsUntilResync(boolean,boolean,boolean,PredictionResult) sendSetback
             manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData) sendSetback
             manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData,boolean) sendSetback
             manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData,boolean,boolean) sendSetback
@@ -194,13 +194,13 @@ class ObserveOnlyCallSiteTest {
             command/commands/CultDebug.java#handleValidationPacketBlock(CommandContext) applyValidationBlock
             events/packets/listeners/PlayerInfoListener.java#onPlayerInfoUpdate(PacketSendEvent,CultPlayer,ClientboundPlayerInfoUpdate) replace x2
             events/packets/listeners/PlayerInfoListener.java#onPlayerInfoUpdate(PacketSendEvent,CultPlayer,ClientboundPlayerInfoUpdate) setCancelled
-            manager/SpectateManager.java#connectAndSpectate(Router,PlatformPlayer,PlatformPlayer,String,String,Long,PreviousState,Runnable) setGameMode
+            manager/SpectateManager.java#connectAndSpectate(Router,PlatformPlayer,Target,String,String,Long,PreviousState,Runnable) setGameMode
             manager/SpectateManager.java#onDisable(PreviousState,PlatformPlayer) setGameMode
             manager/SpectateManager.java#respectate(Router,PlatformPlayer,String) setGameMode
             manager/SpectateManager.java#restoreTargetGameMode(PreviousState,PlatformPlayer,String) setGameMode
-            manager/SpectateManager.java#spectateHere(Router,PlatformPlayer,PlatformPlayer,String,PreviousState,Runnable) setGameMode
+            manager/SpectateManager.java#spectateHere(Router,PlatformPlayer,Target,String,PreviousState,Runnable) setGameMode
             manager/SpectateManager.java#teleportBack(PreviousState,PlatformPlayer,Long) teleportAsync
-            manager/SpectateManager.java#teleportToPlayer(PlatformPlayer,PlatformPlayer) teleportAsync
+            manager/SpectateManager.java#teleportToPlayer(PlatformPlayer,Target) teleportAsync
             utils/latency/InteractionPause.java#resync() resyncFromServerView
             utils/latency/InteractionPause.java#resync() sendServerStates
             utils/latency/InteractionPause.java#start(long) resync x2
@@ -262,10 +262,13 @@ class ObserveOnlyCallSiteTest {
             platform/velocity/bridge/api/BridgeApiService.java#stop() cancel
             [] platform implementations; each caller is listed
             network/protocol/player/User.java#closeConnection() close
+            platform/api/PlatformServer.java#dispatchCommand(Sender,String,PlatformPlayer) dispatchCommand
             platform/api/PlatformServer.java#dispatchCommand(Sender,String,PlatformPlayer,AbstractCheck,double,String) dispatchCommand
+            platform/api/PlatformServer.java#runCommand(Sender,String,PlatformPlayer) dispatchCommand
             platform/bukkit/BukkitConnectionAdapter.java#disconnect(Component) disconnect x2
             platform/bukkit/BukkitConnectionAdapter.java#disconnect(Component) kick
             platform/bukkit/BukkitPlatformServer.java#dispatchCommand(Sender,String) dispatchCommand
+            platform/bukkit/BukkitPlatformServer.java#runCommand(Sender,String,PlatformPlayer) dispatchCommand
             platform/bukkit/BukkitValidationBlocks.java#apply(PlatformPlayer,int,int,int,String,Runnable) setBlockData
             platform/bukkit/PaperInjector.java#injectNew(Channel) inject
             platform/bukkit/PaperInjector.java#register() inject x2
@@ -301,6 +304,12 @@ class ObserveOnlyCallSiteTest {
             companion/bridge/ServerActions.java#validationBlock(Player,ValidationBlock) setBlockData
             [] closes an HTTP connection
             command/commands/CultLog.java#sendLog(Sender,String,String,String,Consumer,String) disconnect
+            [] closes a network broker connection
+            network/routing/RedisTransport.java#close() disconnect
+            network/routing/RedisTransport.java#close() shutdown
+            network/routing/RedisTransport.java#disconnect() disconnect
+            network/routing/RedisTransport.java#ping() disconnect x2
+            platform/velocity/RedisBungeeTransport.java#close() shutdown
             """;
 
     @Test

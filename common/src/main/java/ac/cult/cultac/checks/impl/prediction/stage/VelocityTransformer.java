@@ -85,6 +85,14 @@ public class VelocityTransformer {
             return applyCamelRefusal(player, applyJumps(player, input));
         }
 
+        if (simulationContext.getVehicle() instanceof PacketEntityNautilus) {
+            // LivingEntity#aiStep thresholds deltaMovement before travelRidden runs AbstractNautilus#tickRidden's dash
+            // and AbstractNautilus#travelInWater adds the ridden input.
+            input = applyMovementThreshold(input, simulationContext.getVersion(), false);
+            input = applyRideableInput(player, input);
+            return applyJumps(player, input);
+        }
+
         input = applyRideableInput(player, input);
 
         // MCP-Reborn LivingEntity#handleRelativeFrictionAndCalculateMovement moves

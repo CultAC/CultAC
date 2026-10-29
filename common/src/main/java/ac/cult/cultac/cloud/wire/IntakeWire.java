@@ -345,6 +345,17 @@ public final class IntakeWire {
         return out;
     }
 
+    /** As {@link #section(int, int, int, byte[])}, its block states the {@code length} bytes at {@code offset}. */
+    public static byte[] section(int x, int y, int z, byte[] blocks, int offset, int length) {
+        int field = CodedOutputStream.computeTagSize(4) + CodedOutputStream.computeUInt32SizeNoTag(length) + length;
+        byte[] out = new byte[positionSize(x, y, z) + field];
+        write(out, stream -> {
+            writePosition(stream, x, y, z);
+            stream.writeByteArray(4, blocks, offset, length);
+        });
+        return out;
+    }
+
     /** A {@code BLOCK} record's body: the block's x, y and z, then its block-state id in the server's registry. */
     public static byte[] block(int x, int y, int z, int state) {
         byte[] out = new byte[positionSize(x, y, z) + CodedOutputStream.computeUInt32Size(4, state)];

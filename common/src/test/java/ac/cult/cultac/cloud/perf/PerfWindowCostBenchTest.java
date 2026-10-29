@@ -73,7 +73,8 @@ class PerfWindowCostBenchTest {
     }
 
     private static double run(int path, StackTrie.StackTraceView stack, Map<Long, PerfRecorder.ThreadBytes> start) {
-        PerfRecorder.Window window = new PerfRecorder.Window(-1, start, PerfRecorder::threadAllocatedBytes);
+        PerfRecorder.Window window =
+                new PerfRecorder.Window(-1, 10_000_000L, start, PerfRecorder::threadAllocatedBytes);
         int samples = path == 4 ? SAMPLES / 1_000 : SAMPLES;
         long begin = System.nanoTime();
         for (int i = 0; i < samples; i++) {

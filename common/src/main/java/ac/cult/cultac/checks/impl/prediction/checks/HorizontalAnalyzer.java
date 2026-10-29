@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.prediction.checks;
 
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.impl.prediction.ItemUseTickResult;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
@@ -73,8 +74,8 @@ public class HorizontalAnalyzer implements EngineCheck {
                 result.getSimulationContext().getXRot(),
                 result.getSimulationContext().getVersion()); // player inputs
 
-        // Can a player have a speed of 0?
-        double inputScaledToSpeed = minimumInputRequired.length() / playerSpeed;
+        // Entity#getInputVector scales the input by the speed, so it moves nothing at speed 0
+        double inputScaledToSpeed = playerSpeed > 0 ? minimumInputRequired.length() / playerSpeed : 0;
 
         // To account for collisions, we need to figure out which way the player was moving to hit the collision
         // If a player was moving in positive X by 2.0 blocks/tick, and hit a block at 1.0 blocks away, they are fine.
@@ -237,6 +238,10 @@ public class HorizontalAnalyzer implements EngineCheck {
     static double getHorizontalInputFlagAmount(
             double absX, double absZ, double playerSpeed, double sprintMultiplier, boolean mustBeInLiquid) {
         double magnitude = Math.sqrt(absX * absX + absZ * absZ);
+        // Entity#getInputVector scales the input by the speed, so it moves nothing at speed 0
+        if (playerSpeed == 0) {
+            return magnitude > ItemUseTickResult.NUMERIC_EPSILON ? magnitude : 0.0D;
+        }
         if (magnitude > playerSpeed * (sprintMultiplier + HORIZONTAL_INPUT_UNCERTAINTY)) {
             return magnitude;
         }

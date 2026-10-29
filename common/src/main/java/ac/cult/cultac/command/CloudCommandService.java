@@ -11,14 +11,18 @@ import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.config.ConfigManager;
 import io.leangen.geantyref.TypeToken;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.ComponentLike;
 import net.kyori.adventure.text.format.NamedTextColor;
+import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.exception.ArgumentParseException;
 import org.incendo.cloud.exception.CommandExecutionException;
@@ -27,6 +31,8 @@ import org.incendo.cloud.exception.InvalidSyntaxException;
 import org.incendo.cloud.exception.NoPermissionException;
 import org.incendo.cloud.exception.NoSuchCommandException;
 import org.incendo.cloud.key.CloudKey;
+import org.incendo.cloud.permission.Permission;
+import org.incendo.cloud.permission.PredicatePermission;
 import org.incendo.cloud.processors.requirements.RequirementApplicable;
 import org.incendo.cloud.processors.requirements.RequirementApplicable.RequirementApplicableFactory;
 import org.incendo.cloud.processors.requirements.RequirementPostprocessor;
@@ -61,7 +67,7 @@ public class CloudCommandService implements CommandService {
             CloudPlatformCommandArguments commandArguments,
             Supplier<List<String>> rootsSupplier) {
         this.commandManagerSupplier = commandManagerSupplier;
-        this.commandArguments = commandArguments;
+        this.commandArguments = new NetworkPlayerArguments(commandArguments);
         this.rootsSupplier = rootsSupplier;
     }
 
@@ -135,6 +141,25 @@ public class CloudCommandService implements CommandService {
         return manager.commandExecutor().executeCommand(sender, input).thenApply(ignored -> null);
     }
 
+    /** Every permission node a registered command requires; empty before the commands register. */
+    public Set<String> permissionNodes() {
+        CommandManager<Sender> commandManager = manager;
+        Set<String> nodes = new TreeSet<>();
+        if (commandManager == null) return nodes;
+        for (Command<Sender> command : commandManager.commands()) addNodes(command.commandPermission(), nodes);
+        return nodes;
+    }
+
+    private static void addNodes(Permission permission, Set<String> nodes) {
+        if (permission instanceof PredicatePermission<?>) return;
+        Collection<Permission> inner = permission.permissions();
+        if (inner.size() == 1 && inner.contains(permission)) {
+            if (!permission.isEmpty()) nodes.add(permission.permissionString());
+            return;
+        }
+        for (Permission each : inner) addNodes(each, nodes);
+    }
+
     public CompletionStage<List<String>> suggest(Sender sender, String input) {
         return manager.suggestionFactory()
                 .suggest(sender, input)
@@ -160,6 +185,10 @@ public class CloudCommandService implements CommandService {
             String detail = exception.getCause().getMessage();
             return Component.text(detail == null ? "Invalid command argument." : "Invalid argument: " + detail);
         });
+        // The controller asks the handler registered last first.
+        commandManager
+                .exceptionController()
+                .registerHandler(ArgumentParseException.class, NetworkPlayerArguments::handle);
         commandManager.exceptionController().registerHandler(CommandExecutionException.class, context -> {
             context.context()
                     .sender()

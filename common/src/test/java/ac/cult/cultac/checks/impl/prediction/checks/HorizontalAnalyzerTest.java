@@ -43,6 +43,26 @@ public class HorizontalAnalyzerTest {
         assertEquals(movement.length(), HorizontalAnalyzer.getBestTheoreticalPlayerInput(movement, 1.0e8f, ClientVersion.V_1_8).length(), 1.0E-6);
     }
 
+    @Test
+    public void zeroSpeedAcceptsTheInputFreeMove() {
+        // A sprint jump's decaying ground tick at movement_speed 0: the reported move is the input-free movement
+        Vec3 target = new Vec3(0.06040103800674501, 0, 0.009362543478260932);
+        Vec3 inputFree = new Vec3(0.0604010380067536, 0, 0.009362543478269269);
+        Vec3 input = HorizontalAnalyzer.getBestTheoreticalPlayerInput(
+                target.subtract(inputFree), -81.15678f, ClientVersion.V_26_3);
+        assertEquals(
+                0,
+                HorizontalAnalyzer.getHorizontalInputFlagAmount(Math.abs(input.x), Math.abs(input.z), 0f, 1.3, false),
+                0);
+    }
+
+    @Test
+    public void diagonalInputPastTheSprintCircleFlags() {
+        // Each axis is under 0.98 of the sprint speed, the diagonal is past the unit circle moveRelative allows
+        assertTrue(HorizontalAnalyzer.getHorizontalInputFlagAmount(0.093, 0.093, 0.1f, 1.3, false) > 0);
+        assertEquals(0, HorizontalAnalyzer.getHorizontalInputFlagAmount(0.09, 0.09, 0.1f, 1.3, false), 0);
+    }
+
     @Test public void saneYawInputMatchesRotation() {
         // Pure forward input facing south-west at yaw 45 moves towards -X/+Z
         Vec3 input = HorizontalAnalyzer.getBestTheoreticalPlayerInput(new Vec3(-0.1, 0, 0.1), 45, ClientVersion.V_1_8);

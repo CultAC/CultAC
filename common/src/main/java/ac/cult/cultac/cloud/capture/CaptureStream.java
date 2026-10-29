@@ -122,6 +122,8 @@ public final class CaptureStream {
     private static final int MIN_FRAME_RECORDS = 16;
 
     private static final int MAX_PRESIZED_RECORDS = 4096;
+    /** The largest record columns a released frame leaves for the next frame to reuse. */
+    private static final int MAX_SPARE_RECORDS = 1024;
     /** Room a section record leaves in a frame for its header, verdict and envelopes. */
     static final int RELEASE_HEADROOM = FRAME_HEADROOM + 1024;
 
@@ -130,29 +132,6 @@ public final class CaptureStream {
     private static final byte[] NO_BODY = new byte[0];
     /** A ping too short to carry a wire id: it takes an ordinal, and no VELOCITY can name it. */
     private static final long NO_WIRE_ID = Long.MIN_VALUE;
-
-    /**
-     * A packet as tapped, with the dimension and session the client was in when it crossed; a clientbound one with its
-     * server tick as tapped (-1 when unknown) and a ping with its {@code PingKind} (0 for any other packet). A protocol 5
-     * terrain record's {@code id}, or its own WORLD's, is its index among its frame's terrain records. An
-     * {@code unstripped} one was tapped before JOIN without its protocol's codec: it goes out only on a socket that said
-     * {@code textStripped} false.
-     */
-    private record Raw(
-            int kind,
-            long nanos,
-            int id,
-            byte[] bytes,
-            int minY,
-            int height,
-            Session session,
-            long serverTick,
-            int pingKind,
-            boolean unstripped) {
-        Raw tickedAs(long tick, int kind) {
-            return new Raw(this.kind, nanos, id, bytes, minY, height, session, tick, kind, unstripped);
-        }
-    }
 
     /** A protocol 5 terrain record in a frame, or a WORLD starting the terrain over: its kind and section. */
     private record TerrainRecord(int kind, long section) {}
@@ -177,7 +156,9 @@ public final class CaptureStream {
      * holds nothing and only counts as lost. {@code lostBefore} is set once it leaves the awaiting queue.
      */
     private static final class Tick {
-        final List<Raw> records;
+        /** Empty once it is released. */
+        CaptureRecords records;
+
         final long bytes;
         final long nanos;
         final long index;
@@ -203,7 +184,7 @@ public final class CaptureStream {
         /** The arrays its records hold, until it is released. */
         CapturePacketCopies copies;
 
-        Tick(List<Raw> records, long bytes, long nanos, long index, boolean dropped) {
+        Tick(CaptureRecords records, long bytes, long nanos, long index, boolean dropped) {
             this.records = records;
             this.bytes = bytes;
             this.nanos = nanos;
@@ -285,7 +266,9 @@ public final class CaptureStream {
     /** Whole frames, sent ones included, the socket refused since the last one it took. */
     private int lostSending;
 
-    private List<Raw> frame = new ArrayList<>();
+    private CaptureRecords frame = new CaptureRecords(MIN_FRAME_RECORDS);
+    /** Record columns a released frame left, for the next frame to reuse. */
+    private CaptureRecords spareRecords;
     /** The open frame's packet copies; null until it copies one. */
     private CapturePacketCopies copies;
     /** Packet copies a released frame left, for the next frame to reuse. */
@@ -704,7 +687,7 @@ public final class CaptureStream {
         long serverTick = kind != IntakeWire.CLIENTBOUND
                 ? -1
                 : pingKind == IntakeWire.PING_END_OF_TICK || lastEndOfTick < 0 ? lastEndOfTick : lastEndOfTick + 1;
-        frame.add(new Raw(kind, nanos, id, bytes, minY, height, session, serverTick, pingKind, unstripped));
+        frame.add(kind, nanos, id, bytes, minY, height, session, serverTick, pingKind, unstripped);
         frameBytes += bytes.length;
         return true;
     }
@@ -758,7 +741,8 @@ public final class CaptureStream {
         for (ActionRef action : actions) action.position = -1;
         if (frameWorld) owedWorld = true;
         frameWorld = false;
-        frame = new ArrayList<>();
+        if (frame.capacity() <= MAX_SPARE_RECORDS) frame.clear();
+        else frame = new CaptureRecords(MIN_FRAME_RECORDS);
         frameBytes = 0;
         if (copies != null) copies.clear(copyClock);
         releaseOpen();
@@ -781,10 +765,10 @@ public final class CaptureStream {
      */
     public void endOfTick(long serverTick) {
         for (int i = frame.size() - 1; i >= 0; i--) {
-            Raw raw = frame.get(i);
-            if (raw.kind() != IntakeWire.CLIENTBOUND) continue;
-            if (raw.serverTick() >= 0 && raw.serverTick() <= lastEndOfTick) break;
-            if (raw.serverTick() != serverTick) frame.set(i, raw.tickedAs(serverTick, raw.pingKind()));
+            if (frame.kind(i) != IntakeWire.CLIENTBOUND) continue;
+            long tapped = frame.serverTick(i);
+            if (tapped >= 0 && tapped <= lastEndOfTick) break;
+            if (tapped != serverTick) frame.serverTick(i, serverTick);
         }
         lastEndOfTick = serverTick;
     }
@@ -826,9 +810,12 @@ public final class CaptureStream {
 
     /** The open frame as the frame of tick end {@code index}, holding {@code cutActions}; a new frame opens. */
     private Tick takeOpen(long nanos, long index, List<ActionRef> cutActions) {
-        List<Raw> records = frame;
-        if (records.isEmpty()) records = List.of();
-        else frame = new ArrayList<>(Math.clamp(records.size(), MIN_FRAME_RECORDS, MAX_PRESIZED_RECORDS));
+        CaptureRecords records = frame;
+        if (records.isEmpty()) records = CaptureRecords.EMPTY;
+        else if (spareRecords != null) {
+            frame = spareRecords;
+            spareRecords = null;
+        } else frame = new CaptureRecords(Math.clamp(records.size(), MIN_FRAME_RECORDS, MAX_PRESIZED_RECORDS));
         Tick tick = new Tick(records, frameBytes, nanos, index, overflow);
         tick.reserved = frameReserved;
         tick.copies = copies;
@@ -905,6 +892,11 @@ public final class CaptureStream {
         tick.reserved = 0;
         releaseCopies(tick.copies);
         tick.copies = null;
+        CaptureRecords records = tick.records;
+        if (records == CaptureRecords.EMPTY) return;
+        tick.records = CaptureRecords.EMPTY;
+        records.clear();
+        if (spareRecords == null && records.capacity() <= MAX_SPARE_RECORDS) spareRecords = records;
     }
 
     /** A frame's terrain records are done with: those it did not carry to the service are owed again. */
@@ -932,12 +924,12 @@ public final class CaptureStream {
         int headroom = FRAME_HEADROOM + verdict;
         boolean gap = lost > 0;
         if (gap) {
-            long at = tick.records.isEmpty() ? tick.nanos : tick.records.get(0).nanos();
+            long at = tick.records.isEmpty() ? tick.nanos : tick.records.nanos(0);
             record(IntakeWire.GAP, at, IntakeWire.gap(lost));
         }
         boolean owed = owedWorld && policy.dimension().length > 0;
         if (owed) {
-            long at = tick.records.isEmpty() ? tick.nanos : tick.records.get(0).nanos();
+            long at = tick.records.isEmpty() ? tick.nanos : tick.records.nanos(0);
             if (IntakeWire.validDimension(worldMinY, worldHeight)) {
                 record(IntakeWire.WORLD, at, IntakeWire.world(worldMinY, worldHeight));
             }
@@ -954,15 +946,15 @@ public final class CaptureStream {
         long[] emitted = framePings;
         int pingAt = -1;
         int emittedPings = 0;
-        for (int index = 0; index < tick.records.size(); index++) {
-            Raw raw = tick.records.get(index);
-            if (raw.unstripped() && textStripped) continue;
-            int kind = raw.kind();
-            byte[] payload = raw.bytes();
+        CaptureRecords records = tick.records;
+        for (int index = 0; index < records.size(); index++) {
+            if (records.unstripped(index) && textStripped) continue;
+            int kind = records.kind(index);
+            byte[] payload = records.bytes(index);
             byte[] meta = null;
             int limit;
             long probe = NO_WIRE_ID;
-            boolean ping = framePingCount > 0 && kind == IntakeWire.CLIENTBOUND && raw.id() == pingPacket;
+            boolean ping = framePingCount > 0 && kind == IntakeWire.CLIENTBOUND && records.id(index) == pingPacket;
             if (ping) pingAt++;
             if (kind == IntakeWire.META) {
                 limit = MAX_META_BYTES;
@@ -971,23 +963,23 @@ public final class CaptureStream {
             } else if (kind == IntakeWire.WORLD) {
                 limit = 16;
             } else if (kind == IntakeWire.SERVERBOUND) {
-                if (!Policy.has(policy.serverbound(), raw.id())) continue;
+                if (!Policy.has(policy.serverbound(), records.id(index))) continue;
                 limit = MAX_SERVERBOUND_BYTES;
-                if (raw.id() == pongPacket) probe = IntakeWire.bareId(payload, pongPacket, NO_WIRE_ID);
-            } else if (Policy.has(policy.dimension(), raw.id())) {
-                Session session = raw.session();
+                if (records.id(index) == pongPacket) probe = IntakeWire.bareId(payload, pongPacket, NO_WIRE_ID);
+            } else if (Policy.has(policy.dimension(), records.id(index))) {
+                Session session = records.session(index);
                 meta = IntakeWire.meta(session.entityId(), session.gameMode(), session.dimension());
-                if (!IntakeWire.validDimension(raw.minY(), raw.height())) {
+                if (!IntakeWire.validDimension(records.minY(index), records.height(index))) {
                     if (meta != null && fits(meta.length, maxFrameBytes, headroom))
-                        record(IntakeWire.META, raw.nanos(), meta);
+                        record(IntakeWire.META, records.nanos(index), meta);
                     continue;
                 }
                 kind = IntakeWire.WORLD;
-                payload = IntakeWire.world(raw.minY(), raw.height());
+                payload = IntakeWire.world(records.minY(index), records.height(index));
                 limit = 16;
-            } else if (Policy.has(policy.clientbound(), raw.id())) {
+            } else if (Policy.has(policy.clientbound(), records.id(index))) {
                 limit = MAX_CLIENTBOUND_BYTES;
-                if (raw.id() == pingPacket) {
+                if (records.id(index) == pingPacket) {
                     probe = IntakeWire.bare(payload, pingPacket) ? framePings[pingAt] : NO_WIRE_ID;
                     if (probe != NO_WIRE_ID) {
                         kind = IntakeWire.PING_MARKER;
@@ -997,13 +989,13 @@ public final class CaptureStream {
             } else {
                 continue;
             }
-            int resolved = resolvedLength(kind, raw, payload);
+            int resolved = resolvedLength(kind, records.bytes(index), payload);
             if (payload.length > limit || !fits(resolved + (meta == null ? 0 : meta.length), maxFrameBytes, headroom)) {
                 // What the service would refuse becomes a gap; one per run of them.
-                if (!gap) record(IntakeWire.GAP, raw.nanos(), IntakeWire.gap(0));
+                if (!gap) record(IntakeWire.GAP, records.nanos(index), IntakeWire.gap(0));
                 gap = true;
-                if (terrainRecord(raw.kind()) || raw.kind() == IntakeWire.WORLD) {
-                    omitted(tick).set(raw.id());
+                if (terrainRecord(records.kind(index)) || records.kind(index) == IntakeWire.WORLD) {
+                    omitted(tick).set(records.id(index));
                 } else if (kind == IntakeWire.WORLD) {
                     lostWorld = true;
                     sections.lost(IntakeWire.WORLD, Sections.NONE);
@@ -1036,7 +1028,7 @@ public final class CaptureStream {
                     }
                 }
             }
-            resolvedExtra += growth(payload.length, resolvedLength(kind, raw, payload));
+            resolvedExtra += growth(payload.length, resolvedLength(kind, records.bytes(index), payload));
             if (kind == IntakeWire.CLIENTBOUND || kind == IntakeWire.PING_MARKER) {
                 int tickDelta = 0;
                 if (serverTicks != null) {
@@ -1045,11 +1037,11 @@ public final class CaptureStream {
                     else tickDelta = Math.toIntExact(serverTick - previousTick);
                     previousTick = serverTick;
                 }
-                record(kind, raw.nanos(), payload, payload.length, tickDelta, raw.pingKind(), 0);
+                record(kind, records.nanos(index), payload, payload.length, tickDelta, records.pingKind(index), 0);
             } else {
-                record(kind, raw.nanos(), payload, payload.length, 0, 0, skipped);
+                record(kind, records.nanos(index), payload, payload.length, 0, 0, skipped);
             }
-            if (raw.kind() == IntakeWire.SERVERBOUND) {
+            if (records.kind(index) == IntakeWire.SERVERBOUND) {
                 // Actions are in tap order, so a position past -1 never goes back.
                 while (nextAction < tick.actions.size() && tick.actions.get(nextAction).position <= index) {
                     ActionRef action = tick.actions.get(nextAction++);
@@ -1057,7 +1049,7 @@ public final class CaptureStream {
                 }
                 serverbound++;
             }
-            if (meta != null) record(IntakeWire.META, raw.nanos(), meta);
+            if (meta != null) record(IntakeWire.META, records.nanos(index), meta);
         }
         if (emittedPings != framePingCount && velocityPing(engine) != null) {
             // The verdict names its velocity's ping among the pings the service gets, which only shrinks the ordinal.
@@ -1194,11 +1186,11 @@ public final class CaptureStream {
     private int pings(Tick tick) {
         if (pingPacket < 0 || !Policy.has(policy.clientbound(), pingPacket)) return 0;
         int count = 0;
-        for (int index = 0; index < tick.records.size(); index++) {
-            Raw raw = tick.records.get(index);
-            if (raw.kind() != IntakeWire.CLIENTBOUND || raw.id() != pingPacket) continue;
+        CaptureRecords records = tick.records;
+        for (int index = 0; index < records.size(); index++) {
+            if (records.kind(index) != IntakeWire.CLIENTBOUND || records.id(index) != pingPacket) continue;
             if (count == framePings.length) framePings = Arrays.copyOf(framePings, count * 2);
-            framePings[count++] = IntakeWire.pingId(raw.bytes(), pingPacket, NO_WIRE_ID);
+            framePings[count++] = IntakeWire.pingId(records.bytes(index), pingPacket, NO_WIRE_ID);
         }
         return count;
     }
@@ -1214,8 +1206,8 @@ public final class CaptureStream {
     }
 
     /** The payload bytes the service resolves a record to: a probe marker's packet. */
-    private static int resolvedLength(int kind, Raw raw, byte[] payload) {
-        if (kind == IntakeWire.PING_MARKER || kind == IntakeWire.PONG_MARKER) return raw.bytes().length;
+    private static int resolvedLength(int kind, byte[] tapped, byte[] payload) {
+        if (kind == IntakeWire.PING_MARKER || kind == IntakeWire.PONG_MARKER) return tapped.length;
         return payload.length;
     }
 
@@ -1236,7 +1228,7 @@ public final class CaptureStream {
      * Each record's server tick, by index, for the clientbound ones, as {@link #endOfTick} last set it. Null when a
      * clientbound record has none, so a frame's are all known or none.
      */
-    private long[] serverTicks(List<Raw> records) {
+    private long[] serverTicks(CaptureRecords records) {
         if (lastEndOfTick < 0) return null;
         long[] ticks = serverTickScratch;
         if (ticks.length < records.size()) {
@@ -1244,10 +1236,9 @@ public final class CaptureStream {
             if (ticks.length <= MAX_PRESIZED_RECORDS) serverTickScratch = ticks;
         }
         for (int i = 0; i < records.size(); i++) {
-            Raw raw = records.get(i);
-            if (raw.kind() != IntakeWire.CLIENTBOUND) continue;
-            if (raw.serverTick() < 0) return null;
-            ticks[i] = raw.serverTick();
+            if (records.kind(i) != IntakeWire.CLIENTBOUND) continue;
+            if (records.serverTick(i) < 0) return null;
+            ticks[i] = records.serverTick(i);
         }
         return ticks;
     }
@@ -1375,7 +1366,8 @@ public final class CaptureStream {
         lastEndOfTick = -1;
         lastEngine = null;
         sinceKeyframe = 0;
-        frame = new ArrayList<>();
+        frame = new CaptureRecords(MIN_FRAME_RECORDS);
+        spareRecords = null;
         frameBytes = 0;
         if (copies != null) copies.release();
         if (spareCopies != null) spareCopies.release();

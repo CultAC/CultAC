@@ -5,6 +5,7 @@ import ac.cult.cultac.network.CultNetworkManager;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.PacketDispatcher;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.protocol.ConnectionLifecycle;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketBundlePolicy;
@@ -61,6 +62,10 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     // The output of the outermost write being prepared; its frames precede the packet being expanded.
     private Output processing;
     private boolean removed;
+    // Per-write scratch objects, held by at most one write at a time; a nested write allocates its own.
+    private ModelWrite idleWrite = new ModelWrite();
+    private Families idleFamilies = new Families();
+    private Output idleOutput = new Output();
 
     public CultEncoder(CultConnection connection) {
         this.connection = connection;
@@ -157,32 +162,69 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             }
             return;
         }
-        boolean[] consumed = {false};
+        ModelWrite task = idleWrite;
+        if (task == null) task = new ModelWrite();
+        else idleWrite = null;
+        task.ctx = ctx;
+        task.message = message;
+        task.promise = promise;
+        task.consumed = false;
         try {
-            connection.runInModel(() -> {
-                consumed[0] = true;
-                Output output = null;
-                try {
-                    if (removed || !ctx.channel().isActive()) {
-                        new Pending(message, promise).discard(new ClosedChannelException());
-                        return;
-                    }
-                    output = process(ctx, message, promise);
-                    if (emission == null) emit(ctx, output);
-                    else emission.append(output);
-                } catch (Throwable failure) {
-                    if (output != null) output.discard(failure);
-                    promise.tryFailure(failure);
-                    CultNetworkManager.reportFailure("outbound packet processing", failure);
-                }
-            });
+            connection.runInModel(task);
         } catch (Throwable failure) {
             CultNetworkManager.reportFailure("outbound model context", failure);
-            if (!consumed[0]) {
+            if (!task.consumed) {
                 if (message instanceof ByteBuf frame) writeRaw(ctx, frame, promise);
                 else new Pending(message, promise).discard(failure);
             }
+        } finally {
+            if (task.consumed) {
+                task.ctx = null;
+                task.message = null;
+                task.promise = null;
+                idleWrite = task;
+            }
         }
+    }
+
+    private void processInModel(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
+        Output output = null;
+        try {
+            if (removed || !ctx.channel().isActive()) {
+                new Pending(message, promise).discard(new ClosedChannelException());
+                return;
+            }
+            output = process(ctx, message, promise);
+            if (emission == null) emit(ctx, output);
+            else emission.append(output);
+            recycle(output);
+        } catch (Throwable failure) {
+            if (output != null) output.discard(failure);
+            promise.tryFailure(failure);
+            CultNetworkManager.reportFailure("outbound packet processing", failure);
+        }
+    }
+
+    /** One write's model-context task; the encoder reuses it once that write returns. */
+    private final class ModelWrite implements Runnable {
+        ChannelHandlerContext ctx;
+        Object message;
+        ChannelPromise promise;
+        boolean consumed;
+
+        @Override
+        public void run() {
+            consumed = true;
+            processInModel(ctx, message, promise);
+        }
+    }
+
+    /** Keeps an output that holds nothing more for the next write; its frame queue is not kept. */
+    private void recycle(Output output) {
+        if (!output.isEmpty() || output.hasTasks() || output.flush) return;
+        if (output.groups != null && !output.groups.isEmpty()) return;
+        output.tail = null;
+        idleOutput = output;
     }
 
     @Override
@@ -203,10 +245,14 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     }
 
     private Output process(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
-        var output = new Output();
+        Output output = idleOutput;
+        if (output == null) output = new Output();
+        else idleOutput = null;
         Output enclosing = processing;
         processing = output;
-        var activeFamilies = new Families();
+        Families activeFamilies = idleFamilies;
+        if (activeFamilies == null) activeFamilies = new Families();
+        else idleFamilies = null;
         // Recursive callbacks finish first and append their complete groups here.
         // The enclosing group's frames have not been appended yet, so these writes
         // precede even its opening delimiter. No retained expansion tree is needed.
@@ -231,6 +277,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             reentrantWrites.ctx = enclosingCtx;
             reentrantWrites.activeFamilies = enclosingFamilies;
             reentrantWrites.output = enclosingOutput;
+            activeFamilies.clear();
+            idleFamilies = activeFamilies;
         }
     }
 
@@ -414,11 +462,19 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         var phase = connection.phase(PacketDirection.CLIENTBOUND);
         boolean requested = false;
         PacketType<?> forwardedType = null;
+        var lender = connection.frameLender();
+        FrameLease lease = null;
         try {
             routeProbe.phase = phase;
             routeProbe.found = null;
             routeProbe.skipped = null;
-            var value = connection.packets().readOne(phase, PacketDirection.CLIENTBOUND, bytes, connection, routeProbe);
+            lease = lender.open(bytes);
+            Object value;
+            try {
+                value = connection.packets().readOne(phase, PacketDirection.CLIENTBOUND, bytes, connection, routeProbe);
+            } finally {
+                lender.close(lease);
+            }
             var route = routeProbe.found;
             if (routeProbe.skipped != null) forwardedType = routeProbe.skipped.type();
             if (value != null) {
@@ -455,6 +511,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                             var replacement = connection
                                     .packets()
                                     .encode(phase, type, event.getPacket(), ctx.alloc(), connection);
+                            lender.end(lease);
+                            lease = null;
                             bytes.release();
                             bytes = null;
                             appendReplacement(ctx, replacement, promise, type, batch, leadPing);
@@ -486,6 +544,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             }
             return requested;
         } finally {
+            if (lease != null) lender.end(lease);
             if (bytes != null) bytes.release();
         }
     }
@@ -724,15 +783,32 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
      * still share one ping. The client handles nothing in the bundle before its closing delimiter.
      */
     private void flushBundle(ChannelHandlerContext ctx) {
-        ctx.flush();
-        if (!connection.flushBundleOpen() || closeQueuedFor == flushBundles) return;
+        if (!connection.flushBundleOpen()) {
+            ctx.flush();
+            return;
+        }
+        // The client handles none of a delimited bundle before its closing delimiter, so sending its members now
+        // would cost a second socket write without the client handling anything sooner. The queued close sends both.
+        boolean deferFlush = delimitsFlushBundle();
+        if (!deferFlush) ctx.flush();
+        if (closeQueuedFor == flushBundles) return;
         int bundle = flushBundles;
         closeQueuedFor = bundle;
-        connection.executeLater(() -> {
-            if (removed || !ctx.channel().isActive() || bundle != flushBundles) return;
-            closeFlushBundle(ctx);
-            ctx.flush();
-        });
+        try {
+            connection.executeLater(() -> {
+                if (!ctx.channel().isActive()) return;
+                try {
+                    if (!removed && bundle == flushBundles) closeFlushBundle(ctx);
+                } finally {
+                    // Also sends a deferred flush whose bundle was closed by another path before this ran.
+                    ctx.flush();
+                }
+            });
+        } catch (RuntimeException | Error failure) {
+            closeQueuedFor = -1;
+            if (deferFlush) ctx.flush();
+            throw failure;
+        }
     }
 
     private void closeFlushBundle(ChannelHandlerContext ctx) {
@@ -922,6 +998,12 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             if (nested != null && !nested.isEmpty()) nested.removeLast();
             else if (second != null) second = null;
             else first = null;
+        }
+
+        void clear() {
+            first = null;
+            second = null;
+            if (nested != null) nested.clear();
         }
     }
 

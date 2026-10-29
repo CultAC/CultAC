@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
@@ -26,7 +27,9 @@ import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientItemUseState;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.ItemUtil;
@@ -60,6 +63,24 @@ class InputKeysTest {
     private static final double WALK = (double) 0.98F * (double) 0.1F;
     private static final double SPRINT = (double) 0.98F * (double) 0.13F;
     private static final double FRICTION = 0.6F * 0.91F;
+    private static final ServerboundPlayerInput FORWARD =
+            new ServerboundPlayerInput(true, false, false, false, false, false, false);
+    private static final ServerboundPlayerInput SNEAK_FORWARD =
+            new ServerboundPlayerInput(true, false, false, false, false, true, false);
+    private static final ServerboundPlayerInput SNEAK_SPRINT =
+            new ServerboundPlayerInput(false, false, false, false, false, true, true);
+    private static final ServerboundPlayerInput SNEAK_SPRINT_FORWARD =
+            new ServerboundPlayerInput(true, false, false, false, false, true, true);
+    private static final ServerboundPlayerInput SNEAK_SPRINT_BACK =
+            new ServerboundPlayerInput(false, true, false, false, false, true, true);
+    // Speed II raises the movement speed to 0.14, which a stone or slab block leaves unchanged on the ground.
+    private static final double WALKING_WITH_SPEED = (double) 0.98F * (float) (0.1F * 1.4D);
+    private static final double SNEAKING_WITH_SPEED = (double) (0.98F * 0.3F) * (float) (0.1F * 1.4D);
+    private static final double SNEAK_STEP = (double) (0.98F * 0.3F) * (double) 0.1F;
+    private static final Vec3 SHULKER_OVER_THE_HEAD = new Vec3(0.5, FLOOR_Y + 1, -2.5);
+    private static final Vec3 SHULKER_CLEAR_OF_THE_PLAYER = new Vec3(5.5, FLOOR_Y + 1, -2.5);
+    private static final double MINECART_MIN_X = 0.01;
+    private static final double MINECART_MAX_X = 0.99;
 
     @Test
     void zeroHealthClearsTravelInputOnlyAfterItsReceipt() throws Exception {
@@ -485,6 +506,356 @@ class InputKeysTest {
             assertNoFlags(f);
             assertEquals(Pose.STANDING, f.player.pose);
         }
+    }
+
+    @Test
+    void sprintingUnderAHappyGhastHoveringABlockUpIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            sprintUnderAHoveringHappyGhast(f, false);
+        }
+    }
+
+    @Test
+    void sprintingUnderAGhastlingHoveringABlockUpIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            sprintUnderAHoveringHappyGhast(f, true);
+        }
+    }
+
+    /**
+     * HappyGhast#canBeCollidedWith admits a player below the top of a ghast's box only while it stays still, and
+     * never admits a ghastling, so neither blocks the standing pose.
+     */
+    private static void sprintUnderAHoveringHappyGhast(JavaTickFixture f, boolean baby) {
+        f.player.compensatedEntities.addEntity(
+                100, EntityTypeIds.HAPPY_GHAST, new Vec3(0.5, FLOOR_Y + 1, 0.5), 0, 0, 0);
+        var ghast = (PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(100);
+        ghast.isBaby = baby;
+        assertFalse(ghast.staysStill);
+        f.place(new Vec3(0.5, FLOOR_Y, -4.5), GROUNDED);
+        f.player.isSprinting = true;
+        f.player.sprintState.onClientTick(true);
+        f.input(SPRINT_FORWARD);
+        double z = -4.5;
+        double velocity = 0.0;
+        while (z < 0.5) {
+            z += velocity + SPRINT;
+            f.tick(new Vec3(0.5, FLOOR_Y, z), true);
+            velocity = (velocity + SPRINT) * FRICTION;
+        }
+
+        assertNoFlags(f);
+        var standing = new SimpleCollisionBox(0.2, FLOOR_Y, z - 0.3, 0.8, FLOOR_Y + 1.8, z + 0.3);
+        assertTrue(ghast.getPossibleMovementCollisionBoxes().isIntersected(standing));
+        assertEquals(Pose.STANDING, f.player.pose);
+    }
+
+    @Test
+    void walkingUnderAStillHappyGhastHoveringABlockUpIsSlowedLikeCrawling() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            walkUnderAStillHappyGhast(f, (double) (0.98F * 0.3F) * (float) (0.1F * 1.4D));
+            assertNoFlags(f);
+            assertEquals(Pose.SWIMMING, f.player.pose);
+        }
+    }
+
+    @Test
+    void walkingUnderAStillHappyGhastHoveringABlockUpAtTheWalkingSpeedIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            assertTrue(walkUnderAStillHappyGhast(f, (double) 0.98F * (float) (0.1F * 1.4D)) > 0);
+        }
+    }
+
+    /**
+     * The InputKeys violations of a walk with Speed II along +x by {@code accel} under an adult happy ghast that stays
+     * still a block up. HappyGhast#canBeCollidedWith admits the player there, so neither the standing nor the crouching pose fits and
+     * Player#updatePlayerPose falls back to the swimming pose, which LocalPlayer#isMovingSlowly counts as crawling.
+     */
+    private static double walkUnderAStillHappyGhast(JavaTickFixture f, double accel) {
+        f.player.compensatedEntities.addEntity(
+                100, EntityTypeIds.HAPPY_GHAST, new Vec3(0.5, FLOOR_Y + 1, 0.5), 0, 0, 0);
+        ((PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(100)).staysStill = true;
+        f.player.compensatedEntities.updateAttributes(
+                f.player.entityID,
+                List.of(new AttributeSnapshot(
+                        "minecraft:movement_speed",
+                        0.1F,
+                        List.of(new AttributeModifier(
+                                "minecraft:effect.speed", 0.4D, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL)))));
+        f.player.xRot = -90;
+        double x = 0.5;
+        f.place(new Vec3(x, FLOOR_Y, 0.5), GROUNDED);
+        f.input(NONE);
+        f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+        assertEquals(Pose.SWIMMING, f.player.pose);
+        f.input(FORWARD);
+        double velocity = 0.0;
+        for (int tick = 0; tick < 4; tick++) {
+            velocity += accel;
+            x += velocity;
+            f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+            velocity *= FRICTION;
+        }
+        return keyFlags(f);
+    }
+
+    @Test
+    void reversingWhileSneakingThroughAMinecartWithSpeedIsNotFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            double x = -2.5;
+            startAlongX(f, x, FLOOR_Y);
+            addMinecart(f);
+            f.input(SNEAK_SPRINT);
+            assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+            f.input(SNEAK_SPRINT_FORWARD);
+            double velocity = 0.0;
+            for (int tick = 0; tick < 40; tick++) {
+                if (tick == 30) f.input(SNEAK_SPRINT_BACK);
+                velocity += tick < 30 ? SNEAKING_WITH_SPEED : -SNEAKING_WITH_SPEED;
+                x += velocity;
+                assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+                velocity *= FRICTION;
+            }
+
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void pressingShiftAsTheBoxEntersAMinecartSlowsTheKeys() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            pressShiftAsTheBoxEntersAMinecart(f, SNEAKING_WITH_SPEED);
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void walkingOnAfterPressingShiftAsTheBoxEntersAMinecartIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            pressShiftAsTheBoxEntersAMinecart(f, WALKING_WITH_SPEED);
+            assertTrue(keyFlags(f) > 0);
+        }
+    }
+
+    /**
+     * Walks into a minecart with Speed II, pressing shift on the tick whose move brings the box into the cart, then
+     * accelerates by {@code accel}. LocalPlayer#aiStep reads the previous tick's shift, so the press tick still walks.
+     */
+    private static void pressShiftAsTheBoxEntersAMinecart(JavaTickFixture f, double accel) {
+        double x = -3.5;
+        startAlongX(f, x, FLOOR_Y);
+        addMinecart(f);
+        f.input(FORWARD);
+        double velocity = 0.0;
+        int pressed = -1;
+        for (int tick = 0; pressed < 0 || tick < pressed + 4; tick++) {
+            if (pressed < 0 && x + velocity + WALKING_WITH_SPEED + 0.3 > MINECART_MIN_X) {
+                pressed = tick;
+                f.input(SNEAK_FORWARD);
+            }
+            velocity += pressed < 0 || tick == pressed ? WALKING_WITH_SPEED : accel;
+            x += velocity;
+            PredictionResult result = f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+            if (accel == SNEAKING_WITH_SPEED) assertExact(result);
+            velocity *= FRICTION;
+        }
+        assertTrue(x - 0.3 < MINECART_MAX_X, "the box left the cart at " + x);
+    }
+
+    @Test
+    void releasingShiftInsideAMinecartWalksAtTheWalkingSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            double x = -3.5;
+            startAlongX(f, x, FLOOR_Y);
+            addMinecart(f);
+            f.input(SNEAK);
+            assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+            f.input(SNEAK_FORWARD);
+            double velocity = 0.0;
+            int released = -1;
+            for (int tick = 0; released < 0 || tick < released + 5; tick++) {
+                if (released < 0 && x > 0.0) {
+                    released = tick;
+                    f.input(FORWARD);
+                }
+                // LocalPlayer#aiStep reads the previous tick's shift, so the release tick still sneaks.
+                velocity += released < 0 || tick == released ? SNEAKING_WITH_SPEED : WALKING_WITH_SPEED;
+                x += velocity;
+                assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+                velocity *= FRICTION;
+            }
+
+            assertTrue(x - 0.3 < MINECART_MAX_X, "the box left the cart at " + x);
+            assertEquals(Pose.STANDING, f.player.pose);
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void releasingShiftUnderAShulkerThatBlocksStandingKeepsTheSneakingSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            releaseShiftUnderAShulkerThatBlocksStanding(f, SNEAKING_WITH_SPEED, 8);
+            assertNoFlags(f);
+        }
+    }
+
+    @Test
+    void releasingShiftUnderAShulkerThatBlocksStandingAndWalkingOnIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            releaseShiftUnderAShulkerThatBlocksStanding(f, WALKING_WITH_SPEED, 3);
+            assertTrue(keyFlags(f) > 0);
+        }
+    }
+
+    /**
+     * Sneaks with Speed II along slabs under a shulker whose box overlaps the standing box there but not the crouching
+     * one, releases shift under it and then accelerates by {@code accel} for {@code ticks} ticks. LocalPlayer#aiStep
+     * reads the previous tick's shift, so the release tick still sneaks.
+     */
+    private static void releaseShiftUnderAShulkerThatBlocksStanding(JavaTickFixture f, double accel, int ticks) {
+        var registry = DataTables.defaults().registry();
+        int slab = registry.with(registry.block("minecraft:stone_slab").defaultState(), "type", "bottom");
+        for (int blockX = -5; blockX <= 3; blockX++) {
+            f.player.compensatedWorld.updateBlock(new BlockPos(blockX, FLOOR_Y, 0), slab);
+        }
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        f.player.compensatedEntities.addEntity(100, EntityTypeIds.SHULKER, new Vec3(0.5, FLOOR_Y + 2, 0.5), 0, 0, 0);
+        double y = FLOOR_Y + 0.5;
+        double x = -3.5;
+        startAlongX(f, x, y);
+        f.input(SNEAK);
+        assertExact(f.tick(new Vec3(x, y, 0.5), true));
+        f.input(SNEAK_FORWARD);
+        double velocity = 0.0;
+        int released = -1;
+        for (int tick = 0; released < 0 || tick <= released + ticks; tick++) {
+            if (released < 0 && x > -0.2) {
+                released = tick;
+                f.input(FORWARD);
+            }
+            velocity += released < 0 || tick == released ? SNEAKING_WITH_SPEED : accel;
+            x += velocity;
+            PredictionResult result = f.tick(new Vec3(x, y, 0.5), true);
+            if (accel == SNEAKING_WITH_SPEED) assertExact(result);
+            velocity *= FRICTION;
+        }
+        assertTrue(x - 0.3 < 1.0, "the box left the shulker at " + x);
+    }
+
+    @Test
+    void walkingSlowlyWithoutShiftBesideAShulkerThatMayCoverTheHeadIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            assertTrue(moveOnceWithoutShiftBesideAShulker(f, SHULKER_CLEAR_OF_THE_PLAYER, true, SNEAK_STEP) > 0);
+        }
+    }
+
+    @Test
+    void walkingWithoutShiftBesideAShulkerThatMayCoverTheHeadMovesAtTheWalkingSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            assertEquals(0, moveOnceWithoutShiftBesideAShulker(f, SHULKER_CLEAR_OF_THE_PLAYER, true, WALK));
+        }
+    }
+
+    @Test
+    void walkingSlowlyWithoutShiftUnderAShulkerOverTheHeadIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            assertTrue(moveOnceWithoutShiftBesideAShulker(f, SHULKER_OVER_THE_HEAD, false, SNEAK_STEP) > 0);
+        }
+    }
+
+    @Test
+    void walkingSlowlyWithoutShiftBesideAShulkerClearOfThePlayerIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            assertTrue(moveOnceWithoutShiftBesideAShulker(f, SHULKER_CLEAR_OF_THE_PLAYER, false, SNEAK_STEP) > 0);
+        }
+    }
+
+    /**
+     * The InputKeys violations of one move along +z by {@code accel} without shift from (0.5, FLOOR_Y, -2.5), beside a
+     * shulker spawned at {@code at}; one {@code moving} over the player's head has had the first ping of that move
+     * answered and so may be at either position. A shulker over the head overlaps both the crouching and the standing
+     * box, so in no world does LocalPlayer#aiStep crouch the player.
+     */
+    private static double moveOnceWithoutShiftBesideAShulker(
+            JavaTickFixture f, Vec3 at, boolean moving, double accel) {
+        f.place(new Vec3(0.5, FLOOR_Y, -2.5), GROUNDED);
+        f.player.xRot = 0;
+        f.input(NONE);
+        f.tick(new Vec3(0.5, FLOOR_Y, -2.5), true);
+        f.player.compensatedEntities.addEntity(100, EntityTypeIds.SHULKER, at, 0, 0, 0);
+        if (moving) {
+            f.tick(new Vec3(0.5, FLOOR_Y, -2.5), true);
+            f.player
+                    .compensatedEntities
+                    .getEntity(100)
+                    .onFirstTransaction(true, true, SHULKER_OVER_THE_HEAD.x - at.x, 0, 0, f.player);
+        }
+        f.input(FORWARD);
+        f.tick(new Vec3(0.5, FLOOR_Y, -2.5 + accel), true);
+        return keyFlags(f);
+    }
+
+    @Test
+    void releasingShiftWhereStandingFitsAndKeepingTheSneakingSpeedIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            double x = -3.5;
+            startAlongX(f, x, FLOOR_Y);
+            f.input(SNEAK);
+            assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+            f.input(SNEAK_FORWARD);
+            double velocity = 0.0;
+            for (int tick = 0; tick < 10; tick++) {
+                if (tick == 5) f.input(FORWARD);
+                velocity += SNEAKING_WITH_SPEED;
+                x += velocity;
+                f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+                velocity *= FRICTION;
+            }
+
+            assertTrue(keyFlags(f) > 0);
+        }
+    }
+
+    @Test
+    void walkingOutFromAShulkerOverTheFeetWithShiftHeldMovesAtTheWalkingSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            double x = -3.5;
+            startAlongX(f, x, FLOOR_Y);
+            f.input(SNEAK);
+            assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
+            // Its box overlaps the swimming box and so the crouching one: LocalPlayer#aiStep does not crouch.
+            f.player.compensatedEntities.addEntity(100, EntityTypeIds.SHULKER, new Vec3(x, FLOOR_Y, 0.5), 0, 0, 0);
+            f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+            f.input(SNEAK_FORWARD);
+            double velocity = 0.0;
+            for (int tick = 0; tick < 4; tick++) {
+                velocity += WALKING_WITH_SPEED;
+                x += velocity;
+                f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
+                velocity *= FRICTION;
+            }
+
+            assertEquals(0, keyFlags(f));
+        }
+    }
+
+    /** Places the player grounded at {@code (x, y, 0.5)} facing +x with Speed II. */
+    private static void startAlongX(JavaTickFixture f, double x, double y) {
+        f.player.compensatedEntities.updateAttributes(
+                f.player.entityID,
+                List.of(new AttributeSnapshot(
+                        "minecraft:movement_speed",
+                        0.1F,
+                        List.of(new AttributeModifier(
+                                "minecraft:effect.speed", 0.4D, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL)))));
+        f.player.xRot = -90;
+        f.place(new Vec3(x, y, 0.5), GROUNDED);
+    }
+
+    /** A minecart on the floor block at (0, 0), its box spanning x from 0.01 to 0.99. */
+    private static void addMinecart(JavaTickFixture f) {
+        f.player.compensatedEntities.addEntity(
+                101, EntityTypes.defaults().byKey("minecart").id(), new Vec3(0.5, FLOOR_Y + 0.0625, 0.5), 0, 0, 0);
     }
 
     private static void selfMetadata(JavaTickFixture f, int index, byte value) {

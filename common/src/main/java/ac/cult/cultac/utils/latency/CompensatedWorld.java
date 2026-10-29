@@ -1102,7 +1102,7 @@ public class CompensatedWorld {
      * TickRateManager#runsNormally for the client tick in progress: Minecraft#tick sets it from the frozen state and
      * the remaining steps before taking a step.
      */
-    private boolean clientRunsNormally() {
+    public boolean clientRunsNormally() {
         return !player.packetStateData.serverTicksFrozen || player.packetStateData.serverFrozenTickStepsRemaining > 0;
     }
 
@@ -1338,6 +1338,14 @@ public class CompensatedWorld {
         if (!clientChunkCache.contains(chunkX, chunkZ)) return null;
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
         return chunks.get(chunkPosition);
+    }
+
+    /** Whether the client has applied the column at the chunk position and no load or unload of it is in flight. */
+    public boolean isColumnProven(int chunkX, int chunkZ) {
+        CachedChunk column = getChunk(chunkX, chunkZ);
+        return column != null
+                && column.getTransaction() < player.lastTransactionReceived.get()
+                && !serverBlockView.isUnknown(chunkX, chunkZ);
     }
 
     public boolean isChunkLoaded(int chunkX, int chunkZ) {

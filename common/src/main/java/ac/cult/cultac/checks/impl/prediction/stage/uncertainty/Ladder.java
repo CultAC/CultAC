@@ -168,7 +168,9 @@ public class Ladder implements UncertaintyHandler {
         double clampedZ = CultMath.clamp(delta.z, -0.15F, 0.15F);
         double clampedY = Math.max(delta.y, -0.15F);
         Vec3 from = context.getStart();
+        // Only a Player suppresses sliding down, not the vehicle its rider sneaks on.
         if (clampedY < 0
+                && context.getVehicle() == null
                 && context.isSneaking()
                 && !BlockIds.is(
                         player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(from.x, from.y, from.z)),

@@ -206,11 +206,14 @@ public class PacketEntity {
     private long clientTickOrder = Long.MAX_VALUE;
     // Reused: valid only until the client tick that computed it applies it.
     private SimpleCollisionBox exactAfterClientTickBox;
+    // The lerped position exactAfterClientTickBox is built from, when the interpolation steps from the physical one.
+    private Vec3 exactAfterClientTickPosition;
     // Holds the current interpolation location only while carrying the target reads its position.
     private SimpleCollisionBox carryLocationBox;
     private SimpleCollisionBox oldLocationBox;
     private @Nullable ReachInterpolationData settledInterpolation;
     private @Nullable Vec3 settledPhysicalPosition;
+    private @Nullable ReachInterpolationData spareInterpolation;
     // Valid while the position, the world and its chunk epoch are the ones it was computed for.
     private @Nullable Vec3 loadedChunkPosition;
     private @Nullable CompensatedWorld loadedChunkWorld;
@@ -403,8 +406,9 @@ public class PacketEntity {
         SimpleCollisionBox startingLocation =
                 placed ? packetPositionBox(player) : interpolationStartingLocation(player);
         boolean ridingInVehicle = player.compensatedEntities.getSelf().inVehicle();
+        ReachInterpolationData dropped = oldPacketLocation;
         this.oldPacketLocation = newPacketLocation;
-        this.newPacketLocation = ReachInterpolationData.takingStart(
+        this.newPacketLocation = nextInterpolation(
                 player,
                 startingLocation,
                 desyncClientPos.x,
@@ -415,8 +419,8 @@ public class PacketEntity {
                 targetYaw,
                 targetPitch,
                 !ridingInVehicle,
-                this,
                 uncertainInitialSteps);
+        recycleInterpolation(dropped);
         trackedPositionInexact = true;
         keepPositionCertainty();
     }
@@ -587,8 +591,9 @@ public class PacketEntity {
                         desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, targetYaw, targetPitch)) {
             return;
         }
+        ReachInterpolationData replaced = newPacketLocation;
         this.oldPacketLocation = null;
-        this.newPacketLocation = ReachInterpolationData.takingStart(
+        this.newPacketLocation = nextInterpolation(
                 player,
                 interpolationStartingLocation(player),
                 desyncClientPos.x,
@@ -599,8 +604,8 @@ public class PacketEntity {
                 targetYaw,
                 targetPitch,
                 !player.compensatedEntities.getSelf().inVehicle(),
-                this,
                 false);
+        recycleInterpolation(replaced);
         keepPositionCertainty();
     }
 
@@ -822,7 +827,67 @@ public class PacketEntity {
     public void onSecondTransaction() {
         if (runPhysicsPaths(this::onSecondTransaction)) return;
         if (pistonStates != null && runPistonPatchStates(this::onSecondTransaction)) return;
+        ReachInterpolationData dropped = oldPacketLocation;
         this.oldPacketLocation = null;
+        recycleInterpolation(dropped);
+    }
+
+    /** Keeps a snapshot that no field references any more for {@link #nextInterpolation} to restart. */
+    private void recycleInterpolation(@Nullable ReachInterpolationData dropped) {
+        // These paths retain snapshots outside the ordinary interpolation fields.
+        if (pistonStates != null || riderInterpolation != null) return;
+        if (dropped == null || dropped.usesSteppedInterpolation()) return;
+        if (dropped == newPacketLocation || dropped == oldPacketLocation) return;
+        if (dropped == settledInterpolation) settledInterpolation = null;
+        spareInterpolation = dropped;
+    }
+
+    /** {@link ReachInterpolationData#takingStart}, restarting the spare snapshot when there is one. */
+    private ReachInterpolationData nextInterpolation(
+            CultPlayer player,
+            SimpleCollisionBox startingLocation,
+            double x,
+            double y,
+            double z,
+            float currentYaw,
+            float currentPitch,
+            float targetYaw,
+            float targetPitch,
+            boolean isPointNine,
+            boolean uncertainInitialSteps) {
+        ReachInterpolationData spare = spareInterpolation;
+        spareInterpolation = null;
+        if (spare != null
+                && pistonStates == null
+                && riderInterpolation == null
+                && spare.restart(
+                        player,
+                        startingLocation,
+                        x,
+                        y,
+                        z,
+                        currentYaw,
+                        currentPitch,
+                        targetYaw,
+                        targetPitch,
+                        isPointNine,
+                        this,
+                        uncertainInitialSteps)) {
+            return spare;
+        }
+        return ReachInterpolationData.takingStart(
+                player,
+                startingLocation,
+                x,
+                y,
+                z,
+                currentYaw,
+                currentPitch,
+                targetYaw,
+                targetPitch,
+                isPointNine,
+                this,
+                uncertainInitialSteps);
     }
 
     public int unprovenUnbundledPaths() {
@@ -856,10 +921,16 @@ public class PacketEntity {
 
     /** An attribute update replacing the scale, which the client has applied once it answers provenAt. */
     public void onScale(float scale, int provenAt) {
+        scale = sanitizeScale(scale);
         if (scale == this.scale) return;
         if (!(replacedScale <= this.scale)) replacedScale = this.scale;
         this.scale = scale;
         sizeProvenAt = Math.max(sizeProvenAt, provenAt);
+    }
+
+    /** LivingEntity#sanitizeScale of the scale attribute, which LivingEntity#getScale returns. */
+    protected float sanitizeScale(float scale) {
+        return scale;
     }
 
     /** The client answered this transaction: once it proves every replacement, it shows only the current size. */
@@ -1072,7 +1143,11 @@ public class PacketEntity {
         } else if (rotationMayStep) {
             clientPhysicalYawCurrent = false;
         }
-        if (exactAfterClientTick != null) {
+        if (exactAfterClientTickPosition != null) {
+            clientPhysicalPosition = exactAfterClientTickPosition;
+            clientPhysicalPositionExact = true;
+            clientPositionChanged();
+        } else if (exactAfterClientTick != null) {
             clientPhysicalPosition = positionFromCollisionBox(exactAfterClientTick, clientPhysicalPosition);
             clientPhysicalPositionExact = true;
             clientPositionChanged();
@@ -1236,20 +1311,30 @@ public class PacketEntity {
         }
     }
 
+    /** Where this client tick's interpolation step leaves the entity, read before the tick runs it; null if inexact. */
+    public @Nullable Vec3 exactPositionAfterClientTick(CultPlayer player) {
+        if (newPacketLocation == null) return clientPhysicalPositionExact ? clientPhysicalPosition : null;
+        SimpleCollisionBox box = exactInterpolatedLocationAfterClientTick(player);
+        if (exactAfterClientTickPosition != null) return exactAfterClientTickPosition;
+        return box == null ? null : positionFromCollisionBox(box, clientPhysicalPosition);
+    }
+
     private SimpleCollisionBox exactInterpolatedLocationAfterClientTick(CultPlayer player) {
+        exactAfterClientTickPosition = null;
         if (newPacketLocation == null) return null;
         if (oldPacketLocation == null
                 && newPacketLocation.interpolatesFromPhysicalAfterClientTick()
                 && hasUsableMountedPhysicalPosition(player)) {
             if (exactAfterClientTickBox == null) exactAfterClientTickBox = new SimpleCollisionBox();
-            SimpleCollisionBox physicalLocation = GetBoundingBox.getBoundingBoxFromPosAndSize(
+            Vec3 position = newPacketLocation.exactPositionAfterClientTickFromPhysical(clientPhysicalPosition);
+            exactAfterClientTickPosition = position;
+            return GetBoundingBox.getBoundingBoxFromPosAndSize(
                     exactAfterClientTickBox,
-                    clientPhysicalPosition.x,
-                    clientPhysicalPosition.y,
-                    clientPhysicalPosition.z,
+                    position.x,
+                    position.y,
+                    position.z,
                     BoundingBoxSize.getWidth(player, this),
                     BoundingBoxSize.getHeight(player, this));
-            return newPacketLocation.getExactMovementLocationAfterClientTickFromPhysical(physicalLocation);
         }
         if (!newPacketLocation.hasExactMovementLocationAfterClientTick()) return null;
         if (exactAfterClientTickBox == null) exactAfterClientTickBox = new SimpleCollisionBox();
@@ -1344,12 +1429,18 @@ public class PacketEntity {
         blockEntityState = null;
         // The client snaps ridden/attached entities straight onto the packet
         // position, desync be damned — mirror that flawed client-sided logic.
-        Vec3 snappedPosition = positionFromCollisionBox(box);
+        Vec3 snappedPosition = positionFromCollisionBox(box, clientPhysicalPosition);
         this.desyncClientPos = snappedPosition;
         this.clientPhysicalPosition = snappedPosition;
         this.clientPhysicalPositionExact = true;
         // Snapping to an exact position means interpolation is disabled
-        this.newPacketLocation = new ReachInterpolationData(box);
+        if (newPacketLocation == null
+                || pistonStates != null
+                || riderInterpolation != null
+                || newPacketLocation == oldPacketLocation
+                || !newPacketLocation.resetFinished(box)) {
+            this.newPacketLocation = new ReachInterpolationData(box);
+        }
         keepPositionCertainty();
         clientPositionChanged();
     }
@@ -1488,7 +1579,8 @@ public class PacketEntity {
         }
         // Entity#positionRider uses setPos, not snapTo: neither the codec nor
         // the pending interpolation path is replaced by the attachment position.
-        passengerPhysicalBox = box.copy();
+        if (passengerPhysicalBox == null) passengerPhysicalBox = box.copy();
+        else passengerPhysicalBox.set(box);
         blockEntityPhysicalBox = null;
         clientPhysicalPosition = positionFromCollisionBox(box);
         clientPhysicalPositionExact = true;

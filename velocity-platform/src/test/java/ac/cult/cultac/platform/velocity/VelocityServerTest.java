@@ -1,7 +1,10 @@
 package ac.cult.cultac.platform.velocity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -21,6 +24,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.ConsoleExec;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Result;
 import ac.cult.cultac.bridge.protocol.ListenerKind;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
+import ac.cult.cultac.platform.api.CommandOutcome;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.platform.velocity.bridge.BridgeFrames;
 import ac.cult.cultac.platform.velocity.bridge.BridgeMessageListener;
@@ -34,6 +38,7 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.function.IntFunction;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -173,6 +178,62 @@ class VelocityServerTest {
             log.verifyNoInteractions();
         }
         verify(proxy.getCommandManager(), times(4)).executeAsync(any(), anyString());
+    }
+
+    @Test
+    void aProxyCommandReportsWhetherVelocityKnewIt() throws Exception {
+        VelocityBridge.install(BridgeSessions.NONE);
+
+        assertEquals(
+                CommandOutcome.UNKNOWN, server.runCommand(console, BAN, subject).get());
+        when(proxy.getCommandManager().executeAsync(any(), anyString()))
+                .thenReturn(CompletableFuture.completedFuture(true));
+        assertEquals(
+                CommandOutcome.RAN, server.runCommand(console, BAN, subject).get());
+    }
+
+    @Test
+    void aProxyCommandThatThrowsFailsTheOutcomeWithWhatItThrew() {
+        VelocityBridge.install(BridgeSessions.NONE);
+        IllegalStateException thrown = new IllegalStateException("the punishment was not stored");
+        when(proxy.getCommandManager().executeAsync(any(), anyString()))
+                .thenReturn(CompletableFuture.failedFuture(
+                        new RuntimeException("Unable to invoke command " + BAN + "for console", thrown)));
+
+        CompletionException failed = assertThrows(
+                CompletionException.class, () -> server.runCommand(console, BAN, subject).join());
+
+        assertSame(thrown, failed.getCause().getCause());
+    }
+
+    @Test
+    void aProxyCommandIsReportedOnlyOnceVelocityRanIt() {
+        VelocityBridge.install(BridgeSessions.NONE);
+        CompletableFuture<Boolean> ran = new CompletableFuture<>();
+        when(proxy.getCommandManager().executeAsync(any(), anyString())).thenReturn(ran);
+
+        CompletableFuture<CommandOutcome> outcome = server.runCommand(console, BAN, subject);
+
+        assertFalse(outcome.isDone());
+        ran.complete(true);
+        assertEquals(CommandOutcome.RAN, outcome.join());
+    }
+
+    @Test
+    void aBackendCommandReportsTheCompanionsAnswer() throws Exception {
+        assertEquals(
+                new CommandOutcome(true, "ran on survival"),
+                server.runCommand(console, BAN, subject).get());
+        assertEquals(new ConsoleExec(5, BAN), sentRequest(5));
+        reply(new Result(1, false));
+        assertEquals(
+                new CommandOutcome(false, "did not run on survival"),
+                server.runCommand(console, BAN, subject).get());
+        reply(null);
+        assertEquals(
+                CommandOutcome.SENT_TO_BACKEND,
+                server.runCommand(console, BAN, subject).get());
+        verify(proxy.getCommandManager(), never()).executeAsync(any(), anyString());
     }
 
     @Test

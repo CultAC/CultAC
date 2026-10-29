@@ -175,8 +175,13 @@ public final class CloudConnection {
     /** The config files that decide what CultAC does, hashed for the service's record of each session. */
     private static final List<String> CONFIG_FILES = List.of("config.yml", "cult.yml", "punishments.yml");
     /** The config keys that hold credentials, which the config hash leaves out. */
-    private static final List<List<String>> SECRET_KEYS =
-            List.of(List.of("bridge", "secret"), List.of("cloud", "api-key"));
+    private static final List<List<String>> SECRET_KEYS = List.of(
+            List.of("bridge", "secret"),
+            List.of("cloud", "api-key"),
+            List.of("network", "secret"),
+            List.of("network", "redis", "uri"),
+            List.of("network", "nats", "servers"),
+            List.of("network", "nats", "token"));
 
     private static final String SECRET_MARKER = "<secret>";
 

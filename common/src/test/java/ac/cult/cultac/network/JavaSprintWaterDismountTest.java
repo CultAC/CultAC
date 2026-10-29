@@ -2,17 +2,15 @@ package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
+import static ac.cult.cultac.network.JavaTickFixture.observeOnly;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.entity.EntityTypes;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
-import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
@@ -23,7 +21,6 @@ import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
-import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -141,29 +138,13 @@ class JavaSprintWaterDismountTest {
         }
     }
 
-    private static AutoCloseable observeOnly() throws ReflectiveOperationException {
-        BaseConfigManager manager = CultAPI.INSTANCE.getConfigManager();
-        Field field = BaseConfigManager.class.getDeclaredField("observeOnly");
-        field.setAccessible(true);
-        boolean original = field.getBoolean(manager);
-        field.setBoolean(manager, true);
-        return () -> field.setBoolean(manager, original);
-    }
-
     private static Vec3 at(double x, double y, double z) {
         return new Vec3(x + 394, y + 7, z - 685);
     }
 
     private static JavaTickFixture pool(int surfaceY) throws Exception {
         var f = new JavaTickFixture();
-        for (int x = -8; x <= 8; x++) {
-            for (int z = -8; z <= 8; z++) {
-                for (int y = FLOOR_Y; y <= surfaceY; y++) {
-                    f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), BlockIds.WATER.defaultState());
-                }
-            }
-        }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        f.water(new BlockPos(-8, FLOOR_Y, -8), new BlockPos(8, surfaceY, 8));
         return f;
     }
 

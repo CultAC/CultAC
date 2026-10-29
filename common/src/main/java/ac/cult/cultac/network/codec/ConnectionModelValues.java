@@ -7,6 +7,7 @@ import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.data.RegistryNames;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * One connection's model registry names and older-wire value decoder. Every platform whose
@@ -15,6 +16,7 @@ import java.util.Objects;
 public final class ConnectionModelValues {
     private final ModelRegistryNamesState names = new ModelRegistryNamesState();
     private final WireValueDecoder decoder;
+    private final ItemStackCache stacks = new ItemStackCache();
     private ObservedPacketValues values;
 
     public ConnectionModelValues(WireValueDecoder decoder) {
@@ -43,8 +45,19 @@ public final class ConnectionModelValues {
                         if (player == null || player.compensatedWorld.isClientboundUnresolved()) return null;
                         var dimension = player.compensatedWorld.getLastClientboundDimension();
                         return new int[] {dimension.minHeight(), dimension.sectionCount() * 16};
-                    });
+                    },
+                    stacks);
         return values;
+    }
+
+    /** Decoded stacks the server sent on this connection, for the decode the wire uses. */
+    ItemStackCache stacks() {
+        return stacks;
+    }
+
+    /** The result of {@code read}, whose sent stacks neither reuse nor change this connection's held stacks. */
+    public <T> T observe(Supplier<T> read) {
+        return stacks.observe(read);
     }
 
     public void append(String registry, List<WireValueDecoder.RegistryEntry> entries) {

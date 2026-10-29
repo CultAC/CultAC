@@ -734,7 +734,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                         packet.hasRotation(),
                         packet.yaw(),
                         packet.pitch(),
-                        packet.onGround()));
+                        packet.onGround()),
+                tracked);
     }
 
     private void handleTeleportEntity(
@@ -880,7 +881,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                         : deferredTransform;
             }
         }
+        return packetHandlerTransformFallback(entity, data, out);
+    }
 
+    /** {@link #packetHandlerTransformSource} without a live entry: the client's current transform. */
+    private PacketHandlerEntityTransform packetHandlerTransformFallback(
+            PacketEntity entity, TrackerData data, PacketHandlerEntityTransform out) {
         ReachInterpolationData interpolationTarget = teleportSourceInterpolationTarget(entity);
         if (interpolationTarget != null) {
             // MCP-Reborn PositionMoveRotation#of(entity) reads the current
@@ -1071,6 +1077,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
     }
 
+    private int trackedType(int entityId) {
+        TrackerData tracked = player.compensatedEntities.getTrackedEntity(entityId);
+        return tracked == null ? -1 : tracked.getEntityType();
+    }
+
     private void handleSetEquipment(
             PacketSendEvent<InventoryPackets.Equipment> event, InventoryPackets.Equipment packet) {
         Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
@@ -1255,9 +1266,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             if (entity != null && !entity.isLivingEntity()) entity.isDead = true;
         }
 
-        // These are native server status codes, before ViaVersion rewrites the packet.
+        // These are native server status codes, before ViaVersion rewrites the packet. AbstractBoat#handleEntityEvent
+        // reads them from 26.3; earlier clients have no handler and keep their boat's velocity.
         if (!player.isBedrockMovement()
                 && SERVER_VERSION.isNewerThanOrEquals(ClientVersion.V_26_3)
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
                 && (status == 71 || status == 72)) {
             CultPlayer.TrackedTransaction proof = appendTrailingProofTransaction(event, List.of(), true);
             Runnable apply = () -> player.compensatedEntities.vehicles.applyBoatBubbleColumnEvent(entityId, status);
@@ -1787,6 +1800,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void handleMoveEntity(PacketSendEvent<?> event, EntityMovement movement) {
+        handleMoveEntity(event, movement, player.compensatedEntities.getTrackedEntity(movement.entityId()));
+    }
+
+    private void handleMoveEntity(PacketSendEvent<?> event, EntityMovement movement, @Nullable TrackerData data) {
         // ServerEntity#sendChanges sends one tracked movement per entity per tick; explicit
         // teleports may share a tick with it.
         var backendTicks = player.backendTicks();
@@ -1799,7 +1816,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             player.sendTransaction();
         }
 
-        TrackerData data = player.compensatedEntities.getTrackedEntity(movement.entityId());
         PositionChange position = movement.position();
         boolean absolutePositionKnown = !position.relative();
         double absoluteX = position.x();
@@ -2184,7 +2200,20 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private void applySecondMovement(
             int entityId, MovementKind kind, int packetHandlerDeltaMovementSequence, boolean updatePassengerPositions) {
-        PacketEntity entity = player.compensatedEntities.getEntity(entityId);
+        applySecondMovement(
+                player.compensatedEntities.getEntity(entityId),
+                entityId,
+                kind,
+                packetHandlerDeltaMovementSequence,
+                updatePassengerPositions);
+    }
+
+    private void applySecondMovement(
+            @Nullable PacketEntity entity,
+            int entityId,
+            MovementKind kind,
+            int packetHandlerDeltaMovementSequence,
+            boolean updatePassengerPositions) {
         if (entity == null || kind.shouldSkip(this, entityId)) {
             clearPacketHandlerDeltaMovement(entityId, packetHandlerDeltaMovementSequence);
             return;

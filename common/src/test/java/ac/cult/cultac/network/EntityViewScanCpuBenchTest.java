@@ -147,6 +147,7 @@ class EntityViewScanCpuBenchTest {
             Method unknownMethod = UnknownCollisionProvider.class.getDeclaredMethod(
                     "addEntityUnknownCollisions",
                     CultPlayer.class,
+                    PacketEntity.class,
                     Vec3.class,
                     SimpleCollisionBox.class,
                     List.class,
@@ -170,7 +171,7 @@ class EntityViewScanCpuBenchTest {
 
             Tick unknown = () -> {
                 boxes.clear();
-                unknownMethod.invoke(null, player, start, queryBox, boxes, entityBox, scratch);
+                unknownMethod.invoke(null, player, context.getVehicle(), start, queryBox, boxes, entityBox, scratch);
             };
             Tick numColliding = () -> numCollidingMethod.invoke(builder, player, context);
             Tick recount = () -> WorldStageBuilder.recountCollidingTickingAfterPlayer(player, prediction);

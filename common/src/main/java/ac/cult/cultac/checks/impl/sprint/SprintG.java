@@ -1,6 +1,5 @@
 package ac.cult.cultac.checks.impl.sprint;
 
-import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -9,7 +8,6 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
-import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 
 @CheckData(
         name = "SprintG",
@@ -41,14 +39,16 @@ public class SprintG extends Check implements PostPredictionListener {
 
         boolean isChecked = !predictionComplete.isTeleport() && !predictionComplete.isExempt();
 
-        PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
+        // A passenger is judged by the flag sent after a tick on a vehicle that cannot sprint, which stopped it.
+        boolean judged = player.compensatedEntities.getSelf().getRiding() == null
+                || result != null && PassengerSprint.stopped(player, result, lastResult);
 
         if (wasTouchingWater
                 && (wasWasTouchingWater || player.getClientVersion() == ClientVersion.V_1_21_4)
                 && !world.isUnderwater()
                 && wasLastPredictionCompleteChecked
                 && isChecked
-                && !(riding != null && riding.type == EntityTypeIds.CAMEL)
+                && judged
                 && !world.isSwimming()) {
             if (player.isSprinting) {
                 flagWithSetback();
