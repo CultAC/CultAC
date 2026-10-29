@@ -292,7 +292,7 @@ class NetworkSettingsTest {
         assertArrayEquals("config-secret".getBytes(StandardCharsets.UTF_8), all.resolveSecret(FORWARDING));
 
         NetworkSettings noSecret = redis("", "pw");
-        assertArrayEquals(FORWARDING, noSecret.resolveSecret(FORWARDING));
+        assertArrayEquals(hmac("forwarding", "cultac-network-signing"), noSecret.resolveSecret(FORWARDING));
 
         byte[] derived = hmac("pw", "cultac-network-signing");
         assertArrayEquals(derived, noSecret.resolveSecret(null));
