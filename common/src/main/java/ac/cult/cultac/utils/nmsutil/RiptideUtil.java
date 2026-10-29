@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Riptide;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
@@ -48,10 +49,16 @@ public final class RiptideUtil {
     }
 
     public static boolean canUseRiptideAtCurrentState(CultPlayer player) {
-        if (player.compensatedEntities.getSelf().inVehicle()) {
+        if (refusesPassenger(player)) {
             return false;
         }
         return inWaterOrRain(player).determineOptimistically();
+    }
+
+    /** TridentItem#releaseUsing refuses a passenger from 26.1. */
+    private static boolean refusesPassenger(CultPlayer player) {
+        return player.compensatedEntities.getSelf().inVehicle()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1);
     }
 
     /** Player#isInWaterOrRain as TridentItem#use and TridentItem#releaseUsing read it from Minecraft#handleKeybinds. */

@@ -10,6 +10,7 @@ import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -17,6 +18,7 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.List;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -92,6 +94,20 @@ class JavaRiptideReleaseTest {
             charge(f, trident(3));
             release(f);
             assertRelease(f, level, exact);
+        }
+    }
+
+    /** TridentItem#releaseUsing refuses a passenger from 26.1. */
+    @ParameterizedTest
+    @CsvSource({"V_1_21_11, true", "V_26_1, false", "V_26_2, false", "V_26_3, false"})
+    void aPassengerReleaseSpinsBefore26_1(ClientVersion version, boolean spins) throws Exception {
+        try (var f = fixture(version)) {
+            charge(f, trident(3));
+            f.player.compensatedEntities.addEntity(90, EntityTypeIds.PIG, SHALLOWS, 0, 0, 0);
+            f.setPassengers(90, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            release(f);
+            assertEquals(spins, f.player.riptideSpinAttackTicks == 20);
         }
     }
 
