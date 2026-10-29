@@ -137,13 +137,14 @@ public final class BedrockUncertaintyPipelineTest {
                 Vec3.ZERO, false, pushes(pointEnvelope(-0.1), new SimpleCollisionBox()), new Vec3(1.0, 1.0, 1.0));
         PredictionResult result = result(start, current.context(), current.target(), neutralCollisions());
         PredictionResult last = result(start, previous.context(), Vec3.ZERO, neutralCollisions());
-        ValidMovements valid = new ValidMovements(start, null, result, false, List.of());
-        Snapshot snapshot = ExternalMovementUncertainty.capture(current.context(), last);
+        CultPlayer player = bedrockPlayer();
+        ValidMovements valid = new ValidMovements(start, player, result, false, List.of());
+        Snapshot snapshot = ExternalMovementUncertainty.capture(player, current.context(), last);
         Assert.assertEquals(-0.1, snapshot.combinedTargetEnvelope().minX, 0.0);
         Assert.assertEquals(0.2, snapshot.combinedTargetEnvelope().maxX, 0.0);
         MovementTrace trace = new PistonShulkerPush()
                 .handleMovementTrace(
-                        null, valid, result, current.context(), last, MovementTrace.start(start), current.target());
+                        player, valid, result, current.context(), last, MovementTrace.start(start), current.target());
         Assert.assertEquals(0.0, trace.position().x, 0.0);
         Assert.assertEquals(0.15, trace.collisionBaseOffset().x, 0.0);
         Assert.assertEquals(0.075, trace.positionOnlyDelta().x, 0.0);
@@ -159,7 +160,7 @@ public final class BedrockUncertaintyPipelineTest {
                 new Vec3(1.0, 1.0, 1.0));
         PredictionResult result = result(start, test.context(), test.target(), neutralCollisions());
         ValidMovements valid = new ValidMovements(
-                start, null, result, false, List.of(new PistonShulkerPush(), new CollisionModifier()));
+                start, bedrockPlayer(), result, false, List.of(new PistonShulkerPush(), new CollisionModifier()));
         MovementTrace trace = valid.transformTraceTowards(test.target(), null);
         Vec3 beforeReapplication = trace.position().vectorBeforeFirstReason("external movement collision base");
         Assert.assertEquals(trace.collisionBaseOffset().x, trace.position().x - beforeReapplication.x, 0.0);
