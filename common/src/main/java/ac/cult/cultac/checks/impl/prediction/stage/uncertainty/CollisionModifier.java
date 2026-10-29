@@ -42,6 +42,7 @@ public class CollisionModifier implements UncertaintyHandler {
     private final SimpleCollisionBox probeBlockQuery = new SimpleCollisionBox();
     private final SimpleCollisionBox probeEntityScratch = new SimpleCollisionBox();
     private final SimpleCollisionBox probeEntityRegion = new SimpleCollisionBox();
+    private final SimpleCollisionBox probeGrabBox = new SimpleCollisionBox();
     private final AxisResult positiveResult = new AxisResult(0, false);
     private final AxisResult negativeResult = new AxisResult(0, false);
     // An axis step's tests and move depend only on its axis, position and movements within one probe.
@@ -573,7 +574,7 @@ public class CollisionModifier implements UncertaintyHandler {
             double horizontalInputReach,
             CollisionBoxPool pool) {
         // Start with player bounding box
-        SimpleCollisionBox grabBoxesBB = context.getFromMaximumExtent();
+        SimpleCollisionBox grabBoxesBB = context.getFromMaximumExtent(probeGrabBox);
 
         Vec3 stuckSpeed = context.getLastStuckSpeed();
 
