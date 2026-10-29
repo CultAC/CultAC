@@ -28,6 +28,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     public static final int FLAG_SIZE = 128;
     private static final Vec3 TELEPORT_MARKER = new Vec3(123456, 123456, 123456);
+    private static final int MAX_CAPTURE_TEXT = 1 << 17;
 
     private static final String[] flags = new String[FLAG_SIZE + 2]; //  17/2 MB of logs in memory
 
@@ -45,6 +46,9 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     /** Set while something watches this player's predictions: each one also goes to it. */
     private volatile PredictionObserver diag;
+
+    /** {@link #capture}'s text, on the packet thread; null while nothing watches. */
+    private StringBuilder captureText;
 
     public SuperDebug(CultPlayer player) {
         super(player);
@@ -115,7 +119,11 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         movementHistory.add(new MovementFrame(closest, target, location));
 
         PredictionObserver watch = diag;
-        if (watch != null) capture(watch, result, lastResult, closest, target, predictionComplete.isExempt());
+        if (watch != null) {
+            capture(watch, result, lastResult, closest, target, predictionComplete.isExempt());
+        } else {
+            captureText = null;
+        }
 
         if (result.getIdentifier() == 0) return;
 
@@ -161,10 +169,14 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             String state = null;
             BlockGrid grid = null;
             if (result.getSimulationContext() != null) {
-                StringBuilder sb = new StringBuilder(8192);
+                StringBuilder sb = captureText;
+                if (sb == null) sb = new StringBuilder(8192);
+                captureText = null;
+                sb.setLength(0);
                 appendState(sb, result, lastResult);
                 appendTail(sb, result, lastResult);
                 state = sb.toString();
+                if (sb.capacity() <= MAX_CAPTURE_TEXT) captureText = sb;
                 grid = BlockGrid.around(player);
             }
             double offset = result.getValidMovements() != null ? result.getOffset() : Double.NaN;
