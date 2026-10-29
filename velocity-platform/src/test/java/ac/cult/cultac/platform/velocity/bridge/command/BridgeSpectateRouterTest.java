@@ -14,6 +14,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.PlayerStateResult;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Result;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.TeleportToPlayer;
 import ac.cult.cultac.manager.SpectateManager.ServerState;
+import ac.cult.cultac.manager.SpectateManager.Target;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.velocity.bridge.BackendWorld;
 import ac.cult.cultac.platform.velocity.bridge.BridgeMessageListener;
@@ -147,11 +148,29 @@ class BridgeSpectateRouterTest {
         FakeBridgeSession session = new FakeBridgeSession(STAFF, "survival");
         sessions.current.put(STAFF, session);
 
-        CompletableFuture<Boolean> teleported = router.teleportToPlayer(staff, target);
+        CompletableFuture<Boolean> teleported = router.teleportToPlayer(staff, local());
         session.requests.getFirst().complete(true);
 
         assertEquals(List.of(new TeleportToPlayer(1, TARGET)), session.sent);
         assertTrue(teleported.join());
+    }
+
+    @Test
+    void teleportToARemotePlayerGoesByUuid() {
+        FakeBridgeSession session = new FakeBridgeSession(STAFF, "survival");
+        sessions.current.put(STAFF, session);
+        UUID remote = UUID.randomUUID();
+
+        CompletableFuture<Boolean> teleported =
+                router.teleportToPlayer(staff, new Target(remote, "Remote", null, "survival"));
+        session.requests.getFirst().complete(true);
+
+        assertEquals(List.of(new TeleportToPlayer(1, remote)), session.sent);
+        assertTrue(teleported.join());
+    }
+
+    private Target local() {
+        return new Target(TARGET, "Target", target, "survival");
     }
 
     @Test
@@ -160,7 +179,7 @@ class BridgeSpectateRouterTest {
         session.capabilities.clear();
         sessions.current.put(STAFF, session);
 
-        assertFalse(router.teleportToPlayer(staff, target).join());
+        assertFalse(router.teleportToPlayer(staff, local()).join());
         assertTrue(session.sent.isEmpty());
     }
 

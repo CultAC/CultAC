@@ -855,7 +855,7 @@ class RemoteCommandsTest {
         a.run(new Staff(true, Set.of()), LINE, aliceOn("p7")).join();
 
         JsonObject player = requests.get(0);
-        assertEquals(List.of("cult.debug"), nodes(player.getAsJsonArray("granted")));
+        assertEquals(List.of("cult.cloud.view", "cult.debug"), nodes(player.getAsJsonArray("granted")));
         assertEquals(MOD.toString(), player.getAsJsonObject("sender").get("u").getAsString());
         assertEquals("Mod", player.getAsJsonObject("sender").get("n").getAsString());
         assertFalse(player.getAsJsonObject("sender").get("console").getAsBoolean());
@@ -864,7 +864,8 @@ class RemoteCommandsTest {
 
         JsonObject console = requests.get(1);
         assertEquals(
-                List.of("cult.consoledebug", "cult.debug", "cult.profile"), nodes(console.getAsJsonArray("granted")));
+                List.of("cult.cloud.view", "cult.consoledebug", "cult.debug", "cult.profile"),
+                nodes(console.getAsJsonArray("granted")));
         assertTrue(console.getAsJsonObject("sender").get("console").getAsBoolean());
     }
 
@@ -880,13 +881,27 @@ class RemoteCommandsTest {
                 MOD,
                 "Mod",
                 false,
-                List.of("cult.debug", "cult.cloud", "cult.cloud.label", "cult.update", "cult.runtimes", "cult.secret"),
-                Set.of("cult.debug", "cult.cloud", "cult.cloud.label", "cult.update", "cult.consoledebug"),
+                List.of(
+                        "cult.debug",
+                        "cult.cloud",
+                        "cult.cloud.view",
+                        "cult.cloud.label",
+                        "cult.update",
+                        "cult.runtimes",
+                        "cult.secret"),
+                Set.of(
+                        "cult.debug",
+                        "cult.cloud",
+                        "cult.cloud.view",
+                        "cult.cloud.label",
+                        "cult.update",
+                        "cult.consoledebug"),
                 component -> {},
                 clock::get,
                 null);
         assertTrue(source.hasPermission("cult.debug"));
         assertTrue(source.hasPermission("cult.debug", false));
+        assertTrue(source.hasPermission("cult.cloud.view"));
         for (String refused : List.of(
                 "cult.cloud", "cult.cloud.label", "cult.update", "cult.runtimes", "cult.secret", "cult.consoledebug"))
             assertFalse(source.hasPermission(refused) || source.hasPermission(refused, true), refused);

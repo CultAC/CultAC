@@ -21,9 +21,12 @@ import org.jetbrains.annotations.Nullable;
 public final class RemoteCommandSource implements Sender {
     static final long LINGER_MILLIS = 30_000;
 
-    /** The loader's runtime administration and the cloud commands, which run on the sender's own instance. */
+    /**
+     * The loader's runtime administration and the cloud commands that run on the sender's own instance. Findings stay
+     * allowed: each instance holds those of its own players.
+     */
     static final Set<String> DENIED =
-            Set.of("cult.update", "cult.devswap", "cult.runtimes", "cult.cloud", "cult.cloud.view", "cult.cloud.label");
+            Set.of("cult.update", "cult.devswap", "cult.runtimes", "cult.cloud", "cult.cloud.label");
 
     private final UUID uuid;
     private final String name;

@@ -3,6 +3,7 @@ package ac.cult.cultac.command;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -15,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.bridge.protocol.CommandRoots;
+import ac.cult.cultac.command.NetworkPlayerArguments.NetworkTarget;
 import ac.cult.cultac.command.NetworkPlayerArguments.PlayerElsewhereException;
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
@@ -216,7 +218,10 @@ class NetworkPlayerArgumentsTest {
                 "cult debug channels alice",
                 "grim consoledebug Alice on",
                 "cult debug javapacketlog Alice",
-                "cult debug geyserpacketlog Alice --onjoin");
+                "cult debug geyserpacketlog Alice --onjoin",
+                "cult profile Alice",
+                "grim findings alice 5",
+                "cult testwebhook Alice");
         for (String line : lines) execute(sender, line);
         assertEquals(lines, routing.ran);
         assertTrue(routing.ranOn.stream().allMatch(ALICE::equals));
@@ -225,13 +230,11 @@ class NetworkPlayerArgumentsTest {
 
     @Test
     void theOtherPlayerCommandsSayTheyOnlyWorkOnTheSameProxy() {
-        for (String line : List.of(
-                "cult debug Alice", "cult debug itemslow Alice", "cult spectate Alice", "cult debug proxyticks Dana"))
+        for (String line : List.of("cult debug Alice", "cult debug itemslow Alice", "cult debug proxyticks Dana"))
             execute(sender, line);
         assertTrue(routing.ran.isEmpty());
         assertEquals(
                 List.of(
-                        "Alice is on p7 (lobby); this command only works on the same proxy.",
                         "Alice is on p7 (lobby); this command only works on the same proxy.",
                         "Alice is on p7 (lobby); this command only works on the same proxy.",
                         "Dana is on p9; this command only works on the same proxy."),
@@ -269,6 +272,51 @@ class NetworkPlayerArgumentsTest {
         routing.enabled = false;
         execute(sender, "cult debug mods Alice");
         assertEquals(List.of("Invalid argument: Player is not online: Alice"), messages());
+    }
+
+    @Test
+    void anyInstanceParsesALocalPlayerHereAndARosterPlayerElsewhere() {
+        var parser = NetworkPlayerArguments.anyInstance(new NetworkPlayerArguments(local).singlePlayerSelectorParser())
+                .parser();
+        var context = new CommandContext<>(sender, manager);
+
+        NetworkTarget bob = parser.parseFuture(context, CommandInput.of("bob"))
+                .join()
+                .parsedValue()
+                .orElseThrow();
+        assertSame(local.players.get("bob"), bob.here().getSinglePlayer());
+        assertNull(bob.elsewhere());
+
+        CommandInput input = CommandInput.of("alice next");
+        NetworkTarget alice =
+                parser.parseFuture(context, input).join().parsedValue().orElseThrow();
+        assertNull(alice.here());
+        assertEquals(ALICE, alice.elsewhere());
+        assertEquals("next", input.skipWhitespace().readString());
+
+        assertEquals(
+                "Player is not online: Carol",
+                parser.parseFuture(context, CommandInput.of("Carol"))
+                        .join()
+                        .failure()
+                        .orElseThrow()
+                        .getMessage());
+    }
+
+    @Test
+    void anyInstanceWithoutATransportFailsAsTheSelectorDoes() {
+        routing.enabled = false;
+        NetworkModule.platform(new Networked());
+        var parser = NetworkPlayerArguments.anyInstance(new NetworkPlayerArguments(local).singlePlayerSelectorParser())
+                .parser();
+
+        PlayerElsewhereException elsewhere = assertInstanceOf(
+                PlayerElsewhereException.class,
+                parser.parseFuture(new CommandContext<>(sender, manager), CommandInput.of("Alice"))
+                        .join()
+                        .failure()
+                        .orElseThrow());
+        assertNull(elsewhere.where());
     }
 
     @Test
@@ -351,7 +399,10 @@ class NetworkPlayerArgumentsTest {
                 "GRIM Debug Channels x",
                 "gl consoledebug x on",
                 "cult debug javapacketlog x",
-                "cult debug geyserpacketlog x")) assertTrue(NetworkPlayerArguments.routed(line), line);
+                "cult debug geyserpacketlog x",
+                "Cult Profile x",
+                "gl findings x 5",
+                "cult testwebhook x")) assertTrue(NetworkPlayerArguments.routed(line), line);
         for (String line : List.of(
                 "cult debug x",
                 "cult debug rewind x",
@@ -359,8 +410,7 @@ class NetworkPlayerArgumentsTest {
                 "cult debug itemslow x",
                 "cult debug proxyticks x",
                 "cult spectate x",
-                "cult testwebhook x",
-                "cult profile x")) assertFalse(NetworkPlayerArguments.routed(line), line);
+                "cult top")) assertFalse(NetworkPlayerArguments.routed(line), line);
     }
 
     @Test

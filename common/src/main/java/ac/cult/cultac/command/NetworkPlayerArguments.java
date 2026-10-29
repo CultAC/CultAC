@@ -43,7 +43,10 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
             List.of("debug", "channels"),
             List.of("consoledebug"),
             List.of("debug", "javapacketlog"),
-            List.of("debug", "geyserpacketlog"));
+            List.of("debug", "geyserpacketlog"),
+            List.of("profile"),
+            List.of("findings"),
+            List.of("testwebhook"));
 
     private final CloudPlatformCommandArguments platform;
 
@@ -95,6 +98,38 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                             : ArgumentParseResult.failureFuture(elsewhere);
                 }),
                 String.class);
+    }
+
+    /**
+     * {@code selector}, also accepting a player the roster places on another instance. Without a transport, a player
+     * who is not here fails as with {@code selector}.
+     */
+    public static ParserDescriptor<Sender, NetworkTarget> anyInstance(
+            ParserDescriptor<Sender, PlayerSelector> selector) {
+        ArgumentParser<Sender, PlayerSelector> base = selector.parser();
+        return ParserDescriptor.of(
+                new ArgumentParser.FutureArgumentParser<Sender, NetworkTarget>() {
+                    @Override
+                    public CompletableFuture<ArgumentParseResult<NetworkTarget>> parseFuture(
+                            CommandContext<Sender> context, CommandInput input) {
+                        int start = input.cursor();
+                        return base.parseFuture(context, input).thenApply(result -> {
+                            PlayerSelector here = result.parsedValue().orElse(null);
+                            if (here != null) return ArgumentParseResult.success(new NetworkTarget(here, null));
+                            Throwable failure = result.failure().orElseThrow();
+                            if (!(failure instanceof PlayerElsewhereException elsewhere) || elsewhere.where() == null)
+                                return ArgumentParseResult.failure(failure);
+                            if (input.cursor() == start) input.readString();
+                            return ArgumentParseResult.success(new NetworkTarget(null, elsewhere.where()));
+                        });
+                    }
+
+                    @Override
+                    public SuggestionProvider<Sender> suggestionProvider() {
+                        return base.suggestionProvider();
+                    }
+                },
+                NetworkTarget.class);
     }
 
     /**
@@ -190,6 +225,10 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
         }
         return false;
     }
+
+    /** A typed online player: {@code here} on this instance, otherwise {@code elsewhere} as the roster lists them. */
+    public record NetworkTarget(
+            @Nullable PlayerSelector here, @Nullable NetworkPlayer elsewhere) {}
 
     /**
      * A typed player who is not on this instance: on {@code where}, or, when it is null, possibly on an instance this

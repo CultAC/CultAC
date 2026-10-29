@@ -194,13 +194,13 @@ class ObserveOnlyCallSiteTest {
             command/commands/CultDebug.java#handleValidationPacketBlock(CommandContext) applyValidationBlock
             events/packets/listeners/PlayerInfoListener.java#onPlayerInfoUpdate(PacketSendEvent,CultPlayer,ClientboundPlayerInfoUpdate) replace x2
             events/packets/listeners/PlayerInfoListener.java#onPlayerInfoUpdate(PacketSendEvent,CultPlayer,ClientboundPlayerInfoUpdate) setCancelled
-            manager/SpectateManager.java#connectAndSpectate(Router,PlatformPlayer,PlatformPlayer,String,String,Long,PreviousState,Runnable) setGameMode
+            manager/SpectateManager.java#connectAndSpectate(Router,PlatformPlayer,Target,String,String,Long,PreviousState,Runnable) setGameMode
             manager/SpectateManager.java#onDisable(PreviousState,PlatformPlayer) setGameMode
             manager/SpectateManager.java#respectate(Router,PlatformPlayer,String) setGameMode
             manager/SpectateManager.java#restoreTargetGameMode(PreviousState,PlatformPlayer,String) setGameMode
-            manager/SpectateManager.java#spectateHere(Router,PlatformPlayer,PlatformPlayer,String,PreviousState,Runnable) setGameMode
+            manager/SpectateManager.java#spectateHere(Router,PlatformPlayer,Target,String,PreviousState,Runnable) setGameMode
             manager/SpectateManager.java#teleportBack(PreviousState,PlatformPlayer,Long) teleportAsync
-            manager/SpectateManager.java#teleportToPlayer(PlatformPlayer,PlatformPlayer) teleportAsync
+            manager/SpectateManager.java#teleportToPlayer(PlatformPlayer,Target) teleportAsync
             utils/latency/InteractionPause.java#resync() resyncFromServerView
             utils/latency/InteractionPause.java#resync() sendServerStates
             utils/latency/InteractionPause.java#start(long) resync x2
