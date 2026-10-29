@@ -275,18 +275,18 @@ public record NetworkSettings(
         return null;
     }
 
-    /** {@code secret}, else {@code platformSecret}, else a key derived from {@link #credential}; null without any. */
+    /** {@code secret}, else a key derived from {@code platformSecret}, else from {@link #credential}; null without any. */
     public byte @Nullable [] resolveSecret(byte @Nullable [] platformSecret) {
         if (!secret.isEmpty()) return secret.getBytes(StandardCharsets.UTF_8);
-        if (platformSecret != null && platformSecret.length > 0) return platformSecret.clone();
+        if (platformSecret != null && platformSecret.length > 0) return derive(platformSecret);
         String credential = credential();
-        return credential == null ? null : derive(credential);
+        return credential == null ? null : derive(credential.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static byte[] derive(String credential) {
+    private static byte[] derive(byte[] source) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(credential.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            mac.init(new SecretKeySpec(source, "HmacSHA256"));
             return mac.doFinal(DERIVATION);
         } catch (GeneralSecurityException unavailable) {
             throw new IllegalStateException("HmacSHA256 is unavailable", unavailable);

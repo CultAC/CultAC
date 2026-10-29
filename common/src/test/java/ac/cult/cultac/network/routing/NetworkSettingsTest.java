@@ -126,7 +126,7 @@ class NetworkSettingsTest {
         NetworkSettings derived = read(values, Map.of());
         assertEquals("", derived.secret());
         assertArrayEquals(hmac("default:redis-pw", "cultac-network-signing"), derived.resolveSecret(null));
-        assertArrayEquals(FORWARDING, derived.resolveSecret(FORWARDING));
+        assertArrayEquals(hmac("forwarding", "cultac-network-signing"), derived.resolveSecret(FORWARDING));
 
         NetworkSettings fromEnv = read(values, Map.of("CULTAC_NETWORK_SECRET", "env-secret"));
         assertArrayEquals("env-secret".getBytes(StandardCharsets.UTF_8), fromEnv.resolveSecret(FORWARDING));

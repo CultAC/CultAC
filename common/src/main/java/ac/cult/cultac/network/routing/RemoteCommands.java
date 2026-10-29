@@ -110,18 +110,19 @@ final class RemoteCommands {
 
     /** Runs {@code line} here as {@code sender}, once {@code where} is still online here. */
     CompletableFuture<Boolean> runHere(Sender sender, String line, NetworkPlayer where) {
-        if (service.online(where.uuid())) {
-            try {
-                return commands.execute(sender, line)
-                        .handle((ignored, failure) -> true)
-                        .toCompletableFuture();
-            } catch (RuntimeException unavailable) {
-                // Reported as for a player who is not here.
-            }
+        if (!service.online(where.uuid())) {
+            sender.sendMessage(MessageUtil.getParsedComponent(
+                    sender, "player-not-found", "%prefix% &cPlayer is exempt or offline!"));
+            return CompletableFuture.completedFuture(false);
         }
-        sender.sendMessage(
-                MessageUtil.getParsedComponent(sender, "player-not-found", "%prefix% &cPlayer is exempt or offline!"));
-        return CompletableFuture.completedFuture(false);
+        try {
+            return commands.execute(sender, line)
+                    .handle((ignored, failure) -> true)
+                    .toCompletableFuture();
+        } catch (RuntimeException unavailable) {
+            sender.sendMessage(failed(sender, where.instance(), unavailable.getMessage()));
+            return CompletableFuture.completedFuture(false);
+        }
     }
 
     CompletableFuture<Boolean> forward(Sender sender, String line, NetworkPlayer where) {
@@ -290,17 +291,17 @@ final class RemoteCommands {
                                     "network-command-target-left",
                                     "&c%player% is no longer on %instance%.",
                                     Map.of("player", where.name(), "instance", where.instance()))
-                            : MessageUtil.getParsedComponent(
-                                    request.sender,
-                                    "network-command-failed",
-                                    "&c%instance% could not run the command: %reason%",
-                                    Map.of(
-                                            "instance",
-                                            where.instance(),
-                                            "reason",
-                                            Objects.requireNonNullElse(reason, "?"))));
+                            : failed(request.sender, where.instance(), reason));
         }
         request.result.complete(ok);
+    }
+
+    private static Component failed(Sender sender, String instance, @Nullable String reason) {
+        return MessageUtil.getParsedComponent(
+                sender,
+                "network-command-failed",
+                "&c%instance% could not run the command: %reason%",
+                Map.of("instance", instance, "reason", Objects.requireNonNullElse(reason, "?")));
     }
 
     /** The receiving side's output, numbered without gaps; a component over the byte cap is replaced by a note. */

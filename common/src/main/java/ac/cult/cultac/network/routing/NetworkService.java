@@ -578,8 +578,8 @@ public final class NetworkService implements NetworkRouting {
         if (drop == EnvelopeCodec.Drop.BAD_SIGNATURE)
             badSignatures.warn(
                     "bad-signature",
-                    "Dropped a network message with a bad signature: the servers sign with different keys; give them"
-                            + " the same Redis or NATS password, or the same network.secret",
+                    "Dropped a network message with a bad signature: something that can publish on this network's"
+                            + " broker channels does not hold its signing key",
                     null);
         if (envelope == null) return;
         if (drop == EnvelopeCodec.Drop.STALE)
