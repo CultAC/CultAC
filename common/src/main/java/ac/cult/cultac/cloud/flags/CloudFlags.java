@@ -174,6 +174,7 @@ public final class CloudFlags {
         return send(request("/api/v1/cloud-flags/pending?server=" + URLEncoder.encode(serverId, StandardCharsets.UTF_8))
                         .GET())
                 .handle((reply, error) -> {
+                    if (!generation.latest(chain)) return CompletableFuture.completedFuture(DEFAULT_POLL_SECONDS);
                     if (error != null) {
                         problem(
                                 "pending " + LabelClient.unanswered(error),
@@ -236,6 +237,10 @@ public final class CloudFlags {
         return send(request("/api/v1/cloud-flags/" + flag.id() + "/claim")
                         .POST(HttpRequest.BodyPublishers.ofString(body.toString())))
                 .handle((reply, error) -> {
+                    if ((error != null || reply.status() != 200) && !generation.latest(chain)) {
+                        handled.remove(flag.id());
+                        return CompletableFuture.<Void>completedFuture(null);
+                    }
                     if (error != null) {
                         handled.remove(flag.id());
                         problem(
