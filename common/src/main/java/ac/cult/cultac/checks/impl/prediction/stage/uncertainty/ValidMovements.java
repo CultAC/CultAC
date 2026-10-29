@@ -27,6 +27,10 @@ public class ValidMovements {
     private static final UncertaintyHandler[] MODIFIERS =
             UncertaintyPipeline.MODIFIERS.toArray(new UncertaintyHandler[0]);
 
+    private static final boolean[] MODIFIER_POSITION_ONLY = positionOnly(MODIFIERS);
+
+    private static final int LAST_MODIFIER = MODIFIERS.length - 1;
+
     // handleMovementTrace reads no probe state, so one instance serves every player.
     private static final CollisionModifier SELECTED_MOVEMENT_COLLISIONS = new CollisionModifier();
 
@@ -34,6 +38,9 @@ public class ValidMovements {
         // ElytraTransform's skip holds only for the start trace, which only the first handler sees.
         if (!(MODIFIERS[0] instanceof ElytraTransform)) {
             throw new IllegalStateException("ElytraTransform must run first in UncertaintyPipeline.MODIFIERS");
+        }
+        if (MODIFIERS.length > Long.SIZE) {
+            throw new IllegalStateException("computeAABB keeps UncertaintyPipeline.MODIFIERS in a long mask");
         }
     }
 
@@ -73,8 +80,19 @@ public class ValidMovements {
     @ToString.Exclude
     private final UncertaintyHandler[] handlers;
 
+    /** Per handler: it keeps {@link UncertaintyHandler}'s handleMovementTrace, which reads only the position. */
+    @ToString.Exclude
+    private final boolean[] positionOnly;
+
     @ToString.Exclude
     private final MovementTrace startTrace;
+
+    /** The last {@link #positionTowards} run's trace; read right after the run returns, then cleared. */
+    @ToString.Exclude
+    private MovementTrace runTrace;
+
+    @ToString.Exclude
+    private boolean runMoved;
 
     public ValidMovements(PredVector initialStartingVel, CultPlayer player, PredictionResult result, boolean canStep) {
         this(initialStartingVel, player, result, canStep, UncertaintyPipeline.MODIFIERS);
@@ -93,10 +111,13 @@ public class ValidMovements {
         this.uncertaintyHandlers = uncertaintyHandlers;
         if (uncertaintyHandlers == UncertaintyPipeline.MODIFIERS) {
             this.handlers = MODIFIERS;
+            this.positionOnly = MODIFIER_POSITION_ONLY;
         } else if (uncertaintyHandlers == BedrockMovementEngine.UNCERTAINTY_HANDLERS) {
             this.handlers = BedrockHandlers.HANDLERS;
+            this.positionOnly = BedrockHandlers.POSITION_ONLY;
         } else {
             this.handlers = uncertaintyHandlers.toArray(new UncertaintyHandler[0]);
+            this.positionOnly = positionOnly(this.handlers);
         }
         this.startTrace = MovementTrace.start(initialStartingVel);
 
@@ -108,23 +129,87 @@ public class ValidMovements {
     }
 
     public MovementTrace transformTraceTowards(Vec3 end, PredictionResult lastResult) {
-        return transformTraceTowards(handlers, handlers.length, end, lastResult);
+        return transformTraceTowards(-1L, handlers.length, end, lastResult);
     }
 
-    private MovementTrace transformTraceTowards(
-            UncertaintyHandler[] handlers, int count, Vec3 end, PredictionResult lastResult) {
+    private MovementTrace transformTraceTowards(long kept, int count, Vec3 end, PredictionResult lastResult) {
+        PredVector position = positionTowards(kept, count, end, lastResult);
+        MovementTrace trace = runTrace;
+        runTrace = null;
+        return runMoved ? movedTo(trace, position) : trace;
+    }
+
+    /**
+     * Runs the first {@code count} handlers whose bit {@code kept} sets and returns the final position. A run of
+     * handlers that read only the position passes the position along; the trace the chain of
+     * {@link MovementTrace#withPosition} calls would return is {@link #runTrace} moved to that position when
+     * {@link #runMoved}, else {@link #runTrace} itself.
+     */
+    private PredVector positionTowards(long kept, int count, Vec3 end, PredictionResult lastResult) {
         MovementTrace trace = startTrace;
+        PredVector position = trace.position();
+        boolean moved = false;
         SimulationContext context = result.getSimulationContext();
         Vec3 target =
                 isTestingMaxStartingVelExtents(end) ? end : Riptide.movementTarget(context, initialStartingVel, end);
 
         for (int i = 0; i < count; i++) {
-            if (handlers[i] instanceof Riptide) target = end;
-            trace = handlers[i].handleMovementTrace(
+            if ((kept & (1L << i)) == 0) continue;
+            UncertaintyHandler handler = handlers[i];
+            if (handler instanceof Riptide) target = end;
+            if (positionOnly[i]) {
+                PredVector next = handler.handleUncertainty(
+                        player, result.getValidMovements(), result, context, lastResult, position, target);
+                moved |= next != position;
+                position = next;
+                continue;
+            }
+            if (moved) {
+                trace = movedTo(trace, position);
+                moved = false;
+            }
+            trace = handler.handleMovementTrace(
                     player, result.getValidMovements(), result, context, lastResult, trace, target);
+            position = trace.position();
         }
 
-        return trace;
+        runTrace = trace;
+        runMoved = moved;
+        return position;
+    }
+
+    private static MovementTrace movedTo(MovementTrace trace, PredVector position) {
+        return new MovementTrace(
+                position,
+                trace.positionOnlyDelta(),
+                trace.collisionBaseOffset(),
+                trace.preCollisionVelocity(),
+                trace.preCollisionMovement(),
+                trace.shulkerBoxShove());
+    }
+
+    private static boolean[] positionOnly(UncertaintyHandler[] handlers) {
+        boolean[] positionOnly = new boolean[handlers.length];
+        for (int i = 0; i < handlers.length; i++) {
+            try {
+                positionOnly[i] = handlers[i]
+                                .getClass()
+                                .getMethod(
+                                        "handleMovementTrace",
+                                        CultPlayer.class,
+                                        ValidMovements.class,
+                                        PredictionResult.class,
+                                        SimulationContext.class,
+                                        PredictionResult.class,
+                                        MovementTrace.class,
+                                        Vec3.class)
+                                .getDeclaringClass()
+                        == UncertaintyHandler.class;
+            } catch (NoSuchMethodException impossible) {
+                throw new IllegalStateException(impossible);
+            }
+        }
+        return positionOnly;
     }
 
     public ValidMovements computeExtents(PredictionResult lastResult) {
@@ -219,36 +304,38 @@ public class ValidMovements {
 
     public SimpleCollisionBox computeAABB(PredictionResult lastResult) {
         // Only handlers run between the six traces, and no skip predicate reads what a handler writes.
-        UncertaintyHandler[] kept = handlers;
-        int count = kept.length;
+        long kept = -1L;
+        int count = handlers.length;
+        PointThreeTesting last = null;
         if (handlers == MODIFIERS) {
-            kept = new UncertaintyHandler[handlers.length];
-            count = 0;
+            kept = 0L;
             SimulationContext context = result.getSimulationContext();
-            for (UncertaintyHandler handler : handlers) {
-                if (!handler.skipsContext(player, context, lastResult)) kept[count++] = handler;
+            for (int i = 0; i < count; i++) {
+                if (!handlers[i].skipsContext(player, context, lastResult)) kept |= 1L << i;
+            }
+            // PointThreeTesting runs last and has no side effect, and only one coordinate of its position is read.
+            if (handlers[LAST_MODIFIER].getClass() == PointThreeTesting.class && (kept & (1L << LAST_MODIFIER)) != 0) {
+                last = (PointThreeTesting) handlers[LAST_MODIFIER];
+                count = LAST_MODIFIER;
             }
         }
-        double posX = transformTraceTowards(kept, count, initialStartingVel.withX(LARGE_MOVEMENT), lastResult)
-                .position()
-                .x;
-        double negX = transformTraceTowards(kept, count, initialStartingVel.withX(-LARGE_MOVEMENT), lastResult)
-                .position()
-                .x;
-        double posY = transformTraceTowards(kept, count, initialStartingVel.withY(LARGE_MOVEMENT), lastResult)
-                .position()
-                .y;
-        double negY = transformTraceTowards(kept, count, initialStartingVel.withY(-LARGE_MOVEMENT), lastResult)
-                .position()
-                .y;
-        double posZ = transformTraceTowards(kept, count, initialStartingVel.withZ(LARGE_MOVEMENT), lastResult)
-                .position()
-                .z;
-        double negZ = transformTraceTowards(kept, count, initialStartingVel.withZ(-LARGE_MOVEMENT), lastResult)
-                .position()
-                .z;
+        double posX = extent(kept, count, last, initialStartingVel.withX(LARGE_MOVEMENT), lastResult, 0);
+        double negX = extent(kept, count, last, initialStartingVel.withX(-LARGE_MOVEMENT), lastResult, 0);
+        double posY = extent(kept, count, last, initialStartingVel.withY(LARGE_MOVEMENT), lastResult, 1);
+        double negY = extent(kept, count, last, initialStartingVel.withY(-LARGE_MOVEMENT), lastResult, 1);
+        double posZ = extent(kept, count, last, initialStartingVel.withZ(LARGE_MOVEMENT), lastResult, 2);
+        double negZ = extent(kept, count, last, initialStartingVel.withZ(-LARGE_MOVEMENT), lastResult, 2);
+        runTrace = null;
 
         return new SimpleCollisionBox(negX, negY, negZ, posX, posY, posZ).sort();
+    }
+
+    /** Coordinate {@code axis} (0 x, 1 y, 2 z) of the kept handlers' position, then {@code last}'s, towards end. */
+    private double extent(
+            long kept, int count, PointThreeTesting last, Vec3 end, PredictionResult lastResult, int axis) {
+        PredVector position = positionTowards(kept, count, end, lastResult);
+        if (last != null) return last.coordinate(player, result.getSimulationContext(), position, end, axis);
+        return axis == 0 ? position.x : axis == 1 ? position.y : position.z;
     }
 
     public boolean isTestingMaxStartingVelExtents(Vec3 end) {
@@ -263,5 +350,6 @@ public class ValidMovements {
     private static final class BedrockHandlers {
         private static final UncertaintyHandler[] HANDLERS =
                 BedrockMovementEngine.UNCERTAINTY_HANDLERS.toArray(new UncertaintyHandler[0]);
+        private static final boolean[] POSITION_ONLY = positionOnly(HANDLERS);
     }
 }
