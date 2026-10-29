@@ -578,7 +578,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.packetStateData.lastPacketMatchedTeleportPosition = teleportData.isMatchedTeleportPosition();
         if (teleportData.isMatchedTeleportPosition()
                 && teleportData.getTeleportData() != null
-                && player.compensatedEntities.vehicles.hasPendingServerDismount()) {
+                && player.compensatedEntities.vehicles.hasClientVisiblePendingDismount()) {
             player.compensatedEntities.vehicles.applyClientVisibleDismount();
         }
 
