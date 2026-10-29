@@ -3,6 +3,7 @@ package ac.cult.cultac.events.packets.listeners;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
@@ -11,6 +12,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
+import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
 
 public class PacketPlayerDigging {
@@ -22,6 +24,11 @@ public class PacketPlayerDigging {
         if (RiptideUtil.getRiptideLevel(item) > 0) {
             player.packetStateData.riptideUseHand = hand;
             player.packetStateData.riptideUseStartClientTick = player.packetStateData.acceptedClientTick;
+            int slot = player.getInventory().inventory.selected;
+            player.packetStateData.riptideUseSlot = slot;
+            player.packetStateData.riptideSlotBeforeSelect = slot;
+            player.packetStateData.riptideFirstSelectSlot = slot;
+            player.packetStateData.riptideSelectClientTick = player.packetStateData.acceptedClientTick;
         } else if (hand == player.packetStateData.riptideUseHand) {
             RiptideUtil.clearTrackedUse(player);
         }
@@ -31,18 +38,31 @@ public class PacketPlayerDigging {
     public void onPlayerAction(
             PacketReceiveEvent<ServerboundPlayerAction> event, CultPlayer player, ServerboundPlayerAction packet) {
         if (packet.action() == PlayerAction.RELEASE_USE_ITEM) {
-            Hand hand = player.packetStateData.riptideUseHand;
+            PacketStateData state = player.packetStateData;
+            Hand hand = state.riptideUseHand;
             SimItemStack item = hand == null ? null : player.getInventory().getHandItem(hand);
-            int j = RiptideUtil.getRiptideLevel(item);
+            int held = RiptideUtil.getRiptideLevel(item);
+            int used = held;
+            if (hand == Hand.MAIN_HAND
+                    && state.riptideSelectClientTick == state.acceptedClientTick
+                    && player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)) {
+                SimItemStack before = RiptideUtil.hotbarItem(player, state.riptideSlotBeforeSelect);
+                SimItemStack first = RiptideUtil.hotbarItem(player, state.riptideFirstSelectSlot);
+                held = RiptideUtil.getRiptideLevel(RiptideUtil.isTrident(first) ? first : before);
+                used = RiptideUtil.getRiptideLevel(RiptideUtil.isTrident(before) ? before : first);
+            }
+            int j = Math.max(held, used);
+            int other = Math.min(held, used);
 
             if (j > 0 && RiptideUtil.isValidRiptideRelease(player, hand)) {
-                player.packetStateData.riptideLevel = j;
-                player.packetStateData.riptideReleaseCertain = RiptideUtil.isCertainRiptideRelease(player);
+                state.riptideLevel = j;
+                state.riptideAlternativeLevel = other != j ? other : 0;
+                state.riptideReleaseCertain = other > 0 && RiptideUtil.isCertainRiptideRelease(player);
                 player.riptideSpinAttackTicks = 20;
-                player.riptideSpinCertain = player.packetStateData.riptideReleaseCertain;
+                player.riptideSpinCertain = state.riptideReleaseCertain;
             } else if (j > 0) {
-                player.packetStateData.invalidRiptideRelease = true;
-                player.packetStateData.invalidRiptideReleaseReason = RiptideUtil.invalidReleaseReason(player, hand);
+                state.invalidRiptideRelease = true;
+                state.invalidRiptideReleaseReason = RiptideUtil.invalidReleaseReason(player, hand);
             }
             RiptideUtil.clearTrackedUse(player);
         }
@@ -84,9 +104,25 @@ public class PacketPlayerDigging {
         // Stop people from spamming the server with out of bounds exceptions
         if (slotId > 8 || slotId < 0) return;
 
-        player.packetStateData.lastSlotSelected = slotId;
-        if (player.packetStateData.riptideUseHand != Hand.OFF_HAND) {
+        PacketStateData state = player.packetStateData;
+        state.lastSlotSelected = slotId;
+        if (state.riptideUseHand != Hand.MAIN_HAND) return;
+        if (player.isBedrockMovement()) {
             RiptideUtil.clearTrackedUse(player);
+            return;
         }
+        int tick = state.acceptedClientTick;
+        if (state.riptideSelectClientTick != tick) {
+            if (!RiptideUtil.isTrident(RiptideUtil.hotbarItem(player, state.riptideUseSlot))
+                    && (tick > state.riptideSelectClientTick + 1
+                            || !RiptideUtil.isTrident(RiptideUtil.hotbarItem(player, slotId)))) {
+                RiptideUtil.clearTrackedUse(player);
+                return;
+            }
+            state.riptideSlotBeforeSelect = state.riptideUseSlot;
+            state.riptideFirstSelectSlot = slotId;
+            state.riptideSelectClientTick = tick;
+        }
+        state.riptideUseSlot = slotId;
     }
 }
