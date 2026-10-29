@@ -873,6 +873,32 @@ class InteractionVisibilityTest {
     }
 
     @Test
+    void aLocallyBrokenOpenShulkerKeepsItsLidInTheSameTicksSelection() throws Exception {
+        try (var setup = new Setup()) {
+            var world = setup.fixture.player.compensatedWorld;
+            setup.block(0, 64, 2, "shulker_box[facing=north]");
+            world.applyPredictedBlockEntityData(
+                    TARGET,
+                    new ac.cult.blocksim.engine.BlockEntityData(
+                            "minecraft:shulker_box",
+                            new ac.cult.blocksim.data.Components(java.util.Map.of(
+                                    "animation_status", new com.google.gson.JsonPrimitive("OPENED"),
+                                    "progress", new com.google.gson.JsonPrimitive(1.0F))),
+                            new ac.cult.blocksim.data.nbt.NbtValue.Compound(java.util.Map.of())));
+            world.beginSelectionSnapshot();
+            world.startPredicting();
+            world.updateBlock(TARGET, state("air"));
+            world.stopPredicting(1);
+
+            var selected = world.withSelectionSnapshot(() -> world.getClientBlockEntityData(TARGET));
+            assertEquals(1.0F, selected.data().get("progress").getAsFloat());
+            assertNull(world.getClientBlockEntityData(TARGET));
+            world.endSelectionSnapshot();
+            assertNull(world.getClientBlockEntityData(TARGET));
+        }
+    }
+
+    @Test
     void insideAndBoundaryOriginsStillDetectAnInterveningBlock() throws Exception {
         try (var setup = new Setup()) {
             setup.wall("stone");
