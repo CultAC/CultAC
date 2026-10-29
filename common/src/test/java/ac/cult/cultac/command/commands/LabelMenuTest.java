@@ -10,22 +10,14 @@ import ac.cult.cultac.cloud.labels.LabelClients;
 import ac.cult.cultac.dialog.Dialog;
 import ac.cult.cultac.dialog.DialogViewer;
 import ac.cult.cultac.dialog.Response;
-import ac.cult.cultac.network.NetworkPlayer;
-import ac.cult.cultac.network.NetworkRouting;
-import ac.cult.cultac.network.RoutingHolder;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class LabelMenuTest {
@@ -34,42 +26,6 @@ class LabelMenuTest {
     private static final Response NOTHING = new Response(Map.of());
 
     private final Screen screen = new Screen(UUID.randomUUID());
-    private final NetworkRouting nobodyElsewhere = new NetworkRouting() {
-        @Override
-        public boolean enabled() {
-            return false;
-        }
-
-        @Override
-        public String instanceId() {
-            return "test";
-        }
-
-        @Override
-        public Optional<NetworkPlayer> locate(String nameOrUuid) {
-            return Optional.empty();
-        }
-
-        @Override
-        public Collection<NetworkPlayer> roster() {
-            return List.of();
-        }
-
-        @Override
-        public CompletableFuture<Boolean> run(Sender sender, String line, NetworkPlayer where) {
-            return CompletableFuture.completedFuture(false);
-        }
-    };
-
-    @BeforeEach
-    void routeNowhere() {
-        RoutingHolder.install(nobodyElsewhere);
-    }
-
-    @AfterEach
-    void restoreRouting() {
-        RoutingHolder.uninstall(nobodyElsewhere);
-    }
 
     @Test
     void theVerdictPageOffersCleanOnlyWithItsPermission() {
