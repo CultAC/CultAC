@@ -3,7 +3,6 @@ package ac.cult.cultac.network.routing;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.network.NetworkPlayer;
-import ac.cult.cultac.network.routing.MessageHandler.Origin;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.reload.api.HostContext;
@@ -15,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -24,7 +24,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import org.jetbrains.annotations.Nullable;
 
@@ -53,15 +52,11 @@ final class RemoteCommands {
     static final int MAX_COMPONENTS = 200;
     static final int MAX_OUTPUT_BYTES = 256 * 1024;
 
-    private static final Component TOO_LARGE =
-            Component.text("One line of output was too large to relay.", NamedTextColor.GRAY);
-
     /** How this instance runs its CultAC commands. */
     interface Commands {
         /** Runs {@code line} as {@code sender}; completes once it ran, normally or not. */
         CompletionStage<?> execute(Sender sender, String line);
 
-        /** Every permission node the registered commands require. */
         Set<String> permissionNodes();
 
         /** Runs a received command's {@code task} off the network thread. */
@@ -70,7 +65,6 @@ final class RemoteCommands {
         }
     }
 
-    /** The plugin's own command manager. */
     static final Commands CULT = new Commands() {
         @Override
         public CompletionStage<?> execute(Sender sender, String line) {
@@ -96,7 +90,7 @@ final class RemoteCommands {
     private final LongSupplier clock;
     private final Map<UUID, Request> pending = new ConcurrentHashMap<>();
     private final SharedClaims claims;
-    private volatile Commands commands;
+    private final Commands commands;
     /** Guarded by {@code this}. */
     private boolean closed;
 
@@ -110,12 +104,8 @@ final class RemoteCommands {
 
     void register() {
         service.on(CMD, this::received);
-        service.on(OUT, (envelope, origin) -> output(envelope.body()));
-        service.on(DONE, (envelope, origin) -> done(envelope.body()));
-    }
-
-    void commands(Commands commands) {
-        this.commands = commands;
+        service.on(OUT, envelope -> output(envelope.body()));
+        service.on(DONE, envelope -> done(envelope.body()));
     }
 
     /** Runs {@code line} here as {@code sender}, once {@code where} is still online here. */
@@ -134,7 +124,6 @@ final class RemoteCommands {
         return CompletableFuture.completedFuture(false);
     }
 
-    /** Sends {@code line} to {@code where}'s instance and relays what it answers to {@code sender}. */
     CompletableFuture<Boolean> forward(Sender sender, String line, NetworkPlayer where) {
         UUID id = UUID.randomUUID();
         Request request = new Request(sender, where, clock.getAsLong());
@@ -144,9 +133,11 @@ final class RemoteCommands {
             stopped = closed;
         }
         if (stopped) {
-            request.fail(Component.text(
-                    "The command could not be forwarded to " + where.instance() + ": network routing stopped.",
-                    NamedTextColor.RED));
+            request.fail(MessageUtil.getParsedComponent(
+                    sender,
+                    "network-command-stopped",
+                    "&cThe command could not be forwarded to %instance%: network routing stopped.",
+                    Map.of("instance", where.instance())));
             pending.remove(id, request);
             return request.result;
         }
@@ -163,14 +154,16 @@ final class RemoteCommands {
         body.add("granted", granted);
         body.addProperty("target", where.uuid().toString());
         if (!service.send(where.instance(), CMD, body)) {
-            request.fail(Component.text(
-                    "The command could not be forwarded to " + where.instance() + ".", NamedTextColor.RED));
+            request.fail(MessageUtil.getParsedComponent(
+                    sender,
+                    "network-command-not-forwarded",
+                    "&cThe command could not be forwarded to %instance%.",
+                    Map.of("instance", where.instance())));
             pending.remove(id, request);
         }
         return request.result;
     }
 
-    /** Ends the requests whose time ran out: unanswered, gone quiet, or past their late-output window. */
     void sweep() {
         sweep(false);
     }
@@ -201,7 +194,7 @@ final class RemoteCommands {
         return granted;
     }
 
-    private void received(Envelope envelope, Origin origin) {
+    private void received(Envelope envelope) {
         JsonObject body = envelope.body();
         UUID id;
         UUID target;
@@ -226,34 +219,35 @@ final class RemoteCommands {
         }
         if (!service.answers(target) || !claims.claim(id.toString())) return;
         Relay relay = new Relay(envelope.from(), id);
-        if (!service.online(target)) {
-            relay.done(false, LEFT);
-            return;
-        }
-        Commands commands = this.commands;
-        RemoteCommandSource source = new RemoteCommandSource(
-                senderId,
-                senderName,
-                console,
-                granted,
-                commands.permissionNodes(),
-                relay,
-                clock,
-                service.remoteSenderBase());
-        commands.dispatch(() -> {
-            CompletionStage<?> ran;
-            try {
-                ran = commands.execute(source, CloudCommandService.onRegisteredRoot(line));
-            } catch (RuntimeException unavailable) {
-                relay.done(false, String.valueOf(unavailable.getMessage()));
+        try {
+            if (!service.online(target)) {
+                relay.done(false, LEFT);
                 return;
             }
-            ran.whenComplete((ignored, failure) -> {
-                source.done();
-                boolean left = source.left();
-                relay.done(!left, left ? LEFT : null);
+            RemoteCommandSource source = new RemoteCommandSource(
+                    senderId,
+                    senderName,
+                    console,
+                    granted,
+                    commands.permissionNodes(),
+                    relay,
+                    clock,
+                    service.remoteSenderBase());
+            commands.dispatch(() -> {
+                try {
+                    commands.execute(source, CloudCommandService.onRegisteredRoot(line))
+                            .whenComplete((ignored, failure) -> {
+                                source.done();
+                                boolean left = source.left();
+                                relay.done(!left, left ? LEFT : null);
+                            });
+                } catch (RuntimeException unavailable) {
+                    relay.done(false, String.valueOf(unavailable.getMessage()));
+                }
             });
-        });
+        } catch (RuntimeException failure) {
+            relay.done(false, String.valueOf(failure.getMessage()));
+        }
     }
 
     private void output(JsonObject body) {
@@ -289,19 +283,27 @@ final class RemoteCommands {
         if (request == null || !request.finish(clock.getAsLong(), count, cut)) return;
         if (!ok) {
             NetworkPlayer where = request.where;
-            request.sender.sendMessage(Component.text(
+            request.sender.sendMessage(
                     LEFT.equals(reason)
-                            ? where.name() + " is no longer on " + where.instance() + "."
-                            : where.instance() + " could not run the command" + (reason == null ? "." : ": " + reason),
-                    NamedTextColor.RED));
+                            ? MessageUtil.getParsedComponent(
+                                    request.sender,
+                                    "network-command-target-left",
+                                    "&c%player% is no longer on %instance%.",
+                                    Map.of("player", where.name(), "instance", where.instance()))
+                            : MessageUtil.getParsedComponent(
+                                    request.sender,
+                                    "network-command-failed",
+                                    "&c%instance% could not run the command: %reason%",
+                                    Map.of(
+                                            "instance",
+                                            where.instance(),
+                                            "reason",
+                                            Objects.requireNonNullElse(reason, "?"))));
         }
         request.result.complete(ok);
     }
 
-    /**
-     * The receiving side's output: each component sent back numbered without gaps, one too large for a message
-     * replaced by a line saying so, until the cap.
-     */
+    /** The receiving side's output, numbered without gaps; a component over the byte cap is replaced by a note. */
     private final class Relay implements Consumer<Component> {
         private final String reply;
         private final UUID id;
@@ -322,19 +324,21 @@ final class RemoteCommands {
                 return;
             }
             String json = GsonComponentSerializer.gson().serialize(component);
-            JsonObject body = body(json);
-            if (!service.fits(reply, OUT, body)) {
-                json = GsonComponentSerializer.gson().serialize(TOO_LARGE);
-                body = body(json);
-            }
+            if (EnvelopeCodec.utf8Length(json) > MAX_OUTPUT_BYTES)
+                json = GsonComponentSerializer.gson()
+                        .serialize(MessageUtil.getParsedComponent(
+                                null,
+                                "network-command-line-too-large",
+                                "&7One line of output was too large to relay.",
+                                Map.of()));
             int size = EnvelopeCodec.utf8Length(json);
             if (bytes + size > MAX_OUTPUT_BYTES) {
                 cut = true;
                 return;
             }
             bytes += size;
+            service.send(reply, OUT, body(json));
             seq++;
-            service.send(reply, OUT, body);
         }
 
         /** Answers with {@value #DONE}, counting the components sent before it. */
@@ -357,10 +361,7 @@ final class RemoteCommands {
         }
     }
 
-    /**
-     * A forwarded command awaiting its answer, then taking late output. It is over once it failed, went quiet without
-     * an answer, or its late-output window closed; each happens once, under its lock.
-     */
+    /** A forwarded command awaiting its answer, then late output; it ends once, under its lock. */
     private final class Request {
         final Sender sender;
         final NetworkPlayer where;
@@ -368,8 +369,11 @@ final class RemoteCommands {
         final CompletableFuture<Boolean> result = new CompletableFuture<>();
         private final TreeMap<Integer, String> waiting = new TreeMap<>();
         private int next;
-        private int relayed;
+        /** The bytes of the output taken, relayed or waiting. */
         private long bytes;
+        /** The first {@code seq} past the byte cap; none from it on is taken. */
+        private int cutAt = Integer.MAX_VALUE;
+
         private boolean cut;
         private boolean heard;
         private long heardAt;
@@ -386,10 +390,20 @@ final class RemoteCommands {
         }
 
         synchronized void output(int seq, String component, long now) {
-            if (over || seq < next || (finished && now - finishedAt > LINGER_MILLIS)) return;
+            if (over || seq < next || waiting.containsKey(seq)) return;
+            if (finished && now - finishedAt > LINGER_MILLIS) return;
             heard = true;
             heardAt = now;
-            waiting.put(seq, component);
+            if (seq >= MAX_COMPONENTS) cutAt = Math.min(cutAt, MAX_COMPONENTS);
+            if (seq < cutAt) {
+                bytes += EnvelopeCodec.utf8Length(component);
+                waiting.put(seq, component);
+                while (bytes > MAX_OUTPUT_BYTES) {
+                    var last = waiting.pollLastEntry();
+                    bytes -= EnvelopeCodec.utf8Length(last.getValue());
+                    cutAt = last.getKey();
+                }
+            }
             drain();
         }
 
@@ -418,23 +432,33 @@ final class RemoteCommands {
             if (over) return true;
             if (finished) {
                 if (!all && now - finishedAt <= LINGER_MILLIS) return false;
-                boolean lost = !waiting.isEmpty() || next < count;
+                boolean lost = !waiting.isEmpty() || next < Math.min(count, cutAt);
                 flush();
                 if (lost && !cut)
-                    sender.sendMessage(
-                            Component.text("Some output from " + where.instance() + " was lost.", NamedTextColor.RED));
-                if (cutThere) cut();
+                    sender.sendMessage(MessageUtil.getParsedComponent(
+                            sender,
+                            "network-command-output-lost",
+                            "&cSome output from %instance% was lost.",
+                            Map.of("instance", where.instance())));
+                if (cutThere || cutAt != Integer.MAX_VALUE) cut();
             } else if (heard) {
                 if (!all && now - heardAt < QUIET_MILLIS) return false;
                 flush();
-                sender.sendMessage(Component.text(
-                        where.instance() + " did not report that the command finished; its output may be incomplete.",
-                        NamedTextColor.GRAY));
+                if (cutAt != Integer.MAX_VALUE) cut();
+                sender.sendMessage(MessageUtil.getParsedComponent(
+                        sender,
+                        "network-command-unfinished",
+                        "&7%instance% did not report that the command finished; its output may be incomplete.",
+                        Map.of("instance", where.instance())));
                 finished = true;
                 result.complete(true);
             } else {
                 if (!all && now - sent < ANSWER_MILLIS) return false;
-                sender.sendMessage(Component.text(where.instance() + " did not answer.", NamedTextColor.RED));
+                sender.sendMessage(MessageUtil.getParsedComponent(
+                        sender,
+                        "network-command-no-answer",
+                        "&c%instance% did not answer.",
+                        Map.of("instance", where.instance())));
                 finished = true;
                 result.complete(false);
             }
@@ -442,16 +466,14 @@ final class RemoteCommands {
             return true;
         }
 
-        /** Relays the waiting output while it continues the sequence. */
         private void drain() {
             while (!waiting.isEmpty() && waiting.firstKey() == next) {
                 relay(waiting.pollFirstEntry().getValue());
                 next++;
             }
-            if (cutThere && next >= count) cut();
+            if (next >= cutAt || cutThere && next >= count) cut();
         }
 
-        /** Relays all the waiting output in order, across its gaps. */
         private void flush() {
             while (!waiting.isEmpty()) {
                 var first = waiting.pollFirstEntry();
@@ -462,29 +484,29 @@ final class RemoteCommands {
 
         private void relay(String json) {
             if (cut) return;
-            int size = EnvelopeCodec.utf8Length(json);
-            if (relayed >= MAX_COMPONENTS || bytes + size > MAX_OUTPUT_BYTES) {
-                cut();
-                return;
-            }
             Component component;
             try {
                 component = GsonComponentSerializer.gson().deserialize(json);
             } catch (RuntimeException malformed) {
                 return;
             }
-            relayed++;
-            bytes += size;
             sender.sendMessage(component);
         }
 
         private void cut() {
             if (cut) return;
             cut = true;
-            sender.sendMessage(Component.text(
-                    "The rest of the output from " + where.instance() + " was cut: it is over " + MAX_COMPONENTS
-                            + " lines or " + MAX_OUTPUT_BYTES / 1024 + " KB.",
-                    NamedTextColor.RED));
+            sender.sendMessage(MessageUtil.getParsedComponent(
+                    sender,
+                    "network-command-output-cut",
+                    "&cThe rest of the output from %instance% was cut: it is over %lines% lines or %kb% KB.",
+                    Map.of(
+                            "instance",
+                            where.instance(),
+                            "lines",
+                            String.valueOf(MAX_COMPONENTS),
+                            "kb",
+                            String.valueOf(MAX_OUTPUT_BYTES / 1024))));
         }
     }
 }

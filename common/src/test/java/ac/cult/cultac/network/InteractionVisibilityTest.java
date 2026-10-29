@@ -15,6 +15,7 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.blocksim.entity.PaintingSize;
+import ac.cult.blocksim.interaction.BlockHit;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.checks.Check;
@@ -51,6 +52,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import ac.cult.cultac.utils.visibility.ClientVisibility;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
@@ -58,10 +60,12 @@ import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.event.events.FlagEvent;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.Test;
 
@@ -986,6 +990,84 @@ class InteractionVisibilityTest {
             assertTrue(pick.inside());
             assertFalse(setup.visibility.blockFaceHidden(TARGET, Direction.UP, 0));
         }
+    }
+
+    @Test
+    void aPoleHitFromInsideScaffoldingReportsTheInteractionShapesInitialSampleFace() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int y = 64; y <= 68; y++) setup.block(0, y, 0, "scaffolding");
+            var scaffolding = new BlockPos(0, 65, 0);
+            player.x = .02;
+            player.y = 64;
+            player.z = .14;
+            var eye = new Vec3(player.x, player.y + player.getEyeHeight(), player.z);
+            var pick = pick(setup, eye, new Vec3(.5715, -.6756, -.466).normalize());
+            assertNotNull(pick);
+            assertEquals(new ac.cult.blocksim.engine.BlockPos(0, 65, 0), pick.pos());
+            assertEquals(ac.cult.blocksim.engine.Direction.UP, pick.face());
+            assertFalse(pick.inside());
+            assertFalse(setup.visibility.blockFaceHidden(scaffolding, Direction.UP, 0));
+
+            player.x = -.2;
+            assertTrue(setup.visibility.blockFaceHidden(scaffolding, Direction.UP, 0));
+        }
+    }
+
+    @Test
+    void aFaceNoViewFromInsideScaffoldingReportsStaysHidden() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int y = 64; y <= 68; y++) setup.block(0, y, 0, "scaffolding");
+            player.x = .5;
+            player.y = 65.1 - player.getEyeHeight();
+            player.z = .5;
+            assertTrue(setup.visibility.blockFaceHidden(new BlockPos(0, 65, 0), Direction.UP, 0));
+        }
+    }
+
+    @Test
+    void everyFaceVanillaReportsFromInsideScaffoldingIsVisible() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int y = 64; y <= 68; y++) setup.block(0, y, 0, "scaffolding");
+            var scaffolding = new BlockPos(0, 65, 0);
+            for (Vec3 eye : List.of(
+                    new Vec3(.5, 65.5, .5),
+                    new Vec3(.14, 65.5, .14),
+                    new Vec3(.5, 65.86, .5),
+                    new Vec3(.02, 65.62, .14))) {
+                player.x = eye.x;
+                player.y = eye.y - player.getEyeHeight();
+                player.z = eye.z;
+                Set<Direction> faces = EnumSet.noneOf(Direction.class);
+                for (double pitch = -90; pitch <= 90; pitch += 1.5)
+                    for (double yaw = -180; yaw < 180; yaw += 1.5) {
+                        double cos = Math.cos(Math.toRadians(pitch));
+                        var look = new Vec3(
+                                -Math.sin(Math.toRadians(yaw)) * cos,
+                                -Math.sin(Math.toRadians(pitch)),
+                                Math.cos(Math.toRadians(yaw)) * cos);
+                        var pick = pick(setup, eye, look);
+                        if (pick != null && pick.pos().equals(new ac.cult.blocksim.engine.BlockPos(0, 65, 0)))
+                            faces.add(Direction.valueOf(pick.face().name()));
+                    }
+                assertFalse(faces.isEmpty(), eye::toString);
+                for (Direction face : faces)
+                    assertFalse(setup.visibility.blockFaceHidden(scaffolding, face, 0), () -> eye + " " + face);
+            }
+        }
+    }
+
+    private static BlockHit pick(Setup setup, Vec3 eye, Vec3 look) {
+        var player = setup.fixture.player;
+        return player.compensatedWorld
+                .geometry()
+                .clipBlocks(
+                        eye,
+                        eye.add(look.scale(4.5)),
+                        (state, pos) ->
+                                NativeBlockCollisionHelper.getSelectionShape(player, state, pos.x(), pos.y(), pos.z()));
     }
 
     private static int state(String key) {

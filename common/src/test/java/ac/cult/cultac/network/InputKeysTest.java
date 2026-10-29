@@ -999,7 +999,7 @@ class InputKeysTest {
                 101, EntityTypes.defaults().byKey("minecart").id(), new Vec3(0.5, FLOOR_Y + 0.0625, 0.5), 0, 0, 0);
     }
 
-    private static void selfMetadata(JavaTickFixture f, int index, byte value) {
+    static void selfMetadata(JavaTickFixture f, int index, byte value) {
         var packet = new EntityMetadata(
                 f.player.entityID, List.of(new EntityMetadata.Entry(index, value, ByteBuffer.allocate(0))));
         var event = new PacketSendEvent<>(f.player.user, ConnectionPhase.PLAY, metadataType(), packet, false);

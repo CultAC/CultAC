@@ -87,6 +87,13 @@ dependencies {
     implementation(project(":common"))
     implementation(project(":protocol-netty"))
     compileOnly(project(":reload-host"))
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.11.4")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 sourceSets.main { java.srcDir(rootProject.file("bukkit/src/main/java")) }

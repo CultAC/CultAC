@@ -12,6 +12,8 @@ layout and the build/test commands are adapted to this tree.
   packet event listeners (`events/`), the Java 3.0 simulation engine
   (`checks/impl/prediction/`, engine `utils/`), the Bedrock simulation engine
   (`bedrock/`), checks, managers, and the platform SPI (`platform/api/`).
+  On Paper it links against the server's own Adventure: end a component builder
+  with `asComponent()`, never `build()`, which throws `NoSuchMethodError` there.
 - `bukkit/` — the Bukkit/Paper platform module. Bukkit/Paper-only; the Fabric
   modules were removed in the port. The distributable jar is built here.
 - `placement-api/` — JDK-only inputs and results shared with the isolated runtime.

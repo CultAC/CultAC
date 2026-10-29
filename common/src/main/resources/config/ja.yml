@@ -297,25 +297,33 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
-# Messaging between the proxies and servers of a network, so commands, the roster and alerts reach players on other
-# instances. Each setting's CULTAC_NETWORK_* environment variable wins when set and not blank; CULTAC_NETWORK_NATS_SERVERS
-# is comma-separated. /cult reload reconnects when this block changes.
+# スタッフ用コマンド、Tab 補完、アラートを、すべてのプロキシとサーバーをまたいで使えるようにします。
+# 設定ガイド：CultAC のソース内の docs/network.md。変更は /cult reload で反映されます。
+# ここの設定はすべて CULTAC_NETWORK_* 環境変数でも指定でき、そちらが優先されます。
 network:
-  # none | redis | nats | redisbungee. none: commands, tab completion and alerts reach this server only.
-  # redisbungee (Velocity only) uses RedisBungee's own pub/sub and needs no other setting here.
-  transport: none
-  # Unique per instance. Empty: RedisBungee's proxy id when installed, else cloud.proxy-id, else host:port.
-  instance-id: ""
-  # Namespaces channels so several networks can share one broker.
-  network: "default"
-  # HMAC key every instance shares. Empty: Velocity's forwarding secret on a proxy; required on a backend.
-  secret: ""
+  # サーバー同士のつなぎ方：
+  #   none         オフ。コマンドとアラートはこのサーバーのプレイヤーにだけ届きます。
+  #   redis        Redis サーバー経由（Valkey、KeyDB、Dragonfly も使えます）。redis の項目を埋めてください。
+  #   nats         NATS サーバー経由。nats の項目を埋めてください。
+  #   redisbungee  RedisBungee を入れた Velocity プロキシ。その Redis 接続を使うので、ほかに埋める項目はありません。
+  type: none
   redis:
-    uri: "redis://:password@host:6379/0"   # rediss:// for TLS; Valkey/KeyDB/Dragonfly speak the same protocol
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
   nats:
-    servers: ["nats://host:4222"]
+    # 複数のサーバーを指定するときは、カンマで区切ります。
+    address: localhost:4222
+    username: ""
+    password: ""
     token: ""
-    credentials-file: ""                   # .creds (JWT + nkey), for NATS accounts
+    # NATS サーバーがアカウントを使う場合のみ：.creds ファイルのパス。
+    credentials-file: ""
+    ssl: false
+  # ネットワーク上でのこのサーバーの名前。サーバーごとに別の名前が必要です。
+  # 空にすると RedisBungee のプロキシ ID、なければ cloud.proxy-id、それもなければこのサーバーの IP とポートを使います。
+  instance-id: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
@@ -337,4 +345,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 15
+config-version: 17

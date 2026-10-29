@@ -1,5 +1,6 @@
 package ac.cult.cultac.platform.velocity;
 
+import ac.cult.cultac.network.routing.Backlog;
 import ac.cult.cultac.network.routing.MessageTransport;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import com.velocitypowered.api.event.EventHandler;
@@ -15,8 +16,9 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * The network transport over RedisBungee's own pub/sub, reached by reflection through RedisBungee's class loader.
- * RedisBungee owns the connection and its reconnects. The channels stay registered after {@link #close}: every
- * runtime on this proxy shares RedisBungee's registrations.
+ * RedisBungee owns the connection and its reconnects. Messages publish in order from one thread, at most
+ * {@value Backlog#MAX_ITEMS} of {@value Backlog#MAX_BYTES} characters in all waiting for it; the rest are dropped. The
+ * channels stay registered after {@link #close}: every runtime on this proxy shares RedisBungee's registrations.
  */
 final class RedisBungeeTransport implements MessageTransport {
     private static final String API = "com.imaginarycode.minecraft.redisbungee.AbstractRedisBungeeAPI";
@@ -29,6 +31,11 @@ final class RedisBungeeTransport implements MessageTransport {
     private final Method eventChannel, eventMessage;
     private final Class<Object> eventClass;
     private final ExecutorService sender;
+    private final Backlog backlog = new Backlog(
+            "Network transport RedisBungee: dropped a message to publish; " + Backlog.MAX_ITEMS + " messages or "
+                    + Backlog.MAX_BYTES / (1024 * 1024) + " MB are already waiting",
+            Backlog.MAX_ITEMS,
+            Backlog.MAX_BYTES);
     private @Nullable EventHandler<Object> handler;
 
     @SuppressWarnings("unchecked")
@@ -110,6 +117,8 @@ final class RedisBungeeTransport implements MessageTransport {
 
     @Override
     public void publish(String channel, String text) {
+        int size = Backlog.size(text);
+        if (!backlog.admit(size)) return;
         try {
             sender.execute(() -> {
                 try {
@@ -117,10 +126,12 @@ final class RedisBungeeTransport implements MessageTransport {
                 } catch (ReflectiveOperationException failure) {
                     LogUtil.warn(
                             "RedisBungee could not publish a network message: " + MessageTransport.describe(failure));
+                } finally {
+                    backlog.release(size);
                 }
             });
         } catch (RejectedExecutionException closed) {
-            // A closed transport sends nothing.
+            backlog.release(size);
         }
     }
 

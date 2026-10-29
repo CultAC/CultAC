@@ -5,19 +5,14 @@ import ac.cult.cultac.cloud.labels.LabelRequest;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * One staff member's label menu: the target, the verdict, the checks picked in order, the confidence and the span, and
- * the window frozen when the review opens; a Clean label has no span and takes no window. A fresh one replaces the old
- * on every {@code /cult label <player>}; it goes
- * when its staff member leaves or confirms. Each carries a token the menu's clicks quote, so a click from an older
- * menu never acts on a newer one's target.
+ * What a staff member has chosen in the label menu so far: the target, the verdict, the checks picked in order, the
+ * confidence and the span, and the window frozen when the review opens; a Clean label has no span and takes no window.
+ * Each step returns the page the menu shows next.
  */
 final class LabelWizard {
     static final int MIN_DAYS = 1;
@@ -26,8 +21,6 @@ final class LabelWizard {
     static final long DAY_MS = 86_400_000L;
     static final String HIGH = "high";
     static final String EXTREME = "extreme";
-
-    private static final Map<UUID, LabelWizard> OPEN = new ConcurrentHashMap<>();
 
     enum Verdict {
         CHEATING("Cheating", NamedTextColor.RED),
@@ -45,49 +38,24 @@ final class LabelWizard {
 
     enum Page {
         VERDICT,
-        CHECKS,
+        CHEATS,
         SPAN,
         REVIEW
     }
 
-    final UUID staff;
-    final UUID token;
     final CloudArguments.Target target;
     private @Nullable Verdict verdict;
-    private final Set<String> checks = new LinkedHashSet<>();
+    private final Set<String> cheats = new LinkedHashSet<>();
     private String confidence = HIGH;
     private int days;
+    private String note = "";
     private boolean nothingPicked;
     private long from;
     private long to;
 
-    LabelWizard(UUID staff, CloudArguments.Target target, int days) {
-        this.staff = staff;
-        this.token = UUID.randomUUID();
+    LabelWizard(CloudArguments.Target target, int days) {
         this.target = target;
         this.days = days(days);
-    }
-
-    /** Opens a fresh menu for {@code staff}, replacing any other. */
-    static LabelWizard open(UUID staff, CloudArguments.Target target, int days) {
-        LabelWizard wizard = new LabelWizard(staff, target, days);
-        OPEN.put(staff, wizard);
-        return wizard;
-    }
-
-    /** {@code staff}'s menu while {@code token} is still its token; null once it was replaced, confirmed or left. */
-    static @Nullable LabelWizard current(UUID staff, UUID token) {
-        LabelWizard wizard = OPEN.get(staff);
-        return wizard != null && wizard.token.equals(token) ? wizard : null;
-    }
-
-    /** Ends this menu, unless a newer one replaced it. */
-    void close() {
-        OPEN.remove(staff, this);
-    }
-
-    static void left(UUID staff) {
-        OPEN.remove(staff);
     }
 
     @Nullable
@@ -95,8 +63,8 @@ final class LabelWizard {
         return verdict;
     }
 
-    List<String> checks() {
-        return List.copyOf(checks);
+    List<String> cheats() {
+        return List.copyOf(cheats);
     }
 
     String confidence() {
@@ -105,6 +73,10 @@ final class LabelWizard {
 
     int days() {
         return days;
+    }
+
+    String note() {
+        return note;
     }
 
     long from() {
@@ -130,40 +102,51 @@ final class LabelWizard {
         verdict = chosen;
         nothingPicked = false;
         if (chosen == Verdict.CLEAN) {
-            checks.clear();
+            cheats.clear();
             return Page.SPAN;
         }
-        return Page.CHECKS;
+        return Page.CHEATS;
     }
 
     /** Page 2: picks {@code cheat}, or unpicks it. */
     Page toggle(String cheat) {
-        if (!LabelCatalog.current().pickable(cheat)) return Page.CHECKS;
-        if (!checks.remove(cheat)) checks.add(cheat);
+        if (!LabelCatalog.current().pickable(cheat)) return Page.CHEATS;
+        if (!cheats.remove(cheat)) cheats.add(cheat);
         nothingPicked = false;
-        return Page.CHECKS;
+        return Page.CHEATS;
     }
 
     /** Page 2's Next: on to the span, or back to the checks when none is picked. */
     Page next() {
-        nothingPicked = checks.isEmpty();
-        return nothingPicked ? Page.CHECKS : Page.SPAN;
+        nothingPicked = cheats.isEmpty();
+        return nothingPicked ? Page.CHEATS : Page.SPAN;
     }
 
-    /** Page 3's Back: the checks, or the verdict for Clean. */
-    Page backFromSpan() {
-        return verdict == Verdict.CLEAN ? Page.VERDICT : Page.CHECKS;
+    /** The page Back on {@code page} shows: the one before it, which for Clean's span is the verdict. */
+    Page back(Page page) {
+        return switch (page) {
+            case VERDICT, CHEATS -> Page.VERDICT;
+            case SPAN -> verdict == Verdict.CLEAN ? Page.VERDICT : Page.CHEATS;
+            case REVIEW -> Page.SPAN;
+        };
     }
 
-    /**
-     * Page 3's Next: takes the confidence and the span as the menu sent them and freezes the window ending at
-     * {@code now}. Clean has no span, so its days stay as they were.
-     */
-    Page window(@Nullable String chosenConfidence, @Nullable Float chosenDays, long now) {
+    /** Page 3's inputs as the menu sent them, kept on Next and on Back. Clean has no span, so its days stay. */
+    void keep(@Nullable String chosenConfidence, @Nullable Float chosenDays) {
         if (asksConfidence() && (HIGH.equals(chosenConfidence) || EXTREME.equals(chosenConfidence))) {
             confidence = chosenConfidence;
         }
         if (chosenDays != null && verdict != Verdict.CLEAN) days = days(chosenDays);
+    }
+
+    /** Page 4's note as the menu sent it, kept on Back. */
+    void keepNote(@Nullable String typed) {
+        note = typed == null ? "" : typed;
+    }
+
+    /** Page 3's Next: keeps the confidence and the span and freezes the window ending at {@code now}. */
+    Page window(@Nullable String chosenConfidence, @Nullable Float chosenDays, long now) {
+        keep(chosenConfidence, chosenDays);
         to = now;
         from = now - days * DAY_MS;
         return Page.REVIEW;
@@ -178,7 +161,7 @@ final class LabelWizard {
         String n = note == null || note.isBlank() ? null : note;
         if (verdict == Verdict.CLEAN) return List.of(LabelRequest.Window.clean(confidence, n));
         List<LabelRequest.Window> labels = new ArrayList<>();
-        for (String cheat : checks) {
+        for (String cheat : cheats) {
             if (!LabelCatalog.current().pickable(cheat)) continue;
             labels.add(
                     verdict == Verdict.CHEATING

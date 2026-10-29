@@ -542,3 +542,27 @@ checks:
   Cloud:
     summary: "Flagged by the cloud review"
     details: "A cloud review of how they played found signs of cheating. The alert names the kind of cheat it found."
+  CloudCombat:
+    summary: "Flagged by the cloud review: combat"
+    details: "A cloud review of how they played found signs of combat cheats."
+  CloudCombatExperimental:
+    summary: "Flagged by an experimental cloud review: combat"
+    details: "Like CloudCombat, but from cloud checks that are still in testing, so it can be wrong."
+  CloudAutomation:
+    summary: "Flagged by the cloud review: automation"
+    details: "A cloud review of how they played found signs of automation cheats."
+  CloudAutomationExperimental:
+    summary: "Flagged by an experimental cloud review: automation"
+    details: "Like CloudAutomation, but from cloud checks that are still in testing, so it can be wrong."
+  CloudClient:
+    summary: "Flagged by the cloud review: client"
+    details: "A cloud review of how they played found signs of a modified client."
+  CloudClientExperimental:
+    summary: "Flagged by an experimental cloud review: client"
+    details: "Like CloudClient, but from cloud checks that are still in testing, so it can be wrong."
+  CloudExploit:
+    summary: "Flagged by the cloud review: exploit"
+    details: "A cloud review of how they played found signs of exploits."
+  CloudExploitExperimental:
+    summary: "Flagged by an experimental cloud review: exploit"
+    details: "Like CloudExploit, but from cloud checks that are still in testing, so it can be wrong."

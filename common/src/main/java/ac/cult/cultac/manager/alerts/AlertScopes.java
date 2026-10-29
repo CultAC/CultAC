@@ -44,11 +44,8 @@ public final class AlertScopes {
         return Collections.synchronizedMap(new IdentityHashMap<>());
     }
 
-    /**
-     * Starts reading {@code player}'s persisted choice without blocking; {@link #DEFAULT} applies until it lands. Runs
-     * {@code loaded} once a choice is applied. A choice made meanwhile wins over the one read.
-     */
-    public void load(PlatformPlayer player, Runnable loaded) {
+    /** Reads {@code player}'s persisted choice in the background; a choice made meanwhile wins. */
+    public void load(PlatformPlayer player) {
         DataStore store = this.store.get();
         if (store == null) return;
         Object handle = player.getNative();
@@ -58,11 +55,8 @@ public final class AlertScopes {
                 .whenComplete((page, failure) -> {
                     if (failure != null) LogUtil.warn("Could not read the alert scope of " + uuid, failure);
                     AlertScope persisted = failure == null ? decode(page) : null;
-                    if (persisted != null && chosen.replace(handle, LOADING, persisted.id())) {
-                        loaded.run();
-                    } else {
+                    if (persisted == null || !chosen.replace(handle, LOADING, persisted.id()))
                         chosen.remove(handle, LOADING);
-                    }
                 });
     }
 
@@ -71,13 +65,11 @@ public final class AlertScopes {
         return AlertScope.parse(chosen.get(player.getNative()));
     }
 
-    /** The choice, else {@link #DEFAULT}. */
     public AlertScope scope(PlatformPlayer player) {
         AlertScope choice = chosen(player);
         return choice != null ? choice : DEFAULT;
     }
 
-    /** Sets {@code player}'s choice and persists it. */
     public void choose(PlatformPlayer player, AlertScope scope) {
         chosen.put(player.getNative(), scope.id());
         DataStore store = this.store.get();

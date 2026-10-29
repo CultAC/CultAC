@@ -1,5 +1,5 @@
 {
-  "version": "4cd37ea7d3d4926e",
+  "version": "c5ddf4fdb08e6c99",
   "cheats": [
     {
       "id": "triggerbot",
@@ -50,8 +50,20 @@
       "name": "Scaffold"
     },
     {
+      "id": "fastplace",
+      "name": "Fast Place"
+    },
+    {
       "id": "latency-abuse",
       "name": "Latency Abuse"
+    },
+    {
+      "id": "blink",
+      "name": "Blink"
+    },
+    {
+      "id": "fakelag",
+      "name": "Fakelag"
     },
     {
       "id": "other",

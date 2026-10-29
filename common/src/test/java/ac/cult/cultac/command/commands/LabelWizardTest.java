@@ -3,7 +3,6 @@ package ac.cult.cultac.command.commands;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.cloud.labels.LabelCatalog;
@@ -16,7 +15,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class LabelWizardTest {
-    private static final UUID STAFF = UUID.fromString("0f0e0d0c-0b0a-4908-8706-050403020100");
     private static final CloudArguments.Target NOTCH =
             new CloudArguments.Target(UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5"), "Notch");
     private static final long DAY = LabelWizard.DAY_MS;
@@ -24,18 +22,18 @@ class LabelWizardTest {
 
     @Test
     void cleanSkipsTheChecksAndComesBackToTheVerdict() {
-        LabelWizard wizard = new LabelWizard(STAFF, NOTCH, 7);
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
         wizard.choose(Verdict.CHEATING);
         wizard.toggle("killaura");
         assertEquals(Page.SPAN, wizard.choose(Verdict.CLEAN));
-        assertEquals(List.of(), wizard.checks());
+        assertEquals(List.of(), wizard.cheats());
         assertTrue(wizard.asksConfidence());
-        assertEquals(Page.VERDICT, wizard.backFromSpan());
+        assertEquals(Page.VERDICT, wizard.back(Page.SPAN));
     }
 
     @Test
     void cleanTakesOnlyAConfidenceAndPostsNoSpan() {
-        LabelWizard wizard = new LabelWizard(STAFF, NOTCH, 7);
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
         assertEquals(Page.SPAN, wizard.choose(Verdict.CLEAN));
         assertEquals(Page.REVIEW, wizard.window(LabelWizard.EXTREME, null, NOW));
         List<LabelRequest.Window> labels = wizard.labels("  ");
@@ -50,12 +48,12 @@ class LabelWizardTest {
 
     @Test
     void suspectedHidesTheConfidence() {
-        LabelWizard wizard = new LabelWizard(STAFF, NOTCH, 7);
-        assertEquals(Page.CHECKS, wizard.choose(Verdict.SUSPECTED));
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
+        assertEquals(Page.CHEATS, wizard.choose(Verdict.SUSPECTED));
         assertFalse(wizard.asksConfidence());
         wizard.toggle("autoclicker");
         assertEquals(Page.SPAN, wizard.next());
-        assertEquals(Page.CHECKS, wizard.backFromSpan());
+        assertEquals(Page.CHEATS, wizard.back(Page.SPAN));
         wizard.window(LabelWizard.EXTREME, 7f, NOW);
         assertEquals(LabelWizard.HIGH, wizard.confidence());
         LabelRequest.Window label = wizard.labels("seen").get(0);
@@ -65,15 +63,26 @@ class LabelWizardTest {
     }
 
     @Test
-    void checksToggleInTheOrderPicked() {
-        LabelWizard wizard = new LabelWizard(STAFF, NOTCH, 7);
+    void backShowsThePageBefore() {
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
         wizard.choose(Verdict.CHEATING);
-        assertEquals(Page.CHECKS, wizard.toggle("killaura"));
+        assertEquals(Page.VERDICT, wizard.back(Page.CHEATS));
+        assertEquals(Page.CHEATS, wizard.back(Page.SPAN));
+        assertEquals(Page.SPAN, wizard.back(Page.REVIEW));
+        wizard.choose(Verdict.CLEAN);
+        assertEquals(Page.VERDICT, wizard.back(Page.SPAN));
+    }
+
+    @Test
+    void checksToggleInTheOrderPicked() {
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
+        wizard.choose(Verdict.CHEATING);
+        assertEquals(Page.CHEATS, wizard.toggle("killaura"));
         wizard.toggle("triggerbot");
         wizard.toggle("crystalaura");
         wizard.toggle("crystalaura");
         wizard.toggle("speed");
-        assertEquals(List.of("killaura", "triggerbot"), wizard.checks());
+        assertEquals(List.of("killaura", "triggerbot"), wizard.cheats());
         wizard.window(null, 7f, NOW);
         List<LabelRequest.Window> labels = wizard.labels(null);
         assertEquals(
@@ -85,9 +94,9 @@ class LabelWizardTest {
 
     @Test
     void nextWithNothingPickedStaysAndSaysSo() {
-        LabelWizard wizard = new LabelWizard(STAFF, NOTCH, 7);
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
         wizard.choose(Verdict.CHEATING);
-        assertEquals(Page.CHECKS, wizard.next());
+        assertEquals(Page.CHEATS, wizard.next());
         assertTrue(wizard.nothingPicked());
         wizard.toggle("other");
         assertFalse(wizard.nothingPicked());
@@ -100,7 +109,7 @@ class LabelWizardTest {
         assertEquals(1, LabelWizard.days(0f));
         assertEquals(30, LabelWizard.days(99f));
         assertEquals(LabelWizard.DEFAULT_DAYS, LabelWizard.days(Float.NaN));
-        LabelWizard wizard = new LabelWizard(STAFF, NOTCH, 45);
+        LabelWizard wizard = new LabelWizard(NOTCH, 45);
         assertEquals(30, wizard.days());
         wizard.choose(Verdict.CHEATING);
         wizard.window(LabelWizard.HIGH, null, NOW);
@@ -109,30 +118,17 @@ class LabelWizardTest {
     }
 
     @Test
-    void aClickFromAnOlderMenuFindsNothing() {
-        UUID staff = UUID.randomUUID();
-        LabelWizard first = LabelWizard.open(staff, NOTCH, 7);
-        assertSame(first, LabelWizard.current(staff, first.token));
-        LabelWizard second = LabelWizard.open(staff, NOTCH, 7);
-        assertNull(LabelWizard.current(staff, first.token));
-        first.close();
-        assertSame(second, LabelWizard.current(staff, second.token));
-        LabelWizard.left(staff);
-        assertNull(LabelWizard.current(staff, second.token));
-    }
-
-    @Test
     void theChecksFollowTheCurrentCatalog() {
-        LabelWizard wizard = new LabelWizard(STAFF, NOTCH, 7);
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
         wizard.choose(Verdict.CHEATING);
         wizard.toggle("newcheat");
-        assertEquals(List.of(), wizard.checks());
+        assertEquals(List.of(), wizard.cheats());
         assertEquals("Auto Stun Slam", LabelLines.name("autostunslam"));
         try {
             LabelCatalog.use(LabelCatalogTest.swapped());
             wizard.toggle("newcheat");
             wizard.toggle("autostunslam");
-            assertEquals(List.of("newcheat"), wizard.checks());
+            assertEquals(List.of("newcheat"), wizard.cheats());
             assertEquals("New Cheat", LabelLines.name("newcheat"));
             assertEquals("Kill Aura", LabelLines.name("killaura"));
         } finally {
@@ -142,14 +138,16 @@ class LabelWizardTest {
 
     @Test
     void aCheckTheCatalogDropsWhileTheMenuIsOpenIsNotPosted() {
-        LabelWizard wizard = new LabelWizard(STAFF, NOTCH, 7);
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
         wizard.choose(Verdict.CHEATING);
         wizard.toggle("killaura");
         wizard.toggle("autostunslam");
         wizard.window(LabelWizard.EXTREME, null, NOW);
         try {
             LabelCatalog.use(LabelCatalogTest.swapped());
-            assertEquals(List.of("killaura"), wizard.labels(null).stream().map(LabelRequest.Window::cheat).toList());
+            assertEquals(
+                    List.of("killaura"),
+                    wizard.labels(null).stream().map(LabelRequest.Window::cheat).toList());
         } finally {
             LabelCatalog.use(LabelCatalog.bundled());
         }

@@ -46,16 +46,14 @@ class ConfigHashTest {
         }
     }
 
-    private String networkHash(String secret, String redisUri, String natsToken, String transport) throws IOException {
-        return networkHash(secret, redisUri, natsToken, "[\"nats://host:4222\"]", transport);
-    }
-
-    private String networkHash(String secret, String redisUri, String natsToken, String natsServers, String transport)
+    private String networkHash(String secret, String redisPassword, String natsToken, String instanceId)
             throws IOException {
         Files.writeString(
                 folder.resolve("config.yml"),
-                "network:\n  transport: " + transport + "\n  secret: " + secret + "\n  redis:\n    uri: " + redisUri
-                        + "\n  nats:\n    servers: " + natsServers + "\n    token: " + natsToken + "\n");
+                "network:\n  type: redis\n  redis:\n    address: cache:6379\n    username: \"\"\n    password: "
+                        + redisPassword + "\n  nats:\n    username: user\n    password: " + redisPassword
+                        + "\n    token: " + natsToken + "\n  secret: " + secret + "\n  instance-id: " + instanceId
+                        + "\n");
         Files.writeString(folder.resolve("cult.yml"), "Reach:\n  threshold: 0.0005\n");
         Files.writeString(
                 folder.resolve("punishments.yml"), "Punishments:\n  Reach:\n    remove-violations-after: 300\n");
@@ -64,12 +62,10 @@ class ConfigHashTest {
 
     @Test
     void theNetworkCredentialsLeaveTheHashAlone() throws IOException {
-        String base = networkHash("\"\"", "\"\"", "\"\"", "redis");
-        assertEquals(base, networkHash("\"s3cret\"", "\"redis://:pw@cache:6379/0\"", "\"tok\"", "redis"));
-        assertNotEquals(base, networkHash("\"\"", "\"\"", "\"\"", "nats"));
-        assertEquals(
-                base,
-                networkHash("\"\"", "\"\"", "\"\"", "[\"nats://user:pw@host:4222\", \"nats://other:4222\"]", "redis"));
+        String base = networkHash("\"\"", "\"\"", "\"\"", "p3");
+        assertEquals(base, networkHash("\"s3cret\"", "\"pw\"", "\"\"", "p3"));
+        assertEquals(base, networkHash("\"\"", "\"pa,ss\"", "\"t0ken\"", "p3"));
+        assertNotEquals(base, networkHash("\"\"", "\"\"", "\"\"", "p4"));
     }
 
     @Test

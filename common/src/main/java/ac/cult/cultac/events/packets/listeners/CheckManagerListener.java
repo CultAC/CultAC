@@ -33,6 +33,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommandSigned;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientInformation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCommandSuggestion;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomClickAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundEditBook;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -121,8 +122,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             ServerboundPackets.SET_STRUCTURE_BLOCK,
             ServerboundPackets.CONTAINER_BUTTON_CLICK,
             ServerboundPackets.PICK_ITEM,
-            ServerboundPackets.CONFIGURATION_ACKNOWLEDGED,
-            ServerboundPackets.CUSTOM_CLICK_ACTION);
+            ServerboundPackets.CONFIGURATION_ACKNOWLEDGED);
     private static final List<PacketType<Opaque>> OPAQUE_CLIENTTICKEND = List.of(ServerboundPackets.CLIENT_TICK_END);
     private static final List<PacketType<Opaque>> OPAQUE_PLAYERLOADED = List.of(ServerboundPackets.PLAYER_LOADED);
     private static final List<PacketType<Opaque>> OPAQUE_RECEIVE_TYPES = java.util.stream.Stream.of(
@@ -174,6 +174,14 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
 
     @CultPacketHandler
     public void onPong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
+        processGenericReceive(event, player);
+    }
+
+    @CultPacketHandler
+    public void onCustomClickAction(
+            PacketReceiveEvent<ServerboundCustomClickAction> event,
+            CultPlayer player,
+            ServerboundCustomClickAction packet) {
         processGenericReceive(event, player);
     }
 

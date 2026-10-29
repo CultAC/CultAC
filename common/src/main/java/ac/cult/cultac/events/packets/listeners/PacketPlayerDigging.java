@@ -21,15 +21,12 @@ public class PacketPlayerDigging {
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
         Hand hand = packet.hand();
         SimItemStack item = player.getInventory().getHandItem(hand);
-        if (RiptideUtil.getRiptideLevel(item) > 0) {
-            player.packetStateData.riptideUseHand = hand;
-            player.packetStateData.riptideUseStartClientTick = player.packetStateData.acceptedClientTick;
-            int slot = player.getInventory().inventory.selected;
-            player.packetStateData.riptideUseSlot = slot;
-            player.packetStateData.riptideSlotBeforeSelect = slot;
-            player.packetStateData.riptideFirstSelectSlot = slot;
-            player.packetStateData.riptideSelectClientTick = player.packetStateData.acceptedClientTick;
-        } else if (hand == player.packetStateData.riptideUseHand) {
+        if (RiptideUtil.isTrident(item)
+                && !item.nextDamageWillBreak()
+                && (RiptideUtil.getRiptideLevel(item) <= 0
+                        || RiptideUtil.inWaterOrRain(player).determineOptimistically())) {
+            RiptideUtil.startTrackedUse(player, hand);
+        } else {
             RiptideUtil.clearTrackedUse(player);
         }
     }
@@ -41,28 +38,28 @@ public class PacketPlayerDigging {
             PacketStateData state = player.packetStateData;
             Hand hand = state.riptideUseHand;
             SimItemStack item = hand == null ? null : player.getInventory().getHandItem(hand);
-            int held = RiptideUtil.getRiptideLevel(item);
+            int held = RiptideUtil.releaseLevel(item);
             int used = held;
             if (hand == Hand.MAIN_HAND
                     && state.riptideSelectClientTick == state.acceptedClientTick
                     && player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)) {
                 SimItemStack before = RiptideUtil.hotbarItem(player, state.riptideSlotBeforeSelect);
                 SimItemStack first = RiptideUtil.hotbarItem(player, state.riptideFirstSelectSlot);
-                held = RiptideUtil.getRiptideLevel(RiptideUtil.isTrident(first) ? first : before);
-                used = RiptideUtil.getRiptideLevel(RiptideUtil.isTrident(before) ? before : first);
+                held = RiptideUtil.releaseLevel(RiptideUtil.isTrident(first) ? first : before);
+                used = RiptideUtil.releaseLevel(RiptideUtil.isTrident(before) ? before : first);
             }
             int j = Math.max(held, used);
             int other = Math.min(held, used);
 
             if (j > 0 && RiptideUtil.isValidRiptideRelease(player, hand)) {
-                state.riptideLevel = j;
-                state.riptideAlternativeLevel = other != j ? other : 0;
-                state.riptideReleaseCertain = other > 0 && RiptideUtil.isCertainRiptideRelease(player);
+                // Entity#rideTick zeroes a passenger's delta before its tick, so its release pushes nothing.
+                if (!player.compensatedEntities.getSelf().inVehicle()) {
+                    state.riptideLevel = j;
+                    state.riptideAlternativeLevel = other != j ? other : 0;
+                    state.riptideReleaseCertain = other > 0 && RiptideUtil.isCertainRiptideRelease(player);
+                }
                 player.riptideSpinAttackTicks = 20;
                 player.riptideSpinCertain = state.riptideReleaseCertain;
-            } else if (j > 0) {
-                state.invalidRiptideRelease = true;
-                state.invalidRiptideReleaseReason = RiptideUtil.invalidReleaseReason(player, hand);
             }
             RiptideUtil.clearTrackedUse(player);
         }

@@ -289,25 +289,33 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
-# Messaging between the proxies and servers of a network, so commands, the roster and alerts reach players on other
-# instances. Each setting's CULTAC_NETWORK_* environment variable wins when set and not blank; CULTAC_NETWORK_NATS_SERVERS
-# is comma-separated. /cult reload reconnects when this block changes.
+# Zorgt dat staffcommando's, tab-aanvulling en waarschuwingen werken op al je proxy's en servers.
+# Installatiegids: docs/network.md in de broncode van CultAC. /cult reload past wijzigingen toe.
+# Elke instelling hier kun je ook zetten met een CULTAC_NETWORK_*-omgevingsvariabele, die dan voorrang heeft.
 network:
-  # none | redis | nats | redisbungee. none: commands, tab completion and alerts reach this server only.
-  # redisbungee (Velocity only) uses RedisBungee's own pub/sub and needs no other setting here.
-  transport: none
-  # Unique per instance. Empty: RedisBungee's proxy id when installed, else cloud.proxy-id, else host:port.
-  instance-id: ""
-  # Namespaces channels so several networks can share one broker.
-  network: "default"
-  # HMAC key every instance shares. Empty: Velocity's forwarding secret on a proxy; required on a backend.
-  secret: ""
+  # Hoe je servers met elkaar praten:
+  #   none         Uit. Commando's en waarschuwingen bereiken alleen spelers op deze server.
+  #   redis        Via een Redis-server (Valkey, KeyDB en Dragonfly werken ook). Vul het onderdeel redis in.
+  #   nats         Via een NATS-server. Vul het onderdeel nats in.
+  #   redisbungee  Velocity-proxy's met RedisBungee. Gebruikt diens Redis-verbinding, verder hoef je niets in te vullen.
+  type: none
   redis:
-    uri: "redis://:password@host:6379/0"   # rediss:// for TLS; Valkey/KeyDB/Dragonfly speak the same protocol
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
   nats:
-    servers: ["nats://host:4222"]
+    # Meer dan één server? Scheid ze met komma's.
+    address: localhost:4222
+    username: ""
+    password: ""
     token: ""
-    credentials-file: ""                   # .creds (JWT + nkey), for NATS accounts
+    # Alleen als je NATS-server accounts gebruikt: het pad naar je .creds-bestand.
+    credentials-file: ""
+    ssl: false
+  # De naam van deze server op het netwerk. Elke server heeft een eigen naam nodig.
+  # Laat leeg voor het proxy-id van RedisBungee, anders cloud.proxy-id, anders het IP en de poort van deze server.
+  instance-id: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
@@ -329,4 +337,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 15
+config-version: 17

@@ -6,33 +6,25 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.bridge.protocol.CommandRoots;
 import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.command.IsolatedCommandManager;
 import ac.cult.cultac.network.NetworkPlayer;
-import ac.cult.cultac.network.RoutingHolder;
 import ac.cult.cultac.network.routing.NetworkPlatform.Holder;
-import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
 import ac.cult.cultac.network.routing.RemoteCommands.Commands;
+import ac.cult.cultac.network.routing.TestNetworks.Players;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
-import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +32,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -66,18 +57,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class RemoteCommandsTest {
-    private static final byte[] KEY = "a shared network secret of some length".getBytes(StandardCharsets.UTF_8);
     private static final UUID ALICE = UUID.fromString("00000000-0000-0000-0000-00000000000a");
     private static final UUID BOB = UUID.fromString("00000000-0000-0000-0000-00000000000b");
     private static final UUID MOD = UUID.fromString("00000000-0000-0000-0000-0000000000dd");
-    private static final NetworkSettings SETTINGS =
-            new NetworkSettings("redis", "", "default", "", "", List.of(), "", "", "");
     private static final String LINE = "cult debug mods Alice";
     private static final Set<String> NODES =
             Set.of("cult.debug", "cult.consoledebug", "cult.cloud.view", "cult.profile");
 
     private final AtomicLong clock = new AtomicLong(1_793_140_000_000L);
     private final FakeBroker broker = new FakeBroker();
+    private final TestNetworks networks = new TestNetworks(broker, clock);
 
     private PlainPlaceholders placeholders;
 
@@ -96,32 +85,6 @@ class RemoteCommandsTest {
         placeholders.close();
     }
 
-    /** The players a platform reports online, and which generation holds each. */
-    private static final class Players implements NetworkPlatform {
-        final Map<UUID, OnlinePlayer> online = new ConcurrentHashMap<>();
-        final Map<UUID, Holder> holders = new ConcurrentHashMap<>();
-
-        Players with(UUID uuid, String name) {
-            online.put(uuid, new OnlinePlayer(uuid, name, "lobby"));
-            return this;
-        }
-
-        @Override
-        public Collection<OnlinePlayer> onlinePlayers() {
-            return List.copyOf(online.values());
-        }
-
-        @Override
-        public Holder holder(UUID uuid) {
-            return holders.getOrDefault(uuid, Holder.THIS);
-        }
-
-        @Override
-        public String address() {
-            return "test:1";
-        }
-    }
-
     /** A command manager recording what it ran; by default each command answers one line. */
     private static final class Recorder implements Commands {
         final List<String> lines = new CopyOnWriteArrayList<>();
@@ -130,6 +93,7 @@ class RemoteCommandsTest {
             sender.sendMessage(Component.text("ran " + line));
             return CompletableFuture.completedFuture(null);
         };
+        Supplier<Set<String>> nodes = () -> NODES;
 
         @Override
         public CompletionStage<?> execute(Sender sender, String line) {
@@ -140,7 +104,7 @@ class RemoteCommandsTest {
 
         @Override
         public Set<String> permissionNodes() {
-            return NODES;
+            return nodes.get();
         }
     }
 
@@ -216,19 +180,12 @@ class RemoteCommandsTest {
 
     private NetworkService service(
             String instance, Players players, @Nullable HostContext host, boolean transport, Recorder commands) {
-        NetworkService service = new NetworkService(
-                SETTINGS,
-                players,
-                host,
-                instance,
-                KEY,
-                transport ? broker.transport() : null,
-                clock::get,
-                null,
-                null,
-                new LogThrottle());
-        service.commands(commands);
-        return service;
+        return networks.service(instance)
+                .platform(players)
+                .host(host)
+                .transport(transport ? broker.transport() : null)
+                .commands(commands)
+                .build();
     }
 
     private NetworkService started(String instance, Players players, Recorder commands) {
@@ -237,14 +194,8 @@ class RemoteCommandsTest {
         return service;
     }
 
-    @SuppressWarnings("unchecked")
     private static HostContext host(Map<String, Object> shared, boolean current) {
-        HostContext host = mock(HostContext.class);
-        when(host.current()).thenReturn(current);
-        when(host.shared(anyString(), any()))
-                .thenAnswer(invocation -> shared.computeIfAbsent(
-                        invocation.getArgument(0), key -> ((Supplier<Object>) invocation.getArgument(1)).get()));
-        return host;
+        return TestNetworks.host(shared, current);
     }
 
     private static NetworkPlayer aliceOn(String instance) {
@@ -254,7 +205,7 @@ class RemoteCommandsTest {
     /** The bodies of the {@code cmd} messages {@code service} receives. */
     private static List<JsonObject> requests(NetworkService service) {
         List<JsonObject> bodies = new CopyOnWriteArrayList<>();
-        service.on(RemoteCommands.CMD, (envelope, origin) -> bodies.add(envelope.body()));
+        service.on(RemoteCommands.CMD, envelope -> bodies.add(envelope.body()));
         return bodies;
     }
 
@@ -566,9 +517,10 @@ class RemoteCommandsTest {
         assertTrue(heard.getLast().contains("was cut"), heard.getLast());
         assertEquals(
                 RemoteCommands.MAX_COMPONENTS,
-                envelopes("cultac.default.p3", RemoteCommands.OUT).size());
-        JsonObject done =
-                envelopes("cultac.default.p3", RemoteCommands.DONE).getFirst().getAsJsonObject("body");
+                envelopes(TestNetworks.channel("p3"), RemoteCommands.OUT).size());
+        JsonObject done = envelopes(TestNetworks.channel("p3"), RemoteCommands.DONE)
+                .getFirst()
+                .getAsJsonObject("body");
         assertEquals(RemoteCommands.MAX_COMPONENTS, done.get("count").getAsInt());
         assertTrue(done.get("cut").getAsBoolean());
     }
@@ -591,6 +543,56 @@ class RemoteCommandsTest {
     }
 
     @Test
+    void outputOutOfOrderIsHeldOnlyWithinTheCapsAsItArrives() {
+        NetworkService a = started("p3", new Players(), new Recorder());
+        Recorder there = new Recorder();
+        there.behaviour = (sender, line) -> new CompletableFuture<>();
+        NetworkService b = started("p7", new Players().with(ALICE, "Alice"), there);
+        List<JsonObject> requests = requests(b);
+
+        a.run(staff, LINE, aliceOn("p7"));
+        String id = requests.getFirst().get("id").getAsString();
+        String filler = "x".repeat(20_000);
+        for (int seq = RemoteCommands.MAX_COMPONENTS + 1_000; seq > 0; seq--)
+            b.send("p3", RemoteCommands.OUT, output(id, seq, Component.text(seq + filler)));
+        assertTrue(staff.plain().isEmpty());
+
+        b.send("p3", RemoteCommands.OUT, output(id, 0, Component.text("first")));
+        List<String> heard = staff.plain();
+        assertTrue(
+                heard.size() > 2 && heard.size() <= RemoteCommands.MAX_OUTPUT_BYTES / filler.length() + 2,
+                heard::toString);
+        assertEquals("first", heard.getFirst());
+        for (int seq = 1; seq < heard.size() - 1; seq++) assertEquals(seq + filler, heard.get(seq));
+        assertTrue(heard.getLast().contains("was cut"), heard.getLast());
+    }
+
+    @Test
+    void aFailureAfterTheRequestWasClaimedStillAnswersWithItsReason() {
+        NetworkService a = started("p3", new Players(), new Recorder());
+        Recorder throwing = new Recorder();
+        throwing.behaviour = (sender, line) -> {
+            throw new IllegalStateException("no command manager");
+        };
+        started("p7", new Players().with(ALICE, "Alice"), throwing);
+        Recorder unreadable = new Recorder();
+        unreadable.nodes = () -> {
+            throw new IllegalStateException("no permission nodes");
+        };
+        started("p9", new Players().with(BOB, "Bob"), unreadable);
+
+        assertFalse(a.run(staff, LINE, aliceOn("p7")).join());
+        assertFalse(
+                a.run(staff, LINE, new NetworkPlayer(BOB, "Bob", "p9", null)).join());
+        assertEquals(
+                List.of(
+                        "p7 could not run the command: no command manager",
+                        "p9 could not run the command: no permission nodes"),
+                staff.plain());
+        assertTrue(unreadable.lines.isEmpty());
+    }
+
+    @Test
     void aComponentTooLargeForOneMessageIsReplacedAndTheRestStillArrives() {
         NetworkService a = started("p3", new Players(), new Recorder());
         Recorder there = new Recorder();
@@ -605,7 +607,7 @@ class RemoteCommandsTest {
         assertTrue(a.run(staff, LINE, aliceOn("p7")).join());
         assertEquals(List.of("One line of output was too large to relay.", "after"), staff.plain());
         List<Integer> seqs = new ArrayList<>();
-        for (JsonObject out : envelopes("cultac.default.p3", RemoteCommands.OUT))
+        for (JsonObject out : envelopes(TestNetworks.channel("p3"), RemoteCommands.OUT))
             seqs.add(out.getAsJsonObject("body").get("seq").getAsInt());
         assertEquals(List.of(0, 1), seqs);
     }
@@ -683,7 +685,8 @@ class RemoteCommandsTest {
         assertEquals(List.of(LINE), oldCommands.lines);
         assertTrue(newCommands.lines.isEmpty());
         assertEquals(List.of("ran " + LINE), staff.plain());
-        assertEquals(1, envelopes("cultac.default.p3", RemoteCommands.DONE).size());
+        assertEquals(
+                1, envelopes(TestNetworks.channel("p3"), RemoteCommands.DONE).size());
     }
 
     @Test
@@ -773,7 +776,7 @@ class RemoteCommandsTest {
         assertTrue(a.run(staff, "cult debug mods Bob", bob).join());
         assertEquals(List.of("cult debug mods Bob"), here.lines);
         assertSame(staff, here.senders.getFirst());
-        assertTrue(broker.on("cultac.default.p3").isEmpty());
+        assertTrue(broker.on(TestNetworks.channel("p3")).isEmpty());
 
         players.online.remove(BOB);
         assertFalse(a.run(staff, "cult debug mods Bob", bob).join());
@@ -805,14 +808,14 @@ class RemoteCommandsTest {
         List<Component> heard = new ArrayList<>();
         RemoteCommandSource forwarded = new RemoteCommandSource(
                 MOD, "Mod", false, List.of("cult.debug"), commands.permissionNodes(), heard::add, clock::get, null);
-        RoutingHolder.install(a);
+        TestNetworks.install(a);
         try {
             commands.execute(forwarded, LINE)
                     .toCompletableFuture()
                     .handle((ran, failure) -> null)
                     .join();
         } finally {
-            RoutingHolder.uninstall(a);
+            NetworkModule.stop();
         }
         assertTrue(forwarded.left());
         assertTrue(heard.isEmpty());
@@ -838,11 +841,11 @@ class RemoteCommandsTest {
     }
 
     @Test
-    void withoutATransportAPlayerElsewhereGetsTheNetworkDisabledMessage() {
+    void withoutATransportACommandForAnotherInstanceIsNotForwarded() {
         NetworkService alone = service("p3", new Players(), null, false, new Recorder());
         alone.start();
         assertFalse(alone.run(staff, LINE, aliceOn("p7")).join());
-        assertTrue(staff.plain().getFirst().contains("Network-wide commands are not enabled"), staff.plain()::toString);
+        assertEquals(List.of("The command could not be forwarded to p7."), staff.plain());
     }
 
     @Test
