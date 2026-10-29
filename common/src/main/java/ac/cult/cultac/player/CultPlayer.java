@@ -1184,10 +1184,17 @@ public class CultPlayer implements GrimUser {
         return isSneaking && !isFlying ? Pose.CROUCHING : Pose.STANDING;
     }
 
+    // Fit-query scratch: read only within one query on the player's thread, never stored or returned.
+    private final SimpleCollisionBox fitBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox fitStandingBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox fitBandBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox fitEntityBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox fitEntityScratch = new SimpleCollisionBox();
+
     /** Player#canPlayerFitWithinBlocksAndEntitiesWhen with the player at {@code (x, y, z)}. */
     public boolean canPlayerFitWithinBlocksAndEntitiesWhen(Pose newPose, double x, double y, double z) {
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x, y, z, newPose.width * getScale(), newPose.height * getScale())
+                        fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
         return Collisions.isEmpty(this, box, y) && hasNoEntityCollision(box);
     }
@@ -1198,13 +1205,15 @@ public class CultPlayer implements GrimUser {
      */
     public boolean mayPlayerFitWithinBlocksAndEntitiesWhen(Pose newPose, double x, double y, double z) {
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x, y, z, newPose.width * getScale(), newPose.height * getScale())
+                        fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
         if (!Collisions.isEmpty(this, box, y)) return false;
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = new SimpleCollisionBox();
-        SimpleCollisionBox scratch = new SimpleCollisionBox();
-        for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+        SimpleCollisionBox entityBox = fitEntityBox;
+        SimpleCollisionBox scratch = fitEntityScratch;
+        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
+        for (int i = 0, size = candidates.size(); i < size; i++) {
+            PacketEntity entity = candidates.get(i);
             if (canCollideWithForPoseCheck(riding, entity)
                     && collidesWithPoseBox(entity, box, entityBox, scratch)
                     && overlapsAtEachPossiblePosition(entity, box, entityBox)) {
@@ -1222,18 +1231,20 @@ public class CultPlayer implements GrimUser {
     public boolean mayFitOnlyCrouchingWhen(double x, double y, double z) {
         if (!mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, x, y, z)) return false;
         SimpleCollisionBox crouching = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
+                        fitBox, x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
                 .expand(-1.0E-7D);
         SimpleCollisionBox standing = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x, y, z, Pose.STANDING.width * getScale(), Pose.STANDING.height * getScale())
+                        fitStandingBox, x, y, z, Pose.STANDING.width * getScale(), Pose.STANDING.height * getScale())
                 .expand(-1.0E-7D);
-        SimpleCollisionBox band = new SimpleCollisionBox(
+        SimpleCollisionBox band = fitBandBox.set(
                 standing.minX, crouching.maxY, standing.minZ, standing.maxX, standing.maxY, standing.maxZ);
         if (!Collisions.isEmpty(this, band, y)) return true;
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = new SimpleCollisionBox();
-        SimpleCollisionBox scratch = new SimpleCollisionBox();
-        for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+        SimpleCollisionBox entityBox = fitEntityBox;
+        SimpleCollisionBox scratch = fitEntityScratch;
+        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
+        for (int c = 0, size = candidates.size(); c < size; c++) {
+            PacketEntity entity = candidates.get(c);
             if (!canCollideWithForPoseCheck(riding, entity)
                     || !collidesWithPoseBox(entity, standing, entityBox, scratch)) {
                 continue;
@@ -1256,9 +1267,11 @@ public class CultPlayer implements GrimUser {
 
     private boolean hasNoEntityCollision(SimpleCollisionBox playerBox) {
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = new SimpleCollisionBox();
-        SimpleCollisionBox scratch = new SimpleCollisionBox();
-        for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+        SimpleCollisionBox entityBox = fitEntityBox;
+        SimpleCollisionBox scratch = fitEntityScratch;
+        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
+        for (int i = 0, size = candidates.size(); i < size; i++) {
+            PacketEntity entity = candidates.get(i);
             if (!canCollideWithForPoseCheck(riding, entity)
                     || !collidesWithPoseBox(entity, playerBox, entityBox, scratch)) {
                 continue;
