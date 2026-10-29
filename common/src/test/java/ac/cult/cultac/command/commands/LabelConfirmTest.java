@@ -98,7 +98,7 @@ class LabelConfirmTest {
     }
 
     private void confirm(boolean online, boolean refuseLater) {
-        LabelWizard wizard = new LabelWizard(MOD, NOTCH, 7);
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
         wizard.choose(Verdict.CHEATING);
         wizard.toggle("killaura");
         wizard.toggle("crystalaura");

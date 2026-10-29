@@ -26,7 +26,7 @@ import org.jetbrains.annotations.Nullable;
  */
 final class LabelLines {
     static String javaOnly() {
-        return "The label menu needs a Java client. "
+        return "The label menu needs a Java client on 1.21.6 or later. "
                 + "Use " + CloudCommandService.command("label <player> <cheat> <high|extreme> <24h|3d|7d|30d> [note]")
                 + ", or " + CloudCommandService.command("label <player> clean <high|extreme> [note]") + ".";
     }
@@ -37,7 +37,6 @@ final class LabelLines {
 
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH);
     private static final DateTimeFormatter MINUTE = DateTimeFormatter.ofPattern("MMM d HH:mm", Locale.ENGLISH);
-    private static final DateTimeFormatter JOINED = DateTimeFormatter.ofPattern("MMM dd, yyyy", Locale.ENGLISH);
     private static final String DOT = " · ";
     private static final String ARMED = "armed";
 
@@ -79,22 +78,22 @@ final class LabelLines {
         return hours / 24 + "d " + hours % 24 + "h";
     }
 
-    /** Page 1's status line: how long the target has been online, else that they are offline. */
-    static String status(@Nullable Long onlineMillis) {
-        return onlineMillis == null ? "Offline" : "Online " + duration(onlineMillis);
+    /**
+     * Page 1's status line: how long the target has been online here, else the server the network has them on
+     * ({@code elsewhere}, "" when it does not say), else that they are offline.
+     */
+    static String status(@Nullable Long onlineMillis, @Nullable String elsewhere) {
+        if (onlineMillis != null) return "Online " + duration(onlineMillis);
+        if (elsewhere == null) return "Offline";
+        return elsewhere.isEmpty() ? "Online" : "Online on " + elsewhere;
     }
 
-    /** Page 4's first card line: {@code Notch · online 42m} green, or {@code Notch · offline} grey. */
-    static Component presence(String name, @Nullable Long onlineMillis) {
-        return onlineMillis == null
-                ? Component.text(name + DOT + "offline", NamedTextColor.GRAY)
-                : Component.text(name + DOT + "online " + duration(onlineMillis), NamedTextColor.GREEN);
-    }
-
-    /** When the target first joined; null when the server does not know. */
-    static @Nullable String firstJoined(long millis) {
-        if (millis <= 0) return null;
-        return "First joined: " + JOINED.format(Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC));
+    /** The review's first card line: {@code Notch · online 42m} green, or {@code Notch · offline} grey. */
+    static Component presence(String name, @Nullable Long onlineMillis, @Nullable String elsewhere) {
+        String status = status(onlineMillis, elsewhere);
+        return Component.text(
+                name + DOT + Character.toLowerCase(status.charAt(0)) + status.substring(1),
+                onlineMillis == null && elsewhere == null ? NamedTextColor.GRAY : NamedTextColor.GREEN);
     }
 
     /** The verdict, the confidence when it has one, and the span unless Clean. */

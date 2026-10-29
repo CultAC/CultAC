@@ -5,19 +5,14 @@ import ac.cult.cultac.cloud.labels.LabelRequest;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * One staff member's label menu: the target, the verdict, the checks picked in order, the confidence and the span, and
- * the window frozen when the review opens; a Clean label has no span and takes no window. A fresh one replaces the old
- * on every {@code /cult label <player>}; it goes
- * when its staff member leaves or confirms. Each carries a token the menu's clicks quote, so a click from an older
- * menu never acts on a newer one's target.
+ * What a staff member has chosen in the label menu so far: the target, the verdict, the checks picked in order, the
+ * confidence and the span, and the window frozen when the review opens; a Clean label has no span and takes no window.
+ * Each step returns the page the menu shows next.
  */
 final class LabelWizard {
     static final int MIN_DAYS = 1;
@@ -26,8 +21,6 @@ final class LabelWizard {
     static final long DAY_MS = 86_400_000L;
     static final String HIGH = "high";
     static final String EXTREME = "extreme";
-
-    private static final Map<UUID, LabelWizard> OPEN = new ConcurrentHashMap<>();
 
     enum Verdict {
         CHEATING("Cheating", NamedTextColor.RED),
@@ -50,8 +43,6 @@ final class LabelWizard {
         REVIEW
     }
 
-    final UUID staff;
-    final UUID token;
     final CloudArguments.Target target;
     private @Nullable Verdict verdict;
     private final Set<String> checks = new LinkedHashSet<>();
@@ -61,33 +52,9 @@ final class LabelWizard {
     private long from;
     private long to;
 
-    LabelWizard(UUID staff, CloudArguments.Target target, int days) {
-        this.staff = staff;
-        this.token = UUID.randomUUID();
+    LabelWizard(CloudArguments.Target target, int days) {
         this.target = target;
         this.days = days(days);
-    }
-
-    /** Opens a fresh menu for {@code staff}, replacing any other. */
-    static LabelWizard open(UUID staff, CloudArguments.Target target, int days) {
-        LabelWizard wizard = new LabelWizard(staff, target, days);
-        OPEN.put(staff, wizard);
-        return wizard;
-    }
-
-    /** {@code staff}'s menu while {@code token} is still its token; null once it was replaced, confirmed or left. */
-    static @Nullable LabelWizard current(UUID staff, UUID token) {
-        LabelWizard wizard = OPEN.get(staff);
-        return wizard != null && wizard.token.equals(token) ? wizard : null;
-    }
-
-    /** Ends this menu, unless a newer one replaced it. */
-    void close() {
-        OPEN.remove(staff, this);
-    }
-
-    static void left(UUID staff) {
-        OPEN.remove(staff);
     }
 
     @Nullable

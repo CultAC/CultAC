@@ -9,6 +9,7 @@ import ac.cult.cultac.protocol.codec.connection.ChatCommandSignedCodec;
 import ac.cult.cultac.protocol.codec.connection.ClientCommandCodec;
 import ac.cult.cultac.protocol.codec.connection.ClientInformationCodec;
 import ac.cult.cultac.protocol.codec.connection.CommandSuggestionCodec;
+import ac.cult.cultac.protocol.codec.connection.CustomClickActionCodec;
 import ac.cult.cultac.protocol.codec.connection.CustomPayloadCodec;
 import ac.cult.cultac.protocol.codec.connection.EditBookCodec;
 import ac.cult.cultac.protocol.codec.connection.IntentionCodec;
@@ -39,6 +40,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommandSigned;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientInformation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCommandSuggestion;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomClickAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundEditBook;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundIntention;
@@ -98,7 +100,8 @@ public final class ServerboundPackets {
             COMMON.add("keep_alive", ServerboundKeepAlive.class, new ServerboundKeepAliveCodec());
     public static final PacketType<ServerboundPong> PONG = COMMON.add("pong", ServerboundPong.class, new PongCodec());
     public static final PacketType<Opaque> RESOURCE_PACK = COMMON.ignored("resource_pack");
-    public static final PacketType<Opaque> CUSTOM_CLICK_ACTION = COMMON.ignored("custom_click_action");
+    public static final PacketType<ServerboundCustomClickAction> CUSTOM_CLICK_ACTION =
+            COMMON.add("custom_click_action", ServerboundCustomClickAction.class, new CustomClickActionCodec());
 
     // Movement.
     public static final PacketType<ServerboundAcceptTeleportation> ACCEPT_TELEPORTATION =

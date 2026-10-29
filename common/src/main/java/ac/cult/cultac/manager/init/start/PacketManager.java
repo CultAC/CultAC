@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager.init.start;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.dialog.DialogClickListener;
 import ac.cult.cultac.events.packets.PacketModelRegistryNames;
 import ac.cult.cultac.events.packets.PacketPluginMessage;
 import ac.cult.cultac.events.packets.PacketServerPlayerRotation;
@@ -50,6 +51,8 @@ public class PacketManager implements StartableInitable {
 
         PacketPingListener pingListener = new PacketPingListener();
         registrar.registerListener(PacketListenerPriority.LOWEST, pingListener);
+
+        registrar.registerReceiveListener(PacketListenerPriority.NORMAL, new DialogClickListener());
 
         PacketPlayerWindow windowListener = new PacketPlayerWindow();
         registrar.registerListener(PacketListenerPriority.LOW, windowListener);

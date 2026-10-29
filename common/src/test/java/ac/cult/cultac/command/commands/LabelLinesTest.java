@@ -48,19 +48,20 @@ class LabelLinesTest {
 
     @Test
     void theCardSaysWhetherTheTargetIsOnline() {
-        Component online = LabelLines.presence("Notch", 42 * 60_000L);
+        Component online = LabelLines.presence("Notch", 42 * 60_000L, null);
         assertEquals("Notch · online 42m", plain(online));
         assertEquals(NamedTextColor.GREEN, online.color());
-        Component offline = LabelLines.presence("Notch", null);
+        Component elsewhere = LabelLines.presence("Notch", null, "Lobby-2");
+        assertEquals("Notch · online on Lobby-2", plain(elsewhere));
+        assertEquals(NamedTextColor.GREEN, elsewhere.color());
+        Component offline = LabelLines.presence("Notch", null, null);
         assertEquals("Notch · offline", plain(offline));
         assertEquals(NamedTextColor.GRAY, offline.color());
-        assertEquals("Online 3h 5m", LabelLines.status(185 * 60_000L));
-        assertEquals("Online 2d 4h", LabelLines.status(52 * 3_600_000L));
-        assertEquals("Offline", LabelLines.status(null));
-        assertEquals(
-                "First joined: Sep 02, 2026",
-                LabelLines.firstJoined(Instant.parse("2026-09-02T10:00:00Z").toEpochMilli()));
-        assertNull(LabelLines.firstJoined(0));
+        assertEquals("Online 3h 5m", LabelLines.status(185 * 60_000L, null));
+        assertEquals("Online 2d 4h", LabelLines.status(52 * 3_600_000L, "Lobby-2"));
+        assertEquals("Online on Lobby-2", LabelLines.status(null, "Lobby-2"));
+        assertEquals("Online", LabelLines.status(null, ""));
+        assertEquals("Offline", LabelLines.status(null, null));
     }
 
     @Test
