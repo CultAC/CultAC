@@ -68,7 +68,6 @@ profile-stored:
     - "&bLast seen: &f%timeago% ago"
     - "&7======================"
 # The player is online through another instance (proxy) that did not answer in time. %player% %instance%
-profile-remote-unanswered: "%prefix% &f%player% &7is online on &f%instance%&7, which did not answer; showing their last session."
 profile-unknown-player: "%prefix% &c%player% is not online on this instance and has no stored session."
 # /cult debug channels <player> — %player%, %count%, %channel%
 debug-channels-header: "%prefix% &b%player% has &f%count% &bplugin channels open"
