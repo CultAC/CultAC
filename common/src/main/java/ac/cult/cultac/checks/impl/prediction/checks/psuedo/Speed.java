@@ -7,6 +7,11 @@ import ac.cult.cultac.player.CultPlayer;
 
 public class Speed extends Check implements PostPredictionListener {
     public Speed(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("Speed").build());
+        super(
+                cultPlayer,
+                CheckInfo.builder()
+                        .name("Speed")
+                        .description("Moved faster than allowed on the ground")
+                        .build());
     }
 }

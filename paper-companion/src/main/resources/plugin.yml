@@ -23,6 +23,9 @@ permissions:
   cult.profile:
     description: Check user profile
     default: op
+  cult.info:
+    description: Explain what each check catches
+    default: op
   cult.brand:
     description: Show client brands on join
     default: op

@@ -7,6 +7,11 @@ import ac.cult.cultac.player.CultPlayer;
 
 public class InputKeys extends Check implements PostPredictionListener {
     public InputKeys(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("InputKeys").build());
+        super(
+                cultPlayer,
+                CheckInfo.builder()
+                        .name("InputKeys")
+                        .description("Sent movement controls the normal game cannot produce")
+                        .build());
     }
 }
