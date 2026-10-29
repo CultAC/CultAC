@@ -796,6 +796,25 @@ class NetworkServiceTest {
     }
 
     @Test
+    void reportsPastTheCapTurnIntoOneFullRoster() {
+        NetworkService a = started("p3", new Players());
+        Players here = new Players().with(ALICE, "Alice", "lobby");
+        NetworkService b = started("p7", here);
+        for (int i = 0; i <= NetworkService.MAX_PENDING_REPORTS; i++)
+            b.playerChanged(new OnlinePlayer(new UUID(9, i), "P" + i, "lobby"));
+        int published = rosterBodiesFrom("p7").size();
+
+        b.sendDelta();
+
+        assertEquals(published + 1, rosterBodiesFrom("p7").size());
+        assertTrue(rosterBodiesFrom("p7").getLast().get("full").getAsBoolean());
+        assertEquals(
+                List.of("Alice"), a.roster().stream().map(NetworkPlayer::name).toList());
+        b.sendDelta();
+        assertEquals(published + 1, rosterBodiesFrom("p7").size());
+    }
+
+    @Test
     void aVerboseChangeRidesTheNextDeltaWithThePlayers() {
         NetworkService a = started("p3", new Players());
         NetworkService b = started("p7", new Players());

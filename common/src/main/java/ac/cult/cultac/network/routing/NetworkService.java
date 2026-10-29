@@ -62,9 +62,13 @@ public final class NetworkService implements NetworkRouting {
     /**
      * The host-shared {@code Map<UUID, String[]>} of each player reported since the last roster message: {@code {name,
      * server, brand}} for a join, switch or brand change and an empty array for a quit. Generations load their own
-     * classes, so it holds JDK types only.
+     * classes, so it holds JDK types only. Past {@value #MAX_PENDING_REPORTS} players it holds only {@link #FULL_ROSTER},
+     * which the next delta turns into a full roster.
      */
     static final String REPORTS_KEY = "cultac.network.reports";
+
+    static final int MAX_PENDING_REPORTS = 10_000;
+    static final UUID FULL_ROSTER = new UUID(0L, 0L);
 
     private static final AtomicLong UNHOSTED_ROSTER_ORDER = new AtomicLong(System.currentTimeMillis());
     private static final String UNHOSTED_NONCE = UUID.randomUUID().toString();
@@ -373,7 +377,13 @@ public final class NetworkService implements NetworkRouting {
     private void report(UUID uuid, String[] report) {
         if (transport == null) return;
         synchronized (reports) {
-            if (running) reports.put(uuid, report);
+            if (!running || reports.containsKey(FULL_ROSTER)) return;
+            if (reports.size() >= MAX_PENDING_REPORTS && !reports.containsKey(uuid)) {
+                reports.clear();
+                reports.put(FULL_ROSTER, new String[0]);
+                return;
+            }
+            reports.put(uuid, report);
         }
     }
 
@@ -393,6 +403,14 @@ public final class NetworkService implements NetworkRouting {
         try {
             synchronized (rosterOrder) {
                 if (!running || !current()) return;
+                boolean full;
+                synchronized (reports) {
+                    full = reports.containsKey(FULL_ROSTER);
+                }
+                if (full) {
+                    publishRoster();
+                    return;
+                }
                 List<OnlinePlayer> changed = new ArrayList<>();
                 List<UUID> left = new ArrayList<>();
                 boolean verboseChange;
