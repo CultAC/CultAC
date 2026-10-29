@@ -38,7 +38,7 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                     bytes.readShort(); // Existing cache recalculates block/fluid counts from the decoded states.
                     bytes.readShort();
                     chunks[i] = new CachedSection(PalettedSection.readBlocks(bytes));
-                    biomes[i] = PalettedSection.readBiomes(bytes, biomeSize);
+                    biomes[i] = PalettedSection.readBiomeValues(bytes, biomeSize);
                 }
             } finally {
                 bytes.release();

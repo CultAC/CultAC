@@ -123,6 +123,7 @@ public class BasePacketWorldReader {
         // Subclasses decode the active biome palette format.
     }
 
+    /** The column keeps {@code chunks}, {@code biomes} and the arrays in it; no caller writes them afterwards. */
     public void addChunkToCache(
             PacketSendEvent<?> event,
             CultPlayer player,
@@ -164,7 +165,7 @@ public class BasePacketWorldReader {
         if (player.chunkDebug) {
             player.sendMessage("Chunk " + chunkX + " " + chunkZ + " was added.");
         }
-        CachedChunk column = new CachedChunk(chunks, applyTransaction, blockEntities, biomes);
+        CachedChunk column = CachedChunk.received(chunks, applyTransaction, blockEntities, biomes);
         player.compensatedWorld.addToCache(
                 column, dimension, applyTransaction, chunkX, chunkZ, geyserTickers, motionBlocking);
     }

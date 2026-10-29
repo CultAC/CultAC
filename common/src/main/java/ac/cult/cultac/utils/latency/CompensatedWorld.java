@@ -184,17 +184,32 @@ public class CompensatedWorld {
             return biomes[Math.clamp(section, 0, sections.length - 1)][(quartY << 4) | (quartZ << 2) | quartX];
         }
 
+        /** As the constructor, taking ownership of {@code biomes} and of every array in it instead of copying them. */
+        public static CachedChunk received(
+                CachedSection[] sections,
+                int transaction,
+                List<ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate> blockEntities,
+                int[][] biomes) {
+            var chunk = new CachedChunk(sections, transaction, blockEntities, null);
+            chunk.retainBiomes(biomes, true);
+            return chunk;
+        }
+
         public void replaceBiomes(int[][] biomes) {
+            retainBiomes(biomes, false);
+        }
+
+        private void retainBiomes(int[][] biomes, boolean owned) {
             if (biomes == null) {
                 this.biomes = null;
                 return;
             }
             if (biomes.length != sections.length) throw new IllegalArgumentException("Biome section count mismatch");
-            int[][] retained = new int[biomes.length][];
+            int[][] retained = owned ? biomes : new int[biomes.length][];
             for (int i = 0; i < biomes.length; i++) {
                 int[] values = biomes[i];
                 if (values.length != 64) throw new IllegalArgumentException("Biome section must contain 64 values");
-                retained[i] = isUniform(values) ? uniformBiomes(values[0]) : values.clone();
+                retained[i] = isUniform(values) ? uniformBiomes(values[0]) : owned ? values : values.clone();
             }
             this.biomes = retained;
         }

@@ -9,6 +9,7 @@ package ac.cult.cultac.utils.latency;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.concurrent.FastThreadLocal;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
@@ -84,6 +85,19 @@ public final class PalettedSection {
 
     public static int[] readBiomes(ByteBuf input, int registrySize) {
         var section = read(input, 64, 1, 3, registrySize, false);
+        int[] result = new int[64];
+        for (int i = 0; i < result.length; i++) result[i] = section.get(i);
+        return result;
+    }
+
+    /**
+     * {@link #readBiomes(ByteBuf, int)}'s values; a single-entry palette gives {@link CachedChunk#uniformBiomes}'s
+     * shared array, which no caller may write.
+     */
+    public static int[] readBiomeValues(ByteBuf input, int registrySize) {
+        var section = read(input, 64, 1, 3, registrySize, false);
+        int single = section.singleValue();
+        if (single >= 0) return CachedChunk.uniformBiomes(single);
         int[] result = new int[64];
         for (int i = 0; i < result.length; i++) result[i] = section.get(i);
         return result;
