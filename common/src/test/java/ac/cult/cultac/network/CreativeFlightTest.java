@@ -2,6 +2,7 @@ package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
+import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,8 +10,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
 import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.PacketPlayerAbilities;
@@ -19,10 +23,12 @@ import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -37,6 +43,7 @@ import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameEventType;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -46,6 +53,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -92,6 +100,18 @@ class CreativeFlightTest {
     // The forward movement of a tick that starts in the air.
     private static final double AIR_STEP = (double) 0.98F * (double) 0.02F;
     private static final double GROUND_FRICTION = 0.6F * 0.91F;
+    private static final ServerboundPlayerInput[] AWAY_FROM_FORWARD = {
+        keys(true, false), keys(false, true), keys(true, true)
+    };
+    private static final ClientVersion[] SPRINT_VERSIONS = {ClientVersion.V_26_3, ClientVersion.V_1_21_4};
+    private static final float SPRINT_YAW = 30.0F;
+    /** Player#getFlyingSpeed of a sprinting flyer. */
+    private static final float SPRINT_FLYING_SPEED = FLYING_SPEED * 2.0F;
+    /** Player#getFlyingSpeed of a sprinting player out of flight. */
+    private static final float SPRINT_AIR_SPEED = 0.025999999F;
+    /** The movement speed with the minecraft:sprinting modifier, on stone. */
+    private static final float SPRINT_GROUND_SPEED = (float) ((double) 0.1F * (1.0D + (double) 0.3F));
+    private static final Vec3 SKY = new Vec3(0.5, FLOOR_Y + 12, 0.5);
 
     @Test
     void aVelocityTakenInFlightWithJumpHeldRisesByTheFlightImpulse() throws Exception {
@@ -1035,6 +1055,156 @@ class CreativeFlightTest {
         }
     }
 
+    /** A player the server lets fly is not flagged in creative flight while it holds the sprint flag. */
+    @Test
+    void sprintingAwayFromForwardInCreativeFlightIsNotFlagged() throws Exception {
+        for (ClientVersion version : SPRINT_VERSIONS) {
+            for (ServerboundPlayerInput keys : AWAY_FROM_FORWARD) {
+                String where = version + " " + keys;
+                try (var f = flying(version, HOVER, true)) {
+                    var run = new SprintRun(f, HOVER);
+                    f.command(PlayerCommandAction.START_SPRINTING);
+                    assertUnflagged(f, run.fly(FORWARD), where);
+                    for (int i = 0; i < 3; i++) assertUnflagged(f, run.fly(keys), where);
+                    assertUnflagged(f, run.fly(holding(keys, true, false)), where);
+                    assertUnflagged(f, run.fly(holding(keys, false, true)), where);
+                }
+            }
+        }
+    }
+
+    /** LocalPlayer#aiStep's double-tap toggle starts flight before travel, so the toggle's tick flies. */
+    @Test
+    void aDoubleTapStartingFlightWhileSprintingAwayFromForwardIsNotFlagged() throws Exception {
+        for (ClientVersion version : SPRINT_VERSIONS) {
+            for (ServerboundPlayerInput keys : AWAY_FROM_FORWARD) {
+                String where = version + " " + keys;
+                try (var f = flying(version, SKY, false)) {
+                    var run = new SprintRun(f, SKY);
+                    f.command(PlayerCommandAction.START_SPRINTING);
+                    assertJudgedExact(run.fall(FORWARD_JUMP), where);
+                    assertJudgedExact(run.fall(FORWARD), where);
+
+                    f.abilities(true);
+                    assertUnflagged(f, run.fly(holding(keys, true, false)), where);
+                    assertTrue(f.player.isFlying, "the toggle did not start flight " + where);
+                    assertUnflagged(f, run.fly(keys), where);
+                }
+            }
+        }
+    }
+
+    /** LocalPlayer#aiStep runs jumpFromGround when a grounded double-tap starts flight, before the flight input. */
+    @Test
+    void aGroundedDoubleTapStartingFlightWhileSprintingAwayFromForwardIsNotFlagged() throws Exception {
+        for (ClientVersion version : SPRINT_VERSIONS) {
+            for (ServerboundPlayerInput keys : AWAY_FROM_FORWARD) {
+                String where = version + " " + keys;
+                try (var f = flying(version, GROUND, false)) {
+                    f.place(GROUND.add(0, 0.3, 0), new Vec3(0, -0.2, 0));
+                    f.command(PlayerCommandAction.START_SPRINTING);
+                    f.input(JUMP);
+                    assertJudgedExact(f.tick(GROUND.add(0, 0.1, 0), false), where);
+                    f.input(NONE);
+                    assertJudgedExact(f.tick(GROUND, true), where);
+
+                    var run = new SprintRun(f, GROUND);
+                    run.velocity = new Vec3(0, JUMP_POWER, 0);
+                    f.abilities(true);
+                    assertUnflagged(f, run.fly(holding(keys, true, false)), where);
+                    assertTrue(f.player.isFlying, "the toggle did not start flight " + where);
+                    assertUnflagged(f, run.fly(keys), where);
+                }
+            }
+        }
+    }
+
+    /**
+     * An airborne double-tap stops flight before travel; once out of flight, a sprint flag held without forward
+     * impulse is set back like LocalPlayer#shouldStopRunSprinting.
+     */
+    @Test
+    void stoppingFlightInTheAirWhileSprintingAwayFromForwardIsNotFlagged() throws Exception {
+        for (ClientVersion version : SPRINT_VERSIONS) {
+            for (ServerboundPlayerInput keys : AWAY_FROM_FORWARD) {
+                String where = version + " " + keys;
+                try (var f = flying(version, SKY, true)) {
+                    var run = new SprintRun(f, SKY);
+                    f.command(PlayerCommandAction.START_SPRINTING);
+                    assertUnflagged(f, run.fly(FORWARD), where);
+                    assertUnflagged(f, run.fly(holding(keys, true, false)), where);
+                    assertUnflagged(f, run.fly(keys), where);
+
+                    f.abilities(false);
+                    assertUnflagged(f, run.fall(holding(keys, true, false)), where);
+                    assertFalse(f.player.isFlying, "the toggle did not stop flight " + where);
+                    assertSetBackAfterFlight(f, () -> run.fall(keys), 2, where);
+                }
+            }
+        }
+    }
+
+    /**
+     * LocalPlayer#aiStep stops flight after the travel that lands; once out of flight, a sprint flag held without
+     * forward impulse is set back like LocalPlayer#shouldStopRunSprinting.
+     */
+    @Test
+    void landingFromFlightWhileSprintingAwayFromForwardIsNotFlagged() throws Exception {
+        for (ClientVersion version : SPRINT_VERSIONS) {
+            for (ServerboundPlayerInput keys : AWAY_FROM_FORWARD) {
+                String where = version + " " + keys;
+                Vec3 start = TAKEOFF.add(0, 0.3, 0);
+                try (var f = flying(version, start, true)) {
+                    var run = new SprintRun(f, start);
+                    f.command(PlayerCommandAction.START_SPRINTING);
+                    assertUnflagged(f, run.fly(FORWARD), where);
+                    assertUnflagged(f, run.fly(holding(keys, false, true)), where);
+
+                    assertUnflagged(f, run.land(holding(keys, false, true)), where);
+                    assertFalse(f.player.isFlying, "the landing did not stop flight " + where);
+                    assertSetBackAfterFlight(f, () -> run.walk(keys, SPRINT_GROUND_SPEED), 3, where);
+                }
+            }
+        }
+    }
+
+    /**
+     * Abilities#mayfly satisfies only the food clause of LocalPlayer#isSprintingPossible (26.3) and
+     * hasEnoughFoodToStartSprinting (1.21.4); without forward impulse aiStep still stops a sprint before travel.
+     */
+    @Test
+    void sprintingAwayFromForwardWhileWalkingInCreativeIsSetBack() throws Exception {
+        for (ClientVersion version : SPRINT_VERSIONS) {
+            for (ServerboundPlayerInput keys : AWAY_FROM_FORWARD) {
+                String where = version + " " + keys;
+                try (var f = flying(version, TAKEOFF, false)) {
+                    var run = new SprintRun(f, TAKEOFF);
+                    f.command(PlayerCommandAction.START_SPRINTING);
+                    assertJudgedExact(run.walk(FORWARD, SPRINT_GROUND_SPEED), where);
+                    assertSetBack(f, run.walk(keys, SPRINT_GROUND_SPEED), where);
+                }
+            }
+        }
+    }
+
+    @Test
+    void walkingAwayFromForwardInCreativeAfterTheSprintStopsIsExact() throws Exception {
+        for (ClientVersion version : SPRINT_VERSIONS) {
+            for (ServerboundPlayerInput keys : AWAY_FROM_FORWARD) {
+                String where = version + " " + keys;
+                try (var f = flying(version, TAKEOFF, false)) {
+                    var run = new SprintRun(f, TAKEOFF);
+                    f.command(PlayerCommandAction.START_SPRINTING);
+                    assertJudgedExact(run.walk(FORWARD, SPRINT_GROUND_SPEED), where);
+                    f.command(PlayerCommandAction.STOP_SPRINTING);
+                    assertJudgedExact(run.walk(keys, GROUND_SPEED), where);
+                    assertJudgedExact(run.walk(keys, GROUND_SPEED), where);
+                    assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback(), where);
+                }
+            }
+        }
+    }
+
     /** A player hovering at {@link #HOVER} that the server lets fly and sets flying. */
     private static JavaTickFixture flying() throws Exception {
         return flying(HOVER, true);
@@ -1042,7 +1212,13 @@ class CreativeFlightTest {
 
     /** A player at {@code position} that the server lets fly, set flying with {@code flying}. */
     private static JavaTickFixture flying(Vec3 position, boolean flying) throws Exception {
-        JavaTickFixture f = new JavaTickFixture();
+        return flying(ClientVersion.V_26_3, position, flying);
+    }
+
+    private static JavaTickFixture flying(ClientVersion version, Vec3 position, boolean flying) throws Exception {
+        JavaTickFixture f = version == ClientVersion.V_26_3
+                ? new JavaTickFixture()
+                : new JavaTickFixture(ProtocolVersion.V1_21_4, version);
         f.place(position, Vec3.ZERO);
         grantFlight(f, flying);
         return f;
@@ -1365,5 +1541,100 @@ class CreativeFlightTest {
 
     private static void assertPredicted(PredictionResult result) {
         assertTrue(result.getOffset() < 1.0E-5, describe(result));
+    }
+
+    private static void assertJudgedExact(PredictionResult result, String where) {
+        assertTrue(exact(result), where + ": " + describe(result));
+    }
+
+    private static void assertUnflagged(JavaTickFixture f, PredictionResult result, String where) {
+        String detail = where + ": " + describe(result);
+        assertFalse(result.hasEffectiveFlags(), detail);
+        assertEquals(0.0, f.player.checkManager.getCheck(InputKeys.class).violations, detail);
+        assertEquals(0.0, f.player.checkManager.getCheck(OmniSprint.class).violations, detail);
+        assertEquals(0.0, f.player.checkManager.getCheck(OffsetHandler.class).violations, detail);
+        assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback(), "set back " + detail);
+    }
+
+    /** {@code ticks} unflagged ticks still counted as flight, then a judged tick set back for its sprint. */
+    private static void assertSetBackAfterFlight(
+            JavaTickFixture f, Supplier<PredictionResult> tick, int ticks, String where) {
+        for (int i = 0; i < ticks; i++) {
+            PredictionResult result = tick.get();
+            assertTrue(result.isExempt(), where + " tick " + i + ": " + describe(result));
+            assertUnflagged(f, result, where);
+        }
+        assertSetBack(f, tick.get(), where);
+    }
+
+    private static void assertSetBack(JavaTickFixture f, PredictionResult result, String where) {
+        String detail = where + ": " + describe(result);
+        assertFalse(result.isExempt(), detail);
+        assertTrue(result.hasFlag(OmniSprint.class), detail);
+        assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback(), "not set back " + detail);
+    }
+
+    private static ServerboundPlayerInput keys(boolean backward, boolean left) {
+        return new ServerboundPlayerInput(false, backward, left, false, false, false, false);
+    }
+
+    private static ServerboundPlayerInput holding(ServerboundPlayerInput keys, boolean jump, boolean shift) {
+        return new ServerboundPlayerInput(
+                keys.forward(), keys.backward(), keys.left(), keys.right(), jump, shift, keys.sprint());
+    }
+
+    /** A client holding the sprint flag, moving at the sprinting Player#getFlyingSpeed or movement speed. */
+    private static final class SprintRun {
+        final JavaTickFixture f;
+        Vec3 position;
+        Vec3 velocity = Vec3.ZERO;
+
+        SprintRun(JavaTickFixture f, Vec3 position) {
+            this.f = f;
+            this.position = position;
+            f.player.xRot = SPRINT_YAW;
+        }
+
+        /** LocalPlayer#aiStep's flight impulse, then Player#travel's 0.6 of the travelled Y and 0.91 horizontally. */
+        PredictionResult fly(ServerboundPlayerInput keys) {
+            f.input(keys);
+            double y = velocity.y + (keys.jump() ? IMPULSE : 0.0) - (keys.shift() ? IMPULSE : 0.0);
+            Vec3 move = travel(keys, SPRINT_FLYING_SPEED, y);
+            position = position.add(move);
+            velocity = new Vec3(move.x * 0.91F, y * 0.6, move.z * 0.91F);
+            return f.tick(position, false);
+        }
+
+        /** The landing's travel in flight; LocalPlayer#aiStep stops flight on the ground after it. */
+        PredictionResult land(ServerboundPlayerInput keys) {
+            f.input(keys);
+            f.abilities(false);
+            Vec3 move = travel(keys, SPRINT_FLYING_SPEED, 0.0);
+            position = new Vec3(position.x + move.x, FLOOR_Y, position.z + move.z);
+            velocity = new Vec3(move.x * 0.91F, 0.0, move.z * 0.91F);
+            return f.tick(position, true);
+        }
+
+        /** LivingEntity#travelInAir out of flight. */
+        PredictionResult fall(ServerboundPlayerInput keys) {
+            f.input(keys);
+            Vec3 move = travel(keys, SPRINT_AIR_SPEED, velocity.y);
+            position = position.add(move);
+            velocity = new Vec3(move.x * 0.91F, (move.y - 0.08) * 0.98F, move.z * 0.91F);
+            return f.tick(position, false);
+        }
+
+        PredictionResult walk(ServerboundPlayerInput keys, float speed) {
+            f.input(keys);
+            Vec3 move = travel(keys, speed, 0.0);
+            position = position.add(move);
+            velocity = new Vec3(move.x * GROUND_FRICTION, STANDING_Y, move.z * GROUND_FRICTION);
+            return f.tick(position, true);
+        }
+
+        private Vec3 travel(ServerboundPlayerInput keys, float speed, double y) {
+            Vec3 input = ClientMoveInput.of(f, keys, 1.0F, speed, SPRINT_YAW);
+            return new Vec3(velocity.x + input.x, y, velocity.z + input.z);
+        }
     }
 }
