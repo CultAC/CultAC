@@ -45,6 +45,7 @@ public final class VelocityCandidates {
         double collisionMovementY = diff.y;
 
         CultPlayer player = result.getPlayer();
+        Vec3 withoutCurrent = null;
         if (player != null) {
             Vec3 moved = diff;
             diff = applyPostMoveLivingFluidCurrent(player, result, diff);
@@ -56,6 +57,11 @@ public final class VelocityCandidates {
             if (edge != null) {
                 validPlayerStartingVels.add(edge);
                 return validPlayerStartingVels;
+            }
+            // A pre-move water state the engine cannot resolve leaves both LivingEntity#checkFallDamage branches open.
+            if (!moved.equals(diff)
+                    && result.getSimulationContext().getWorldData().getInWater() == DesyncStatus.UNKNOWN) {
+                withoutCurrent = moved;
             }
         }
 
@@ -74,6 +80,7 @@ public final class VelocityCandidates {
         if (requiredPostCollisionY.isEmpty() && player != null) requiredPostCollisionY = risingMoveY(player, result);
         if (requiredPostCollisionY.isPresent()) {
             diff = new Vec3(diff.x, requiredPostCollisionY.getAsDouble(), diff.z);
+            if (withoutCurrent != null) withoutCurrent = new Vec3(withoutCurrent.x, diff.y, withoutCurrent.z);
             isY = false;
         }
         boolean stepped = requiredPostCollisionY.isEmpty()
@@ -86,10 +93,12 @@ public final class VelocityCandidates {
                     diff.x,
                     applyPostVerticalCollisionBlockVelocity(result, preCollisionVelocity(result).y, collisionMovementY),
                     diff.z);
+            if (withoutCurrent != null) withoutCurrent = new Vec3(withoutCurrent.x, diff.y, withoutCurrent.z);
             isY = false;
         }
 
         addVelocityCandidates(validPlayerStartingVels, diff, isX, isY, isZ);
+        if (withoutCurrent != null) addVelocityCandidates(validPlayerStartingVels, withoutCurrent, isX, isY, isZ);
         addPostMoveDeltaMovementCandidates(validPlayerStartingVels, result, isX, isY, isZ, collisionMovementY, stepped);
 
         if (hasUnknownStuckSpeed(lastPrediction)) {
@@ -128,7 +137,7 @@ public final class VelocityCandidates {
         if (context == null
                 || vehicle != null && (EntityTypeUtil.isBoat(vehicle.type) || vehicle instanceof PacketEntityHappyGhast)
                 || player.getClientVersion() == ClientVersion.V_1_21_4
-                || context.getWorldData().getInWater().determineOptimistically()) {
+                || context.getWorldData().getInWater().determinePessimistically()) {
             return postMoveDelta;
         }
 
