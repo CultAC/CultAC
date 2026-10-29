@@ -188,7 +188,7 @@ public final class BedrockUncertaintyPipelineTest {
         BedrockUncertaintyPipelineTest.TestContext test =
                 context(new Vec3(0.02, 0.5, 0.01), false, noPushes(), UNIT_SCALE);
         PredictionResult result = result(start, test.context(), test.target(), neutralCollisions());
-        ValidMovements valid = new ValidMovements(start, null, result, true, List.of(new StepTransform()));
+        ValidMovements valid = new ValidMovements(start, bedrockPlayer(), result, true, List.of(new StepTransform()));
         Assert.assertSame(
                 exact, valid.transformTraceTowards(test.target(), null).position());
         CollideAxisData unknown = neutralCollisions();
@@ -197,6 +197,24 @@ public final class BedrockUncertaintyPipelineTest {
         PredVector bounded =
                 valid.transformTraceTowards(new Vec3(0.02, 0.4, 0.01), null).position();
         Assert.assertEquals(0.4, bounded.y, 0.0);
+        Assert.assertTrue(bounded.isBoundedStep());
+    }
+
+    @Test
+    public void bedrockUnknownStepFallbackRisesFromThePacketStartAfterAPistonPush() {
+        PredVector start = new BedrockUncertaintyPipelineTest.BedrockTestVector(Vec3.ZERO, null);
+        BedrockUncertaintyPipelineTest.TestContext test =
+                context(new Vec3(0.02, 0.9, 0.01), false, noPushes(), UNIT_SCALE);
+        CollideAxisData unknown = neutralCollisions();
+        unknown.setUnknown(List.of(new SimpleCollisionBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)));
+        PredictionResult result = result(start, test.context(), test.target(), unknown);
+        CultPlayer player = bedrockPlayer();
+        ValidMovements valid = new ValidMovements(start, player, result, true, List.of());
+        MovementTrace pushed = MovementTrace.start(start).addCollisionBaseOffset(new Vec3(0.0, 0.3, 0.0));
+        PredVector bounded = new StepTransform()
+                .handleMovementTrace(player, valid, result, test.context(), null, pushed, test.target())
+                .position();
+        Assert.assertEquals(0.5625, bounded.y, 0.0);
         Assert.assertTrue(bounded.isBoundedStep());
     }
 
@@ -290,6 +308,12 @@ public final class BedrockUncertaintyPipelineTest {
                 new Vec3(reported.x(), outside.getFirst().velocity().y(), reported.z()),
                 null);
         Assert.assertEquals(0.1, claimedOverlap.velocityOffset(), 1.0E-7);
+    }
+
+    private static CultPlayer bedrockPlayer() {
+        CultPlayer player = Mockito.mock(CultPlayer.class);
+        Mockito.when(player.isBedrockMovement()).thenReturn(true);
+        return player;
     }
 
     private static CultPlayer playerWithFireworks() {
