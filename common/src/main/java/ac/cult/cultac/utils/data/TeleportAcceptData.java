@@ -12,4 +12,5 @@ public class TeleportAcceptData {
     SetBackData setback;
     TeleportData teleportData;
     VehicleTeleportData vehicleTeleportData;
+    Integer vehicleTeleportId;
 }

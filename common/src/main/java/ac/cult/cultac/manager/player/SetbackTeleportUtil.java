@@ -113,6 +113,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     private final ConcurrentLinkedDeque<TeleportData> javaTeleportAcknowledgments = new ConcurrentLinkedDeque<>();
     /** The teleport whose ID a pre-26.3 client sent last, until the PosRot that must follow it. */
     private TeleportData awaitingPosRot;
+
     private final ConcurrentLinkedQueue<VehicleTeleport> vehicleTeleports = new ConcurrentLinkedQueue<>();
     private BedrockCoordinateFrame activeBedrockCoordinateFrame = BedrockCoordinateFrame.IDENTITY;
 
@@ -1288,13 +1289,15 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
             Vec3 position = teleportPos.position();
             VehicleTeleportData state = teleportPos.state();
-            boolean correction = state != null
-                    && state.getApplication() != VehicleTeleportData.Application.ENTITY_TELEPORT;
+            boolean correction =
+                    state != null && state.getApplication() != VehicleTeleportData.Application.ENTITY_TELEPORT;
             if (correction) {
                 var root = player.compensatedEntities.getEntity(teleportPos.vehicleId());
-                Vec3 serialized = root == null ? null
+                Vec3 serialized = root == null
+                        ? null
                         : root.newPacketLocation != null && root.newPacketLocation.hasActiveInterpolationTarget()
-                                ? root.newPacketLocation.targetPosition() : root.clientPhysicalPosition;
+                                ? root.newPacketLocation.targetPosition()
+                                : root.clientPhysicalPosition;
                 // Receipt can follow more client ticks than send. handleMoveVehicle compares the target it has NOW.
                 boolean snaps = serialized == null || state.getPosition().distanceTo(serialized) > (double) 1.0E-5F;
                 position = snaps ? state.getPosition() : serialized;
@@ -1351,10 +1354,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         return completeVehicleTeleport(teleport, teleport.position(), teleport.state());
     }
 
-    private TeleportAcceptData completeVehicleTeleport(VehicleTeleport teleport, Vec3 position, VehicleTeleportData state) {
+    private TeleportAcceptData completeVehicleTeleport(
+            VehicleTeleport teleport, Vec3 position, VehicleTeleportData state) {
         TeleportAcceptData accepted = new TeleportAcceptData();
-        TeleportData data =
-                new TeleportData(position, new RelativeFlag(0), player.lastTransactionReceived.get(), 0);
+        TeleportData data = new TeleportData(position, new RelativeFlag(0), player.lastTransactionReceived.get(), 0);
         if (debug) {
             LogUtil.info("Vehicle queue accepted (size: " + vehicleTeleports.size() + ")");
         }
@@ -1369,6 +1372,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
         accepted.setTeleportData(data);
         accepted.setVehicleTeleportData(state);
+        accepted.setVehicleTeleportId(teleport.vehicleId());
         accepted.setTeleport(true);
         return accepted;
     }
@@ -1542,6 +1546,13 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         Vec3 local = correction.coordinates().toLocal(teleport.position());
         Vec3 expected = correction.coordinates().toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));
         return expected.equals(correction.position());
+    }
+
+    /** A trailing passenger proof follows every correction response in that mount/dismount sequence. */
+    public void retireVehicleTeleports(int transaction) {
+        vehicleTeleports.removeIf(teleport -> !teleport.rewind()
+                && teleport.transaction() <= transaction
+                && !isRequiredSetbackVehicleTeleport(teleport));
     }
 
     public void clearVehicleTeleports() {

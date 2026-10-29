@@ -353,9 +353,10 @@ public final class CompensatedVehicleState implements Debuggable {
 
     public void setServerVehicle(int vehicleId, int[] passengers, int transaction) {
         PacketEntity vehicle = entities.getEntity(vehicleId);
-        if (serverPlayerVehicle == null || serverPlayerVehicle != vehicleId) {
+        if (player.isBedrockMovement() && (serverPlayerVehicle == null || serverPlayerVehicle != vehicleId)) {
             player.getSetbackTeleportUtil().clearVehicleTeleports();
         }
+        retireVehicleResponsesOnReceipt(transaction);
         // Rebuilding passengers does not interrupt the same first passenger's control of this root.
         // Keep its attachment proof; the full passenger graph still updates at this packet's receipt boundary.
         boolean unchangedAttachment = serverPlayerVehicle != null
@@ -377,6 +378,7 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     public void setServerVehicleDismount(int vehicleId, int transaction) {
+        retireVehicleResponsesOnReceipt(transaction);
         PacketEntity vehicle = entities.getEntity(vehicleId);
         if (canClientAuthoritativelyMoveVisibleRoot(vehicle)) {
             markVehicleSwitchBufferWindow(vehicle);
@@ -399,10 +401,21 @@ public final class CompensatedVehicleState implements Debuggable {
         serverPlayerVehicle = null;
         serverPlayerVehiclePassengers = null;
         serverPlayerVehicleTransaction = null;
-        player.getSetbackTeleportUtil().clearVehicleTeleports();
+        if (player.isBedrockMovement()) player.getSetbackTeleportUtil().clearVehicleTeleports();
+        else player.getSetbackTeleportUtil().retireVehicleTeleports(player.lastTransactionReceived.get());
+    }
+
+    private void retireVehicleResponsesOnReceipt(int transaction) {
+        if (!player.isBedrockMovement()) {
+            // handleMoveVehicle answers before the trailing ping. Sending a later mount cannot discard those
+            // in-flight answers; receipt retires only earlier entries, leaving later mounts' responses intact.
+            player.latencyUtils.addRealTimeTask(
+                    transaction, () -> player.getSetbackTeleportUtil().retireVehicleTeleports(transaction));
+        }
     }
 
     public PacketEntity getVelocityMovementVehicle() {
+        if (!player.isBedrockMovement()) return entities.playerEntity.getRiding();
         PacketEntity serverVehicle = serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
         return serverVehicle == null ? entities.playerEntity.getRiding() : serverVehicle;
     }
@@ -508,7 +521,8 @@ public final class CompensatedVehicleState implements Debuggable {
 
     public boolean canOpenVehicleSwitchBufferForMovementPacket(@Nullable PacketEntity vehicle) {
         return player.isBedrockMovement()
-                && (hasUnprovenCurrentTickItemControl(vehicle) || canPossiblySwitchToItemControlThisClientTick(vehicle));
+                && (hasUnprovenCurrentTickItemControl(vehicle)
+                        || canPossiblySwitchToItemControlThisClientTick(vehicle));
     }
 
     public boolean isVehicleSwitchBufferActiveFor(@Nullable PacketEntity vehicle) {
@@ -614,7 +628,8 @@ public final class CompensatedVehicleState implements Debuggable {
         return vehicle != null
                 && passengerIndex(vehicle) == 0
                 && (fromClientTick && !player.isBedrockMovement() && isItemControlledVehicleType(vehicle)
-                        ? hasSaddle(vehicle) : canLocalClientAuthoritativelyMove(vehicle))
+                        ? hasSaddle(vehicle)
+                        : canLocalClientAuthoritativelyMove(vehicle))
                 && !(fromClientTick && player.isBedrockMovement() && hasUnprovenCurrentTickItemControl(vehicle))
                 && (hasClientObservedServerVehicle() || fromClientTick);
     }
@@ -640,7 +655,24 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     public boolean canClientAuthoritativelyMoveVisibleRoot(@Nullable PacketEntity vehicle) {
-        return vehicle != null && passengerIndex(vehicle) == 0 && canLocalClientAuthoritativelyMove(vehicle);
+        return vehicle != null
+                && (player.isBedrockMovement()
+                                ? passengerIndex(vehicle)
+                                : vehicle.passengers.indexOf(entities.playerEntity))
+                        == 0
+                && canLocalClientAuthoritativelyMove(vehicle);
+    }
+
+    /** Authority for the root that produced this packet, from the acknowledged Java passenger graph. */
+    public boolean canClientAuthoritativelyMoveVehicleForMovementPacket(
+            @Nullable PacketEntity vehicle, boolean fromClientTick) {
+        if (player.isBedrockMovement())
+            return canServerPlayerVehicleBeLocalAuthoritativeForMovementPacket(fromClientTick);
+        return vehicle != null
+                && vehicle.passengers.indexOf(entities.playerEntity) == 0
+                && (fromClientTick && isItemControlledVehicleType(vehicle)
+                        ? hasSaddle(vehicle)
+                        : canLocalClientAuthoritativelyMove(vehicle));
     }
 
     /**
@@ -676,9 +708,8 @@ public final class CompensatedVehicleState implements Debuggable {
     public boolean mustEchoMoveVehicle(@Nullable PacketEntity vehicle) {
         return vehicle != null
                 && vehicle.getRiding() == null
-                && passengerIndex(vehicle) == 0
                 && !isItemControlledVehicleType(vehicle)
-                && canLocalClientAuthoritativelyMove(vehicle);
+                && canClientAuthoritativelyMoveVisibleRoot(vehicle);
     }
 
     /**

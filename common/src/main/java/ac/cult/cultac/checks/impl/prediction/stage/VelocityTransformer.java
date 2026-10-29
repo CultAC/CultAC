@@ -4,9 +4,9 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockPushOut;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFluidInputs;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Riptide;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -35,9 +35,11 @@ public class VelocityTransformer {
     private static final Vec3 attackSlowMultiplier = new Vec3(0.6, 1, 0.6);
 
     public List<PredVector> generateMovementVectors(CultPlayer player, List<PredVector> input) {
-        if (ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel.clearsWithoutTravel(simulationContext)) {
+        if (ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel.clearsWithoutTravel(
+                simulationContext)) {
             List<PredVector> stopped = new ArrayList<>(input.size());
-            for (PredVector velocity : input) stopped.add(velocity.with(Vec3.ZERO, "LivingEntity#travelRidden cannot simulate"));
+            for (PredVector velocity : input)
+                stopped.add(velocity.with(Vec3.ZERO, "LivingEntity#travelRidden cannot simulate"));
             return stopped;
         }
         if (simulationContext.getVehicle() != null
@@ -52,10 +54,11 @@ public class VelocityTransformer {
             List<PredVector> pushed = new ArrayList<>(input.size());
             for (PredVector velocity : input) {
                 Vec3 moved = JavaBlockPushOut.apply(player, simulationContext, velocity);
-                pushed.add(moved == velocity
-                        ? velocity
-                        : JavaVelocityRange.afterAxisWrite(
-                                velocity, velocity.with(moved, "LocalPlayer#moveTowardsClosestSpace")));
+                pushed.add(
+                        moved == velocity
+                                ? velocity
+                                : JavaVelocityRange.afterAxisWrite(
+                                        velocity, velocity.with(moved, "LocalPlayer#moveTowardsClosestSpace")));
             }
             input = pushed;
         }
@@ -306,7 +309,7 @@ public class VelocityTransformer {
         // Rot -> MoveVehicle proves Pig/Strider#getControllingPassenger for this travel, before the slot claim.
         if (!player.isBedrockMovement() && (vehicle.type == EntityTypeIds.PIG || vehicle.type == EntityTypeIds.STRIDER))
             return player.packetStateData.isVehicleMovementFromClientTick();
-        return player.compensatedEntities.vehicles.canCurrentPlayerControlServerVehicleForClientTickMovement();
+        return player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(vehicle);
     }
 
     private void addDistinctPredVector(List<PredVector> vectors, PredVector candidate) {
@@ -357,13 +360,17 @@ public class VelocityTransformer {
                 addDistinctInputVector(
                         vectors,
                         inputVectorForSpeed(
-                                player, riddenInput, simulationContext.getMoveRelativeSpeed(player, false, true, false)));
+                                player,
+                                riddenInput,
+                                simulationContext.getMoveRelativeSpeed(player, false, true, false)));
             }
             if (lava) {
                 addDistinctInputVector(
                         vectors,
                         inputVectorForSpeed(
-                                player, riddenInput, simulationContext.getMoveRelativeSpeed(player, false, false, true)));
+                                player,
+                                riddenInput,
+                                simulationContext.getMoveRelativeSpeed(player, false, false, true)));
             }
             if (!water && !lava) {
                 for (boolean onGround :

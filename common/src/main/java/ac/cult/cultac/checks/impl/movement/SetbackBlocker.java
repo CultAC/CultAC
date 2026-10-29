@@ -123,21 +123,14 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         } // Let's avoid letting people disable cult with cult.nomodifypackets
 
         boolean teleport = player.packetStateData.lastPacketWasTeleport;
-        Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
-        int ridingVehicle = player.getRidingVehicleId();
-
-        // The client must not move a vehicle unless the server currently has the player mounted.
-        if (serverVehicle == null) {
-            event.setCancelled(true);
-        }
-
-        // If a player is in a different vehicle than what the server is telling them is the right one, ignore it
-        // Mojang doesn't handle this scenario when over 50 ms of ping or so... great job mojang
-        //
-        // This won't patch any bypasses, but it will patch an annoying vanilla bug.
-        // The client can send its first vehicle move before Cult's delayed passenger task runs.
-        if (serverVehicle != null && ridingVehicle != Integer.MIN_VALUE && serverVehicle != ridingVehicle) {
-            event.setCancelled(true);
+        // Java still predicts the client's acknowledged root while a server mount/dismount is in flight.
+        // CheckManagerListener withholds moves for a different server root after prediction and packet checks.
+        if (player.isBedrockMovement()) {
+            Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
+            int ridingVehicle = player.getRidingVehicleId();
+            if (serverVehicle == null || ridingVehicle != Integer.MIN_VALUE && serverVehicle != ridingVehicle) {
+                event.setCancelled(true);
+            }
         }
 
         // A client can intentionally delay transaction responses while continuing to send

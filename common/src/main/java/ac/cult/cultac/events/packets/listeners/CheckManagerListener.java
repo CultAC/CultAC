@@ -781,11 +781,16 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
         TeleportAcceptData teleportData = player.getSetbackTeleportUtil()
                 .checkVehicleTeleportQueue(
-                        packetRoot == null ? null : packetRoot.getEntityId(),
+                        // Handler responses precede the mount's pong, so the acknowledged graph may still name
+                        // the preceding vehicle. The ordered response queue identifies which entity answered.
+                        !fromClientTick || packetRoot == null ? null : packetRoot.getEntityId(),
                         newPos.x,
                         newPos.y,
                         newPos.z,
                         fromClientTick);
+        if (teleportData.isTeleport() && teleportData.getVehicleTeleportId() != null) {
+            packetRoot = player.compensatedEntities.getEntity(teleportData.getVehicleTeleportId());
+        }
         if (!teleportData.isTeleport()
                 && !fromClientTick
                 && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
@@ -807,8 +812,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         boolean canAuthoritativelyMove =
-                player.compensatedEntities.vehicles.canServerPlayerVehicleBeLocalAuthoritativeForMovementPacket(
-                                fromClientTick)
+                player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVehicleForMovementPacket(
+                                packetRoot, fromClientTick)
                         || (fromClientTick
                                 && player.compensatedEntities.vehicles.isVehicleSwitchBufferActiveFor(packetRoot));
         // LocalPlayer#sendChanges reports only Entity#getRootVehicle, so no client tick moves a vehicle that rides
