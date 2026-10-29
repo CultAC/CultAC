@@ -69,6 +69,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private Families idleFamilies = new Families();
     private Output idleOutput = new Output();
     private Batch idleBatch = new Batch(false);
+    private PacketSendEvent<?> idleSendEvent;
     // Emitted frames for reuse, linked through Frame#next; none holds bytes or a promise.
     private Frame spareFrames;
     private int spareFrameCount;
@@ -499,14 +500,23 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 activeFamilies.addLast(route.type());
                 try {
                     var type = (PacketType<ClientboundPacket>) route.type();
-                    var event = new PacketSendEvent<>(
-                            connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
+                    var idleEvent = idleSendEvent;
+                    PacketSendEvent<ClientboundPacket> event;
+                    if (idleEvent == null) {
+                        event = new PacketSendEvent<>(
+                                connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
+                    } else {
+                        idleSendEvent = null;
+                        event = idleEvent.restart(
+                                connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
+                    }
                     if (authored) event.authored();
                     // Emission closes the flush bundle before a structural packet, so its ping cannot prove one.
                     event.sharedPing(PacketBundlePolicy.requiresStandalone(type) ? 0 : sharedPing(batch));
                     connection.dispatcher().send(event, route.send());
                     if (event.isCancelled()) {
                         promise.trySuccess();
+                        recycle(event);
                         return false;
                     }
                     CultWrite leading = event.leadingPing();
@@ -545,6 +555,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     }
                     batch.addTasks(event.tasksAfter());
                     requested |= event.isBundleRequested();
+                    recycle(event);
                 } finally {
                     activeFamilies.removeLast();
                 }
@@ -1009,6 +1020,13 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         frame.lead = lead;
         frame.generation = protocolGeneration;
         return frame;
+    }
+
+    /** Listeners hold a send event past dispatch only through its tasks after send. */
+    private void recycle(PacketSendEvent<?> event) {
+        if (!event.tasksAfter().isEmpty()) return;
+        event.release();
+        idleSendEvent = event;
     }
 
     /** Keeps a frame that no output, batch or caller holds any more for a later {@link #frame}. */

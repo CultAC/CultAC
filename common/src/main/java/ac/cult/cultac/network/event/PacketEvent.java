@@ -10,11 +10,11 @@ import ac.cult.cultac.protocol.packet.Opaque;
 import java.util.Objects;
 
 public abstract class PacketEvent<R> {
-    private final User user;
-    private final ConnectionPhase phase;
-    private final PacketType<R> type;
-    private final R original;
-    private final long timestamp = System.currentTimeMillis();
+    private User user;
+    private ConnectionPhase phase;
+    private PacketType<R> type;
+    private R original;
+    private long timestamp = System.currentTimeMillis();
     private R packet;
     private boolean cancelled;
     private boolean cancelledFinally;
@@ -24,6 +24,23 @@ public abstract class PacketEvent<R> {
         this.phase = Objects.requireNonNull(phase);
         this.type = Objects.requireNonNull(type);
         this.original = this.packet = type.recordClass().cast(Objects.requireNonNull(packet));
+    }
+
+    /** Gives this event the state a new event of {@code packet} has. */
+    protected final void restartEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet) {
+        timestamp = System.currentTimeMillis();
+        this.user = user;
+        this.phase = Objects.requireNonNull(phase);
+        this.type = Objects.requireNonNull(type);
+        this.original = this.packet = type.recordClass().cast(Objects.requireNonNull(packet));
+        cancelled = false;
+        cancelledFinally = false;
+    }
+
+    /** Drops the user and packets of an event nothing dispatches or holds any more, until it is restarted. */
+    protected void releaseEvent() {
+        user = null;
+        original = packet = null;
     }
 
     public User getUser() {

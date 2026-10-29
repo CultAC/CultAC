@@ -30,6 +30,9 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
     private PacketDispatcher.Route probed;
     /** The type {@link #routed} was offered during a readOne, read back like {@link #probed}. */
     private PacketType<?> probedType;
+    // Per-read scratch objects, held by at most one read at a time; a nested read allocates its own.
+    private ModelRead idleRead = new ModelRead();
+    private PacketReceiveEvent<?> idleReceiveEvent;
 
     public CultDecoder(CultConnection connection) {
         this.connection = connection;
@@ -87,34 +90,68 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             ctx.fireChannelRead(frame);
             return;
         }
-        boolean[] consumed = {false};
+        ModelRead read = idleRead;
+        if (read == null) read = new ModelRead();
+        else idleRead = null;
+        read.ctx = ctx;
+        read.frame = frame;
+        read.consumed = false;
         try {
-            connection.runInModel(() -> {
-                consumed[0] = true;
-                var output = process(frame);
-                if (output != null) {
-                    // beginLogin can install its codec and resume LocalChannel reads before
-                    // the handshake listener returns. Its next frame already belongs to LOGIN.
-                    boolean handshake = output.type == ServerboundPackets.INTENTION;
-                    boolean reconfiguration = output.type == ServerboundPackets.CONFIGURATION_ACKNOWLEDGED;
-                    if (handshake) forwarded(output);
-                    if (reconfiguration && !connection.handoffAtReconfiguration()) {
-                        output.frame.release();
-                        return;
-                    }
-                    ctx.fireChannelRead(output.frame);
-                    if (!handshake && output.type != null) forwarded(output);
-                }
-            });
+            connection.runInModel(read);
         } catch (Throwable failure) {
             CultNetworkManager.reportFailure("inbound model context", failure);
-            if (!consumed[0]) ctx.fireChannelRead(frame);
+            if (!read.consumed) ctx.fireChannelRead(frame);
+            return;
+        }
+        read.ctx = null;
+        read.frame = null;
+        idleRead = read;
+    }
+
+    /** The model-context work of one {@link #channelRead}, held by at most one read at a time. */
+    private final class ModelRead implements Runnable {
+        ChannelHandlerContext ctx;
+        ByteBuf frame;
+        boolean consumed;
+        // Set by process when it returns true.
+        ByteBuf forwardFrame;
+        PacketType<?> forwardType;
+        Object forwardPacket;
+
+        @Override
+        public void run() {
+            consumed = true;
+            if (!process(frame, this)) return;
+            ByteBuf output = forwardFrame;
+            PacketType<?> type = forwardType;
+            Object packet = forwardPacket;
+            forwardFrame = null;
+            forwardType = null;
+            forwardPacket = null;
+            // beginLogin can install its codec and resume LocalChannel reads before
+            // the handshake listener returns. Its next frame already belongs to LOGIN.
+            boolean handshake = type == ServerboundPackets.INTENTION;
+            boolean reconfiguration = type == ServerboundPackets.CONFIGURATION_ACKNOWLEDGED;
+            if (handshake) forwarded(type, packet);
+            if (reconfiguration && !connection.handoffAtReconfiguration()) {
+                output.release();
+                return;
+            }
+            ctx.fireChannelRead(output);
+            if (!handshake && type != null) forwarded(type, packet);
+        }
+
+        boolean forward(ByteBuf frame, PacketType<?> type, Object packet) {
+            forwardFrame = frame;
+            forwardType = type;
+            forwardPacket = packet;
+            return true;
         }
     }
 
-    /** Consumes the input on every path; null means it was cancelled or discarded. */
+    /** Consumes the input on every path; false means it was cancelled or discarded, else {@code output} holds it. */
     @SuppressWarnings("unchecked")
-    private Forward process(ByteBuf frame) {
+    private boolean process(ByteBuf frame, ModelRead output) {
         ByteBuf originalFrame = frame;
         boolean releaseOriginal = true;
         PacketType<?> originalType = null;
@@ -135,9 +172,15 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                 originalPacket = original;
                 var pausing = connection.player();
                 // A debug interaction pause discards before Cult or the server sees the packet.
-                if (pausing != null && pausing.discardsPausedInteraction(original)) return null;
+                if (pausing != null && pausing.discardsPausedInteraction(original)) return false;
                 connection.prepare();
-                var event = new PacketReceiveEvent<>(connection.user(), phase, type, original);
+                var idleEvent = idleReceiveEvent;
+                PacketReceiveEvent<ServerboundPacket> event;
+                if (idleEvent == null) event = new PacketReceiveEvent<>(connection.user(), phase, type, original);
+                else {
+                    idleReceiveEvent = null;
+                    event = idleEvent.restart(connection.user(), phase, type, original);
+                }
                 if (route.receive() != null) connection.dispatcher().receive(event, route.receive());
                 ServerboundPacket packet = event.getPacket();
                 boolean cancelled = event.isCancelled();
@@ -165,7 +208,10 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                     packet = original;
                     cancelled = false;
                 }
-                if (cancelled) return null;
+                if (cancelled) {
+                    recycle(event);
+                    return false;
+                }
                 if (packet != original) {
                     var replacement = connection
                             .packets()
@@ -184,6 +230,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                             && move.hasPosition()
                             && !event.isTeleportPositionResponse()) setbacks.markForwardedPositionThisTick();
                 }
+                recycle(event);
                 if (packet instanceof ServerboundMovePlayer move
                         && move.hasPosition()
                         && player != null
@@ -196,30 +243,33 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                 forwardedType = type;
                 forwardedPacket = packet;
             }
-            var output = new Forward(frame, forwardedType, forwardedPacket);
+            output.forward(frame, forwardedType, forwardedPacket);
             releaseOriginal = frame != originalFrame;
             frame = null;
-            return output;
+            return true;
         } catch (Throwable failure) {
             CultNetworkManager.reportFailure("inbound packet decoding", failure);
             if (frame != originalFrame) frame.release();
             frame = null;
-            if (failure instanceof DroppedPacketException) return null;
+            if (failure instanceof DroppedPacketException) return false;
             releaseOriginal = false;
-            return new Forward(originalFrame, originalType, originalPacket);
+            return output.forward(originalFrame, originalType, originalPacket);
         } finally {
             if (frame != null && frame != originalFrame) frame.release();
             if (releaseOriginal) originalFrame.release();
         }
     }
 
-    private void forwarded(Forward output) {
+    private void recycle(PacketReceiveEvent<?> event) {
+        event.release();
+        idleReceiveEvent = event;
+    }
+
+    private void forwarded(PacketType<?> type, Object packet) {
         try {
-            connection.forwarded(output.type, output.packet);
+            connection.forwarded(type, packet);
         } catch (Throwable failure) {
             CultNetworkManager.reportFailure("inbound protocol transition", failure);
         }
     }
-
-    private record Forward(ByteBuf frame, PacketType<?> type, Object packet) {}
 }

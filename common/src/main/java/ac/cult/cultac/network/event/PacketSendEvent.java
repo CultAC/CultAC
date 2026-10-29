@@ -8,14 +8,15 @@ import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import java.util.ArrayList;
 import java.util.List;
+import org.jetbrains.annotations.ApiStatus;
 
 public final class PacketSendEvent<R> extends PacketEvent<R> {
-    private final boolean insideBundle;
+    private boolean insideBundle;
     private List<CultWrite> before, after;
     private List<Runnable> tasks;
     private boolean bundle;
     private boolean authored;
-    private final ProtocolVersion decodedProtocol;
+    private ProtocolVersion decodedProtocol;
     // A CultAC ping already in the open flush bundle this packet joins; 0 when there is none.
     private int sharedPing;
     private CultWrite leadingPing;
@@ -38,6 +39,42 @@ public final class PacketSendEvent<R> extends PacketEvent<R> {
             throw new IllegalArgumentException("Send event requires clientbound packet");
         this.insideBundle = insideBundle;
         this.decodedProtocol = user == null ? null : user.getCultConnection().getObservedProtocol();
+    }
+
+    /**
+     * Gives a released event the state {@code new PacketSendEvent<>(user, phase, type, packet, insideBundle)} has.
+     * Only the encoder that dispatched and released it may call this.
+     */
+    @ApiStatus.Internal
+    @SuppressWarnings("unchecked")
+    public <T> PacketSendEvent<T> restart(
+            User user, ConnectionPhase phase, PacketType<T> type, T packet, boolean insideBundle) {
+        var event = (PacketSendEvent<T>) this;
+        event.restartEvent(user, phase, type, packet);
+        if (type.direction() != PacketDirection.CLIENTBOUND)
+            throw new IllegalArgumentException("Send event requires clientbound packet");
+        event.insideBundle = insideBundle;
+        event.decodedProtocol = user == null ? null : user.getCultConnection().getObservedProtocol();
+        return event;
+    }
+
+    /**
+     * Ends an event whose dispatch returned and whose tasks after send are empty, so no listener holds it.
+     * Keeps the list instances, empty.
+     */
+    @ApiStatus.Internal
+    public void release() {
+        releaseEvent();
+        if (before != null) before.clear();
+        if (after != null) after.clear();
+        bundle = false;
+        authored = false;
+        decodedProtocol = null;
+        sharedPing = 0;
+        leadingPing = null;
+        leadingTransaction = 0;
+        trackedPing = 0;
+        receiptProof = 0;
     }
 
     public ProtocolVersion getDecodedProtocol() {
