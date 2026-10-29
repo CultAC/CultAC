@@ -886,8 +886,6 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         float physicalPitch =
                 player.compensatedEntities.vehicles.controlledTravelPitch(packetRoot, vehiclePacket.pitch());
         Vec3 physicalNewPos = newPos;
-        player.packetStateData.lastPacketProvenVehiclePhysicalMovement =
-                checkableClientTick ? physicalNewPos.subtract(oldPosition) : null;
         // The player flagged crasher or timer checks, therefore we must protect predictions against these attacks
         // and not a teleport (it's dangerous to prevent teleports from going through simulation processors)
         if (event.isCancelled() && !player.packetStateData.lastPacketWasTeleport) {
@@ -1263,7 +1261,6 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         if (player.packetStateData.lastPacketWasTeleport) player.packetStateData.teleportedThisClientTick = true;
         player.packetStateData.lastPacketWasTeleport = false;
         player.packetStateData.lastPacketMatchedTeleportPosition = false;
-        player.packetStateData.lastPacketProvenVehiclePhysicalMovement = null;
         player.packetStateData.clearDesiredOnGround();
     }
 

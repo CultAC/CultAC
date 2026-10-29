@@ -1824,9 +1824,24 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return this.rideTicked;
     }
 
-    /** A set_entity_motion of the local passenger after its last Entity#rideTick sets the delta a dismount keeps. */
+    /**
+     * LocalPlayer#getDeltaMovement while it rides, which Entity#getKnownMovement hands a vehicle it controls: what the
+     * last Entity#rideTick left, or before the first one the on-foot motion it mounted with.
+     */
+    public List<Vec3> riderKnownMovements() {
+        if (this.rideTicked) {
+            List<Vec3> velocities = this.passengerRideTick.knownMovements();
+            if (!velocities.isEmpty()) return velocities;
+        }
+        if (this.startingVelsBeforeRide != null && !this.startingVelsBeforeRide.isEmpty())
+            return List.copyOf(this.startingVelsBeforeRide);
+        return List.of(this.player.compensatedEntities.getSelf().deltaMovement);
+    }
+
+    /** A set_entity_motion of the local passenger sets the delta it rides with and a dismount keeps. */
     public void replaceRideTickVelocity(Vec3 velocity) {
         if (this.rideTicked) this.passengerRideTick.setMotion(velocity);
+        else if (this.startingVelsBeforeRide != null) this.startingVelsBeforeRide = new HashSet<>(List.of(velocity));
     }
 
     /** Seeds the delta movements the last Entity#rideTick can have left, which a dismount with no velocity resync keeps. */

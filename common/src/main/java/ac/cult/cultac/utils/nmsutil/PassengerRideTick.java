@@ -213,6 +213,11 @@ public final class PassengerRideTick {
 
     public List<Vec3> velocities() {
         useSeats = true;
+        return knownMovements();
+    }
+
+    /** The passenger's delta movement between client ticks, after any velocity packet since; reading changes nothing. */
+    public List<Vec3> knownMovements() {
         var result = new ArrayList<Vec3>();
         for (var state : states) if (!result.contains(state.move().velocity())) result.add(state.move().velocity());
         return result;

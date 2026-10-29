@@ -108,10 +108,6 @@ public final class CompensatedVehicleState implements Debuggable {
         }
 
         entities.updatePassengerPositions();
-        Vec3 provenPassengerDelta = player.packetStateData.lastPacketProvenVehiclePhysicalMovement;
-        if (provenPassengerDelta != null && entities.playerEntity.getRiding() != null) {
-            entities.playerEntity.deltaMovement = provenPassengerDelta;
-        }
     }
 
     /**
@@ -167,6 +163,11 @@ public final class CompensatedVehicleState implements Debuggable {
 
     public boolean applyClientboundVehicleVelocity(@Nullable PacketEntity vehicle, Vec3 velocity) {
         return applyClientboundVehicleVelocity(vehicle, velocity, List.of(velocity));
+    }
+
+    /** Each velocity the client can hold, the first standing for the vehicle's own delta movement. */
+    public boolean applyClientboundVehicleVelocities(@Nullable PacketEntity vehicle, List<Vec3> velocities) {
+        return applyClientboundVehicleVelocity(vehicle, velocities.getFirst(), velocities);
     }
 
     private boolean applyClientboundVehicleVelocity(

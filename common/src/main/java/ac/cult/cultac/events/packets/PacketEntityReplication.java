@@ -305,17 +305,36 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
     }
 
-    private record DeltaMovementChange(boolean present, double x, double y, double z, int packetHandlerSequence) {
-        private static final DeltaMovementChange NONE = new DeltaMovementChange(false, 0.0D, 0.0D, 0.0D, -1);
+    /** {@code riderRelative} keeps a teleport relative to the rider's known movement; x, y and z then estimate it. */
+    private record DeltaMovementChange(
+            boolean present,
+            double x,
+            double y,
+            double z,
+            int packetHandlerSequence,
+            @Nullable RiderRelativeDelta riderRelative) {
+        private static final DeltaMovementChange NONE = new DeltaMovementChange(false, 0.0D, 0.0D, 0.0D, -1, null);
 
         private static DeltaMovementChange fixed(Vec3 movement, int packetHandlerSequence) {
-            return new DeltaMovementChange(true, movement.x, movement.y, movement.z, packetHandlerSequence);
+            return new DeltaMovementChange(true, movement.x, movement.y, movement.z, packetHandlerSequence, null);
+        }
+
+        private static DeltaMovementChange riderRelative(Vec3 estimate, RiderRelativeDelta relative) {
+            return new DeltaMovementChange(true, estimate.x, estimate.y, estimate.z, -1, relative);
+        }
+
+        private DeltaMovementChange withSequence(int packetHandlerSequence) {
+            return new DeltaMovementChange(present, x, y, z, packetHandlerSequence, riderRelative);
         }
 
         private Vec3 movement() {
             return new Vec3(x, y, z);
         }
     }
+
+    /** What PositionMoveRotation#calculateAbsolute adds to, or rotates, the known movement it starts from. */
+    private record RiderRelativeDelta(
+            Vec3 change, float sourceYaw, float sourcePitch, float finalYaw, float finalPitch, RelativeFlag flags) {}
 
     private enum MovementKind {
         RELATIVE_ENTITY(true, false),
@@ -743,22 +762,13 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             Vec3 pos = calculateAbsolutePosition(sourcePosition, change.position(), packetFlags);
             float finalYaw = calculateAbsoluteYaw(sourceYaw, change.yRot(), packetFlags);
             float finalPitch = calculateAbsolutePitch(sourcePitch, change.xRot(), packetFlags);
-            Vec3 delta = calculateAbsoluteDelta(
-                    teleportSourceDeltaMovement(entity),
-                    change.deltaMovement(),
-                    sourceYaw,
-                    sourcePitch,
-                    finalYaw,
-                    finalPitch,
-                    packetFlags);
+            DeltaMovementChange delta = teleportDeltaMovement(
+                    entity,
+                    new RiderRelativeDelta(
+                            change.deltaMovement(), sourceYaw, sourcePitch, finalYaw, finalPitch, packetFlags));
             int index = entity != null && entity.pistonMovementPatch() == JavaMovementPatch.V_1_21_10 ? 1 : 0;
             paths[index] = EntityMovement.teleportEntityPacket(
-                    teleport.entityId(),
-                    pos,
-                    finalYaw,
-                    finalPitch,
-                    teleport.onGround(),
-                    DeltaMovementChange.fixed(delta, -1));
+                    teleport.entityId(), pos, finalYaw, finalPitch, teleport.onGround(), delta);
         };
         if (entity == null || !entity.runPistonPatchStates(calculate)) calculate.run();
         int sequence = recordPacketHandlerDeltaMovement(
@@ -779,7 +789,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 movement.rotationYaw(),
                 movement.rotationPitch(),
                 movement.onGround(),
-                DeltaMovementChange.fixed(movement.deltaMovement().movement(), sequence));
+                movement.deltaMovement().withSequence(sequence));
     }
 
     private void handleRemovedPlayerVehicleTeleport(
@@ -900,15 +910,68 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         return out.set(0.0D, 0.0D, 0.0D, 0.0F, 0.0F);
     }
 
+    /**
+     * MCP-Reborn PositionMoveRotation#of(entity) reads Entity#getKnownMovement, which a vehicle the local player
+     * controls takes from that player: LocalPlayer#getDeltaMovement, which its ride ticks and velocity packets write
+     * and the vehicle's travel never does. Only the client handling the teleport fixes which ride tick that follows, so
+     * a velocity-relative teleport of that vehicle stays relative until then.
+     */
+    private DeltaMovementChange teleportDeltaMovement(PacketEntity entity, RiderRelativeDelta relative) {
+        if (player.isBedrockMovement()
+                || entity == null
+                || entity != player.compensatedEntities.vehicles.getVelocityMovementVehicle()
+                || !readsKnownMovement(relative.flags()))
+            return DeltaMovementChange.fixed(resolve(relative, teleportSourceDeltaMovement(entity)), -1);
+        Vec3 known = player.checkManager
+                .getSimulationProcessor()
+                .riderKnownMovements()
+                .getFirst();
+        return DeltaMovementChange.riderRelative(resolve(relative, known), relative);
+    }
+
     private Vec3 teleportSourceDeltaMovement(PacketEntity entity) {
-        // MCP-Reborn PositionMoveRotation#of(entity) reads Entity#getKnownMovement.
-        // Player-controlled ridden entities use the controlling player's known
-        // movement there; non-controlled entities use their own packet-handler delta.
+        // A Bedrock bridge's vehicle correction starts from the player's last packet delta, and a teleport that sets a
+        // Java vehicle's velocity outright reads none. Other entities use their own packet-handler delta.
         if (entity != null && entity == player.compensatedEntities.vehicles.getVelocityMovementVehicle()) {
             return player.compensatedEntities.getSelf().deltaMovement;
         }
 
         return packetHandlerDeltaMovementSource(entity);
+    }
+
+    private static boolean readsKnownMovement(RelativeFlag flags) {
+        return flags.isSet(RelativeFlag.DELTA_X.getMask())
+                || flags.isSet(RelativeFlag.DELTA_Y.getMask())
+                || flags.isSet(RelativeFlag.DELTA_Z.getMask());
+    }
+
+    private Vec3 resolve(RiderRelativeDelta relative, Vec3 knownMovement) {
+        return calculateAbsoluteDelta(
+                knownMovement,
+                relative.change(),
+                relative.sourceYaw(),
+                relative.sourcePitch(),
+                relative.finalYaw(),
+                relative.finalPitch(),
+                relative.flags());
+    }
+
+    /**
+     * At the client's handling of a velocity-relative teleport: each delta movement its rider can hold gives the
+     * vehicle one. A vehicle the player no longer controls by then hands over its own.
+     */
+    private void applyRiderRelativeDelta(PacketEntity entity, RiderRelativeDelta relative) {
+        var vehicles = player.compensatedEntities.vehicles;
+        if (entity != vehicles.getVelocityMovementVehicle()) {
+            entity.setPacketDeltaMovement(resolve(relative, entity.deltaMovement));
+            return;
+        }
+        List<Vec3> velocities = new ArrayList<>();
+        for (Vec3 known : player.checkManager.getSimulationProcessor().riderKnownMovements()) {
+            Vec3 velocity = resolve(relative, known);
+            if (!velocities.contains(velocity)) velocities.add(velocity);
+        }
+        vehicles.applyClientboundVehicleVelocities(entity, velocities);
     }
 
     private ReachInterpolationData teleportSourceInterpolationTarget(PacketEntity entity) {
@@ -2217,6 +2280,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return;
         DeltaMovementChange update = movementInput.deltaMovement();
         if (!update.present()) {
+            return;
+        }
+        if (update.riderRelative() != null) {
+            applyRiderRelativeDelta(entity, update.riderRelative());
             return;
         }
 

@@ -93,7 +93,6 @@ public class PacketStateData {
     public boolean vehicleMovementStartOnGround = false;
     // Original-client-reported ground, excluding fields synthesized by protocol translation.
     public boolean vehicleMovementOnGroundPresent = true;
-    public Vec3 lastPacketProvenVehiclePhysicalMovement = null;
     // Transaction observed at the last tick-end packet; used to prove tick-boundary state ordering.
     public int lastClientTickEndTransaction = Integer.MIN_VALUE;
 
