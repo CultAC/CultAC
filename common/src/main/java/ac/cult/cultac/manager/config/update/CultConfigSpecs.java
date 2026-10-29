@@ -1,6 +1,10 @@
 package ac.cult.cultac.manager.config.update;
 
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -93,9 +97,12 @@ public final class CultConfigSpecs {
      * <p>v14 → v15: adds the {@code network} block; default rewriting adds it.
      *
      * <p>v15 → v16: one {@code network.uri} picks the transport; see {@link #networkUri}.
+     *
+     * <p>v16 → v17: {@code network.type} picks the broker, configured in its own block; see {@link #networkBlocks}.
+     * Every step reads the user's file as it was, so a v15 config takes the v16 step inside the v17 one.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 16, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 17, ConfigUpdater.ConfigFlavor.V2)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);
@@ -137,7 +144,7 @@ public final class CultConfigSpecs {
                         if (pass != null) ctx.otherFile(target).put(backendId + ".password", pass);
                     }
                 })
-                .migration(16, CultConfigSpecs::networkUri)
+                .migration(17, CultConfigSpecs::networkBlocks)
                 .build();
     }
 
@@ -147,18 +154,126 @@ public final class CultConfigSpecs {
      * {@code none} is empty and {@code redisbungee} stays {@code redisbungee}. {@code network.nats.credentials-file}
      * becomes {@code network.nats-credentials-file}; {@code network.network} is dropped.
      */
-    static void networkUri(MigrationContext ctx) {
-        YamlMap input = ctx.input();
+    private static String networkUri(YamlMap input) {
         String transport = input.getString("network.transport");
-        String uri = switch (transport == null ? "" : transport.strip().toLowerCase(Locale.ROOT)) {
+        return switch (transport == null ? "" : transport.strip().toLowerCase(Locale.ROOT)) {
             case "redis" -> text(input, "network.redis.uri");
             case "nats" -> natsUri(input);
             case "redisbungee" -> "redisbungee";
             default -> "";
         };
-        if (!uri.isEmpty()) ctx.output().put("network.uri", uri);
-        String credentials = text(input, "network.nats.credentials-file");
-        if (!credentials.isEmpty()) ctx.output().put("network.nats-credentials-file", credentials);
+    }
+
+    /**
+     * Writes {@code network.type} and the chosen broker's block from {@code network.uri}, the {@link #networkUri} of a
+     * v15 config: empty is {@code none}, {@code redisbungee} stays; a {@code redis://} or {@code rediss://} URI gives
+     * the address, the decoded user and password and {@code ssl} for {@code rediss}, without its database; NATS
+     * servers give their addresses, the first user info as token or user and password, and {@code ssl} when any is
+     * {@code tls://}. {@code nats-credentials-file} moves into the NATS block. A URI that does not read is
+     * {@code none}, with one warning. The other block gets the bundled defaults.
+     */
+    static void networkBlocks(MigrationContext ctx) {
+        YamlMap input = ctx.input();
+        Integer version = input.getInt("config-version");
+        boolean v15 = version == null || version < 16;
+        String uri = v15 ? networkUri(input) : text(input, "network.uri");
+        String credentialsFile = text(input, v15 ? "network.nats.credentials-file" : "network.nats-credentials-file");
+        Broker broker;
+        try {
+            broker = broker(uri);
+        } catch (URISyntaxException | IllegalArgumentException unreadable) {
+            LogUtil.warn("config.yml: network.uri cannot be read, so network.type is none; set the network block by"
+                    + " hand (docs/network.md in CultAC's source explains it)");
+            broker = Broker.NONE;
+        }
+        YamlMap output = ctx.output();
+        output.put("network.type", broker.type());
+        boolean redis = broker.type().equals("redis");
+        boolean nats = broker.type().equals("nats");
+        output.put("network.redis.address", redis ? broker.address() : "localhost:6379");
+        output.put("network.redis.username", redis ? broker.username() : "");
+        output.put("network.redis.password", redis ? broker.password() : "");
+        output.put("network.redis.ssl", redis && broker.ssl());
+        output.put("network.nats.address", nats ? broker.address() : "localhost:4222");
+        output.put("network.nats.username", nats ? broker.username() : "");
+        output.put("network.nats.password", nats ? broker.password() : "");
+        output.put("network.nats.token", nats ? broker.token() : "");
+        output.put("network.nats.credentials-file", credentialsFile);
+        output.put("network.nats.ssl", nats && broker.ssl());
+    }
+
+    /** One broker's settings as a {@code network.uri} named them. */
+    private record Broker(String type, String address, String username, String password, String token, boolean ssl) {
+        static final Broker NONE = new Broker("none", "", "", "", "", false);
+    }
+
+    private static final Pattern URI_SCHEME = Pattern.compile("([A-Za-z][A-Za-z0-9+.-]*)://");
+
+    private static Broker broker(String uri) throws URISyntaxException {
+        if (uri.isEmpty()) return Broker.NONE;
+        if (uri.equalsIgnoreCase("redisbungee")) return new Broker("redisbungee", "", "", "", "", false);
+        String scheme = scheme(uri);
+        if (scheme.equals("redis") || scheme.equals("rediss")) {
+            if (URI_SCHEME.matcher(uri).results().count() != 1) throw new IllegalArgumentException("several URIs");
+            URI parsed = withHost(uri);
+            String userInfo = parsed.getRawUserInfo();
+            String username = "";
+            String password = "";
+            if (userInfo != null) {
+                int colon = userInfo.indexOf(':');
+                username = colon < 0 ? "" : decode(userInfo.substring(0, colon));
+                password = decode(colon < 0 ? userInfo : userInfo.substring(colon + 1));
+            }
+            return new Broker("redis", address(parsed, 6379), username, password, "", scheme.equals("rediss"));
+        }
+        List<String> addresses = new ArrayList<>();
+        String username = "";
+        String password = "";
+        String token = "";
+        boolean credential = false;
+        boolean ssl = false;
+        for (String server : uri.split(",")) {
+            String stripped = server.strip();
+            if (stripped.isEmpty()) continue;
+            String serverScheme = scheme(stripped);
+            if (!serverScheme.equals("nats") && !serverScheme.equals("tls"))
+                throw new IllegalArgumentException("not a NATS server");
+            ssl |= serverScheme.equals("tls");
+            URI parsed = withHost(stripped);
+            addresses.add(address(parsed, 4222));
+            String userInfo = parsed.getRawUserInfo();
+            if (credential || userInfo == null || userInfo.isEmpty() || userInfo.equals(":")) continue;
+            credential = true;
+            int colon = userInfo.indexOf(':');
+            if (colon < 0) {
+                token = decode(userInfo);
+            } else {
+                username = decode(userInfo.substring(0, colon));
+                password = decode(userInfo.substring(colon + 1));
+            }
+        }
+        if (addresses.isEmpty()) throw new IllegalArgumentException("no server");
+        return new Broker("nats", String.join(", ", addresses), username, password, token, ssl);
+    }
+
+    private static String scheme(String uri) {
+        Matcher scheme = URI_SCHEME.matcher(uri);
+        return scheme.lookingAt() ? scheme.group(1).toLowerCase(Locale.ROOT) : "";
+    }
+
+    private static URI withHost(String uri) throws URISyntaxException {
+        URI parsed = new URI(uri);
+        if (parsed.getHost() == null || parsed.getHost().isEmpty()) throw new URISyntaxException(uri, "no host");
+        return parsed;
+    }
+
+    private static String address(URI parsed, int defaultPort) {
+        return parsed.getHost() + ":" + (parsed.getPort() < 0 ? defaultPort : parsed.getPort());
+    }
+
+    /** Percent-decodes URI user info, where {@code +} is a plus sign. */
+    private static String decode(String userInfo) {
+        return URLDecoder.decode(userInfo.replace("+", "%2B"), StandardCharsets.UTF_8);
     }
 
     private static String natsUri(YamlMap input) {

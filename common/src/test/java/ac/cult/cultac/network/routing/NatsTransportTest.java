@@ -30,8 +30,8 @@ import org.junit.jupiter.api.Test;
 /** The connection events jnats reports, from a stand-in opener; a real NATS server is not exercised here. */
 class NatsTransportTest {
     private static final List<String> CHANNELS = List.of("cultac.0123abcd.p3", "cultac.0123abcd.all");
-    private static final NetworkSettings SETTINGS =
-            new NetworkSettings("nats://user:pw@127.0.0.1:4222, tls://tok3n@127.0.0.2:4443", "", "p3", "", "");
+    private static final NetworkSettings.Nats SETTINGS =
+            new NetworkSettings.Nats("127.0.0.1:4222, 127.0.0.2:4443", "user", "natspw", "", "", false);
 
     @BeforeAll
     static void logging() {
@@ -66,13 +66,17 @@ class NatsTransportTest {
     private final Opener opener = new Opener();
 
     private NatsTransport transport() {
-        return new NatsTransport(SETTINGS, Redaction.of(SETTINGS), opener);
+        return new NatsTransport(SETTINGS, Redaction.of(settings(SETTINGS)), opener);
+    }
+
+    private static NetworkSettings settings(NetworkSettings.Nats nats) {
+        return new NetworkSettings(NetworkSettings.NATS, null, nats, "", "p3", "");
     }
 
     private static Connection connection(Dispatcher dispatcher) {
         Connection connection = mock(Connection.class);
         when(connection.createDispatcher(any())).thenReturn(dispatcher);
-        when(connection.getConnectedUrl()).thenReturn("nats://user:pw@127.0.0.1:4222");
+        when(connection.getConnectedUrl()).thenReturn("nats://user:natspw@127.0.0.1:4222");
         return connection;
     }
 
@@ -81,7 +85,11 @@ class NatsTransportTest {
         NatsTransport transport = transport();
         transport.start(CHANNELS, (channel, text) -> {});
         Options options = opener.opened();
-        assertEquals(2, options.getServers().size());
+        assertEquals(
+                List.of("nats://127.0.0.1:4222", "nats://127.0.0.2:4443"),
+                options.getServers().stream().map(Object::toString).toList());
+        assertEquals("user", new String(options.getUsernameChars()));
+        assertEquals("natspw", new String(options.getPasswordChars()));
         assertEquals(-1, options.getMaxReconnect());
         assertTrue(options.isNoEcho());
         transport.close();
@@ -138,7 +146,7 @@ class NatsTransportTest {
             transport.start(CHANNELS, (channel, text) -> {});
             Connection connection = mock(Connection.class);
             IOException failure = new IOException(
-                    "Unable to connect to NATS servers: [nats://user:pw@127.0.0.1:4222, tls://tok3n@b]");
+                    "Unable to connect to NATS servers: [nats://user:pw@127.0.0.1:4222, tls://tok3n@b] natspw");
             opener.failed(connection, failure);
             opener.failed(connection, failure);
             transport.close();
@@ -146,6 +154,7 @@ class NatsTransportTest {
             String warning = log.messages().getFirst();
             assertFalse(warning.contains("pw@"), warning);
             assertFalse(warning.contains("tok3n"), warning);
+            assertFalse(warning.contains("natspw"), warning);
             assertTrue(warning.contains("nats://***@127.0.0.1:4222"), warning);
         }
     }
@@ -197,9 +206,9 @@ class NatsTransportTest {
         IllegalArgumentException rejected = assertThrows(
                 IllegalArgumentException.class,
                 () -> new NatsTransport(
-                        new NetworkSettings("nats://127.0.0.1:4222", "", "p3", missing, ""),
-                        Redaction.of(SETTINGS),
+                        new NetworkSettings.Nats("127.0.0.1:4222", "", "", "", missing, false),
+                        Redaction.of(settings(SETTINGS)),
                         opener));
-        assertTrue(rejected.getMessage().startsWith("network.nats-credentials-file"), rejected.getMessage());
+        assertTrue(rejected.getMessage().startsWith("network.nats.credentials-file"), rejected.getMessage());
     }
 }

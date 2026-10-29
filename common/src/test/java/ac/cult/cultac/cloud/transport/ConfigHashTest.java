@@ -46,10 +46,14 @@ class ConfigHashTest {
         }
     }
 
-    private String networkHash(String secret, String uri, String instanceId) throws IOException {
+    private String networkHash(String secret, String redisPassword, String natsToken, String instanceId)
+            throws IOException {
         Files.writeString(
                 folder.resolve("config.yml"),
-                "network:\n  uri: " + uri + "\n  secret: " + secret + "\n  instance-id: " + instanceId + "\n");
+                "network:\n  type: redis\n  redis:\n    address: cache:6379\n    username: \"\"\n    password: "
+                        + redisPassword + "\n  nats:\n    username: user\n    password: " + redisPassword
+                        + "\n    token: " + natsToken + "\n  secret: " + secret + "\n  instance-id: " + instanceId
+                        + "\n");
         Files.writeString(folder.resolve("cult.yml"), "Reach:\n  threshold: 0.0005\n");
         Files.writeString(
                 folder.resolve("punishments.yml"), "Punishments:\n  Reach:\n    remove-violations-after: 300\n");
@@ -58,10 +62,10 @@ class ConfigHashTest {
 
     @Test
     void theNetworkCredentialsLeaveTheHashAlone() throws IOException {
-        String base = networkHash("\"\"", "\"\"", "p3");
-        assertEquals(base, networkHash("\"s3cret\"", "\"redis://:pw@cache:6379/0\"", "p3"));
-        assertEquals(base, networkHash("\"\"", "\"nats://user:pw@host:4222,nats://other:4222\"", "p3"));
-        assertNotEquals(base, networkHash("\"\"", "\"\"", "p4"));
+        String base = networkHash("\"\"", "\"\"", "\"\"", "p3");
+        assertEquals(base, networkHash("\"s3cret\"", "\"pw\"", "\"\"", "p3"));
+        assertEquals(base, networkHash("\"\"", "\"pa,ss\"", "\"t0ken\"", "p3"));
+        assertNotEquals(base, networkHash("\"\"", "\"\"", "\"\"", "p4"));
     }
 
     @Test

@@ -21,7 +21,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 class NetworkModuleTest {
-    private static final NetworkSettings REDISBUNGEE = new NetworkSettings("redisbungee", "", "p3", "", "");
+    private static final NetworkSettings REDISBUNGEE = settings("redisbungee", "p3");
 
     private final FakeBroker broker = new FakeBroker();
 
@@ -66,10 +66,10 @@ class NetworkModuleTest {
         NetworkModule.start(REDISBUNGEE);
         NetworkService first = NetworkModule.service();
 
-        NetworkModule.configReloaded(new NetworkSettings("redisbungee", "", "p3", "", ""));
+        NetworkModule.configReloaded(settings("redisbungee", "p3"));
         assertSame(first, NetworkModule.service());
 
-        NetworkModule.configReloaded(new NetworkSettings("redisbungee", "", "p4", "", ""));
+        NetworkModule.configReloaded(settings("redisbungee", "p4"));
         assertNotSame(first, NetworkModule.service());
         assertFalse(first.enabled());
         assertEquals("p4", NetworkRouting.current().instanceId());
@@ -84,7 +84,7 @@ class NetworkModuleTest {
         });
         NetworkModule.platform(proxy());
         NetworkModule.start(REDISBUNGEE);
-        NetworkModule.configReloaded(new NetworkSettings("redisbungee", "", "p4", "", ""));
+        NetworkModule.configReloaded(settings("redisbungee", "p4"));
 
         assertEquals(2, hooked.size());
         assertSame(NetworkModule.service(), hooked.get(1));
@@ -102,12 +102,26 @@ class NetworkModuleTest {
     }
 
     @Test
-    void anUnknownSchemeStaysLocalWithOneErrorNamingTheAcceptedSchemes() {
+    void anUnknownTypeStaysLocalWithOneErrorNamingTheAcceptedTypes() {
         NetworkModule.platform(proxy());
-        assertStaysLocal(new NetworkSettings("amqp://broker:5672", "", "p3", "", ""), NetworkSettings.ACCEPTED);
-        assertStaysLocal(new NetworkSettings("cache:6379", "", "p3", "", ""), "names no scheme");
-        assertStaysLocal(
-                new NetworkSettings("nats://a:4222,redis://b:6379", "", "p3", "", ""), NetworkSettings.ACCEPTED);
+        assertStaysLocal(settings("amqp", "p3"), NetworkSettings.ACCEPTED);
+        assertStaysLocal(settings("redis://cache:6379", "p3"), NetworkSettings.ACCEPTED);
+        assertTrue(broker.published.isEmpty());
+    }
+
+    @Test
+    void aRedisAddressNamingSeveralServersStaysLocalWithOneError() {
+        NetworkModule.platform(proxy());
+        for (String address : List.of("a:6379,b:6379", "redis://cache:6379"))
+            assertStaysLocal(
+                    new NetworkSettings(
+                            NetworkSettings.REDIS,
+                            new NetworkSettings.Redis(address, "", "", false),
+                            null,
+                            "",
+                            "p3",
+                            ""),
+                    "network.redis.address");
         assertTrue(broker.published.isEmpty());
     }
 
@@ -122,19 +136,23 @@ class NetworkModuleTest {
     @Test
     void anInstanceIdNamingTheBroadcastChannelStaysLocal() {
         NetworkModule.platform(proxy());
-        NetworkModule.start(new NetworkSettings("redisbungee", "", "all", "", ""));
+        NetworkModule.start(settings("redisbungee", "all"));
         assertFalse(NetworkRouting.current().enabled());
     }
 
     @Test
     void anInstanceIdNoChannelCanCarryStaysLocalWithOneErrorNamingTheKey() {
         NetworkModule.platform(proxy());
-        for (String uri : List.of("redisbungee", "redis://cache:6379", "nats://host:4222")) {
+        for (String type : List.of("redisbungee", "redis", "nats")) {
             for (String instance : List.of("p.3", "p 3", "p*", "p>", "all")) {
-                assertStaysLocal(new NetworkSettings(uri, "", instance, "", ""), "network.instance-id");
+                assertStaysLocal(settings(type, instance), "network.instance-id");
             }
         }
         assertTrue(broker.published.isEmpty());
+    }
+
+    private static NetworkSettings settings(String type, String instanceId) {
+        return new NetworkSettings(type, null, null, "", instanceId, "");
     }
 
     private static void assertStaysLocal(NetworkSettings settings, String key) {

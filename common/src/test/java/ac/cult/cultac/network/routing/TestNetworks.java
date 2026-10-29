@@ -35,7 +35,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class TestNetworks {
     public static final byte[] KEY = "a shared network secret of some length".getBytes(StandardCharsets.UTF_8);
-    static final NetworkSettings SETTINGS = new NetworkSettings("redis://cache:6379", "", "", "", "");
+    static final NetworkSettings SETTINGS =
+            new NetworkSettings(NetworkSettings.REDIS, NetworkSettings.Redis.DEFAULT, null, "", "", "");
 
     private final FakeBroker broker;
     private final AtomicLong clock;

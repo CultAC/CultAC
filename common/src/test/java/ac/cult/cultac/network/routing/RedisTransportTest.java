@@ -17,7 +17,6 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -53,9 +52,9 @@ class RedisTransportTest {
     @BeforeEach
     void setUp() throws Exception {
         server = new FakeRedisServer();
-        String uri = "redis://127.0.0.1:" + server.port() + "/0";
-        subscriber = transport(uri);
-        publisher = transport(uri);
+        String address = "127.0.0.1:" + server.port();
+        subscriber = transport(address);
+        publisher = transport(address);
     }
 
     @AfterEach
@@ -65,12 +64,12 @@ class RedisTransportTest {
         server.close();
     }
 
-    private static RedisTransport transport(String uri) {
-        return transport(uri, TIMINGS);
+    private static RedisTransport transport(String address) {
+        return transport(new NetworkSettings.Redis(address, "", "", false), TIMINGS);
     }
 
-    private static RedisTransport transport(String uri, RedisTransport.Timings timings) {
-        return new RedisTransport(uri, Redaction.of(List.of(uri), List.of()), timings);
+    private static RedisTransport transport(NetworkSettings.Redis redis, RedisTransport.Timings timings) {
+        return new RedisTransport(redis, Redaction.of(List.of(redis.password())), timings);
     }
 
     /** Fails unless closing {@code transport} returns well before a connect or read in progress would give up. */
@@ -161,7 +160,8 @@ class RedisTransportTest {
     void closingCutsOffAConnectionStillAuthenticatingAndNothingIsPublishedOnIt() throws Exception {
         try (ServerSocket silent = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
             silent.setSoTimeout(10_000);
-            RedisTransport stalled = transport("redis://:secret@127.0.0.1:" + silent.getLocalPort());
+            RedisTransport stalled = transport(
+                    new NetworkSettings.Redis("127.0.0.1:" + silent.getLocalPort(), "", "secret", false), TIMINGS);
             stalled.publish("cultac.0123abcd.p3", "unsent");
             try (Socket accepted = silent.accept()) {
                 accepted.setSoTimeout(10_000);
@@ -192,7 +192,7 @@ class RedisTransportTest {
     @Test
     void closingAbortsAConnectThatNeverCompletesAndNothingIsPublished() throws Exception {
         try (CapturedLog failures = new CapturedLog(Level.WARNING, "Network transport Redis: cannot publish")) {
-            RedisTransport stalled = transport("redis://10.255.255.1:6379");
+            RedisTransport stalled = transport("10.255.255.1:6379");
             try {
                 stalled.publish("cultac.0123abcd.p3", "unsent");
                 Thread.sleep(300);
@@ -213,7 +213,8 @@ class RedisTransportTest {
     void closingCutsOffATlsHandshakeTheServerNeverAnswers() throws Exception {
         try (ServerSocket silent = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
             silent.setSoTimeout(10_000);
-            RedisTransport stalled = transport("rediss://127.0.0.1:" + silent.getLocalPort());
+            RedisTransport stalled =
+                    transport(new NetworkSettings.Redis("127.0.0.1:" + silent.getLocalPort(), "", "", true), TIMINGS);
             stalled.publish("cultac.0123abcd.p3", "unsent");
             try (Socket accepted = silent.accept()) {
                 accepted.setSoTimeout(10_000);
@@ -237,7 +238,8 @@ class RedisTransportTest {
     @Test
     void theWatchdogPingsWhilePublishesBlock() throws Exception {
         RedisTransport watched = transport(
-                "redis://127.0.0.1:" + server.port(), new RedisTransport.Timings(4_000, 4_000, 50, 10_000, 200));
+                new NetworkSettings.Redis("127.0.0.1:" + server.port(), "", "", false),
+                new RedisTransport.Timings(4_000, 4_000, 50, 10_000, 200));
         try {
             watched.start(CHANNELS, (channel, text) -> received.add(text));
             subscribed();
@@ -253,11 +255,14 @@ class RedisTransportTest {
     }
 
     @Test
-    void theUriMustBeRedisWithAHost() {
-        assertThrows(IllegalArgumentException.class, () -> RedisTransport.parse("http://cache:6379"));
-        assertThrows(IllegalArgumentException.class, () -> RedisTransport.parse("redis:///0"));
-        assertThrows(IllegalArgumentException.class, () -> RedisTransport.parse("not a uri"));
-        assertEquals(URI.create("redis://:p%40ss@cache:6379/2"), RedisTransport.parse("redis://:p%40ss@cache/2"));
-        assertEquals(URI.create("rediss://cache:6380"), RedisTransport.parse("rediss://cache:6380"));
+    void theAddressMustBeOneHostAndPort() {
+        for (String bad : List.of("redis://cache:6379", "a:6379,b:6379", "", ":6379", "cache:0", "cache:x", "::1"))
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> transport(new NetworkSettings.Redis(bad, "", "", false), TIMINGS)
+                            .close(),
+                    bad);
+        transport("cache").close();
+        transport("[::1]:6380").close();
     }
 }

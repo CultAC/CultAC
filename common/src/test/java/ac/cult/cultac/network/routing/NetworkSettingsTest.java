@@ -6,11 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.network.routing.NetworkSettings.Nats;
+import ac.cult.cultac.network.routing.NetworkSettings.Redis;
 import ac.grim.grimac.api.config.ConfigManager;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
@@ -24,35 +29,86 @@ import org.mockito.Mockito;
 class NetworkSettingsTest {
     private static final byte[] FORWARDING = "forwarding".getBytes(StandardCharsets.UTF_8);
 
-    private static ConfigManager config(Map<String, String> strings) {
+    private static ConfigManager config(Map<String, Object> values) {
         ConfigManager config = Mockito.mock(ConfigManager.class);
-        Mockito.when(config.getStringElse(Mockito.anyString(), Mockito.any()))
-                .thenAnswer(invocation -> strings.getOrDefault(invocation.getArgument(0), invocation.getArgument(1)));
+        Mockito.when(config.getStringElse(Mockito.anyString(), Mockito.any())).thenAnswer(invocation -> {
+            Object value = values.get(invocation.<String>getArgument(0));
+            return value == null ? invocation.getArgument(1) : value.toString();
+        });
+        Mockito.when(config.getBooleanElse(Mockito.anyString(), Mockito.anyBoolean()))
+                .thenAnswer(invocation -> values.get(invocation.<String>getArgument(0)) instanceof Boolean set
+                        ? set
+                        : invocation.getArgument(1));
         return config;
     }
 
-    private static NetworkSettings read(Map<String, String> strings, Map<String, String> env) {
-        return NetworkSettings.read(config(strings), env::get);
+    private static NetworkSettings read(Map<String, Object> values, Map<String, String> env) {
+        return NetworkSettings.read(config(values), env::get);
     }
 
-    private static NetworkSettings uri(String uri) {
-        return new NetworkSettings(uri, "", "", "", "");
+    private static NetworkSettings redis(String username, String password) {
+        return new NetworkSettings(
+                NetworkSettings.REDIS, new Redis("cache:6379", username, password, false), null, "", "", "");
     }
 
-    private static final Map<String, String> BLOCK = Map.of(
-            "network.uri", " redis://:pw@cache:6379/0 ",
-            "network.secret", "config-secret",
-            "network.instance-id", "p3",
-            "network.nats-credentials-file", "/etc/nats.creds",
-            "cloud.proxy-id", "edge-1");
+    private static NetworkSettings nats(String username, String password, String token) {
+        return new NetworkSettings(
+                NetworkSettings.NATS, null, new Nats("host:4222", username, password, token, "", false), "", "", "");
+    }
+
+    private static NetworkSettings type(String type) {
+        return new NetworkSettings(type, null, null, "", "", "");
+    }
+
+    private static Map<String, Object> block(String type) {
+        Map<String, Object> values = new HashMap<>();
+        values.put("network.type", type);
+        values.put("network.redis.address", " cache:6380 ");
+        values.put("network.redis.username", "default");
+        values.put("network.redis.password", "redis-pw");
+        values.put("network.redis.ssl", true);
+        values.put("network.nats.address", "a:4222, b");
+        values.put("network.nats.username", "user");
+        values.put("network.nats.password", "nats-pw");
+        values.put("network.nats.token", "");
+        values.put("network.nats.credentials-file", "/etc/nats.creds");
+        values.put("network.nats.ssl", false);
+        values.put("network.secret", "config-secret");
+        values.put("network.instance-id", "p3");
+        values.put("cloud.proxy-id", "edge-1");
+        return values;
+    }
 
     @Test
-    void readsTheNetworkBlock() {
-        NetworkSettings settings = read(BLOCK, Map.of());
+    void readsTheChosenBlockOnly() {
+        NetworkSettings settings = read(block("Redis"), Map.of());
         assertEquals(
-                new NetworkSettings("redis://:pw@cache:6379/0", "config-secret", "p3", "/etc/nats.creds", "edge-1"),
+                new NetworkSettings(
+                        NetworkSettings.REDIS,
+                        new Redis("cache:6380", "default", "redis-pw", true),
+                        Nats.DEFAULT,
+                        "config-secret",
+                        "p3",
+                        "edge-1"),
                 settings);
         assertEquals(NetworkSettings.REDIS, settings.transport());
+
+        NetworkSettings nats = read(block("NATS"), Map.of());
+        assertEquals(new Nats("a:4222, b", "user", "nats-pw", "", "/etc/nats.creds", false), nats.nats());
+        assertEquals(Redis.DEFAULT, nats.redis());
+        assertEquals(List.of("nats://a:4222", "nats://b:4222"), nats.nats().servers());
+    }
+
+    @Test
+    void theUnchosenBlockNeverForcesAReconnect() {
+        Map<String, Object> changed = block("nats");
+        changed.put("network.redis.password", "rotated");
+        changed.put("network.redis.address", "elsewhere:6379");
+        assertEquals(read(block("nats"), Map.of()), read(changed, Map.of()));
+
+        Map<String, Object> chosen = block("nats");
+        chosen.put("network.nats.password", "rotated");
+        assertNotEquals(read(block("nats"), Map.of()), read(chosen, Map.of()));
     }
 
     @Test
@@ -60,106 +116,168 @@ class NetworkSettingsTest {
         NetworkSettings settings = read(Map.of(), Map.of());
         assertEquals(NetworkSettings.OFF, settings);
         assertEquals(NetworkSettings.NONE, settings.transport());
+        assertEquals(NetworkSettings.OFF, type(""));
     }
 
     @Test
     void aSetEnvironmentVariableWinsAndABlankOneDoesNot() {
         Map<String, String> env = new HashMap<>();
-        env.put("CULTAC_NETWORK_URI", "nats://b:4222, nats://c:4222,");
+        env.put("CULTAC_NETWORK_TYPE", "redis");
         env.put("CULTAC_NETWORK_SECRET", "env-secret");
         env.put("CULTAC_NETWORK_INSTANCE_ID", "p9");
-        env.put("CULTAC_NETWORK_NATS_CREDENTIALS_FILE", "/run/nats.creds");
-        NetworkSettings settings = read(BLOCK, env);
+        env.put("CULTAC_NETWORK_REDIS_ADDRESS", "env-cache:6390");
+        env.put("CULTAC_NETWORK_REDIS_USERNAME", "env-user");
+        env.put("CULTAC_NETWORK_REDIS_PASSWORD", "env-pw");
+        env.put("CULTAC_NETWORK_REDIS_SSL", "false");
+        NetworkSettings settings = read(block("nats"), env);
         assertEquals(
-                new NetworkSettings("nats://b:4222, nats://c:4222,", "env-secret", "p9", "/run/nats.creds", "edge-1"),
+                new NetworkSettings(
+                        NetworkSettings.REDIS,
+                        new Redis("env-cache:6390", "env-user", "env-pw", false),
+                        null,
+                        "env-secret",
+                        "p9",
+                        "edge-1"),
                 settings);
-        assertEquals(NetworkSettings.NATS, settings.transport());
-        assertEquals(List.of("nats://b:4222", "nats://c:4222"), settings.servers());
+
+        Map<String, String> natsEnv = new HashMap<>();
+        natsEnv.put("CULTAC_NETWORK_NATS_ADDRESS", "x:1, y:2");
+        natsEnv.put("CULTAC_NETWORK_NATS_USERNAME", "env-user");
+        natsEnv.put("CULTAC_NETWORK_NATS_PASSWORD", "env-pw");
+        natsEnv.put("CULTAC_NETWORK_NATS_TOKEN", "env-token");
+        natsEnv.put("CULTAC_NETWORK_NATS_CREDENTIALS_FILE", "/run/nats.creds");
+        natsEnv.put("CULTAC_NETWORK_NATS_SSL", "TRUE");
+        assertEquals(
+                new Nats("x:1, y:2", "env-user", "env-pw", "env-token", "/run/nats.creds", true),
+                read(block("nats"), natsEnv).nats());
 
         Map<String, String> blank = new HashMap<>();
         for (String name : env.keySet()) blank.put(name, "  ");
-        assertEquals(read(BLOCK, Map.of()), read(BLOCK, blank));
+        for (String name : natsEnv.keySet()) blank.put(name, "");
+        assertEquals(read(block("nats"), Map.of()), read(block("nats"), blank));
+        assertEquals(read(block("redis"), Map.of()), read(block("redis"), blank));
     }
 
     @Test
-    void theSchemePicksTheTransport() {
-        assertEquals(NetworkSettings.NONE, uri("").transport());
-        assertEquals(NetworkSettings.REDIS, uri("redis://cache:6379").transport());
-        assertEquals(NetworkSettings.REDIS, uri("REDISS://:pw@cache:6380/0").transport());
-        assertEquals(NetworkSettings.NATS, uri("nats://token@host:4222").transport());
-        assertEquals(NetworkSettings.NATS, uri("tls://a:4443").transport());
-        assertEquals(NetworkSettings.NATS, uri("nats://a:4222, tls://b:4443").transport());
-        assertEquals(NetworkSettings.REDISBUNGEE, uri("redisbungee").transport());
-        assertEquals(NetworkSettings.REDISBUNGEE, uri(" RedisBungee ").transport());
-        assertEquals("rediss", uri("rediss://cache").scheme());
-        assertEquals("", uri("").scheme());
+    void theTypeIsCaseInsensitiveAndAnUnknownOneNamesNoTransport() {
+        assertEquals(NetworkSettings.NONE, type("").transport());
+        assertEquals(NetworkSettings.NONE, type(" None ").transport());
+        assertEquals(NetworkSettings.REDIS, type("REDIS").transport());
+        assertEquals(NetworkSettings.NATS, type("Nats").transport());
+        assertEquals(NetworkSettings.REDISBUNGEE, type(" RedisBungee ").transport());
+        for (String unknown : List.of("amqp", "valkey", "redis://cache:6379", "nats,redis"))
+            assertNull(type(unknown).transport(), unknown);
     }
 
     @Test
-    void anUnknownSchemeOrAMixOfThemNamesNoTransport() {
-        for (String unknown : List.of(
-                "amqp://broker:5672",
-                "cache:6379",
-                "localhost",
-                "nats://a:4222,redis://b:6379",
-                "redis://a:6379,redis://b:6379",
-                "redis://a:6379,nats://b:4222",
-                ",, ,",
-                "http://cache:6379")) {
-            assertNull(uri(unknown).transport(), unknown);
-        }
-        assertEquals("amqp", uri("amqp://broker:5672").scheme());
-        assertEquals("", uri("cache:6379").scheme());
-        assertEquals("", uri(",, ,").scheme());
-    }
-
-    @Test
-    void aRedisPasswordMayHoldACommaWhileNatsServersSplitOnOne() {
-        NetworkSettings redis = uri("redis://:pa,ss@cache:6379");
-        assertEquals(NetworkSettings.REDIS, redis.transport());
-        assertEquals(List.of("redis://:pa,ss@cache:6379"), redis.servers());
-        assertEquals("pa,ss", redis.credential());
+    void anAddressIsHostAndAnOptionalPort() {
+        assertEquals("cache:6379", new Redis("cache", "", "", false).server().toString());
         assertEquals(
-                List.of("nats://a:4222", "nats://b:4222"),
-                uri("nats://a:4222, nats://b:4222").servers());
-        NetworkSettings encoded = uri("nats://a%2Fb%23c%25d%2Ce%2Bf%20g@a:4222,nats://b:4222");
-        assertEquals(2, encoded.servers().size());
-        assertEquals("a/b#c%d,e+f g", encoded.credential());
+                "cache:6380", new Redis(" cache:6380 ", "", "", false).server().toString());
+        assertEquals("[::1]:6379", new Redis("[::1]", "", "", false).server().toString());
+        assertEquals("::1", new Redis("[::1]:6380", "", "", false).server().host());
+        assertEquals(
+                List.of("tls://a:4222", "tls://[fe80::1]:4443", "tls://c:1"),
+                new Nats("a, [fe80::1]:4443,, c:1 ,", "", "", "", "", true).servers());
+        for (String bad : List.of(
+                "",
+                ":6379",
+                "cache:",
+                "cache:0",
+                "cache:65536",
+                "cache:x",
+                "::1",
+                "[::1",
+                "[::1]x",
+                "user@cache",
+                "cache/0",
+                "two words"))
+            assertThrows(IllegalArgumentException.class, () -> new Redis(bad, "", "", false).server(), bad);
+        assertThrows(IllegalArgumentException.class, () -> new Nats(" , ", "", "", "", "", false).servers());
+        assertThrows(IllegalArgumentException.class, () -> new Nats("nats://a:4222", "", "", "", "", false).servers());
     }
 
     @Test
-    void theCredentialIsTheFirstUserInfoInTheUri() {
-        assertEquals("pw", uri("redis://:pw@cache:6379").credential());
-        assertEquals("default:pw", uri("rediss://default:pw@cache:6380").credential());
-        assertEquals("p@ss", uri("redis://:p%40ss@cache:6379").credential());
-        assertEquals("token", uri("nats://token@host:4222").credential());
-        assertEquals("second", uri("nats://a:4222,nats://second@b:4222").credential());
-        assertNull(uri("redis://cache:6379").credential());
-        assertNull(uri("redisbungee").credential());
+    void aRedisAddressNamingASchemeOrSeveralServersIsRejectedWithOneMessage() {
+        for (String bad : List.of("a:6379,b:6379", "redis://cache:6379", "rediss://:pw@cache")) {
+            IllegalArgumentException rejected =
+                    assertThrows(IllegalArgumentException.class, () -> new Redis(bad, "", "", false).server(), bad);
+            assertTrue(rejected.getMessage().startsWith("network.redis.address"), rejected.getMessage());
+            assertFalse(rejected.getMessage().contains("pw"), rejected.getMessage());
+        }
+    }
+
+    @Test
+    void theCredentialIsThePasswordTheTokenOrUserAndPassword() {
+        assertEquals("pw", redis("", "pw").credential());
+        assertEquals("default:pw", redis("default", "pw").credential());
+        assertEquals("default", redis("default", "").credential());
+        assertNull(redis("", "").credential());
+        assertEquals("token", nats("user", "pw", "token").credential());
+        assertEquals("user:pw", nats("user", "pw", "").credential());
+        assertNull(nats("", "", "").credential());
+        assertNull(type("redisbungee").credential());
         assertNull(NetworkSettings.OFF.credential());
+    }
+
+    /** The key build 188's {@code network.uri} derived: from its first user info, decoded, a leading ':' dropped. */
+    private static byte[] uriKey(String uri) throws Exception {
+        List<String> servers = uri.startsWith("redis") ? List.of(uri) : Arrays.asList(uri.split(","));
+        for (String server : servers) {
+            String userInfo = new URI(server.strip()).getUserInfo();
+            if (userInfo == null) continue;
+            String credential = userInfo.startsWith(":") ? userInfo.substring(1) : userInfo;
+            if (!credential.isEmpty()) return hmac(credential, "cultac-network-signing");
+        }
+        return null;
+    }
+
+    @Test
+    void theDerivedKeyMatchesTheOneTheUriGaveForTheSameCredentials() throws Exception {
+        assertArrayEquals(uriKey("redis://:pw@cache:6379/0"), redis("", "pw").resolveSecret(null));
+        assertArrayEquals(
+                uriKey("rediss://default:pw@cache:6380"), redis("default", "pw").resolveSecret(null));
+        assertArrayEquals(
+                uriKey("redis://:p%40ss@cache:6379"), redis("", "p@ss").resolveSecret(null));
+        assertArrayEquals(
+                uriKey("redis://:pa,ss@cache:6379"), redis("", "pa,ss").resolveSecret(null));
+        assertArrayEquals(uriKey("redis://pw@cache:6379"), redis("", "pw").resolveSecret(null));
+        assertArrayEquals(uriKey("redis://u:p%3Aw@cache"), redis("u", "p:w").resolveSecret(null));
+        assertArrayEquals(
+                uriKey("nats://t0ken@a:4222,nats://b:4222"),
+                nats("", "", "t0ken").resolveSecret(null));
+        assertArrayEquals(
+                uriKey("nats://a%2Fb%23c%25d%2Ce%2Bf%20g@a:4222"),
+                nats("", "", "a/b#c%d,e+f g").resolveSecret(null));
+        assertArrayEquals(
+                uriKey("tls://a:4222, tls://user:pw@b:4443"),
+                nats("user", "pw", "").resolveSecret(null));
+        assertArrayEquals(uriKey("nats://:pw@a:4222"), nats("", "pw", "").resolveSecret(null));
+        assertNull(uriKey("redis://cache:6379"));
+        assertNull(redis("", "").resolveSecret(null));
     }
 
     @Test
     void theSigningKeyIsTheSecretThenThePlatformsThenOneDerivedFromTheCredential() throws Exception {
-        NetworkSettings all = new NetworkSettings("redis://:pw@cache:6379", "config-secret", "", "", "");
+        NetworkSettings all = new NetworkSettings(
+                NetworkSettings.REDIS, new Redis("cache", "", "pw", false), null, "config-secret", "", "");
         assertArrayEquals("config-secret".getBytes(StandardCharsets.UTF_8), all.resolveSecret(FORWARDING));
 
-        NetworkSettings noSecret = uri("redis://:pw@cache:6379");
+        NetworkSettings noSecret = redis("", "pw");
         assertArrayEquals(FORWARDING, noSecret.resolveSecret(FORWARDING));
 
         byte[] derived = hmac("pw", "cultac-network-signing");
         assertArrayEquals(derived, noSecret.resolveSecret(null));
         assertArrayEquals(derived, noSecret.resolveSecret(new byte[0]));
-        assertArrayEquals(derived, uri("nats://pw@host:4222").resolveSecret(null));
-        assertFalse(java.util.Arrays.equals(
-                derived, uri("redis://:other@cache:6379").resolveSecret(null)));
+        assertArrayEquals(derived, nats("", "", "pw").resolveSecret(null));
+        assertFalse(Arrays.equals(derived, redis("", "other").resolveSecret(null)));
     }
 
     @Test
     void withoutASecretAPlatformSecretOrACredentialThereIsNoKey() {
         assertNull(NetworkSettings.OFF.resolveSecret(null));
-        assertNull(uri("redis://cache:6379").resolveSecret(null));
-        assertNull(uri("redisbungee").resolveSecret(new byte[0]));
+        assertNull(redis("", "").resolveSecret(null));
+        assertNull(type("redisbungee").resolveSecret(new byte[0]));
     }
 
     @Test
@@ -181,9 +299,9 @@ class NetworkSettingsTest {
         Supplier<String> noAddress = () -> {
             throw new AssertionError("address looked up");
         };
-        assertEquals("p3", read(BLOCK, Map.of()).resolveInstanceId(() -> "rb-1", noAddress));
+        assertEquals("p3", read(block("redis"), Map.of()).resolveInstanceId(() -> "rb-1", noAddress));
 
-        Map<String, String> unnamed = new HashMap<>(BLOCK);
+        Map<String, Object> unnamed = block("redis");
         unnamed.remove("network.instance-id");
         assertEquals("rb-1", read(unnamed, Map.of()).resolveInstanceId(() -> "rb-1", noAddress));
         assertEquals("edge-1", read(unnamed, Map.of()).resolveInstanceId(() -> null, noAddress));
@@ -210,33 +328,30 @@ class NetworkSettingsTest {
     @Test
     void toStringLeavesTheCredentialsOut() {
         String text = new NetworkSettings(
-                        "nats://user:natspw@a:4222, tls://tok3n@b:4443", "config-secret", "p3", "/etc/nats.creds", "")
+                        NetworkSettings.NATS,
+                        null,
+                        new Nats("a:4222, b:4443", "natsuser", "natspw", "tok3n", "/etc/nats.creds", true),
+                        "config-secret",
+                        "p3",
+                        "")
                 .toString();
-        assertFalse(text.contains("config-secret"), text);
-        assertFalse(text.contains("natspw"), text);
-        assertFalse(text.contains("tok3n"), text);
-        assertTrue(text.contains("uri=nats://***@a:4222,tls://***@b:4443"), text);
+        for (String secret : List.of("config-secret", "natsuser", "natspw", "tok3n"))
+            assertFalse(text.contains(secret), text);
+        assertTrue(text.contains("address=a:4222, b:4443"), text);
         assertTrue(text.contains("secret=<set>"), text);
 
-        assertTrue(uri("redis://:pw@cache:6379/0").toString().contains("uri=redis://***@cache:6379/0"));
-        assertTrue(uri("redisbungee").toString().contains("uri=redisbungee"));
-    }
-
-    @Test
-    void toStringHidesTheCredentialsOfAUrlThatDoesNotParse() {
-        String text = uri("nats://user:pass host:4222, nats://user:p@ss@, localhost:4222")
-                .toString();
-        assertFalse(text.contains("pass"), text);
-        assertFalse(text.contains("p@ss"), text);
-        assertTrue(text.contains("uri=" + Redaction.HIDDEN + ",nats://***@,localhost:4222"), text);
+        String redis = read(block("redis"), Map.of()).toString();
+        assertFalse(redis.contains("redis-pw"), redis);
+        assertFalse(redis.contains("nats"), redis);
+        assertTrue(redis.contains("address=cache:6380"), redis);
     }
 
     @Test
     void settingsThatReadAlikeAreEqual() {
-        assertEquals(read(BLOCK, Map.of()), read(BLOCK, Map.of()));
-        Map<String, String> changed = new HashMap<>(BLOCK);
+        assertEquals(read(block("redis"), Map.of()), read(block("redis"), Map.of()));
+        Map<String, Object> changed = block("redis");
         changed.put("network.secret", "rotated");
-        assertNotEquals(read(BLOCK, Map.of()), read(changed, Map.of()));
+        assertNotEquals(read(block("redis"), Map.of()), read(changed, Map.of()));
     }
 
     private static byte[] hmac(String key, String message) throws Exception {

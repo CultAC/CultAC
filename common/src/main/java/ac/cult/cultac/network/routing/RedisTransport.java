@@ -1,17 +1,17 @@
 package ac.cult.cultac.network.routing;
 
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.jetbrains.annotations.Nullable;
+import redis.clients.jedis.DefaultJedisClientConfig;
+import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisClientConfig;
 import redis.clients.jedis.JedisPubSub;
 
 /**
@@ -21,7 +21,6 @@ import redis.clients.jedis.JedisPubSub;
  * worker, which ends at the latest when a connect in progress times out.
  */
 final class RedisTransport implements MessageTransport {
-    static final int DEFAULT_PORT = 6379;
     static final long MIN_BACKOFF_MILLIS = 1_000;
     static final long MAX_BACKOFF_MILLIS = 30_000;
 
@@ -30,7 +29,8 @@ final class RedisTransport implements MessageTransport {
         static final Timings DEFAULT = new Timings(10_000, 10_000, 10_000, 30_000, 2_000);
     }
 
-    private final URI uri;
+    private final HostAndPort server;
+    private final JedisClientConfig client;
     private final Redaction redaction;
     private final Timings timings;
     /** Publishes in order on one thread, which closes its connection when it ends. */
@@ -52,13 +52,21 @@ final class RedisTransport implements MessageTransport {
     private volatile boolean publishFailing;
 
     /**
-     * A transport for {@code uri}, {@code redis://} or {@code rediss://} with a host, logging what the broker reports
-     * through {@code redaction}.
+     * A transport for the server and credentials in {@code redis}, logging what the broker reports through
+     * {@code redaction}.
      *
-     * @throws IllegalArgumentException when {@code uri} is not such a URI
+     * @throws IllegalArgumentException when its address is not one {@code host[:port]}
      */
-    RedisTransport(String uri, Redaction redaction, Timings timings) {
-        this.uri = parse(uri);
+    RedisTransport(NetworkSettings.Redis redis, Redaction redaction, Timings timings) {
+        NetworkSettings.Address address = redis.server();
+        this.server = new HostAndPort(address.host(), address.port());
+        this.client = DefaultJedisClientConfig.builder()
+                .connectionTimeoutMillis(timings.connectMillis())
+                .socketTimeoutMillis(timings.readMillis())
+                .user(redis.username().isEmpty() ? null : redis.username())
+                .password(redis.password().isEmpty() ? null : redis.password())
+                .ssl(redis.ssl())
+                .build();
         this.redaction = redaction;
         this.timings = timings;
         this.worker = Executors.newSingleThreadExecutor(task -> {
@@ -79,28 +87,6 @@ final class RedisTransport implements MessageTransport {
             thread.setDaemon(true);
             return thread;
         });
-    }
-
-    static URI parse(String uri) {
-        URI parsed;
-        try {
-            parsed = new URI(uri);
-        } catch (URISyntaxException malformed) {
-            throw new IllegalArgumentException("network.uri is not a URI");
-        }
-        String scheme = parsed.getScheme() == null ? "" : parsed.getScheme().toLowerCase(Locale.ROOT);
-        if (!scheme.equals("redis") && !scheme.equals("rediss") || parsed.getHost() == null)
-            throw new IllegalArgumentException("network.uri must be redis://host:port or rediss://host:port");
-        if (parsed.getPort() != -1) return parsed;
-        String userInfo = parsed.getRawUserInfo() == null ? "" : parsed.getRawUserInfo() + "@";
-        String path = parsed.getRawPath() == null ? "" : parsed.getRawPath();
-        String query = parsed.getRawQuery() == null ? "" : "?" + parsed.getRawQuery();
-        try {
-            return new URI(
-                    parsed.getScheme() + "://" + userInfo + parsed.getHost() + ":" + DEFAULT_PORT + path + query);
-        } catch (URISyntaxException malformed) {
-            throw new IllegalArgumentException("network.uri is not a URI");
-        }
     }
 
     @Override
@@ -124,7 +110,7 @@ final class RedisTransport implements MessageTransport {
         boolean warned = false;
         while (!closed) {
             Subscriber listener = new Subscriber(receiver);
-            try (Jedis jedis = new Jedis(uri, timings.connectMillis(), timings.readMillis())) {
+            try (Jedis jedis = new Jedis(server, client)) {
                 listener.connection = jedis;
                 subscriber = listener;
                 if (closed) break;
@@ -191,7 +177,7 @@ final class RedisTransport implements MessageTransport {
             try {
                 Jedis connection = publisher;
                 if (connection == null) {
-                    connection = new Jedis(uri, timings.connectMillis(), timings.readMillis());
+                    connection = new Jedis(server, client);
                     publisher = connection;
                 }
                 if (Thread.currentThread().isInterrupted()) return;

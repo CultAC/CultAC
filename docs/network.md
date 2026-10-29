@@ -6,22 +6,50 @@ instance, and alerts with the `global` scope arrive from everywhere. Without it,
 players. Messages are JSON on the broker, signed with a key every instance shares; an instance drops any message it
 cannot verify.
 
-Everything is set in the `network` block of `config.yml`. Each key also has an environment variable that wins when it
-is set and not blank: `CULTAC_NETWORK_URI`, `CULTAC_NETWORK_SECRET`, `CULTAC_NETWORK_INSTANCE_ID` and
-`CULTAC_NETWORK_NATS_CREDENTIALS_FILE`. `/cult reload` reconnects when the block changes.
+Everything is set in the `network` block of `config.yml`: `type` names the broker, and only that broker's block is
+read. Each key also has an environment variable that wins when it is set and not blank: `CULTAC_NETWORK_TYPE`,
+`CULTAC_NETWORK_SECRET`, `CULTAC_NETWORK_INSTANCE_ID`, `CULTAC_NETWORK_REDIS_ADDRESS`, `_USERNAME`, `_PASSWORD` and
+`_SSL`, and `CULTAC_NETWORK_NATS_ADDRESS`, `_USERNAME`, `_PASSWORD`, `_TOKEN`, `_CREDENTIALS_FILE` and `_SSL`.
+`/cult reload` reconnects when the block changes.
 
-## Setup: one URI
+## Setup: pick a broker
 
-Set `network.uri` to the same broker on every instance. Its scheme picks the transport:
+Set `network.type` to the same broker on every instance, and fill in that broker's block. An address is
+`host[:port]`, an IPv6 host in brackets (`[::1]:6379`). Passwords and tokens are written as they are; nothing needs
+URL-encoding.
 
-| Broker | `uri` |
-|---|---|
-| Redis (and Valkey, KeyDB, Dragonfly) | `redis://:password@host:6379/0`, `redis://user:password@host:6379`, or `rediss://…` for TLS |
-| NATS | `nats://token@host:4222`, or `tls://…` for TLS; several servers separated by commas |
-| RedisBungee (Velocity only) | `redisbungee`: reuses RedisBungee's own Redis connection, nothing else to set |
+**none** (the default): the network is off and each instance sees only its own players.
 
-An empty `uri` turns the network off. Any other scheme is an error at start or reload, and the instance stays local.
-NATS accounts that authenticate with a `.creds` file (JWT and nkey) also set `network.nats-credentials-file`.
+**redis**: Redis, Valkey, KeyDB or Dragonfly.
+
+```yaml
+network:
+  type: redis
+  redis:
+    address: redis.example:6379    # one server; the port defaults to 6379
+    username: ""                   # an ACL user; empty for the default user
+    password: "the password"
+    ssl: false                     # true for TLS
+```
+
+**nats**: one NATS server or a cluster.
+
+```yaml
+network:
+  type: nats
+  nats:
+    address: nats-1:4222, nats-2:4222   # comma-separated; the port defaults to 4222
+    token: ""                           # a token, or else username and password
+    username: ""
+    password: ""
+    credentials-file: ""                # NATS accounts: a .creds file (JWT and nkey)
+    ssl: false                          # true connects to every server over TLS
+```
+
+**redisbungee** (Velocity only): reuses RedisBungee's own Redis connection; nothing else to set.
+
+Any other `type`, or an address that is not `host[:port]` (a Redis address names one server, without a scheme), is an
+error at start or reload, and the instance stays local.
 
 ## The signing key
 
@@ -31,7 +59,8 @@ Every instance needs the same key. The first of these that is set is used:
 2. On a Velocity proxy, its modern forwarding secret.
 3. On a Paper server behind Velocity, the same forwarding secret, read from `proxies.velocity.secret` in
    `config/paper-global.yml` while `proxies.velocity.enabled` is on.
-4. A key derived from the password (or `user:password`) of a Redis URI, or the token of a NATS URI.
+4. A key derived from the chosen broker's credential: the Redis password, or `username:password` with a username; the
+   NATS token, else its password or `username:password`.
 
 A proxy and the servers behind it therefore agree with no extra setting, and so do instances sharing one broker
 password. With none of these, the network stays off and the log asks for `network.secret`. Instances only share

@@ -174,7 +174,7 @@ public final class NetworkService implements NetworkRouting {
         byte[] platformSecret = platform.defaultSecret();
         if (platformSecret != null && platformSecret.length > 0)
             return platform.proxy() ? "the proxy's forwarding secret" : "the forwarding secret in paper-global.yml";
-        return "a key derived from the network.uri credentials";
+        return "a key derived from the network." + settings.type() + " credentials";
     }
 
     private static ThreadFactory daemon(String name) {
@@ -194,10 +194,8 @@ public final class NetworkService implements NetworkRouting {
         String name = settings.transport();
         if (NetworkSettings.NONE.equals(name)) return null;
         if (name == null) {
-            String scheme = settings.scheme();
-            LogUtil.error("Network routing off: network.uri "
-                    + (scheme.isEmpty() ? "names no scheme" : "has the scheme \"" + scheme + "\"")
-                    + "; use " + NetworkSettings.ACCEPTED);
+            LogUtil.error("Network routing off: network.type \"" + settings.type() + "\" is not one of "
+                    + NetworkSettings.ACCEPTED);
             return null;
         }
         String invalid = NetworkSettings.invalidInstanceId(instanceId);
@@ -214,12 +212,12 @@ public final class NetworkService implements NetworkRouting {
         try {
             MessageTransport transport = switch (name) {
                 case NetworkSettings.REDIS ->
-                    new RedisTransport(settings.uri(), redaction, RedisTransport.Timings.DEFAULT);
-                case NetworkSettings.NATS -> new NatsTransport(settings, redaction, NatsTransport.NATS);
+                    new RedisTransport(settings.redis(), redaction, RedisTransport.Timings.DEFAULT);
+                case NetworkSettings.NATS -> new NatsTransport(settings.nats(), redaction, NatsTransport.NATS);
                 default -> platform.redisBungee();
             };
             if (transport == null)
-                LogUtil.error("Network routing off: network.uri is redisbungee, but RedisBungee is not installed on"
+                LogUtil.error("Network routing off: network.type is redisbungee, but RedisBungee is not installed on"
                         + " this proxy or cannot be reached");
             return transport;
         } catch (IllegalArgumentException invalidSetting) {

@@ -43,12 +43,12 @@ final class NatsTransport implements MessageTransport {
     private @Nullable Connection closing;
 
     /**
-     * A transport for the servers in {@code settings}' URI, adding its credentials file, logging what the servers
-     * report through {@code redaction}.
+     * A transport for the servers in {@code nats}, authenticating with its token, else its user and password, and its
+     * credentials file, logging what the servers report through {@code redaction}.
      *
      * @throws IllegalArgumentException when the servers or the credentials file cannot be used
      */
-    NatsTransport(NetworkSettings settings, Redaction redaction, Opener opener) {
+    NatsTransport(NetworkSettings.Nats nats, Redaction redaction, Opener opener) {
         this.redaction = redaction;
         this.opener = opener;
         Options.Builder builder = new Options.Builder()
@@ -59,17 +59,20 @@ final class NatsTransport implements MessageTransport {
                 .noEcho()
                 .connectionListener(this::connectionEvent)
                 .errorListener(new Errors());
-        if (!settings.natsCredentialsFile().isEmpty()) {
-            Path credentials = Path.of(settings.natsCredentialsFile());
+        if (!nats.token().isEmpty()) builder.token(nats.token().toCharArray());
+        else if (!nats.username().isEmpty() || !nats.password().isEmpty())
+            builder.userInfo(nats.username().toCharArray(), nats.password().toCharArray());
+        if (!nats.credentialsFile().isEmpty()) {
+            Path credentials = Path.of(nats.credentialsFile());
             if (!Files.isReadable(credentials))
-                throw new IllegalArgumentException("network.nats-credentials-file " + credentials + " cannot be read");
+                throw new IllegalArgumentException("network.nats.credentials-file " + credentials + " cannot be read");
             builder.authHandler(Nats.credentials(credentials.toString()));
         }
+        List<String> servers = nats.servers();
         try {
-            this.options =
-                    builder.servers(settings.servers().toArray(String[]::new)).build();
+            this.options = builder.servers(servers.toArray(String[]::new)).build();
         } catch (IllegalArgumentException | IllegalStateException invalid) {
-            throw new IllegalArgumentException("network.uri: " + invalid.getMessage());
+            throw new IllegalArgumentException("network.nats.address: " + invalid.getMessage());
         }
     }
 
