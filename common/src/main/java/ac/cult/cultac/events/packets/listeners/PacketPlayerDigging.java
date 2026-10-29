@@ -60,9 +60,6 @@ public class PacketPlayerDigging {
                 state.riptideReleaseCertain = other > 0 && RiptideUtil.isCertainRiptideRelease(player);
                 player.riptideSpinAttackTicks = 20;
                 player.riptideSpinCertain = state.riptideReleaseCertain;
-            } else if (j > 0) {
-                state.invalidRiptideRelease = true;
-                state.invalidRiptideReleaseReason = RiptideUtil.invalidReleaseReason(player, hand);
             }
             RiptideUtil.clearTrackedUse(player);
         }

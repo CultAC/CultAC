@@ -19,6 +19,7 @@ import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * TridentItem#releaseUsing for a riptide trident charged in shallow water and released on the ground. The release
@@ -26,6 +27,20 @@ import org.junit.jupiter.params.provider.CsvSource;
  */
 class JavaRiptideReleaseTest {
     private static final Vec3 RESTED = SHALLOWS.add(SETTLED);
+
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_11", "V_26_1", "V_26_2", "V_26_3"})
+    void aReleaseAfterNineTicksDoesNotSpin(ClientVersion version) throws Exception {
+        for (int level : new int[] {0, 3}) {
+            try (var f = fixture(version)) {
+                charge(f, 9, Hand.MAIN_HAND, trident(3));
+                release(f);
+                assertRelease(f, level, level == 0);
+            }
+        }
+    }
 
     @ParameterizedTest
     @CsvSource({

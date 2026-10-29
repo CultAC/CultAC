@@ -62,8 +62,6 @@ public class PacketStateData {
     public int riptideSelectClientTick = Integer.MIN_VALUE;
     public int riptideSlotBeforeSelect;
     public int riptideFirstSelectSlot;
-    public boolean invalidRiptideRelease = false;
-    public String invalidRiptideReleaseReason = "";
     public float serverTickRate = 20.0F;
     public boolean serverTicksFrozen = false;
     public int serverFrozenTickStepsRemaining = 0;
