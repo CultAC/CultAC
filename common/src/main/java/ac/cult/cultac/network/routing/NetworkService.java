@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,8 +32,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -40,15 +41,18 @@ import org.jetbrains.annotations.Nullable;
  * instance, to every other instance, or to this instance's engine generations over the in-process bus. Messages for
  * this instance never reach the broker and need no transport. Only the current generation publishes the roster: a
  * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and, at most every {@value #DELTA_PERIOD_MILLIS} ms, one delta
- * with the joins, quits, backend switches, brand changes and verbose change reported since the last roster message,
- * the last report per player winning. Every generation of one host reports into one shared map that only the current
- * generation takes from, so a report made on a superseded generation rides the current one's next roster message. The
- * generation that drew the last roster number sends an empty snapshot when it stops. The generations of one host check
- * that they are current, draw the number and publish one at a time, holding the shared counter's lock. At most
- * {@value #MAX_QUEUED_MESSAGES} received messages of {@value #MAX_QUEUED_BYTES} bytes in all wait to be read; the rest
- * are dropped.
+ * with the joins, quits, backend switches and brand changes reported since the last roster message, the last report
+ * per player winning, or with a change in the servers verbose staff here cover. Every generation of one host reports
+ * into one shared map that only the current generation takes from, so a report made on a superseded generation rides
+ * the current one's next roster message. The generation that drew the last roster number sends an empty snapshot when
+ * it stops. The generations of one host check that they are current, draw the number and publish one at a time,
+ * holding the shared counter's lock. At most {@value #MAX_QUEUED_MESSAGES} received messages of
+ * {@value #MAX_QUEUED_BYTES} bytes in all wait to be read; the rest are dropped.
  */
 public final class NetworkService implements NetworkRouting {
+    /** In a roster's verbose servers: every server, players on no known server included. */
+    public static final String EVERY_SERVER = "*";
+
     static final long ROSTER_PERIOD_MILLIS = 60_000;
     static final long DELTA_PERIOD_MILLIS = 2_000;
     static final long SWEEP_PERIOD_MILLIS = 1_000;
@@ -113,14 +117,13 @@ public final class NetworkService implements NetworkRouting {
 
     private @Nullable InProcessBus bus;
     private volatile boolean running;
-    private volatile BooleanSupplier verbose = () -> false;
-    private volatile boolean verboseSent;
+    private volatile Supplier<Set<String>> verbose = Set::of;
+    /** The verbose servers the last roster message listed; guarded by {@link #rosterOrder}. */
+    private Set<String> verboseSent = Set.of();
     /** The last roster number this generation drew; guarded by {@link #rosterOrder}. */
     private long rosterDrawn = Long.MIN_VALUE;
     /** The {@value #REPORTS_KEY} map, a local one without a host; guarded by itself. */
     private final Map<UUID, String[]> reports;
-    /** Whether a verbose change was reported here since the last roster message; guarded by {@link #reports}. */
-    private boolean verboseReported;
 
     NetworkService(
             NetworkSettings settings,
@@ -290,7 +293,7 @@ public final class NetworkService implements NetworkRouting {
         if (transport != null) {
             synchronized (rosterOrder) {
                 if (host == null || rosterOrder.get() == rosterDrawn)
-                    publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(List.of(), true, List.of(), false));
+                    publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(List.of(), true, List.of(), Set.of()));
             }
             closing.execute(transport::close);
         }
@@ -336,21 +339,16 @@ public final class NetworkService implements NetworkRouting {
         return true;
     }
 
-    /** Has each roster message say whether {@code wanted}: staff here take verbose. */
-    public void verbose(BooleanSupplier wanted) {
+    /**
+     * Has each roster message list the {@code wanted} servers: those whose players staff here with verbose on cover,
+     * {@link #EVERY_SERVER} for all of them. A delta goes out when the list changes.
+     */
+    public void verbose(Supplier<Set<String>> wanted) {
         verbose = wanted;
     }
 
-    /** Reports that whether staff here take verbose may have changed; the next delta carries it. Any thread. */
-    public void verboseChanged() {
-        if (transport == null) return;
-        synchronized (reports) {
-            if (running) verboseReported = true;
-        }
-    }
-
-    /** Whether staff on an instance heard from lately take verbose. */
-    public boolean peersWantVerbose() {
+    /** The servers whose players the verbose staff on instances heard from lately cover. */
+    public Set<String> peersWantVerbose() {
         return roster.verbose(clock.getAsLong());
     }
 
@@ -414,19 +412,16 @@ public final class NetworkService implements NetworkRouting {
                 }
                 List<OnlinePlayer> changed = new ArrayList<>();
                 List<UUID> left = new ArrayList<>();
-                boolean verboseChange;
                 synchronized (reports) {
                     for (Map.Entry<UUID, String[]> report : reports.entrySet()) {
                         String[] player = report.getValue();
                         if (player.length == 0) left.add(report.getKey());
                         else changed.add(new OnlinePlayer(report.getKey(), player[0], player[1], player[2]));
                     }
-                    verboseChange = verboseReported;
                     reports.clear();
-                    verboseReported = false;
                 }
-                boolean wanted = verbose.getAsBoolean();
-                if (changed.isEmpty() && left.isEmpty() && (!verboseChange || wanted == verboseSent)) return;
+                Set<String> wanted = Set.copyOf(verbose.get());
+                if (changed.isEmpty() && left.isEmpty() && wanted.equals(verboseSent)) return;
                 verboseSent = wanted;
                 publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(changed, false, left, wanted));
             }
@@ -438,7 +433,6 @@ public final class NetworkService implements NetworkRouting {
     private void drainReports() {
         synchronized (reports) {
             reports.clear();
-            verboseReported = false;
         }
     }
 
@@ -483,7 +477,7 @@ public final class NetworkService implements NetworkRouting {
         synchronized (rosterOrder) {
             if (!running || !current()) return;
             drainReports();
-            boolean wanted = verbose.getAsBoolean();
+            Set<String> wanted = Set.copyOf(verbose.get());
             Collection<OnlinePlayer> players = platform.onlinePlayers();
             verboseSent = wanted;
             publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(players, true, List.of(), wanted));
@@ -492,7 +486,7 @@ public final class NetworkService implements NetworkRouting {
 
     /** A roster body with the next number drawn; called holding {@link #rosterOrder}. */
     private JsonObject rosterBody(
-            Collection<OnlinePlayer> players, boolean full, Collection<UUID> left, boolean wanted) {
+            Collection<OnlinePlayer> players, boolean full, Collection<UUID> left, Set<String> wanted) {
         JsonObject body = RosterCache.body(players, full, left, wanted, nonce);
         rosterDrawn = rosterOrder.incrementAndGet();
         body.addProperty(RosterCache.ORDER, rosterDrawn);

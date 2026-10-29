@@ -41,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.logging.Level;
 import org.jetbrains.annotations.Nullable;
@@ -220,14 +221,13 @@ class NetworkServiceTest {
         NetworkService b = started("p7", here);
         here.with(ALICE, "Alice", "lobby");
         b.playerChanged(new OnlinePlayer(ALICE, "Alice", "lobby"));
-        b.verbose(() -> true);
-        b.verboseChanged();
+        b.verbose(() -> Set.of("lobby"));
 
         b.tick();
         int published = rosterBodiesFrom("p7").size();
         assertTrue(rosterBodiesFrom("p7").getLast().get("full").getAsBoolean());
         assertEquals("lobby", a.locate("Alice").orElseThrow().server());
-        assertTrue(a.peersWantVerbose());
+        assertEquals(Set.of("lobby"), a.peersWantVerbose());
         b.sendDelta();
         assertEquals(published, rosterBodiesFrom("p7").size());
     }
@@ -247,7 +247,7 @@ class NetworkServiceTest {
         assertTrue(a.locate("Alice").isEmpty());
         assertTrue(a.roster().isEmpty());
         a.tick();
-        assertFalse(a.peersWantVerbose());
+        assertEquals(Set.of(), a.peersWantVerbose());
     }
 
     @Test
@@ -282,8 +282,6 @@ class NetworkServiceTest {
         draining.tick();
         draining.playerChanged(new OnlinePlayer(BOB, "Bob", "lobby"));
         draining.playerLeft(BOB);
-        draining.verbose(() -> true);
-        draining.verboseChanged();
         draining.sendDelta();
         assertTrue(rosterBodiesFrom("p3").isEmpty());
 
@@ -738,61 +736,57 @@ class NetworkServiceTest {
                 true);
         stranger.start();
         assertTrue(a.locate("Alice").isEmpty());
-        assertFalse(a.peersWantVerbose());
+        assertEquals(Set.of(), a.peersWantVerbose());
     }
 
     @Test
-    void whetherStaffTakeVerboseReachesThePeersWithTheNextDeltaAndEachSnapshot() {
+    void theVerboseServersReachThePeersWithTheNextDeltaAndEachSnapshot() {
         NetworkService a = started("p3", new Players());
         NetworkService b = started("p7", new Players());
-        AtomicBoolean wanted = new AtomicBoolean();
+        AtomicReference<Set<String>> wanted = new AtomicReference<>(Set.of());
         b.verbose(wanted::get);
         int published = rosterBodiesFrom("p7").size();
-        b.verboseChanged();
         b.sendDelta();
         assertEquals(published, rosterBodiesFrom("p7").size());
 
-        wanted.set(true);
-        b.verboseChanged();
-        assertFalse(a.peersWantVerbose());
+        wanted.set(Set.of("pvp"));
+        assertEquals(Set.of(), a.peersWantVerbose());
         b.sendDelta();
         assertEquals(published + 1, rosterBodiesFrom("p7").size());
-        assertTrue(a.peersWantVerbose());
-        assertTrue(rosterBodiesFrom("p7").getLast().get("verbose").getAsBoolean());
+        assertEquals(Set.of("pvp"), a.peersWantVerbose());
+        JsonObject delta = rosterBodiesFrom("p7").getLast();
+        assertTrue(delta.get("verbose").getAsBoolean());
+        assertEquals("pvp", delta.getAsJsonArray("verbose-servers").get(0).getAsString());
+        b.sendDelta();
+        assertEquals(published + 1, rosterBodiesFrom("p7").size());
         b.tick();
-        assertTrue(a.peersWantVerbose());
+        assertEquals(Set.of("pvp"), a.peersWantVerbose());
 
-        wanted.set(false);
+        wanted.set(Set.of(NetworkService.EVERY_SERVER));
+        b.sendDelta();
+        assertEquals(Set.of(NetworkService.EVERY_SERVER), a.peersWantVerbose());
+
+        wanted.set(Set.of());
         b.tick();
-        assertFalse(a.peersWantVerbose());
+        assertEquals(Set.of(), a.peersWantVerbose());
         clock.addAndGet(RosterCache.EXPIRY_MILLIS + 1);
-        wanted.set(true);
-        b.verboseChanged();
+        wanted.set(Set.of("pvp"));
         b.sendDelta();
         clock.addAndGet(RosterCache.EXPIRY_MILLIS + 1);
-        assertFalse(a.peersWantVerbose());
+        assertEquals(Set.of(), a.peersWantVerbose());
     }
 
     @Test
-    void aVerboseChangeReportedWhileADeltaIsTakenRidesTheNextOne() {
+    void theVerboseServersOfEveryLivePeerAddUp() {
         NetworkService a = started("p3", new Players());
         NetworkService b = started("p7", new Players());
-        AtomicBoolean wanted = new AtomicBoolean();
-        AtomicBoolean reportOnRead = new AtomicBoolean(true);
-        b.verbose(() -> {
-            boolean now = wanted.get();
-            if (reportOnRead.getAndSet(false)) {
-                wanted.set(true);
-                b.verboseChanged();
-            }
-            return now;
-        });
-        b.playerChanged(new OnlinePlayer(ALICE, "Alice", "lobby"));
+        NetworkService c = started("p9", new Players());
+        b.verbose(() -> Set.of("pvp"));
+        c.verbose(() -> Set.of("lobby"));
         b.sendDelta();
-        assertFalse(a.peersWantVerbose());
+        c.sendDelta();
 
-        b.sendDelta();
-        assertTrue(a.peersWantVerbose());
+        assertEquals(Set.of("pvp", "lobby"), a.peersWantVerbose());
     }
 
     @Test
@@ -818,10 +812,9 @@ class NetworkServiceTest {
     void aVerboseChangeRidesTheNextDeltaWithThePlayers() {
         NetworkService a = started("p3", new Players());
         NetworkService b = started("p7", new Players());
-        b.verbose(() -> true);
+        b.verbose(() -> Set.of("pvp"));
         int published = rosterBodiesFrom("p7").size();
 
-        b.verboseChanged();
         b.playerChanged(new OnlinePlayer(ALICE, "Alice", "lobby"));
         b.sendDelta();
 
@@ -829,7 +822,7 @@ class NetworkServiceTest {
         JsonObject delta = rosterBodiesFrom("p7").getLast();
         assertFalse(delta.get("full").getAsBoolean());
         assertTrue(delta.get("verbose").getAsBoolean());
-        assertTrue(a.peersWantVerbose());
+        assertEquals(Set.of("pvp"), a.peersWantVerbose());
         assertEquals("p7", a.locate("Alice").orElseThrow().instance());
     }
 

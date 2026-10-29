@@ -157,7 +157,7 @@ class AlertScopeDeliveryTest {
                 .count();
     }
 
-    private boolean peerSeesVerbose() {
+    private Set<String> peerSeesVerbose() {
         TestNetworks.sendDelta(service);
         return peer.peersWantVerbose();
     }
@@ -346,7 +346,7 @@ class AlertScopeDeliveryTest {
         assertEquals(
                 Component.text("flag"),
                 GsonComponentSerializer.gson()
-                        .deserialize(alert.get("component").toString()));
+                        .deserialize(alert.get("component").getAsString()));
         assertFalse(alert.has("pair"));
         assertEquals("brand", sent.get(1).get("kind").getAsString());
         assertFalse(alerts.hasVerboseListeners());
@@ -354,11 +354,12 @@ class AlertScopeDeliveryTest {
 
     @Test
     void verboseGoesOutWhileAPeerWantsItAndItsAlertSaysSo() {
-        peer.verbose(() -> true);
-        peer.verboseChanged();
+        peer.verbose(() -> Set.of("pvp"));
         TestNetworks.sendDelta(peer);
         assertTrue(alerts.hasVerboseListeners());
 
+        alerts.sendVerbose(ON_PVP.on("lobby"), Component.text("unwanted"), null);
+        alerts.sendVerbose(AlertSubject.NONE, Component.text("unwanted"), null);
         Recipients verboseRecipients = alerts.sendVerbose(ON_PVP, Component.text("verbose"), null);
         alerts.sendAlert(ON_PVP, Component.text("flag"), verboseRecipients);
         alerts.sendAlert(ON_PVP, Component.text("alone"), null);
@@ -473,19 +474,22 @@ class AlertScopeDeliveryTest {
     }
 
     @Test
-    void theVerboseFlagFollowsSubscribersOfEitherScope() {
+    void theVerboseServersFollowSubscribersAndTheirScope() {
         PlatformPlayer global = staff("lobby", AlertScope.GLOBAL);
         PlatformPlayer server = staff("lobby", AlertScope.SERVER);
-        assertFalse(peerSeesVerbose());
+        PlatformPlayer betweenServers = staff(null, AlertScope.SERVER);
+        assertEquals(Set.of(), peerSeesVerbose());
 
+        alerts.setVerboseEnabled(betweenServers, true, true);
+        assertEquals(Set.of(), peerSeesVerbose());
         alerts.setVerboseEnabled(server, true, true);
-        assertTrue(peerSeesVerbose());
+        assertEquals(Set.of("lobby"), peerSeesVerbose());
         alerts.setVerboseEnabled(global, true, true);
-        alerts.setVerboseEnabled(server, false, true);
-        assertTrue(peerSeesVerbose());
+        assertEquals(Set.of(NetworkService.EVERY_SERVER), peerSeesVerbose());
 
         alerts.handlePlayerQuit(global);
-        assertFalse(peerSeesVerbose());
+        alerts.setVerboseEnabled(server, false, true);
+        assertEquals(Set.of(), peerSeesVerbose());
     }
 
     @Test

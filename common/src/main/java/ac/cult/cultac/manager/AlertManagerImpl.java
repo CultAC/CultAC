@@ -180,8 +180,14 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         }
 
         @Override
-        public boolean wantVerbose() {
-            return !AlertType.VERBOSE.players.isEmpty();
+        public Set<String> verboseServers() {
+            Set<String> servers = new HashSet<>();
+            for (PlatformPlayer staff : AlertType.VERBOSE.players) {
+                if (scope(staff) == AlertScope.GLOBAL) return Set.of(NetworkService.EVERY_SERVER);
+                String server = staff.serverName();
+                if (server != null) servers.add(server);
+            }
+            return servers;
         }
     }
 
@@ -321,10 +327,9 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         if (platformPlayer == null) return;
 
         AlertType.NORMAL.players.remove(platformPlayer);
-        boolean verbose = AlertType.VERBOSE.players.remove(platformPlayer);
+        AlertType.VERBOSE.players.remove(platformPlayer);
         AlertType.BRAND.players.remove(platformPlayer);
         scopes.forget(platformPlayer);
-        if (verbose) network.demandChanged();
     }
 
     /** Starts loading {@code player}'s persisted alert scope; the default applies until it lands. */
@@ -432,9 +437,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
         if (changed && !silent) {
             sendToggleMessage(platformPlayer, enabled, type);
-        }
-        if (changed && type == AlertType.VERBOSE) network.demandChanged();
-    }
+        }    }
 
     public boolean toggleBrands(@NotNull PlatformPlayer player, boolean silent) {
         return setBrandsEnabled(player, !hasBrandsEnabled(player), silent);
