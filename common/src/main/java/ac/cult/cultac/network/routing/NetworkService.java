@@ -26,6 +26,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -87,6 +88,9 @@ public final class NetworkService implements NetworkRouting {
 
     private final String directChannel;
     private final String broadcastChannel;
+    /** The direct channel with the instance id left off. */
+    private final String channelPrefix;
+
     private final RosterCache roster = new RosterCache();
     private final Map<String, List<MessageHandler>> handlers = new ConcurrentHashMap<>();
     private final Map<String, JsonElement> flags = new ConcurrentHashMap<>();
@@ -122,8 +126,9 @@ public final class NetworkService implements NetworkRouting {
         this.scheduler = scheduler;
         this.receiver = receiver;
         this.codec = new EnvelopeCodec(key, instanceId, this::knownType);
-        this.directChannel = settings.channel(instanceId);
-        this.broadcastChannel = settings.channel(NetworkSettings.ALL);
+        this.directChannel = NetworkSettings.channel(key, instanceId);
+        this.broadcastChannel = NetworkSettings.channel(key, NetworkSettings.ALL);
+        this.channelPrefix = NetworkSettings.channel(key, "");
         this.rosterPublisher = host == null ? new AtomicReference<>() : rosterPublisher(host);
         this.rosterLock = host == null ? new ReentrantLock() : (Lock) host.shared(ROSTER_LOCK_KEY, ReentrantLock::new);
         this.rosterEpoch = host == null ? jvmStart() : (Long) host.shared(ROSTER_EPOCH_KEY, NetworkService::jvmStart);
@@ -151,7 +156,8 @@ public final class NetworkService implements NetworkRouting {
 
     /**
      * A service for {@code settings}, its transport left out, with one error logged, when the settings cannot start
-     * one: an unknown transport, an instance id no channel can carry, no secret, or a transport that is unavailable.
+     * one: an unknown URI scheme, an instance id no channel can carry, no signing key, or a transport that is
+     * unavailable.
      */
     static NetworkService create(NetworkSettings settings, NetworkPlatform platform, @Nullable HostContext host) {
         String instanceId = settings.resolveInstanceId(platform::redisBungeeId, platform::address);
@@ -189,16 +195,12 @@ public final class NetworkService implements NetworkRouting {
             byte @Nullable [] key,
             Redaction redaction) {
         String name = settings.transport();
-        if (name.equals(NetworkSettings.NONE)) return null;
-        if (!settings.knownTransport()) {
-            LogUtil.error("Network routing off: network.transport \"" + name + "\" is not none, redis, nats or"
-                    + " redisbungee");
-            return null;
-        }
-        String invalidNetwork = NetworkSettings.invalidToken(settings.network());
-        if (invalidNetwork != null) {
-            LogUtil.error("Network routing off: network.network \"" + settings.network() + "\" cannot name a channel"
-                    + " because " + invalidNetwork + "; set network.network");
+        if (NetworkSettings.NONE.equals(name)) return null;
+        if (name == null) {
+            String scheme = settings.scheme();
+            LogUtil.error("Network routing off: network.uri "
+                    + (scheme.isEmpty() ? "names no scheme" : "has the scheme \"" + scheme + "\"")
+                    + "; use " + NetworkSettings.ACCEPTED);
             return null;
         }
         String invalid = NetworkSettings.invalidInstanceId(instanceId);
@@ -209,22 +211,19 @@ public final class NetworkService implements NetworkRouting {
         }
         if (key == null) {
             LogUtil.error(
-                    platform.proxy()
-                            ? "Network routing off: network.secret is empty and Velocity has no modern-forwarding secret to"
-                                    + " use; set network.secret, the same on every instance"
-                            : "Network routing off: network.secret is empty, and a server has no secret to fall back on; set"
-                                    + " it to the same value on every instance");
+                    "Network routing off: no signing key; set network.secret to the same value on every instance");
             return null;
         }
         try {
             MessageTransport transport = switch (name) {
-                case NetworkSettings.REDIS -> RedisTransport.create(settings.redisUri(), redaction);
-                case NetworkSettings.NATS -> NatsTransport.create(settings, redaction);
+                case NetworkSettings.REDIS ->
+                    new RedisTransport(settings.uri(), redaction, RedisTransport.Timings.DEFAULT);
+                case NetworkSettings.NATS -> new NatsTransport(settings, redaction, NatsTransport.NATS);
                 default -> platform.redisBungee();
             };
             if (transport == null)
-                LogUtil.error("Network routing off: network.transport is redisbungee, but RedisBungee is not installed"
-                        + " on this proxy or cannot be reached");
+                LogUtil.error("Network routing off: network.uri is redisbungee, but RedisBungee is not installed on"
+                        + " this proxy or cannot be reached");
             return transport;
         } catch (IllegalArgumentException invalidSetting) {
             LogUtil.error("Network routing off: " + redaction.redact(invalidSetting.getMessage()));
@@ -255,7 +254,12 @@ public final class NetworkService implements NetworkRouting {
      * Leaves the bus and, when this generation published the roster last, tells the other instances this one is gone.
      * A host stopping clears its current generation first, so being current cannot decide it.
      */
-    synchronized void stop() {
+    void stop() {
+        stop(Runnable::run);
+    }
+
+    /** As {@link #stop()}, closing the transport, which may wait for its backlog, on {@code closing}. */
+    synchronized void stop(Executor closing) {
         if (!running) return;
         running = false;
         if (bus != null) bus.leave();
@@ -270,7 +274,7 @@ public final class NetworkService implements NetworkRouting {
             } finally {
                 rosterLock.unlock();
             }
-            transport.close();
+            closing.execute(transport::close);
         }
         if (scheduler != null) scheduler.shutdownNow();
         if (receiver != null) receiver.shutdownNow();
@@ -449,7 +453,7 @@ public final class NetworkService implements NetworkRouting {
                     "Network message of type " + type + " not sent: it is over " + EnvelopeCodec.MAX_BYTES + " bytes");
             return false;
         }
-        transport.publish(to.equals(NetworkSettings.ALL) ? broadcastChannel : settings.channel(to), text);
+        transport.publish(to.equals(NetworkSettings.ALL) ? broadcastChannel : channelPrefix + to, text);
         return true;
     }
 
@@ -485,7 +489,8 @@ public final class NetworkService implements NetworkRouting {
             if (result.drop() == EnvelopeCodec.Drop.BAD_SIGNATURE)
                 badSignatures.warn(
                         "bad-signature",
-                        "Dropped a network message with a bad signature; every instance needs the same network.secret",
+                        "Dropped a network message with a bad signature: the instances disagree on the signing key; set the same"
+                                + " network.secret on every instance",
                         null);
             return;
         }

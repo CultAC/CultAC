@@ -11,8 +11,8 @@ class RedactionTest {
         return Redaction.of(List.of(urls), List.of());
     }
 
-    private static NetworkSettings settings(String secret, String redisUri, List<String> natsServers, String token) {
-        return new NetworkSettings("nats", "p3", "default", secret, redisUri, natsServers, token, "", "");
+    private static NetworkSettings settings(String secret, String uri) {
+        return new NetworkSettings(uri, secret, "p3", "", "");
     }
 
     @Test
@@ -108,8 +108,7 @@ class RedactionTest {
 
     @Test
     void aTokenOrTheSecretInAMessageWithoutAUrlIsHidden() {
-        Redaction redaction =
-                Redaction.of(settings("the network secret", "", List.of("nats://host:4222"), "s3cr3t-token"));
+        Redaction redaction = Redaction.of(settings("the network secret", "nats://s3cr3t-token@host:4222"));
         assertEquals(
                 "Authorization Violation: token *** rejected",
                 redaction.redact("Authorization Violation: token s3cr3t-token rejected"));
@@ -118,34 +117,32 @@ class RedactionTest {
 
     @Test
     void everyConfiguredUrlIsKnown() {
-        Redaction redaction = Redaction.of(settings(
-                "", "redis://:redis-pass@cache:6379", List.of("nats://a:nats-pass@n1:4222", "tls://n2-token@n2"), ""));
+        Redaction nats = Redaction.of(settings("", "nats://a:nats-pass@n1:4222, tls://n2-token@n2"));
         assertEquals(
-                "redis://***@cache:6379 nats://***@n1:4222 tls://***@n2 *** *** ***",
-                redaction.redact("redis://:redis-pass@cache:6379 nats://a:nats-pass@n1:4222 tls://n2-token@n2"
-                        + " redis-pass nats-pass n2-token"));
+                "nats://***@n1:4222 tls://***@n2 *** ***",
+                nats.redact("nats://a:nats-pass@n1:4222 tls://n2-token@n2 nats-pass n2-token"));
+        Redaction redis = Redaction.of(settings("", "redis://:redis-pass@cache:6379"));
+        assertEquals("redis://***@cache:6379 ***", redis.redact("redis://:redis-pass@cache:6379 redis-pass"));
+        assertEquals("redisbungee", Redaction.of(settings("", "redisbungee")).redact("redisbungee"));
     }
 
     @Test
     void theLongestValueIsReplacedFirst() {
-        Redaction redaction = Redaction.of(settings("hunter2-hunter2", "", List.of(), "hunter2-h"));
+        Redaction redaction = Redaction.of(settings("hunter2-hunter2", "nats://hunter2-h@host:4222"));
         assertEquals("x *** y *** z", redaction.redact("x hunter2-hunter2 y hunter2-h z"));
     }
 
     @Test
     void valuesShorterThanFourCharactersAreLeftAlone() {
-        Redaction redaction = Redaction.of(settings("", "", List.of("nats://u:pw@host:4222"), "abc"));
+        Redaction redaction = Redaction.of(settings("abc", "nats://u:pw@host:4222"));
         assertEquals("abc pw u", redaction.redact("abc pw u"));
         assertEquals("cannot reach nats://***@host:4222", redaction.redact("cannot reach nats://u:pw@host:4222"));
     }
 
     @Test
     void aLineWithoutASecretStaysByteIdentical() {
-        Redaction redaction = Redaction.of(settings(
-                "the network secret",
-                "redis://:redis-pass@cache:6379",
-                List.of("nats://a:nats-pass@n1:4222"),
-                "s3cr3t-token"));
+        Redaction redaction =
+                Redaction.of(settings("the network secret", "nats://a:nats-pass@n1:4222,nats://s3cr3t-token@n2:4222"));
         String line =
                 "Network transport NATS: disconnected; reconnecting é ✓ admin@example.com" + " nats://n1:4222 a:b@c";
         assertEquals(line, redaction.redact(line));

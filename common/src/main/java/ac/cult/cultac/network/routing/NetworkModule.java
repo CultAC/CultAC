@@ -8,6 +8,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,7 +39,7 @@ public final class NetworkModule {
         return service;
     }
 
-    /** Whether this instance looks like one of several on a network: RedisBungee runs here. */
+    /** Whether this instance looks like one of several on a network: RedisBungee runs here. Any thread, cheap. */
     public static boolean networked() {
         NetworkPlatform hooks = platform;
         return hooks != null && hooks.redisBungeeId() != null;
@@ -62,12 +63,18 @@ public final class NetworkModule {
     static synchronized void configReloaded(NetworkSettings settings) {
         NetworkService running = service;
         if (running == null || settings.equals(running.settings())) return;
-        end();
+        end(NetworkModule::closeInBackground);
         begin(settings);
     }
 
     public static synchronized void stop() {
-        end();
+        end(Runnable::run);
+    }
+
+    private static void closeInBackground(Runnable close) {
+        Thread thread = new Thread(close, "CultAC network close");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     /** A join or backend switch on this instance. Any thread. */
@@ -97,15 +104,14 @@ public final class NetworkModule {
         service = started;
         RoutingHolder.install(started);
         if (!started.enabled()) return;
-        LogUtil.info("Network routing on over " + started.transportName() + " as instance " + started.instanceId()
-                + " of network " + settings.network());
+        LogUtil.info("Network routing on over " + started.transportName() + " as instance " + started.instanceId());
     }
 
-    private static void end() {
+    private static void end(Executor closing) {
         NetworkService running = service;
         service = null;
         if (running == null) return;
         RoutingHolder.uninstall(running);
-        running.stop();
+        running.stop(closing);
     }
 }

@@ -36,12 +36,15 @@ public interface NetworkPlatform {
         return false;
     }
 
-    /** RedisBungee's id for this proxy; null when RedisBungee is not installed. */
+    /** RedisBungee's id for this proxy, as found when the platform started; null when RedisBungee is not installed. */
     default @Nullable String redisBungeeId() {
         return null;
     }
 
-    /** The key an empty {@code network.secret} takes: Velocity's forwarding secret. Null where there is none. */
+    /**
+     * The key an empty {@code network.secret} takes: Velocity's forwarding secret on a proxy, the same secret on a
+     * server behind Velocity. Null where there is none.
+     */
     default byte @Nullable [] defaultSecret() {
         return null;
     }

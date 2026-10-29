@@ -132,7 +132,7 @@ cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
 cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
 # A command names a player on another instance, or a staff member asks for network-wide alerts, while
-# network.transport in config.yml is none.
+# network.uri in config.yml is empty.
 network-disabled-command: "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
 network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
 # /cult alerts scope [server|global]: %scope% is server or global, %source% one of the alerts-scope-* texts below.

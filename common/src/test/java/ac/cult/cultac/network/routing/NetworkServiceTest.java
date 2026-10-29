@@ -1,10 +1,10 @@
 package ac.cult.cultac.network.routing;
 
+import static ac.cult.cultac.network.routing.TestNetworks.KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -15,6 +15,7 @@ import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.routing.MessageHandler.Origin;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
+import ac.cult.cultac.network.routing.TestNetworks.Players;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.reload.api.HostContext;
@@ -23,13 +24,11 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,70 +45,41 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
-import java.util.function.Supplier;
 import java.util.logging.Level;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 class NetworkServiceTest {
-    private static final byte[] KEY = "a shared network secret of some length".getBytes(StandardCharsets.UTF_8);
     private static final UUID ALICE = UUID.fromString("00000000-0000-0000-0000-00000000000a");
     private static final UUID BOB = UUID.fromString("00000000-0000-0000-0000-00000000000b");
-    private static final NetworkSettings SETTINGS =
-            new NetworkSettings("redis", "", "default", "", "", List.of(), "", "", "");
 
     private final AtomicLong clock = new AtomicLong(1_793_140_000_000L);
     private final FakeBroker broker = new FakeBroker();
+    private final TestNetworks networks = new TestNetworks(broker, clock);
 
     @BeforeAll
     static void logging() {
         OfflineCultTestBootstrap.installConfig();
     }
 
-    /** The players a platform reports online. */
-    private static final class Players implements NetworkPlatform {
-        final Map<UUID, OnlinePlayer> online = new ConcurrentHashMap<>();
-
-        Players with(UUID uuid, String name, String server) {
-            online.put(uuid, new OnlinePlayer(uuid, name, server));
-            return this;
-        }
-
-        @Override
-        public Collection<OnlinePlayer> onlinePlayers() {
-            return List.copyOf(online.values());
-        }
-
-        @Override
-        public String address() {
-            return "test:1";
-        }
-    }
-
     private NetworkService service(String instance, Players players, HostContext host, byte[] key, boolean transport) {
-        return new NetworkService(
-                SETTINGS,
-                players,
-                host,
-                instance,
-                key,
-                transport ? broker.transport() : null,
-                clock::get,
-                null,
-                null,
-                new LogThrottle());
+        return builder(instance, players, host, transport ? broker.transport() : null)
+                .key(key)
+                .build();
     }
 
     private NetworkService service(String instance, Players players, HostContext host, MessageTransport transport) {
-        return new NetworkService(
-                SETTINGS, players, host, instance, KEY, transport, clock::get, null, null, new LogThrottle());
+        return builder(instance, players, host, transport).build();
+    }
+
+    private TestNetworks.Builder builder(
+            String instance, Players players, @Nullable HostContext host, @Nullable MessageTransport transport) {
+        return networks.service(instance).platform(players).host(host).transport(transport);
     }
 
     private NetworkService started(String instance, Players players) {
-        NetworkService service = service(instance, players, null, KEY, true);
-        service.start();
-        return service;
+        return networks.service(instance).platform(players).start();
     }
 
     private static HostContext host(Map<String, Object> shared, AtomicBoolean current) {
@@ -117,23 +87,12 @@ class NetworkServiceTest {
     }
 
     private static HostContext host(Map<String, Object> shared, AtomicBoolean current, String generation) {
-        return host(shared, current::get, generation);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static HostContext host(Map<String, Object> shared, Callable<Boolean> current, String generation) {
-        HostContext host = mock(HostContext.class);
-        when(host.generationId()).thenReturn(generation);
-        when(host.current()).thenAnswer(invocation -> current.call());
-        when(host.shared(anyString(), any()))
-                .thenAnswer(invocation -> shared.computeIfAbsent(
-                        invocation.getArgument(0), key -> ((Supplier<Object>) invocation.getArgument(1)).get()));
-        return host;
+        return TestNetworks.host(shared, current::get, generation);
     }
 
     private List<JsonObject> rosterBodiesFrom(String instance) {
         List<JsonObject> bodies = new ArrayList<>();
-        for (FakeBroker.Published message : broker.on("cultac.default.all")) {
+        for (FakeBroker.Published message : broker.on(TestNetworks.channel(NetworkSettings.ALL))) {
             JsonObject envelope = JsonParser.parseString(
                             message.text().substring(message.text().indexOf('.') + 1))
                     .getAsJsonObject();
@@ -288,7 +247,7 @@ class NetworkServiceTest {
         AtomicBoolean pauseOlder = new AtomicBoolean();
         CountDownLatch paused = new CountDownLatch(1);
         CountDownLatch resume = new CountDownLatch(1);
-        HostContext olderHost = host(
+        HostContext olderHost = TestNetworks.host(
                 shared,
                 () -> {
                     boolean current = olderCurrent.get();
@@ -454,17 +413,11 @@ class NetworkServiceTest {
 
     private NetworkService withReceiver(
             String instance, @Nullable ScheduledExecutorService scheduler, Receiver receiver, LogThrottle drops) {
-        return new NetworkService(
-                SETTINGS,
-                new Players(),
-                null,
-                instance,
-                KEY,
-                broker.transport(),
-                clock::get,
-                scheduler,
-                receiver,
-                drops);
+        return networks.service(instance)
+                .scheduler(scheduler)
+                .receiver(receiver)
+                .drops(drops)
+                .build();
     }
 
     @Test
@@ -474,10 +427,13 @@ class NetworkServiceTest {
             NetworkService a = withReceiver("p3", null, receiver, new LogThrottle());
             a.start();
             int queued = receiver.queued.get();
-            broker.transport().publish("cultac.default.all", "x".repeat(EnvelopeCodec.MAX_BYTES - 1) + "\u00e9");
-            broker.transport().publish("cultac.default.p3", "y".repeat(EnvelopeCodec.MAX_BYTES + 1));
+            broker.transport()
+                    .publish(
+                            TestNetworks.channel(NetworkSettings.ALL),
+                            "x".repeat(EnvelopeCodec.MAX_BYTES - 1) + "\u00e9");
+            broker.transport().publish(TestNetworks.channel("p3"), "y".repeat(EnvelopeCodec.MAX_BYTES + 1));
             assertEquals(queued, receiver.queued.get());
-            broker.transport().publish("cultac.default.p3", "z".repeat(EnvelopeCodec.MAX_BYTES));
+            broker.transport().publish(TestNetworks.channel("p3"), "z".repeat(EnvelopeCodec.MAX_BYTES));
             assertEquals(queued + 1, receiver.queued.get());
             a.stop();
         } finally {
@@ -568,12 +524,31 @@ class NetworkServiceTest {
     void theFirstBadSignatureWarnsAndTheNextAreThrottled() {
         try (CapturedLog log = new CapturedLog(Level.WARNING, "Dropped a network message with a bad signature")) {
             started("p3", new Players());
-            NetworkService stranger = service(
-                    "p9",
-                    new Players().with(ALICE, "Alice", "lobby"),
-                    null,
-                    "a different secret".getBytes(StandardCharsets.UTF_8),
-                    true);
+            MessageTransport bus = broker.transport();
+            MessageTransport intoOurChannels = new MessageTransport() {
+                @Override
+                public String name() {
+                    return "into our channels";
+                }
+
+                @Override
+                public void start(List<String> channels, MessageTransport.Receiver receiver) {
+                    bus.start(channels, receiver);
+                }
+
+                @Override
+                public void publish(String channel, String text) {
+                    bus.publish(TestNetworks.channel(channel.substring(channel.lastIndexOf('.') + 1)), text);
+                }
+
+                @Override
+                public void close() {
+                    bus.close();
+                }
+            };
+            NetworkService stranger = builder("p9", new Players().with(ALICE, "Alice", "lobby"), null, intoOurChannels)
+                    .key("a different secret".getBytes(StandardCharsets.UTF_8))
+                    .build();
             stranger.start();
             assertEquals(1, log.messages().size());
             stranger.tick();

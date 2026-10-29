@@ -13,11 +13,13 @@ import static org.mockito.Mockito.when;
 import ac.cult.cultac.network.routing.NetworkPlatform.Holder;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
 import ac.cult.reload.api.HostContext;
+import com.imaginarycode.minecraft.redisbungee.AbstractRedisBungeeAPI;
 import com.velocitypowered.api.event.EventHandler;
 import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
+import com.velocitypowered.api.plugin.PluginContainer;
 import com.velocitypowered.api.plugin.PluginManager;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -29,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 class VelocityNetworkTest {
     private final ProxyServer proxy = mock(ProxyServer.class);
@@ -111,6 +114,9 @@ class VelocityNetworkTest {
     @Test
     @SuppressWarnings("unchecked")
     void listensForJoinsSwitchesAndQuitsUntilClosed() {
+        PluginManager plugins = mock(PluginManager.class);
+        when(plugins.getPlugin("redisbungee")).thenReturn(Optional.empty());
+        when(proxy.getPluginManager()).thenReturn(plugins);
         when(proxy.getEventManager()).thenReturn(events);
         network.listen();
         network.listen();
@@ -121,5 +127,30 @@ class VelocityNetworkTest {
         network.close();
         network.close();
         verify(events, times(3)).unregister(eq(plugin), any(EventHandler.class));
+    }
+
+    @Test
+    void theRedisBungeeIdIsReadOnceWhenListeningStarts() {
+        AbstractRedisBungeeAPI api = new AbstractRedisBungeeAPI();
+        AbstractRedisBungeeAPI.instance = api;
+        try {
+            PluginContainer container = mock(PluginContainer.class);
+            Mockito.doReturn(Optional.of(api)).when(container).getInstance();
+            PluginManager plugins = mock(PluginManager.class);
+            when(plugins.getPlugin("redisbungee")).thenReturn(Optional.of(container));
+            when(proxy.getPluginManager()).thenReturn(plugins);
+            when(proxy.getEventManager()).thenReturn(events);
+
+            assertNull(network.redisBungeeId());
+            api.proxyId = "proxy-7";
+            network.listen();
+            api.proxyId = "proxy-8";
+            assertEquals("proxy-7", network.redisBungeeId());
+            assertEquals("proxy-7", network.redisBungeeId());
+            verify(plugins, times(1)).getPlugin("redisbungee");
+            network.close();
+        } finally {
+            AbstractRedisBungeeAPI.instance = null;
+        }
     }
 }

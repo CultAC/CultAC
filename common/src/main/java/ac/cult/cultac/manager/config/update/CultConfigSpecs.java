@@ -89,9 +89,11 @@ public final class CultConfigSpecs {
      * <p>v13 → v14: adds {@code observe-only}; default rewriting adds the key.
      *
      * <p>v14 → v15: adds the {@code network} block; default rewriting adds it.
+     *
+     * <p>v15 → v16: one {@code network.uri} picks the transport; see {@link #networkUri}.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 15, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 16, ConfigUpdater.ConfigFlavor.V2)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);
@@ -133,7 +135,51 @@ public final class CultConfigSpecs {
                         if (pass != null) ctx.otherFile(target).put(backendId + ".password", pass);
                     }
                 })
+                .migration(16, CultConfigSpecs::networkUri)
                 .build();
+    }
+
+    /**
+     * Builds {@code network.uri} from {@code network.transport} with {@code network.redis.uri}, or with
+     * {@code network.nats.servers} and {@code network.nats.token}, the token becoming each server's user info:
+     * {@code none} is empty and {@code redisbungee} stays {@code redisbungee}. {@code network.nats.credentials-file}
+     * becomes {@code network.nats-credentials-file}; {@code network.network} is dropped.
+     */
+    static void networkUri(MigrationContext ctx) {
+        YamlMap input = ctx.input();
+        String transport = input.getString("network.transport");
+        String uri = switch (transport == null ? "" : transport.strip().toLowerCase(Locale.ROOT)) {
+            case "redis" -> text(input, "network.redis.uri");
+            case "nats" -> natsUri(input);
+            case "redisbungee" -> "redisbungee";
+            default -> "";
+        };
+        if (!uri.isEmpty()) ctx.output().put("network.uri", uri);
+        String credentials = text(input, "network.nats.credentials-file");
+        if (!credentials.isEmpty()) ctx.output().put("network.nats-credentials-file", credentials);
+    }
+
+    private static String natsUri(YamlMap input) {
+        String token = text(input, "network.nats.token");
+        List<?> listed = input.getList("network.nats.servers");
+        List<String> servers = new ArrayList<>();
+        if (listed != null) {
+            for (Object server : listed) {
+                String text = server == null ? "" : server.toString().strip();
+                if (text.isEmpty()) continue;
+                int scheme = text.indexOf("://");
+                boolean named = text.indexOf('@', scheme < 0 ? 0 : scheme) >= 0;
+                if (!token.isEmpty() && scheme >= 0 && !named)
+                    text = text.substring(0, scheme + 3) + token + "@" + text.substring(scheme + 3);
+                servers.add(text);
+            }
+        }
+        return String.join(",", servers);
+    }
+
+    private static String text(YamlMap input, String key) {
+        String value = input.getString(key);
+        return value == null ? "" : value.strip();
     }
 
     /** Bump this per-file Cult revision and register steps here, leaving legacy specs unchanged. */
@@ -365,18 +411,67 @@ public final class CultConfigSpecs {
             "`%server%`",
             "`%world% (%world_type%)`");
     private static final List<List<String>> SHIPPED_V2_DISCORD_LABELS = List.of(
-            List.of("Player", "Spieler", "Jugador", "Joueur", "Giocatore", "プレイヤー", "Speler", "Jogador", "Игрок",
-                    "Oyuncu", "玩家名"),
+            List.of(
+                    "Player",
+                    "Spieler",
+                    "Jugador",
+                    "Joueur",
+                    "Giocatore",
+                    "プレイヤー",
+                    "Speler",
+                    "Jogador",
+                    "Игрок",
+                    "Oyuncu",
+                    "玩家名"),
             List.of("UUID"),
-            List.of("Check", "Überprüfung", "Comprobación", "Vérification", "Controllo", "違反項目", "Controle",
-                    "Verificação", "Проверка", "Kontrol", "检查"),
-            List.of("Client Version", "Client-Version", "Version del cliente", "Version du client",
-                    "Versione del client", "クライアントバージョン", "Client-versie", "Versão do Cliente", "Версия Клиента",
-                    "Client Versiyonu", "游戏版本"),
-            List.of("Brand", "Marke", "Marca del cliente", "Marque du client", "Marca del client", "ブランド",
-                    "Client-merk", "Marca do Cliente", "Бренд", "Client Markası", "客户端品牌"),
-            List.of("Sensitivity", "Empfindlichkeit", "Sensibilidad", "Sensibilité", "Sensibilità", "感度",
-                    "Gevoeligheid", "Sensibilidade", "Чувствительность", "Hassasiyet", "灵敏度"),
+            List.of(
+                    "Check",
+                    "Überprüfung",
+                    "Comprobación",
+                    "Vérification",
+                    "Controllo",
+                    "違反項目",
+                    "Controle",
+                    "Verificação",
+                    "Проверка",
+                    "Kontrol",
+                    "检查"),
+            List.of(
+                    "Client Version",
+                    "Client-Version",
+                    "Version del cliente",
+                    "Version du client",
+                    "Versione del client",
+                    "クライアントバージョン",
+                    "Client-versie",
+                    "Versão do Cliente",
+                    "Версия Клиента",
+                    "Client Versiyonu",
+                    "游戏版本"),
+            List.of(
+                    "Brand",
+                    "Marke",
+                    "Marca del cliente",
+                    "Marque du client",
+                    "Marca del client",
+                    "ブランド",
+                    "Client-merk",
+                    "Marca do Cliente",
+                    "Бренд",
+                    "Client Markası",
+                    "客户端品牌"),
+            List.of(
+                    "Sensitivity",
+                    "Empfindlichkeit",
+                    "Sensibilidad",
+                    "Sensibilité",
+                    "Sensibilità",
+                    "感度",
+                    "Gevoeligheid",
+                    "Sensibilidade",
+                    "Чувствительность",
+                    "Hassasiyet",
+                    "灵敏度"),
             List.of("Ping", "Latencia", "Latence", "Пинг", "Gecikme", "延迟"),
             List.of("TPS", "ТПС"),
             List.of("Server", "Servidor", "Serveur", "サーバー", "Сервер", "Sunucu", "服务器"),
@@ -396,30 +491,77 @@ public final class CultConfigSpecs {
             "**Checks**: %checks%",
             "**Verbose**: %verbose%");
     private static final List<Set<List<String>>> SHIPPED_V4_DISCORD_LABELS = List.of(
-            Set.of(List.of("Version", "Brand"), List.of("Version", "Marke"), List.of("Versión", "Marca"),
-                    List.of("Version", "Marque"), List.of("Versione", "Marca"), List.of("バージョン", "ブランド"),
-                    List.of("Versie", "Merk"), List.of("Versão", "Marca"), List.of("Версия", "Бренд"),
-                    List.of("Versiyon", "Marka"), List.of("版本", "品牌")),
-            Set.of(List.of("Server", "World", "Location"), List.of("Server", "Welt", "Position"),
-                    List.of("Servidor", "Mundo", "Ubicación"), List.of("Serveur", "Monde", "Position"),
-                    List.of("Server", "Mondo", "Posizione"), List.of("サーバー", "ワールド", "座標"),
-                    List.of("Server", "Wereld", "Locatie"), List.of("Servidor", "Mundo", "Localização"),
-                    List.of("Сервер", "Мир", "Позиция"), List.of("Sunucu", "Dünya", "Konum"),
+            Set.of(
+                    List.of("Version", "Brand"),
+                    List.of("Version", "Marke"),
+                    List.of("Versión", "Marca"),
+                    List.of("Version", "Marque"),
+                    List.of("Versione", "Marca"),
+                    List.of("バージョン", "ブランド"),
+                    List.of("Versie", "Merk"),
+                    List.of("Versão", "Marca"),
+                    List.of("Версия", "Бренд"),
+                    List.of("Versiyon", "Marka"),
+                    List.of("版本", "品牌")),
+            Set.of(
+                    List.of("Server", "World", "Location"),
+                    List.of("Server", "Welt", "Position"),
+                    List.of("Servidor", "Mundo", "Ubicación"),
+                    List.of("Serveur", "Monde", "Position"),
+                    List.of("Server", "Mondo", "Posizione"),
+                    List.of("サーバー", "ワールド", "座標"),
+                    List.of("Server", "Wereld", "Locatie"),
+                    List.of("Servidor", "Mundo", "Localização"),
+                    List.of("Сервер", "Мир", "Позиция"),
+                    List.of("Sunucu", "Dünya", "Konum"),
                     List.of("服务器", "世界", "位置")),
-            Set.of(List.of("TPS", "Ping", "Clock", "Time"), List.of("TPS", "Ping", "Uhr", "Zeit"),
-                    List.of("TPS", "Latencia", "Reloj", "Tiempo"), List.of("TPS", "Latence", "Horloge", "Temps"),
-                    List.of("TPS", "Ping", "Orologio", "Tempo"), List.of("TPS", "Ping", "クロック", "時間"),
-                    List.of("TPS", "Ping", "Klok", "Tijd"), List.of("TPS", "Ping", "Relógio", "Tempo"),
-                    List.of("TPS", "Пинг", "Часы", "Время"), List.of("TPS", "Gecikme", "Saat", "Süre"),
+            Set.of(
+                    List.of("TPS", "Ping", "Clock", "Time"),
+                    List.of("TPS", "Ping", "Uhr", "Zeit"),
+                    List.of("TPS", "Latencia", "Reloj", "Tiempo"),
+                    List.of("TPS", "Latence", "Horloge", "Temps"),
+                    List.of("TPS", "Ping", "Orologio", "Tempo"),
+                    List.of("TPS", "Ping", "クロック", "時間"),
+                    List.of("TPS", "Ping", "Klok", "Tijd"),
+                    List.of("TPS", "Ping", "Relógio", "Tempo"),
+                    List.of("TPS", "Пинг", "Часы", "Время"),
+                    List.of("TPS", "Gecikme", "Saat", "Süre"),
                     List.of("TPS", "延迟", "时钟", "时长")),
             Set.of(List.of("xsens", "ysens")),
-            Set.of(List.of("State"), List.of("Zustand"), List.of("Estado"), List.of("État"), List.of("Stato"),
-                    List.of("状態"), List.of("Status"), List.of("Состояние"), List.of("Durum"), List.of("状态")),
-            Set.of(List.of("Checks"), List.of("Prüfungen"), List.of("Comprobaciones"), List.of("Vérifications"),
-                    List.of("Controlli"), List.of("違反項目"), List.of("Controles"), List.of("Verificações"),
-                    List.of("Проверки"), List.of("Kontroller"), List.of("检查")),
-            Set.of(List.of("Verbose"), List.of("Details"), List.of("Detalles"), List.of("Détails"), List.of("Dettagli"),
-                    List.of("詳細"), List.of("Detalhes"), List.of("Подробности"), List.of("Ayrıntılar"), List.of("详情")));
+            Set.of(
+                    List.of("State"),
+                    List.of("Zustand"),
+                    List.of("Estado"),
+                    List.of("État"),
+                    List.of("Stato"),
+                    List.of("状態"),
+                    List.of("Status"),
+                    List.of("Состояние"),
+                    List.of("Durum"),
+                    List.of("状态")),
+            Set.of(
+                    List.of("Checks"),
+                    List.of("Prüfungen"),
+                    List.of("Comprobaciones"),
+                    List.of("Vérifications"),
+                    List.of("Controlli"),
+                    List.of("違反項目"),
+                    List.of("Controles"),
+                    List.of("Verificações"),
+                    List.of("Проверки"),
+                    List.of("Kontroller"),
+                    List.of("检查")),
+            Set.of(
+                    List.of("Verbose"),
+                    List.of("Details"),
+                    List.of("Detalles"),
+                    List.of("Détails"),
+                    List.of("Dettagli"),
+                    List.of("詳細"),
+                    List.of("Detalhes"),
+                    List.of("Подробности"),
+                    List.of("Ayrıntılar"),
+                    List.of("详情")));
     private static final String SHIPPED_V4_DISCORD_FOOTER = "%uuid% v%cult_version%";
 
     static void discordAlertLayout(MigrationContext ctx) {
@@ -489,7 +631,9 @@ public final class CultConfigSpecs {
         matcher.appendTail(skeleton);
         return SHIPPED_V4_DISCORD_LABELS.get(index).contains(labels)
                 && skeleton.toString()
-                        .equals(DISCORD_LABEL.matcher(SHIPPED_V4_DISCORD_LAYOUT.get(index)).replaceAll("****"));
+                        .equals(DISCORD_LABEL
+                                .matcher(SHIPPED_V4_DISCORD_LAYOUT.get(index))
+                                .replaceAll("****"));
     }
 
     private static void keepUnbundledDiscordKeys(MigrationContext ctx) {

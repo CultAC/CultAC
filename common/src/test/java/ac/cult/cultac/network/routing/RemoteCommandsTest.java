@@ -6,10 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.bridge.protocol.CommandRoots;
@@ -18,21 +14,18 @@ import ac.cult.cultac.command.IsolatedCommandManager;
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.RoutingHolder;
 import ac.cult.cultac.network.routing.NetworkPlatform.Holder;
-import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
 import ac.cult.cultac.network.routing.RemoteCommands.Commands;
+import ac.cult.cultac.network.routing.TestNetworks.Players;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
-import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,14 +33,12 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
-import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -66,18 +57,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class RemoteCommandsTest {
-    private static final byte[] KEY = "a shared network secret of some length".getBytes(StandardCharsets.UTF_8);
     private static final UUID ALICE = UUID.fromString("00000000-0000-0000-0000-00000000000a");
     private static final UUID BOB = UUID.fromString("00000000-0000-0000-0000-00000000000b");
     private static final UUID MOD = UUID.fromString("00000000-0000-0000-0000-0000000000dd");
-    private static final NetworkSettings SETTINGS =
-            new NetworkSettings("redis", "", "default", "", "", List.of(), "", "", "");
     private static final String LINE = "cult debug mods Alice";
     private static final Set<String> NODES =
             Set.of("cult.debug", "cult.consoledebug", "cult.cloud.view", "cult.profile");
 
     private final AtomicLong clock = new AtomicLong(1_793_140_000_000L);
     private final FakeBroker broker = new FakeBroker();
+    private final TestNetworks networks = new TestNetworks(broker, clock);
 
     private PlainPlaceholders placeholders;
 
@@ -94,32 +83,6 @@ class RemoteCommandsTest {
     @AfterEach
     void restorePlaceholders() throws ReflectiveOperationException {
         placeholders.close();
-    }
-
-    /** The players a platform reports online, and which generation holds each. */
-    private static final class Players implements NetworkPlatform {
-        final Map<UUID, OnlinePlayer> online = new ConcurrentHashMap<>();
-        final Map<UUID, Holder> holders = new ConcurrentHashMap<>();
-
-        Players with(UUID uuid, String name) {
-            online.put(uuid, new OnlinePlayer(uuid, name, "lobby"));
-            return this;
-        }
-
-        @Override
-        public Collection<OnlinePlayer> onlinePlayers() {
-            return List.copyOf(online.values());
-        }
-
-        @Override
-        public Holder holder(UUID uuid) {
-            return holders.getOrDefault(uuid, Holder.THIS);
-        }
-
-        @Override
-        public String address() {
-            return "test:1";
-        }
     }
 
     /** A command manager recording what it ran; by default each command answers one line. */
@@ -216,17 +179,11 @@ class RemoteCommandsTest {
 
     private NetworkService service(
             String instance, Players players, @Nullable HostContext host, boolean transport, Recorder commands) {
-        NetworkService service = new NetworkService(
-                SETTINGS,
-                players,
-                host,
-                instance,
-                KEY,
-                transport ? broker.transport() : null,
-                clock::get,
-                null,
-                null,
-                new LogThrottle());
+        NetworkService service = networks.service(instance)
+                .platform(players)
+                .host(host)
+                .transport(transport ? broker.transport() : null)
+                .build();
         service.commands(commands);
         return service;
     }
@@ -237,14 +194,8 @@ class RemoteCommandsTest {
         return service;
     }
 
-    @SuppressWarnings("unchecked")
     private static HostContext host(Map<String, Object> shared, boolean current) {
-        HostContext host = mock(HostContext.class);
-        when(host.current()).thenReturn(current);
-        when(host.shared(anyString(), any()))
-                .thenAnswer(invocation -> shared.computeIfAbsent(
-                        invocation.getArgument(0), key -> ((Supplier<Object>) invocation.getArgument(1)).get()));
-        return host;
+        return TestNetworks.host(shared, current);
     }
 
     private static NetworkPlayer aliceOn(String instance) {
@@ -566,9 +517,10 @@ class RemoteCommandsTest {
         assertTrue(heard.getLast().contains("was cut"), heard.getLast());
         assertEquals(
                 RemoteCommands.MAX_COMPONENTS,
-                envelopes("cultac.default.p3", RemoteCommands.OUT).size());
-        JsonObject done =
-                envelopes("cultac.default.p3", RemoteCommands.DONE).getFirst().getAsJsonObject("body");
+                envelopes(TestNetworks.channel("p3"), RemoteCommands.OUT).size());
+        JsonObject done = envelopes(TestNetworks.channel("p3"), RemoteCommands.DONE)
+                .getFirst()
+                .getAsJsonObject("body");
         assertEquals(RemoteCommands.MAX_COMPONENTS, done.get("count").getAsInt());
         assertTrue(done.get("cut").getAsBoolean());
     }
@@ -605,7 +557,7 @@ class RemoteCommandsTest {
         assertTrue(a.run(staff, LINE, aliceOn("p7")).join());
         assertEquals(List.of("One line of output was too large to relay.", "after"), staff.plain());
         List<Integer> seqs = new ArrayList<>();
-        for (JsonObject out : envelopes("cultac.default.p3", RemoteCommands.OUT))
+        for (JsonObject out : envelopes(TestNetworks.channel("p3"), RemoteCommands.OUT))
             seqs.add(out.getAsJsonObject("body").get("seq").getAsInt());
         assertEquals(List.of(0, 1), seqs);
     }
@@ -683,7 +635,8 @@ class RemoteCommandsTest {
         assertEquals(List.of(LINE), oldCommands.lines);
         assertTrue(newCommands.lines.isEmpty());
         assertEquals(List.of("ran " + LINE), staff.plain());
-        assertEquals(1, envelopes("cultac.default.p3", RemoteCommands.DONE).size());
+        assertEquals(
+                1, envelopes(TestNetworks.channel("p3"), RemoteCommands.DONE).size());
     }
 
     @Test
@@ -773,7 +726,7 @@ class RemoteCommandsTest {
         assertTrue(a.run(staff, "cult debug mods Bob", bob).join());
         assertEquals(List.of("cult debug mods Bob"), here.lines);
         assertSame(staff, here.senders.getFirst());
-        assertTrue(broker.on("cultac.default.p3").isEmpty());
+        assertTrue(broker.on(TestNetworks.channel("p3")).isEmpty());
 
         players.online.remove(BOB);
         assertFalse(a.run(staff, "cult debug mods Bob", bob).join());

@@ -8,7 +8,6 @@ import io.nats.client.Dispatcher;
 import io.nats.client.ErrorListener;
 import io.nats.client.Nats;
 import io.nats.client.Options;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,69 +17,62 @@ import java.util.concurrent.TimeoutException;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * NATS through jnats. The first connection is retried on its own thread with a backoff capped at
- * {@value #MAX_BACKOFF_MILLIS} ms; after that jnats reconnects by itself and restores the subscriptions. A token or a
- * {@code .creds} file authenticates; {@code tls://} servers connect over TLS. A connection that fails before it is
- * subscribed is closed before the next try.
+ * NATS through jnats, which connects in the background, retries the first connection and every later one with its own
+ * reconnect wait and jitter, and restores the subscriptions after a reconnect. The URI's user info is a token or a user
+ * and password; {@code nats-credentials-file} adds a {@code .creds} file; {@code tls://} servers connect over TLS. The
+ * connection jnats makes is known from its first event, and one still connecting when this transport closes is closed
+ * at that event.
  */
 final class NatsTransport implements MessageTransport {
-    static final long MIN_BACKOFF_MILLIS = 1_000;
-    static final long MAX_BACKOFF_MILLIS = 30_000;
 
-    /** Opens a connection: {@link Nats#connect(Options)}, or a stand-in in tests. */
+    /** Starts connecting in the background: {@link Nats#connectAsynchronously}, or a stand-in in tests. */
     @FunctionalInterface
     interface Opener {
-        Connection open(Options options) throws IOException, InterruptedException;
+        void open(Options options) throws InterruptedException;
     }
+
+    static final Opener NATS = options -> Nats.connectAsynchronously(options, true);
 
     private final Options options;
     private final Opener opener;
     private final Redaction redaction;
     private volatile boolean closed;
     private volatile @Nullable Connection connection;
-    private @Nullable Thread connector;
-
-    private NatsTransport(Options.Builder options, Opener opener, Redaction redaction) {
-        this.redaction = redaction;
-        this.options = options.connectionListener(this::connectionEvent)
-                .errorListener(new Errors())
-                .build();
-        this.opener = opener;
-    }
+    private @Nullable List<String> channels;
+    private @Nullable Receiver receiver;
+    private boolean subscribed;
+    private boolean warned;
+    /** The connection handed to {@link #close(Connection)} once this transport closed. */
+    private @Nullable Connection closing;
 
     /**
-     * A transport for {@code nats.servers}, authenticated by {@code nats.token} or {@code nats.credentials-file},
-     * logging what the servers report through {@code redaction}.
+     * A transport for the servers in {@code settings}' URI, adding its credentials file, logging what the servers
+     * report through {@code redaction}.
+     *
+     * @throws IllegalArgumentException when the servers or the credentials file cannot be used
      */
-    static NatsTransport create(NetworkSettings settings, Redaction redaction) {
-        return create(settings, redaction, Nats::connect);
-    }
-
-    static NatsTransport create(NetworkSettings settings, Opener opener) {
-        return create(settings, Redaction.of(settings), opener);
-    }
-
-    static NatsTransport create(NetworkSettings settings, Redaction redaction, Opener opener) {
-        if (settings.natsServers().isEmpty())
-            throw new IllegalArgumentException("network.nats.servers lists no server");
-        Options.Builder options = new Options.Builder()
-                .servers(settings.natsServers().toArray(String[]::new))
+    NatsTransport(NetworkSettings settings, Redaction redaction, Opener opener) {
+        this.redaction = redaction;
+        this.opener = opener;
+        Options.Builder builder = new Options.Builder()
                 .connectionName("CultAC")
                 .connectionTimeout(Duration.ofSeconds(5))
                 .reconnectWait(Duration.ofSeconds(2))
                 .maxReconnects(-1)
-                .noEcho();
-        if (!settings.natsToken().isEmpty()) options.token(settings.natsToken().toCharArray());
+                .noEcho()
+                .connectionListener(this::connectionEvent)
+                .errorListener(new Errors());
         if (!settings.natsCredentialsFile().isEmpty()) {
             Path credentials = Path.of(settings.natsCredentialsFile());
             if (!Files.isReadable(credentials))
-                throw new IllegalArgumentException("network.nats.credentials-file " + credentials + " cannot be read");
-            options.authHandler(Nats.credentials(credentials.toString()));
+                throw new IllegalArgumentException("network.nats-credentials-file " + credentials + " cannot be read");
+            builder.authHandler(Nats.credentials(credentials.toString()));
         }
         try {
-            return new NatsTransport(options, opener, redaction);
+            this.options =
+                    builder.servers(settings.servers().toArray(String[]::new)).build();
         } catch (IllegalArgumentException | IllegalStateException invalid) {
-            throw new IllegalArgumentException("network.nats: " + invalid.getMessage());
+            throw new IllegalArgumentException("network.uri: " + invalid.getMessage());
         }
     }
 
@@ -91,52 +83,63 @@ final class NatsTransport implements MessageTransport {
 
     @Override
     public synchronized void start(List<String> channels, Receiver receiver) {
-        if (connector != null) return;
-        Thread thread = new Thread(() -> connect(channels, receiver), "CultAC network NATS connect");
-        thread.setDaemon(true);
-        connector = thread;
-        thread.start();
-    }
-
-    private void connect(List<String> channels, Receiver receiver) {
-        long backoff = MIN_BACKOFF_MILLIS;
-        boolean warned = false;
-        while (!closed) {
-            try {
-                Connection opened = subscribed(channels, receiver);
-                connection = opened;
-                if (closed) close(opened);
-                else LogUtil.info("Network transport NATS: connected to " + redaction.redact(opened.getConnectedUrl()));
-                return;
-            } catch (IOException | RuntimeException failure) {
-                if (!warned)
-                    LogUtil.warn("Network transport NATS: cannot connect (" + redaction.redact(failure.getMessage())
-                            + "); retrying");
-                warned = true;
-            } catch (InterruptedException interrupted) {
-                return;
-            }
-            try {
-                Thread.sleep(backoff);
-            } catch (InterruptedException interrupted) {
-                return;
-            }
-            backoff = Math.min(backoff * 2, MAX_BACKOFF_MILLIS);
+        if (this.channels != null) return;
+        this.channels = List.copyOf(channels);
+        this.receiver = receiver;
+        try {
+            opener.open(options);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 
-    /** A connection subscribed to {@code channels}; one that fails on the way is closed before the failure is thrown. */
-    private Connection subscribed(List<String> channels, Receiver receiver) throws IOException, InterruptedException {
-        Connection opened = opener.open(options);
+    private void connectionEvent(Connection opened, ConnectionListener.Events type) {
+        if (adopted(opened)) return;
+        switch (type) {
+            case CONNECTED, RECONNECTED -> connected(opened, type);
+            case DISCONNECTED -> LogUtil.warn("Network transport NATS: disconnected; reconnecting");
+            default -> {}
+        }
+    }
+
+    /** Remembers {@code opened}; true when this transport is closed, closing {@code opened} on a thread of its own. */
+    private boolean adopted(Connection opened) {
+        connection = opened;
+        if (!closed) return false;
+        if (handOff(opened)) {
+            Thread closer = new Thread(() -> close(opened), "CultAC network NATS close");
+            closer.setDaemon(true);
+            closer.start();
+        }
+        return true;
+    }
+
+    /** Whether {@code open} is not yet being closed, marking it so. */
+    private synchronized boolean handOff(Connection open) {
+        if (closing == open) return false;
+        closing = open;
+        return true;
+    }
+
+    private synchronized void connected(Connection opened, ConnectionListener.Events type) {
+        String url = redaction.redact(opened.getConnectedUrl());
+        if (subscribed) {
+            LogUtil.info("Network transport NATS: reconnected to " + url);
+            return;
+        }
+        Receiver deliver = receiver;
         try {
             Dispatcher dispatcher = opened.createDispatcher(message ->
-                    receiver.receive(message.getSubject(), new String(message.getData(), StandardCharsets.UTF_8)));
+                    deliver.receive(message.getSubject(), new String(message.getData(), StandardCharsets.UTF_8)));
             for (String channel : channels) dispatcher.subscribe(channel);
-            return opened;
         } catch (RuntimeException failure) {
-            close(opened);
-            throw failure;
+            LogUtil.error("Network transport NATS: cannot subscribe (" + redaction.redact(failure.getMessage()) + ")");
+            closed = true;
+            adopted(opened);
+            return;
         }
+        subscribed = true;
+        LogUtil.info("Network transport NATS: connected to " + url);
     }
 
     @Override
@@ -152,14 +155,9 @@ final class NatsTransport implements MessageTransport {
 
     @Override
     public void close() {
-        Thread thread;
-        synchronized (this) {
-            closed = true;
-            thread = connector;
-        }
-        if (thread != null) thread.interrupt();
+        closed = true;
         Connection open = connection;
-        if (open != null) close(open);
+        if (open != null && handOff(open)) close(open);
     }
 
     private static void close(Connection open) {
@@ -175,24 +173,23 @@ final class NatsTransport implements MessageTransport {
         }
     }
 
-    private void connectionEvent(Connection opened, ConnectionListener.Events type) {
-        if (closed) return;
-        switch (type) {
-            case DISCONNECTED -> LogUtil.warn("Network transport NATS: disconnected; reconnecting");
-            case RECONNECTED ->
-                LogUtil.info("Network transport NATS: reconnected to " + redaction.redact(opened.getConnectedUrl()));
-            default -> {}
-        }
-    }
-
-    /** Connection failures surface as connection events; only the server's own errors are logged here. */
+    /** Server errors are logged; a failed connect is logged once, until a connection succeeds. */
     private final class Errors implements ErrorListener {
         @Override
         public void errorOccurred(Connection connection, String error) {
+            if (adopted(connection)) return;
             LogUtil.warn("Network transport NATS: the server reported " + LogThrottle.clip(redaction.redact(error)));
         }
 
         @Override
-        public void exceptionOccurred(Connection connection, Exception exception) {}
+        public void exceptionOccurred(Connection connection, Exception exception) {
+            if (adopted(connection)) return;
+            synchronized (NatsTransport.this) {
+                if (subscribed || warned) return;
+                warned = true;
+            }
+            LogUtil.warn("Network transport NATS: cannot connect (" + redaction.redact(exception.getMessage())
+                    + "); retrying");
+        }
     }
 }

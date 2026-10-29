@@ -14,9 +14,9 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Hides the network's secrets from text bound for a log or a reply. A redactor knows the values the settings hold:
- * each broker URL, which becomes its {@link #url} form; the user info and password in each URL, raw and decoded; the
- * NATS token; the network secret. {@link #redact} replaces each of them, longest first, skipping any shorter than
- * {@value #MIN_KNOWN_LENGTH} characters, then masks what is left as {@link #text} does.
+ * each broker URL, which becomes its {@link #url} form; the user info (a password or a token) and the password in each
+ * URL, raw and decoded; the network secret. {@link #redact} replaces each of them, longest first, skipping any shorter
+ * than {@value #MIN_KNOWN_LENGTH} characters, then masks what is left as {@link #text} does.
  */
 final class Redaction {
     /** What stands for a URL that does not parse with a host and has no {@code @}. */
@@ -41,11 +41,11 @@ final class Redaction {
                 .toList();
     }
 
-    /** A redactor for the Redis URI, the NATS servers, the NATS token and the network secret in {@code settings}. */
+    /** A redactor for each server in the URI of {@code settings}, its user info and the network secret. */
     static Redaction of(NetworkSettings settings) {
-        List<String> urls = new ArrayList<>(settings.natsServers());
-        urls.add(settings.redisUri());
-        return of(urls, List.of(settings.natsToken(), settings.secret()));
+        List<String> urls =
+                settings.uri().equalsIgnoreCase(NetworkSettings.REDISBUNGEE) ? List.of() : settings.servers();
+        return of(urls, List.of(settings.secret()));
     }
 
     /** A redactor for {@code urls} and the plain values {@code secrets}. */

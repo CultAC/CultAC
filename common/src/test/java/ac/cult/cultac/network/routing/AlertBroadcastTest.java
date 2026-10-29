@@ -8,10 +8,6 @@ import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.manager.alerts.AlertKind;
 import ac.cult.cultac.manager.alerts.AlertNetwork;
 import ac.cult.cultac.manager.alerts.AlertSubject;
-import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
-import ac.cult.cultac.utils.anticheat.LogThrottle;
-import java.nio.charset.StandardCharsets;
-import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -25,13 +21,11 @@ import org.junit.jupiter.api.Test;
 
 /** Two instances over one broker, each with its alert network attached the way the network module attaches it. */
 class AlertBroadcastTest {
-    private static final byte[] KEY = "a shared network secret of some length".getBytes(StandardCharsets.UTF_8);
-    private static final NetworkSettings SETTINGS =
-            new NetworkSettings("redis", "", "default", "", "", List.of(), "", "", "");
     private static final AlertSubject BOB = new AlertSubject(UUID.randomUUID(), "Bob", "pvp");
 
     private final FakeBroker broker = new FakeBroker();
     private final AtomicLong clock = new AtomicLong(1_793_140_000_000L);
+    private final TestNetworks networks = new TestNetworks(broker, clock);
 
     @BeforeAll
     static void logging() {
@@ -56,19 +50,7 @@ class AlertBroadcastTest {
 
         /** {@code claims}: shared with the other engine generations of instance {@code id}. */
         Instance(String id, SharedClaims claims) {
-            NetworkPlatform platform = new NetworkPlatform() {
-                @Override
-                public Collection<OnlinePlayer> onlinePlayers() {
-                    return List.of();
-                }
-
-                @Override
-                public String address() {
-                    return "test:1";
-                }
-            };
-            service = new NetworkService(
-                    SETTINGS, platform, null, id, KEY, broker.transport(), clock::get, null, null, new LogThrottle());
+            service = networks.service(id).build();
             alerts = new AlertNetwork(() -> service, this, claims, clock::get);
             alerts.attach(service);
             service.start();
@@ -131,27 +113,7 @@ class AlertBroadcastTest {
 
     @Test
     void anInstanceWithoutATransportSendsNothing() {
-        NetworkService local = new NetworkService(
-                SETTINGS,
-                new NetworkPlatform() {
-                    @Override
-                    public Collection<OnlinePlayer> onlinePlayers() {
-                        return List.of();
-                    }
-
-                    @Override
-                    public String address() {
-                        return "test:1";
-                    }
-                },
-                null,
-                "p3",
-                KEY,
-                null,
-                clock::get,
-                null,
-                null,
-                new LogThrottle());
+        NetworkService local = networks.service("p3").transport(null).build();
         Instance p7 = new Instance("p7");
         AlertNetwork alerts =
                 new AlertNetwork(() -> local, p7, new SharedClaims(null, AlertNetwork.CLAIMS, clock::get), clock::get);
