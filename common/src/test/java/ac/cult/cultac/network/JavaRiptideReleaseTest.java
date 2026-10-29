@@ -17,8 +17,11 @@ import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.inventory.Inventory;
@@ -111,6 +114,21 @@ class JavaRiptideReleaseTest {
         try (var f = fixture(version)) {
             charge(f, trident(3), breaking(trident(1)));
             select(f, 1);
+            release(f);
+            assertRelease(f, level, exact);
+        }
+    }
+
+    /** TridentItem#use refuses a riptide trident out of water and rain, so the client releases no use. */
+    @ParameterizedTest
+    @CsvSource({"V_1_21_11, 0, true", "V_1_21_11, 3, false", "V_26_3, 0, true", "V_26_3, 3, false"})
+    void aUseStartedOutOfWaterDoesNotSpin(ClientVersion version, int level, boolean exact) throws Exception {
+        try (var f = fixture(version)) {
+            f.player.getInventory().inventory.getInventoryStorage().setItem(Inventory.HOTBAR_OFFSET, trident(3));
+            f.place(SHALLOWS, SETTLED);
+            var use = new ServerboundUseItem(Hand.MAIN_HAND, 1, 0, 0.0F);
+            new PacketPlayerDigging().onUseItem(f.event(ServerboundPackets.USE_ITEM, use), f.player, use);
+            charge(f, 11, Hand.OFF_HAND);
             release(f);
             assertRelease(f, level, exact);
         }
