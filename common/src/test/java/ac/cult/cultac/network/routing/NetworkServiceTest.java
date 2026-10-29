@@ -921,6 +921,27 @@ class NetworkServiceTest {
     }
 
     @Test
+    void aSupersededGenerationThatStopsHandsItsUnsentReportsOver() {
+        Map<String, Object> shared = new HashMap<>();
+        AtomicBoolean olderCurrent = new AtomicBoolean(true);
+        AtomicBoolean newerCurrent = new AtomicBoolean(false);
+        Players here = new Players().with(BOB, "Bob", "lobby");
+        NetworkService older = service("p3", here, host(shared, olderCurrent, "g1"), KEY, true);
+        older.start();
+        NetworkService peer = started("p7", new Players());
+        olderCurrent.set(false);
+        newerCurrent.set(true);
+        NetworkService newer = service("p3", here, host(shared, newerCurrent, "g2"), KEY, true);
+        newer.start();
+
+        here.online.remove(BOB);
+        older.playerLeft(BOB);
+        older.stop();
+        newer.sendDelta();
+        assertTrue(peer.locate("Bob").isEmpty());
+    }
+
+    @Test
     void aHandedOverReportThePlatformNoLongerAgreesWithOrTheCurrentGenerationHasIsLeftOut() {
         Map<String, Object> shared = new HashMap<>();
         AtomicBoolean olderCurrent = new AtomicBoolean(true);

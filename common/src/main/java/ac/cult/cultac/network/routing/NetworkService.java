@@ -263,7 +263,10 @@ public final class NetworkService implements NetworkRouting {
         }
     }
 
-    /** Leaves the bus; the generation that drew the last roster number says goodbye, as being current cannot tell. */
+    /**
+     * Leaves the bus, handing a superseded generation's unsent reports to the current one; the generation that drew the
+     * last roster number says goodbye, as being current cannot tell.
+     */
     void stop() {
         stop(Runnable::run);
     }
@@ -271,6 +274,7 @@ public final class NetworkService implements NetworkRouting {
     /** As {@link #stop()}, closing the transport, which may wait for its backlog, on {@code closing}. */
     synchronized void stop(Executor closing) {
         if (!running) return;
+        if (!current()) sendDelta();
         running = false;
         drainReports();
         if (bus != null) bus.leave();
