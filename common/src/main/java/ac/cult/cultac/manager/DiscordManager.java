@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.manager.init.ReloadableInitable;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.manager.init.stop.StoppableInitable;
@@ -41,10 +42,8 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.Unmodifiable;
 
 public class DiscordManager implements StartableInitable, ReloadableInitable, StoppableInitable {
     private static final Predicate<String> WEBHOOK_REGEX = Pattern.compile(
@@ -149,7 +148,9 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             }
 
             StringBuilder sb = new StringBuilder();
-            for (String string : config.getStringListElse("violation-content", getDefaultContents())) {
+            List<String> content = config.getStringListElse(
+                    "violation-content", EnglishDefaults.stringList("discord", "violation-content"));
+            for (String string : content) {
                 sb.append(string).append("\n");
             }
             includeTimestamp = config.getBooleanElse("include-timestamp", true);
@@ -161,21 +162,6 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
         } catch (Exception e) {
             LogUtil.error("Failed to load Discord webhook configuration", e);
         }
-    }
-
-    @Contract(value = " -> new", pure = true)
-    private @NotNull @Unmodifiable List<@NotNull String> getDefaultContents() {
-        return List.of(
-                "**Player**: `%player%`",
-                "**UUID**: `%uuid%`",
-                "**Check**: `%check%`",
-                "**Client Version**: `%version%`",
-                "**Brand**: `%brand%`",
-                "**Sensitivity**: `H %h_sensitivity%% / V %v_sensitivity%%`",
-                "**Ping**: `%ping%`",
-                "**TPS**: `%tps%`",
-                "**Server**: `%server%`",
-                "**World**: `%world% (%world_type%)`");
     }
 
     public void sendAlert(@NotNull CultPlayer player, String verbose, String checkName, int violations) {

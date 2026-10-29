@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.info.CheckPolicy;
 import ac.cult.cultac.checks.info.CheckPolicy.Handling;
 import ac.cult.cultac.checks.info.CheckTexts;
 import ac.cult.cultac.command.CloudCommandService;
+import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.api.config.ConfigManager;
@@ -27,14 +28,6 @@ import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.jetbrains.annotations.Nullable;
 
 final class CheckInfoLines {
-    private static final List<String> DEFAULT_CHECK = List.of(
-            "&7======================",
-            "%prefix% &b%check%%experimental%",
-            "&f%summary%",
-            "&7%details%",
-            "&bPunishments: &f%punishments%",
-            "%buttons%",
-            "&7======================");
     private static final int MAX_MATCHES = 10;
 
     record View(ConfigManager config, CheckPolicy policy, CheckTexts texts, boolean experimentalChecks) {
@@ -60,8 +53,9 @@ final class CheckInfoLines {
             return null;
         }
 
-        String template(String key, String fallback) {
-            return config.getStringElse(key, fallback);
+        /** The server's {@code key} template, English from the shipped {@code messages/en.yml} where it has none. */
+        String template(String key) {
+            return config.getStringElse(key, EnglishDefaults.string("messages", key));
         }
     }
 
@@ -74,18 +68,18 @@ final class CheckInfoLines {
                 JoinConfiguration.separator(Component.space()),
                 button(
                         sender,
-                        view.template("info-button-group", "&8[&b%category% checks&8]"),
-                        view.template("info-button-group-hover", "&7Click to see the %category% checks"),
+                        view.template("info-button-group"),
+                        view.template("info-button-group-hover"),
                         Map.of("category", category),
                         "info checks " + entry.category().id()),
                 button(
                         sender,
-                        view.template("info-button-all", "&8[&bAll checks&8]"),
-                        view.template("info-button-all-hover", "&7Click to see all check groups"),
+                        view.template("info-button-all"),
+                        view.template("info-button-all-hover"),
                         Map.of(),
                         "info checks"));
         Component experimental = entry.experimental()
-                ? render(sender, view.template("info-experimental", " &7(experimental)"))
+                ? render(sender, view.template("info-experimental"))
                 : Component.empty();
         Map<String, Object> values = Map.of(
                 "check",
@@ -103,7 +97,7 @@ final class CheckInfoLines {
                 "buttons",
                 buttons);
         List<String> template = view.config().getStringList("info-check");
-        if (template.isEmpty()) template = DEFAULT_CHECK;
+        if (template.isEmpty()) template = EnglishDefaults.stringList("messages", "info-check");
         List<Component> lines = new ArrayList<>();
         for (String line : template) {
             if (line != null) lines.add(render(sender, line, values));
@@ -115,15 +109,15 @@ final class CheckInfoLines {
         List<Component> lines = new ArrayList<>();
         lines.add(render(
                 sender,
-                view.template("info-groups-header", "%prefix% &bCheck groups &7- click one to see its checks")));
+                view.template("info-groups-header")));
         for (CheckCategory category : CheckCategory.values()) {
             Map<String, Object> values = Map.of(
                     "category", view.texts().label(category),
                     "count", CheckCatalog.byCategory(category).size());
             lines.add(button(
                     sender,
-                    view.template("info-group", "&8» &f%category% &7(%count%)"),
-                    view.template("info-group-hover", "&7Click to see the %category% checks"),
+                    view.template("info-group"),
+                    view.template("info-group-hover"),
                     values,
                     "info checks " + category.id()));
         }
@@ -135,23 +129,23 @@ final class CheckInfoLines {
         List<Component> lines = new ArrayList<>();
         lines.add(render(
                 sender,
-                view.template("info-group-header", "%prefix% &b%category% checks &7(%count%) - click one for info"),
+                view.template("info-group-header"),
                 Map.of("category", view.texts().label(category), "count", entries.size())));
         Map<Handling, List<CheckCatalog.Entry>> byHandling = byHandling(view, entries);
         for (Map.Entry<Handling, List<CheckCatalog.Entry>> each : byHandling.entrySet()) {
             String template = switch (each.getKey()) {
-                case AUTOMATIC -> view.template("info-handling-automatic", "&bAuto-punish: &f%checks%");
-                case ALERTS -> view.template("info-handling-alerts", "&bAlerts only: &f%checks%");
-                case RECORDED -> view.template("info-handling-recorded", "&bLogged only: &f%checks%");
-                case NONE -> view.template("info-handling-none", "&bNo alerts or punishment: &f%checks%");
-                case OFF -> view.template("info-handling-off", "&bOff: &f%checks%");
+                case AUTOMATIC -> view.template("info-handling-automatic");
+                case ALERTS -> view.template("info-handling-alerts");
+                case RECORDED -> view.template("info-handling-recorded");
+                case NONE -> view.template("info-handling-none");
+                case OFF -> view.template("info-handling-off");
             };
             lines.add(render(sender, template, Map.of("checks", checkLinks(sender, view, each.getValue(), true))));
         }
         if (entries.stream().anyMatch(CheckCatalog.Entry::experimental)) {
             lines.add(render(
                     sender,
-                    view.template("info-experimental-note", "&7%symbol% Experimental (still in testing)"),
+                    view.template("info-experimental-note"),
                     Map.of("symbol", experimentalSymbol(sender, view))));
         }
         return lines;
@@ -170,16 +164,16 @@ final class CheckInfoLines {
     static List<Component> unknown(Sender sender, View view, String query) {
         List<Component> lines = new ArrayList<>();
         lines.add(render(
-                sender, view.template("info-unknown", "%prefix% &cUnknown check: &f%query%"), Map.of("query", query)));
+                sender, view.template("info-unknown"), Map.of("query", query)));
         List<CheckCatalog.Entry> matches = CheckCatalog.containing(query);
         if (matches.isEmpty()) {
             lines.add(render(
-                    sender, view.template("info-see-all", "&7Try &f/%command% info checks &7for the full list.")));
+                    sender, view.template("info-see-all")));
         } else {
             Component shown =
                     checkLinks(sender, view, matches.subList(0, Math.min(matches.size(), MAX_MATCHES)), false);
             lines.add(render(
-                    sender, view.template("info-did-you-mean", "&7Did you mean: %checks%"), Map.of("checks", shown)));
+                    sender, view.template("info-did-you-mean"), Map.of("checks", shown)));
         }
         return lines;
     }
@@ -188,20 +182,20 @@ final class CheckInfoLines {
         CheckPolicy.Status status = view.policy().status(entry);
         Handling handling = status.handling(view.running(entry));
         if (handling == Handling.OFF) {
-            return view.template("info-punishments-off", "None, experimental checks are off");
+            return view.template("info-punishments-off");
         }
         if (handling == Handling.NONE) {
-            return view.template("info-punishments-none", "None");
+            return view.template("info-punishments-none");
         }
         if (handling == Handling.RECORDED) {
             return status.recorded()
-                    ? view.template("info-punishments-logged", "Logged to their history only")
-                    : view.template("info-punishments-webhook", "Sent to Discord only");
+                    ? view.template("info-punishments-logged")
+                    : view.template("info-punishments-webhook");
         }
         Map<Integer, List<String>> byFlags = new TreeMap<>();
         if (status.alertAt() != null) {
             byFlags.computeIfAbsent(status.alertAt(), flags -> new ArrayList<>())
-                    .add(view.template("info-punishment-alert", "alert"));
+                    .add(view.template("info-punishment-alert"));
         }
         List<CheckPolicy.Action> actions = new ArrayList<>(status.actions());
         actions.sort(Comparator.comparingInt(CheckPolicy.Action::threshold));
@@ -215,17 +209,17 @@ final class CheckInfoLines {
         List<String> parts = new ArrayList<>();
         for (Map.Entry<Integer, List<String>> names : byFlags.entrySet()) {
             String template = names.getKey() == 1
-                    ? view.template("info-punishment-first", "%action% on the first flag")
-                    : view.template("info-punishment", "%action% at %count% flags");
-            String action = String.join(view.template("info-punishment-and", " and "), names.getValue());
+                    ? view.template("info-punishment-first")
+                    : view.template("info-punishment");
+            String action = String.join(view.template("info-punishment-and"), names.getValue());
             parts.add(template.replace("%action%", action).replace("%count%", Integer.toString(names.getKey())));
         }
         return LabelLines.capitalized(String.join("&7, &f", parts));
     }
 
     private static String commandName(View view, String command) {
-        if (command.contains("ban")) return view.template("info-punishment-ban", "ban");
-        if (command.contains("kick")) return view.template("info-punishment-kick", "kick");
+        if (command.contains("ban")) return view.template("info-punishment-ban");
+        if (command.contains("kick")) return view.template("info-punishment-kick");
         return command;
     }
 
@@ -241,19 +235,17 @@ final class CheckInfoLines {
                     "summary", text == null ? "" : text.summary());
             names.add(button(
                     sender,
-                    view.template("info-entry", "&f%check%%experimental%"),
-                    view.template(
-                            "info-entry-hover",
-                            "&b%check%%experimental%<newline>&f%summary%<newline>&7Click for more info"),
+                    view.template("info-entry"),
+                    view.template("info-entry-hover"),
                     values,
                     "info check " + entry.name()));
         }
-        Component separator = render(sender, view.template("info-entry-separator", "&7, "));
+        Component separator = render(sender, view.template("info-entry-separator"));
         return Component.join(JoinConfiguration.separator(separator), names);
     }
 
     private static Component experimentalSymbol(Sender sender, View view) {
-        return render(sender, view.template("experimental-symbol", "*"));
+        return render(sender, view.template("experimental-symbol"));
     }
 
     private static Component button(
