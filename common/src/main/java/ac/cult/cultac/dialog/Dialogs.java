@@ -80,7 +80,8 @@ public final class Dialogs {
     /** Shows {@code dialog} to {@code viewer} in place of any dialog of theirs, on their thread. */
     public static void show(CultPlayer viewer, Dialog dialog) {
         viewer.runSafely(() -> {
-            if (!viewer.canSendPlayPackets()) {
+            if (!viewer.canSendPlayPackets()
+                    || CultAPI.INSTANCE.getPlayerDataManager().getPlayer(viewer.getUniqueId()) != viewer) {
                 LogUtil.debug("Dialog for " + viewer.getName() + " dropped: not in play");
                 return;
             }
