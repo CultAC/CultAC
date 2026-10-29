@@ -1220,7 +1220,8 @@ public class PacketEntity {
     }
 
     public SimpleCollisionBox getPossibleCollisionBoxes() {
-        return getPossibleCollisionBoxes(new SimpleCollisionBox(), new SimpleCollisionBox());
+        return getPossibleCollisionBoxes(
+                new SimpleCollisionBox(), oldPacketLocation == null ? null : new SimpleCollisionBox());
     }
 
     /** The bounds of {@link #getPossibleCollisionBoxes()} in {@code out}; {@code scratch} must be distinct. */
@@ -1233,7 +1234,8 @@ public class PacketEntity {
     }
 
     public SimpleCollisionBox getPossibleMovementCollisionBoxes() {
-        return getPossibleMovementCollisionBoxes(new SimpleCollisionBox(), new SimpleCollisionBox());
+        return getPossibleMovementCollisionBoxes(
+                new SimpleCollisionBox(), oldPacketLocation == null ? null : new SimpleCollisionBox());
     }
 
     /** The bounds of {@link #getPossibleMovementCollisionBoxes()} in {@code out}; {@code scratch} must be distinct. */
