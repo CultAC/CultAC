@@ -58,6 +58,30 @@ class AirLiquidBreakInstantBreakTest {
     }
 
     @Test
+    void theWaterLeftBehindIsDugBeforeTheClientTickEnds() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var check = digger(f, "minecraft:shears", GameMode.SURVIVAL);
+            start(f.player, check, WATERLOGGED_LEAVES, 2);
+            check.onClientTickEnd(null, f.player, null);
+            start(f.player, check, BlockIds.WATER.defaultState(), 3);
+            assertEquals(1, check.getViolations());
+        }
+    }
+
+    @Test
+    void theWaterLeftBehindIsDugBeforeTheTicksMovement() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var check = digger(f, "minecraft:shears", GameMode.SURVIVAL);
+            start(f.player, check, WATERLOGGED_LEAVES, 2);
+            check.onMovePlayer(null, f.player, null);
+            start(f.player, check, BlockIds.WATER.defaultState(), 3);
+            assertEquals(1, check.getViolations());
+        }
+    }
+
+    @Test
     void aHandStartOnWaterloggedLeavesLeavesNoWaterToDig() throws Exception {
         try (var services = new RecordConsumerServices();
                 var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {

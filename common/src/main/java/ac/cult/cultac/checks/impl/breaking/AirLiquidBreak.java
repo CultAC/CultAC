@@ -4,7 +4,6 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
@@ -15,6 +14,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
@@ -45,7 +45,7 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
     private int pendingStartBlock;
     private boolean pendingStartTickEnded;
 
-    private int lastTick;
+    private boolean clientTickBoundary = true;
     private boolean didLastFlag;
     // Initialize to a non-null value to prevent NPE when checking if position equals old position
     private @NotNull BlockPos lastBreakLoc = BlockPos.ZERO;
@@ -72,13 +72,12 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
         final int block = blockBreak.block;
 
         // Minecraft#continueAttack digs the fluid a survival START's instant MultiPlayerGameMode#destroyBlock leaves
-        int newTick = CultAPI.INSTANCE.getTickManager().currentTick;
-        if (lastTick == newTick
+        if (!clientTickBoundary
                 && lastBreakLoc.equals(blockBreak.position)
                 && !didLastFlag
                 && lastStartBrokeInstantly
                 && BlockIds.is(block, BlockIds.WATER)) return false;
-        lastTick = newTick;
+        clientTickBoundary = false;
         lastBreakLoc = blockBreak.position;
         lastStartBrokeInstantly = blockBreak.action == PlayerAction.START_DESTROY_BLOCK
                 && player.gamemode != GameMode.CREATIVE
@@ -142,6 +141,12 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
     }
 
     @CultPacketHandler
+    public void onMovePlayer(
+            PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
+        clientTickBoundary = true;
+    }
+
+    @CultPacketHandler
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
         settlePendingStart(player.getInventory().getHeldItem());
     }
@@ -165,6 +170,7 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        clientTickBoundary = true;
         if (pendingStartTickEnded) {
             settlePendingStart(player.getInventory().getHeldItem());
         } else if (pendingStarts > 0) {
