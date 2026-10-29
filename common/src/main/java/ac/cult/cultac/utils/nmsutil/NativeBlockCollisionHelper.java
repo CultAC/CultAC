@@ -1,6 +1,5 @@
 package ac.cult.cultac.utils.nmsutil;
 
-import ac.cult.blocksim.data.BlockFamilies;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
@@ -210,10 +209,6 @@ public final class NativeBlockCollisionHelper {
                 || DataTables.defaults().registry().facts(state).has(StateFacts.AIR)) {
             return Shapes.empty();
         }
-
-        // Selected-target checks use a closed shulker; movement keeps the real lid.
-        if (player.compensatedWorld.isReadingSelectionSnapshot() && BlockFamilies.SHULKER_BOX.test(state))
-            return Shapes.block();
 
         return player.compensatedWorld
                 .geometry()

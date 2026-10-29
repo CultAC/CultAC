@@ -1,10 +1,10 @@
 package ac.cult.cultac.network.routing;
 
+import static ac.cult.cultac.network.routing.TestNetworks.KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -13,23 +13,20 @@ import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.NetworkPlayer;
-import ac.cult.cultac.network.routing.MessageHandler.Origin;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
+import ac.cult.cultac.network.routing.TestNetworks.Players;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.google.gson.JsonPrimitive;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,72 +41,42 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
-import java.util.function.Supplier;
 import java.util.logging.Level;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 class NetworkServiceTest {
-    private static final byte[] KEY = "a shared network secret of some length".getBytes(StandardCharsets.UTF_8);
     private static final UUID ALICE = UUID.fromString("00000000-0000-0000-0000-00000000000a");
     private static final UUID BOB = UUID.fromString("00000000-0000-0000-0000-00000000000b");
-    private static final NetworkSettings SETTINGS =
-            new NetworkSettings("redis", "", "default", "", "", List.of(), "", "", "");
 
     private final AtomicLong clock = new AtomicLong(1_793_140_000_000L);
     private final FakeBroker broker = new FakeBroker();
+    private final TestNetworks networks = new TestNetworks(broker, clock);
 
     @BeforeAll
     static void logging() {
         OfflineCultTestBootstrap.installConfig();
     }
 
-    /** The players a platform reports online. */
-    private static final class Players implements NetworkPlatform {
-        final Map<UUID, OnlinePlayer> online = new ConcurrentHashMap<>();
-
-        Players with(UUID uuid, String name, String server) {
-            online.put(uuid, new OnlinePlayer(uuid, name, server));
-            return this;
-        }
-
-        @Override
-        public Collection<OnlinePlayer> onlinePlayers() {
-            return List.copyOf(online.values());
-        }
-
-        @Override
-        public String address() {
-            return "test:1";
-        }
-    }
-
     private NetworkService service(String instance, Players players, HostContext host, byte[] key, boolean transport) {
-        return new NetworkService(
-                SETTINGS,
-                players,
-                host,
-                instance,
-                key,
-                transport ? broker.transport() : null,
-                clock::get,
-                null,
-                null,
-                new LogThrottle());
+        return builder(instance, players, host, transport ? broker.transport() : null)
+                .key(key)
+                .build();
     }
 
     private NetworkService service(String instance, Players players, HostContext host, MessageTransport transport) {
-        return new NetworkService(
-                SETTINGS, players, host, instance, KEY, transport, clock::get, null, null, new LogThrottle());
+        return builder(instance, players, host, transport).build();
+    }
+
+    private TestNetworks.Builder builder(
+            String instance, Players players, @Nullable HostContext host, @Nullable MessageTransport transport) {
+        return networks.service(instance).platform(players).host(host).transport(transport);
     }
 
     private NetworkService started(String instance, Players players) {
-        NetworkService service = service(instance, players, null, KEY, true);
-        service.start();
-        return service;
+        return networks.service(instance).platform(players).start();
     }
 
     private static HostContext host(Map<String, Object> shared, AtomicBoolean current) {
@@ -117,23 +84,12 @@ class NetworkServiceTest {
     }
 
     private static HostContext host(Map<String, Object> shared, AtomicBoolean current, String generation) {
-        return host(shared, current::get, generation);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static HostContext host(Map<String, Object> shared, Callable<Boolean> current, String generation) {
-        HostContext host = mock(HostContext.class);
-        when(host.generationId()).thenReturn(generation);
-        when(host.current()).thenAnswer(invocation -> current.call());
-        when(host.shared(anyString(), any()))
-                .thenAnswer(invocation -> shared.computeIfAbsent(
-                        invocation.getArgument(0), key -> ((Supplier<Object>) invocation.getArgument(1)).get()));
-        return host;
+        return TestNetworks.host(shared, current::get, generation);
     }
 
     private List<JsonObject> rosterBodiesFrom(String instance) {
         List<JsonObject> bodies = new ArrayList<>();
-        for (FakeBroker.Published message : broker.on("cultac.default.all")) {
+        for (FakeBroker.Published message : broker.on(TestNetworks.channel(NetworkSettings.ALL))) {
             JsonObject envelope = JsonParser.parseString(
                             message.text().substring(message.text().indexOf('.') + 1))
                     .getAsJsonObject();
@@ -160,7 +116,7 @@ class NetworkServiceTest {
         assertEquals(1, a.roster().size());
         JsonObject goodbye = rosterBodiesFrom("p7").getLast();
         assertTrue(goodbye.get("full").getAsBoolean());
-        assertTrue(goodbye.getAsJsonArray("players").isEmpty());
+        assertTrue(goodbye.getAsJsonObject("servers").isEmpty());
     }
 
     @Test
@@ -184,7 +140,7 @@ class NetworkServiceTest {
     @Test
     void aSilentInstanceIsForgottenFortyFiveSecondsAfterItsLastMessage() {
         NetworkService a = started("p3", new Players());
-        a.on("probe", (envelope, origin) -> {});
+        a.on("probe", envelope -> {});
         NetworkService b = started("p7", new Players().with(ALICE, "Alice", "lobby"));
         broker.published.clear();
 
@@ -196,7 +152,7 @@ class NetworkServiceTest {
         assertTrue(a.locate("Alice").isEmpty());
         assertTrue(a.roster().isEmpty());
         a.tick();
-        assertTrue(a.peerFlags().isEmpty());
+        assertFalse(a.peersWantVerbose());
     }
 
     @Test
@@ -247,7 +203,7 @@ class NetworkServiceTest {
         promoted.tick();
         assertEquals(2, rosterBodiesFrom("p3").size());
         promoted.stop();
-        assertTrue(rosterBodiesFrom("p3").getLast().getAsJsonArray("players").isEmpty());
+        assertTrue(rosterBodiesFrom("p3").getLast().getAsJsonObject("servers").isEmpty());
     }
 
     @Test
@@ -276,7 +232,7 @@ class NetworkServiceTest {
         JsonObject goodbye = rosterBodiesFrom("p3").getLast();
         assertEquals(published + 1, rosterBodiesFrom("p3").size());
         assertTrue(goodbye.get("full").getAsBoolean());
-        assertTrue(goodbye.getAsJsonArray("players").isEmpty());
+        assertTrue(goodbye.getAsJsonObject("servers").isEmpty());
         assertTrue(peer.locate("Bob").isEmpty());
     }
 
@@ -288,7 +244,7 @@ class NetworkServiceTest {
         AtomicBoolean pauseOlder = new AtomicBoolean();
         CountDownLatch paused = new CountDownLatch(1);
         CountDownLatch resume = new CountDownLatch(1);
-        HostContext olderHost = host(
+        HostContext olderHost = TestNetworks.host(
                 shared,
                 () -> {
                     boolean current = olderCurrent.get();
@@ -313,9 +269,7 @@ class NetworkServiceTest {
         newerCurrent.set(true);
         Thread promotion = new Thread(newer::start);
         promotion.start();
-        await(() -> promotion.getState() == Thread.State.TERMINATED
-                || shared.get(NetworkService.ROSTER_LOCK_KEY) instanceof ReentrantLock lock
-                        && lock.hasQueuedThread(promotion));
+        await(() -> promotion.getState() == Thread.State.TERMINATED || promotion.getState() == Thread.State.BLOCKED);
         resume.countDown();
         tick.join(10_000);
         promotion.join(10_000);
@@ -327,7 +281,7 @@ class NetworkServiceTest {
         assertTrue(peer.locate("Bob").isPresent());
         newer.stop();
         assertTrue(peer.locate("Bob").isEmpty());
-        assertTrue(rosterBodiesFrom("p3").getLast().getAsJsonArray("players").isEmpty());
+        assertTrue(rosterBodiesFrom("p3").getLast().getAsJsonObject("servers").isEmpty());
     }
 
     @Test
@@ -351,28 +305,24 @@ class NetworkServiceTest {
         newer.start();
         olderTransport.release();
 
-        assertTrue(rosterBodiesFrom("p3").getLast().getAsJsonArray("players").isEmpty());
+        assertTrue(rosterBodiesFrom("p3").getLast().getAsJsonObject("servers").isEmpty());
         assertEquals("p3", peer.locate("Bob").orElseThrow().instance());
         newer.tick();
         assertEquals("p3", peer.locate("Bob").orElseThrow().instance());
     }
 
-    private static Map<String, Object> rosterOrder(long epoch, long sequence) {
+    private static Map<String, Object> rosterOrder(long next) {
         Map<String, Object> shared = new ConcurrentHashMap<>();
-        shared.put(NetworkService.ROSTER_EPOCH_KEY, epoch);
-        shared.put(NetworkService.ROSTER_SEQUENCE_KEY, new AtomicLong(sequence));
+        shared.put(NetworkService.ROSTER_ORDER_KEY, new AtomicLong(next));
         return shared;
     }
 
     @Test
-    void aRestartedInstanceIsHeardAndARosterFromAnOlderEpochIsDropped() {
+    void aRestartedInstanceIsHeardARosterNumberedLowerIsDroppedAndAClockRegressionHealsAfterExpiry() {
         AtomicBoolean current = new AtomicBoolean(true);
         NetworkService peer = started("p7", new Players());
         NetworkService crashed = service(
-                "p3",
-                new Players().with(BOB, "Bob", "lobby"),
-                host(rosterOrder(5_000, 41), current),
-                broker.transport());
+                "p3", new Players().with(BOB, "Bob", "lobby"), host(rosterOrder(5_000), current), broker.transport());
         crashed.start();
         crashed.tick();
         assertEquals("p3", peer.locate("Bob").orElseThrow().instance());
@@ -380,21 +330,23 @@ class NetworkServiceTest {
         NetworkService restarted = service(
                 "p3",
                 new Players().with(ALICE, "Alice", "lobby"),
-                host(rosterOrder(6_000, 0), current),
+                host(rosterOrder(6_000), current),
                 broker.transport());
         restarted.start();
         assertTrue(peer.locate("Bob").isEmpty());
         assertEquals("p3", peer.locate("Alice").orElseThrow().instance());
 
-        NetworkService stale = service(
-                "p3",
-                new Players().with(BOB, "Bob", "lobby"),
-                host(rosterOrder(4_000, 1_000), current),
-                broker.transport());
-        stale.start();
-        stale.tick();
+        NetworkService wentBack = service(
+                "p3", new Players().with(BOB, "Bob", "lobby"), host(rosterOrder(4_000), current), broker.transport());
+        wentBack.start();
+        wentBack.tick();
         assertTrue(peer.locate("Bob").isEmpty());
         assertEquals("p3", peer.locate("Alice").orElseThrow().instance());
+
+        clock.addAndGet(RosterCache.EXPIRY_MILLIS + 1);
+        wentBack.tick();
+        assertEquals("p3", peer.locate("Bob").orElseThrow().instance());
+        assertTrue(peer.locate("Alice").isEmpty());
     }
 
     @Test
@@ -454,17 +406,11 @@ class NetworkServiceTest {
 
     private NetworkService withReceiver(
             String instance, @Nullable ScheduledExecutorService scheduler, Receiver receiver, LogThrottle drops) {
-        return new NetworkService(
-                SETTINGS,
-                new Players(),
-                null,
-                instance,
-                KEY,
-                broker.transport(),
-                clock::get,
-                scheduler,
-                receiver,
-                drops);
+        return networks.service(instance)
+                .scheduler(scheduler)
+                .receiver(receiver)
+                .drops(drops)
+                .build();
     }
 
     @Test
@@ -474,10 +420,13 @@ class NetworkServiceTest {
             NetworkService a = withReceiver("p3", null, receiver, new LogThrottle());
             a.start();
             int queued = receiver.queued.get();
-            broker.transport().publish("cultac.default.all", "x".repeat(EnvelopeCodec.MAX_BYTES - 1) + "\u00e9");
-            broker.transport().publish("cultac.default.p3", "y".repeat(EnvelopeCodec.MAX_BYTES + 1));
+            broker.transport()
+                    .publish(
+                            TestNetworks.channel(NetworkSettings.ALL),
+                            "x".repeat(EnvelopeCodec.MAX_BYTES - 1) + "\u00e9");
+            broker.transport().publish(TestNetworks.channel("p3"), "y".repeat(EnvelopeCodec.MAX_BYTES + 1));
             assertEquals(queued, receiver.queued.get());
-            broker.transport().publish("cultac.default.p3", "z".repeat(EnvelopeCodec.MAX_BYTES));
+            broker.transport().publish(TestNetworks.channel("p3"), "z".repeat(EnvelopeCodec.MAX_BYTES));
             assertEquals(queued + 1, receiver.queued.get());
             a.stop();
         } finally {
@@ -497,7 +446,7 @@ class NetworkServiceTest {
             a.start();
             NetworkService b = started("p7", new Players().with(ALICE, "Alice", "lobby"));
             await(() -> a.locate("Alice").isPresent());
-            a.on("probe", (envelope, origin) -> {
+            a.on("probe", envelope -> {
                 try {
                     release.await();
                 } catch (InterruptedException interrupted) {
@@ -535,9 +484,12 @@ class NetworkServiceTest {
         CountDownLatch busy = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         try {
-            NetworkService a = withReceiver("p3", scheduler, receiver, new LogThrottle());
-            a.commands(commands(new ArrayList<>()));
-            a.on("probe", (envelope, origin) -> {
+            NetworkService a = networks.service("p3")
+                    .scheduler(scheduler)
+                    .receiver(receiver)
+                    .commands(commands(new ArrayList<>()))
+                    .build();
+            a.on("probe", envelope -> {
                 busy.countDown();
                 try {
                     release.await();
@@ -568,12 +520,31 @@ class NetworkServiceTest {
     void theFirstBadSignatureWarnsAndTheNextAreThrottled() {
         try (CapturedLog log = new CapturedLog(Level.WARNING, "Dropped a network message with a bad signature")) {
             started("p3", new Players());
-            NetworkService stranger = service(
-                    "p9",
-                    new Players().with(ALICE, "Alice", "lobby"),
-                    null,
-                    "a different secret".getBytes(StandardCharsets.UTF_8),
-                    true);
+            MessageTransport bus = broker.transport();
+            MessageTransport intoOurChannels = new MessageTransport() {
+                @Override
+                public String name() {
+                    return "into our channels";
+                }
+
+                @Override
+                public void start(List<String> channels, MessageTransport.Receiver receiver) {
+                    bus.start(channels, receiver);
+                }
+
+                @Override
+                public void publish(String channel, String text) {
+                    bus.publish(TestNetworks.channel(channel.substring(channel.lastIndexOf('.') + 1)), text);
+                }
+
+                @Override
+                public void close() {
+                    bus.close();
+                }
+            };
+            NetworkService stranger = builder("p9", new Players().with(ALICE, "Alice", "lobby"), null, intoOurChannels)
+                    .key("a different secret".getBytes(StandardCharsets.UTF_8))
+                    .build();
             stranger.start();
             assertEquals(1, log.messages().size());
             stranger.tick();
@@ -591,25 +562,19 @@ class NetworkServiceTest {
         older.start();
         newer.start();
         List<String> heard = new ArrayList<>();
-        older.on(
-                "probe",
-                (envelope, origin) ->
-                        heard.add("older " + origin + " " + envelope.body().get("n")));
-        newer.on(
-                "probe",
-                (envelope, origin) ->
-                        heard.add("newer " + origin + " " + envelope.body().get("n")));
+        older.on("probe", envelope -> heard.add("older " + envelope.body().get("n")));
+        newer.on("probe", envelope -> heard.add("newer " + envelope.body().get("n")));
 
         JsonObject body = new JsonObject();
         body.addProperty("n", 1);
         assertTrue(newer.sendLocal("probe", body));
-        assertEquals(List.of("older LOCAL 1", "newer LOCAL 1"), heard);
+        assertEquals(List.of("older 1", "newer 1"), heard);
 
         heard.clear();
         older.stop();
         body.addProperty("n", 2);
         assertTrue(newer.send("p3", "probe", body));
-        assertEquals(List.of("newer LOCAL 2"), heard);
+        assertEquals(List.of("newer 2"), heard);
         assertFalse(newer.broadcast("probe", body));
         assertFalse(newer.enabled());
         assertTrue(broker.published.isEmpty());
@@ -619,10 +584,10 @@ class NetworkServiceTest {
     void withoutAHostTheBusReachesOnlyThisGeneration() {
         NetworkService alone = service("p3", new Players(), null, null, false);
         alone.start();
-        List<Origin> heard = new ArrayList<>();
-        alone.on("probe", (envelope, origin) -> heard.add(origin));
+        List<String> heard = new ArrayList<>();
+        alone.on("probe", envelope -> heard.add(envelope.from()));
         assertTrue(alone.sendLocal("probe", new JsonObject()));
-        assertEquals(List.of(Origin.LOCAL), heard);
+        assertEquals(List.of("p3"), heard);
         alone.stop();
         assertFalse(alone.sendLocal("probe", new JsonObject()));
     }
@@ -630,26 +595,26 @@ class NetworkServiceTest {
     @Test
     void messagesForThisInstanceNeverReachTheBroker() {
         NetworkService a = started("p3", new Players());
-        List<Origin> heard = new ArrayList<>();
-        a.on("probe", (envelope, origin) -> heard.add(origin));
+        List<String> heard = new ArrayList<>();
+        a.on("probe", envelope -> heard.add(envelope.from()));
         broker.published.clear();
 
         assertTrue(a.send("p3", "probe", new JsonObject()));
-        assertEquals(List.of(Origin.LOCAL), heard);
+        assertEquals(List.of("p3"), heard);
         assertTrue(broker.published.isEmpty());
     }
 
     @Test
-    void handlersSeeHowAMessageArrived() {
+    void anInstanceHearsWhatIsSentToItOrToAllButNotItsOwnBroadcast() {
         NetworkService a = started("p3", new Players());
         NetworkService b = started("p7", new Players());
         List<String> heard = new ArrayList<>();
-        a.on("probe", (envelope, origin) -> heard.add(origin + " from " + envelope.from()));
-        b.on("probe", (envelope, origin) -> heard.add("b heard its own " + origin));
+        a.on("probe", envelope -> heard.add((envelope.broadcast() ? "all" : "p3") + " from " + envelope.from()));
+        b.on("probe", envelope -> heard.add("b heard its own"));
 
         assertTrue(b.send("p3", "probe", new JsonObject()));
         assertTrue(b.broadcast("probe", new JsonObject()));
-        assertEquals(List.of("DIRECT from p7", "BROADCAST from p7"), heard);
+        assertEquals(List.of("p3 from p7", "all from p7"), heard);
     }
 
     @Test
@@ -657,7 +622,7 @@ class NetworkServiceTest {
         NetworkService a = started("p3", new Players());
         NetworkService b = started("p7", new Players());
         List<String> heard = new ArrayList<>();
-        NetworkService.Registration registration = a.on("probe", (envelope, origin) -> heard.add("probe"));
+        NetworkService.Registration registration = a.on("probe", envelope -> heard.add("probe"));
         b.send("p3", "other", new JsonObject());
         registration.close();
         b.send("p3", "probe", new JsonObject());
@@ -675,29 +640,134 @@ class NetworkServiceTest {
                 true);
         stranger.start();
         assertTrue(a.locate("Alice").isEmpty());
-        assertTrue(a.peerFlags().isEmpty());
+        assertFalse(a.peersWantVerbose());
     }
 
     @Test
-    void rosterFlagsReachThePeers() {
+    void whetherStaffTakeVerboseReachesThePeersAtOnceAndWithEachSnapshot() {
         NetworkService a = started("p3", new Players());
         NetworkService b = started("p7", new Players());
-        b.flag("global-verbose", new JsonPrimitive(true));
+        AtomicBoolean wanted = new AtomicBoolean();
+        b.verbose(wanted::get);
+        int published = rosterBodiesFrom("p7").size();
+        b.verboseChanged();
+        assertEquals(published, rosterBodiesFrom("p7").size());
+
+        wanted.set(true);
+        b.verboseChanged();
+        assertTrue(a.peersWantVerbose());
+        assertTrue(rosterBodiesFrom("p7").getLast().get("verbose").getAsBoolean());
         b.tick();
-        assertTrue(a.peerFlags().get("p7").get("global-verbose").getAsBoolean());
-        b.flag("global-verbose", null);
+        assertTrue(a.peersWantVerbose());
+
+        wanted.set(false);
         b.tick();
-        assertFalse(a.peerFlags().get("p7").has("global-verbose"));
+        assertFalse(a.peersWantVerbose());
+        clock.addAndGet(RosterCache.EXPIRY_MILLIS + 1);
+        wanted.set(true);
+        b.verboseChanged();
+        clock.addAndGet(RosterCache.EXPIRY_MILLIS + 1);
+        assertFalse(a.peersWantVerbose());
+    }
+
+    @Test
+    void aRosterAboveTheOldCapStillReachesThePeers() {
+        Players crowded = new Players();
+        for (int i = 0; i < 8_000; i++) crowded.with(new UUID(7, i), "Player" + i, "server" + i % 8);
+        NetworkService a = started("p3", new Players());
+        try (CapturedLog log = new CapturedLog(Level.WARNING, "Network roster not sent")) {
+            started("p7", crowded);
+            String text = broker.on(TestNetworks.channel(NetworkSettings.ALL))
+                    .getLast()
+                    .text();
+            assertTrue(EnvelopeCodec.utf8Length(text) > 256 * 1024);
+            assertEquals(8_000, a.roster().size());
+            assertEquals("server3", a.locate("Player3").orElseThrow().server());
+            assertTrue(log.messages().isEmpty());
+        }
+    }
+
+    @Test
+    void aRosterThatStillDoesNotFitIsLoggedOnce() {
+        Players crowded = new Players();
+        for (int i = 0; i < 20_000; i++) crowded.with(new UUID(7, i), "Player" + i, "lobby");
+        NetworkService a = started("p3", new Players());
+        try (CapturedLog log = new CapturedLog(Level.WARNING, "Network roster not sent")) {
+            NetworkService b = started("p7", crowded);
+            b.tick();
+            assertEquals(1, log.messages().size());
+            assertTrue(
+                    log.messages().getFirst().contains("20000 players"),
+                    log.messages().getFirst());
+            assertTrue(a.roster().isEmpty());
+        }
+    }
+
+    @Test
+    void aClockOutsideTheWindowWarnsOncePerPeerAWhile() {
+        AtomicLong skewed = new AtomicLong(clock.get() + EnvelopeCodec.MAX_SKEW_MILLIS + 5_000);
+        NetworkService a = started("p3", new Players());
+        try (CapturedLog log = new CapturedLog(Level.WARNING, "Dropping network messages from p9")) {
+            NetworkService late = new TestNetworks(broker, skewed)
+                    .service("p9")
+                    .platform(new Players().with(ALICE, "Alice", "lobby"))
+                    .start();
+            late.tick();
+            assertTrue(a.locate("Alice").isEmpty());
+            assertEquals(1, log.messages().size());
+            assertTrue(
+                    log.messages().getFirst().contains("35000 ms"),
+                    log.messages().getFirst());
+        }
+    }
+
+    @Test
+    void anotherJvmWithThisInstanceIdIsReportedOnce() {
+        try (CapturedLog log = new CapturedLog(Level.WARNING, "Another instance uses this instance's id p3")) {
+            NetworkService first =
+                    service("p3", new Players(), host(new HashMap<>(), new AtomicBoolean(true)), broker.transport());
+            first.start();
+            NetworkService generation =
+                    service("p3", new Players(), host(new HashMap<>(), new AtomicBoolean(true)), broker.transport());
+            first.tick();
+            assertTrue(log.messages().isEmpty());
+            generation.start();
+            assertEquals(1, log.messages().size());
+            first.tick();
+            generation.tick();
+            first.tick();
+            assertEquals(2, log.messages().size(), "one from each side");
+        }
+    }
+
+    @Test
+    void generationsOfOneJvmShareTheirNonceAndRaiseNoWarning() {
+        Map<String, Object> shared = new ConcurrentHashMap<>();
+        try (CapturedLog log = new CapturedLog(Level.WARNING, "Another instance uses this instance's id")) {
+            NetworkService older =
+                    service("p3", new Players(), host(shared, new AtomicBoolean(true)), broker.transport());
+            older.start();
+            NetworkService newer =
+                    service("p3", new Players(), host(shared, new AtomicBoolean(true)), broker.transport());
+            newer.start();
+            older.tick();
+            newer.tick();
+            assertTrue(log.messages().isEmpty());
+        }
     }
 
     @Test
     void runRunsALocalPlayersCommandThroughTheCommandManagerAndForwardsARemoteOne() {
-        NetworkService a = started("p3", new Players().with(BOB, "Bob", null));
-        NetworkService b = started("p7", new Players().with(ALICE, "Alice", "lobby"));
         List<String> ranHere = new ArrayList<>();
         List<String> ranThere = new ArrayList<>();
-        a.commands(commands(ranHere));
-        b.commands(commands(ranThere));
+        NetworkService a = networks.service("p3")
+                .platform(new Players().with(BOB, "Bob", null))
+                .commands(commands(ranHere))
+                .start();
+        NetworkService b = networks.service("p7")
+                .platform(new Players().with(ALICE, "Alice", "lobby"))
+                .commands(commands(ranThere))
+                .start();
         Sender sender = mock(Sender.class);
         when(sender.getUniqueId()).thenReturn(UUID.randomUUID());
         when(sender.getName()).thenReturn("Mod");

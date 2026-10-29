@@ -9,7 +9,12 @@ import java.util.concurrent.atomic.AtomicLong;
  * item that does not fit is dropped; the drops are logged at most once a minute, with how many there were. Every
  * {@link #admit} that returns true is paired with one {@link #release} of the same size. Any thread.
  */
-final class Backlog {
+public final class Backlog {
+    /** The usual bound on the messages waiting to publish. */
+    public static final int MAX_ITEMS = 4096;
+    /** The usual bound on the size of the messages waiting to publish. */
+    public static final long MAX_BYTES = 16L * 1024 * 1024;
+
     private final String dropped;
     private final int maxItems;
     private final long maxBytes;
@@ -17,7 +22,7 @@ final class Backlog {
     private final AtomicInteger items = new AtomicInteger();
     private final AtomicLong bytes = new AtomicLong();
 
-    Backlog(String dropped, int maxItems, long maxBytes) {
+    public Backlog(String dropped, int maxItems, long maxBytes) {
         this(dropped, maxItems, maxBytes, new LogThrottle());
     }
 
@@ -29,8 +34,13 @@ final class Backlog {
         this.throttle = throttle;
     }
 
+    /** The size {@link #admit} counts for {@code text}: its UTF-8 bytes. */
+    public static int size(String text) {
+        return EnvelopeCodec.utf8Length(text);
+    }
+
     /** Holds a place for an item of {@code size} bytes; false, and the drop counted, when it does not fit. */
-    boolean admit(long size) {
+    public boolean admit(long size) {
         if (items.incrementAndGet() <= maxItems) {
             if (bytes.addAndGet(size) <= maxBytes) return true;
             bytes.addAndGet(-size);
@@ -41,7 +51,7 @@ final class Backlog {
     }
 
     /** Gives back the place {@link #admit} held for an item of {@code size} bytes. */
-    void release(long size) {
+    public void release(long size) {
         bytes.addAndGet(-size);
         items.decrementAndGet();
     }

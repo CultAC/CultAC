@@ -13,10 +13,8 @@ import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Hides the network's secrets from text bound for a log or a reply. A redactor knows the values the settings hold:
- * each broker URL, which becomes its {@link #url} form; the user info and password in each URL, raw and decoded; the
- * NATS token; the network secret. {@link #redact} replaces each of them, longest first, skipping any shorter than
- * {@value #MIN_KNOWN_LENGTH} characters, then masks what is left as {@link #text} does.
+ * Hides the network's secrets from text bound for a log or a reply: each broker URL, the credentials in it, raw and
+ * decoded, and the network secret, then any URL's user info. Values under {@value #MIN_KNOWN_LENGTH} characters stay.
  */
 final class Redaction {
     /** What stands for a URL that does not parse with a host and has no {@code @}. */
@@ -30,7 +28,6 @@ final class Redaction {
 
     private static final String SEPARATOR = "://";
 
-    /** Each known value, longest first, with what replaces it. */
     private final List<Map.Entry<String, String>> known;
 
     private Redaction(Map<String, String> known) {
@@ -41,14 +38,12 @@ final class Redaction {
                 .toList();
     }
 
-    /** A redactor for the Redis URI, the NATS servers, the NATS token and the network secret in {@code settings}. */
     static Redaction of(NetworkSettings settings) {
-        List<String> urls = new ArrayList<>(settings.natsServers());
-        urls.add(settings.redisUri());
-        return of(urls, List.of(settings.natsToken(), settings.secret()));
+        List<String> urls =
+                settings.uri().equalsIgnoreCase(NetworkSettings.REDISBUNGEE) ? List.of() : settings.servers();
+        return of(urls, List.of(settings.secret()));
     }
 
-    /** A redactor for {@code urls} and the plain values {@code secrets}. */
     static Redaction of(Collection<String> urls, Collection<String> secrets) {
         Map<String, String> known = new LinkedHashMap<>();
         for (String url : urls) {
@@ -64,10 +59,7 @@ final class Redaction {
         if (value.length() >= MIN_KNOWN_LENGTH && !value.equals(replacement)) known.putIfAbsent(value, replacement);
     }
 
-    /**
-     * The user info and the password after its first {@code :} in {@code url}, raw and decoded when it parses with a
-     * host, else the raw text between its {@code ://} and its last {@code @}.
-     */
+    /** The user info and the password in {@code url}, raw and decoded; the text before its last {@code @} else. */
     private static List<String> credentials(String url) {
         List<String> found = new ArrayList<>();
         URI parsed = withHost(SCHEME.matcher(url).lookingAt() ? url : "x://" + url);
@@ -142,10 +134,7 @@ final class Redaction {
         return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z';
     }
 
-    /**
-     * {@code url} with its user info replaced by {@value #MASK}. One that does not parse with a host keeps its scheme
-     * and what follows its last {@code @}, or becomes {@value #HIDDEN} without one; an empty one stays empty.
-     */
+    /** {@code url} with its user info masked; {@value #HIDDEN} when it neither parses nor holds an {@code @}. */
     static String url(String url) {
         if (url.isEmpty()) return url;
         Matcher scheme = SCHEME.matcher(url);

@@ -20,7 +20,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -78,10 +77,8 @@ class AlertScopesTest {
 
         AlertScopes nextRuntime = new AlertScopes(null, () -> store);
         PlatformPlayer rejoined = player(uuid);
-        AtomicInteger loaded = new AtomicInteger();
-        nextRuntime.load(rejoined, loaded::incrementAndGet);
+        nextRuntime.load(rejoined);
         assertEquals(AlertScope.GLOBAL, nextRuntime.chosen(rejoined));
-        assertEquals(1, loaded.get());
     }
 
     @Test
@@ -89,11 +86,9 @@ class AlertScopesTest {
         DataStore store = store();
         AlertScopes scopes = new AlertScopes(null, () -> store);
         PlatformPlayer player = player(UUID.randomUUID());
-        AtomicInteger loaded = new AtomicInteger();
-        scopes.load(player, loaded::incrementAndGet);
+        scopes.load(player);
         assertNull(scopes.chosen(player));
         assertEquals(AlertScope.SERVER, scopes.scope(player));
-        assertEquals(0, loaded.get());
         assertEquals(Map.of(), settings);
     }
 
@@ -107,7 +102,7 @@ class AlertScopesTest {
 
         pendingRead = new CompletableFuture<>();
         PlatformPlayer choosing = player(uuid);
-        scopes.load(choosing, () -> {});
+        scopes.load(choosing);
         assertNull(scopes.chosen(choosing));
         scopes.choose(choosing, AlertScope.SERVER);
         pendingRead.complete(new Page<>(List.of(persisted), null));
@@ -115,7 +110,7 @@ class AlertScopesTest {
 
         pendingRead = new CompletableFuture<>();
         PlatformPlayer leaving = player(UUID.randomUUID());
-        scopes.load(leaving, () -> {});
+        scopes.load(leaving);
         scopes.forget(leaving);
         pendingRead.complete(new Page<>(List.of(persisted), null));
         assertNull(scopes.chosen(leaving));

@@ -3,11 +3,13 @@ package ac.cult.cultac.platform.velocity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ac.cult.cultac.network.routing.Backlog;
 import com.imaginarycode.minecraft.redisbungee.AbstractRedisBungeeAPI;
 import com.imaginarycode.minecraft.redisbungee.events.PubSubMessageEvent;
 import com.velocitypowered.api.event.EventHandler;
@@ -18,6 +20,9 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,7 +30,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 class RedisBungeeTransportTest {
-    private static final List<String> CHANNELS = List.of("cultac.default.proxy-a", "cultac.default.all");
+    private static final List<String> CHANNELS = List.of("cultac.0123abcd.proxy-a", "cultac.0123abcd.all");
 
     private final AbstractRedisBungeeAPI api = new AbstractRedisBungeeAPI();
     private final ProxyServer proxy = mock(ProxyServer.class);
@@ -83,9 +88,9 @@ class RedisBungeeTransportTest {
         EventHandler<Object> handler = started(transport, received);
 
         assertEquals(CHANNELS, api.registered);
-        handler.execute(new PubSubMessageEvent("cultac.default.all", "sig.{}"));
+        handler.execute(new PubSubMessageEvent("cultac.0123abcd.all", "sig.{}"));
         handler.execute(new PubSubMessageEvent("cultac:profile", "{}"));
-        assertEquals(List.of("cultac.default.all sig.{}"), received);
+        assertEquals(List.of("cultac.0123abcd.all sig.{}"), received);
         transport.close();
     }
 
@@ -95,14 +100,64 @@ class RedisBungeeTransportTest {
         assertNotNull(transport);
         EventHandler<Object> handler = started(transport, new ArrayList<>());
 
-        transport.publish("cultac.default.proxy-b", "sig.{\"v\":1}");
+        transport.publish("cultac.0123abcd.proxy-b", "sig.{\"v\":1}");
         transport.close();
-        assertEquals(List.of("cultac.default.proxy-b"), api.publishedChannels);
+        assertEquals(List.of("cultac.0123abcd.proxy-b"), api.publishedChannels);
         assertEquals(List.of("sig.{\"v\":1}"), api.published);
         verify(events).unregister(plugin, handler);
         assertEquals(CHANNELS, api.registered);
 
-        transport.publish("cultac.default.proxy-b", "after close");
+        transport.publish("cultac.0123abcd.proxy-b", "after close");
         assertEquals(1, api.published.size());
+    }
+
+    @Test
+    void whileRedisBungeeBlocksAtMostTheBacklogWaitsAndItsPlacesComeBackOnceItAnswers() throws Exception {
+        RedisBungeeTransport transport = RedisBungeeTransport.create(proxy, plugin);
+        assertNotNull(transport);
+        CountDownLatch gate = new CountDownLatch(1);
+        api.gate = gate;
+        try {
+            for (int i = 0; i < Backlog.MAX_ITEMS; i++) transport.publish("cultac.0123abcd.all", "m" + i);
+            transport.publish("cultac.0123abcd.all", "dropped");
+            gate.countDown();
+            await(() -> api.publishedCount() == Backlog.MAX_ITEMS);
+
+            transport.publish("cultac.0123abcd.all", "after");
+            await(() -> api.publishedCount() == Backlog.MAX_ITEMS + 1);
+            assertEquals("after", api.published.getLast());
+            assertTrue(!api.published.contains("dropped"));
+        } finally {
+            gate.countDown();
+            transport.close();
+        }
+    }
+
+    @Test
+    void theBacklogBoundsTheCharactersWaitingToo() throws Exception {
+        RedisBungeeTransport transport = RedisBungeeTransport.create(proxy, plugin);
+        assertNotNull(transport);
+        CountDownLatch gate = new CountDownLatch(1);
+        api.gate = gate;
+        String half = "x".repeat((int) (Backlog.MAX_BYTES / 2) + 1);
+        try {
+            transport.publish("cultac.0123abcd.all", half);
+            transport.publish("cultac.0123abcd.all", half);
+            transport.publish("cultac.0123abcd.all", "small");
+            gate.countDown();
+            await(() -> api.publishedCount() == 2);
+            assertEquals("small", api.published.getLast());
+        } finally {
+            gate.countDown();
+            transport.close();
+        }
+    }
+
+    private static void await(BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (!condition.getAsBoolean()) {
+            if (System.nanoTime() > deadline) throw new AssertionError("timed out");
+            Thread.sleep(20);
+        }
     }
 }

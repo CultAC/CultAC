@@ -285,25 +285,22 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
-# Messaging between the proxies and servers of a network, so commands, the roster and alerts reach players on other
-# instances. Each setting's CULTAC_NETWORK_* environment variable wins when set and not blank; CULTAC_NETWORK_NATS_SERVERS
-# is comma-separated. /cult reload reconnects when this block changes.
+# Network messaging; the setup is explained in docs/network.md in CultAC's source. Lets commands, the roster and alerts
+# reach players on the other proxies and servers of a network. Each setting's CULTAC_NETWORK_* environment variable
+# wins when set and not blank. /cult reload reconnects when this block changes.
 network:
-  # none | redis | nats | redisbungee. none: commands, tab completion and alerts reach this server only.
-  # redisbungee (Velocity only) uses RedisBungee's own pub/sub and needs no other setting here.
-  transport: none
-  # Unique per instance. Empty: RedisBungee's proxy id when installed, else cloud.proxy-id, else host:port.
-  instance-id: ""
-  # Namespaces channels so several networks can share one broker.
-  network: "default"
-  # HMAC key every instance shares. Empty: Velocity's forwarding secret on a proxy; required on a backend.
+  # Empty: commands, tab completion and alerts reach this server only.
+  # redis://[user:password@]host:6379[/db], or rediss:// for TLS (Valkey, KeyDB and Dragonfly work too);
+  # nats://[token@]host:4222 or tls:// (comma-separate several NATS servers);
+  # redisbungee: on Velocity, RedisBungee's own Redis connection.
+  uri: ""
+  # Signing key every instance shares. Empty: Velocity's forwarding secret (servers behind Velocity read it too), else
+  # derived from the password or token in uri.
   secret: ""
-  redis:
-    uri: "redis://:password@host:6379/0"   # rediss:// for TLS; Valkey/KeyDB/Dragonfly speak the same protocol
-  nats:
-    servers: ["nats://host:4222"]
-    token: ""
-    credentials-file: ""                   # .creds (JWT + nkey), for NATS accounts
+  # Unique per instance. Empty: RedisBungee's proxy id, else cloud.proxy-id, else host:port.
+  instance-id: ""
+  # NATS accounts only: a .creds file (JWT + nkey).
+  nats-credentials-file: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
@@ -325,4 +322,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 15
+config-version: 16
