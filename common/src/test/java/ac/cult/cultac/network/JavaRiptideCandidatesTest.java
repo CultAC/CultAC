@@ -29,7 +29,8 @@ class JavaRiptideCandidatesTest {
             entities.appendSelfToClientTickOrder();
             var shulker = (PacketEntityShulker) entities.getEntity(100);
             shulker.onShapeData(Direction.WEST, (byte) 0);
-            Vec3 start = new Vec3(1.3, FLOOR_Y, 0.5);
+            // The 0.6F player width extends slightly beyond .3; avoid a closed-shell overlap before release.
+            Vec3 start = new Vec3(1.3000001, FLOOR_Y, 0.5);
             f.place(start, FALL);
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
             assertTrue(exact(f.tick(start, true)));

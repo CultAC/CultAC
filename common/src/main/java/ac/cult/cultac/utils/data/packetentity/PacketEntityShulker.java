@@ -252,11 +252,15 @@ public class PacketEntityShulker extends PacketEntity {
     }
 
     /** LivingEntity#pushEntities runs in super.tick, before Shulker#updatePeekAmount opens the shell. */
-    public List<Vec3> livingPushImpulses(SimpleCollisionBox playerBox, Vec3 playerPosition) {
+    public List<Vec3> livingPushImpulses(
+            @Nullable List<SimpleCollisionBox> riderPositions, SimpleCollisionBox playerBox, Vec3 playerPosition) {
         var impulses = new ArrayList<Vec3>();
         float beforePeek = tickedThisClientTick() ? peekO : peek;
-        for (int i = 0, count = possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
-            var raw = super.possibleMovementCollisionBoxCandidate(i, new SimpleCollisionBox());
+        int count = riderPositions == null ? possibleMovementCollisionBoxCandidateCount() : riderPositions.size();
+        for (int i = 0; i < count; i++) {
+            var raw = riderPositions == null
+                    ? super.possibleMovementCollisionBoxCandidate(i, new SimpleCollisionBox())
+                    : riderPositions.get(i).copy();
             Vec3 position = clientPosition(raw);
             var box = shape(raw, beforePeek);
             Vec3 impulse = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes.intersects(

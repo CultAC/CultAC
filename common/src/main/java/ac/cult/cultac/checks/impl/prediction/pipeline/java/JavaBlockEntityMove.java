@@ -202,7 +202,9 @@ final class JavaBlockEntityMove {
         if (recordedMovement) {
             position = position.add(movement);
             // Shulker#setPos snaps a root to the center of its X/Z block and rounds Y to the nearest block.
-            if (env.remoteActor() != null && env.remoteActor().type == EntityTypeIds.SHULKER)
+            if (env.remoteActor() != null
+                    && env.remoteActor().type == EntityTypeIds.SHULKER
+                    && env.remoteActor().getRiding() == null)
                 position = new Vec3(
                         CultMath.floor(position.x) + 0.5,
                         CultMath.floor(position.y + 0.5),

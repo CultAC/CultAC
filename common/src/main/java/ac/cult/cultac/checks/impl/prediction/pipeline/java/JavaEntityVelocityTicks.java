@@ -144,23 +144,26 @@ public final class JavaEntityVelocityTicks {
                         entities.setPassTickedThroughOrder(order);
                         boxes = entity.getPossibleMovementCollisionBoxCandidates();
                     }
-                    var physicalBoxes = new ArrayList<SimpleCollisionBox>(boxes.size());
-                    boolean touches = !rider;
-                    for (var candidate : boxes) {
-                        var physical = JavaLivingEntityPushes.physicalBox(player, entity, candidate);
-                        touches |= JavaLivingEntityPushes.intersects(physical, box);
-                        physicalBoxes.add(physical);
-                    }
-                    if (!touches) continue;
-                    boxes = physicalBoxes;
                     List<Vec3> impulses;
-                    if (boat) {
-                        var pushes = new ArrayList<Vec3>();
-                        EntityPush.addPossibleBoatPushes(pushes, boxes, box, position);
-                        impulses = pushes;
-                    } else if (entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityShulker shulker)
-                        impulses = shulker.livingPushImpulses(box, position);
-                    else impulses = JavaLivingEntityPushes.impulses(boxes, box, position);
+                    if (entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityShulker shulker) {
+                        // A rider's push uses the position before positionRider, including its independent
+                        // block-entity shove. Its shell is shaped at that position, before this tick's peek.
+                        impulses = shulker.livingPushImpulses(rider ? boxes : null, box, position);
+                    } else {
+                        var physicalBoxes = new ArrayList<SimpleCollisionBox>(boxes.size());
+                        boolean touches = !rider;
+                        for (var candidate : boxes) {
+                            var physical = JavaLivingEntityPushes.physicalBox(player, entity, candidate);
+                            touches |= JavaLivingEntityPushes.intersects(physical, box);
+                            physicalBoxes.add(physical);
+                        }
+                        if (!touches) continue;
+                        if (boat) {
+                            var pushes = new ArrayList<Vec3>();
+                            EntityPush.addPossibleBoatPushes(pushes, physicalBoxes, box, position);
+                            impulses = pushes;
+                        } else impulses = JavaLivingEntityPushes.impulses(physicalBoxes, box, position);
+                    }
                     if (!impulses.isEmpty()
                             && !(impulses.size() == 1 && impulses.getFirst().equals(Vec3.ZERO)))
                         ticks.add(new Tick(order, List.copyOf(impulses)));
