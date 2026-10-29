@@ -172,6 +172,49 @@ class VehicleSprintStateTest {
     }
 
     @Test
+    void aControlledCamelsRiderMaySilentlyDropAModifierWhileTheFlagStaysClear() throws Exception {
+        try (var f = ride(EntityTypeIds.CAMEL)) {
+            ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
+            // A movement_speed snapshot holds the modifier while the flag is clear.
+            f.player.sprintState.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+            f.input(FORWARD_SPRINT);
+            f.rideTick();
+            // canStartSprinting -> setSprinting(true); without a START_SPRINTING a stop check removed it again, which
+            // depends on the rider's own fluids at its seat.
+            assertFalse(f.player.isSprinting);
+            assertTrue(f.player.sprintState.modifier());
+            assertTrue(f.player.sprintState.clearedPossible());
+        }
+    }
+
+    @Test
+    void anUncontrolledCamelOrNoForwardKeyCannotStartItsRider() throws Exception {
+        try (var f = ride(EntityTypeIds.CAMEL)) {
+            f.player.sprintState.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+            f.input(FORWARD_SPRINT);
+            f.rideTick();
+            assertFalse(f.player.sprintState.clearedPossible());
+        }
+        try (var f = ride(EntityTypeIds.CAMEL)) {
+            ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
+            f.player.sprintState.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+            f.input(new ServerboundPlayerInput(false, false, false, false, false, false, true));
+            f.rideTick();
+            assertFalse(f.player.sprintState.clearedPossible());
+        }
+    }
+
+    @Test
+    void oneTwentyOneFourRemovesANonCamelPassengersModifierWhateverTheFlag() throws Exception {
+        try (var f = ride(EntityTypeIds.BAT, false, ClientVersion.V_1_21_4)) {
+            f.player.sprintState.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+            f.rideTick();
+            assertFalse(f.player.sprintState.flag());
+            assertFalse(f.player.sprintState.modifier());
+        }
+    }
+
+    @Test
     void neutralBatPassengerInventoryActionsDoNotUseTheStaleSprintAnnouncement() throws Exception {
         try (var f = ride(EntityTypeIds.BAT)) {
             f.player.isSprinting = true;

@@ -428,8 +428,12 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         if (vehicle != null) {
             player.onMountedClientTick(vehicle);
             player.sprintState.onClientTick(player.isClientSprinting());
-            // 1.21.4's shouldStopSprinting reaches setSprinting(false) for most passengers whatever the flag.
-            if (JavaAiStepSprint.clearsModifierRiding(player, vehicle)) player.sprintState.onModifierCleared();
+            // A silent setSprinting(false) while riding still removes the modifier the player dismounts with.
+            switch (JavaAiStepSprint.clearsModifierRiding(player, vehicle)) {
+                case TRUE -> player.sprintState.onModifierCleared();
+                case UNKNOWN -> player.sprintState.onModifierPossiblyCleared();
+                case FALSE -> {}
+            }
             return;
         }
         if (player.compensatedEntities.getSelf().inVehicle()) return;

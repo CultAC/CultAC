@@ -117,15 +117,34 @@ public final class JavaAiStepSprint {
     }
 
     /**
-     * Whether this tick's aiStep certainly ran setSprinting(false) for a passenger of {@code vehicle}: only 1.21.4's
-     * shouldStopSprinting reaches it, through hasBlindness or a vehicle other than a camel. A passenger never crouches,
-     * glides or uses an item there, and only a camel lets it start.
+     * Whether this tick's aiStep removed the modifier for a passenger of {@code vehicle}, at the reconcile, so a
+     * dismount does not carry a modifier the client dropped while riding.
+     *
+     * <ul>
+     *   <li>TRUE for 1.21.4's shouldStopSprinting, which calls setSprinting(false) whatever the flag for a vehicle
+     *       other than a camel or with hasBlindness. A passenger never crouches, glides or uses an item there.
+     *   <li>UNKNOWN for a start on a camel the player may control: Camel#canSprint is the only vehicleCanSprint, and
+     *       a start the tick did not announce was stopped in the same aiStep. Whether it ran reads the rider's own
+     *       baseTick fluids at its seat, which no context models for the reconcile, so only blindness, a clear forward
+     *       key or the flag rule it out.
+     *   <li>FALSE otherwise: no other passenger can start.
+     * </ul>
      */
-    public static boolean clearsModifierRiding(CultPlayer player, PacketEntity vehicle) {
-        return !player.isBedrockMovement()
-                && player.getClientVersion() == ClientVersion.V_1_21_4
-                && (!EntityTypeUtil.isCamelFamily(vehicle.type)
-                        || player.compensatedEntities.hasPotionEffect(MovementEffect.BLINDNESS));
+    public static DesyncStatus clearsModifierRiding(CultPlayer player, PacketEntity vehicle) {
+        if (player.isBedrockMovement()) return DesyncStatus.FALSE;
+        boolean blind = player.compensatedEntities.hasPotionEffect(MovementEffect.BLINDNESS);
+        boolean camel = EntityTypeUtil.isCamelFamily(vehicle.type);
+        if (player.getClientVersion() == ClientVersion.V_1_21_4 && (!camel || blind)) return DesyncStatus.TRUE;
+        if (!camel
+                || blind
+                || !player.compensatedEntities.vehicles.mayLocalPlayerControl(vehicle)
+                || !player.sprintState.modifier()
+                || player.sprintState.flagBeforeAiStep()
+                || player.isClientSprinting()) return DesyncStatus.FALSE;
+        // Every release's canStartSprinting needs forward impulse.
+        if (JavaTravelInputs.reportsKeys(player) && player.packetStateData.knownInput.forwardImpulse() <= 0)
+            return DesyncStatus.FALSE;
+        return DesyncStatus.UNKNOWN;
     }
 
     /** canStartSprinting and a start path, with {@code possible} the food and blindness gates. */
