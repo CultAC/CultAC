@@ -27,6 +27,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
@@ -210,6 +211,23 @@ class JavaRiptideReleaseTest {
             charge(f, trident(3));
             selfMetadata(f, WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 0);
             hold(f, 1);
+            release(f);
+            assertRelease(f, level, exact);
+        }
+    }
+
+    /** LocalPlayer#onSyncedDataUpdated starts no use from the server's flags while the client blocks with a shield. */
+    @ParameterizedTest
+    @CsvSource({"V_1_21_11, 0, true", "V_1_21_11, 3, false", "V_26_3, 0, true", "V_26_3, 3, false"})
+    void aUseTheServerFlagsDuringAShieldsUseDoesNotStart(ClientVersion version, int level, boolean exact)
+            throws Exception {
+        try (var f = fixture(version)) {
+            SimItemStack shield = OfflineCultTestBootstrap.item("minecraft:shield");
+            f.player.getInventory().inventory.getInventoryStorage().setItem(Inventory.SLOT_OFFHAND, shield);
+            charge(f, 0, Hand.OFF_HAND, trident(3));
+            f.player.clientItemUse.start(Hand.OFF_HAND, shield, ClientItemUseState.duration(shield), true);
+            selfMetadata(f, WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 1);
+            hold(f, 10);
             release(f);
             assertRelease(f, level, exact);
         }
