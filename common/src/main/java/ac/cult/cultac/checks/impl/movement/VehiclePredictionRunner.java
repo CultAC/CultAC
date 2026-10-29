@@ -271,6 +271,11 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         // has finished. Tick-end is therefore the first packet proving the latest
         // raw input has been copied into the controlled root for the next root tick.
         player.boatData.useNextInputForBoatTick();
+        PacketEntity self = player.compensatedEntities.getSelf();
+        PacketEntity riding = self.getRiding();
+        if (riding != null && riding.isBoat() && !riding.passengers.isEmpty() && riding.passengers.get(0) == self) {
+            riding.boatInput = player.boatData.vehicleKeys;
+        }
     }
 
     public static boolean usesStagedVehicleInput(PacketEntity root) {
