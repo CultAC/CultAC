@@ -1,8 +1,10 @@
 package ac.cult.cultac.network;
 
+import static ac.cult.cultac.network.InputKeysTest.selfMetadata;
 import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.SETTLED;
 import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.SHALLOWS;
 import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.charge;
+import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.hold;
 import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.lifted;
 import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.release;
 import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.select;
@@ -21,6 +23,7 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.List;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -162,6 +165,47 @@ class JavaRiptideReleaseTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             release(f);
             assertEquals(spins, f.player.riptideSpinAttackTicks == 20);
+        }
+    }
+
+    /** LocalPlayer#onSyncedDataUpdated stops the use when the server's living-entity flags clear its using bit. */
+    @ParameterizedTest
+    @CsvSource({"V_1_21_11, 0, true", "V_1_21_11, 3, false", "V_26_3, 0, true", "V_26_3, 3, false"})
+    void aUseTheServerStopsDoesNotSpin(ClientVersion version, int level, boolean exact) throws Exception {
+        try (var f = fixture(version)) {
+            charge(f, trident(3));
+            selfMetadata(f, WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 0);
+            hold(f, 1);
+            release(f);
+            assertRelease(f, level, exact);
+        }
+    }
+
+    /**
+     * LocalPlayer#onSyncedDataUpdated starts a use on the flagged hand when the server's flags set the using bit
+     * while the client is not using, and the charge counts from there.
+     */
+    @ParameterizedTest
+    @CsvSource({
+        "V_1_21_11, 9, 0, true",
+        "V_1_21_11, 9, 3, false",
+        "V_1_21_11, 10, 3, true",
+        "V_1_21_11, 10, 0, false",
+        "V_26_3, 9, 0, true",
+        "V_26_3, 9, 3, false",
+        "V_26_3, 10, 3, true",
+        "V_26_3, 10, 0, false"
+    })
+    void aUseTheServerStartsChargesFromItsFlags(ClientVersion version, int ticks, int level, boolean exact)
+            throws Exception {
+        try (var f = fixture(version)) {
+            charge(f, trident(3));
+            selfMetadata(f, WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 0);
+            hold(f, 5);
+            selfMetadata(f, WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 1);
+            hold(f, ticks);
+            release(f);
+            assertRelease(f, level, exact);
         }
     }
 

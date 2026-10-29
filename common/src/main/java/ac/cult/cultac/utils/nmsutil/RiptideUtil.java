@@ -134,6 +134,19 @@ public final class RiptideUtil {
         state.riptideSelectClientTick = state.acceptedClientTick;
     }
 
+    /** LocalPlayer#onSyncedDataUpdated stops the use on a cleared using bit, and starts one on the flagged hand. */
+    public static void serverUseFlags(CultPlayer player, byte flags) {
+        if ((flags & 0x01) == 0) {
+            clearTrackedUse(player);
+            return;
+        }
+        Hand hand = (flags & 0x02) != 0 ? Hand.OFF_HAND : Hand.MAIN_HAND;
+        if (player.packetStateData.riptideUseHand == null
+                && isTrident(player.getInventory().getHandItem(hand))) {
+            startTrackedUse(player, hand);
+        }
+    }
+
     public static void clearTrackedUse(CultPlayer player) {
         player.packetStateData.riptideUseHand = null;
         player.packetStateData.riptideUseStartClientTick = Integer.MIN_VALUE;
