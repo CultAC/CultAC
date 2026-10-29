@@ -339,6 +339,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         if (this.isAcceptedNoPositionTick(result)) {
                             this.couldPotentiallyTickSkip = true;
                         }
+                        // LocalPlayer#sendPosition sends StatusOnly whenever onGround changes, so a tick without
+                        // one keeps the last sent onGround, judged like that StatusOnly.
+                        if (!result.isExempt() && !result.hasFlag(NoFallPseudo.class)) {
+                            this.lastOnGround = DesyncStatus.fromBoolean(this.player.onGround);
+                        }
                     } else if (this.ticksWhileLoadingLevel < MAX_LOADING_LEVEL_TICKS) {
                         // Entity#push adds to the waiting player's deltaMovement with no travel or friction between.
                         this.ticksWhileLoadingLevel++;
