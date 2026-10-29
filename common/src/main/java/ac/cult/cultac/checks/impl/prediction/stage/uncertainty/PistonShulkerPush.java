@@ -18,7 +18,7 @@ public class PistonShulkerPush implements UncertaintyHandler {
 
     @Override
     public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
-        return !ExternalMovementUncertainty.mayShove(context, lastResult);
+        return !ExternalMovementUncertainty.mayShove(player, context, lastResult);
     }
 
     @Override
@@ -47,9 +47,10 @@ public class PistonShulkerPush implements UncertaintyHandler {
             PredictionResult lastResult,
             MovementTrace trace,
             Vec3 end) {
-        if (!ExternalMovementUncertainty.mayShove(context, lastResult)) return trace;
+        if (!ExternalMovementUncertainty.mayShove(player, context, lastResult)) return trace;
         PredVector start = trace.position();
-        ExternalMovementUncertainty.Snapshot snapshot = ExternalMovementUncertainty.capture(context, lastResult);
+        ExternalMovementUncertainty.Snapshot snapshot =
+                ExternalMovementUncertainty.capture(player, context, lastResult);
         SimpleCollisionBox expanded = snapshot.combinedTargetEnvelopeCopy();
 
         if (expanded.isEmpty()) return trace;

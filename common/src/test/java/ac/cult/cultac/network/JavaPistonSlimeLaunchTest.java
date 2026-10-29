@@ -153,7 +153,7 @@ class JavaPistonSlimeLaunchTest {
         }
     }
 
-    private static void blockEvent(JavaTickFixture f, BlockPos pos, int action, int parameter, int state) {
+    static void blockEvent(JavaTickFixture f, BlockPos pos, int action, int parameter, int state) {
         var packet = new ClientboundBlockEvent(pos, action, parameter, REGISTRY.blockIndex(state));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);

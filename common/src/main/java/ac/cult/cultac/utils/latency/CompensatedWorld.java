@@ -1417,8 +1417,9 @@ public class CompensatedWorld {
 
     /**
      * The shulker box block shoves this packet carries. Before 26.3 they move the player from the packet's start; from
-     * 26.3 from its travel's end. PistonMovingBlockEntity#moveCollidedEntities and Shulker#onPeekAmountChange calls of
-     * this packet or the last also move the player; without them, each call's result follows from the one before.
+     * 26.3 from its travel's end. PistonMovingBlockEntity#moveCollidedEntities calls of this packet and
+     * Shulker#onPeekAmountChange calls of this packet or the last also move the player; without them, each call's
+     * result follows from the one before.
      */
     private void shoveByShulkerBoxes(
             SimulationContext context,
@@ -1426,12 +1427,10 @@ public class CompensatedWorld {
             PistonPushes lastPushes,
             List<CompensatedBlockEntities.ShulkerShove> shoves,
             PistonPushes pushes) {
-        // PistonShulkerPush replays the last packet's piston and shulker entity moves in this one.
+        // PistonShulkerPush replays the last packet's shulker entity moves in this one.
         boolean exact = pushes.getPistonPush().isEmpty()
                 && pushes.getShulkerPush().isEmpty()
-                && (lastPushes == null
-                        || lastPushes.getPistonPush().isEmpty()
-                                && lastPushes.getShulkerPush().isEmpty());
+                && (lastPushes == null || lastPushes.getShulkerPush().isEmpty());
         SimpleCollisionBox envelope = new SimpleCollisionBox();
         if (!pistons.reportsAfterBlockEntities()) {
             ShulkerBoxShoveResult result =
@@ -1483,10 +1482,7 @@ public class CompensatedWorld {
         double[] low = new double[3];
         double[] high = new double[3];
         for (SimpleCollisionBox push : new SimpleCollisionBox[] {
-            pushes.getPistonPush(),
-            pushes.getShulkerPush(),
-            lastPushes == null ? null : lastPushes.getPistonPush(),
-            lastPushes == null ? null : lastPushes.getShulkerPush()
+            pushes.getPistonPush(), pushes.getShulkerPush(), lastPushes == null ? null : lastPushes.getShulkerPush()
         }) {
             if (push == null || push.isEmpty()) continue;
             low[0] = Math.min(low[0], push.minX);
