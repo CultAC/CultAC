@@ -1035,7 +1035,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             if (!this.player.isBedrockMovement()
                     && this.player.platformPlayer != null
                     && this.player.isGliding
-                    && result.getInitialStartingVel().hasReason("Jumping sprinting")
+                    && result.getInitialStartingVel().hasReason(VelocityTransformer.SPRINT_JUMP_REASON)
                     && !CultAPI.INSTANCE
                             .getConfigManager()
                             .getConfig()

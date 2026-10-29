@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
+import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.cloud.wire.IntakeWire;
 import ac.cult.cultac.player.CultPlayer;
@@ -67,7 +68,7 @@ public final class EngineVerdicts {
         boolean jumped = chosen.isJump();
         if (chosen.isKnockback()) bits |= 1L << IntakeWire.KNOCKBACK;
         if (jumped) bits |= 1L << IntakeWire.JUMPED;
-        if (jumped && chosen.hasReason("Jumping sprinting")) bits |= 1L << IntakeWire.SPRINT_JUMPED;
+        if (jumped && chosen.hasReason(VelocityTransformer.SPRINT_JUMP_REASON)) bits |= 1L << IntakeWire.SPRINT_JUMPED;
         if (result.isExempt()) bits |= 1L << IntakeWire.ENGINE_EXEMPT;
         conditions = bits;
 

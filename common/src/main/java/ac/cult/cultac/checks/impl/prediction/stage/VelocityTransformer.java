@@ -30,6 +30,9 @@ public class VelocityTransformer {
 
     private static final Vec3 attackSlowMultiplier = new Vec3(0.6, 1, 0.6);
 
+    /** The reason of the step that adds LivingEntity#jumpFromGround's sprint boost to the jump before it. */
+    public static final String SPRINT_JUMP_REASON = "Jumping sprinting";
+
     public List<PredVector> generateMovementVectors(CultPlayer player, List<PredVector> input) {
         if (simulationContext.getVehicle() != null
                 && ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(simulationContext.getVehicle().type)) {
@@ -784,7 +787,7 @@ public class VelocityTransformer {
                                 0.0,
                                 simulationContext.getTrig().cos(f2) * 0.2f);
                         // ensure to not change the original vector
-                        outputs.add(modified.add(jumpBonus, "Jumping sprinting"));
+                        outputs.add(modified.add(jumpBonus, SPRINT_JUMP_REASON));
                         // By doing this twice, we brute-force FastMath
                         simulationContext.getTrig().toggleShitMath();
                     }
