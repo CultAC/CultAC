@@ -10,6 +10,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Ray;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -26,9 +27,11 @@ public class RotationPlace extends BlockPlaceCheck {
     private double flagBuffer =
             0; // If the player flags once, force them to play legit, or we will cancel the tick before.
     private boolean ignorePost = false;
+    private final ClientVisibilityProcessor visibility;
 
-    public RotationPlace(CultPlayer player) {
+    public RotationPlace(CultPlayer player, ClientVisibilityProcessor visibility) {
         super(player);
+        this.visibility = visibility;
     }
 
     @Override
@@ -91,7 +94,7 @@ public class RotationPlace extends BlockPlaceCheck {
         // 1.9+ players could be a tick behind because we don't get skipped ticks
         possibleLookDirs.add(new Vector3f(player.lastTickXRot, player.lastTickYRot, 0));
 
-        List<SimpleCollisionBox> outline = ReachUtils.outlineBoxes(player, place.getPlacedAgainstBlockLocation());
+        List<SimpleCollisionBox> outline = visibility.outlineBoxes(place.getPlacedAgainstBlockLocation());
         for (double d : possibleEyeHeights) {
             for (Vector3f lookDir : possibleLookDirs) {
                 // x, y, z are correct for the block placement even after post tick because of code elsewhere

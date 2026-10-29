@@ -12,7 +12,7 @@ import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.math.VectorUtils;
-import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import java.util.List;
 
@@ -24,10 +24,12 @@ import java.util.List;
 public class FarBreak extends Check implements BlockBreakListener {
     private static final Verbose V = Verbose.of("distance={f64:%.2f}");
 
+    private final ClientVisibilityProcessor visibility;
     private boolean didLastMovementIncludePosition;
 
-    public FarBreak(CultPlayer player) {
+    public FarBreak(CultPlayer player, ClientVisibilityProcessor visibility) {
         super(player);
+        this.visibility = visibility;
     }
 
     @CultPacketHandler
@@ -42,7 +44,7 @@ public class FarBreak extends Check implements BlockBreakListener {
                 || blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK) return; // falses
 
         double min = Double.MAX_VALUE;
-        List<SimpleCollisionBox> outline = ReachUtils.outlineBoxes(player, blockBreak.position);
+        List<SimpleCollisionBox> outline = visibility.outlineBoxes(blockBreak.position);
         for (double d : player.getPossibleEyeHeights()) {
             for (SimpleCollisionBox box : outline) {
                 Vector3dm best = VectorUtils.cutBoxToVector(player.x, player.y + d, player.z, box);

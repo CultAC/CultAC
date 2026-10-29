@@ -528,6 +528,16 @@ public final class ClientVisibility {
         return result;
     }
 
+    public List<SimpleCollisionBox> outlineBoxes(BlockPos position) {
+        List<SimpleCollisionBox> boxes = new ArrayList<>();
+        if (selections.isEmpty()) boxes.addAll(selectionBoxes(position));
+        for (Selection selection : selections)
+            boxes.addAll(player.compensatedWorld.withSelectionHeldItemKey(
+                    selection.heldItem(), () -> selectionBoxes(position)));
+        if (boxes.isEmpty()) boxes.add(new SimpleCollisionBox(position));
+        return boxes;
+    }
+
     private List<SimpleCollisionBox> selectionBoxes(BlockPos position) {
         int state = player.compensatedWorld.getBlockStateIdAt(position);
         // Shulker boxes count as closed regardless of lid animation.

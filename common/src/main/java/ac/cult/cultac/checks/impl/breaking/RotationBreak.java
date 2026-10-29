@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.nmsutil.Ray;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -28,9 +29,11 @@ public class RotationBreak extends Check implements BlockBreakListener, PostFlyi
     private double flagBuffer =
             0; // If the player flags once, force them to play legit, or we will cancel the tick before.
     private boolean ignorePost = false;
+    private final ClientVisibilityProcessor visibility;
 
-    public RotationBreak(CultPlayer player) {
+    public RotationBreak(CultPlayer player, ClientVisibilityProcessor visibility) {
         super(player);
+        this.visibility = visibility;
     }
 
     public void onBlockBreak(BlockBreak blockBreak) {
@@ -88,7 +91,7 @@ public class RotationBreak extends Check implements BlockBreakListener, PostFlyi
         // 1.9+ players could be a tick behind because we don't get skipped ticks
         possibleLookDirs.add(new float[] {player.lastTickXRot, player.lastTickYRot});
 
-        List<SimpleCollisionBox> outline = ReachUtils.outlineBoxes(player, blockBreak.position);
+        List<SimpleCollisionBox> outline = visibility.outlineBoxes(blockBreak.position);
         for (double d : player.getPossibleEyeHeights()) {
             for (float[] lookDir : possibleLookDirs) {
                 Ray trace = new Ray(player, player.x, player.y + d, player.z, lookDir[0], lookDir[1]);

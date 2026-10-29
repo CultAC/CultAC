@@ -9,7 +9,7 @@ import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.math.VectorUtils;
-import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import java.util.List;
 
 @CheckData(
@@ -17,8 +17,11 @@ import java.util.List;
         stableKey = "cult.scaffolding.far_place",
         description = "Placing blocks from too far away")
 public class FarPlace extends BlockPlaceCheck {
-    public FarPlace(CultPlayer player) {
+    private final ClientVisibilityProcessor visibility;
+
+    public FarPlace(CultPlayer player, ClientVisibilityProcessor visibility) {
         super(player);
+        this.visibility = visibility;
     }
 
     @Override
@@ -30,7 +33,7 @@ public class FarPlace extends BlockPlaceCheck {
         if (place.getMaterial() == BlockIds.SCAFFOLDING) return;
 
         double min = Double.MAX_VALUE;
-        List<SimpleCollisionBox> outline = ReachUtils.outlineBoxes(player, blockPos);
+        List<SimpleCollisionBox> outline = visibility.outlineBoxes(blockPos);
         for (double d : player.getPossibleEyeHeights()) {
             for (SimpleCollisionBox box : outline) {
                 Vector3dm best = VectorUtils.cutBoxToVector(player.x, player.y + d, player.z, box);

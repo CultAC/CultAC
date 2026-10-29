@@ -3,29 +3,14 @@ package ac.cult.cultac.utils.nmsutil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
-import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.Pair;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.math.VectorUtils;
-import java.util.ArrayList;
 import java.util.List;
 
 public class ReachUtils {
-    public static List<SimpleCollisionBox> outlineBoxes(CultPlayer player, BlockPos position) {
-        List<SimpleCollisionBox> boxes = new ArrayList<>();
-        ClientBlockShapes.visual(
-                        player,
-                        player.compensatedWorld.getBlockStateIdAt(position),
-                        position.getX(),
-                        position.getY(),
-                        position.getZ())
-                .downCast(boxes);
-        if (boxes.isEmpty()) boxes.add(new SimpleCollisionBox(position));
-        return boxes;
-    }
-
     public static boolean pickHits(CultPlayer player, BlockPos position, List<SimpleCollisionBox> outline, Ray ray) {
         PacketEntitySelf self = player.compensatedEntities.getSelf();
         double range = self.getBlockInteractionRange();

@@ -8,6 +8,10 @@ import ac.cult.cultac.checks.impl.breaking.FarBreak;
 import ac.cult.cultac.checks.impl.breaking.RotationBreak;
 import ac.cult.cultac.checks.impl.scaffolding.FarPlace;
 import ac.cult.cultac.checks.impl.scaffolding.RotationPlace;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
@@ -32,6 +36,7 @@ import org.junit.jupiter.api.Test;
  */
 class OffsetBlockPickTest {
     private static final BlockPos BAMBOO = new BlockPos(0, 65, 0);
+    private static final BlockPos SCAFFOLDING = new BlockPos(0, 65, 0);
     private static final Vec3 PLACE_FEET = new Vec3(-4.53, 64, 0.25);
     private static final Vec3 BREAK_FEET = new Vec3(-4.40, 64, 1.38);
 
@@ -87,6 +92,74 @@ class OffsetBlockPickTest {
             f.player.checkManager.getCheck(RotationBreak.class).onPostFlyingBlockBreak(dig(f));
             assertEquals(1, f.player.checkManager.getCheck(RotationBreak.class).getViolations());
         }
+    }
+
+    @Test
+    void aHotbarKeyAfterThePickKeepsTheFullScaffoldingOutlineOfTheTicksSelection() throws Exception {
+        try (var f = scaffolding()) {
+            f.player.checkManager.dispatchEarlyReceive(new PacketReceiveEvent<>(
+                    f.fixture.user,
+                    ConnectionPhase.PLAY,
+                    ServerboundPackets.SET_CARRIED_ITEM,
+                    new ServerboundSetCarriedItem(1)));
+            f.player.getInventory().selectHotbarSlot(1);
+            var place = scaffoldingPlace(f);
+            f.player.checkManager.getCheck(FarPlace.class).onBlockPlace(place);
+            f.player.checkManager.getCheck(RotationPlace.class).onPostFlyingBlockPlace(place);
+            f.player.checkManager.getCheck(RotationBreak.class).onPostFlyingBlockBreak(scaffoldingDig(f));
+            assertEquals(0, f.player.checkManager.getCheck(FarPlace.class).getViolations());
+            assertEquals(0, f.player.checkManager.getCheck(RotationPlace.class).getViolations());
+            assertEquals(0, f.player.checkManager.getCheck(RotationBreak.class).getViolations());
+        }
+    }
+
+    @Test
+    void dirtHeldAtThePickSeesOnlyTheScaffoldingPolesAndSlab() throws Exception {
+        try (var f = scaffolding()) {
+            f.player.getInventory().selectHotbarSlot(1);
+            f.player.checkManager.getCheck(RotationPlace.class).onPostFlyingBlockPlace(scaffoldingPlace(f));
+            f.player.checkManager.getCheck(RotationBreak.class).onPostFlyingBlockBreak(scaffoldingDig(f));
+            assertEquals(1, f.player.checkManager.getCheck(RotationPlace.class).getViolations());
+            assertEquals(1, f.player.checkManager.getCheck(RotationBreak.class).getViolations());
+        }
+    }
+
+    private static JavaTickFixture scaffolding() throws Exception {
+        var f = new JavaTickFixture();
+        f.player.setExperimentalChecks(true);
+        int scaffolding =
+                DataTables.defaults().registry().block("minecraft:scaffolding").defaultState();
+        f.player.compensatedWorld.updateBlock(new BlockPos(0, 64, 0), scaffolding);
+        f.player.compensatedWorld.updateBlock(SCAFFOLDING, scaffolding);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        var storage = f.player.getInventory().inventory.getInventoryStorage();
+        storage.setItem(36, OfflineCultTestBootstrap.item("minecraft:scaffolding"));
+        storage.setItem(37, OfflineCultTestBootstrap.item("minecraft:dirt"));
+        f.player.getInventory().selectHotbarSlot(0);
+        stand(f, new Vec3(-2, 64, 0.5), -90);
+        return f;
+    }
+
+    private static BlockPlace scaffoldingPlace(JavaTickFixture f) {
+        int state = f.player.compensatedWorld.getBlockStateIdAt(SCAFFOLDING);
+        return new BlockPlace(
+                f.player,
+                Hand.MAIN_HAND,
+                SCAFFOLDING,
+                Direction.WEST,
+                OfflineCultTestBootstrap.item("minecraft:dirt"),
+                new HitData(SCAFFOLDING, new Vector3dm(0, 65.62, 0.5), Direction.WEST, state));
+    }
+
+    private static BlockBreak scaffoldingDig(JavaTickFixture f) {
+        return new BlockBreak(
+                f.player,
+                SCAFFOLDING,
+                Direction.WEST,
+                Direction.WEST.ordinal(),
+                PlayerAction.START_DESTROY_BLOCK,
+                1,
+                f.player.compensatedWorld.getBlockStateIdAt(SCAFFOLDING));
     }
 
     private static JavaTickFixture bamboo(double entityRange) throws Exception {
