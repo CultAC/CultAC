@@ -10,7 +10,11 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
+import io.netty.util.concurrent.FastThreadLocal;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.lang.ref.WeakReference;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.function.IntPredicate;
@@ -23,6 +27,11 @@ public final class PalettedSection {
     private static final long[] WORD_RECIPROCALS = new long[33];
     private static final long ABSENT_CODE_WEIGHT = 1L << 50;
     private static final long[] NO_WORDS = new long[0];
+    private static final VarHandle BIG_ENDIAN_LONGS =
+            MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
+    // Host-owned threads outlive a runtime generation, so their map holds only host-loaded types.
+    private static final FastThreadLocal<WeakReference<byte[]>> WORD_BYTES = new FastThreadLocal<>();
+    private static final int SCRATCH_BYTES = 1024 * Long.BYTES;
 
     static {
         for (int bits = 1; bits <= 32; bits++) {
@@ -124,16 +133,40 @@ public final class PalettedSection {
         }
         // Since 1.21.5 arrays have a fixed length derived from the configuration.
         int bytes = section.words.length * Long.BYTES;
-        if (bytes > 0 && input.readableBytes() >= bytes && input.nioBufferCount() == 1) {
-            input.nioBuffer(input.readerIndex(), bytes)
-                    .order(ByteOrder.BIG_ENDIAN)
-                    .asLongBuffer()
-                    .get(section.words);
+        if (bytes > 0 && input.readableBytes() >= bytes) {
+            readWords(input, section.words);
             input.skipBytes(bytes);
         } else {
             for (int i = 0; i < section.words.length; i++) section.words[i] = input.readLong();
         }
         return section;
+    }
+
+    private static void readWords(ByteBuf input, long[] words) {
+        int index = input.readerIndex();
+        byte[] array = input.hasArray() ? input.array() : copiedBytes(input, index, words.length * Long.BYTES);
+        if (array == null) {
+            for (int i = 0; i < words.length; i++) words[i] = input.getLong(index + i * Long.BYTES);
+            return;
+        }
+        int offset = input.hasArray() ? input.arrayOffset() + index : 0;
+        for (int i = 0; i < words.length; i++) words[i] = (long) BIG_ENDIAN_LONGS.get(array, offset + i * Long.BYTES);
+    }
+
+    /**
+     * This thread's copy of the {@code length} bytes at {@code index}, null when they exceed the scratch; only the
+     * calling method reads it.
+     */
+    private static byte[] copiedBytes(ByteBuf input, int index, int length) {
+        if (length > SCRATCH_BYTES) return null;
+        WeakReference<byte[]> reference = WORD_BYTES.get();
+        byte[] bytes = reference == null ? null : reference.get();
+        if (bytes == null) {
+            bytes = new byte[SCRATCH_BYTES];
+            WORD_BYTES.set(new WeakReference<>(bytes));
+        }
+        input.getBytes(index, bytes, 0, length);
+        return bytes;
     }
 
     /** Pinned 26.3 PalettedContainer.write framing: bits, palette, fixed-length words. */
