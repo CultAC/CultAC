@@ -212,8 +212,9 @@ public final class NetworkService implements NetworkRouting {
             return null;
         }
         if (key == null) {
-            LogUtil.error(
-                    "Network routing off: no signing key; set network.secret to the same value on every instance");
+            LogUtil.error("Cross-server features are off: CultAC has nothing to sign its messages with. Set a password"
+                    + " (or a NATS token) on your Redis or NATS server, or run behind Velocity with modern"
+                    + " forwarding.");
             return null;
         }
         try {
@@ -519,8 +520,8 @@ public final class NetworkService implements NetworkRouting {
         if (drop == EnvelopeCodec.Drop.BAD_SIGNATURE)
             badSignatures.warn(
                     "bad-signature",
-                    "Dropped a network message with a bad signature: the instances disagree on the signing key; set the"
-                            + " same network.secret on every instance",
+                    "Dropped a network message with a bad signature: the servers sign with different keys; give them"
+                            + " the same Redis or NATS password, or the same network.secret",
                     null);
         if (envelope == null) return;
         if (drop == EnvelopeCodec.Drop.STALE)

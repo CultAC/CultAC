@@ -68,6 +68,14 @@ class NetworkUriUpgradeTest {
         return upgrade(16, block);
     }
 
+    /** Deletes the config and its backups, for the next upgrade in the same test. */
+    private void clear() throws Exception {
+        Files.delete(directory.resolve("config.yml"));
+        try (var backups = Files.list(directory)) {
+            for (Path backup : backups.toList()) Files.delete(backup);
+        }
+    }
+
     private static Map<String, Object> redis(String address, String username, String password, boolean ssl) {
         return Map.of("address", address, "username", username, "password", password, "ssl", ssl);
     }
@@ -121,6 +129,7 @@ class NetworkUriUpgradeTest {
         assertEquals(redis("cache:6380", "", "pw", true), network.get("redis"));
         assertEquals(NATS_DEFAULTS, network.get("nats"));
         assertEquals("p3", network.get("instance-id"));
+        assertFalse(network.containsKey("secret"), network.toString());
     }
 
     @Test
@@ -168,6 +177,20 @@ class NetworkUriUpgradeTest {
         assertNone(network);
         assertEquals("kept", network.get("secret"));
         assertEquals("p7", network.get("instance-id"));
+    }
+
+    @Test
+    void anEmptySecretIsDroppedAndASetOneKept() throws Exception {
+        Map<String, Object> blank = upgrade16("""
+                uri: redis://:pw@cache:6379
+                secret: "  "
+                """);
+        assertFalse(blank.containsKey("secret"), blank.toString());
+        clear();
+        assertFalse(upgrade16("uri: \"\"\n").containsKey("secret"));
+        clear();
+        assertEquals(
+                "kept", upgrade16("uri: redis://:pw@cache:6379\nsecret: kept\n").get("secret"));
     }
 
     @Test
@@ -252,27 +275,19 @@ class NetworkUriUpgradeTest {
                 assertTrue(warning.contains("set the network block by hand"), warning);
                 assertFalse(warning.contains("hunter22"), warning);
             }
-            Files.delete(directory.resolve("config.yml"));
-            try (var backups = Files.list(directory)) {
-                for (Path backup : backups.toList()) Files.delete(backup);
-            }
+            clear();
         }
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "zh"})
-    void bundledLanguagesShipTheBrokerBlocks(String language) throws Exception {
+    void bundledLanguagesShipTheNetworkBlockWithoutASecret(String language) throws Exception {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/config/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
             assertEquals(17, data.get("config-version"));
             assertEquals(
-                    Map.of(
-                            "type", "none",
-                            "redis", REDIS_DEFAULTS,
-                            "nats", NATS_DEFAULTS,
-                            "secret", "",
-                            "instance-id", ""),
+                    Map.of("type", "none", "redis", REDIS_DEFAULTS, "nats", NATS_DEFAULTS, "instance-id", ""),
                     network(data));
         }
     }

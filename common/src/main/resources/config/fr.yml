@@ -287,13 +287,15 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
-# Network messaging; the setup is explained in docs/network.md in CultAC's source. Lets commands, the roster and alerts
-# reach players on the other proxies and servers of a network. Each setting's CULTAC_NETWORK_* environment variable
-# wins when set and not blank. /cult reload reconnects when this block changes.
+# Permet aux commandes du staff, à l'autocomplétion et aux alertes de fonctionner sur tous vos proxys et serveurs.
+# Guide d'installation : docs/network.md dans le code source de CultAC. /cult reload applique les changements.
+# Chaque réglage ici peut aussi être défini par une variable d'environnement CULTAC_NETWORK_*, qui est prioritaire.
 network:
-  # Which broker carries commands, tab completion and alerts between this server and the rest of the network:
-  # none (this server only), redis (Valkey, KeyDB and Dragonfly too), nats, or redisbungee (Velocity only: RedisBungee's
-  # own Redis connection, nothing else to set).
+  # Comment vos serveurs communiquent entre eux :
+  #   none         Désactivé. Les commandes et les alertes n'atteignent que les joueurs de ce serveur.
+  #   redis        Via un serveur Redis (Valkey, KeyDB et Dragonfly marchent aussi). Remplissez la section redis.
+  #   nats         Via un serveur NATS. Remplissez la section nats.
+  #   redisbungee  Proxys Velocity avec RedisBungee. Utilise sa connexion Redis, rien d'autre à remplir.
   type: none
   redis:
     address: localhost:6379
@@ -301,18 +303,16 @@ network:
     password: ""
     ssl: false
   nats:
-    # Several servers: comma-separated.
+    # Pour indiquer plusieurs serveurs, séparez-les par des virgules.
     address: localhost:4222
     username: ""
     password: ""
     token: ""
-    # NATS accounts: a .creds file (JWT + nkey).
+    # Seulement si votre serveur NATS utilise des comptes : le chemin vers votre fichier .creds.
     credentials-file: ""
     ssl: false
-  # Signing key every instance shares. Empty: Velocity's forwarding secret (servers behind Velocity read it too), else
-  # derived from the chosen broker's password or token.
-  secret: ""
-  # Unique per instance. Empty: RedisBungee's proxy id, else cloud.proxy-id, else host:port.
+  # Le nom de ce serveur sur le réseau. Chaque serveur a besoin du sien.
+  # Laissez vide pour utiliser l'id de proxy RedisBungee, sinon cloud.proxy-id, sinon l'IP et le port de ce serveur.
   instance-id: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with

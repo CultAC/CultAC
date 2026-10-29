@@ -170,7 +170,8 @@ public final class CultConfigSpecs {
      * the address, the decoded user and password and {@code ssl} for {@code rediss}, without its database; NATS
      * servers give their addresses, the first user info as token or user and password, and {@code ssl} when any is
      * {@code tls://}. {@code nats-credentials-file} moves into the NATS block. A URI that does not read is
-     * {@code none}, with one warning. The other block gets the bundled defaults.
+     * {@code none}, with one warning. The other block gets the bundled defaults. A non-blank {@code network.secret}
+     * is kept; the bundled config has none, so a blank one is dropped.
      */
     static void networkBlocks(MigrationContext ctx) {
         YamlMap input = ctx.input();
@@ -200,6 +201,8 @@ public final class CultConfigSpecs {
         output.put("network.nats.token", nats ? broker.token() : "");
         output.put("network.nats.credentials-file", credentialsFile);
         output.put("network.nats.ssl", nats && broker.ssl());
+        Object secret = input.get("network.secret");
+        if (secret != null && !String.valueOf(secret).isBlank()) output.put("network.secret", secret);
     }
 
     /** One broker's settings as a {@code network.uri} named them. */

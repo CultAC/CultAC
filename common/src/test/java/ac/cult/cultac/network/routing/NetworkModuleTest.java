@@ -126,10 +126,14 @@ class NetworkModuleTest {
     }
 
     @Test
-    void withoutASigningKeyRoutingStaysLocalWithOneErrorAskingForTheSecret() {
+    void withoutASigningKeyRoutingStaysLocalWithOneErrorAskingForAPasswordOrForwarding() {
         Players proxy = proxy().secret(null);
         NetworkModule.platform(proxy);
-        assertStaysLocal(REDISBUNGEE, "set network.secret");
+        assertStaysLocal(
+                REDISBUNGEE,
+                "Cross-server features are off",
+                "Cross-server features are off: CultAC has nothing to sign its messages with. Set a password (or a"
+                        + " NATS token) on your Redis or NATS server, or run behind Velocity with modern forwarding.");
         assertTrue(broker.published.isEmpty());
     }
 
@@ -156,7 +160,11 @@ class NetworkModuleTest {
     }
 
     private static void assertStaysLocal(NetworkSettings settings, String key) {
-        try (CapturedLog errors = new CapturedLog(Level.SEVERE, "Network routing off")) {
+        assertStaysLocal(settings, "Network routing off", key);
+    }
+
+    private static void assertStaysLocal(NetworkSettings settings, String prefix, String key) {
+        try (CapturedLog errors = new CapturedLog(Level.SEVERE, prefix)) {
             NetworkModule.start(settings);
             assertFalse(NetworkRouting.current().enabled(), settings.toString());
             assertEquals("none", NetworkModule.service().transportName());

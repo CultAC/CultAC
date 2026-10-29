@@ -305,13 +305,15 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
-# Network messaging; the setup is explained in docs/network.md in CultAC's source. Lets commands, the roster and alerts
-# reach players on the other proxies and servers of a network. Each setting's CULTAC_NETWORK_* environment variable
-# wins when set and not blank. /cult reload reconnects when this block changes.
+# 让管理命令、Tab 补全和警报在你所有的代理和服务器之间通用。
+# 设置指南：CultAC 源码中的 docs/network.md。修改后用 /cult reload 生效。
+# 这里的每项设置也可以用 CULTAC_NETWORK_* 环境变量来设置，环境变量优先。
 network:
-  # Which broker carries commands, tab completion and alerts between this server and the rest of the network:
-  # none (this server only), redis (Valkey, KeyDB and Dragonfly too), nats, or redisbungee (Velocity only: RedisBungee's
-  # own Redis connection, nothing else to set).
+  # 你的服务器之间如何通信：
+  #   none         关闭。命令和警报只会发给本服务器上的玩家。
+  #   redis        通过 Redis 服务器（Valkey、KeyDB 和 Dragonfly 也可以）。请填写 redis 部分。
+  #   nats         通过 NATS 服务器。请填写 nats 部分。
+  #   redisbungee  装有 RedisBungee 的 Velocity 代理。使用它的 Redis 连接，无需再填写其他内容。
   type: none
   redis:
     address: localhost:6379
@@ -319,18 +321,16 @@ network:
     password: ""
     ssl: false
   nats:
-    # Several servers: comma-separated.
+    # 要填写多个服务器，用逗号隔开。
     address: localhost:4222
     username: ""
     password: ""
     token: ""
-    # NATS accounts: a .creds file (JWT + nkey).
+    # 仅当你的 NATS 服务器使用账户时填写：你的 .creds 文件路径。
     credentials-file: ""
     ssl: false
-  # Signing key every instance shares. Empty: Velocity's forwarding secret (servers behind Velocity read it too), else
-  # derived from the chosen broker's password or token.
-  secret: ""
-  # Unique per instance. Empty: RedisBungee's proxy id, else cloud.proxy-id, else host:port.
+  # 本服务器在网络中的名称。每台服务器都需要一个不同的名称。
+  # 留空则使用 RedisBungee 的代理 ID，其次是 cloud.proxy-id，再其次是本服务器的 IP 和端口。
   instance-id: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with

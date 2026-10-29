@@ -120,6 +120,24 @@ class NetworkSettingsTest {
     }
 
     @Test
+    void withoutASecretKeyTheKeyIsDerivedAndAnOverrideStillWins() throws Exception {
+        Map<String, Object> values = block("redis");
+        values.remove("network.secret");
+        NetworkSettings derived = read(values, Map.of());
+        assertEquals("", derived.secret());
+        assertArrayEquals(hmac("default:redis-pw", "cultac-network-signing"), derived.resolveSecret(null));
+        assertArrayEquals(FORWARDING, derived.resolveSecret(FORWARDING));
+
+        NetworkSettings fromEnv = read(values, Map.of("CULTAC_NETWORK_SECRET", "env-secret"));
+        assertArrayEquals("env-secret".getBytes(StandardCharsets.UTF_8), fromEnv.resolveSecret(FORWARDING));
+
+        values.put("network.secret", "hand-added");
+        assertArrayEquals(
+                "hand-added".getBytes(StandardCharsets.UTF_8),
+                read(values, Map.of()).resolveSecret(FORWARDING));
+    }
+
+    @Test
     void aSetEnvironmentVariableWinsAndABlankOneDoesNot() {
         Map<String, String> env = new HashMap<>();
         env.put("CULTAC_NETWORK_TYPE", "redis");

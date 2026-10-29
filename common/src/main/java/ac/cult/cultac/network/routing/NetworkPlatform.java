@@ -38,7 +38,7 @@ public interface NetworkPlatform {
         return null;
     }
 
-    /** Velocity's forwarding secret, the key an empty {@code network.secret} takes; null where there is none. */
+    /** Velocity's forwarding secret, the signing key unless {@code network.secret} is set; null where there is none. */
     default byte @Nullable [] defaultSecret() {
         return null;
     }
