@@ -1192,6 +1192,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // The Geyser bridge ends each Bedrock client tick after translating its frame. Geyser's
         // tick end here only closes that frame's Java projection.
         if (player.user.getBedrockBridgeConnection() == null) {
+            // A tick whose LocalPlayer#sendPosition sent no movement ends with its look unchanged.
+            player.checkManager.doChecksWithKnownLook();
             // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
             if (localPlayerTicked(player)) applyRespawnShift(player);
             onLocalPlayerSprintTick(player);
