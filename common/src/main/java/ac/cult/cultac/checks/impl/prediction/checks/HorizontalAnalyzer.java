@@ -628,37 +628,55 @@ public class HorizontalAnalyzer implements EngineCheck {
 
     public static Vec3 getBestTheoreticalPlayerInput(double wantedX, double wantedZ, float f2, ClientVersion version) {
         float radians = f2 * 0.017453292f;
-        Vec3 correctMath = invertInputRotation(
-                wantedX, wantedZ, VanillaMath.sin(version, radians), VanillaMath.cos(version, radians));
-        Vec3 shitMath = invertInputRotation(wantedX, wantedZ, OptifineFastMath.sin(radians), OptifineFastMath.cos(radians));
+        float correctSin = VanillaMath.sin(version, radians);
+        float correctCos = VanillaMath.cos(version, radians);
+        float shitSin = OptifineFastMath.sin(radians);
+        float shitCos = OptifineFastMath.cos(radians);
+        double correctScale = rotationScale(correctSin, correctCos);
+        double shitScale = rotationScale(shitSin, shitCos);
 
-        if (correctMath == null || shitMath == null) {
-            if (correctMath != null) return correctMath;
-            if (shitMath != null) return shitMath;
+        if (correctScale == 0 || shitScale == 0) {
+            if (correctScale != 0) return invertInputRotation(wantedX, wantedZ, correctSin, correctCos, correctScale);
+            if (shitScale != 0) return invertInputRotation(wantedX, wantedZ, shitSin, shitCos, shitScale);
             return unreachableInput(wantedX, wantedZ);
         }
 
-        // Only a table saturated by a huge yaw shrinks its rotation, so the other table needs less input
-        double correctLength = correctMath.lengthSqr();
-        double shitLength = shitMath.lengthSqr();
-        if (Math.abs(correctLength - shitLength) > 1.0E-3 * Math.max(correctLength, shitLength)) {
-            return correctLength < shitLength ? correctMath : shitMath;
-        }
+        double correctX = inputX(wantedX, wantedZ, correctSin, correctCos, correctScale);
+        double correctZ = inputZ(wantedX, wantedZ, correctSin, correctCos, correctScale);
+        double shitX = inputX(wantedX, wantedZ, shitSin, shitCos, shitScale);
+        double shitZ = inputZ(wantedX, wantedZ, shitSin, shitCos, shitScale);
 
-        if (distanceToValidInput(correctMath) < distanceToValidInput(shitMath)) {
-            return correctMath;
+        // Only a table saturated by a huge yaw shrinks its rotation, so the other table needs less input
+        double correctLength = correctX * correctX + correctZ * correctZ;
+        double shitLength = shitX * shitX + shitZ * shitZ;
+        boolean correct;
+        if (Math.abs(correctLength - shitLength) > 1.0E-3 * Math.max(correctLength, shitLength)) {
+            correct = correctLength < shitLength;
         } else {
-            return shitMath;
+            correct = distanceToValidInput(correctX, correctZ) < distanceToValidInput(shitX, shitZ);
         }
+        return correct ? new Vec3(correctX, 0, correctZ) : new Vec3(shitX, 0, shitZ);
     }
 
     // Entity#getInputVector rotates input by [[cos, -sin], [sin, cos]], a rotation scaled by sin^2 + cos^2.
     // The trig tables only keep that scale at 1 for sane yaws; huge yaws saturate the table index and shrink it
     // towards 0, so dividing it back out is required for the leftover movement to map to the input that caused it.
-    private static Vec3 invertInputRotation(double movementX, double movementZ, float sin, float cos) {
-        double scale = (double) sin * sin + (double) cos * cos;
-        if (scale == 0) return null; // No input moves the player at this yaw
-        return new Vec3((movementX * cos + movementZ * sin) / scale, 0, (movementZ * cos - movementX * sin) / scale);
+    // A scale of 0 means no input moves the player at this yaw.
+    private static double rotationScale(float sin, float cos) {
+        return (double) sin * sin + (double) cos * cos;
+    }
+
+    private static Vec3 invertInputRotation(double movementX, double movementZ, float sin, float cos, double scale) {
+        return new Vec3(
+                inputX(movementX, movementZ, sin, cos, scale), 0, inputZ(movementX, movementZ, sin, cos, scale));
+    }
+
+    private static double inputX(double movementX, double movementZ, float sin, float cos, double scale) {
+        return (movementX * cos + movementZ * sin) / scale;
+    }
+
+    private static double inputZ(double movementX, double movementZ, float sin, float cos, double scale) {
+        return (movementZ * cos - movementX * sin) / scale;
     }
 
     private static Vec3 unreachableInput(double movementX, double movementZ) {
@@ -668,9 +686,9 @@ public class HorizontalAnalyzer implements EngineCheck {
         return new Vec3(movementX / length * Float.MAX_VALUE, 0, movementZ / length * Float.MAX_VALUE);
     }
 
-    private static double distanceToValidInput(Vec3 input) {
-        double absX = Math.abs(input.x);
-        double absZ = Math.abs(input.z);
+    private static double distanceToValidInput(double inputX, double inputZ) {
+        double absX = Math.abs(inputX);
+        double absZ = Math.abs(inputZ);
         return Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
     }
 }
