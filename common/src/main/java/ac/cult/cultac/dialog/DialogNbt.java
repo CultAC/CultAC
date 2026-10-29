@@ -108,7 +108,8 @@ final class DialogNbt {
                         "key", text(box.key()),
                         "label", component(box.label()),
                         "width", integer(box.width()),
-                        "max_length", integer(box.maxLength()));
+                        "max_length", integer(box.maxLength()),
+                        "initial", text(box.initial()));
             case Dialog.Choice choice ->
                 compound(
                         "type", text("minecraft:single_option"),

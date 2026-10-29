@@ -18,6 +18,7 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpTimeoutException;
+import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -283,7 +284,7 @@ public final class LabelClient {
         Throwable cause = error;
         while (cause.getCause() != null && cause != cause.getCause()) cause = cause.getCause();
         if (cause instanceof HttpTimeoutException) return "timed out";
-        if (cause instanceof ConnectException) return "could not connect";
+        if (cause instanceof ConnectException || cause instanceof ClosedChannelException) return "could not connect";
         return cause.getClass().getSimpleName();
     }
 

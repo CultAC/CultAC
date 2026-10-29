@@ -129,7 +129,7 @@ final class LabelLines {
      * A picked check, with how often it flagged in the window when the service said; {@code other} has no count, and
      * a check the service gave no count for shows its name alone.
      */
-    static Component check(String cheat, @Nullable Map<String, Integer> flags, int days) {
+    static Component cheat(String cheat, @Nullable Map<String, Integer> flags, int days) {
         Component name = Component.text(name(cheat), NamedTextColor.WHITE);
         Integer count = flags == null || cheat.equals("other") ? null : flags.get(cheat);
         if (count == null) return name;
@@ -222,9 +222,9 @@ final class LabelLines {
                 + (verdict == Verdict.CLEAN ? "" : " (" + lastDays(days) + ")");
     }
 
-    /** The checks' names, comma-separated, in order. */
-    static String names(List<String> checks) {
-        return String.join(", ", checks.stream().map(LabelLines::name).toList());
+    /** The cheats' names, comma-separated, in order. */
+    static String names(List<String> cheats) {
+        return String.join(", ", cheats.stream().map(LabelLines::name).toList());
     }
 
     static String capitalized(String word) {

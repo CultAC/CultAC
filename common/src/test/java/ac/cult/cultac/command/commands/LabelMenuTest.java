@@ -147,6 +147,22 @@ class LabelMenuTest {
     }
 
     @Test
+    void backKeepsWhatWasSetOnThePageItLeaves() {
+        open(false);
+        click("Cheating");
+        click("☐ " + first());
+        click(next());
+        exit(new Response(Map.of("confidence", "extreme", "span", 3f)));
+        click(next());
+        assertEquals(3, ((Dialog.Slider) input("span")).initial());
+        assertTrue(((Dialog.Choice) input("confidence")).options().get(1).initial());
+        click(next(), new Response(Map.of("confidence", "extreme", "span", 3f)));
+        exit(new Response(Map.of("note", "seen twice")));
+        click(next(), new Response(Map.of("confidence", "extreme", "span", 3f)));
+        assertEquals("seen twice", ((Dialog.TextBox) input("note")).initial());
+    }
+
+    @Test
     void theReviewOpensWithoutWaitingForTheCloudAndSumsUpTheLabel() {
         open(false);
         click("Suspected");
@@ -159,7 +175,7 @@ class LabelMenuTest {
         assertTrue(body.contains("Suspected"), body);
         assertTrue(body.contains("last 3 days"), body);
         assertTrue(body.contains(first()), body);
-        assertTrue(body.contains("To undo: "), body);
+        assertTrue(body.contains("To undo it: "), body);
         assertEquals(List.of("note"), keys(screen.page()));
         assertEquals(List.of("Confirm"), labels(screen.page()));
     }
@@ -211,9 +227,13 @@ class LabelMenuTest {
     }
 
     private void exit() {
+        exit(NOTHING);
+    }
+
+    private void exit(Response response) {
         Dialog.Button exit = screen.page().exit();
         assertNotNull(exit);
-        exit.onClick().accept(NOTHING);
+        exit.onClick().accept(response);
     }
 
     private static List<String> labels(Dialog page) {

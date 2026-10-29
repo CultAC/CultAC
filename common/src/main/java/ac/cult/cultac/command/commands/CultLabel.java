@@ -245,7 +245,8 @@ public class CultLabel implements BuildableCommand {
         call.whenComplete((reply, error) -> answering(sender, () -> {
             if (error != null) {
                 sender.sendMessage(Component.text(
-                        "The cloud did not answer: " + LabelClient.unanswered(error) + ".", NamedTextColor.RED));
+                        "The cloud did not answer: " + LabelClient.unanswered(error) + ".",
+                        NamedTextColor.RED));
             } else if (!reply.ok()) {
                 sender.sendMessage(
                         Component.text("Label request failed: " + LabelClient.failure(reply), NamedTextColor.RED));

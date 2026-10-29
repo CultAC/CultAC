@@ -51,7 +51,8 @@ public record Dialog(
     }
 
     /** A one-line text field, empty at first. */
-    public record TextBox(String key, Component label, int width, int maxLength) implements Input {}
+    /** A one-line text box that opens holding {@code initial}. */
+    public record TextBox(String key, Component label, int width, int maxLength, String initial) implements Input {}
 
     /** A button that cycles through {@code options}, starting at the one marked initial. */
     public record Choice(String key, Component label, int width, List<Option> options) implements Input {

@@ -27,15 +27,15 @@ class LabelLinesTest {
     @Test
     void flagCountsAreSingularAndPlural() {
         Map<String, Integer> flags = Map.of("killaura", 14, "triggerbot", 1, "other", 9);
-        assertEquals("KillAura · 14 flags in the last 7 days", plain(LabelLines.check("killaura", flags, 7)));
-        assertEquals("Triggerbot · 1 flag in the last 1 day", plain(LabelLines.check("triggerbot", flags, 1)));
-        assertEquals("Other", plain(LabelLines.check("other", flags, 7)));
-        assertEquals("Auto Mace", plain(LabelLines.check("automace", flags, 7)));
+        assertEquals("KillAura · 14 flags in the last 7 days", plain(LabelLines.cheat("killaura", flags, 7)));
+        assertEquals("Triggerbot · 1 flag in the last 1 day", plain(LabelLines.cheat("triggerbot", flags, 1)));
+        assertEquals("Other", plain(LabelLines.cheat("other", flags, 7)));
+        assertEquals("Auto Mace", plain(LabelLines.cheat("automace", flags, 7)));
         assertEquals(
                 "Chest Stealer · 2 flags in the last 7 days",
-                plain(LabelLines.check("chest-stealer", Map.of("chest-stealer", 2), 7)));
-        assertEquals("KillAura", plain(LabelLines.check("killaura", Map.of(), 7)));
-        assertEquals("KillAura", plain(LabelLines.check("killaura", null, 7)));
+                plain(LabelLines.cheat("chest-stealer", Map.of("chest-stealer", 2), 7)));
+        assertEquals("KillAura", plain(LabelLines.cheat("killaura", Map.of(), 7)));
+        assertEquals("KillAura", plain(LabelLines.cheat("killaura", null, 7)));
     }
 
     @Test

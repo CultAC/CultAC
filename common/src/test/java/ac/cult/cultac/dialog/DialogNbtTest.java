@@ -133,7 +133,7 @@ class DialogNbtTest {
                                 new Dialog.Option("extreme", Component.text("Extreme"), false))))
                 .input(new Dialog.Slider(
                         "span", Component.text("Span"), "%s: last %s days", Dialog.DEFAULT_WIDTH, 1, 30, 7))
-                .input(new Dialog.TextBox("note", Component.text("Note"), 300, 256))
+                .input(new Dialog.TextBox("note", Component.text("Note"), 300, 256, ""))
                 .button(Component.text("Next"), Dialog.DEFAULT_WIDTH, click -> {})
                 .button(Component.text("Other"), Component.text("Why"), 110, click -> {})
                 .exit(Component.text("Back"), Dialog.DEFAULT_WIDTH, click -> {})

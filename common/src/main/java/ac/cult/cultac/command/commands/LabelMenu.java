@@ -52,9 +52,9 @@ final class LabelMenu {
     private final boolean mayLabelClean;
     private final LabelWizard wizard;
     private final CompletableFuture<LabelClient.Reply> labelsOnFile;
-    /** Each check's flags over the last {@code flagsDays} days; 0 days until first asked. */
+    /** Each cheat's flags over the last {@code flagsDays} days, asked for as the span page opens. */
     private CompletableFuture<Map<String, Integer>> flags = CompletableFuture.completedFuture(Map.of());
-
+    /** The span {@code flags} covers; 0 until first asked. */
     private int flagsDays;
 
     private LabelMenu(DialogViewer staff, Sender sender, UUID labellerId, LabelClient client, LabelWizard wizard) {
@@ -87,7 +87,7 @@ final class LabelMenu {
                 () -> staff.show(
                         switch (page) {
                             case VERDICT -> verdictPage();
-                            case CHECKS -> checksPage();
+                            case CHEATS -> cheatsPage();
                             case SPAN -> spanPage();
                             case REVIEW -> reviewPage();
                         }));
@@ -118,15 +118,15 @@ final class LabelMenu {
                 .build();
     }
 
-    private Dialog checksPage() {
+    private Dialog cheatsPage() {
         TextComponent.Builder line = Component.text()
                 .append(LabelLines.verdict(verdict()))
                 .append(white(" · Step 2 · Pick every cheat you saw"));
         if (wizard.nothingPicked()) {
             line.append(Component.newline()).append(Component.text(LabelLines.PICK_ONE, NamedTextColor.RED));
         }
-        Dialog.Builder page = page().text(line.asComponent()).columns(3);
-        List<String> picked = wizard.checks();
+        Dialog.Builder page = page().text(line.asComponent(), 3 * CELL_WIDTH).columns(3);
+        List<String> picked = wizard.cheats();
         for (LabelCatalog.Entry check : LabelCatalog.current().cheats()) {
             boolean on = picked.contains(check.id());
             Component label =
@@ -135,28 +135,43 @@ final class LabelMenu {
                     label, gray(on ? "Picked" : "Not picked"), CELL_WIDTH, click -> show(wizard.toggle(check.id())));
         }
         return page.button(LabelLines.next(), CELL_WIDTH, click -> show(wizard.next()))
-                .exit(white("Back"), Dialog.DEFAULT_WIDTH, click -> show(wizard.back(Page.CHECKS)))
+                .exit(white("Back"), Dialog.DEFAULT_WIDTH, click -> show(wizard.back(Page.CHEATS)))
                 .build();
     }
 
     private Dialog spanPage() {
         Verdict verdict = verdict();
         boolean clean = verdict == Verdict.CLEAN;
-        String what = clean ? "all cheats" : LabelLines.names(wizard.checks());
-        TextComponent.Builder line = Component.text()
-                .append(white(wizard.asksConfidence() ? "Step 3 · How sure are you?" : "Step 3 · Over which days?"))
-                .append(Component.newline())
+        boolean asksConfidence = wizard.asksConfidence();
+        List<Component> text = new ArrayList<>();
+        text.add(white(
+                clean
+                        ? "Step 3 · How sure are you?"
+                        : asksConfidence ? "Step 3 · How sure, and over which days?" : "Step 3 · Over which days?"));
+        text.add(Component.text()
                 .append(LabelLines.verdict(verdict))
                 .append(gray(LabelLines.DOT))
-                .append(Component.text(what, NamedTextColor.WHITE));
-        Dialog.Builder page = page();
-        if (wizard.asksConfidence()) {
-            line.append(Component.newline())
-                    .append(Component.newline())
-                    .append(white("High: you are sure they cheated."))
-                    .append(Component.newline())
+                .append(white(clean ? "all cheats" : LabelLines.names(wizard.cheats())))
+                .asComponent());
+        if (asksConfidence) {
+            text.add(Component.empty());
+            text.add(white(clean ? "High: you are sure they play fair." : "High: you are sure they cheated."));
+            text.add(Component.text()
                     .append(Component.text("Extreme", NamedTextColor.GOLD, TextDecoration.BOLD))
-                    .append(white(": 100% sure, e.g. you saw their cheat client."));
+                    .append(white(
+                            clean
+                                    ? ": 100% sure, e.g. you know who plays the account."
+                                    : ": 100% sure, e.g. you saw their cheat client."))
+                    .asComponent());
+        }
+        text.add(Component.empty());
+        text.add(white(
+                clean
+                        ? LabelLines.ALWAYS
+                        : "All their play in the span is labelled " + verdict.display
+                                + ". Pick the shortest span that covers what you saw."));
+        Dialog.Builder page = page().text(lines(text), CARD_WIDTH);
+        if (asksConfidence) {
             boolean extreme = wizard.confidence().equals(LabelWizard.EXTREME);
             page.input(new Dialog.Choice(
                     CONFIDENCE,
@@ -166,12 +181,7 @@ final class LabelMenu {
                             new Dialog.Option(LabelWizard.HIGH, Component.text("High"), !extreme),
                             new Dialog.Option(LabelWizard.EXTREME, Component.text("Extreme"), extreme))));
         }
-        if (clean) {
-            line.append(Component.newline()).append(Component.newline()).append(white(LabelLines.ALWAYS));
-        } else {
-            line.append(Component.newline())
-                    .append(Component.newline())
-                    .append(white("All their play in the span is labelled " + verdict.display + "."));
+        if (!clean) {
             page.input(new Dialog.Slider(
                     SPAN,
                     Component.text("Span"),
@@ -181,13 +191,15 @@ final class LabelMenu {
                     LabelWizard.MAX_DAYS,
                     wizard.days()));
         }
-        return page.text(line.asComponent())
-                .button(
+        return page.button(
                         LabelLines.next(),
                         Dialog.DEFAULT_WIDTH,
                         click -> show(wizard.window(
                                 click.text(CONFIDENCE), clean ? null : click.number(SPAN), System.currentTimeMillis())))
-                .exit(white("Back"), Dialog.DEFAULT_WIDTH, click -> show(wizard.back(Page.SPAN)))
+                .exit(white("Back"), Dialog.DEFAULT_WIDTH, click -> {
+                    wizard.keep(click.text(CONFIDENCE), clean ? null : click.number(SPAN));
+                    show(wizard.back(Page.SPAN));
+                })
                 .build();
     }
 
@@ -214,8 +226,8 @@ final class LabelMenu {
         summary.add(LabelLines.summary(verdict, wizard.asksConfidence(), wizard.confidence(), wizard.days()));
         summary.add(gray(verdict == Verdict.CLEAN ? LabelLines.ALWAYS : LabelLines.window(wizard.from(), wizard.to())));
         if (verdict != Verdict.CLEAN) {
-            Map<String, Integer> counts = flagsDays == wizard.days() ? flags.getNow(null) : null;
-            for (String cheat : wizard.checks()) summary.add(LabelLines.check(cheat, counts, wizard.days()));
+            Map<String, Integer> counts = flags.getNow(null);
+            for (String cheat : wizard.cheats()) summary.add(LabelLines.cheat(cheat, counts, wizard.days()));
         }
 
         Dialog.Builder page = Dialog.titled(LabelLines.title("Review ", wizard.target.name()))
@@ -226,15 +238,20 @@ final class LabelMenu {
         JsonObject conflict = LabelLines.conflict(verdict, labels, wizard.from(), wizard.to());
         if (conflict != null) page.text(lines(LabelLines.conflictLines(verdict, conflict, listed)), CARD_WIDTH);
         page.text(
-                gray("Confirm saves at once. To undo: "
-                        + CloudCommandService.command("label list " + wizard.target.name())),
+                lines(
+                        white("Confirm saves the label right away."),
+                        white("To undo it: " + CloudCommandService.command("label list " + wizard.target.name()))),
                 CARD_WIDTH);
-        return page.input(new Dialog.TextBox(NOTE, gray("Note (optional)"), CARD_WIDTH, LabelRequest.MAX_NOTE))
+        return page.input(new Dialog.TextBox(
+                        NOTE, gray("Note (optional)"), CARD_WIDTH, LabelRequest.MAX_NOTE, wizard.note()))
                 .button(
                         Component.text("Confirm", NamedTextColor.WHITE, TextDecoration.BOLD),
                         CARD_WIDTH,
                         click -> confirm(click))
-                .exit(white("Back"), BACK_WIDTH, click -> show(wizard.back(Page.REVIEW)))
+                .exit(white("Back"), BACK_WIDTH, click -> {
+                    wizard.keepNote(click.text(NOTE));
+                    show(wizard.back(Page.REVIEW));
+                })
                 .build();
     }
 
