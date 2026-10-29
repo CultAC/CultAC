@@ -150,10 +150,10 @@ class CultLabelTest {
     @Test
     void theReplyNamesTheChoices() {
         assertEquals(
-                "Labelled Steve triggerbot, extreme (last 24 hours)",
+                "Labelled Steve triggerbot, extreme confidence (last 24 hours)",
                 CultLabel.labelledMessage("Steve", LabelRequest.cheat("triggerbot", "extreme", "24h", null)));
         assertEquals(
-                "Labelled Steve clean across all checks, high",
+                "Labelled Steve clean across all cheats, high confidence",
                 CultLabel.labelledMessage("Steve", LabelRequest.clean("high", null)));
     }
 

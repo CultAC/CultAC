@@ -159,6 +159,7 @@ class LabelMenuTest {
         assertTrue(body.contains("Suspected"), body);
         assertTrue(body.contains("last 3 days"), body);
         assertTrue(body.contains(first()), body);
+        assertTrue(body.contains("To undo: "), body);
         assertEquals(List.of("note"), keys(screen.page()));
         assertEquals(List.of("Confirm"), labels(screen.page()));
     }

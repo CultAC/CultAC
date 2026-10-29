@@ -98,7 +98,7 @@ class LabelLinesTest {
     void cleanShowsNoSpanAndEveryNextIsPlain() {
         assertEquals("Clean · High confidence", plain(LabelLines.summary(Verdict.CLEAN, true, "high", 7)));
         assertEquals(
-                "Labelled Notch clean across all checks, extreme",
+                "Labelled Notch clean across all cheats, extreme confidence",
                 LabelLines.echo("Notch", Verdict.CLEAN, List.of(), true, "extreme", 7));
         assertEquals("Next ▶", plain(LabelLines.next()));
         assertFalse(LabelLines.next().hasDecoration(TextDecoration.BOLD));
@@ -183,7 +183,7 @@ class LabelLinesTest {
         assertEquals(NamedTextColor.RED, LabelLines.resultColor(0, 2));
         assertEquals("Label failed for Notch: HTTP 409", LabelLines.failed("Notch", "HTTP 409"));
         assertEquals(
-                "Labelled Notch cheating (KillAura, Triggerbot), high (last 7 days)",
+                "Labelled Notch cheating (KillAura, Triggerbot), high confidence (last 7 days)",
                 LabelLines.echo("Notch", Verdict.CHEATING, List.of("killaura", "triggerbot"), true, "high", 7));
         assertEquals(
                 "Labelled Notch suspected (Other) (last 1 day)",

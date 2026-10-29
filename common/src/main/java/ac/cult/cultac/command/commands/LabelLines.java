@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.jetbrains.annotations.Nullable;
@@ -31,9 +32,9 @@ final class LabelLines {
                 + ", or " + CloudCommandService.command("label <player> clean <high|extreme> [note]") + ".";
     }
 
-    static final String PICK_ONE = "Pick at least one check.";
+    static final String PICK_ONE = "Pick at least one cheat.";
     /** A Clean label's window: the service labels the stored play and keeps the player clean until it is revoked. */
-    static final String ALWAYS = "Always: stored play and from now on, until revoked";
+    static final String ALWAYS = "Covers all their play, past and future, until revoked.";
 
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH);
     private static final DateTimeFormatter MINUTE = DateTimeFormatter.ofPattern("MMM d HH:mm", Locale.ENGLISH);
@@ -53,6 +54,15 @@ final class LabelLines {
     /** Every Next button's label: plain yellow, never bold and never with a count. */
     static Component next() {
         return Component.text("Next ▶", NamedTextColor.YELLOW);
+    }
+
+    /** What picking {@code verdict} says, as its button's tooltip. */
+    static String meaning(Verdict verdict) {
+        return switch (verdict) {
+            case CHEATING -> "You are sure they cheated.";
+            case SUSPECTED -> "It looks like cheating, but you are not sure.";
+            case CLEAN -> "You are sure they play fair, now and later.";
+        };
     }
 
     static Component verdict(Verdict verdict) {
@@ -98,12 +108,16 @@ final class LabelLines {
 
     /** The verdict, the confidence when it has one, and the span unless Clean. */
     static Component summary(Verdict verdict, boolean asksConfidence, String confidence, int days) {
-        String rest = (asksConfidence ? DOT + capitalized(confidence) + " confidence" : "")
-                + (verdict == Verdict.CLEAN ? "" : DOT + lastDays(days));
-        return Component.text()
-                .append(verdict(verdict))
-                .append(Component.text(rest, NamedTextColor.WHITE))
-                .asComponent();
+        TextComponent.Builder line = Component.text().append(verdict(verdict));
+        if (asksConfidence) {
+            String text = DOT + capitalized(confidence) + " confidence";
+            line.append(
+                    confidence.equals(LabelWizard.EXTREME)
+                            ? Component.text(text, NamedTextColor.GOLD, TextDecoration.BOLD)
+                            : Component.text(text, NamedTextColor.WHITE));
+        }
+        if (verdict != Verdict.CLEAN) line.append(Component.text(DOT + lastDays(days), NamedTextColor.WHITE));
+        return line.asComponent();
     }
 
     /** The frozen window: {@code Oct 8 14:02 → Oct 15 14:02 UTC}. */
@@ -202,9 +216,9 @@ final class LabelLines {
     static String echo(
             String player, Verdict verdict, List<String> checks, boolean asksConfidence, String confidence, int days) {
         String what = verdict == Verdict.CLEAN
-                ? "clean across all checks"
+                ? "clean across all cheats"
                 : verdict.display.toLowerCase(Locale.ROOT) + " (" + names(checks) + ")";
-        return "Labelled " + player + " " + what + (asksConfidence ? ", " + confidence : "")
+        return "Labelled " + player + " " + what + (asksConfidence ? ", " + confidence + " confidence" : "")
                 + (verdict == Verdict.CLEAN ? "" : " (" + lastDays(days) + ")");
     }
 

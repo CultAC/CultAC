@@ -147,9 +147,9 @@ public class CultLabel implements BuildableCommand {
     }
 
     static String labelledMessage(String player, LabelRequest request) {
-        String what = request.clean() ? "clean across all checks" : request.cheat();
+        String what = request.clean() ? "clean across all cheats" : request.cheat();
         LabelRequest.Span span = request.span();
-        return "Labelled " + player + " " + what + ", " + request.confidence()
+        return "Labelled " + player + " " + what + ", " + request.confidence() + " confidence"
                 + (span == null ? "" : " (" + span.display() + ")");
     }
 

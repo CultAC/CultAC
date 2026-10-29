@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.cloud.labels.LabelCatalog;
 import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.cloud.labels.LabelRequest;
+import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.command.commands.LabelWizard.Page;
 import ac.cult.cultac.command.commands.LabelWizard.Verdict;
 import ac.cult.cultac.dialog.Dialog;
@@ -104,40 +105,47 @@ final class LabelMenu {
                                 Component.text(wizard.target.name(), NamedTextColor.WHITE, TextDecoration.BOLD),
                                 Component.text(LabelLines.status(onlineMillis(), elsewhere()), NamedTextColor.GRAY)),
                         CARD_WIDTH)
-                .text(gray("Step 1 · What's your verdict?"));
+                .text(white("Step 1 · What's your verdict?"));
         for (Verdict verdict : Verdict.values()) {
             if (verdict == Verdict.CLEAN && !mayLabelClean) continue;
-            page.button(LabelLines.verdict(verdict), Dialog.DEFAULT_WIDTH, click -> show(wizard.choose(verdict)));
+            page.button(
+                    LabelLines.verdict(verdict),
+                    gray(LabelLines.meaning(verdict)),
+                    Dialog.DEFAULT_WIDTH,
+                    click -> show(wizard.choose(verdict)));
         }
-        return page.exit(gray("Cancel"), Dialog.DEFAULT_WIDTH, click -> staff.close())
+        return page.exit(white("Cancel"), Dialog.DEFAULT_WIDTH, click -> staff.close())
                 .build();
     }
 
     private Dialog checksPage() {
         TextComponent.Builder line = Component.text()
                 .append(LabelLines.verdict(verdict()))
-                .append(gray(" · Step 2 · Pick every check you saw"));
+                .append(white(" · Step 2 · Pick every cheat you saw"));
         if (wizard.nothingPicked()) {
             line.append(Component.newline()).append(Component.text(LabelLines.PICK_ONE, NamedTextColor.RED));
         }
         Dialog.Builder page = page().text(line.asComponent()).columns(3);
         List<String> picked = wizard.checks();
         for (LabelCatalog.Entry check : LabelCatalog.current().cheats()) {
-            Component label = picked.contains(check.id())
-                    ? Component.text("☑ " + check.name(), NamedTextColor.WHITE)
-                    : gray("☐ " + check.name());
-            page.button(label, CELL_WIDTH, click -> show(wizard.toggle(check.id())));
+            boolean on = picked.contains(check.id());
+            Component label =
+                    on ? Component.text("☑ " + check.name(), NamedTextColor.GREEN) : white("☐ " + check.name());
+            page.button(
+                    label, gray(on ? "Picked" : "Not picked"), CELL_WIDTH, click -> show(wizard.toggle(check.id())));
         }
         return page.button(LabelLines.next(), CELL_WIDTH, click -> show(wizard.next()))
-                .exit(gray("Back"), Dialog.DEFAULT_WIDTH, click -> show(wizard.back(Page.CHECKS)))
+                .exit(white("Back"), Dialog.DEFAULT_WIDTH, click -> show(wizard.back(Page.CHECKS)))
                 .build();
     }
 
     private Dialog spanPage() {
         Verdict verdict = verdict();
         boolean clean = verdict == Verdict.CLEAN;
-        String what = clean ? "all checks" : LabelLines.names(wizard.checks());
+        String what = clean ? "all cheats" : LabelLines.names(wizard.checks());
         TextComponent.Builder line = Component.text()
+                .append(white(wizard.asksConfidence() ? "Step 3 · How sure are you?" : "Step 3 · Over which days?"))
+                .append(Component.newline())
                 .append(LabelLines.verdict(verdict))
                 .append(gray(LabelLines.DOT))
                 .append(Component.text(what, NamedTextColor.WHITE));
@@ -145,11 +153,10 @@ final class LabelMenu {
         if (wizard.asksConfidence()) {
             line.append(Component.newline())
                     .append(Component.newline())
-                    .append(Component.text("⚠ ", NamedTextColor.GOLD))
-                    .append(Component.text("Extreme", NamedTextColor.RED, TextDecoration.BOLD))
-                    .append(gray(" needs 100% certainty,"))
+                    .append(white("High: you are sure they cheated."))
                     .append(Component.newline())
-                    .append(gray("ex: internal testing or a known client."));
+                    .append(Component.text("Extreme", NamedTextColor.GOLD, TextDecoration.BOLD))
+                    .append(white(": 100% sure, e.g. you saw their cheat client."));
             boolean extreme = wizard.confidence().equals(LabelWizard.EXTREME);
             page.input(new Dialog.Choice(
                     CONFIDENCE,
@@ -160,8 +167,11 @@ final class LabelMenu {
                             new Dialog.Option(LabelWizard.EXTREME, Component.text("Extreme"), extreme))));
         }
         if (clean) {
-            line.append(Component.newline()).append(Component.newline()).append(gray(LabelLines.ALWAYS));
+            line.append(Component.newline()).append(Component.newline()).append(white(LabelLines.ALWAYS));
         } else {
+            line.append(Component.newline())
+                    .append(Component.newline())
+                    .append(white("All their play in the span is labelled " + verdict.display + "."));
             page.input(new Dialog.Slider(
                     SPAN,
                     Component.text("Span"),
@@ -177,7 +187,7 @@ final class LabelMenu {
                         Dialog.DEFAULT_WIDTH,
                         click -> show(wizard.window(
                                 click.text(CONFIDENCE), clean ? null : click.number(SPAN), System.currentTimeMillis())))
-                .exit(gray("Back"), Dialog.DEFAULT_WIDTH, click -> show(wizard.back(Page.SPAN)))
+                .exit(white("Back"), Dialog.DEFAULT_WIDTH, click -> show(wizard.back(Page.SPAN)))
                 .build();
     }
 
@@ -196,7 +206,7 @@ final class LabelMenu {
         card.add(LabelLines.presence(wizard.target.name(), onlineMillis(), elsewhere()));
         CultPlayer target = local();
         if (target != null) {
-            card.add(gray(target.getTransactionPing() + "ms" + LabelLines.DOT + target.getBrand() + " "
+            card.add(gray("Ping " + target.getTransactionPing() + "ms" + LabelLines.DOT + target.getBrand() + " "
                     + target.getClientVersion().getReleaseName()));
         }
 
@@ -215,12 +225,16 @@ final class LabelMenu {
         List<JsonObject> labels = listed.ok() ? LabelClient.labels(listed.body()) : List.of();
         JsonObject conflict = LabelLines.conflict(verdict, labels, wizard.from(), wizard.to());
         if (conflict != null) page.text(lines(LabelLines.conflictLines(verdict, conflict, listed)), CARD_WIDTH);
+        page.text(
+                gray("Confirm saves at once. To undo: "
+                        + CloudCommandService.command("label list " + wizard.target.name())),
+                CARD_WIDTH);
         return page.input(new Dialog.TextBox(NOTE, gray("Note (optional)"), CARD_WIDTH, LabelRequest.MAX_NOTE))
                 .button(
                         Component.text("Confirm", NamedTextColor.WHITE, TextDecoration.BOLD),
                         CARD_WIDTH,
                         click -> confirm(click))
-                .exit(gray("Back"), BACK_WIDTH, click -> show(wizard.back(Page.REVIEW)))
+                .exit(white("Back"), BACK_WIDTH, click -> show(wizard.back(Page.REVIEW)))
                 .build();
     }
 
@@ -273,6 +287,10 @@ final class LabelMenu {
 
     private static Component lines(List<Component> lines) {
         return Component.join(JoinConfiguration.newlines(), lines);
+    }
+
+    private static Component white(String text) {
+        return Component.text(text, NamedTextColor.WHITE);
     }
 
     private static Component gray(String text) {
