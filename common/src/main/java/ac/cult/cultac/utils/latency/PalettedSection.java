@@ -41,8 +41,8 @@ public final class PalettedSection {
         }
     }
 
-    private final int size, minimumBits, maximumLocalBits, registrySize;
-    private int bits, paletteSize;
+    private final int size, minimumBits, maximumLocalBits;
+    private int registrySize, bits, paletteSize;
     private int[] palette;
     private Int2IntOpenHashMap indices;
     private long[] words;
@@ -208,16 +208,19 @@ public final class PalettedSection {
             }
             return result;
         }
-        var result = new PalettedSection(
-                size,
-                minimumBits,
-                maximumLocalBits,
-                targetRegistrySize,
-                bits,
-                reuseStorage ? palette : palette.clone(),
-                paletteSize,
-                reuseStorage ? words : words.clone());
+        var result = reuseStorage
+                ? this
+                : new PalettedSection(
+                        size,
+                        minimumBits,
+                        maximumLocalBits,
+                        targetRegistrySize,
+                        bits,
+                        palette.clone(),
+                        paletteSize,
+                        words.clone());
         for (int i = 0; i < paletteSize; i++) result.palette[i] = mapped(mapper, palette[i], targetRegistrySize);
+        result.registrySize = targetRegistrySize;
         return result;
     }
 
