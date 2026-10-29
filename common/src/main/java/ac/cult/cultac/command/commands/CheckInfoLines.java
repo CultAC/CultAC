@@ -310,7 +310,7 @@ final class CheckInfoLines {
      * {@code template} with each {@code %key%} replaced by its value: a component as it is, anything else as plain
      * text.
      */
-    private static Component render(Sender sender, String template, Map<String, ?> values) {
+    static Component render(Sender sender, String template, Map<String, ?> values) {
         String raw = template;
         TagResolver.Builder resolver = TagResolver.builder();
         for (Map.Entry<String, ?> value : values.entrySet()) {

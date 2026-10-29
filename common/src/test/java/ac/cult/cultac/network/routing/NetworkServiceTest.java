@@ -142,6 +142,32 @@ class NetworkServiceTest {
     }
 
     @Test
+    void aBrandArrivingAfterJoinRidesTheNextDelta() {
+        Players here = new Players().with(ALICE, "Alice", "lobby");
+        NetworkService a = started("p3", new Players());
+        NetworkService b = started("p7", here);
+        assertNull(a.locate("Alice").orElseThrow().brand());
+
+        b.brandChanged(ALICE, "§bLunar\u0000Client ");
+        b.brandChanged(BOB, "fabric");
+        b.sendDelta();
+        JsonObject delta = rosterBodiesFrom("p7").getLast();
+        assertFalse(delta.get("full").getAsBoolean());
+        assertEquals(
+                "LunarClient",
+                delta.getAsJsonObject("brands").get(ALICE.toString()).getAsString());
+        assertEquals(
+                new NetworkPlayer(ALICE, "Alice", "p7", "lobby", "LunarClient"),
+                a.locate("Alice").orElseThrow());
+        assertTrue(a.locate("Bob").isEmpty());
+
+        here.with(ALICE, "Alice", "lobby", "LunarClient");
+        assertEquals("LunarClient", b.locate("Alice").orElseThrow().brand());
+        b.tick();
+        assertEquals("LunarClient", a.locate("Alice").orElseThrow().brand());
+    }
+
+    @Test
     void theReportsOfOneWindowGoOutAsOneDelta() {
         NetworkService a = started("p3", new Players());
         NetworkService b = started("p7", new Players());

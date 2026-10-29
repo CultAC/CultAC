@@ -60,6 +60,7 @@ help:
     - "/%command% alerts &f- &7Включить/выключить оповещения"
     - "/%command% alerts scope [server|global] &f- &7Show or set whose alerts you see"
     - "/%command% brands &f- &7Toggle brands"
+    - "/%command% findplayer [brand=...] &f- &7List client brands online, or who uses one"
     - "/%command% profile <игрок> &f- &7Просмотреть информацию об игроке"
     - "/%command% help &f- &7Просмотреть это сообщение помощи"
     - "/%command% debug <игрок> &f- &7Вывод прогноза разработчика"
@@ -159,6 +160,19 @@ network-command-output-lost: "&cSome output from %instance% was lost."
 network-command-unfinished: "&7%instance% did not report that the command finished; its output may be incomplete."
 network-command-no-answer: "&c%instance% did not answer."
 network-command-output-cut: "&cThe rest of the output from %instance% was cut: it is over %lines% lines or %kb% KB."
+# /cult findplayer [brand=<text>]: the client brands online, or the players whose brand contains the text.
+# Brands, %query%, %player% and %server% show as plain text. %count% is a number of players; findplayer-unknown
+# names the players whose brand is not known yet.
+findplayer-summary: "%prefix% &bClient brands in use &8· &f%count% &7online &8· &7click a brand to see who uses it"
+findplayer-brand: "&8» &f%brand% &7(%count%)"
+findplayer-brand-hover: "&7Show who uses %brand%"
+findplayer-unknown: "unknown"
+findplayer-results: "%prefix% &bPlayers whose brand contains &f%query% &8· &f%count% &7online"
+findplayer-player: "&8» &f%player% &7on &f%server% &8· &7%brand%"
+findplayer-player-hover: "&7Show %player%'s profile"
+findplayer-more: "&7...and %count% more. Type more of the brand name to narrow it down."
+findplayer-none: "%prefix% &7Nobody online uses a brand containing &f%query%&7."
+findplayer-usage: "%prefix% &cTo search, type &f/%command% findplayer brand=lunar &cwith any part of a brand name, or leave it out to see every brand."
 
 # Маркеры схемы — см. шапку config.yml.
 config-flavor: V2

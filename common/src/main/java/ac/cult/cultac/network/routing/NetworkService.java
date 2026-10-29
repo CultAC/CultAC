@@ -40,12 +40,11 @@ import org.jetbrains.annotations.Nullable;
  * instance, to every other instance, or to this instance's engine generations over the in-process bus. Messages for
  * this instance never reach the broker and need no transport. Only the current generation publishes the roster: a
  * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and, at most every {@value #DELTA_PERIOD_MILLIS} ms, one delta
- * with the joins, quits, backend switches and verbose change reported since the last roster message, the last report
- * per player winning. The generation that drew the last roster number sends an empty snapshot when it stops, and its
- * unsent reports are dropped. The generations of
- * one host check that they are current, draw the number and publish one at a time, holding the shared counter's lock.
- * At most {@value #MAX_QUEUED_MESSAGES} received messages of {@value #MAX_QUEUED_BYTES} bytes in all wait to be read;
- * the rest are dropped.
+ * with the joins, quits, backend switches, brand changes and verbose change reported since the last roster message,
+ * the last report per player winning. The generation that drew the last roster number sends an empty snapshot when it
+ * stops, and its unsent reports are dropped. The generations of one host check that they are current, draw the number
+ * and publish one at a time, holding the shared counter's lock. At most {@value #MAX_QUEUED_MESSAGES} received
+ * messages of {@value #MAX_QUEUED_BYTES} bytes in all wait to be read; the rest are dropped.
  */
 public final class NetworkService implements NetworkRouting {
     static final long ROSTER_PERIOD_MILLIS = 60_000;
@@ -337,6 +336,17 @@ public final class NetworkService implements NetworkRouting {
         report(player.uuid(), player);
     }
 
+    /** Reports {@code brand} as {@code uuid}'s client brand while the platform lists them online here. Any thread. */
+    public void brandChanged(UUID uuid, @Nullable String brand) {
+        if (transport == null) return;
+        for (OnlinePlayer player : platform.onlinePlayers()) {
+            if (player.uuid().equals(uuid)) {
+                report(uuid, new OnlinePlayer(uuid, player.name(), player.server(), brand));
+                return;
+            }
+        }
+    }
+
     /** Reports a quit here. Any thread. */
     public void playerLeft(UUID uuid) {
         report(uuid, null);
@@ -613,7 +623,7 @@ public final class NetworkService implements NetworkRouting {
     }
 
     private NetworkPlayer local(OnlinePlayer player) {
-        return new NetworkPlayer(player.uuid(), player.name(), instanceId, player.server());
+        return new NetworkPlayer(player.uuid(), player.name(), instanceId, player.server(), player.brand());
     }
 
     private static boolean matches(UUID playerUuid, String name, @Nullable UUID uuid, String query) {

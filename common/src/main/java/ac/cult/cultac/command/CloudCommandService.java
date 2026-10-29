@@ -123,6 +123,7 @@ public class CloudCommandService implements CommandService {
         new CultVersion().register(commandManager, commandArguments);
         new CultDump().register(commandManager, commandArguments);
         new CultBrands().register(commandManager, commandArguments);
+        new CultFindPlayer().register(commandManager, commandArguments);
         new CultList().register(commandManager, commandArguments);
         new CultTestWebhook().register(commandManager, commandArguments);
         new CultCloud().register(commandManager, commandArguments);

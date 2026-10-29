@@ -112,10 +112,16 @@ public final class NetworkModule {
         thread.start();
     }
 
-    /** A join or backend switch on this instance. Any thread. */
-    public static void playerChanged(UUID uuid, String name, @Nullable String server) {
+    /** A join or backend switch on this instance; {@code brand} is the client brand, null while it is not known. */
+    public static void playerChanged(UUID uuid, String name, @Nullable String server, @Nullable String brand) {
         NetworkService running = service;
-        if (running != null) running.playerChanged(new OnlinePlayer(uuid, name, server));
+        if (running != null) running.playerChanged(new OnlinePlayer(uuid, name, server, brand));
+    }
+
+    /** The client brand of a player on this instance arrived after their join. Any thread. */
+    public static void brandChanged(UUID uuid, @Nullable String brand) {
+        NetworkService running = service;
+        if (running != null) running.brandChanged(uuid, brand);
     }
 
     /** A quit on this instance. Any thread. */

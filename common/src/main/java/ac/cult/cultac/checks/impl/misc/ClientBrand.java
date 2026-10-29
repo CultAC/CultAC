@@ -7,6 +7,7 @@ import ac.cult.cultac.manager.alerts.AlertSubject;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
@@ -101,6 +102,7 @@ public class ClientBrand extends Check implements CheckListener {
         // the upsert with the same session_id (idempotent) and the brand
         // filled in.
         CultAPI.INSTANCE.getDataStoreLifecycle().liveWriteHooks().observeBrandFromCheck(player);
+        NetworkModule.brandChanged(player.getUniqueId(), received);
     }
 
     /** Keeps the brand this connection already reported to another engine; it was announced there. */

@@ -29,6 +29,9 @@ permissions:
   cult.brand:
     description: Show client brands on join
     default: op
+  cult.findplayer:
+    description: Find online players by client brand
+    default: op
   cult.brand.enable-on-join:
     description: Enable showing client brands on join
     default: op
