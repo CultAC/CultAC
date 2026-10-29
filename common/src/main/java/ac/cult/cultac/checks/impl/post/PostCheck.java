@@ -30,18 +30,17 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 
 public class PostCheck extends Check implements CheckListener, PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("Post")
+            .description("Impossible attacks, clicks or item use")
+            .build();
     private String post;
     private final EvictingQueue<String> flags = new EvictingQueue<>(10);
     private boolean sentFlying = false;
     private int isExemptFromSwingingCheck = Integer.MIN_VALUE;
 
     public PostCheck(CultPlayer playerData) {
-        super(
-                playerData,
-                CheckInfo.builder()
-                        .name("Post")
-                        .description("Impossible attacks, clicks or item use")
-                        .build());
+        super(playerData, INFO);
     }
 
     @CultPacketHandler

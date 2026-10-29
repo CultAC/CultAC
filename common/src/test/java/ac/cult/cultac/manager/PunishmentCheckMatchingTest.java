@@ -75,7 +75,7 @@ class PunishmentCheckMatchingTest {
         Set<String> enabled = new TreeSet<>();
         List<AbstractCheck> checks = new ArrayList<>();
         for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
-            AbstractCheck check = check(entry.name(), entry.runtimeAltName());
+            AbstractCheck check = check(entry.name(), entry.altName());
             doAnswer(invocation -> {
                         if (invocation.<Boolean>getArgument(0)) enabled.add(entry.name());
                         return null;

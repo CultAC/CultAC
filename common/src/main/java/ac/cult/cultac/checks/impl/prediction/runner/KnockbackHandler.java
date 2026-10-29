@@ -13,18 +13,18 @@ import ac.cult.cultac.utils.math.Vec3;
 // Player velocity packets use a bundle proof when available, otherwise the Cult3.0-clean transaction sandwich.
 @BedrockSupported
 public class KnockbackHandler extends PacketModHandler {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("AntiKB")
+            .stableKey("cult.velocity.anti_knockback")
+            .altName("AntiKnockback")
+            .configName("Knockback")
+            .description("Did not take the expected entity knockback")
+            .setback(10)
+            .decay(0.025)
+            .build();
+
     public KnockbackHandler(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("AntiKB")
-                        .stableKey("cult.velocity.anti_knockback")
-                        .altName("AntiKnockback")
-                        .configName("Knockback")
-                        .description("Did not take the expected entity knockback")
-                        .setback(10)
-                        .decay(0.025)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     public int handleEntityVelocity(PacketSendEvent<ClientboundEntityMotion> event, ClientboundEntityMotion velocity) {

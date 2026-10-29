@@ -6,12 +6,12 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 
 public class HappyGhastPseudo extends Check implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("HappyGhastOffset")
+            .description("Impossible happy ghast flight")
+            .build();
+
     public HappyGhastPseudo(CultPlayer player) {
-        super(
-                player,
-                CheckInfo.builder()
-                        .name("HappyGhastOffset")
-                        .description("Impossible happy ghast flight")
-                        .build());
+        super(player, INFO);
     }
 }

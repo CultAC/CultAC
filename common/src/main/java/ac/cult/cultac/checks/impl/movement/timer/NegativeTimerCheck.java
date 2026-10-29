@@ -16,6 +16,11 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
         reason = DeadCheck.Reason.DEAD_BY_CONSTRUCTION,
         detail = "Never constructed; its only flag call site is commented out.")
 public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("NegativeTimer")
+            .description("Game ran slower than normal")
+            .setback(10)
+            .build();
 
     int ticksWithoutNewTransactionOrLook = 0;
     int lastTransactionReceivedLastTick = 0;
@@ -23,13 +28,7 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
     float lastYRot = 0;
 
     public NegativeTimerCheck(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("NegativeTimer")
-                        .description("Game ran slower than normal")
-                        .setback(10)
-                        .build());
+        super(cultPlayer, INFO);
         this.timerBalanceRealTime = System.nanoTime() + this.clockDrift;
     }
 

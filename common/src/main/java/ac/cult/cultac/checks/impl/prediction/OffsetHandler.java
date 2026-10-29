@@ -30,15 +30,15 @@ public class OffsetHandler extends Check implements PostPredictionListener {
     // Current advantage gained
     double advantageGained = 0;
 
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("Simulation")
+            .stableKey("cult.prediction.simulation")
+            .description("Moved differently than predicted movement simulation")
+            .decay(0.02)
+            .build();
+
     public OffsetHandler(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("Simulation")
-                        .stableKey("cult.prediction.simulation")
-                        .description("Moved differently than predicted movement simulation")
-                        .decay(0.02)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     @Override

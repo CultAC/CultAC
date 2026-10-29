@@ -6,12 +6,12 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 
 public class Angle extends Check implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("Angle")
+            .description("Moved in an impossible direction")
+            .build();
+
     public Angle(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("Angle")
-                        .description("Moved in an impossible direction")
-                        .build());
+        super(cultPlayer, INFO);
     }
 }

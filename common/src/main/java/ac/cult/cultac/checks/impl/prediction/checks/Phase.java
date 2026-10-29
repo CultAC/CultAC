@@ -24,19 +24,18 @@ import java.util.Map;
 
 @BedrockSupported
 public class Phase extends Check implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("Phase")
+            .stableKey("cult.prediction.phase")
+            .description("Moved into a solid block during movement prediction")
+            .setback(1)
+            .decay(0.005)
+            .build();
     // Temporary Bedrock penetration approximation, inset on every face.
     private static final double BEDROCK_PENETRATION_INSET = 0.001D;
 
     public Phase(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("Phase")
-                        .stableKey("cult.prediction.phase")
-                        .description("Moved into a solid block during movement prediction")
-                        .setback(1)
-                        .decay(0.005)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     SimpleCollisionBox oldBox = null;

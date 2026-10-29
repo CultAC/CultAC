@@ -54,14 +54,14 @@ public class FairReach extends Check implements CheckListener {
 
     private final ClientVisibilityProcessor visibility;
 
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("FairReach")
+            .description("Hit a player who was out of reach")
+            .stableKey("cult.combat.fair_reach")
+            .build();
+
     public FairReach(CultPlayer player, ClientVisibilityProcessor visibility) {
-        super(
-                player,
-                CheckInfo.builder()
-                        .name("FairReach")
-                        .description("Hit a player who was out of reach")
-                        .stableKey("cult.combat.fair_reach")
-                        .build());
+        super(player, INFO);
         this.visibility = visibility;
     }
 

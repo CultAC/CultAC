@@ -7,15 +7,14 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 
 public final class EntityReach extends ReachCheck {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("EntityReach")
+            .stableKey("cult.combat.entity.reach")
+            .description("Attacked a non-player entity from too far away")
+            .build();
+
     public EntityReach(CultPlayer player, ClientVisibilityProcessor visibility) {
-        super(
-                player,
-                visibility,
-                CheckInfo.builder()
-                        .name("EntityReach")
-                        .stableKey("cult.combat.entity.reach")
-                        .description("Attacked a non-player entity from too far away")
-                        .build());
+        super(player, visibility, INFO);
     }
 
     @Override

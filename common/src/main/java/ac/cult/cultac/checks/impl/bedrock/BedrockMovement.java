@@ -9,6 +9,11 @@ import java.util.Locale;
 
 @BedrockSupported
 public final class BedrockMovement extends Check implements CheckListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("BedrockMovement")
+            .stableKey("cult.bedrock.movement")
+            .description("Impossible Bedrock movement")
+            .build();
     private static final double DEFAULT_IMMEDIATE_FLAG_THRESHOLD = 0.1D;
 
     private double immediateFlagThreshold = DEFAULT_IMMEDIATE_FLAG_THRESHOLD;
@@ -16,13 +21,7 @@ public final class BedrockMovement extends Check implements CheckListener {
     private Integer lastVehicleMountSwitchTick;
 
     public BedrockMovement(CultPlayer player) {
-        super(
-                player,
-                CheckInfo.builder()
-                        .name("BedrockMovement")
-                        .stableKey("cult.bedrock.movement")
-                        .description("Impossible Bedrock movement")
-                        .build());
+        super(player, INFO);
     }
 
     @Override

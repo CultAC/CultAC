@@ -2,8 +2,8 @@ package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
-import ac.cult.cultac.command.commands.CultInfo;
 import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
+import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
@@ -39,91 +39,53 @@ public class PunishmentManager implements ConfigReloadable {
         List<String> punish = config.getStringListElse("Punishments", new ArrayList<>());
         experimentalSymbol = config.getStringElse("experimental-symbol", "*");
 
-        alertString = config.getStringElse(
-                "alerts-format",
-                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click for more info\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
+        alertString = config.getStringElse("alerts-format", EnglishDefaults.string("messages", "alerts-format"));
 
         testMode = config.getBooleanElse("test-mode", false);
 
-        proxyAlertString = config.getStringElse(
-                "alerts-format-proxy",
-                "%prefix% &f[&cproxy&f] &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\\n&8Description: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
+        proxyAlertString =
+                config.getStringElse("alerts-format-proxy", EnglishDefaults.string("messages", "alerts-format-proxy"));
 
-        try {
-            groups.clear();
+        PunishmentRules rules = PunishmentRules.parse(punish);
+        groups.clear();
 
-            // To support reloading
-            for (AbstractCheck check : player.getChecks()) {
-                check.setEnabled(false);
-            }
-
-            AbstractCheck[] known = null;
-            String[] names = null, alternativeNames = null;
-            for (Object s : punish) {
-                LinkedHashMap<String, Object> map = (LinkedHashMap<String, Object>) s;
-
-                List<String> checks = (List<String>) map.getOrDefault("checks", new ArrayList<>());
-                List<String> commands = (List<String>) map.getOrDefault("commands", new ArrayList<>());
-                int removeViolationsAfter = (int) map.getOrDefault("remove-violations-after", 300);
-
-                List<ParsedCommand> parsed = new ArrayList<>();
-                List<AbstractCheck> checksList = new ArrayList<>();
-                List<AbstractCheck> excluded = new ArrayList<>();
-                for (String command : checks) {
-                    command = command.toLowerCase(Locale.ROOT);
-                    boolean exclude = false;
-                    if (command.startsWith("!")) {
-                        exclude = true;
-                        command = command.substring(1);
-                    }
-                    if (known == null) {
-                        known = player.getChecks().toArray(new AbstractCheck[0]);
-                        names = new String[known.length];
-                        alternativeNames = new String[known.length];
-                        for (int i = 0; i < known.length; i++) {
-                            String name = known[i].getCheckName();
-                            String alternativeName = known[i].getAlternativeName();
-                            names[i] = name == null ? null : name.toLowerCase(Locale.ROOT);
-                            alternativeNames[i] =
-                                    alternativeName == null ? null : alternativeName.toLowerCase(Locale.ROOT);
-                        }
-                    }
-                    for (int i = 0; i < known.length; i++) {
-                        AbstractCheck check = known[i];
-                        String alternativeName = alternativeNames[i];
-                        // Some checks have equivalent names like AntiKB and AntiKnockback
-                        if (names[i] != null
-                                && (names[i].contains(command)
-                                        || (alternativeName != null && alternativeName.contains(command)))) {
-                            if (exclude) {
-                                excluded.add(check);
-                            } else {
-                                checksList.add(check);
-                            }
-                        }
-                    }
-                    for (AbstractCheck check : excluded) checksList.remove(check);
-                }
-                for (AbstractCheck check : checksList) {
-                    check.setEnabled(true);
-                }
-
-                for (String command : commands) {
-                    String firstNum = command.substring(0, command.indexOf(":"));
-                    String secondNum = command.substring(command.indexOf(":"), command.indexOf(" "));
-
-                    int threshold = Integer.parseInt(firstNum);
-                    int interval = Integer.parseInt(secondNum.substring(1));
-                    String commandString = command.substring(command.indexOf(" ") + 1);
-
-                    parsed.add(new ParsedCommand(threshold, interval, commandString));
-                }
-
-                groups.add(new PunishGroup(checksList, parsed, removeViolationsAfter * 1000));
-            }
-        } catch (Exception e) {
-            LogUtil.error("Error while loading punishments.yml! This is likely your fault!", e);
+        // To support reloading
+        for (AbstractCheck check : player.getChecks()) {
+            check.setEnabled(false);
         }
+
+        AbstractCheck[] known = player.getChecks().toArray(new AbstractCheck[0]);
+        String[] names = new String[known.length];
+        String[] alternativeNames = new String[known.length];
+        for (int i = 0; i < known.length; i++) {
+            names[i] = lowerCase(known[i].getCheckName());
+            alternativeNames[i] = lowerCase(known[i].getAlternativeName());
+        }
+        for (PunishmentRules.Group rule : rules.groups()) {
+            List<AbstractCheck> held = new ArrayList<>();
+            for (int i = 0; i < known.length; i++) {
+                if (rule.holds(names[i], alternativeNames[i])) held.add(known[i]);
+            }
+            for (AbstractCheck check : held) check.setEnabled(true);
+
+            List<ParsedCommand> parsed = new ArrayList<>();
+            for (PunishmentRules.Command command : rule.commands()) {
+                parsed.add(new ParsedCommand(command.threshold(), command.interval(), command.command()));
+            }
+            groups.add(new PunishGroup(held, parsed, rule.removeViolationsAfter() * 1000));
+        }
+        for (int i = 0; i < known.length; i++) {
+            if (PunishmentRules.holds(rules.unreadGroupSelectors(), names[i], alternativeNames[i])) {
+                known[i].setEnabled(true);
+            }
+        }
+        if (rules.failure() != null) {
+            LogUtil.error("Error while loading punishments.yml! This is likely your fault!", rules.failure());
+        }
+    }
+
+    private static @Nullable String lowerCase(@Nullable String name) {
+        return name == null ? null : name.toLowerCase(Locale.ROOT);
     }
 
     private String replaceAlertPlaceholders(String original, int vl, Check check, String verbose) {
@@ -168,7 +130,7 @@ public class PunishmentManager implements ConfigReloadable {
                                     .getAlertManager()
                                     .sendVerbose(
                                             player,
-                                            CultInfo.linkCheckName(MessageUtil.miniMessage(listenerCmd), check),
+                                            CheckNameLink.link(MessageUtil.miniMessage(listenerCmd), check),
                                             null);
                         } catch (RuntimeException e) {
                             logDeliveryFailure(command, check, e);
@@ -219,7 +181,7 @@ public class PunishmentManager implements ConfigReloadable {
                                         CultAPI.INSTANCE.getAlertManager().forwardAlert(cmd);
                                     case "[alert]" -> {
                                         sentDebug = true;
-                                        Component message = CultInfo.linkCheckName(MessageUtil.miniMessage(cmd), check);
+                                        Component message = CheckNameLink.link(MessageUtil.miniMessage(cmd), check);
                                         if (testMode) { // secret test mode
                                             if (verboseListeners == null
                                                     || verboseListeners

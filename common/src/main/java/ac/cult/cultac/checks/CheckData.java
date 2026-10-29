@@ -11,10 +11,12 @@ public @interface CheckData {
     String DEFAULT_DESCRIPTION = "No description provided";
     double DEFAULT_DECAY = 0.05;
     double DEFAULT_SETBACK = 25;
+    /** The alternative name a check without one reports. */
+    String NO_ALTERNATIVE_NAME = "UNKNOWN";
 
     String name();
 
-    String alternativeName() default "UNKNOWN";
+    String alternativeName() default NO_ALTERNATIVE_NAME;
 
     String configName() default "DEFAULT";
 

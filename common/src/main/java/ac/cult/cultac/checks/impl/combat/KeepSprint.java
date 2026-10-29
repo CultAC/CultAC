@@ -19,16 +19,16 @@ public class KeepSprint extends Check implements EngineCheck, PostPredictionList
     private double offsetToFlag;
     private double bestRequiredOffset = Double.MAX_VALUE;
 
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("KeepSprint")
+            .stableKey("cult.combat.keep_sprint")
+            .description("Did not take the attack slowdown")
+            .setback(10)
+            .decay(0.025)
+            .build();
+
     public KeepSprint(CultPlayer player) {
-        super(
-                player,
-                CheckInfo.builder()
-                        .name("KeepSprint")
-                        .stableKey("cult.combat.keep_sprint")
-                        .description("Did not take the attack slowdown")
-                        .setback(10)
-                        .decay(0.025)
-                        .build());
+        super(player, INFO);
     }
 
     @Override

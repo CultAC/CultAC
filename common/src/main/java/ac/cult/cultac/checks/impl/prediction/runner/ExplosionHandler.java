@@ -22,21 +22,20 @@ import org.jetbrains.annotations.Nullable;
 
 @BedrockSupported
 public class ExplosionHandler extends PacketModHandler {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("AntiExplosion")
+            .stableKey("cult.velocity.anti_explosion")
+            .configName("Explosion")
+            .description("Did not take the expected explosion knockback")
+            .setback(10)
+            .build();
     // The ravagers whose stun the client has handled, until their countdowns end.
     private final transient List<PacketEntityRavager> countingDown = new ArrayList<>();
     // The ravagers whose aiStep roared in the client tick being ended, until its travel is known.
     private final transient List<PacketEntityRavager> roaredThisTick = new ArrayList<>();
 
     public ExplosionHandler(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("AntiExplosion")
-                        .stableKey("cult.velocity.anti_explosion")
-                        .configName("Explosion")
-                        .description("Did not take the expected explosion knockback")
-                        .setback(10)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     @Override

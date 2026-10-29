@@ -32,6 +32,17 @@ class CheckCatalogTest {
     }
 
     @Test
+    void explainsEveryCheckAPlayerBuilds() {
+        List<String> unexplained = new ArrayList<>();
+        for (MovementPlatform platform : MovementPlatform.values()) {
+            for (Check check : checks(platform)) {
+                if (CheckCatalog.find(check.getCheckName()) == null) unexplained.add(check.getCheckName());
+            }
+        }
+        assertEquals(List.of(), unexplained);
+    }
+
+    @Test
     void noCheckIsListedTwice() {
         Set<String> names = new HashSet<>();
         for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) assertTrue(names.add(entry.name()), entry.name());
@@ -57,6 +68,7 @@ class CheckCatalogTest {
         assertEquals("AntiKB", CheckCatalog.find("antiknockback").name());
         assertEquals("Timer", CheckCatalog.find("timera").name());
         assertNull(CheckCatalog.find("Sprint"));
+        assertNull(CheckCatalog.find(CheckData.NO_ALTERNATIVE_NAME));
     }
 
     @Test
@@ -71,8 +83,7 @@ class CheckCatalogTest {
     private static Set<Identity> catalog() {
         Set<Identity> identities = new HashSet<>();
         for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
-            identities.add(
-                    new Identity(entry.name(), entry.configName(), entry.runtimeAltName(), entry.experimental()));
+            identities.add(new Identity(entry.name(), entry.configName(), entry.altName(), entry.experimental()));
         }
         return identities;
     }
