@@ -236,23 +236,29 @@ public final class ClientVisibility {
         }
         double error = CLIP_EPSILON;
         double range = player.compensatedEntities.getSelf().getBlockInteractionRange();
+        double sample = .001 * nativePickRange();
+        double clearance = Math.nextUp(sample) + error;
         for (Vec3 eye : eyes(positionError, targets, position, range)) {
             List<SimpleCollisionBox> overrides = new ArrayList<>();
             for (SimpleCollisionBox interaction : interactions) {
                 if (frontFacing(face, eye, interaction, error)) overrides.add(faceEnvelope(interaction, face));
             }
+            List<SimpleCollisionBox> insideSampleCone =
+                    insideSampleCone(eye, face, interactions, targets, sample, clearance);
             for (SimpleCollisionBox target : targets) {
                 SimpleCollisionBox envelope = target.copy();
                 if (!withinRange(eye, envelope, range)) continue;
+                if (insideSampleCone != null
+                        && OcclusionGeometry.hasVisiblePoint(eye, envelope, null, List.of(), insideSampleCone, range))
+                    return false;
                 List<SimpleCollisionBox> blockers = blockers(eye, envelope, position, range);
-                double pickRange = nativePickRange();
                 if (NativeInsideSelection.possible(
                                 eye,
                                 target,
                                 face,
                                 error,
                                 Math.nextDown(.001 * Math.sqrt(CLIP_EPSILON)),
-                                Math.nextUp(.001 * pickRange),
+                                Math.nextUp(sample),
                                 range)
                         && !OcclusionGeometry.fullyOccluded(eye, envelope, blockers)) return false;
                 if (contains(target, eye, 0)) continue;
@@ -272,6 +278,39 @@ public final class ClientVisibility {
             }
         }
         return true;
+    }
+
+    /**
+     * The directions whose VoxelShape#clip first sample lies inside the interaction shape while every outline entry
+     * lies beyond it, so BlockGetter#clipWithInteractionOverride reports {@code face} for any outline hit: the
+     * Direction#getApproximateNearest cone of {@code face}'s opposite.
+     */
+    private static List<SimpleCollisionBox> insideSampleCone(
+            Vec3 eye,
+            Direction face,
+            List<SimpleCollisionBox> interactions,
+            List<SimpleCollisionBox> targets,
+            double sample,
+            double clearance) {
+        boolean inside = false;
+        for (SimpleCollisionBox interaction : interactions)
+            if (contains(interaction, eye, -clearance)) {
+                inside = true;
+                break;
+            }
+        if (!inside) return null;
+        for (SimpleCollisionBox target : targets) if (withinRange(eye, target, clearance)) return null;
+        return List.of(viewCone(eye, face.getOpposite(), Math.nextDown(sample / Math.sqrt(3))));
+    }
+
+    private static SimpleCollisionBox viewCone(Vec3 eye, Direction toward, double depth) {
+        double x = eye.x + depth * toward.getStepX(),
+                y = eye.y + depth * toward.getStepY(),
+                z = eye.z + depth * toward.getStepZ();
+        double extentX = depth - depth * Math.abs(toward.getStepX()),
+                extentY = depth - depth * Math.abs(toward.getStepY()),
+                extentZ = depth - depth * Math.abs(toward.getStepZ());
+        return new SimpleCollisionBox(x - extentX, y - extentY, z - extentZ, x + extentX, y + extentY, z + extentZ);
     }
 
     private static SimpleCollisionBox faceEnvelope(SimpleCollisionBox target, Direction face) {
