@@ -21,14 +21,8 @@ public class PacketPlayerDigging {
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
         Hand hand = packet.hand();
         SimItemStack item = player.getInventory().getHandItem(hand);
-        if (RiptideUtil.getRiptideLevel(item) > 0 && !item.nextDamageWillBreak()) {
-            player.packetStateData.riptideUseHand = hand;
-            player.packetStateData.riptideUseStartClientTick = player.packetStateData.acceptedClientTick;
-            int slot = player.getInventory().inventory.selected;
-            player.packetStateData.riptideUseSlot = slot;
-            player.packetStateData.riptideSlotBeforeSelect = slot;
-            player.packetStateData.riptideFirstSelectSlot = slot;
-            player.packetStateData.riptideSelectClientTick = player.packetStateData.acceptedClientTick;
+        if (RiptideUtil.isTrident(item) && !item.nextDamageWillBreak()) {
+            RiptideUtil.startTrackedUse(player, hand);
         } else if (hand == player.packetStateData.riptideUseHand) {
             RiptideUtil.clearTrackedUse(player);
         }

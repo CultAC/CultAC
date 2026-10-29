@@ -10,6 +10,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.ItemTypes;
@@ -120,6 +121,17 @@ public final class RiptideUtil {
 
     public static SimItemStack hotbarItem(CultPlayer player, int slot) {
         return player.getInventory().inventory.getInventoryStorage().getItem(Inventory.HOTBAR_OFFSET + slot);
+    }
+
+    public static void startTrackedUse(CultPlayer player, Hand hand) {
+        PacketStateData state = player.packetStateData;
+        int slot = player.getInventory().inventory.selected;
+        state.riptideUseHand = hand;
+        state.riptideUseStartClientTick = state.acceptedClientTick;
+        state.riptideUseSlot = slot;
+        state.riptideSlotBeforeSelect = slot;
+        state.riptideFirstSelectSlot = slot;
+        state.riptideSelectClientTick = state.acceptedClientTick;
     }
 
     public static void clearTrackedUse(CultPlayer player) {

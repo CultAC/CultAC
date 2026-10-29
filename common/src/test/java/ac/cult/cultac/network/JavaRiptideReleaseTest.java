@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -132,6 +133,19 @@ class JavaRiptideReleaseTest {
             SimItemStack trident = trident(3);
             charge(f, trident);
             breaking(trident);
+            release(f);
+            assertRelease(f, level, exact);
+        }
+    }
+
+    /** LivingEntity#updatingUsingItem keeps a trident's use on any held trident, enchanted or not. */
+    @ParameterizedTest
+    @CsvSource({"V_1_21_11, 3, true", "V_1_21_11, 0, false", "V_26_3, 3, true", "V_26_3, 0, false"})
+    void aSwitchFromATridentWithoutRiptideSpinsAtTheHeldLevel(ClientVersion version, int level, boolean exact)
+            throws Exception {
+        try (var f = fixture(version)) {
+            charge(f, OfflineCultTestBootstrap.item("minecraft:trident"), trident(3));
+            select(f, 1);
             release(f);
             assertRelease(f, level, exact);
         }
