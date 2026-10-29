@@ -98,7 +98,8 @@ public class PacketPlayerDigging {
 
     /**
      * TridentItem#releaseUsing on each stack LivingEntity#releaseUsingItem may release. It spins only after ten ticks
-     * of use, in water or rain, with a riptide trident whose next damage leaves it intact.
+     * of use, in water or rain, with a riptide trident whose next damage leaves it intact. The release is invalid only
+     * when every stack it may release is a riptide trident that cannot spin for its charge or surroundings.
      */
     private static void releaseJavaUse(CultPlayer player) {
         var inventory = player.getInventory();
@@ -109,6 +110,7 @@ public class PacketPlayerDigging {
         List<Integer> levels = new ArrayList<>(1);
         boolean mayNotSpin = false;
         Hand invalid = null;
+        boolean certainlyInvalid = !releases.isEmpty();
         for (var release : releases) {
             int level = RiptideUtil.getRiptideLevel(release.stack());
             boolean valid = RiptideUtil.isValidRiptideRelease(player, release.hand());
@@ -118,9 +120,10 @@ public class PacketPlayerDigging {
             }
             mayNotSpin = true;
             if (level > 0 && !valid) invalid = release.hand();
+            else certainlyInvalid = false;
         }
         if (!levels.isEmpty()) spin(player, levels, mayNotSpin);
-        else if (invalid != null) rejectRelease(player, invalid);
+        else if (certainlyInvalid) rejectRelease(player, invalid);
     }
 
     /** The release the Bedrock bridge models: the riptide trident the tracked hand holds now. */

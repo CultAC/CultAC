@@ -33,6 +33,8 @@ class JavaRiptideSwitchReleaseTest {
     private static final Vec3 SHALLOWS = new Vec3(0.5, FLOOR_Y, 0.5);
     /** LivingEntity#travelInFluid's gravity on a player resting on the floor of the water. */
     private static final Vec3 SETTLED = new Vec3(0, -0.005, 0);
+    /** LivingEntity#travelInAir's gravity on a player standing on the floor. */
+    private static final Vec3 ON_LAND = new Vec3(0, (0.0 - 0.08) * 0.98F, 0);
 
     private static final float LIFT = 1.1999999F;
     private static final float PITCH = -10.0F;
@@ -91,14 +93,36 @@ class JavaRiptideSwitchReleaseTest {
         }
     }
 
+    /**
+     * Through 1.21.4 a riptide trident elsewhere on the hotbar is a possible release of a plain trident thrown on land,
+     * as an unreported selection may have bound it. The plain trident may equally be the one released, so the release
+     * is not an invalid riptide release.
+     */
+    @Test
+    void throughOneTwentyOneFourAPlainTridentThrownOnLandIsNoInvalidRelease() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_4);
+            standAt(f, ON_LAND, OfflineCultTestBootstrap.item("minecraft:trident"), trident(3));
+            charge(f, 11);
+            f.releaseUsingItem();
+            assertEquals(0, f.player.packetStateData.riptideLevel);
+            assertFalse(f.player.packetStateData.invalidRiptideRelease);
+        }
+    }
+
     /** {@code first} in hotbar slot 0, selected, and {@code second} in slot 1, standing in water at SHALLOWS. */
     private static void inShallows(JavaTickFixture f, SimItemStack first, SimItemStack second) {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.WATER.defaultState());
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        standAt(f, SETTLED, first, second);
+    }
+
+    /** {@code first} in hotbar slot 0, selected, and {@code second} in slot 1, standing at SHALLOWS on velocity. */
+    private static void standAt(JavaTickFixture f, Vec3 velocity, SimItemStack first, SimItemStack second) {
         var storage = f.player.getInventory().inventory.getInventoryStorage();
         storage.setItem(Inventory.HOTBAR_OFFSET, first);
         storage.setItem(Inventory.HOTBAR_OFFSET + 1, second);
-        f.place(SHALLOWS, SETTLED);
+        f.place(SHALLOWS, velocity);
         f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
     }
 
