@@ -31,7 +31,9 @@ public final class PalettedSection {
             MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
     // Host-owned threads outlive a runtime generation, so their map holds only host-loaded types.
     private static final FastThreadLocal<WeakReference<byte[]>> WORD_BYTES = new FastThreadLocal<>();
+    private static final FastThreadLocal<WeakReference<long[]>> CODE_WEIGHTS = new FastThreadLocal<>();
     private static final int SCRATCH_BYTES = 1024 * Long.BYTES;
+    private static final int SCRATCH_CODES = 1 << 8;
 
     static {
         for (int bits = 1; bits <= 32; bits++) {
@@ -447,9 +449,8 @@ public final class PalettedSection {
                 || bits == 0
                 || !localPaletteWithin(weightByState.length)
                 || words.length != (size + perWord - 1) / perWord) return -1;
-        long[] weights = new long[1 << bits];
-        Arrays.fill(weights, ABSENT_CODE_WEIGHT);
-        for (int code = 0, entries = Math.min(paletteSize, weights.length); code < entries; code++) {
+        long[] weights = codeWeights(1 << bits);
+        for (int code = 0, entries = Math.min(paletteSize, 1 << bits); code < entries; code++) {
             long weight = weightByState[palette[code]];
             if (weight < 0 || weight >= ABSENT_CODE_WEIGHT / 4096) return -1;
             weights[code] = weight;
@@ -460,6 +461,19 @@ public final class PalettedSection {
         else if (bits == 8) sum = byteSum(weights);
         else sum = packedSum(weights, perWord);
         return sum >= ABSENT_CODE_WEIGHT ? -1 : sum;
+    }
+
+    /** This thread's code weight table, its first {@code codes} entries absent; only the calling method reads it. */
+    private static long[] codeWeights(int codes) {
+        WeakReference<long[]> reference = CODE_WEIGHTS.get();
+        long[] weights = reference == null ? null : reference.get();
+        if (codes > SCRATCH_CODES) weights = new long[codes];
+        else if (weights == null) {
+            weights = new long[SCRATCH_CODES];
+            CODE_WEIGHTS.set(new WeakReference<>(weights));
+        }
+        Arrays.fill(weights, 0, codes, ABSENT_CODE_WEIGHT);
+        return weights;
     }
 
     private long nibbleSum(long[] weights) {
