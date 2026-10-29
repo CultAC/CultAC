@@ -5,11 +5,13 @@ import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.SHALLOWS;
 import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.charge;
 import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.lifted;
 import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.release;
+import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.select;
 import static ac.cult.cultac.network.JavaRiptideTridentSwitchTest.trident;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -97,6 +99,44 @@ class JavaRiptideReleaseTest {
         }
     }
 
+    /** From 1.21.5 the release moves the use to the held trident, which ItemStack#nextDamageWillBreak keeps still. */
+    @ParameterizedTest
+    @CsvSource({"V_1_21_11, 0, true", "V_1_21_11, 1, false", "V_26_3, 0, true", "V_26_3, 1, false"})
+    void aSwitchToATridentItsNextDamageBreaksDoesNotSpin(ClientVersion version, int level, boolean exact)
+            throws Exception {
+        try (var f = fixture(version)) {
+            charge(f, trident(3), breaking(trident(1)));
+            select(f, 1);
+            release(f);
+            assertRelease(f, level, exact);
+        }
+    }
+
+    /** TridentItem#use refuses a trident its next damage breaks, so the client releases no use. */
+    @ParameterizedTest
+    @CsvSource({"V_1_21_11, 0, true", "V_1_21_11, 3, false", "V_26_3, 0, true", "V_26_3, 3, false"})
+    void aUseOfATridentItsNextDamageBreaksDoesNotStart(ClientVersion version, int level, boolean exact)
+            throws Exception {
+        try (var f = fixture(version)) {
+            charge(f, breaking(trident(3)), trident(3));
+            select(f, 1);
+            release(f);
+            assertRelease(f, level, exact);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"V_1_21_11, 0, true", "V_1_21_11, 3, false", "V_26_3, 0, true", "V_26_3, 3, false"})
+    void aTridentDamagedDuringTheUseDoesNotSpin(ClientVersion version, int level, boolean exact) throws Exception {
+        try (var f = fixture(version)) {
+            SimItemStack trident = trident(3);
+            charge(f, trident);
+            breaking(trident);
+            release(f);
+            assertRelease(f, level, exact);
+        }
+    }
+
     /** TridentItem#releaseUsing refuses a passenger from 26.1. */
     @ParameterizedTest
     @CsvSource({"V_1_21_11, true", "V_26_1, false", "V_26_2, false", "V_26_3, false"})
@@ -113,6 +153,12 @@ class JavaRiptideReleaseTest {
 
     private static JavaTickFixture fixture(ClientVersion version) throws Exception {
         return new JavaTickFixture(ProtocolVersion.V26_3, version);
+    }
+
+    /** {@code trident} one damage from breaking. */
+    private static SimItemStack breaking(SimItemStack trident) {
+        trident.damage(trident.maxDamage() - 1);
+        return trident;
     }
 
     /** Whether the release tick moves exactly by the spin at {@code level}, or resting in the shallows without one. */

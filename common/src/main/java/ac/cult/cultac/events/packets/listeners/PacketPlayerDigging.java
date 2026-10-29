@@ -21,7 +21,7 @@ public class PacketPlayerDigging {
     public void onUseItem(PacketReceiveEvent<ServerboundUseItem> event, CultPlayer player, ServerboundUseItem packet) {
         Hand hand = packet.hand();
         SimItemStack item = player.getInventory().getHandItem(hand);
-        if (RiptideUtil.getRiptideLevel(item) > 0) {
+        if (RiptideUtil.getRiptideLevel(item) > 0 && !item.nextDamageWillBreak()) {
             player.packetStateData.riptideUseHand = hand;
             player.packetStateData.riptideUseStartClientTick = player.packetStateData.acceptedClientTick;
             int slot = player.getInventory().inventory.selected;
@@ -41,15 +41,15 @@ public class PacketPlayerDigging {
             PacketStateData state = player.packetStateData;
             Hand hand = state.riptideUseHand;
             SimItemStack item = hand == null ? null : player.getInventory().getHandItem(hand);
-            int held = RiptideUtil.getRiptideLevel(item);
+            int held = RiptideUtil.releaseLevel(item);
             int used = held;
             if (hand == Hand.MAIN_HAND
                     && state.riptideSelectClientTick == state.acceptedClientTick
                     && player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)) {
                 SimItemStack before = RiptideUtil.hotbarItem(player, state.riptideSlotBeforeSelect);
                 SimItemStack first = RiptideUtil.hotbarItem(player, state.riptideFirstSelectSlot);
-                held = RiptideUtil.getRiptideLevel(RiptideUtil.isTrident(first) ? first : before);
-                used = RiptideUtil.getRiptideLevel(RiptideUtil.isTrident(before) ? before : first);
+                held = RiptideUtil.releaseLevel(RiptideUtil.isTrident(first) ? first : before);
+                used = RiptideUtil.releaseLevel(RiptideUtil.isTrident(before) ? before : first);
             }
             int j = Math.max(held, used);
             int other = Math.min(held, used);

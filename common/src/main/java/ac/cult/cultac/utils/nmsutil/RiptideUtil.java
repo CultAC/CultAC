@@ -28,6 +28,11 @@ public final class RiptideUtil {
         return ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(item, "minecraft:riptide");
     }
 
+    /** The riptide level TridentItem#releaseUsing spins {@code item} at, none when ItemStack#nextDamageWillBreak. */
+    public static int releaseLevel(SimItemStack item) {
+        return item == null || item.nextDamageWillBreak() ? 0 : getRiptideLevel(item);
+    }
+
     public static boolean isValidRiptideRelease(CultPlayer player, Hand hand) {
         return isFullyCharged(player, hand) && canUseRiptideAtCurrentState(player);
     }
