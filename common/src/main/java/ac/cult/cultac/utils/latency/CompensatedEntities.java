@@ -958,6 +958,9 @@ public class CompensatedEntities {
         if (PacketEntityHurtingProjectile.isHurtingProjectile(entityType)) {
             return new PacketEntityHurtingProjectile(player, entityID, entityType, position, data);
         }
+        if (entityType == EntityTypeIds.FALLING_BLOCK) {
+            return new PacketEntityFallingBlock(player, entityID, position);
+        }
         return new PacketEntity(player, entityID, entityType, position.x, position.y, position.z);
     }
 

@@ -373,7 +373,8 @@ public class Collisions {
         }
     }
 
-    private static List<Axis> getAxisStepOrder(Vec3 movement) {
+    /** {@code Direction#axisStepOrder}. */
+    public static List<Axis> getAxisStepOrder(Vec3 movement) {
         return getAxisStepOrder(movement.x, movement.z);
     }
 

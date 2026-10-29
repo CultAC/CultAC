@@ -315,10 +315,15 @@ public final class VelocityCandidates {
                 || (ClientBlockProperties.isBed(onBlock) && !BlockIds.is(onBlock, BlockIds.STRAW_BED));
     }
 
+    /** {@code Block#getBounceRestitution}. */
+    public static float blockBounceRestitution(int block) {
+        return BlockIds.is(block, BlockIds.SLIME_BLOCK) ? 1.0F : isBouncyBlock(block) ? 0.75F : 0.0F;
+    }
+
     private static double blockBounciness(int onBlock, boolean living) {
         // MCP-Reborn 26.2 Entity#getBlockBounciness: non-living entities (such as
         // boats and minecarts) only receive 80% of the block's restitution.
-        double restitution = BlockIds.is(onBlock, BlockIds.SLIME_BLOCK) ? 1.0D : isBouncyBlock(onBlock) ? 0.75D : 0.0D;
+        double restitution = blockBounceRestitution(onBlock);
         return living ? restitution : restitution * 0.8D;
     }
 
@@ -340,7 +345,7 @@ public final class VelocityCandidates {
         return restitutedBounceY(deltaY, clippedY, gravity, airDrag, restitution);
     }
 
-    static double restitutedBounceY(
+    public static double restitutedBounceY(
             double deltaY, double clippedY, double gravity, double airDrag, double restitution) {
         // MCP-Reborn 26.2 Entity#restituteMovementAfterCollisions uses this raw
         // ratio. It deliberately does not clamp it: collision resolution can

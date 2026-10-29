@@ -56,8 +56,10 @@ import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityFallingBlock;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHook;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHurtingProjectile;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
@@ -715,19 +717,21 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         });
     }
 
-    // Movement, projectile ticks and the camera's Entity#getKnownMovement consume receipt-time velocity.
+    // Movement, projectile and falling block ticks and the camera's Entity#getKnownMovement consume receipt-time
+    // velocity.
     // Other entities retain it until a later proven packet makes them the vehicle.
     private boolean readsVelocityOnReceipt(int entityId) {
         Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
         TrackerData tracked = player.compensatedEntities.getTrackedEntity(entityId);
+        PacketEntity entity = player.compensatedEntities.getEntity(entityId);
         return entityId == player.entityID
                 || serverVehicle != null && serverVehicle == entityId
                 || player.cameraEntity.isServerCamera(entityId)
-                || player.compensatedEntities.getEntity(entityId)
-                        instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityHurtingProjectile
+                || entity instanceof PacketEntityHurtingProjectile
+                || entity instanceof PacketEntityFallingBlock
                 || tracked != null
-                        && ac.cult.cultac.utils.data.packetentity.PacketEntityHurtingProjectile.isHurtingProjectile(
-                                tracked.getEntityType());
+                        && (PacketEntityHurtingProjectile.isHurtingProjectile(tracked.getEntityType())
+                                || tracked.getEntityType() == EntityTypeIds.FALLING_BLOCK);
     }
 
     private void handleMoveEntityPacket(PacketSendEvent<ClientboundMoveEntity> event, ClientboundMoveEntity packet) {
