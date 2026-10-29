@@ -5,7 +5,6 @@ import ac.cult.cultac.manager.datastore.PlayerToggleStore;
 import ac.cult.cultac.network.netty.channel.ChannelHelper;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import java.util.UUID;
 import java.util.function.BiConsumer;
 import org.jetbrains.annotations.NotNull;
 
@@ -81,7 +80,7 @@ public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHoo
                 .onJoinFromUserLogin(platformPlayer, user, System.currentTimeMillis());
     }
 
-    private static void applyToggle(
+    static void applyToggle(
             @NotNull PlatformPlayer platformPlayer,
             @NotNull PlayerToggleStore toggles,
             @NotNull String key,
@@ -94,20 +93,15 @@ public class PlayerLoginHooks implements ac.cult.cultac.network.UserLifecycleHoo
             return;
         }
 
-        UUID uuid = platformPlayer.getUniqueId();
-        Boolean persisted = toggles.current(uuid, key);
-        if (persisted != null) {
-            applySilent.accept(platformPlayer, persisted);
+        Boolean explicit = toggles.current(platformPlayer.getUniqueId(), key);
+        if (explicit != null) {
+            applySilent.accept(platformPlayer, explicit);
             return;
         }
 
-        boolean enableOnJoin = platformPlayer.hasPermission(permEnableOnJoin);
-        boolean silent = platformPlayer.hasPermission(permSilentJoin);
-        if (enableOnJoin) {
-            toggle.accept(platformPlayer, silent);
-            toggles.applyPermissionDefault(uuid, key, true);
-        } else {
-            toggles.applyPermissionDefault(uuid, key, false);
+        // Without an explicit toggle the permission decides at every join and is never stored.
+        if (platformPlayer.hasPermission(permEnableOnJoin)) {
+            toggle.accept(platformPlayer, platformPlayer.hasPermission(permSilentJoin));
         }
     }
 }
