@@ -71,7 +71,7 @@ public final class VelocityCandidates {
         // replace its falling/zero carry with a mandatory bounce from a probe.
         OptionalDouble requiredPostCollisionY =
                 player != null ? requiredPacketVisibleSlimeBounceY(result, collisionMovementY) : OptionalDouble.empty();
-        if (requiredPostCollisionY.isEmpty() && player != null) requiredPostCollisionY = keptRisingY(player, result);
+        if (requiredPostCollisionY.isEmpty() && player != null) requiredPostCollisionY = risingMoveY(player, result);
         if (requiredPostCollisionY.isPresent()) {
             diff = new Vec3(diff.x, requiredPostCollisionY.getAsDouble(), diff.z);
             isY = false;
@@ -230,22 +230,42 @@ public final class VelocityCandidates {
 
     /**
      * Before 26.2, SlimeBlock and BedBlock#updateEntityMovementAfterFallOn bounce only a falling deltaMovement
-     * (SlimeBlock#bounceUp), so Entity#move keeps a rising one whether or not a ceiling clipped the move.
+     * (SlimeBlock#bounceUp), so Entity#move keeps a rising one whether or not a ceiling clipped the move. Every other
+     * Entity#getOnPosLegacy block runs Block#updateEntityMovementAfterFallOn, which zeroes the y of a clipped rising
+     * move.
      */
-    private static OptionalDouble keptRisingY(CultPlayer player, PredictionResult result) {
+    private static OptionalDouble risingMoveY(CultPlayer player, PredictionResult result) {
         SimulationContext context = result.getSimulationContext();
         if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)
                 || result.getInitialStartingVel() == null
-                || context == null
-                || suppressesBounce(context)) {
-            return OptionalDouble.empty();
-        }
-        int onBlock = context.getWorldData().getOnBlock();
-        if (!BlockIds.is(onBlock, BlockIds.SLIME_BLOCK) && !ClientBlockProperties.isBed(onBlock)) {
+                || context == null) {
             return OptionalDouble.empty();
         }
         double deltaY = preCollisionVelocity(result).y;
-        return deltaY > 0.0D ? OptionalDouble.of(deltaY) : OptionalDouble.empty();
+        if (deltaY <= 0.0D) return OptionalDouble.empty();
+        int onBlock = context.getWorldData().getOnBlock();
+        if (!suppressesBounce(context)
+                && (BlockIds.is(onBlock, BlockIds.SLIME_BLOCK) || ClientBlockProperties.isBed(onBlock))) {
+            return OptionalDouble.of(deltaY);
+        }
+        return clippedVertically(result) ? OptionalDouble.of(0.0D) : OptionalDouble.empty();
+    }
+
+    /** Whether Entity#collide changed the accepted move's vertical movement, {@code delta.y != movement.y}. */
+    private static boolean clippedVertically(PredictionResult result) {
+        MovementTrace trace = result.getValidMovements().getClosestTrace();
+        return tracesVerticalClip(result, trace) && trace.position().y != trace.preCollisionMovement().y;
+    }
+
+    /** Whether {@code trace} holds Entity#collide's vertical movement: an unshifted move at full vertical speed. */
+    private static boolean tracesVerticalClip(PredictionResult result, MovementTrace trace) {
+        if (trace == null
+                || trace.preCollisionMovement() == null
+                || trace.collisionBaseOffset().lengthSqr() > 1.0E-14) {
+            return false;
+        }
+        Vec3 stuck = trace.position().collisionStuckSpeedMultiplier(result.getSimulationContext());
+        return stuck == null || stuck.y == 1.0D;
     }
 
     /**
@@ -255,15 +275,7 @@ public final class VelocityCandidates {
      */
     private static boolean mayHaveClippedVertically(PredictionResult result) {
         MovementTrace trace = result.getValidMovements().getClosestTrace();
-        if (trace == null
-                || trace.preCollisionMovement() == null
-                || trace.collisionBaseOffset().lengthSqr() > 1.0E-14) {
-            return true;
-        }
-        Vec3 stuck = trace.position().collisionStuckSpeedMultiplier(result.getSimulationContext());
-        if (stuck != null && stuck.y != 1.0D) {
-            return true;
-        }
+        if (!tracesVerticalClip(result, trace)) return true;
         return trace.position().y != trace.preCollisionMovement().y && restsOnCollider(result, trace);
     }
 
