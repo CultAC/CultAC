@@ -38,9 +38,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 class JavaRiptideTridentSwitchTest {
     private static final ServerboundPlayerInput NONE =
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
-    private static final Vec3 SHALLOWS = new Vec3(0.5, FLOOR_Y, 0.5);
+    static final Vec3 SHALLOWS = new Vec3(0.5, FLOOR_Y, 0.5);
     /** LivingEntity#travelInFluid's gravity on a player resting on the floor of the water. */
-    private static final Vec3 SETTLED = new Vec3(0, -0.005, 0);
+    static final Vec3 SETTLED = new Vec3(0, -0.005, 0);
 
     private static final float LIFT = 1.1999999F;
     private static final float PITCH = -10.0F;
@@ -154,7 +154,7 @@ class JavaRiptideTridentSwitchTest {
         }
     }
 
-    private static SimItemStack trident(int level) {
+    static SimItemStack trident(int level) {
         SimItemStack trident = OfflineCultTestBootstrap.item("minecraft:trident");
         trident.setComponent("minecraft:enchantments", CanonicalSnbt.parse("{'minecraft:riptide':" + level + "}"));
         return trident;
@@ -165,35 +165,45 @@ class JavaRiptideTridentSwitchTest {
     }
 
     /** Charges the trident in slot 0 with {@code hotbar} in the first slots. */
-    private static void charge(JavaTickFixture f, SimItemStack... hotbar) {
+    static void charge(JavaTickFixture f, SimItemStack... hotbar) {
+        charge(f, 11, Hand.MAIN_HAND, hotbar);
+    }
+
+    /** Uses {@code hand} for {@code ticks} client ticks in the shallows with {@code hotbar} in the first slots. */
+    static void charge(JavaTickFixture f, int ticks, Hand hand, SimItemStack... hotbar) {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.WATER.defaultState());
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
         var storage = f.player.getInventory().inventory.getInventoryStorage();
         for (int slot = 0; slot < hotbar.length; slot++) storage.setItem(Inventory.HOTBAR_OFFSET + slot, hotbar[slot]);
         f.place(SHALLOWS, SETTLED);
         f.input(NONE);
-        var use = new ServerboundUseItem(Hand.MAIN_HAND, 1, 0, PITCH);
+        var use = new ServerboundUseItem(hand, 1, 0, PITCH);
         new PacketPlayerDigging().onUseItem(f.event(ServerboundPackets.USE_ITEM, use), f.player, use);
-        for (int tick = 0; tick < 11; tick++) f.tick(SHALLOWS, true);
+        hold(f, ticks);
+    }
+
+    /** {@code ticks} client ticks resting in the shallows, looking along +Z at {@link #PITCH}. */
+    static void hold(JavaTickFixture f, int ticks) {
+        for (int tick = 0; tick < ticks; tick++) f.tick(SHALLOWS, true);
         f.player.xRot = 0.0F;
         f.player.yRot = PITCH;
     }
 
-    private static void select(JavaTickFixture f, int slot) {
+    static void select(JavaTickFixture f, int slot) {
         var packet = new ServerboundSetCarriedItem(slot);
         var event = f.event(ServerboundPackets.SET_CARRIED_ITEM, packet);
         f.player.getInventory().onSetCarriedItem(event, f.player, packet);
         new PacketPlayerDigging().onSetCarriedItem(event, f.player, packet);
     }
 
-    private static void release(JavaTickFixture f) {
+    static void release(JavaTickFixture f) {
         var release =
                 new ServerboundPlayerAction(PlayerAction.RELEASE_USE_ITEM, new BlockPos(0, 0, 0), Direction.DOWN, 0);
         new PacketPlayerDigging().onPlayerAction(f.event(ServerboundPackets.PLAYER_ACTION, release), f.player, release);
     }
 
     /** The release tick's position: TridentItem#releaseUsing's push at {@code level}, then its lift. */
-    private static Vec3 lifted(int level) {
+    static Vec3 lifted(int level) {
         return SHALLOWS.add(0, LIFT, 0).add(SETTLED).add(push(level));
     }
 
