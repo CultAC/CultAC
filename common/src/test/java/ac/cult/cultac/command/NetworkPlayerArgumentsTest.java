@@ -304,6 +304,48 @@ class NetworkPlayerArgumentsTest {
     }
 
     @Test
+    void anyInstanceTakesExactlyTheNameWhenThePlatformParserFailsWithoutReadingIt() {
+        CloudPlatformCommandArguments peeking = new CloudPlatformCommandArguments() {
+            @Override
+            public ParserDescriptor<Sender, PlayerSelector> singlePlayerSelectorParser() {
+                return ParserDescriptor.of(
+                        (context, input) -> ArgumentParseResult.failure(
+                                new IllegalArgumentException("Player is not online: " + input.peekString())),
+                        PlayerSelector.class);
+            }
+
+            @Override
+            public SuggestionProvider<Sender> onlinePlayerSuggestions() {
+                return SuggestionProvider.noSuggestions();
+            }
+        };
+        var parser = NetworkPlayerArguments.anyInstance(
+                        new NetworkPlayerArguments(peeking).singlePlayerSelectorParser())
+                .parser();
+
+        CommandInput input = CommandInput.of("alice next");
+        NetworkTarget alice = parser.parseFuture(new CommandContext<>(sender, manager), input)
+                .join()
+                .parsedValue()
+                .orElseThrow();
+        assertEquals(ALICE, alice.elsewhere());
+        assertEquals("next", input.skipWhitespace().readString());
+    }
+
+    @Test
+    void spectatingAPlayerElsewhereStillNeedsThePermissionAndAPlayerSender() {
+        Sender denied = mock(Sender.class);
+        when(denied.isPlayer()).thenReturn(true);
+        execute(denied, "cult spectate Alice");
+        verify(denied).sendMessage(any(Component.class));
+
+        when(sender.isPlayer()).thenReturn(false);
+        execute(sender, "cult spectate Alice");
+        assertTrue(messages().getFirst().contains("can only be used by players"), messages()::toString);
+        assertTrue(routing.ran.isEmpty());
+    }
+
+    @Test
     void anyInstanceWithoutATransportFailsAsTheSelectorDoes() {
         routing.enabled = false;
         NetworkModule.platform(new Networked());
