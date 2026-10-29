@@ -113,6 +113,15 @@ class JavaShulkerLidPushTest {
     }
 
     /**
+     * ClientPacketListener#handleMovePlayer adds a relative axis to the position the last tick's shove left, so the
+     * accepted position includes it, and the next tick travels from there without it.
+     */
+    @Test
+    void aRelativeTeleportStartsFromTheShovedPosition() throws Exception {
+        rideOpeningLid(ClientVersion.V_26_1, 8, 0, Map.of(), Map.of(3, 0.5), -1, 0, false);
+    }
+
+    /**
      * ShulkerBoxBlockEntity#triggerEvent runs when the client handles the block event, and the first
      * ShulkerBoxBlockEntity#updateAnimation follows in that client tick, however many ticks after the server sent it.
      */
@@ -650,6 +659,20 @@ class JavaShulkerLidPushTest {
             double fakeY,
             boolean fakeOnGround)
             throws Exception {
+        return rideOpeningLid(version, ticks, ticksBeforeHandled, lifts, Map.of(), fakeTick, fakeY, fakeOnGround);
+    }
+
+    /** As above, with a teleport raising the player by the value of {@code raises} relative to where it is. */
+    private static PredictionResult rideOpeningLid(
+            ClientVersion version,
+            int ticks,
+            int ticksBeforeHandled,
+            Map<Integer, Double> lifts,
+            Map<Integer, Double> raises,
+            int fakeTick,
+            double fakeY,
+            boolean fakeOnGround)
+            throws Exception {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
             boolean shoveAfterTravel = version.isNewerThanOrEquals(ClientVersion.V_26_3);
@@ -677,6 +700,12 @@ class JavaShulkerLidPushTest {
                     y = BOX.getY() + lift;
                     velocity = 0.0;
                     f.teleport(new Vec3(0.5, y, 0.5), new RelativeFlag(0));
+                }
+                Double raise = raises.get(tick);
+                if (raise != null) {
+                    y += raise;
+                    velocity = 0.0;
+                    relativeTeleport(f, raise, y);
                 }
                 double lid = lidTop(progress[0]);
                 boolean onGround = y + velocity <= lid;
@@ -733,6 +762,12 @@ class JavaShulkerLidPushTest {
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         if (handled) f.pongThrough(f.player.lastTransactionSent.get());
+    }
+
+    /** A server player_position moving the player by {@code dy} on every relative axis, accepted at {@code y}. */
+    private static void relativeTeleport(JavaTickFixture f, double dy, double y) {
+        int mask = RelativeFlag.X.getMask() | RelativeFlag.Y.getMask() | RelativeFlag.Z.getMask();
+        serverTeleport(f, new Vec3(0, dy, 0), new RelativeFlag(mask), new Vec3(0.5, y, 0.5));
     }
 
     /** A server player_position to {@code location} under {@code flags}, accepted at {@code accepted}. */

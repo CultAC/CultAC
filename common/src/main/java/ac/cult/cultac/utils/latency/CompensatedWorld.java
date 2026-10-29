@@ -523,8 +523,20 @@ public class CompensatedWorld {
         lastTeleportPredictionSequence = clientPredictionSequence;
     }
 
-    public void onClientPositionSet(boolean relativeX, boolean relativeY, boolean relativeZ) {
-        clientBlockEntities.positionSet(relativeX, relativeY, relativeZ);
+    public void onClientPositionSet() {
+        clientBlockEntities.positionSet();
+    }
+
+    public Vec3 lastTickShulkerBoxShove() {
+        List<CompensatedBlockEntities.ShulkerShove> shoves = shulkerBoxShoves();
+        if (shoves.isEmpty() || pistons.reportsAfterBlockEntities()) return Vec3.ZERO;
+        var last = player.checkManager.getSimulationProcessor().getLastPrediction();
+        SimulationContext context = last == null ? null : last.getSimulationContext();
+        if (context == null || context.getVehicle() != null || context.getWorldData() == null) return Vec3.ZERO;
+        Pose pose = player.updatedPose(context.getWorldData().isSwimming(), player.x, player.y, player.z);
+        ShulkerBoxShoveResult result = shoveByShulkerBoxes(
+                context, shoves, new Vec3(player.x, player.y, player.z), pose, player.onGround, false);
+        return result == null ? Vec3.ZERO : result.movement();
     }
 
     /** BlockStatePredictionHandler#lastTeleportSequence exists from 26.1; older clients always snap back. */

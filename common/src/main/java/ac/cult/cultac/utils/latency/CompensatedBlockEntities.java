@@ -175,9 +175,8 @@ public final class CompensatedBlockEntities {
         lastTickShoves.clear();
     }
 
-    public void positionSet(boolean relativeX, boolean relativeY, boolean relativeZ) {
-        lastTickShoves.removeIf(shove ->
-                shove.x() != 0.0D && !relativeX || shove.y() != 0.0D && !relativeY || shove.z() != 0.0D && !relativeZ);
+    public void positionSet() {
+        lastTickShoves.clear();
     }
 
     /**
