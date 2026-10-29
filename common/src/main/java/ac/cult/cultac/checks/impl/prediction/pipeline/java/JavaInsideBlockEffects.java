@@ -193,24 +193,32 @@ public final class JavaInsideBlockEffects {
             Scan scan,
             JavaFallDistance.Moved moved,
             Vec3 velocity) {
-        SimulationContext context = result.getSimulationContext();
-        boolean slime = stepsOnSlime(player, result, moved);
-        if (scan == null) {
-            PacketEntity actor =
-                    context.getVehicle() == null ? context.getEntities().getSelf() : context.getVehicle();
-            for (int pass = 0; slime && pass < actorTickPasses(actor); pass++) velocity = slimeStepOn(velocity);
-            return new State(moved.fallDistance(), velocity, null);
-        }
-        return resolve(
+        return resolveAfterMove(
                 player,
-                context,
+                result.getSimulationContext(),
                 scan,
                 moved.fallDistance(),
                 velocity,
                 moved.landed(),
-                true,
-                slime,
-                context.getMovementPatch());
+                stepsOnSlime(player, result, moved));
+    }
+
+    /** {@link #resolveAfterMove} for a move no prediction ran, given whether its pass steps on slime. */
+    static State resolveAfterMove(
+            CultPlayer player,
+            SimulationContext context,
+            Scan scan,
+            double fallDistance,
+            Vec3 velocity,
+            boolean landed,
+            boolean slime) {
+        if (scan == null) {
+            PacketEntity actor =
+                    context.getVehicle() == null ? context.getEntities().getSelf() : context.getVehicle();
+            for (int pass = 0; slime && pass < actorTickPasses(actor); pass++) velocity = slimeStepOn(velocity);
+            return new State(fallDistance, velocity, null);
+        }
+        return resolve(player, context, scan, fallDistance, velocity, landed, true, slime, context.getMovementPatch());
     }
 
     /** AbstractBoat#tick invokes applyEffectsFromBlocks twice; every other actor tick once. */

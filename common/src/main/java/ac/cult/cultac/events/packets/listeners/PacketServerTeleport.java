@@ -227,6 +227,7 @@ public class PacketServerTeleport {
         // The packet handler can already see a different held item before MultiPlayerGameMode claims its slot.
         // This only queues a possible response; tick travel and passenger geometry still require proven control.
         var vehicles = player.compensatedEntities.vehicles;
+        if (root == null || vehicles.ridesAnotherEntityAsSent(root.getEntityId())) return null;
         return vehicles.mayLocalPlayerControl(root) || vehicles.canClientEchoLocalAuthoritativeMoveVehiclePacket(root)
                 ? root
                 : null;

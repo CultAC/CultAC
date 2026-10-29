@@ -72,6 +72,8 @@ public final class CompensatedVehicleState implements Debuggable {
     @Nullable
     public Integer serverPlayerVehicleTransaction;
 
+    private final SentRidingGraph sentRiding = new SentRidingGraph();
+
     CompensatedVehicleState(CultPlayer player, CompensatedEntities entities) {
         this.player = player;
         this.entities = entities;
@@ -108,6 +110,20 @@ public final class CompensatedVehicleState implements Debuggable {
         }
 
         entities.updatePassengerPositions();
+    }
+
+    /**
+     * ClientLevel#tickPassenger runs the Entity#rideTick of a boat the local player drives while that boat rides
+     * another entity. Its unreported tick runs in the recursive entity traversal.
+     */
+    public boolean isRiddenDrivenBoat(@Nullable PacketEntity boat) {
+        return !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && boat != null
+                && boat.isBoat()
+                && boat.getRiding() != null
+                && !boat.passengers.isEmpty()
+                && boat.passengers.getFirst() == entities.playerEntity;
     }
 
     /**
@@ -650,16 +666,60 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     /**
-     * Whether the client must send ServerboundMoveVehiclePacket each tick. LocalPlayer#sendChanges sends it when the
-     * root vehicle is Entity#isLocalInstanceAuthoritative, which needs a controlling passenger that is the local
-     * player; otherwise the passenger only sends its Rot. A pig or strider is controlled only while its rider holds the
-     * stick, which the client chooses, so neither is ever required to.
+     * Whether the client must send ServerboundMoveVehiclePacket each tick for {@code vehicle}, the entity it rides.
+     * LocalPlayer#sendChanges sends it when Entity#getRootVehicle is Entity#isLocalInstanceAuthoritative, which needs a
+     * controlling passenger that is the local player; otherwise the passenger only sends its Rot. Every controller is
+     * its vehicle's first passenger, so a vehicle that itself rides another entity never has the player controlling
+     * the root. A pig or strider is controlled only while its rider holds the stick, which the client chooses, so
+     * neither is ever required to.
      */
-    public boolean mustEchoMoveVehicle(@Nullable PacketEntity root) {
-        return root != null
-                && passengerIndex(root) == 0
-                && !isItemControlledVehicleType(root)
-                && canLocalClientAuthoritativelyMove(root);
+    public boolean mustEchoMoveVehicle(@Nullable PacketEntity vehicle) {
+        return vehicle != null
+                && vehicle.getRiding() == null
+                && passengerIndex(vehicle) == 0
+                && !isItemControlledVehicleType(vehicle)
+                && canLocalClientAuthoritativelyMove(vehicle);
+    }
+
+    /**
+     * Whether the server applies a checked ServerboundMoveVehiclePacket to the client's {@code vehicle}.
+     * ServerGamePacketListenerImpl#handleMoveVehicle moves
+     * the player's Entity#getRootVehicle, whatever entity the packet was sent for, and only while its controlling
+     * passenger is the player. As the server sent it, the player rides that vehicle first and the vehicle rides
+     * nothing.
+     */
+    public boolean serverMovesVehicleFor(@Nullable PacketEntity vehicle) {
+        return serverPlayerVehicle != null
+                && vehicle != null
+                && vehicle.getEntityId() == serverPlayerVehicle
+                && serverPlayerVehiclePassengers != null
+                && serverPlayerVehiclePassengers.length > 0
+                && serverPlayerVehiclePassengers[0] == player.entityID
+                && !sentRiding.rides(serverPlayerVehicle);
+    }
+
+    /** Records a sent set_passengers, which the client applies once it answers the packet's proof. */
+    public void onSentPassengers(int vehicleId, int[] passengers) {
+        sentRiding.setPassengers(vehicleId, passengers);
+    }
+
+    /** Records a sent remove_entities of {@code entityId}. */
+    public void onSentRemoval(int entityId) {
+        sentRiding.remove(entityId);
+    }
+
+    /** A login or a level change: ClientLevel holds no entities, so no riding link survives. */
+    public void clearSentRiding() {
+        sentRiding.clear();
+    }
+
+    /**
+     * Whether {@code entityId} rides another entity once the client has handled every packet sent so far, which is
+     * when it handles the next one. ClientPacketListener#handleMoveVehicle only moves, and echoes, a player's
+     * Entity#getRootVehicle, so it ignores a vehicle that rides another entity.
+     */
+    public boolean ridesAnotherEntityAsSent(int entityId) {
+        return sentRiding.rides(entityId);
     }
 
     private boolean canPossiblySwitchToItemControlThisClientTick(@Nullable PacketEntity vehicle) {
@@ -691,8 +751,10 @@ public final class CompensatedVehicleState implements Debuggable {
                 && canLocalClientAuthoritativelyMove(vehicle);
     }
 
+    /** The resync is a ClientboundMoveVehicle, which the client neither applies nor echoes for a stacked vehicle. */
     public boolean shouldProtocolResyncOnMount(@Nullable PacketEntity vehicle, int[] passengers) {
-        return canLocalClientAuthoritativelyMoveMountedVehicle(vehicle, passengers);
+        return canLocalClientAuthoritativelyMoveMountedVehicle(vehicle, passengers)
+                && !ridesAnotherEntityAsSent(vehicle.getEntityId());
     }
 
     public boolean hasClientObservedServerVehicle() {
@@ -787,8 +849,8 @@ public final class CompensatedVehicleState implements Debuggable {
             // Entity#startRiding refuses a vehicle the passenger already rides or one that rides the passenger.
             if (passenger.getRiding() == vehicle || entities.ridesIndirectly(vehicle, passenger)) continue;
             passenger.mount(vehicle);
-            // The seat is placed before the client's next ride tick confirms it.
-            passenger.markPositionInexact();
+            // A boat retains its exact pre-mount position until Entity#rideTick ends.
+            if (player.isBedrockMovement() || !passenger.isBoat()) passenger.markPositionInexact();
         }
         entities.updatePassengerPositions();
         seedStartingVelocityIfRootChanged(previousRoot);

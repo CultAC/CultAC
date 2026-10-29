@@ -156,16 +156,20 @@ public class BoatData {
             // MCP-Reborn AbstractBoat#tick copies status to oldStatus, then
             // samples getStatus() from the current pre-move bounding box.
             oldStatus = status;
-            BoatStatusSample sample = sampleStatus(player, boatBox);
-            status = sample.status();
-            waterLevel = sample.waterLevel();
-            if (sample.landFriction() > 0.0F) {
-                landFriction = sample.landFriction();
-            }
+            sampleCurrentPosition(player, boatBox);
         } else {
             fluidInteractionBox = null;
             oldStatusMayBeInAir = false;
         }
+    }
+
+    /** getStatus and baseTick sample the same position, including an earlier shulker move. */
+    public void sampleCurrentPosition(CultPlayer player, SimpleCollisionBox boatBox) {
+        fluidInteractionBox = boatBox.copy();
+        BoatStatusSample sample = sampleStatus(player, boatBox);
+        status = sample.status();
+        waterLevel = sample.waterLevel();
+        if (sample.landFriction() > 0.0F) landFriction = sample.landFriction();
     }
 
     private static SimpleCollisionBox getControlledBoatCurrentBox(CultPlayer player, PacketEntity vehicle) {

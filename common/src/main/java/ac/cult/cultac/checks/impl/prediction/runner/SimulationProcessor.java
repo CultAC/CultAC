@@ -1798,6 +1798,19 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.validPlayerStartingVels = new HashSet<>(velocities);
     }
 
+    /**
+     * Carries a tick the client ran for the vehicle it controls without reporting it (JavaRiddenBoatTick): its
+     * complete end states start the next tick, whose ground they state, and its move consumed the stuck speed the
+     * last reported tick required.
+     */
+    public void carryUnreportedVehicleTick(JavaPredictionCarry carry, DesyncStatus onGround) {
+        this.profileCarry = carry;
+        this.validPlayerStartingVels = new HashSet<>();
+        for (var state : carry.states()) this.validPlayerStartingVels.add(state.velocity());
+        this.lastOnGround = onGround;
+        this.rideTicksSinceLastPrediction = true;
+    }
+
     /** A passenger packet changes the simulated actor, but does not consume the player's on-foot motion. */
     public void beginRide() {
         this.startingVelsBeforeRide = new HashSet<>(this.validPlayerStartingVels);

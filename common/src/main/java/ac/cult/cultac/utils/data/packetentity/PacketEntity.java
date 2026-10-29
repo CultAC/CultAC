@@ -1362,6 +1362,7 @@ public class PacketEntity {
             newPacketLocation.applyPredictedMovement(player, this, recordedMovement);
         }
         blockEntityPhysicalBox = box.copy();
+        if (riding != null) passengerPhysicalBox = box.copy();
         clientPhysicalPosition = positionFromCollisionBox(box);
         clientPhysicalPositionExact = true;
         clientPositionChanged();
@@ -1375,6 +1376,7 @@ public class PacketEntity {
         // Entity#positionRider uses setPos, not snapTo: neither the codec nor
         // the pending interpolation path is replaced by the attachment position.
         passengerPhysicalBox = box.copy();
+        blockEntityPhysicalBox = null;
         clientPhysicalPosition = positionFromCollisionBox(box);
         clientPhysicalPositionExact = true;
         clientPositionChanged();

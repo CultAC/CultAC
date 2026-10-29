@@ -1013,7 +1013,7 @@ public class CompensatedEntities {
 
     /** Discrete compensated positions, including the local player's intermediate vehicles; never a union-box center. */
     public List<SimpleCollisionBox> ridingPositionCandidates(PacketEntity entity) {
-        if (entity.getRiding() == null) return entity.getPossibleMovementCollisionBoxCandidates();
+        if (entity.getRiding() == null || entity.isBoat()) return entity.getPossibleMovementCollisionBoxCandidates();
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         PacketEntity vehicle = entity.getRiding();
         for (SimpleCollisionBox parent : ridingPositionCandidates(vehicle)) {
@@ -1078,6 +1078,13 @@ public class CompensatedEntities {
     }
 
     public void positionPassenger(PacketEntity riding, PacketEntity passenger) {
+        // startRiding only links a boat. Its first tick samples this position before positionRider seats it;
+        // packet updates must also preserve a later piston/shulker displacement until its next rideTick.
+        if (!player.isBedrockMovement() && passenger.isBoat()) return;
+        seatPassenger(riding, passenger);
+    }
+
+    private void seatPassenger(PacketEntity riding, PacketEntity passenger) {
         Vec3 passengerPosition = BoundingBoxSize.getRidingOffsetFromVehicle(riding, passenger, player);
         passenger.inheritPositionCertainty(riding);
         passenger.setPassengerPosition(
@@ -1733,8 +1740,8 @@ public class CompensatedEntities {
         // Player.tick reads isSpectator before its normal tick. Remote players cache PlayerInfo here.
         if (entity instanceof PacketEntityPlayer remote && remote.actionPresent) remote.cacheInfo(clientPlayerModes);
         if (entity != getSelf()) tick.accept(entity);
-        if (entity.getRiding() != null) {
-            positionPassenger(entity.getRiding(), entity);
+        if (entity.getRiding() != null && !vehicles.isRiddenDrivenBoat(entity)) {
+            seatPassenger(entity.getRiding(), entity);
         }
         for (PacketEntity passenger : entity.passengers) {
             if (passenger.getRiding() == entity && isTicking(passenger)) tickEntityTree(passenger, tick);

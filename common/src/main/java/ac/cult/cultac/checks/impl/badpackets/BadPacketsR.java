@@ -65,8 +65,9 @@ public class BadPacketsR extends Check implements CheckListener {
             if (packet.hasPosition()) positions++;
             return;
         }
-        // LocalPlayer#sendChanges sends a passenger's Rot every tick, and a MoveVehicle only for a vehicle it controls,
-        // so the Rot is the update of a passenger the vehicle does not require to move it.
+        // LocalPlayer#sendChanges sends a passenger's Rot every tick, and a MoveVehicle only for the root vehicle it
+        // controls, so the Rot is the update of a passenger whose vehicle does not require one, such as a boat that
+        // itself rides a minecart.
         if (!player.compensatedEntities.vehicles.mustEchoMoveVehicle(
                 player.compensatedEntities.getSelf().getRiding())) {
             positions++;

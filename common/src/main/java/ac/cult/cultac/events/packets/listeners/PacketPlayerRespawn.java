@@ -106,6 +106,7 @@ public class PacketPlayerRespawn {
         // ClientPacketListener.handleLogin sets the local player's ID from this packet.
         // A proxy may rewrite it independently of the backend's native entity ID.
         player.entityID = packet.playerId();
+        player.compensatedEntities.vehicles.clearSentRiding();
         if (!player.isBedrockMovement()) {
             player.compensatedEntities.serverPositionsMap.clear();
             player.getSetbackTeleportUtil().loginSent();
@@ -252,6 +253,7 @@ public class PacketPlayerRespawn {
 
         if (worldChange) {
             player.compensatedEntities.serverPositionsMap.clear();
+            player.compensatedEntities.vehicles.clearSentRiding();
             clearFairReachLevel(player);
             player.compensatedWorld.serverWorldChangeSent();
         }

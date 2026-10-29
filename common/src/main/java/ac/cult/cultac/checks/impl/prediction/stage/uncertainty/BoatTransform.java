@@ -365,6 +365,11 @@ public class BoatTransform implements UncertaintyHandler {
             startYaw = getControlledBoatYaw(context);
             postControlYaw = startYaw + deltaRotation;
         }
+        return new BoatControlResult(
+                thrust(player, inputs, vector, postControlYaw), deltaRotation, startYaw, postControlYaw);
+    }
+
+    private static Vec3 thrust(CultPlayer player, KnownInput inputs, Vec3 vector, float postControlYaw) {
         float f = 0.0F;
         if (inputs.right() != inputs.left() && !inputs.forward() && !inputs.backward()) {
             f += 0.005F;
@@ -383,11 +388,36 @@ public class BoatTransform implements UncertaintyHandler {
         // forward/backward acceleration using the boat entity yaw. LocalPlayer#tick
         // sends player Rot separately from ServerboundMoveVehiclePacket, so boat
         // thrust must follow the controlled boat yaw, not the passenger look yaw.
-        Vec3 controlled = vector.add(new Vec3(
+        return vector.add(new Vec3(
                 player.trigHandler.sin(-postControlYaw * ((float) Math.PI / 180F)) * f,
                 0,
                 player.trigHandler.cos(postControlYaw * ((float) Math.PI / 180F)) * f));
-        return new BoatControlResult(controlled, deltaRotation, startYaw, postControlYaw);
+    }
+
+    /**
+     * One AbstractBoat#tick up to Entity#move: {@code velocity} is the delta Entity#move receives, {@code snapY}
+     * floatBoat's water-entry setPos height change (0 without one) and {@code yaw} the yaw controlBoat left.
+     */
+    public record UnreportedTick(Vec3 velocity, double snapY, float yaw) {}
+
+    /**
+     * AbstractBoat#tick up to Entity#move for a tick no MoveVehicle reports, from Entity#rideTick's zero delta:
+     * Entity#baseTick's water current, floatBoat, and controlBoat turning the boat from {@code yaw}, its own yaw.
+     * BoatData must already hold the status this tick sampled; the tick's water level, steering and lastYd are stored
+     * there, as commitAcceptedBoatTickState stores a reported tick's.
+     */
+    public static UnreportedTick unreportedTick(CultPlayer player, SimulationContext context, float yaw) {
+        Vec3 current = applyBoatWaterCurrent(player, context, Vec3.ZERO);
+        FloatBoatResult floated = floatBoat(player, context, current, BoatTickState.capture(player));
+        float deltaRotation = applyBoatControlDelta(floated.state().deltaRotation(), context.getBoatInputs());
+        float postControlYaw = yaw + deltaRotation;
+        Vec3 controlled = thrust(player, context.getBoatInputs(), floated.vector(), postControlYaw);
+        BoatTickState state = floated.state().withDeltaRotation(deltaRotation);
+        state.apply(player);
+        // The water-entry branch's setPos is position only; it also cleared the Y delta Entity#move receives.
+        return state.nullifyNextY()
+                ? new UnreportedTick(new Vec3(controlled.x, 0, controlled.z), controlled.y, postControlYaw)
+                : new UnreportedTick(controlled, 0, postControlYaw);
     }
 
     private static float getControlledBoatYaw(SimulationContext context) {
@@ -420,7 +450,7 @@ public class BoatTransform implements UncertaintyHandler {
 
     private record BoatControlResult(Vec3 vector, float deltaRotation, float startYaw, float postControlYaw) {}
 
-    private record BoatTickState(
+    public record BoatTickState(
             BoatEntityStatus oldStatus,
             BoatEntityStatus status,
             double waterLevel,
@@ -429,7 +459,7 @@ public class BoatTransform implements UncertaintyHandler {
             boolean nullifyNextY,
             double lastYd,
             boolean oldStatusMayBeInAir) {
-        private static BoatTickState capture(CultPlayer player) {
+        public static BoatTickState capture(CultPlayer player) {
             return new BoatTickState(
                     player.boatData.oldStatus,
                     player.boatData.status,
@@ -501,7 +531,7 @@ public class BoatTransform implements UncertaintyHandler {
                     oldStatusMayBeInAir);
         }
 
-        private void apply(CultPlayer player) {
+        public void apply(CultPlayer player) {
             player.boatData.status = status;
             player.boatData.waterLevel = waterLevel;
             player.boatData.deltaRotation = deltaRotation;

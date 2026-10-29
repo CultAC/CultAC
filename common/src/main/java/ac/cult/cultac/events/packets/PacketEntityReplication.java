@@ -439,6 +439,9 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
         if (player.isBedrockMovement() || !player.checkManager.getSimulationProcessor().hasRideTick())
             player.compensatedEntities.recordRideTickSeat();
+        PacketEntity boat = player.compensatedEntities.getSelf().getRiding();
+        if (player.compensatedEntities.vehicles.isRiddenDrivenBoat(boat))
+            ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenBoatPass.afterTick(player, boat);
         player.compensatedEntities.vehicles.updateServerControlledSafeSetbackPositionOnTickEnd();
         transformTick++;
     }
@@ -450,6 +453,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     && entity
                             == ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(
                                     player)) return;
+            if (player.compensatedEntities.vehicles.isRiddenDrivenBoat(entity)) {
+                ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenBoatTick.tick(player, entity);
+                return;
+            }
             if (entity == velocityVehicle && player.compensatedEntities.vehicles.isLocallyTickedVelocityRoot(entity)) {
                 return;
             }
@@ -1325,6 +1332,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         boolean mountsLocalPlayer = packet.passengers().contains(player.entityID);
         int[] passengers =
                 packet.passengers().stream().mapToInt(Integer::intValue).toArray();
+        player.compensatedEntities.vehicles.onSentPassengers(packet.vehicleId(), passengers);
         PacketEntity vehicle = player.compensatedEntities.getEntity(packet.vehicleId());
         Integer immediateVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
         boolean delayedVehicleCanStillBeCurrent = immediateVehicle == null
@@ -1661,6 +1669,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
         for (int entityID : destroyEntityIds) {
             despawnedEntitiesThisTransaction.add(entityID);
+            player.compensatedEntities.vehicles.onSentRemoval(entityID);
             if (player.compensatedEntities.vehicles.serverPlayerVehicle != null
                     && player.compensatedEntities.vehicles.serverPlayerVehicle == entityID) {
                 PacketEntity vehicle = player.compensatedEntities.getEntity(entityID);

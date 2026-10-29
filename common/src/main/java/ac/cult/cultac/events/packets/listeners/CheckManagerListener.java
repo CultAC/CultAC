@@ -811,8 +811,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                                 fromClientTick)
                         || (fromClientTick
                                 && player.compensatedEntities.vehicles.isVehicleSwitchBufferActiveFor(packetRoot));
+        // LocalPlayer#sendChanges reports only Entity#getRootVehicle, so no client tick moves a vehicle that rides
+        // another entity, even one the player controls.
+        boolean clientRoot = packetRoot != null && packetRoot.getRiding() == null;
         boolean checkableClientTick =
-                fromClientTick && packetRoot != null && canAuthoritativelyMove && !teleportData.isTeleport();
+                fromClientTick && clientRoot && canAuthoritativelyMove && !teleportData.isTeleport();
 
         if (!teleportData.isTeleport() && !checkableClientTick) {
             player.packetStateData.lastPacketWasTeleport = false;
@@ -833,7 +836,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 player.checkManager.getCheck(BadPacketsVehicle.class).handleInvalidVehiclePacket(fromClientTick);
             }
             if (fromClientTick) {
-                if (packetRoot != null && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
+                if (clientRoot && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
                     packetRoot.interpolateBeforeLocalTravel(player);
                 }
                 player.packetStateData.clientTickVehicleMovePacketsThisClientTick++;
@@ -951,6 +954,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                         physicalPitch);
             }
         }
+
+        // ServerGamePacketListenerImpl#handleMoveVehicle moves whatever root the server has the player controlling.
+        // A checked move still reaches it only while that root is the vehicle the client moved; across a sent
+        // mount, dismount or stacking the client has not answered yet, the server never sees it.
+        if (!player.compensatedEntities.vehicles.serverMovesVehicleFor(packetRoot)) event.setCancelled(true);
 
         dispatchReceiveHandlers(event, player);
         clearTransientPacketState(player);
