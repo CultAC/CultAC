@@ -3,9 +3,11 @@ package ac.cult.cultac.command.commands;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
+import ac.cult.cultac.command.NetworkPlayerArguments;
+import ac.cult.cultac.command.NetworkPlayerArguments.NetworkTarget;
 import ac.cult.cultac.command.requirements.PlayerSenderRequirement;
 import ac.cult.cultac.manager.SpectateManager;
-import ac.cult.cultac.platform.api.command.PlayerSelector;
+import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
@@ -24,27 +26,34 @@ public class CultSpectate implements BuildableCommand {
         commandManager.command(BuildableCommand.root(commandManager)
                 .literal("spectate")
                 .permission("cult.spectate")
-                .required("target", arguments.singlePlayerSelectorParser())
+                .required("target", NetworkPlayerArguments.anyInstance(arguments.singlePlayerSelectorParser()))
                 .handler(this::handleSpectate)
                 .apply(CloudCommandService.REQUIREMENT_FACTORY.create(PlayerSenderRequirement.INSTANCE)));
     }
 
     private void handleSpectate(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
-        PlayerSelector targetSelectorResults = context.getOrDefault("target", null);
-        if (targetSelectorResults == null) return;
+        NetworkTarget typed = context.getOrDefault("target", null);
+        if (typed == null) return;
 
-        PlatformPlayer targetPlatformPlayer =
-                targetSelectorResults.getSinglePlayer().getPlatformPlayer();
+        SpectateManager spectateManager = CultAPI.INSTANCE.getSpectateManager();
+        NetworkPlayer elsewhere = typed.elsewhere();
+        SpectateManager.Target target;
+        if (elsewhere != null) {
+            target = new SpectateManager.Target(elsewhere.uuid(), elsewhere.name(), null, elsewhere.server());
+        } else {
+            PlatformPlayer targetPlatformPlayer =
+                    Objects.requireNonNull(typed.here()).getSinglePlayer().getPlatformPlayer();
+            target = spectateManager.target(Objects.requireNonNull(targetPlatformPlayer, "targetPlatformPlayer"));
+        }
 
-        if (targetPlatformPlayer != null && targetPlatformPlayer.getUniqueId().equals(sender.getUniqueId())) {
+        if (target.id().equals(sender.getUniqueId())) {
             sender.sendMessage(MessageUtil.getParsedComponent(
                     sender, "cannot-run-on-self", "%prefix% &cYou cannot use this command on yourself!"));
             return;
         }
 
         @NotNull PlatformPlayer platformPlayer = Objects.requireNonNull(sender.getPlatformPlayer(), "platformPlayer");
-        PlatformPlayer target = Objects.requireNonNull(targetPlatformPlayer, "targetPlatformPlayer");
         Runnable sendReturnLink = () -> sender.sendMessage(
                 MessageUtil.getParsedComponent(
                         sender,
@@ -55,7 +64,7 @@ public class CultSpectate implements BuildableCommand {
                 .spectate(platformPlayer, target, sendReturnLink)
                 .whenComplete((result, failure) -> {
                     if (failure != null) {
-                        LogUtil.error("Spectating " + target.getName() + " failed", failure);
+                        LogUtil.error("Spectating " + target.name() + " failed", failure);
                         sender.sendMessage(Component.text("Teleport failed, please try again.", NamedTextColor.RED));
                         return;
                     }
@@ -66,7 +75,7 @@ public class CultSpectate implements BuildableCommand {
                                             "Spectating requires server-side game-mode changes and teleports, which this platform cannot perform."));
                         case CONNECT_FAILED ->
                             sender.sendMessage(Component.text(
-                                    "Could not connect you to " + target.getName() + "'s server, please try again.",
+                                    "Could not connect you to " + target.name() + "'s server, please try again.",
                                     NamedTextColor.RED));
                         case TELEPORT_FAILED ->
                             sender.sendMessage(
@@ -79,6 +88,13 @@ public class CultSpectate implements BuildableCommand {
                                     "Could not read your game mode and position from the server, so spectating did not"
                                             + " start. Please try again.",
                                     NamedTextColor.RED));
+                        case UNREACHABLE ->
+                            sender.sendMessage(
+                                    NetworkPlayerArguments.whereabouts(
+                                            sender,
+                                            Objects.requireNonNull(elsewhere),
+                                            "network-spectate-unreachable",
+                                            "&c%player% is on %location%; spectating across servers needs CultAC on the proxy."));
                         case SPECTATING -> {}
                     }
                 });

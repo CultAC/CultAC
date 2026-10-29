@@ -4,6 +4,7 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.packet.WorldPackets.SectionBlocksUpdate;
@@ -111,6 +112,8 @@ public class CompensatedWorld {
     private boolean levelUnresolved;
     private boolean isCurrentlyPredicting = false;
     private final Long2IntOpenHashMap selectionOriginalStates = new Long2IntOpenHashMap();
+    private final Long2ObjectOpenHashMap<BlockEntityData> selectionOriginalBlockEntities =
+            new Long2ObjectOpenHashMap<>();
     private boolean selectionSnapshotActive;
     private boolean readingSelectionSnapshot;
     private String selectionHeldItemKey;
@@ -501,6 +504,7 @@ public class CompensatedWorld {
 
     public void endSelectionSnapshot() {
         selectionOriginalStates.clear();
+        selectionOriginalBlockEntities.clear();
         selectionSnapshotActive = false;
         selectionHeldItemKey = null;
     }
@@ -521,6 +525,22 @@ public class CompensatedWorld {
     public void onClientTeleport() {
         if (!tracksTeleportSequence()) return;
         lastTeleportPredictionSequence = clientPredictionSequence;
+    }
+
+    public void onClientPositionSet() {
+        clientBlockEntities.positionSet();
+    }
+
+    public Vec3 lastTickShulkerBoxShove() {
+        List<CompensatedBlockEntities.ShulkerShove> shoves = shulkerBoxShoves();
+        if (shoves.isEmpty() || pistons.reportsAfterBlockEntities()) return Vec3.ZERO;
+        var last = player.checkManager.getSimulationProcessor().getLastPrediction();
+        SimulationContext context = last == null ? null : last.getSimulationContext();
+        if (context == null || context.getVehicle() != null || context.getWorldData() == null) return Vec3.ZERO;
+        Pose pose = player.updatedPose(context.getWorldData().isSwimming(), player.x, player.y, player.z);
+        ShulkerBoxShoveResult result = shoveByShulkerBoxes(
+                context, shoves, new Vec3(player.x, player.y, player.z), pose, player.onGround, false);
+        return result == null ? Vec3.ZERO : result.movement();
     }
 
     /** BlockStatePredictionHandler#lastTeleportSequence exists from 26.1; older clients always snap back. */
@@ -1052,6 +1072,8 @@ public class CompensatedWorld {
         int original = getBlockStateIdAt(asVector);
         if (isCurrentlyPredicting && selectionSnapshotActive) {
             selectionOriginalStates.putIfAbsent(asVector.asLong(), original);
+            if (!selectionOriginalBlockEntities.containsKey(asVector.asLong()))
+                selectionOriginalBlockEntities.put(asVector.asLong(), clientBlockEntities.stored(asVector));
         }
 
         if (isCurrentlyPredicting && !player.isBedrockMovement()) {
@@ -1401,8 +1423,9 @@ public class CompensatedWorld {
 
     /**
      * The shulker box block shoves this packet carries. Before 26.3 they move the player from the packet's start; from
-     * 26.3 from its travel's end. PistonMovingBlockEntity#moveCollidedEntities and Shulker#onPeekAmountChange calls of
-     * this packet or the last also move the player; without them, each call's result follows from the one before.
+     * 26.3 from its travel's end. PistonMovingBlockEntity#moveCollidedEntities calls of this packet and
+     * Shulker#onPeekAmountChange calls of this packet or the last also move the player; without them, each call's
+     * result follows from the one before.
      */
     private void shoveByShulkerBoxes(
             SimulationContext context,
@@ -1410,12 +1433,10 @@ public class CompensatedWorld {
             PistonPushes lastPushes,
             List<CompensatedBlockEntities.ShulkerShove> shoves,
             PistonPushes pushes) {
-        // PistonShulkerPush replays the last packet's piston and shulker entity moves in this one.
+        // PistonShulkerPush replays the last packet's shulker entity moves in this one.
         boolean exact = pushes.getPistonPush().isEmpty()
                 && pushes.getShulkerPush().isEmpty()
-                && (lastPushes == null
-                        || lastPushes.getPistonPush().isEmpty()
-                                && lastPushes.getShulkerPush().isEmpty());
+                && (lastPushes == null || lastPushes.getShulkerPush().isEmpty());
         SimpleCollisionBox envelope = new SimpleCollisionBox();
         if (!pistons.reportsAfterBlockEntities()) {
             ShulkerBoxShoveResult result =
@@ -1467,10 +1488,7 @@ public class CompensatedWorld {
         double[] low = new double[3];
         double[] high = new double[3];
         for (SimpleCollisionBox push : new SimpleCollisionBox[] {
-            pushes.getPistonPush(),
-            pushes.getShulkerPush(),
-            lastPushes == null ? null : lastPushes.getPistonPush(),
-            lastPushes == null ? null : lastPushes.getShulkerPush()
+            pushes.getPistonPush(), pushes.getShulkerPush(), lastPushes == null ? null : lastPushes.getShulkerPush()
         }) {
             if (push == null || push.isEmpty()) continue;
             low[0] = Math.min(low[0], push.minX);
@@ -1638,6 +1656,11 @@ public class CompensatedWorld {
     }
 
     public ac.cult.blocksim.engine.BlockEntityData getClientBlockEntityData(BlockPos pos) {
+        long key = pos.asLong();
+        if (readingSelectionSnapshot && selectionOriginalBlockEntities.containsKey(key)) {
+            var original = selectionOriginalBlockEntities.get(key);
+            return original != null ? original : clientBlockEntities.prototype(getBlockStateIdAt(pos));
+        }
         return clientBlockEntities.snapshot(pos, getBlockStateIdAt(pos));
     }
 

@@ -25,6 +25,7 @@ import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BoatData;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.ReachInterpolationData;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
@@ -130,6 +131,8 @@ public class PacketEntity {
     public BoatEntityStatus boatStatus = null;
     // AbstractBoat#deltaRotation of this boat as the player's control moved to another boat.
     public float boatDeltaRotation;
+    // AbstractBoat#setInput's keys, written only by the local player's LocalPlayer#rideTick.
+    public KnownInput boatInput = KnownInput.DEFAULT;
 
     @Getter
     private final int entityId;
@@ -1035,6 +1038,28 @@ public class PacketEntity {
 
     public boolean hasPassenger(PacketEntity entity) {
         return passengers.contains(entity);
+    }
+
+    /**
+     * Whether ClientLevel#tickEntities ticks the entity in the client tick in progress: TickRateManager#isEntityFrozen
+     * spares a player and a vehicle that carries one, and a passenger ticks with its root vehicle.
+     */
+    public boolean ticksOnClient(CultPlayer player) {
+        if (player.compensatedWorld.clientRunsNormally()) return true;
+        PacketEntity root = this;
+        while (root.riding != null) root = root.riding;
+        return isPlayer(root) || carriesPlayer(root);
+    }
+
+    private static boolean isPlayer(PacketEntity entity) {
+        return entity instanceof PacketEntityPlayer || entity instanceof PacketEntitySelf;
+    }
+
+    private static boolean carriesPlayer(PacketEntity entity) {
+        for (PacketEntity passenger : entity.passengers) {
+            if (isPlayer(passenger) || carriesPlayer(passenger)) return true;
+        }
+        return false;
     }
 
     public void mount(PacketEntity vehicle) {

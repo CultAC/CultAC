@@ -24,8 +24,11 @@ public final class RegistryGenerationAlerts {
         CultNetworkManager.reportFailure("registry generation", player.getName(), failure);
         String occurrence = failure.getClass().getName() + ": " + failure.getMessage();
         if (!admit(occurrence, System.currentTimeMillis())) return;
-        alert("CultAC could not model the registry data sent to " + player.getName() + " (" + occurrence
-                + "). Players configured by that server use model defaults until it reconfigures them." + SUPPRESSED);
+        alert(
+                player,
+                "CultAC could not model the registry data sent to " + player.getName() + " (" + occurrence
+                        + "). Players configured by that server use model defaults until it reconfigures them."
+                        + SUPPRESSED);
     }
 
     /** Logs once per backend and dimension type, without a stack trace, and tells staff that checks are paused. */
@@ -37,13 +40,15 @@ public final class RegistryGenerationAlerts {
         if (!admit("dimension " + server + " " + dimensionType, System.currentTimeMillis())) return;
         LogUtil.warn("CultAC paused checks for " + player.getName() + " on " + server + ": dimension type "
                 + dimensionType + " is unknown (" + failure.getMessage() + ")");
-        alert("CultAC paused checks for " + player.getName() + " on " + server
-                + " because the server sent registry data CultAC cannot model (dimension type " + dimensionType
-                + "). Checks resume when that player reaches a level CultAC can model." + SUPPRESSED);
+        alert(
+                player,
+                "CultAC paused checks for " + player.getName() + " on " + server
+                        + " because the server sent registry data CultAC cannot model (dimension type " + dimensionType
+                        + "). Checks resume when that player reaches a level CultAC can model." + SUPPRESSED);
     }
 
-    private static void alert(String message) {
-        CultAPI.INSTANCE.getAlertManager().sendAlert(Component.text(message, NamedTextColor.RED), null);
+    private static void alert(CultPlayer player, String message) {
+        CultAPI.INSTANCE.getAlertManager().sendAlert(player, Component.text(message, NamedTextColor.RED), null);
     }
 
     /**

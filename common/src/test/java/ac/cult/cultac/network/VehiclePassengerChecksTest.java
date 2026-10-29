@@ -5,8 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsC;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsR;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsO;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
@@ -23,8 +26,12 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
@@ -40,6 +47,7 @@ import org.junit.jupiter.api.Test;
 class VehiclePassengerChecksTest {
     private static final int VEHICLE = 100;
     private static final Vec3 SEAT = new Vec3(0.5, FLOOR_Y + 1, 0.5);
+    private static final List<String> FACINGS = List.of("north", "south", "west", "east");
 
     @Test
     void anInventoryOpenedWhileRidingIsNotRotatedByThePassengersUnchangedRot() throws Exception {
@@ -105,6 +113,64 @@ class VehiclePassengerChecksTest {
         try (var f = new JavaTickFixture()) {
             f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
             BadPacketsR check = enabled(f, BadPacketsR.class);
+            pongAfterTwoSeconds(f, check);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
+    void aStillPlayerAtTickRateOneIsNotFlaggedBetweenItsPositionReminders() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            tickRate(f, 1F);
+            pong(f, check);
+            pongAfter(f, check, 11_645_000_000L);
+
+            assertEquals(0, check.violations);
+        }
+    }
+
+    @Test
+    void aPlayerAtTickRateOneThatStopsSendingPositionsIsStillFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            tickRate(f, 1F);
+            pong(f, check);
+            pongAfter(f, check, 41_000_000_000L);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
+    void theTicksBeforeTheTickRateReturnsToTwentyAreNotJudgedAtTwentyTicksPerSecond() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            tickRate(f, 1F);
+            pong(f, check);
+            position(f, check);
+            pongAfter(f, check, 41_000_000_000L);
+            tickRate(f, 20F);
+            pongAfter(f, check, 5_342_000_000L);
+            assertEquals(0, check.violations);
+
+            pongAfterTwoSeconds(f, check);
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
+    void aFrozenPlayerAtTickRateOneThatStopsSendingPositionsIsStillFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(new Vec3(SEAT.x, FLOOR_Y, SEAT.z), Vec3.ZERO);
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            tickRate(f, 1F);
+            f.player.packetStateData.serverTicksFrozen = true;
+            pong(f, check);
             pongAfterTwoSeconds(f, check);
 
             assertEquals(1, check.violations);
@@ -187,6 +253,83 @@ class VehiclePassengerChecksTest {
     }
 
     @Test
+    void aSleeperRestingOnTheBedsTopStillSendsItsPosition() throws Exception {
+        try (var f = sleeping()) {
+            var route = moveRoute();
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            var rest = positionEvent(f, FLOOR_Y + 0.5625);
+            route.dispatch(rest, f.player);
+            assertFalse(rest.isCancelled(), "the resting sleeper's position was cancelled");
+            pongAfterTwoSeconds(f, check);
+
+            assertEquals(0, check.violations);
+        }
+    }
+
+    @Test
+    void aSleeperBelowTheBedsTopIsStillCancelled() throws Exception {
+        try (var f = sleeping()) {
+            var route = moveRoute();
+            BadPacketsR check = enabled(f, BadPacketsR.class);
+            var below = positionEvent(f, FLOOR_Y + 0.5);
+            route.dispatch(below, f.player);
+            assertTrue(below.isCancelled(), "a sleeper below the bed was taken");
+            pongAfterTwoSeconds(f, check);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
+    void aSleeperRestingOnAStrawBedsPillowStillSendsItsPosition() throws Exception {
+        for (String facing : FACINGS) {
+            try (var f = sleepingOnStraw(facing)) {
+                var route = moveRoute();
+                var rest = positionEvent(f, FLOOR_Y + 0.3125);
+                route.dispatch(rest, f.player);
+                assertFalse(rest.isCancelled(), "the resting sleeper's position was cancelled, facing " + facing);
+            }
+        }
+    }
+
+    @Test
+    void aSleeperBelowAStrawBedsPillowIsStillCancelled() throws Exception {
+        for (String facing : FACINGS) {
+            try (var f = sleepingOnStraw(facing)) {
+                var route = moveRoute();
+                var below = positionEvent(f, FLOOR_Y + 0.28125);
+                route.dispatch(below, f.player);
+                assertTrue(below.isCancelled(), "a sleeper below the pillow was taken, facing " + facing);
+            }
+        }
+    }
+
+    @Test
+    void leaveBedClicksBeforeTheTickThatClosesTheBedScreenAreNotFlagged() throws Exception {
+        try (var f = sleeping()) {
+            BadPacketsC check = enabled(f, BadPacketsC.class);
+            tickEnd(f, check);
+            f.player.isInBed = false;
+            for (int click = 0; click < 6; click++) stopSleeping(f, check);
+
+            assertEquals(0, check.violations);
+        }
+    }
+
+    @Test
+    void aWakeRequestAfterTheTickThatClosesTheBedScreenIsFlagged() throws Exception {
+        try (var f = sleeping()) {
+            BadPacketsC check = enabled(f, BadPacketsC.class);
+            tickEnd(f, check);
+            f.player.isInBed = false;
+            tickEnd(f, check);
+            stopSleeping(f, check);
+
+            assertEquals(1, check.violations);
+        }
+    }
+
+    @Test
     void aBoatPassengerAnsweringATeleportStillOwesTheVehicle() throws Exception {
         try (var f = ride(EntityTypeIds.OAK_BOAT)) {
             BadPacketsR check = enabled(f, BadPacketsR.class);
@@ -211,6 +354,55 @@ class VehiclePassengerChecksTest {
         event.getTasksAfterSend().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());
         assertFalse(f.player.packetStateData.playerLoadedIntoLevel, "the respawn did not reach the client");
+    }
+
+    /** A sleeper in a red bed's head on the floor, at LivingEntity#setPosToBed's position. */
+    private static JavaTickFixture sleeping() throws Exception {
+        var registry = DataTables.defaults().registry();
+        int head = registry.with(registry.block("minecraft:red_bed").defaultState(), "part", "head");
+        return sleepingIn(head, FLOOR_Y + 0.6875);
+    }
+
+    /** A 26.3 sleeper in a straw bed's head on the floor, at LivingEntity#setPosToBed's position. */
+    private static JavaTickFixture sleepingOnStraw(String facing) throws Exception {
+        var registry = DataTables.defaults().registry();
+        int head = registry.with(registry.with(BlockIds.STRAW_BED.defaultState(), "part", "head"), "facing", facing);
+        return sleepingIn(head, FLOOR_Y + 0.375);
+    }
+
+    private static JavaTickFixture sleepingIn(int head, double y) throws Exception {
+        var f = new JavaTickFixture();
+        f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), head);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        Vec3 bed = new Vec3(SEAT.x, y, SEAT.z);
+        f.place(bed, Vec3.ZERO);
+        f.player.isInBed = true;
+        f.player.bedPosition = bed;
+        return f;
+    }
+
+    private static void tickEnd(JavaTickFixture f, BadPacketsC check) {
+        var opaque = ServerboundPackets.CLIENT_TICK_END.opaqueValue();
+        check.onClientTickEnd(f.event(ServerboundPackets.CLIENT_TICK_END, opaque), f.player, opaque);
+    }
+
+    /** InBedChatScreen's Leave Bed button. */
+    private static void stopSleeping(JavaTickFixture f, BadPacketsC check) {
+        var packet = new ServerboundPlayerCommand(f.player.entityID, PlayerCommandAction.STOP_SLEEPING, 0);
+        check.onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, packet), f.player, packet);
+    }
+
+    private static PacketDispatcher.ReceiveRoute<ServerboundPacket> moveRoute() {
+        var dispatcher = new PacketDispatcher(
+                CultAPI.INSTANCE.getNetworkManager().dispatcher().runtime());
+        dispatcher.register(PacketManager::registerListeners);
+        return dispatcher.get(ServerboundPackets.MOVE_PLAYER).receive();
+    }
+
+    private static PacketReceiveEvent<ServerboundMovePlayer> positionEvent(JavaTickFixture f, double y) {
+        var packet =
+                new ServerboundMovePlayer(SEAT.x, y, SEAT.z, f.player.xRot, f.player.yRot, true, false, true, false);
+        return f.event(ServerboundPackets.MOVE_PLAYER, packet);
     }
 
     private static JavaTickFixture ride(int type) throws Exception {
@@ -279,9 +471,30 @@ class VehiclePassengerChecksTest {
 
     /** The first pong after more than two seconds without a position, which BadPacketsR judges. */
     private static void pongAfterTwoSeconds(JavaTickFixture f, BadPacketsR check) throws Exception {
-        long clock = System.nanoTime() - 5_000_000_000L;
+        pongAfter(f, check, 5_000_000_000L);
+    }
+
+    /** A pong {@code nanos} after the start of BadPacketsR's window. */
+    private static void pongAfter(JavaTickFixture f, BadPacketsR check, long nanos) throws Exception {
+        long clock = System.nanoTime() - nanos;
         JavaTickFixture.setField(BadPacketsR.class, check, "clock", clock);
         JavaTickFixture.setField(BadPacketsR.class, check, "lastTransTime", 0L);
+        pong(f, check);
+    }
+
+    /** A ClientboundTickingState the client has acknowledged. */
+    private static void tickRate(JavaTickFixture f, float rate) {
+        f.player.itemUseBurst.tickRateSent(rate);
+        f.player.packetStateData.serverTickRate = rate;
+    }
+
+    private static void position(JavaTickFixture f, BadPacketsR check) {
+        var packet = new ServerboundMovePlayer(
+                SEAT.x, FLOOR_Y, SEAT.z, f.player.xRot, f.player.yRot, true, false, true, false);
+        check.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, packet), f.player, packet);
+    }
+
+    private static void pong(JavaTickFixture f, BadPacketsR check) {
         var packet = new ServerboundPong(17);
         var event = f.event(ServerboundPackets.PONG, packet);
         event.setAcceptedTransactionResponse(true);

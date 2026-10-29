@@ -2,7 +2,8 @@ package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
-import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.command.commands.CultInfo;
+import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
@@ -40,7 +41,7 @@ public class PunishmentManager implements ConfigReloadable {
 
         alertString = config.getStringElse(
                 "alerts-format",
-                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\\n&8Description: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
+                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click for more info\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
 
         testMode = config.getBooleanElse("test-mode", false);
 
@@ -152,7 +153,7 @@ public class PunishmentManager implements ConfigReloadable {
                 final int vl = getViolations(group, check);
                 final int violationCount = group.violations.size();
                 for (ParsedCommand command : group.commands) {
-                    @Nullable Set<@Nullable PlatformPlayer> verboseListeners = null;
+                    @Nullable Recipients verboseListeners = null;
                     // Verbose that prints all flags: /cult verbose subscribers get EVERY flag, not just thresholded
                     // alerts. The verbose string is only rendered (safeGet) when there are listeners, so the flag
                     // path stays lazy when nobody is subscribed.
@@ -165,7 +166,10 @@ public class PunishmentManager implements ConfigReloadable {
                                     replaceAlertPlaceholders(command.command, vl, check, verboseForListeners);
                             verboseListeners = CultAPI.INSTANCE
                                     .getAlertManager()
-                                    .sendVerbose(MessageUtil.miniMessage(listenerCmd), null);
+                                    .sendVerbose(
+                                            player,
+                                            CultInfo.linkCheckName(MessageUtil.miniMessage(listenerCmd), check),
+                                            null);
                         } catch (RuntimeException e) {
                             logDeliveryFailure(command, check, e);
                         }
@@ -215,14 +219,18 @@ public class PunishmentManager implements ConfigReloadable {
                                         CultAPI.INSTANCE.getPlatformServer().forwardAlert(cmd);
                                     case "[alert]" -> {
                                         sentDebug = true;
-                                        Component message = MessageUtil.miniMessage(cmd);
+                                        Component message = CultInfo.linkCheckName(MessageUtil.miniMessage(cmd), check);
                                         if (testMode) { // secret test mode
                                             if (verboseListeners == null
-                                                    || verboseListeners.contains(player.platformPlayer)) {
+                                                    || verboseListeners
+                                                            .players()
+                                                            .contains(player.platformPlayer)) {
                                                 player.sendMessage(message);
                                             }
                                         } else {
-                                            CultAPI.INSTANCE.getAlertManager().sendAlert(message, verboseListeners);
+                                            CultAPI.INSTANCE
+                                                    .getAlertManager()
+                                                    .sendAlert(player, message, verboseListeners);
                                         }
                                     }
                                     default -> {

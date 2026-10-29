@@ -62,7 +62,7 @@ public class ProxyAlertMessenger implements PluginMessageListener {
             return;
         }
 
-        CultAPI.INSTANCE.getAlertManager().sendAlert(MessageUtil.miniMessage(alert), null);
+        CultAPI.INSTANCE.getAlertManager().relayAlert(MessageUtil.miniMessage(alert));
     }
 
     public static void sendPluginMessage(String message) {
@@ -104,9 +104,13 @@ public class ProxyAlertMessenger implements PluginMessageListener {
     }
 
     public static boolean canReceiveAlerts() {
+        return receivesAlerts() && CultAPI.INSTANCE.getAlertManager().hasAlertListeners();
+    }
+
+    /** Whether alerts other servers forward through the proxy are shown here. */
+    public static boolean receivesAlerts() {
         return usingProxy
-                && CultAPI.INSTANCE.getConfigManager().getConfig().getBooleanElse("alerts.proxy.receive", false)
-                && CultAPI.INSTANCE.getAlertManager().hasAlertListeners();
+                && CultAPI.INSTANCE.getConfigManager().getConfig().getBooleanElse("alerts.proxy.receive", false);
     }
 
     // TODO (Cross-Platform) check if new getBooleanFromFile impl is correct

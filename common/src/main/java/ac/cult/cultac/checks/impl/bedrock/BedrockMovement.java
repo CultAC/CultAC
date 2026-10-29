@@ -21,7 +21,7 @@ public final class BedrockMovement extends Check implements CheckListener {
                 CheckInfo.builder()
                         .name("BedrockMovement")
                         .stableKey("cult.bedrock.movement")
-                        .description("Validates Bedrock server-authoritative movement with CultAC Bedrock prediction")
+                        .description("Impossible Bedrock movement")
                         .build());
     }
 

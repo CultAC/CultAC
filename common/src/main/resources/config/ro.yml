@@ -289,6 +289,34 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
+# Face ca comenzile staff-ului, completarea cu Tab și alertele să meargă pe toate proxy-urile și serverele tale.
+# Ghid de configurare: docs/network.md în codul sursă CultAC. /cult reload aplică modificările.
+# Orice setare de aici poate fi dată și printr-o variabilă de mediu CULTAC_NETWORK_*, care are prioritate.
+network:
+  # Cum comunică serverele tale între ele:
+  #   none         Oprit. Comenzile și alertele ajung doar la jucătorii de pe acest server.
+  #   redis        Printr-un server Redis (merg și Valkey, KeyDB și Dragonfly). Completează secțiunea redis.
+  #   nats         Printr-un server NATS. Completează secțiunea nats.
+  #   redisbungee  Proxy-uri Velocity cu RedisBungee. Folosește conexiunea lui la Redis, nu mai e nimic de completat.
+  type: none
+  redis:
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
+  nats:
+    # Ca să pui mai multe servere, desparte-le prin virgule.
+    address: localhost:4222
+    username: ""
+    password: ""
+    token: ""
+    # Doar dacă serverul tău NATS folosește conturi: calea către fișierul tău .creds.
+    credentials-file: ""
+    ssl: false
+  # Numele acestui server în rețea. Fiecare server are nevoie de propriul nume.
+  # Lasă gol ca să folosești id-ul de proxy din RedisBungee, apoi cloud.proxy-id, apoi IP-ul și portul acestui server.
+  instance-id: ""
+
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
 update:
@@ -309,4 +337,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 14
+config-version: 17

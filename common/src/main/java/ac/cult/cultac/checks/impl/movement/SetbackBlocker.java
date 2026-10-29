@@ -8,9 +8,17 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
+import java.util.ArrayList;
+import java.util.List;
 
 public class SetbackBlocker extends CultProcessor implements CheckListener {
+    // LivingEntity.SLEEPING_DIMENSIONS
+    private static final double SLEEPING_HALF_WIDTH = 0.2F / 2.0D;
+
     public SetbackBlocker(CultPlayer playerData) {
         super(playerData);
     }
@@ -95,7 +103,8 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
             Vec3 bedPosition = player.bedPosition;
             if (bedPosition == null
                     || Math.max(Math.abs(packet.x() - bedPosition.x), Math.abs(packet.z() - bedPosition.z)) > 0.5D
-                    || Math.abs(packet.y() - bedPosition.y) >= 0.1D) {
+                    || packet.y() < restingY(bedPosition)
+                    || packet.y() - bedPosition.y >= 0.1D) {
                 event.setCancelled(true);
             }
         }
@@ -104,6 +113,27 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         if (!teleport && player.compensatedEntities.getSelf().isDead) {
             event.setCancelled(true);
         }
+    }
+
+    // LivingEntity#setPosToBed lifts the sleeper above the bed, whose top under the sleeping box it falls onto.
+    private double restingY(Vec3 bedPosition) {
+        int x = CultMath.floor(bedPosition.x);
+        int y = CultMath.floor(bedPosition.y);
+        int z = CultMath.floor(bedPosition.z);
+        List<SimpleCollisionBox> boxes = new ArrayList<>();
+        NativeBlockCollisionHelper.getCollisionBox(
+                        player, player.compensatedWorld.getBlockStateIdAt(x, y, z), x, y, z, bedPosition.y)
+                .downCast(boxes);
+        double top = Double.NEGATIVE_INFINITY;
+        for (SimpleCollisionBox box : boxes) {
+            if (box.minX < bedPosition.x + SLEEPING_HALF_WIDTH
+                    && box.maxX > bedPosition.x - SLEEPING_HALF_WIDTH
+                    && box.minZ < bedPosition.z + SLEEPING_HALF_WIDTH
+                    && box.maxZ > bedPosition.z - SLEEPING_HALF_WIDTH) {
+                top = Math.max(top, box.maxY);
+            }
+        }
+        return top == Double.NEGATIVE_INFINITY ? bedPosition.y : top;
     }
 
     private void handleMoveVehicle(final PacketReceiveEvent event) {

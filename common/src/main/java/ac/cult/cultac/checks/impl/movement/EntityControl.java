@@ -13,6 +13,7 @@ public class EntityControl extends Check implements PostPredictionListener {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("EntityControl")
+                        .description("Controlled a ridden mob in an impossible way")
                         .configName("EntityControl")
                         .build());
     }

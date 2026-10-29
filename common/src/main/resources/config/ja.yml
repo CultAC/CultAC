@@ -297,6 +297,34 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
+# スタッフ用コマンド、Tab 補完、アラートを、すべてのプロキシとサーバーをまたいで使えるようにします。
+# 設定ガイド：CultAC のソース内の docs/network.md。変更は /cult reload で反映されます。
+# ここの設定はすべて CULTAC_NETWORK_* 環境変数でも指定でき、そちらが優先されます。
+network:
+  # サーバー同士のつなぎ方：
+  #   none         オフ。コマンドとアラートはこのサーバーのプレイヤーにだけ届きます。
+  #   redis        Redis サーバー経由（Valkey、KeyDB、Dragonfly も使えます）。redis の項目を埋めてください。
+  #   nats         NATS サーバー経由。nats の項目を埋めてください。
+  #   redisbungee  RedisBungee を入れた Velocity プロキシ。その Redis 接続を使うので、ほかに埋める項目はありません。
+  type: none
+  redis:
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
+  nats:
+    # 複数のサーバーを指定するときは、カンマで区切ります。
+    address: localhost:4222
+    username: ""
+    password: ""
+    token: ""
+    # NATS サーバーがアカウントを使う場合のみ：.creds ファイルのパス。
+    credentials-file: ""
+    ssl: false
+  # ネットワーク上でのこのサーバーの名前。サーバーごとに別の名前が必要です。
+  # 空にすると RedisBungee のプロキシ ID、なければ cloud.proxy-id、それもなければこのサーバーの IP とポートを使います。
+  instance-id: ""
+
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
 update:
@@ -317,4 +345,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 14
+config-version: 17

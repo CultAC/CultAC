@@ -285,6 +285,34 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
+# Позволяет командам персонала, автодополнению по Tab и оповещениям работать на всех ваших прокси и серверах.
+# Инструкция по настройке: docs/network.md в исходном коде CultAC. /cult reload применяет изменения.
+# Любую настройку здесь можно также задать переменной окружения CULTAC_NETWORK_*, и она имеет приоритет.
+network:
+  # Как ваши серверы связываются друг с другом:
+  #   none         Выключено. Команды и оповещения доходят только до игроков на этом сервере.
+  #   redis        Через сервер Redis (Valkey, KeyDB и Dragonfly тоже подходят). Заполните раздел redis.
+  #   nats         Через сервер NATS. Заполните раздел nats.
+  #   redisbungee  Прокси Velocity с RedisBungee. Использует его подключение к Redis, больше ничего заполнять не нужно.
+  type: none
+  redis:
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
+  nats:
+    # Чтобы указать несколько серверов, перечислите их через запятую.
+    address: localhost:4222
+    username: ""
+    password: ""
+    token: ""
+    # Только если ваш сервер NATS использует аккаунты: путь к вашему файлу .creds.
+    credentials-file: ""
+    ssl: false
+  # Имя этого сервера в сети. У каждого сервера должно быть своё.
+  # Оставьте пустым, чтобы взять id прокси из RedisBungee, затем cloud.proxy-id, затем IP и порт этого сервера.
+  instance-id: ""
+
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
 update:
@@ -305,4 +333,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 14
+config-version: 17

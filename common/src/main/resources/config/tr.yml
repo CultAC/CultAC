@@ -289,6 +289,34 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
+# Yetkili komutlarının, Tab tamamlamanın ve uyarıların tüm proxy'lerinizde ve sunucularınızda çalışmasını sağlar.
+# Kurulum rehberi: CultAC kaynak kodundaki docs/network.md. /cult reload değişiklikleri uygular.
+# Buradaki her ayar bir CULTAC_NETWORK_* ortam değişkeniyle de verilebilir; ortam değişkeni önceliklidir.
+network:
+  # Sunucularınızın birbiriyle nasıl konuştuğu:
+  #   none         Kapalı. Komutlar ve uyarılar yalnızca bu sunucudaki oyunculara ulaşır.
+  #   redis        Bir Redis sunucusu üzerinden (Valkey, KeyDB ve Dragonfly da olur). redis bölümünü doldurun.
+  #   nats         Bir NATS sunucusu üzerinden. nats bölümünü doldurun.
+  #   redisbungee  RedisBungee çalıştıran Velocity proxy'leri. Onun Redis bağlantısını kullanır, başka doldurulacak bir şey yok.
+  type: none
+  redis:
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
+  nats:
+    # Birden fazla sunucu yazmak için aralarına virgül koyun.
+    address: localhost:4222
+    username: ""
+    password: ""
+    token: ""
+    # Yalnızca NATS sunucunuz hesap kullanıyorsa: .creds dosyanızın yolu.
+    credentials-file: ""
+    ssl: false
+  # Bu sunucunun ağdaki adı. Her sunucunun kendine ait bir adı olmalı.
+  # Boş bırakırsanız RedisBungee proxy id'si, o yoksa cloud.proxy-id, o da yoksa bu sunucunun IP'si ve portu kullanılır.
+  instance-id: ""
+
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
 update:
@@ -309,4 +337,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 14
+config-version: 17

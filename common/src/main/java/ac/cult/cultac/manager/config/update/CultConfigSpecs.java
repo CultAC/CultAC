@@ -1,6 +1,12 @@
 package ac.cult.cultac.manager.config.update;
 
+import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -87,9 +93,16 @@ public final class CultConfigSpecs {
      * way and with no migration.
      *
      * <p>v13 → v14: adds {@code observe-only}; default rewriting adds the key.
+     *
+     * <p>v14 → v15: adds the {@code network} block; default rewriting adds it.
+     *
+     * <p>v15 → v16: one {@code network.uri} picks the transport; see {@link #networkUri}.
+     *
+     * <p>v16 → v17: {@code network.type} picks the broker, configured in its own block; see {@link #networkBlocks}.
+     * Every step reads the user's file as it was, so a v15 config takes the v16 step inside the v17 one.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 14, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 17, ConfigUpdater.ConfigFlavor.V2)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);
@@ -131,7 +144,163 @@ public final class CultConfigSpecs {
                         if (pass != null) ctx.otherFile(target).put(backendId + ".password", pass);
                     }
                 })
+                .migration(17, CultConfigSpecs::networkBlocks)
                 .build();
+    }
+
+    /**
+     * Builds {@code network.uri} from {@code network.transport} with {@code network.redis.uri}, or with
+     * {@code network.nats.servers} and {@code network.nats.token}, the token becoming each server's user info:
+     * {@code none} is empty and {@code redisbungee} stays {@code redisbungee}. {@code network.nats.credentials-file}
+     * becomes {@code network.nats-credentials-file}; {@code network.network} is dropped.
+     */
+    private static String networkUri(YamlMap input) {
+        String transport = input.getString("network.transport");
+        return switch (transport == null ? "" : transport.strip().toLowerCase(Locale.ROOT)) {
+            case "redis" -> text(input, "network.redis.uri");
+            case "nats" -> natsUri(input);
+            case "redisbungee" -> "redisbungee";
+            default -> "";
+        };
+    }
+
+    /**
+     * Writes {@code network.type} and the chosen broker's block from {@code network.uri}, the {@link #networkUri} of a
+     * v15 config: empty is {@code none}, {@code redisbungee} stays; a {@code redis://} or {@code rediss://} URI gives
+     * the address, the decoded user and password and {@code ssl} for {@code rediss}, without its database; NATS
+     * servers give their addresses, the first user info as token or user and password, and {@code ssl} when any is
+     * {@code tls://}. {@code nats-credentials-file} moves into the NATS block. A URI that does not read is
+     * {@code none}, with one warning. The other block gets the bundled defaults. A non-blank {@code network.secret}
+     * is kept; the bundled config has none, so a blank one is dropped.
+     */
+    static void networkBlocks(MigrationContext ctx) {
+        YamlMap input = ctx.input();
+        Integer version = input.getInt("config-version");
+        boolean v15 = version == null || version < 16;
+        String uri = v15 ? networkUri(input) : text(input, "network.uri");
+        String credentialsFile = text(input, v15 ? "network.nats.credentials-file" : "network.nats-credentials-file");
+        Broker broker;
+        try {
+            broker = broker(uri);
+        } catch (URISyntaxException | IllegalArgumentException unreadable) {
+            LogUtil.warn("config.yml: network.uri cannot be read, so network.type is none; set the network block by"
+                    + " hand (docs/network.md in CultAC's source explains it)");
+            broker = Broker.NONE;
+        }
+        YamlMap output = ctx.output();
+        output.put("network.type", broker.type());
+        boolean redis = broker.type().equals("redis");
+        boolean nats = broker.type().equals("nats");
+        output.put("network.redis.address", redis ? broker.address() : "localhost:6379");
+        output.put("network.redis.username", redis ? broker.username() : "");
+        output.put("network.redis.password", redis ? broker.password() : "");
+        output.put("network.redis.ssl", redis && broker.ssl());
+        output.put("network.nats.address", nats ? broker.address() : "localhost:4222");
+        output.put("network.nats.username", nats ? broker.username() : "");
+        output.put("network.nats.password", nats ? broker.password() : "");
+        output.put("network.nats.token", nats ? broker.token() : "");
+        output.put("network.nats.credentials-file", credentialsFile);
+        output.put("network.nats.ssl", nats && broker.ssl());
+        Object secret = input.get("network.secret");
+        if (secret != null && !String.valueOf(secret).isBlank()) output.put("network.secret", secret);
+    }
+
+    /** One broker's settings as a {@code network.uri} named them. */
+    private record Broker(String type, String address, String username, String password, String token, boolean ssl) {
+        static final Broker NONE = new Broker("none", "", "", "", "", false);
+    }
+
+    private static final Pattern URI_SCHEME = Pattern.compile("([A-Za-z][A-Za-z0-9+.-]*)://");
+
+    private static Broker broker(String uri) throws URISyntaxException {
+        if (uri.isEmpty()) return Broker.NONE;
+        if (uri.equalsIgnoreCase("redisbungee")) return new Broker("redisbungee", "", "", "", "", false);
+        String scheme = scheme(uri);
+        if (scheme.equals("redis") || scheme.equals("rediss")) {
+            if (URI_SCHEME.matcher(uri).results().count() != 1) throw new IllegalArgumentException("several URIs");
+            URI parsed = withHost(uri);
+            String userInfo = parsed.getRawUserInfo();
+            String username = "";
+            String password = "";
+            if (userInfo != null) {
+                int colon = userInfo.indexOf(':');
+                username = colon < 0 ? "" : decode(userInfo.substring(0, colon));
+                password = decode(colon < 0 ? userInfo : userInfo.substring(colon + 1));
+            }
+            return new Broker("redis", address(parsed, 6379), username, password, "", scheme.equals("rediss"));
+        }
+        List<String> addresses = new ArrayList<>();
+        String username = "";
+        String password = "";
+        String token = "";
+        boolean credential = false;
+        boolean ssl = false;
+        for (String server : uri.split(",")) {
+            String stripped = server.strip();
+            if (stripped.isEmpty()) continue;
+            String serverScheme = scheme(stripped);
+            if (!serverScheme.equals("nats") && !serverScheme.equals("tls"))
+                throw new IllegalArgumentException("not a NATS server");
+            ssl |= serverScheme.equals("tls");
+            URI parsed = withHost(stripped);
+            addresses.add(address(parsed, 4222));
+            String userInfo = parsed.getRawUserInfo();
+            if (credential || userInfo == null || userInfo.isEmpty() || userInfo.equals(":")) continue;
+            credential = true;
+            int colon = userInfo.indexOf(':');
+            if (colon < 0) {
+                token = decode(userInfo);
+            } else {
+                username = decode(userInfo.substring(0, colon));
+                password = decode(userInfo.substring(colon + 1));
+            }
+        }
+        if (addresses.isEmpty()) throw new IllegalArgumentException("no server");
+        return new Broker("nats", String.join(", ", addresses), username, password, token, ssl);
+    }
+
+    private static String scheme(String uri) {
+        Matcher scheme = URI_SCHEME.matcher(uri);
+        return scheme.lookingAt() ? scheme.group(1).toLowerCase(Locale.ROOT) : "";
+    }
+
+    private static URI withHost(String uri) throws URISyntaxException {
+        URI parsed = new URI(uri);
+        if (parsed.getHost() == null || parsed.getHost().isEmpty()) throw new URISyntaxException(uri, "no host");
+        return parsed;
+    }
+
+    private static String address(URI parsed, int defaultPort) {
+        return parsed.getHost() + ":" + (parsed.getPort() < 0 ? defaultPort : parsed.getPort());
+    }
+
+    /** Percent-decodes URI user info, where {@code +} is a plus sign. */
+    private static String decode(String userInfo) {
+        return URLDecoder.decode(userInfo.replace("+", "%2B"), StandardCharsets.UTF_8);
+    }
+
+    private static String natsUri(YamlMap input) {
+        String token = URLEncoder.encode(text(input, "network.nats.token"), StandardCharsets.UTF_8)
+                .replace("+", "%20");
+        List<?> listed = input.getList("network.nats.servers");
+        List<String> servers = new ArrayList<>();
+        if (listed != null) {
+            for (Object server : listed) {
+                String text = server == null ? "" : server.toString().strip();
+                if (text.isEmpty()) continue;
+                int scheme = text.indexOf("://");
+                boolean named = text.indexOf('@', scheme < 0 ? 0 : scheme) >= 0;
+                if (!token.isEmpty() && scheme >= 0 && !named)
+                    text = text.substring(0, scheme + 3) + token + "@" + text.substring(scheme + 3);
+                servers.add(text);
+            }
+        }
+        return String.join(",", servers);
+    }
+
+    private static String text(YamlMap input, String key) {
+        String value = input.getString(key);
+        return value == null ? "" : value.strip();
     }
 
     /** Bump this per-file Cult revision and register steps here, leaving legacy specs unchanged. */
@@ -363,18 +532,67 @@ public final class CultConfigSpecs {
             "`%server%`",
             "`%world% (%world_type%)`");
     private static final List<List<String>> SHIPPED_V2_DISCORD_LABELS = List.of(
-            List.of("Player", "Spieler", "Jugador", "Joueur", "Giocatore", "プレイヤー", "Speler", "Jogador", "Игрок",
-                    "Oyuncu", "玩家名"),
+            List.of(
+                    "Player",
+                    "Spieler",
+                    "Jugador",
+                    "Joueur",
+                    "Giocatore",
+                    "プレイヤー",
+                    "Speler",
+                    "Jogador",
+                    "Игрок",
+                    "Oyuncu",
+                    "玩家名"),
             List.of("UUID"),
-            List.of("Check", "Überprüfung", "Comprobación", "Vérification", "Controllo", "違反項目", "Controle",
-                    "Verificação", "Проверка", "Kontrol", "检查"),
-            List.of("Client Version", "Client-Version", "Version del cliente", "Version du client",
-                    "Versione del client", "クライアントバージョン", "Client-versie", "Versão do Cliente", "Версия Клиента",
-                    "Client Versiyonu", "游戏版本"),
-            List.of("Brand", "Marke", "Marca del cliente", "Marque du client", "Marca del client", "ブランド",
-                    "Client-merk", "Marca do Cliente", "Бренд", "Client Markası", "客户端品牌"),
-            List.of("Sensitivity", "Empfindlichkeit", "Sensibilidad", "Sensibilité", "Sensibilità", "感度",
-                    "Gevoeligheid", "Sensibilidade", "Чувствительность", "Hassasiyet", "灵敏度"),
+            List.of(
+                    "Check",
+                    "Überprüfung",
+                    "Comprobación",
+                    "Vérification",
+                    "Controllo",
+                    "違反項目",
+                    "Controle",
+                    "Verificação",
+                    "Проверка",
+                    "Kontrol",
+                    "检查"),
+            List.of(
+                    "Client Version",
+                    "Client-Version",
+                    "Version del cliente",
+                    "Version du client",
+                    "Versione del client",
+                    "クライアントバージョン",
+                    "Client-versie",
+                    "Versão do Cliente",
+                    "Версия Клиента",
+                    "Client Versiyonu",
+                    "游戏版本"),
+            List.of(
+                    "Brand",
+                    "Marke",
+                    "Marca del cliente",
+                    "Marque du client",
+                    "Marca del client",
+                    "ブランド",
+                    "Client-merk",
+                    "Marca do Cliente",
+                    "Бренд",
+                    "Client Markası",
+                    "客户端品牌"),
+            List.of(
+                    "Sensitivity",
+                    "Empfindlichkeit",
+                    "Sensibilidad",
+                    "Sensibilité",
+                    "Sensibilità",
+                    "感度",
+                    "Gevoeligheid",
+                    "Sensibilidade",
+                    "Чувствительность",
+                    "Hassasiyet",
+                    "灵敏度"),
             List.of("Ping", "Latencia", "Latence", "Пинг", "Gecikme", "延迟"),
             List.of("TPS", "ТПС"),
             List.of("Server", "Servidor", "Serveur", "サーバー", "Сервер", "Sunucu", "服务器"),
@@ -394,30 +612,77 @@ public final class CultConfigSpecs {
             "**Checks**: %checks%",
             "**Verbose**: %verbose%");
     private static final List<Set<List<String>>> SHIPPED_V4_DISCORD_LABELS = List.of(
-            Set.of(List.of("Version", "Brand"), List.of("Version", "Marke"), List.of("Versión", "Marca"),
-                    List.of("Version", "Marque"), List.of("Versione", "Marca"), List.of("バージョン", "ブランド"),
-                    List.of("Versie", "Merk"), List.of("Versão", "Marca"), List.of("Версия", "Бренд"),
-                    List.of("Versiyon", "Marka"), List.of("版本", "品牌")),
-            Set.of(List.of("Server", "World", "Location"), List.of("Server", "Welt", "Position"),
-                    List.of("Servidor", "Mundo", "Ubicación"), List.of("Serveur", "Monde", "Position"),
-                    List.of("Server", "Mondo", "Posizione"), List.of("サーバー", "ワールド", "座標"),
-                    List.of("Server", "Wereld", "Locatie"), List.of("Servidor", "Mundo", "Localização"),
-                    List.of("Сервер", "Мир", "Позиция"), List.of("Sunucu", "Dünya", "Konum"),
+            Set.of(
+                    List.of("Version", "Brand"),
+                    List.of("Version", "Marke"),
+                    List.of("Versión", "Marca"),
+                    List.of("Version", "Marque"),
+                    List.of("Versione", "Marca"),
+                    List.of("バージョン", "ブランド"),
+                    List.of("Versie", "Merk"),
+                    List.of("Versão", "Marca"),
+                    List.of("Версия", "Бренд"),
+                    List.of("Versiyon", "Marka"),
+                    List.of("版本", "品牌")),
+            Set.of(
+                    List.of("Server", "World", "Location"),
+                    List.of("Server", "Welt", "Position"),
+                    List.of("Servidor", "Mundo", "Ubicación"),
+                    List.of("Serveur", "Monde", "Position"),
+                    List.of("Server", "Mondo", "Posizione"),
+                    List.of("サーバー", "ワールド", "座標"),
+                    List.of("Server", "Wereld", "Locatie"),
+                    List.of("Servidor", "Mundo", "Localização"),
+                    List.of("Сервер", "Мир", "Позиция"),
+                    List.of("Sunucu", "Dünya", "Konum"),
                     List.of("服务器", "世界", "位置")),
-            Set.of(List.of("TPS", "Ping", "Clock", "Time"), List.of("TPS", "Ping", "Uhr", "Zeit"),
-                    List.of("TPS", "Latencia", "Reloj", "Tiempo"), List.of("TPS", "Latence", "Horloge", "Temps"),
-                    List.of("TPS", "Ping", "Orologio", "Tempo"), List.of("TPS", "Ping", "クロック", "時間"),
-                    List.of("TPS", "Ping", "Klok", "Tijd"), List.of("TPS", "Ping", "Relógio", "Tempo"),
-                    List.of("TPS", "Пинг", "Часы", "Время"), List.of("TPS", "Gecikme", "Saat", "Süre"),
+            Set.of(
+                    List.of("TPS", "Ping", "Clock", "Time"),
+                    List.of("TPS", "Ping", "Uhr", "Zeit"),
+                    List.of("TPS", "Latencia", "Reloj", "Tiempo"),
+                    List.of("TPS", "Latence", "Horloge", "Temps"),
+                    List.of("TPS", "Ping", "Orologio", "Tempo"),
+                    List.of("TPS", "Ping", "クロック", "時間"),
+                    List.of("TPS", "Ping", "Klok", "Tijd"),
+                    List.of("TPS", "Ping", "Relógio", "Tempo"),
+                    List.of("TPS", "Пинг", "Часы", "Время"),
+                    List.of("TPS", "Gecikme", "Saat", "Süre"),
                     List.of("TPS", "延迟", "时钟", "时长")),
             Set.of(List.of("xsens", "ysens")),
-            Set.of(List.of("State"), List.of("Zustand"), List.of("Estado"), List.of("État"), List.of("Stato"),
-                    List.of("状態"), List.of("Status"), List.of("Состояние"), List.of("Durum"), List.of("状态")),
-            Set.of(List.of("Checks"), List.of("Prüfungen"), List.of("Comprobaciones"), List.of("Vérifications"),
-                    List.of("Controlli"), List.of("違反項目"), List.of("Controles"), List.of("Verificações"),
-                    List.of("Проверки"), List.of("Kontroller"), List.of("检查")),
-            Set.of(List.of("Verbose"), List.of("Details"), List.of("Detalles"), List.of("Détails"), List.of("Dettagli"),
-                    List.of("詳細"), List.of("Detalhes"), List.of("Подробности"), List.of("Ayrıntılar"), List.of("详情")));
+            Set.of(
+                    List.of("State"),
+                    List.of("Zustand"),
+                    List.of("Estado"),
+                    List.of("État"),
+                    List.of("Stato"),
+                    List.of("状態"),
+                    List.of("Status"),
+                    List.of("Состояние"),
+                    List.of("Durum"),
+                    List.of("状态")),
+            Set.of(
+                    List.of("Checks"),
+                    List.of("Prüfungen"),
+                    List.of("Comprobaciones"),
+                    List.of("Vérifications"),
+                    List.of("Controlli"),
+                    List.of("違反項目"),
+                    List.of("Controles"),
+                    List.of("Verificações"),
+                    List.of("Проверки"),
+                    List.of("Kontroller"),
+                    List.of("检查")),
+            Set.of(
+                    List.of("Verbose"),
+                    List.of("Details"),
+                    List.of("Detalles"),
+                    List.of("Détails"),
+                    List.of("Dettagli"),
+                    List.of("詳細"),
+                    List.of("Detalhes"),
+                    List.of("Подробности"),
+                    List.of("Ayrıntılar"),
+                    List.of("详情")));
     private static final String SHIPPED_V4_DISCORD_FOOTER = "%uuid% v%cult_version%";
 
     static void discordAlertLayout(MigrationContext ctx) {
@@ -487,7 +752,9 @@ public final class CultConfigSpecs {
         matcher.appendTail(skeleton);
         return SHIPPED_V4_DISCORD_LABELS.get(index).contains(labels)
                 && skeleton.toString()
-                        .equals(DISCORD_LABEL.matcher(SHIPPED_V4_DISCORD_LAYOUT.get(index)).replaceAll("****"));
+                        .equals(DISCORD_LABEL
+                                .matcher(SHIPPED_V4_DISCORD_LAYOUT.get(index))
+                                .replaceAll("****"));
     }
 
     private static void keepUnbundledDiscordKeys(MigrationContext ctx) {

@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityInteraction;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySizeable;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
@@ -324,6 +325,8 @@ public class BoundingBoxSize {
             return 0.5F;
         }
         float exactHeight = baseDimensions(packetEntity).height();
+        if (!bedrock && packetEntity instanceof PacketEntityPolarBear bear && bear.standAnimation() > 0)
+            return exactHeight * (1.0F + bear.standAnimation() / 6.0F);
         return Float.isNaN(exactHeight) ? 1.95f : exactHeight;
     }
 

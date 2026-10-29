@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VehicleOffset;
@@ -67,7 +68,9 @@ public class OffsetHandler extends Check implements PostPredictionListener {
                         () -> formatOffset(offset) + " " + "\u00a78" + predictionResult.getIdentifier())) {
             advantageGained += offset;
 
-            boolean isSetback = advantageGained >= maxAdvantage || offset >= immediateSetbackThreshold;
+            boolean isSetback = advantageGained >= maxAdvantage
+                    || offset >= immediateSetbackThreshold
+                    || predictionResult.hasFlag(OmniSprint.class);
 
             if (isSetback) {
                 player.getSetbackTeleportUtil().executeViolationSetback(predictionResult);
@@ -86,7 +89,8 @@ public class OffsetHandler extends Check implements PostPredictionListener {
             if (check instanceof Speed
                     || check instanceof Strafe
                     || check instanceof VehicleOffset
-                    || check instanceof InputKeys) {
+                    || check instanceof InputKeys
+                    || check instanceof OmniSprint) {
                 offset = Math.max(offset, flag.getSeverity());
             }
         }

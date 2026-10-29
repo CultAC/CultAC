@@ -8,13 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.WorldPackets.TimeUpdate;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -78,18 +76,12 @@ class CamelDashSpeedTest {
                         new EntityMetadata.Entry(LAST_POSE_CHANGE_TICK, GAME_TIME - 1000L, ByteBuffer.allocate(0))));
         f.setPassengers(CAMEL, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
-        command(f, PlayerCommandAction.START_SPRINTING, 0);
-        command(f, PlayerCommandAction.START_JUMPING_WITH_HORSE, 90);
+        f.command(PlayerCommandAction.START_SPRINTING);
+        f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE, 90);
         f.input(FORWARD_SPRINT);
         f.tickEnd();
         f.player.checkManager.getSimulationProcessor().seedStartingVelocity(carried);
         f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
-    }
-
-    private static void command(JavaTickFixture f, PlayerCommandAction action, int data) {
-        var command = new ServerboundPlayerCommand(f.player.entityID, action, data);
-        new PacketEntityAction()
-                .onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, command), f.player, command);
     }
 
     /** One client tick: the rider's Rot, the camel's move at half the pitch and the tick end. */

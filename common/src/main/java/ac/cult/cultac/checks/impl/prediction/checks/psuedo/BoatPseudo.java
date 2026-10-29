@@ -7,6 +7,11 @@ import ac.cult.cultac.player.CultPlayer;
 
 public class BoatPseudo extends Check implements PostPredictionListener {
     public BoatPseudo(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("BoatOffset").build());
+        super(
+                cultPlayer,
+                CheckInfo.builder()
+                        .name("BoatOffset")
+                        .description("Impossible boat movement")
+                        .build());
     }
 }

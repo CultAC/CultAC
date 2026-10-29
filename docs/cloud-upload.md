@@ -221,6 +221,43 @@ claim lapses. Staff bans are not punishments: `punishments.yml` and observe-only
 runs the same ban twice, and a server without the matching command never claims one, so leave both empty on servers
 that should not ban. `/cult reload` applies changes.
 
+### Cloud flags
+
+Cloud flags are broad categories the cloud service flags a player under. Each is off until your organization turns it
+on in the Gladiator panel. Every flag has a check of the same name:
+
+| Check | Category |
+|---|---|
+| `CloudCombat`, `CloudCombatExperimental` | Combat |
+| `CloudAutomation`, `CloudAutomationExperimental` | Automation |
+| `CloudClient`, `CloudClientExperimental` | Client |
+| `CloudExploit`, `CloudExploitExperimental` | Exploit |
+
+While the upload is configured, a flag reaches the server while the player is online on it, and raises one violation
+of that check. A flag for a player who is offline waits until they are online on one of your organization's servers.
+These checks only flag: they never set back or cancel anything. What a flag does is up to `punishments.yml`. The
+default `Cloud` group selects them along with `Cloud` and bans nothing; to ban on the stable flags, add a group such
+as:
+
+```yaml
+CloudFlags:
+  remove-violations-after: 86400
+  checks:
+    - "CloudCombat"
+    - "CloudAutomation"
+    - "CloudClient"
+    - "CloudExploit"
+    - "!Experimental"
+  commands:
+    - "1:0 [alert]"
+    - "1:0 [webhook]"
+    - "1:0 ban %player% Unfair advantage"
+```
+
+Selectors match check names as case-insensitive substrings, so `CloudCombat` alone also selects
+`CloudCombatExperimental`. A `!` entry removes every check whose name contains it, wherever it stands in the list, so
+`"!Experimental"` keeps the group to the stable flags.
+
 ## Commands
 
 | Command | Permission | What it does |

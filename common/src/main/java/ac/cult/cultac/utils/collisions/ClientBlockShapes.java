@@ -1,7 +1,10 @@
 package ac.cult.cultac.utils.collisions;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.engine.BlockPos;
+import ac.cult.blocksim.engine.EntityCollisionContext;
 import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
@@ -38,6 +41,15 @@ public final class ClientBlockShapes {
         CollisionBox latestJava =
                 NativeBlockCollisionHelper.getCollisionBox(player, state, x, y, z, entityBottom, actor);
         return selectIfDifferent(latestJava, movementAlternative(player, state, x, y, z, entityBottom));
+    }
+
+    /** BlockState#getCollisionShape(BlockGetter, BlockPos): the shape under CollisionContext.empty(). */
+    public static CollisionBox movementWithoutEntity(CultPlayer player, int state, int x, int y, int z) {
+        VoxelShape shape = NativeBlockCollisionHelper.getCollisionShape(
+                player, state, new BlockPos(x, y, z), Double.NaN, null, EntityCollisionContext.emptyContext());
+        return selectIfDifferent(
+                NativeBlockCollisionHelper.fromShape(shape, x, y, z),
+                movementAlternative(player, state, x, y, z, player.y));
     }
 
     /** Source-proven unit cube with no client mapping override; safe for a boolean-only scan. */

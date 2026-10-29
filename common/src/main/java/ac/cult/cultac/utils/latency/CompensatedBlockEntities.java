@@ -175,6 +175,10 @@ public final class CompensatedBlockEntities {
         lastTickShoves.clear();
     }
 
+    public void positionSet() {
+        lastTickShoves.clear();
+    }
+
     /**
      * Adds the ShulkerBoxBlockEntity#moveCollidedEntities calls of the client tick that ended last, or with
      * {@code next} those of the client tick that runs next, whose block entities tick when {@code runsNormally}.
@@ -227,6 +231,16 @@ public final class CompensatedBlockEntities {
     public BlockEntityData snapshot(BlockPos pos, int state) {
         var entry = entry(pos, states.toModel(state));
         return entry == null ? null : entry.data();
+    }
+
+    public BlockEntityData stored(BlockPos pos) {
+        Entry entry = get(pos.asLong());
+        return entry == null ? null : entry.data();
+    }
+
+    public BlockEntityData prototype(int state) {
+        int model = states.toModel(state);
+        return BlockEntityPrototypes.create(Rules.DATA.registry().block(model), model);
     }
 
     /** Local action overlay after its ordered block writes, without running native callbacks. */

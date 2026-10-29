@@ -36,7 +36,12 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
     private int isExemptFromSwingingCheck = Integer.MIN_VALUE;
 
     public PostCheck(CultPlayer playerData) {
-        super(playerData, CheckInfo.builder().name("Post").build());
+        super(
+                playerData,
+                CheckInfo.builder()
+                        .name("Post")
+                        .description("Impossible attacks, clicks or item use")
+                        .build());
     }
 
     @CultPacketHandler

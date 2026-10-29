@@ -7,6 +7,11 @@ import ac.cult.cultac.player.CultPlayer;
 
 public class InvalidStep extends Check implements PostPredictionListener {
     public InvalidStep(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("InvalidStep").build());
+        super(
+                cultPlayer,
+                CheckInfo.builder()
+                        .name("InvalidStep")
+                        .description("Made an impossible step up")
+                        .build());
     }
 }

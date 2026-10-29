@@ -44,7 +44,8 @@ class LabelConfirmTest {
         assertTrue(sent.isEmpty());
         replies.get(1).complete(new LabelClient.Reply(201, "{\"id\":\"" + ID + "\"}"));
 
-        assertEquals(List.of("Labelled Notch cheating (KillAura, Crystal Aura), high (last 1 day)"), plain());
+        assertEquals(
+                List.of("Labelled Notch cheating (KillAura, Crystal Aura), high confidence (last 1 day)"), plain());
         assertEquals(NamedTextColor.GREEN, sent.get(0).color());
         assertNull(sent.get(0).clickEvent());
     }
@@ -56,7 +57,7 @@ class LabelConfirmTest {
         replies.get(1).complete(new LabelClient.Reply(409, "{\"detail\":\"overlaps an active clean label\"}"));
 
         assertEquals(
-                List.of("Labelled Notch cheating (KillAura), high (last 1 day); "
+                List.of("Labelled Notch cheating (KillAura), high confidence (last 1 day); "
                         + "Crystal Aura refused: HTTP 409: overlaps an active clean label"),
                 plain());
         assertEquals(NamedTextColor.GOLD, sent.get(0).color());
@@ -98,7 +99,7 @@ class LabelConfirmTest {
     }
 
     private void confirm(boolean online, boolean refuseLater) {
-        LabelWizard wizard = new LabelWizard(MOD, NOTCH, 7);
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
         wizard.choose(Verdict.CHEATING);
         wizard.toggle("killaura");
         wizard.toggle("crystalaura");

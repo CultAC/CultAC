@@ -56,6 +56,7 @@ profile:
 help:
     - "&7======================"
     - "/%command% alerts &f- &7Alterna noificações."
+    - "/%command% alerts scope [server|global] &f- &7Show or set whose alerts you see"
     - "/%command% brands &f- &7Toggle brands"
     - "/%command% profile <player> &f- &7Mosta as informações do jogador."
     - "/%command% help &f- &7Mostra essa mensagem de ajuda."
@@ -132,6 +133,30 @@ cult-history-detail-entry-hover: "&b%check%%description%<newline>&8@ %offset% �
 cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
 # Formato interno por check em %checks_list% — placeholders válidos: %check_name% %count%
 cult-history-check-count: "&f%check_name%&7 x&c%count%"
+
+# A command names a player on another instance, or a staff member asks for network-wide alerts, while
+# network.uri in config.yml is empty.
+network-disabled-command: "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+# /cult alerts scope [server|global]: %scope% is server or global, %source% one of the alerts-scope-* texts below.
+alerts-scope: "%prefix% &fAlert scope: &b%scope% &7(%source%)"
+alerts-scope-set: "%prefix% &fAlert scope set to &b%scope%"
+alerts-scope-chosen: "chosen"
+alerts-scope-default: "default"
+alerts-scope-local: "network-wide alerts are not enabled on this server"
+# A command routed to another instance or engine generation. %instance% is the instance id, %player% the player,
+# %location% the instance with its backend server, %reason% why it failed, %lines% and %kb% the output caps.
+network-command-same-server: "&c%player% is on %location%; this command only works on the same server."
+network-spectate-unreachable: "&c%player% is on %location%; spectating across servers needs CultAC on the proxy."
+network-command-stopped: "&cThe command could not be forwarded to %instance%: network routing stopped."
+network-command-not-forwarded: "&cThe command could not be forwarded to %instance%."
+network-command-target-left: "&c%player% is no longer on %instance%."
+network-command-failed: "&c%instance% could not run the command: %reason%"
+network-command-line-too-large: "&7One line of output was too large to relay."
+network-command-output-lost: "&cSome output from %instance% was lost."
+network-command-unfinished: "&7%instance% did not report that the command finished; its output may be incomplete."
+network-command-no-answer: "&c%instance% did not answer."
+network-command-output-cut: "&cThe rest of the output from %instance% was cut: it is over %lines% lines or %kb% KB."
 
 # Marcadores de esquema — ver o comentário do cabeçalho em config.yml.
 config-flavor: V2

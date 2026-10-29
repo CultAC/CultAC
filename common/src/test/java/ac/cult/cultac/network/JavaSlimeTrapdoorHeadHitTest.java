@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -23,9 +24,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 /**
- * A client sprint-jumping on a slime floor under top-half trapdoors with 0.0125 of headroom, from the same sprint jump
- * off the slime. The moves are a real 26.1 client's and the 26.2 client's from vanilla's formulas, translated onto the
- * fixture.
+ * A client sprint-jumping into a ceiling over slime: under top-half trapdoors with 0.0125 of headroom, where the moves
+ * are a real 26.1 client's and the 26.2 client's from vanilla's formulas, and on bottom-half trapdoors under slabs,
+ * where they are a real 1.21.11 client's; all translated onto the fixture.
  */
 class JavaSlimeTrapdoorHeadHitTest {
     private static final ServerboundPlayerInput FORWARD_JUMP =
@@ -92,6 +93,65 @@ class JavaSlimeTrapdoorHeadHitTest {
             check(f, "T9", 269.52491435062467, 62.0, 150.84099550527316, true);
             check(f, "T10", 269.5211739295034, 62.0, 150.9811336672966, true);
         }
+    }
+
+    /**
+     * A 1.21.11 client on bottom-half trapdoors over slime under slabs: Entity#getOnPosLegacy of the head hit is the
+     * trapdoor, which zeroes y, and of the landing the slime, which bounces it. The bounce leaves a y under
+     * LivingEntity#aiStep's 0.003 threshold, so the next move's zero y is no collision below, Entity#onGround drops and
+     * Entity#applyEffectsFromBlocks skips SlimeBlock#stepOn. The moves are a real capture's.
+     */
+    @Test
+    void aZeroYMoveOnTheTrapdoorLeavesTheGroundWithoutStepOn() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V26_3, ClientVersion.V_1_21_11)) {
+            var registry = DataTables.defaults().registry();
+            int trapdoor = registry.block("minecraft:iron_trapdoor").defaultState();
+            int slab = registry.with(
+                    registry.block("minecraft:cobbled_deepslate_slab").defaultState(), "type", "bottom");
+            for (int x = -8; x <= 8; x++) {
+                for (int z = -8; z <= 8; z++) {
+                    f.player.compensatedWorld.updateBlock(
+                            new BlockPos(x, FLOOR_Y - 1, z), BlockIds.SLIME_BLOCK.defaultState());
+                    f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), trapdoor);
+                    f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y + 2, z), slab);
+                }
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+
+            Vec3 landFrom = onTrapdoor(269.544388380157, 62.200000047683716, 135.67242006482167);
+            Vec3 landTo = onTrapdoor(269.54245684321427, 62.1875, 135.440965736047);
+            Vec3 landed = landTo.subtract(landFrom);
+            double restY = (0.0784000015258789 - 0.08) * (double) 0.98F;
+            double stepOn = 0.91F * (0.4 + Math.abs(restY) * 0.2);
+            f.place(landTo, new Vec3(landed.x * stepOn, restY, landed.z * stepOn));
+            f.player.onGround = f.player.lastOnGround = true;
+            f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.fromBoolean(true));
+            f.player.xRot = -180.4832F;
+            f.player.yRot = 6.40206F;
+            f.input(FORWARD);
+            var sprint = new ServerboundPlayerCommand(f.player.entityID, PlayerCommandAction.START_SPRINTING, 0);
+            new PacketEntityAction()
+                    .onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, sprint), f.player, sprint);
+
+            f.input(FORWARD_JUMP);
+            checkOnTrapdoor(f, "J1", 269.53963672905314, 62.200000047683716, 135.10291225599644, false);
+            checkOnTrapdoor(f, "T2", 269.53737115907944, 62.1875, 134.8313301951071, true);
+            f.input(FORWARD);
+            checkOnTrapdoor(f, "T3", 269.53609754637597, 62.1875, 134.67865180684205, false);
+            f.input(FORWARD_JUMP);
+            checkOnTrapdoor(f, "T4", 269.53495782953274, 62.1875, 134.54202282108156, true);
+        }
+    }
+
+    private static void checkOnTrapdoor(
+            JavaTickFixture f, String name, double x, double y, double z, boolean onGround) {
+        PredictionResult result = f.tick(onTrapdoor(x, y, z), onGround);
+        assertTrue(exact(result), name + ": " + describe(result));
+    }
+
+    /** A recorded position moved onto the fixture: the trapdoor block at 62 becomes FLOOR_Y. */
+    private static Vec3 onTrapdoor(double x, double y, double z) {
+        return new Vec3(x - 269.0, y - 62.0 + FLOOR_Y, z - 138.0);
     }
 
     /** Slime under trapdoors, and the client just after its sprint jump off the slime with {@code jumpY} carried. */

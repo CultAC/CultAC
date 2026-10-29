@@ -13,7 +13,7 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
 @CheckData(
         name = "MultiActionsM",
         stableKey = "cult.multiactions.inventory_sneak",
-        description = "Sneaking while in an inventory",
+        description = "Pressed or released sneak in an inventory",
         experimental = true)
 public class MultiActionsM extends Check implements CheckListener {
     public MultiActionsM(CultPlayer player) {

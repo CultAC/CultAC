@@ -52,7 +52,8 @@ final class LabelConfirm {
                 reply = CompletableFuture.failedFuture(failed);
             }
             posts.add(reply.handle((answer, error) -> error != null
-                    ? new Outcome(window.cheat(), "The cloud did not answer: " + LabelClient.unanswered(error) + ".")
+                    ? new Outcome(
+                            window.cheat(), "The cloud did not answer: " + LabelClient.unanswered(error) + ".")
                     : new Outcome(window.cheat(), answer.ok() ? null : LabelClient.failure(answer))));
         }
         CompletableFuture.allOf(posts.toArray(CompletableFuture[]::new))

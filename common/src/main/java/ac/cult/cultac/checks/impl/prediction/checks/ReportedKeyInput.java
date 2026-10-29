@@ -61,7 +61,7 @@ public final class ReportedKeyInput {
     public static List<Vec3> travelInputs(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
         if (appliesTo(player, result, lastResult)) return travelInputs(player, result, groundSpeeds(player, result));
         return inAir(player, result, lastResult)
-                ? travelInputs(player, result, flyingSpeeds(result.getSimulationContext()))
+                ? travelInputs(player, result, flyingSpeeds(player, result.getSimulationContext()))
                 : null;
     }
 
@@ -70,7 +70,7 @@ public final class ReportedKeyInput {
         float walk = context.getMoveRelativeSpeed(player, true, false, false);
         // LivingEntity#getFrictionInfluencedSpeed reads getSpeed(), which carries minecraft:sprinting while applied.
         // ClientSprintState can still hold the modifier after one aiStep started and stopped a wall sprint.
-        float[] sprint = context.isSprintModifier()
+        float[] sprint = context.isSprintModifier() && !stopsRunSprinting(player, context)
                 ? context.getGroundMoveRelativeSpeeds(
                         player, context.getSprintOutcome(player, result.getInitialStartingVel()))
                 : new float[0];
@@ -81,11 +81,16 @@ public final class ReportedKeyInput {
     }
 
     /** Player#getFlyingSpeed out of creative flight for each sprint flag the client may hold during the travel. */
-    private static float[] flyingSpeeds(SimulationContext context) {
+    private static float[] flyingSpeeds(CultPlayer player, SimulationContext context) {
         List<Boolean> sprinting = context.getIsSprinting().getStates();
+        boolean stopped = stopsRunSprinting(player, context);
         float[] speeds = new float[sprinting.size()];
-        for (int i = 0; i < speeds.length; i++) speeds[i] = sprinting.get(i) ? 0.025999999F : 0.02F;
+        for (int i = 0; i < speeds.length; i++) speeds[i] = sprinting.get(i) && !stopped ? 0.025999999F : 0.02F;
         return speeds;
+    }
+
+    private static boolean stopsRunSprinting(CultPlayer player, SimulationContext context) {
+        return context.getIsSprinting() == DesyncStatus.TRUE && player.packetStateData.knownInput.forwardImpulse() <= 0;
     }
 
     private static List<Vec3> travelInputs(CultPlayer player, PredictionResult result, float[] speeds) {
@@ -181,13 +186,16 @@ public final class ReportedKeyInput {
         }
 
         // Entities and changing blocks the engine cannot place exactly may also clip it, but only where the client
-        // stopped: an unknown box must lie in the rest of the keys' move, from the reported end onwards.
-        SimpleCollisionBox rest = box.copy()
-                .offset(target.x, target.y, target.z)
-                .expandToCoordinate(movement.x - target.x, 0, movement.z - target.z);
+        // stopped: an unknown box must lie in the rest of the keys' move along an axis. Direction#axisStepOrder moves
+        // the first horizontal axis from the start of the second, and the second from the reported end of the first.
+        double nearX = minAbs(extents.minX + input.x, extents.maxX + input.x);
+        double nearZ = minAbs(extents.minZ + input.z, extents.maxZ + input.z);
+        double farthestX = Math.max(Math.abs(extents.minX + input.x), Math.abs(extents.maxX + input.x));
+        double farthestZ = Math.max(Math.abs(extents.minZ + input.z), Math.abs(extents.maxZ + input.z));
         List<SimpleCollisionBox> unknown = new ArrayList<>();
-        UnknownCollisionProvider.addMovementUnknownCollisions(
-                player, context, context.getStart(), rest, unknown, new SimpleCollisionBox(), new SimpleCollisionBox());
+        Vec3 reach = new Vec3(farX, 0, farZ);
+        if (nearX < farthestZ) addUnknownAlongTheRest(player, context, box, target, movement, reach, true, unknown);
+        if (farthestX >= nearZ) addUnknownAlongTheRest(player, context, box, target, movement, reach, false, unknown);
         if (unknown.isEmpty()) return offset;
 
         // Entity#collide collides with each entity at the one position the client holds it.
@@ -211,6 +219,39 @@ public final class ReportedKeyInput {
             }
         }
         return offset;
+    }
+
+    private static void addUnknownAlongTheRest(
+            CultPlayer player,
+            SimulationContext context,
+            SimpleCollisionBox box,
+            Vec3 target,
+            Vec3 movement,
+            Vec3 far,
+            boolean zFirst,
+            List<SimpleCollisionBox> unknown) {
+        SimpleCollisionBox first = box.copy()
+                .offset(zFirst ? 0 : target.x, target.y, zFirst ? target.z : 0)
+                .expandToCoordinate(zFirst ? 0 : movement.x - target.x, 0, zFirst ? movement.z - target.z : 0)
+                .expandToCoordinate(zFirst ? 0 : far.x - target.x, 0, zFirst ? far.z - target.z : 0);
+        SimpleCollisionBox second = box.copy()
+                .offset(target.x, target.y, target.z)
+                .expandToCoordinate(zFirst ? movement.x - target.x : 0, 0, zFirst ? 0 : movement.z - target.z)
+                .expandToCoordinate(zFirst ? far.x - target.x : 0, 0, zFirst ? 0 : far.z - target.z);
+        for (SimpleCollisionBox rest : List.of(first, second)) {
+            UnknownCollisionProvider.addMovementUnknownCollisions(
+                    player,
+                    context,
+                    context.getStart(),
+                    rest,
+                    unknown,
+                    new SimpleCollisionBox(),
+                    new SimpleCollisionBox());
+        }
+    }
+
+    private static double minAbs(double low, double high) {
+        return low <= 0 && high >= 0 ? 0 : Math.min(Math.abs(low), Math.abs(high));
     }
 
     private static boolean appliesTo(CultPlayer player, PredictionResult result, PredictionResult lastResult) {

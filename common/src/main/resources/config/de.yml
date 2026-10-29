@@ -289,6 +289,34 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
+# Damit Team-Befehle, Tab-Vervollständigung und Warnungen auf all Ihren Proxys und Servern funktionieren.
+# Anleitung: docs/network.md im Quellcode von CultAC. /cult reload übernimmt Änderungen.
+# Jede Einstellung hier lässt sich auch mit einer CULTAC_NETWORK_*-Umgebungsvariable setzen, die dann Vorrang hat.
+network:
+  # Wie Ihre Server miteinander sprechen:
+  #   none         Aus. Befehle und Warnungen erreichen nur Spieler auf diesem Server.
+  #   redis        Über einen Redis-Server (Valkey, KeyDB und Dragonfly gehen auch). Füllen Sie den Abschnitt redis aus.
+  #   nats         Über einen NATS-Server. Füllen Sie den Abschnitt nats aus.
+  #   redisbungee  Velocity-Proxys mit RedisBungee. Nutzt dessen Redis-Verbindung, sonst ist nichts auszufüllen.
+  type: none
+  redis:
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
+  nats:
+    # Mehrere Server trennen Sie mit Kommas.
+    address: localhost:4222
+    username: ""
+    password: ""
+    token: ""
+    # Nur wenn Ihr NATS-Server Accounts nutzt: der Pfad zu Ihrer .creds-Datei.
+    credentials-file: ""
+    ssl: false
+  # Der Name dieses Servers im Netzwerk. Jeder Server braucht seinen eigenen.
+  # Leer lassen, um die RedisBungee-Proxy-ID zu nutzen, sonst cloud.proxy-id, sonst IP und Port dieses Servers.
+  instance-id: ""
+
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
 update:
@@ -309,4 +337,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 14
+config-version: 17

@@ -8,6 +8,7 @@ import ac.cult.cultac.cloud.capture.Sections;
 import ac.cult.cultac.cloud.diag.Diagnostics;
 import ac.cult.cultac.cloud.findings.Finding;
 import ac.cult.cultac.cloud.findings.FindingsLog;
+import ac.cult.cultac.cloud.flags.CloudFlags;
 import ac.cult.cultac.cloud.labels.LabelClient;
 import ac.cult.cultac.cloud.transport.CloudConnection;
 import ac.cult.cultac.cloud.transport.CloudConnections;
@@ -92,10 +93,9 @@ public final class CloudService {
         else if (findings == null) findings = new FindingsLog(System::currentTimeMillis, CloudService::tracked);
         CONNECTIONS.configure(settings);
         LabelClient.refreshCatalogWhile(settings.enabled());
-        StaffBans.configure(
-                settings,
-                StaffBans.Commands.read(config),
-                CloudServerIds.own(settings.serverIdTemplate(), settings.proxyId(), proxy));
+        String ownId = CloudServerIds.own(settings.serverIdTemplate(), settings.proxyId(), proxy);
+        StaffBans.configure(settings, StaffBans.Commands.read(config), ownId);
+        CloudFlags.configure(settings, ownId);
         CloudCapture.uplinks(UPLINKS);
         boolean on = UPLINKS.enabled();
         if (on && !hooksOn) {
@@ -226,6 +226,7 @@ public final class CloudService {
     static void shutdown() {
         LabelClient.refreshCatalogWhile(false);
         StaffBans.stop();
+        CloudFlags.stop();
         for (CloudCapture capture : INSTALLED) capture.detach();
         CONNECTIONS.closeAll();
         UPLINKS.clear();

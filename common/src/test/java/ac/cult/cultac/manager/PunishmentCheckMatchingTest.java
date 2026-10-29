@@ -1,9 +1,12 @@
 package ac.cult.cultac.manager;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -12,12 +15,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.checks.info.CheckCatalog;
+import ac.cult.cultac.checks.info.CheckPolicy;
 import ac.cult.cultac.player.CultPlayer;
 import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.config.ConfigManager;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -56,6 +64,42 @@ class PunishmentCheckMatchingTest {
             verify(check, times(1)).setEnabled(true);
         verify(badPacketsN, never()).setEnabled(true);
         verify(unnamed, never()).setEnabled(true);
+    }
+
+    @Test
+    void checkPolicySelectsTheSameChecksAsPunishmentManager() {
+        List<Object> groups = List.of(
+                group(List.of("Sprint", "!SprintD"), List.of("5:5 [alert]")),
+                group(List.of("unknown", "antikb"), List.of("5:5 [alert]")),
+                group(List.of("BadPackets", "BadPacketsV", "!BadPacketsV"), List.of("5:5 [alert]")));
+        Set<String> enabled = new TreeSet<>();
+        List<AbstractCheck> checks = new ArrayList<>();
+        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
+            AbstractCheck check = check(entry.name(), entry.runtimeAltName());
+            doAnswer(invocation -> {
+                        if (invocation.<Boolean>getArgument(0)) enabled.add(entry.name());
+                        return null;
+                    })
+                    .when(check)
+                    .setEnabled(anyBoolean());
+            checks.add(check);
+        }
+        CultPlayer player = mock(CultPlayer.class);
+        doReturn(checks).when(player).getChecks();
+        ConfigManager config = mock(ConfigManager.class);
+        when(config.getBooleanElse(anyString(), anyBoolean())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(config.getStringElse(anyString(), anyString())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(config.getStringListElse(eq("Punishments"), any())).thenReturn((List) groups);
+
+        new PunishmentManager(player).reload(config);
+
+        CheckPolicy policy = CheckPolicy.parse(groups);
+        Set<String> held = new TreeSet<>();
+        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
+            if (!policy.status(entry).groups().isEmpty()) held.add(entry.name());
+        }
+        assertTrue(held.containsAll(List.of("SprintA", "AntiKB", "BadPacketsV")), held.toString());
+        assertEquals(enabled, held);
     }
 
     private static AbstractCheck check(String name, String alternativeName) {

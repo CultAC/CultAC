@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.events.packets.ProxyAlertMessenger;
 import ac.cult.cultac.platform.api.CommandOutcome;
 import ac.cult.cultac.platform.api.OnlineMode;
 import ac.cult.cultac.platform.api.Platform;
@@ -8,11 +9,13 @@ import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
+import java.io.File;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.jetbrains.annotations.Nullable;
 
 public class BukkitPlatformServer implements PlatformServer {
@@ -63,6 +66,11 @@ public class BukkitPlatformServer implements PlatformServer {
     }
 
     @Override
+    public boolean receivesForwardedAlerts() {
+        return ProxyAlertMessenger.receivesAlerts();
+    }
+
+    @Override
     public boolean isProxyForwardingEnabled() {
         return configBoolean("spigot.yml", "settings.bungeecord")
                 || configBoolean("config/paper-global.yml", "proxies.velocity.enabled");
@@ -86,11 +94,14 @@ public class BukkitPlatformServer implements PlatformServer {
     }
 
     private static boolean configBoolean(String file, String key, boolean missing) {
-        var path = new java.io.File(file);
-        return path.isFile()
-                ? org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(path)
-                        .getBoolean(key, missing)
-                : missing;
+        YamlConfiguration config = config(file);
+        return config == null ? missing : config.getBoolean(key, missing);
+    }
+
+    /** The server's YAML config {@code file}, relative to the server folder; null when there is no such file. */
+    static @Nullable YamlConfiguration config(String file) {
+        File path = new File(file);
+        return path.isFile() ? YamlConfiguration.loadConfiguration(path) : null;
     }
 
     @Override

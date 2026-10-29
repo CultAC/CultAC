@@ -35,7 +35,9 @@ import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.management.ManagementFactory;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -58,16 +60,27 @@ class CloudOffTest {
         for (String argument : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
             if (!argument.startsWith("-javaagent") && !argument.startsWith("-agentlib")) command.add(argument);
         }
-        command.addAll(List.of("-Xlog:class+load=info", "-cp", System.getProperty("java.class.path")));
-        command.add(Play.class.getName());
-        Process child = new ProcessBuilder(command).redirectErrorStream(true).start();
-        String output = new String(child.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        String printed = output.lines()
-                .filter(line -> !line.contains("[class,load]"))
-                .collect(Collectors.joining(System.lineSeparator()));
-        assertTrue(child.waitFor(2, TimeUnit.MINUTES), printed);
-        assertEquals(0, child.exitValue(), printed);
-        assertTrue(output.contains(Play.DONE), printed);
+        Path classPath = Files.createTempFile("cloud-off-classpath", ".args");
+        String output;
+        try {
+            String quoted =
+                    System.getProperty("java.class.path").replace("\\", "\\\\").replace("\"", "\\\"");
+            Files.writeString(
+                    classPath, "-cp \"" + quoted + "\"", Charset.forName(System.getProperty("native.encoding")));
+            command.addAll(List.of("-Xlog:class+load=info", "@" + classPath));
+            command.add(Play.class.getName());
+            Process child =
+                    new ProcessBuilder(command).redirectErrorStream(true).start();
+            output = new String(child.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            String printed = output.lines()
+                    .filter(line -> !line.contains("[class,load]"))
+                    .collect(Collectors.joining(System.lineSeparator()));
+            assertTrue(child.waitFor(2, TimeUnit.MINUTES), printed);
+            assertEquals(0, child.exitValue(), printed);
+            assertTrue(output.contains(Play.DONE), printed);
+        } finally {
+            Files.deleteIfExists(classPath);
+        }
 
         List<String> loaded = output.lines()
                 .filter(line -> line.contains("[class,load]"))

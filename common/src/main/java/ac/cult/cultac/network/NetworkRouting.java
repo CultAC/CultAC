@@ -1,8 +1,10 @@
 package ac.cult.cultac.network;
 
+import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -11,9 +13,9 @@ import java.util.concurrent.CompletableFuture;
  */
 public interface NetworkRouting {
 
-    /** This instance's routing: a local-only one while no transport is running. */
+    /** This instance's routing: the running network service's, else one that knows no player and runs nothing. */
     static NetworkRouting current() {
-        return RoutingHolder.current;
+        return NetworkModule.routing();
     }
 
     /** False while no transport is running; then {@link #roster} holds only this instance's players. */
@@ -36,4 +38,9 @@ public interface NetworkRouting {
      * could not be reached, after telling {@code sender} why.
      */
     CompletableFuture<Boolean> run(Sender sender, String line, NetworkPlayer where);
+
+    /** Whether another engine generation of this instance holds {@code player}, so commands about them run there. */
+    default boolean otherGeneration(UUID player) {
+        return false;
+    }
 }

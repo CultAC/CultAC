@@ -16,29 +16,29 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * The wording of the {@code /cult label <player>} menu: what each line says, and which label on file the new ones would
- * clash with.
+ * Text the {@code /cult label} command and its menu share: chat lines, the lines several pages repeat, and which label
+ * on file the new ones would clash with. Words one page alone uses stay on that page in {@link LabelMenu}.
  */
 final class LabelLines {
     static String javaOnly() {
-        return "The label menu needs a Java client. "
+        return "The label menu needs a Java client on 1.21.6 or later. "
                 + "Use " + CloudCommandService.command("label <player> <cheat> <high|extreme> <24h|3d|7d|30d> [note]")
                 + ", or " + CloudCommandService.command("label <player> clean <high|extreme> [note]") + ".";
     }
 
-    static final String PICK_ONE = "Pick at least one check.";
+    static final String PICK_ONE = "Pick at least one cheat.";
     /** A Clean label's window: the service labels the stored play and keeps the player clean until it is revoked. */
-    static final String ALWAYS = "Always: stored play and from now on, until revoked";
+    static final String ALWAYS = "Covers all their play, past and future, until revoked.";
 
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH);
     private static final DateTimeFormatter MINUTE = DateTimeFormatter.ofPattern("MMM d HH:mm", Locale.ENGLISH);
-    private static final DateTimeFormatter JOINED = DateTimeFormatter.ofPattern("MMM dd, yyyy", Locale.ENGLISH);
-    private static final String DOT = " · ";
+    static final String DOT = " · ";
     private static final String ARMED = "armed";
 
     private LabelLines() {}
@@ -54,6 +54,15 @@ final class LabelLines {
     /** Every Next button's label: plain yellow, never bold and never with a count. */
     static Component next() {
         return Component.text("Next ▶", NamedTextColor.YELLOW);
+    }
+
+    /** What picking {@code verdict} says, as its button's tooltip. */
+    static String meaning(Verdict verdict) {
+        return switch (verdict) {
+            case CHEATING -> "You are sure they cheated.";
+            case SUSPECTED -> "It looks like cheating, but you are not sure.";
+            case CLEAN -> "You are sure they play fair, now and later.";
+        };
     }
 
     static Component verdict(Verdict verdict) {
@@ -79,32 +88,36 @@ final class LabelLines {
         return hours / 24 + "d " + hours % 24 + "h";
     }
 
-    /** Page 1's status line: how long the target has been online, else that they are offline. */
-    static String status(@Nullable Long onlineMillis) {
-        return onlineMillis == null ? "Offline" : "Online " + duration(onlineMillis);
+    /**
+     * Page 1's status line: how long the target has been online here, else the server the network has them on
+     * ({@code elsewhere}, "" when it does not say), else that they are offline.
+     */
+    static String status(@Nullable Long onlineMillis, @Nullable String elsewhere) {
+        if (onlineMillis != null) return "Online " + duration(onlineMillis);
+        if (elsewhere == null) return "Offline";
+        return elsewhere.isEmpty() ? "Online" : "Online on " + elsewhere;
     }
 
-    /** Page 4's first card line: {@code Notch · online 42m} green, or {@code Notch · offline} grey. */
-    static Component presence(String name, @Nullable Long onlineMillis) {
-        return onlineMillis == null
-                ? Component.text(name + DOT + "offline", NamedTextColor.GRAY)
-                : Component.text(name + DOT + "online " + duration(onlineMillis), NamedTextColor.GREEN);
-    }
-
-    /** When the target first joined; null when the server does not know. */
-    static @Nullable String firstJoined(long millis) {
-        if (millis <= 0) return null;
-        return "First joined: " + JOINED.format(Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC));
+    /** The review's first card line: {@code Notch · online 42m} green, or {@code Notch · offline} grey. */
+    static Component presence(String name, @Nullable Long onlineMillis, @Nullable String elsewhere) {
+        String status = status(onlineMillis, elsewhere);
+        return Component.text(
+                name + DOT + Character.toLowerCase(status.charAt(0)) + status.substring(1),
+                onlineMillis == null && elsewhere == null ? NamedTextColor.GRAY : NamedTextColor.GREEN);
     }
 
     /** The verdict, the confidence when it has one, and the span unless Clean. */
     static Component summary(Verdict verdict, boolean asksConfidence, String confidence, int days) {
-        String rest = (asksConfidence ? DOT + capitalized(confidence) + " confidence" : "")
-                + (verdict == Verdict.CLEAN ? "" : DOT + lastDays(days));
-        return Component.text()
-                .append(verdict(verdict))
-                .append(Component.text(rest, NamedTextColor.WHITE))
-                .asComponent();
+        TextComponent.Builder line = Component.text().append(verdict(verdict));
+        if (asksConfidence) {
+            String text = DOT + capitalized(confidence) + " confidence";
+            line.append(
+                    confidence.equals(LabelWizard.EXTREME)
+                            ? Component.text(text, NamedTextColor.GOLD, TextDecoration.BOLD)
+                            : Component.text(text, NamedTextColor.WHITE));
+        }
+        if (verdict != Verdict.CLEAN) line.append(Component.text(DOT + lastDays(days), NamedTextColor.WHITE));
+        return line.asComponent();
     }
 
     /** The frozen window: {@code Oct 8 14:02 → Oct 15 14:02 UTC}. */
@@ -116,7 +129,7 @@ final class LabelLines {
      * A picked check, with how often it flagged in the window when the service said; {@code other} has no count, and
      * a check the service gave no count for shows its name alone.
      */
-    static Component check(String cheat, @Nullable Map<String, Integer> flags, int days) {
+    static Component cheat(String cheat, @Nullable Map<String, Integer> flags, int days) {
         Component name = Component.text(name(cheat), NamedTextColor.WHITE);
         Integer count = flags == null || cheat.equals("other") ? null : flags.get(cheat);
         if (count == null) return name;
@@ -203,12 +216,15 @@ final class LabelLines {
     static String echo(
             String player, Verdict verdict, List<String> checks, boolean asksConfidence, String confidence, int days) {
         String what = verdict == Verdict.CLEAN
-                ? "clean across all checks"
-                : verdict.display.toLowerCase(Locale.ROOT) + " ("
-                        + String.join(
-                                ", ", checks.stream().map(LabelLines::name).toList()) + ")";
-        return "Labelled " + player + " " + what + (asksConfidence ? ", " + confidence : "")
+                ? "clean across all cheats"
+                : verdict.display.toLowerCase(Locale.ROOT) + " (" + names(checks) + ")";
+        return "Labelled " + player + " " + what + (asksConfidence ? ", " + confidence + " confidence" : "")
                 + (verdict == Verdict.CLEAN ? "" : " (" + lastDays(days) + ")");
+    }
+
+    /** The cheats' names, comma-separated, in order. */
+    static String names(List<String> cheats) {
+        return String.join(", ", cheats.stream().map(LabelLines::name).toList());
     }
 
     static String capitalized(String word) {

@@ -46,6 +46,28 @@ class ConfigHashTest {
         }
     }
 
+    private String networkHash(String secret, String redisPassword, String natsToken, String instanceId)
+            throws IOException {
+        Files.writeString(
+                folder.resolve("config.yml"),
+                "network:\n  type: redis\n  redis:\n    address: cache:6379\n    username: \"\"\n    password: "
+                        + redisPassword + "\n  nats:\n    username: user\n    password: " + redisPassword
+                        + "\n    token: " + natsToken + "\n  secret: " + secret + "\n  instance-id: " + instanceId
+                        + "\n");
+        Files.writeString(folder.resolve("cult.yml"), "Reach:\n  threshold: 0.0005\n");
+        Files.writeString(
+                folder.resolve("punishments.yml"), "Punishments:\n  Reach:\n    remove-violations-after: 300\n");
+        return CloudConnection.configHash(folder.toFile(), "en");
+    }
+
+    @Test
+    void theNetworkCredentialsLeaveTheHashAlone() throws IOException {
+        String base = networkHash("\"\"", "\"\"", "\"\"", "p3");
+        assertEquals(base, networkHash("\"s3cret\"", "\"pw\"", "\"\"", "p3"));
+        assertEquals(base, networkHash("\"\"", "\"pa,ss\"", "\"t0ken\"", "p3"));
+        assertNotEquals(base, networkHash("\"\"", "\"\"", "\"\"", "p4"));
+    }
+
     @Test
     void changingASettingChangesTheHash() throws IOException {
         String base = hash("\"123456\"", "\"key\"", "0.0005");

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
@@ -38,6 +39,12 @@ class JavaSprintSwimStartTest {
             new ServerboundPlayerInput(true, false, false, false, false, false, false);
     private static final ServerboundPlayerInput FORWARD_SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
+    private static final ServerboundPlayerInput BACK_SPRINT =
+            new ServerboundPlayerInput(false, true, false, false, false, false, true);
+    private static final ServerboundPlayerInput BACK_LEFT_SPRINT =
+            new ServerboundPlayerInput(false, true, true, false, false, false, true);
+    private static final ServerboundPlayerInput SHIFT_BACK_SPRINT =
+            new ServerboundPlayerInput(false, true, false, false, false, true, true);
     private static final byte SPRINTING = 0x08;
     private static final byte SWIMMING = 0x10;
 
@@ -249,6 +256,119 @@ class JavaSprintSwimStartTest {
                 velocity = new Vec3(delta.x * 0.9F, 0.0, delta.z * 0.9F);
             }
             assertTrue(sprintG.violations > 0, "a sprinting wader is not SprintG");
+        }
+    }
+
+    @Test
+    void sprintingBackwardInWaterBeforeTheSwimIsSetBack() throws Exception {
+        try (var f = pool(FLOOR_Y + 2)) {
+            f.player.xRot = 30.0F;
+            Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
+            f.place(position, Vec3.ZERO);
+            assertExact(f.tick(position, true), "standing");
+            command(f, PlayerCommandAction.START_SPRINTING);
+            f.input(BACK_SPRINT);
+            Vec3 delta = ClientMoveInput.of(f, BACK_SPRINT, 1.0F, 0.02F, 30.0F);
+            PredictionResult result = f.tick(position.add(delta.x, 0.0, delta.z), true);
+            assertEquals(Pose.STANDING, f.player.pose);
+            assertTrue(result.hasFlag(OmniSprint.class), describe(result));
+            assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback(), describe(result));
+        }
+    }
+
+    @Test
+    void swimmingBackwardOnTheFloorIsExact() throws Exception {
+        try (var f = pool(FLOOR_Y + 2)) {
+            float yaw = 30.0F;
+            f.player.xRot = yaw;
+            f.player.yRot = 0.0F;
+            Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
+            f.place(position, Vec3.ZERO);
+            assertExact(f.tick(position, true), "standing");
+            command(f, PlayerCommandAction.START_SPRINTING);
+            Vec3 velocity = Vec3.ZERO;
+            for (int tick = 1; tick < 9; tick++) {
+                ServerboundPlayerInput keys = tick < 3 ? FORWARD_SPRINT : tick < 6 ? BACK_SPRINT : BACK_LEFT_SPRINT;
+                f.input(keys);
+                Vec3 delta = velocity.add(ClientMoveInput.of(f, keys, 1.0F, 0.02F, yaw));
+                position = position.add(delta.x, 0.0, delta.z);
+                PredictionResult result = f.tick(position, true);
+                assertExact(result, "sprint tick " + tick);
+                assertFalse(result.hasFlag(OmniSprint.class), "sprint tick " + tick + ": " + describe(result));
+                velocity = new Vec3(delta.x * 0.9F, 0.0, delta.z * 0.9F);
+            }
+            assertEquals(Pose.SWIMMING, f.player.pose);
+            assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback());
+        }
+    }
+
+    @Test
+    void swimmingBackwardOffTheFloorIsSetBack() throws Exception {
+        try (var f = pool(FLOOR_Y + 2)) {
+            float yaw = 30.0F;
+            f.player.xRot = yaw;
+            f.player.yRot = 0.0F;
+            Vec3 position = new Vec3(0.5, FLOOR_Y + 1.2, 0.5);
+            f.place(position, Vec3.ZERO);
+            f.input(FORWARD);
+            Vec3 delta = ClientMoveInput.of(f, FORWARD, 1.0F, 0.02F, yaw);
+            position = position.add(delta);
+            assertExact(f.tick(position, false), "first tick");
+            Vec3 velocity = new Vec3(delta.x * 0.8F, -0.005, delta.z * 0.8F);
+
+            command(f, PlayerCommandAction.START_SPRINTING);
+            for (int tick = 1; tick < 4; tick++) {
+                ServerboundPlayerInput keys = tick < 3 ? FORWARD_SPRINT : BACK_SPRINT;
+                f.input(keys);
+                double y = swimPitch(f, velocity.y, 0.0, position, tick > 1);
+                Vec3 input = ClientMoveInput.of(f, keys, 1.0F, 0.02F, yaw);
+                delta = new Vec3(velocity.x + input.x, y, velocity.z + input.z);
+                position = position.add(delta);
+                PredictionResult result = f.tick(position, false);
+                if (tick < 3) {
+                    assertExact(result, "sprint tick " + tick);
+                    velocity = new Vec3(delta.x * 0.9F, y * 0.8F, delta.z * 0.9F);
+                    continue;
+                }
+                assertEquals(Pose.SWIMMING, f.player.pose);
+                assertTrue(result.hasFlag(OmniSprint.class), describe(result));
+                assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback(), describe(result));
+            }
+        }
+    }
+
+    @Test
+    void swimmingBackwardOffTheFloorHoldingShiftIsExact() throws Exception {
+        try (var f = pool(FLOOR_Y + 2)) {
+            float yaw = 30.0F;
+            f.player.xRot = yaw;
+            f.player.yRot = 0.0F;
+            Vec3 position = new Vec3(0.5, FLOOR_Y + 1.2, 0.5);
+            f.place(position, Vec3.ZERO);
+            f.input(FORWARD);
+            Vec3 delta = ClientMoveInput.of(f, FORWARD, 1.0F, 0.02F, yaw);
+            position = position.add(delta);
+            assertExact(f.tick(position, false), "first tick");
+            Vec3 velocity = new Vec3(delta.x * 0.8F, -0.005, delta.z * 0.8F);
+
+            command(f, PlayerCommandAction.START_SPRINTING);
+            for (int tick = 1; tick < 6; tick++) {
+                ServerboundPlayerInput keys = tick < 3 ? FORWARD_SPRINT : SHIFT_BACK_SPRINT;
+                f.input(keys);
+                double y = velocity.y;
+                if (Math.abs(y) < 0.003) y = 0.0;
+                if (keys.shift()) y -= 0.04F;
+                y = swimPitch(f, y, 0.0, position, tick > 1);
+                Vec3 input = ClientMoveInput.of(f, keys, 1.0F, 0.02F, yaw);
+                delta = new Vec3(velocity.x + input.x, y, velocity.z + input.z);
+                position = position.add(delta);
+                PredictionResult result = f.tick(position, false);
+                assertExact(result, "sprint tick " + tick);
+                assertFalse(result.hasFlag(OmniSprint.class), "sprint tick " + tick + ": " + describe(result));
+                velocity = new Vec3(delta.x * 0.9F, y * 0.8F, delta.z * 0.9F);
+            }
+            assertEquals(Pose.SWIMMING, f.player.pose);
+            assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback());
         }
     }
 

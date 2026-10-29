@@ -11,6 +11,14 @@ import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.breaking.*;
 import ac.cult.cultac.checks.impl.chat.*;
 import ac.cult.cultac.checks.impl.cloud.Cloud;
+import ac.cult.cultac.checks.impl.cloud.CloudAutomation;
+import ac.cult.cultac.checks.impl.cloud.CloudAutomationExperimental;
+import ac.cult.cultac.checks.impl.cloud.CloudClient;
+import ac.cult.cultac.checks.impl.cloud.CloudClientExperimental;
+import ac.cult.cultac.checks.impl.cloud.CloudCombat;
+import ac.cult.cultac.checks.impl.cloud.CloudCombatExperimental;
+import ac.cult.cultac.checks.impl.cloud.CloudExploit;
+import ac.cult.cultac.checks.impl.cloud.CloudExploitExperimental;
 import ac.cult.cultac.checks.impl.combat.EntityHitboxes;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -124,7 +132,8 @@ public class CheckManager {
             BadPacketsP.class,
             BadPacketsM.class,
             PostCheck.class,
-            ExplosionHandler.class);
+            ExplosionHandler.class,
+            ClientBrand.class);
 
     private final CultPlayer player;
 
@@ -193,7 +202,7 @@ public class CheckManager {
         vehicleCheck = buildVehicleChecks(player);
         identityChecks = buildIdentityChecks(player);
         postPredictionCheck = buildPostPredictionChecks(player);
-        blockPlaceCheck = buildBlockPlaceChecks(player);
+        blockPlaceCheck = buildBlockPlaceChecks(player, packetChecks.getInstance(ClientVisibilityProcessor.class));
         prePredictionChecks = buildPrePredictionChecks(player);
         pseudoCheck = buildPseudoChecks(player);
 
@@ -373,10 +382,10 @@ public class CheckManager {
                 new VehicleF(player),
                 new AirLiquidBreak(player),
                 new WrongBreak(player),
-                new RotationBreak(player),
+                new RotationBreak(player, visibility),
                 new FastBreak(player),
                 new NoSwingBreak(player),
-                new FarBreak(player),
+                new FarBreak(player, visibility),
                 new InvalidBreak(player),
                 new PositionBreakA(player, visibility),
                 new PositionBreakB(player),
@@ -407,8 +416,18 @@ public class CheckManager {
     // baseline. Keeping them out of callback lists preserves registration and
     // configuration without inventing behavior.
     private static ClassToInstanceMap<CheckListener> buildIdentityChecks(CultPlayer player) {
-        return listenerMap(
-                List.<CheckListener>of(new VehicleC(player), new BedrockMovement(player), new Cloud(player)));
+        return listenerMap(List.<CheckListener>of(
+                new VehicleC(player),
+                new BedrockMovement(player),
+                new Cloud(player),
+                new CloudCombat(player),
+                new CloudCombatExperimental(player),
+                new CloudAutomation(player),
+                new CloudAutomationExperimental(player),
+                new CloudClient(player),
+                new CloudClientExperimental(player),
+                new CloudExploit(player),
+                new CloudExploitExperimental(player)));
     }
 
     private static ClassToInstanceMap<PostPredictionListener> buildPostPredictionChecks(CultPlayer player) {
@@ -455,7 +474,8 @@ public class CheckManager {
                 new ElytraJ(player)));
     }
 
-    private static ClassToInstanceMap<BlockPlaceCheck> buildBlockPlaceChecks(CultPlayer player) {
+    private static ClassToInstanceMap<BlockPlaceCheck> buildBlockPlaceChecks(
+            CultPlayer player, ClientVisibilityProcessor visibility) {
         return listenerMap(List.<BlockPlaceCheck>of(
                 new BadPacketsH(player),
                 new InvalidPlaceA(player),
@@ -466,9 +486,9 @@ public class CheckManager {
                 new MultiActionsG(player),
                 new MultiActionsK(player),
                 new CrashG(player),
-                new FarPlace(player),
+                new FarPlace(player, visibility),
                 new FabricatedPlace(player),
-                new RotationPlace(player),
+                new RotationPlace(player, visibility),
                 new PacketOrderN(player),
                 new DuplicateRotPlace(player),
                 new GhostBlockMitigation(player)));

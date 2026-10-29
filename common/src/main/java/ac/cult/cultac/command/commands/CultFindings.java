@@ -3,6 +3,7 @@ package ac.cult.cultac.command.commands;
 import ac.cult.cultac.cloud.findings.Finding;
 import ac.cult.cultac.cloud.findings.FindingsLog;
 import ac.cult.cultac.command.BuildableCommand;
+import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.List;
@@ -22,7 +23,10 @@ public class CultFindings implements BuildableCommand {
         commandManager.command(BuildableCommand.root(commandManager)
                 .literal("findings")
                 .permission(CloudArguments.VIEW)
-                .required("player", StringParser.stringParser(), CloudArguments.players())
+                .required(
+                        "player",
+                        NetworkPlayerArguments.playerName(StringParser.stringParser()),
+                        CloudArguments.players())
                 .optional("count", IntegerParser.integerParser(1, FindingsLog.CAPACITY))
                 .handler(this::handle));
     }

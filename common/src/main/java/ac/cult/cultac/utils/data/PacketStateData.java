@@ -53,12 +53,15 @@ public class PacketStateData {
     // A respawned LocalPlayer's kept lastSentInput holds shift, which its KeyboardInput reads at the first aiStep.
     public boolean respawnShiftPending;
     public int riptideLevel = 0;
+    public int riptideAlternativeLevel = 0;
     public boolean riptideReleaseCertain = false;
     public int acceptedClientTick = 0;
     public int riptideUseStartClientTick = Integer.MIN_VALUE;
     public Hand riptideUseHand = null;
-    public boolean invalidRiptideRelease = false;
-    public String invalidRiptideReleaseReason = "";
+    public int riptideUseSlot;
+    public int riptideSelectClientTick = Integer.MIN_VALUE;
+    public int riptideSlotBeforeSelect;
+    public int riptideFirstSelectSlot;
     public float serverTickRate = 20.0F;
     public boolean serverTicksFrozen = false;
     public int serverFrozenTickStepsRemaining = 0;

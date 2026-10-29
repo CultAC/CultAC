@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.WorldPackets.TimeUpdate;
@@ -16,7 +15,6 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -152,7 +150,7 @@ class CamelDashCooldownTest {
             assertExact(f.tick(ON_FOOT, true));
 
             board(f, IDLE);
-            command(f, PlayerCommandAction.START_JUMPING_WITH_HORSE, 0);
+            f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE);
             // LocalPlayer#aiStep sends the riding jump after the camel's tick, so it arms the next one.
             assertExact(ride(f, START, true));
             Vec3 landed = dash(f, START);
@@ -165,7 +163,7 @@ class CamelDashCooldownTest {
             for (int tick = 0; tick < DASH_COOLDOWN; tick++) assertExact(f.tick(dismounted, true));
 
             board(f, FORWARD_SPRINT);
-            command(f, PlayerCommandAction.START_SPRINTING, 0);
+            f.command(PlayerCommandAction.START_SPRINTING);
             assertExact(ride(f, new Vec3(landed.x, landed.y, landed.z + GROUND_INPUT), true));
         }
     }
@@ -224,7 +222,7 @@ class CamelDashCooldownTest {
         f.setPassengers(CAMEL, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
         f.input(FORWARD_SPRINT);
-        command(f, PlayerCommandAction.START_SPRINTING, 0);
+        f.command(PlayerCommandAction.START_SPRINTING);
         f.tickEnd();
         f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0.0, GROUNDED_Y, 0.0));
         f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
@@ -238,12 +236,6 @@ class CamelDashCooldownTest {
         f.tickEnd();
         f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0.0, GROUNDED_Y, 0.0));
         f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
-    }
-
-    private static void command(JavaTickFixture f, PlayerCommandAction action, int data) {
-        var command = new ServerboundPlayerCommand(f.player.entityID, action, data);
-        new PacketEntityAction()
-                .onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, command), f.player, command);
     }
 
     private static void acceptNewTeleports(JavaTickFixture f, List<Integer> before) {

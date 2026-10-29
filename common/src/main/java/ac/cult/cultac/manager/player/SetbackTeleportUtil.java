@@ -1152,9 +1152,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 return completeMountedTeleport(teleportPos);
             }
 
-            double trueTeleportX = (teleportPos.isRelativeX() ? player.x : 0) + teleportPos.getLocation().x;
-            double trueTeleportY = (teleportPos.isRelativeY() ? player.y : 0) + teleportPos.getLocation().y;
-            double trueTeleportZ = (teleportPos.isRelativeZ() ? player.z : 0) + teleportPos.getLocation().z;
+            Vec3 shove = teleportPos.isRelativeX() || teleportPos.isRelativeY() || teleportPos.isRelativeZ()
+                    ? player.compensatedWorld.lastTickShulkerBoxShove()
+                    : Vec3.ZERO;
+            double trueTeleportX = (teleportPos.isRelativeX() ? player.x + shove.x : 0) + teleportPos.getLocation().x;
+            double trueTeleportY = (teleportPos.isRelativeY() ? player.y + shove.y : 0) + teleportPos.getLocation().y;
+            double trueTeleportZ = (teleportPos.isRelativeZ() ? player.z + shove.z : 0) + teleportPos.getLocation().z;
 
             // There seems to be a version difference in teleports past 30 million... just clamp the vector
             // I'm not sure how teleports work on 26.1
@@ -1183,6 +1186,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             if (exactTeleportPosition
                     && (teleportPos.isPositionOnly() || receivedTransaction == teleportPos.getTransaction())) {
                 pendingTeleports.poll();
+                player.compensatedWorld.onClientPositionSet();
                 return completeTeleport(teleportPos, clamped, true);
             } else if (teleportPos.isPositionOnly() && receivedTransaction <= teleportPos.getTransaction()) {
                 break;
