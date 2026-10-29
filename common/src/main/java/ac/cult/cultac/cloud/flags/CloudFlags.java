@@ -67,6 +67,7 @@ public final class CloudFlags {
     static final String RAISED = "flagged";
     static final String UNKNOWN = "unknown flag";
     static final String FAILED = "the flag failed";
+    static final String REFUSED = "the check took no violation";
 
     /** Bumped on every configure, so only the latest poller claims and raises. */
     private static final Generation GENERATION = new Generation();
@@ -291,6 +292,7 @@ public final class CloudFlags {
         }
         CompletableFuture<Boolean> raised = new CompletableFuture<>();
         AtomicBoolean started = new AtomicBoolean();
+        AtomicBoolean refused = new AtomicBoolean();
         after.apply(RAISE_TIMEOUT.toSeconds()).execute(() -> {
             if (started.compareAndSet(false, true)) raised.complete(false);
         });
@@ -302,8 +304,12 @@ public final class CloudFlags {
                             raised.complete(false);
                             return;
                         }
+                        if (!host.online(flag.player())) {
+                            raised.complete(false);
+                            return;
+                        }
                         try {
-                            check.raise();
+                            refused.set(!check.raise());
                             raised.complete(true);
                         } catch (RuntimeException failure) {
                             raised.completeExceptionally(failure);
@@ -328,6 +334,7 @@ public final class CloudFlags {
                                 + " or reloaded; it can be claimed again once its lease runs out");
                         return CompletableFuture.<Void>completedFuture(null);
                     }
+                    if (refused.get()) return report(flag, false, REFUSED);
                     return report(flag, true, RAISED);
                 })
                 .thenCompose(Function.identity());

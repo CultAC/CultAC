@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.cloud.CloudCombat;
@@ -68,6 +69,10 @@ class CloudFlagsTest {
     private final Set<UUID> online = ConcurrentHashMap.newKeySet();
     /** Players who leave between their claim and their flag. */
     private final Set<UUID> leaving = ConcurrentHashMap.newKeySet();
+    /** Players who leave once their flag is queued on their packet thread. */
+    private final Set<UUID> departing = ConcurrentHashMap.newKeySet();
+    /** Players whose check takes no violation. */
+    private final Set<UUID> refusing = ConcurrentHashMap.newKeySet();
 
     private final List<Raised> raised = Collections.synchronizedList(new ArrayList<>());
     private final CloudFlags.Generation generation = new CloudFlags.Generation();
@@ -83,7 +88,10 @@ class CloudFlagsTest {
         public boolean schedule(UUID player, Class<? extends CloudFlagCheck> type, Consumer<CloudFlagCheck> flag) {
             if (leaving.contains(player)) return false;
             raised.add(new Raised(player, type));
-            flag.accept(mock(type));
+            CloudFlagCheck check = mock(type);
+            when(check.raise()).thenReturn(!refusing.contains(player));
+            if (departing.contains(player)) online.remove(player);
+            flag.accept(check);
             return true;
         }
     };
@@ -262,6 +270,31 @@ class CloudFlagsTest {
         assertEquals(1, posts().size());
         assertTrue(results().isEmpty());
         assertFalse(handled.contains(FLAG));
+    }
+
+    @Test
+    void aPlayerWhoLeftOnceTheFlagWasQueuedGetsNoResult() throws Exception {
+        online.add(PLAYER);
+        departing.add(PLAYER);
+        pending(flag(FLAG, PLAYER, "CloudCombat"));
+
+        flags().pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertEquals(1, posts().size());
+        assertTrue(results().isEmpty());
+        assertFalse(handled.contains(FLAG));
+    }
+
+    @Test
+    void aViolationTheCheckRefusesIsReportedAsNotFlagged() throws Exception {
+        online.add(PLAYER);
+        refusing.add(PLAYER);
+        pending(flag(FLAG, PLAYER, "CloudCombat"));
+
+        flags().pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertEquals(1, results().size());
+        assertResult(results().get(0), FLAG, false, "the check took no violation");
     }
 
     @Test
