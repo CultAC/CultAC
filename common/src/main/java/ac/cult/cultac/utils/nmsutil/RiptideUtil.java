@@ -10,6 +10,8 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.StuckSpeedData;
+import ac.cult.cultac.utils.inventory.Inventory;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,7 +21,7 @@ public final class RiptideUtil {
     private RiptideUtil() {}
 
     public static int getRiptideLevel(SimItemStack item) {
-        if (item == null || item.getItem() != ac.cult.cultac.utils.inventory.ItemTypes.TRIDENT) {
+        if (!isTrident(item)) {
             return 0;
         }
         return ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(item, "minecraft:riptide");
@@ -110,9 +112,18 @@ public final class RiptideUtil {
         return fluid.is("minecraft:water") || fluid.is("minecraft:flowing_water");
     }
 
+    public static boolean isTrident(SimItemStack item) {
+        return item != null && item.getItem() == ItemTypes.TRIDENT;
+    }
+
+    public static SimItemStack hotbarItem(CultPlayer player, int slot) {
+        return player.getInventory().inventory.getInventoryStorage().getItem(Inventory.HOTBAR_OFFSET + slot);
+    }
+
     public static void clearTrackedUse(CultPlayer player) {
         player.packetStateData.riptideUseHand = null;
         player.packetStateData.riptideUseStartClientTick = Integer.MIN_VALUE;
+        player.packetStateData.riptideSelectClientTick = Integer.MIN_VALUE;
     }
 
     /** Whether TridentItem#releaseUsing runs this tick for a player on ground that is not a passenger. */
