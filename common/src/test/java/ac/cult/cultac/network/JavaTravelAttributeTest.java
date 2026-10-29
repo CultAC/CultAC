@@ -414,6 +414,22 @@ class JavaTravelAttributeTest {
         }
     }
 
+    /**
+     * The move a rider sends before ClientPacketListener#handleSetEntityPassengersPacket reads the server's dismount
+     * still travels on AbstractHorse#getRiddenInput.
+     */
+    @Test
+    void aRiddenHorseTravelsOnItsRidersInputUntilTheClientReadsItsDismount() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            riddenHorseInWater(f, 1.0, true);
+            f.setPassengers(100, List.of());
+            assertTrue(f.player.compensatedEntities.vehicles.hasPendingServerDismount());
+            assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
+
+            JavaTickFixture.assertVehicleExact(rideForward(f, RIDDEN_WALK), 0);
+        }
+    }
+
     @Test
     void aRiddenHorseInWaterGetsNoSprintModifier() throws Exception {
         try (var f = new JavaTickFixture()) {
