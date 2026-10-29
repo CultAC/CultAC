@@ -26,7 +26,7 @@ public class PacketPlayerDigging {
                 && (RiptideUtil.getRiptideLevel(item) <= 0
                         || RiptideUtil.inWaterOrRain(player).determineOptimistically())) {
             RiptideUtil.startTrackedUse(player, hand);
-        } else if (hand == player.packetStateData.riptideUseHand) {
+        } else {
             RiptideUtil.clearTrackedUse(player);
         }
     }
