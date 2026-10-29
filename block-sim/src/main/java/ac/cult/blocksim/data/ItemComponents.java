@@ -60,9 +60,23 @@ public final class ItemComponents {
                 number(value, "mob_factor", 1));
     }
 
+    /** Memoized reads; each value is immutable through final fields, so a racing reader sees it whole or reads again. */
+    static final class Derived {
+        private static final Tool NO_TOOL = new Tool(List.of(), 0, 0, false);
+        private Map<String, Integer> enchantments;
+        private Tool tool;
+    }
+
     public static Tool tool(Components components) {
+        var derived = components.derived();
+        var tool = derived.tool;
+        if (tool == null) derived.tool = tool = readTool(components);
+        return tool == Derived.NO_TOOL ? null : tool;
+    }
+
+    private static Tool readTool(Components components) {
         var value = object(components, "minecraft:tool");
-        if (value == null) return null;
+        if (value == null) return Derived.NO_TOOL;
         var rules = new ArrayList<ToolRule>();
         for (var entry : value.getAsJsonArray("rules")) {
             var rule = entry.getAsJsonObject();
@@ -100,6 +114,13 @@ public final class ItemComponents {
     }
 
     public static Map<String, Integer> enchantments(Components components) {
+        var derived = components.derived();
+        var levels = derived.enchantments;
+        if (levels == null) derived.enchantments = levels = readEnchantments(components);
+        return levels;
+    }
+
+    private static Map<String, Integer> readEnchantments(Components components) {
         var value = object(components, "minecraft:enchantments");
         if (value == null) return Map.of();
         var levels = new LinkedHashMap<String, Integer>();
