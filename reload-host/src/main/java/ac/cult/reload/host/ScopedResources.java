@@ -48,11 +48,16 @@ public final class ScopedResources implements ResourceScope {
     }
 
     /** A new lease, or null once close has begun. */
-    private Lease tryReserve() {
+    private Ticket tryReserve() {
+        return reserve() ? new Ticket() : null;
+    }
+
+    /** Counts one more open lease, or returns false once close has begun. */
+    private boolean reserve() {
         for (int state = leases.get(); ; ) {
-            if ((state & CLOSING) != 0) return null;
+            if ((state & CLOSING) != 0) return false;
             int witness = leases.compareAndExchange(state, state + 1);
-            if (witness == state) return new Ticket();
+            if (witness == state) return true;
             state = witness;
         }
     }
@@ -138,16 +143,27 @@ public final class ScopedResources implements ResourceScope {
 
     @Override
     public void run(Runnable callback) {
-        Lease ticket = tryReserve();
+        Ticket ticket = tryReserve();
         if (ticket != null) runAccepted(ticket, callback);
     }
 
-    private void runAccepted(Lease ticket, Runnable callback) {
-        try (ticket) {
-            inContext(() -> {
-                callback.run();
-                return null;
-            });
+    /** Runs {@code callback} as {@code try (ticket)} would, releasing the lease without a resource object. */
+    private void runAccepted(Reservation ticket, Runnable callback) {
+        try {
+            try {
+                inContext(() -> {
+                    callback.run();
+                    return null;
+                });
+            } catch (Throwable primary) {
+                try {
+                    ticket.release();
+                } catch (Throwable suppressed) {
+                    primary.addSuppressed(suppressed);
+                }
+                throw primary;
+            }
+            ticket.release();
         } catch (RuntimeException | Error error) {
             throw error;
         } catch (Exception error) {
@@ -157,7 +173,8 @@ public final class ScopedResources implements ResourceScope {
 
     @Override
     public Runnable once(Runnable callback) {
-        return new OnceTask(acquire(), callback);
+        if (!reserve()) throw RuntimeFailures.ended();
+        return new OnceTask(callback);
     }
 
     @Override
@@ -188,12 +205,20 @@ public final class ScopedResources implements ResourceScope {
         return stopped.minimalCompletionStage();
     }
 
-    private final class Ticket implements Lease {
+    private final class Ticket extends Reservation implements Lease {
+        @Override
+        public void close() {
+            release();
+        }
+    }
+
+    /** One reserved lease, released at most once. */
+    private abstract class Reservation {
         private static final VarHandle RELEASED;
 
         static {
             try {
-                RELEASED = MethodHandles.lookup().findVarHandle(Ticket.class, "released", boolean.class);
+                RELEASED = MethodHandles.lookup().findVarHandle(Reservation.class, "released", boolean.class);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);
             }
@@ -202,8 +227,7 @@ public final class ScopedResources implements ResourceScope {
         @SuppressWarnings("unused") // Accessed through RELEASED.
         private volatile boolean released;
 
-        @Override
-        public void close() {
+        final void release() {
             if (!RELEASED.compareAndSet(this, false, true)) return;
             // No lease is reserved after CLOSING, so the count reaches zero with it set exactly once.
             if (leases.decrementAndGet() != CLOSING) return;
@@ -242,12 +266,11 @@ public final class ScopedResources implements ResourceScope {
         }
     }
 
-    private final class OnceTask implements Runnable, AutoCloseable {
-        private final Lease ticket;
+    /** Holds its own lease from {@link #once} until it runs or closes. */
+    private final class OnceTask extends Reservation implements Runnable, AutoCloseable {
         private Runnable callback;
 
-        OnceTask(Lease ticket, Runnable callback) {
-            this.ticket = ticket;
+        OnceTask(Runnable callback) {
             this.callback = callback;
         }
 
@@ -257,7 +280,7 @@ public final class ScopedResources implements ResourceScope {
                 action = callback;
                 callback = null;
             }
-            if (action != null) runAccepted(ticket, action);
+            if (action != null) runAccepted(this, action);
         }
 
         public void close() {
@@ -265,7 +288,7 @@ public final class ScopedResources implements ResourceScope {
                 if (callback == null) return;
                 callback = null;
             }
-            ticket.close();
+            release();
         }
     }
 }
