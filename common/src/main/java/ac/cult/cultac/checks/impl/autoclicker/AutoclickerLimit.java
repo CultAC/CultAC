@@ -16,6 +16,7 @@ public class AutoclickerLimit extends AutoClickCheck {
                 playerData,
                 CheckInfo.builder()
                         .name("AutoClickerLimit")
+                        .description("Clicked too fast")
                         .configName("AutoclickerLimit")
                         .stableKey("cult.autoclicker.limit")
                         .build(),

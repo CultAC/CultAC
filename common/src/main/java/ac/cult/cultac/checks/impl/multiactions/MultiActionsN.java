@@ -12,7 +12,7 @@ import ac.cult.cultac.protocol.value.*;
 @CheckData(
         name = "MultiActionsN",
         stableKey = "cult.multiactions.inventory_inventory",
-        description = "Opened an inventory while in an inventory",
+        description = "Opened their mount's inventory while in an inventory",
         experimental = true)
 public class MultiActionsN extends Check implements CheckListener {
     public MultiActionsN(CultPlayer player) {

@@ -5,11 +5,15 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Riptide;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.StuckSpeedData;
+import ac.cult.cultac.utils.inventory.Inventory;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,24 +23,19 @@ public final class RiptideUtil {
     private RiptideUtil() {}
 
     public static int getRiptideLevel(SimItemStack item) {
-        if (item == null || item.getItem() != ac.cult.cultac.utils.inventory.ItemTypes.TRIDENT) {
+        if (!isTrident(item)) {
             return 0;
         }
         return ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(item, "minecraft:riptide");
     }
 
-    public static boolean isValidRiptideRelease(CultPlayer player, Hand hand) {
-        return isFullyCharged(player, hand) && canUseRiptideAtCurrentState(player);
+    /** The riptide level TridentItem#releaseUsing spins {@code item} at, none when ItemStack#nextDamageWillBreak. */
+    public static int releaseLevel(SimItemStack item) {
+        return item == null || item.nextDamageWillBreak() ? 0 : getRiptideLevel(item);
     }
 
-    public static String invalidReleaseReason(CultPlayer player, Hand hand) {
-        if (!isFullyCharged(player, hand)) {
-            return "charge=" + getTrackedUseTicks(player, hand);
-        }
-        if (player.compensatedEntities.getSelf().inVehicle()) {
-            return "passenger";
-        }
-        return "dry";
+    public static boolean isValidRiptideRelease(CultPlayer player, Hand hand) {
+        return isFullyCharged(player, hand) && canUseRiptideAtCurrentState(player);
     }
 
     public static boolean isFullyCharged(CultPlayer player, Hand hand) {
@@ -56,10 +55,16 @@ public final class RiptideUtil {
     }
 
     public static boolean canUseRiptideAtCurrentState(CultPlayer player) {
-        if (player.compensatedEntities.getSelf().inVehicle()) {
+        if (refusesPassenger(player)) {
             return false;
         }
         return inWaterOrRain(player).determineOptimistically();
+    }
+
+    /** TridentItem#releaseUsing refuses a passenger from 26.1. */
+    private static boolean refusesPassenger(CultPlayer player) {
+        return player.compensatedEntities.getSelf().inVehicle()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1);
     }
 
     /** Player#isInWaterOrRain as TridentItem#use and TridentItem#releaseUsing read it from Minecraft#handleKeybinds. */
@@ -110,9 +115,46 @@ public final class RiptideUtil {
         return fluid.is("minecraft:water") || fluid.is("minecraft:flowing_water");
     }
 
+    public static boolean isTrident(SimItemStack item) {
+        return item != null && item.getItem() == ItemTypes.TRIDENT;
+    }
+
+    public static SimItemStack hotbarItem(CultPlayer player, int slot) {
+        return player.getInventory().inventory.getInventoryStorage().getItem(Inventory.HOTBAR_OFFSET + slot);
+    }
+
+    public static void startTrackedUse(CultPlayer player, Hand hand) {
+        PacketStateData state = player.packetStateData;
+        int slot = player.getInventory().inventory.selected;
+        state.riptideUseHand = hand;
+        state.riptideUseStartClientTick = state.acceptedClientTick;
+        state.riptideUseSlot = slot;
+        state.riptideSlotBeforeSelect = slot;
+        state.riptideFirstSelectSlot = slot;
+        state.riptideSelectClientTick = state.acceptedClientTick;
+    }
+
+    /**
+     * LocalPlayer#onSyncedDataUpdated stops the use on a cleared using bit, and starts one on the flagged hand when
+     * {@code clientUsing} is false.
+     */
+    public static void serverUseFlags(CultPlayer player, byte flags, boolean clientUsing) {
+        if ((flags & 0x01) == 0) {
+            clearTrackedUse(player);
+            return;
+        }
+        Hand hand = (flags & 0x02) != 0 ? Hand.OFF_HAND : Hand.MAIN_HAND;
+        if (!clientUsing
+                && player.packetStateData.riptideUseHand == null
+                && isTrident(player.getInventory().getHandItem(hand))) {
+            startTrackedUse(player, hand);
+        }
+    }
+
     public static void clearTrackedUse(CultPlayer player) {
         player.packetStateData.riptideUseHand = null;
         player.packetStateData.riptideUseStartClientTick = Integer.MIN_VALUE;
+        player.packetStateData.riptideSelectClientTick = Integer.MIN_VALUE;
     }
 
     /** Whether TridentItem#releaseUsing runs this tick for a player on ground that is not a passenger. */

@@ -7,6 +7,11 @@ import ac.cult.cultac.player.CultPlayer;
 
 public class Angle extends Check implements PostPredictionListener {
     public Angle(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("Angle").build());
+        super(
+                cultPlayer,
+                CheckInfo.builder()
+                        .name("Angle")
+                        .description("Moved in a direction the normal game does not allow")
+                        .build());
     }
 }

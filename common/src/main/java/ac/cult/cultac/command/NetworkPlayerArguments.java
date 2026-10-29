@@ -3,7 +3,6 @@ package ac.cult.cultac.command;
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.network.routing.NetworkModule;
-import ac.cult.cultac.network.routing.RemoteCommandSource;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
@@ -12,10 +11,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.incendo.cloud.context.CommandContext;
 import org.incendo.cloud.context.CommandInput;
 import org.incendo.cloud.exception.ArgumentParseException;
@@ -30,7 +29,8 @@ import org.jetbrains.annotations.Nullable;
 /**
  * The platform's player arguments, aware of the network. A typed player the roster places on another instance fails
  * the parse with a {@link PlayerElsewhereException}; {@link #handle} then forwards the whole command line to that
- * instance for the commands that work across instances, and tells the sender the others only work on the same proxy.
+ * instance or engine generation for the commands that work across instances, and tells the sender the others only work
+ * on the same server.
  * Without a transport, a player who is not here on an instance that looks networked gets the network-disabled
  * message. While a transport runs, player suggestions add the roster's names.
  */
@@ -66,8 +66,8 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                             CommandContext<Sender> context, CommandInput input) {
                         String name = input.peekString();
                         return base.parseFuture(context, input).thenApply(result -> {
-                            if (result.failure().isEmpty()) return result;
-                            PlayerElsewhereException elsewhere = elsewhere(name, true);
+                            PlayerElsewhereException elsewhere =
+                                    result.failure().isEmpty() ? otherGeneration(context, name) : elsewhere(name, true);
                             return elsewhere == null ? result : ArgumentParseResult.failure(elsewhere);
                         });
                     }
@@ -93,6 +93,7 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
         return ParserDescriptor.of(
                 base.parser().flatMapSuccess((context, name) -> {
                     PlayerElsewhereException elsewhere = elsewhere(name, false);
+                    if (elsewhere == null) elsewhere = otherGeneration(context, name);
                     return elsewhere == null
                             ? ArgumentParseResult.successFuture(name)
                             : ArgumentParseResult.failureFuture(elsewhere);
@@ -148,6 +149,24 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
         return online && NetworkModule.networked() ? new PlayerElsewhereException(name, null) : null;
     }
 
+    /** {@code name} here but held by another engine generation, for a command that runs where its player is. */
+    private static @Nullable PlayerElsewhereException otherGeneration(CommandContext<Sender> context, String name) {
+        if (name.isEmpty()) return null;
+        NetworkRouting routing = NetworkRouting.current();
+        NetworkPlayer where = routing.locate(name).orElse(null);
+        return where != null
+                        && where.instance().equals(routing.instanceId())
+                        && routing.otherGeneration(where.uuid())
+                        && routed(line(context))
+                ? new PlayerElsewhereException(name, where)
+                : null;
+    }
+
+    private static String line(CommandContext<Sender> context) {
+        String line = context.rawInput().input().strip();
+        return line.startsWith("/") ? line.substring(1).strip() : line;
+    }
+
     /**
      * {@code first}'s suggestions, then {@code local}'s; while a transport runs, the roster's names too, all matching
      * the typed prefix, without duplicates and at most {@value #MAX_SUGGESTIONS}.
@@ -197,21 +216,23 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                             + " configure a messaging backend (Redis or NATS) in the CultAC configuration."));
             return;
         }
-        if (sender instanceof RemoteCommandSource forwarded) {
-            forwarded.targetLeft();
-            return;
-        }
-        String line = context.context().rawInput().input().strip();
-        if (line.startsWith("/")) line = line.substring(1).strip();
+        String line = line(context.context());
         if (!routed(line)) {
-            sender.sendMessage(Component.text(
-                    where.name() + " is on " + where.instance()
-                            + (where.server() == null ? "" : " (" + where.server() + ")")
-                            + "; this command only works on the same proxy.",
-                    NamedTextColor.RED));
+            sender.sendMessage(whereabouts(
+                    sender,
+                    where,
+                    "network-command-same-server",
+                    "&c%player% is on %location%; this command only works on the same server."));
             return;
         }
         NetworkRouting.current().run(sender, line, where);
+    }
+
+    /** The message at {@code key}, {@code %player%} and {@code %location%} naming {@code where}. */
+    public static Component whereabouts(Sender sender, NetworkPlayer where, String key, String fallback) {
+        String location = where.instance() + (where.server() == null ? "" : " (" + where.server() + ")");
+        return MessageUtil.getParsedComponent(
+                sender, key, fallback, Map.of("player", where.name(), "location", location));
     }
 
     /** Whether {@code line}, root first, is one of the subcommands that run where their player is. */

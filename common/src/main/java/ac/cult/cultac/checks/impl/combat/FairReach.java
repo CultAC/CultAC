@@ -59,6 +59,7 @@ public class FairReach extends Check implements CheckListener {
                 player,
                 CheckInfo.builder()
                         .name("FairReach")
+                        .description("Hit a player who was out of reach")
                         .stableKey("cult.combat.fair_reach")
                         .build());
         this.visibility = visibility;

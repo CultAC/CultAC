@@ -184,6 +184,16 @@ public class MessageUtil {
         return MessageUtil.miniMessage(message);
     }
 
+    /** As {@link #getParsedComponent(Sender, String, String)}, each {@code %name%} of {@code values} shown as text. */
+    public Component getParsedComponent(
+            @Nullable Sender sender, String key, String fallbackText, Map<String, String> values) {
+        String message = CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse(key, fallbackText);
+        // Before the shared placeholders, which would take a name such as %player% for the sender.
+        for (Map.Entry<String, String> value : values.entrySet())
+            message = message.replace("%" + value.getKey() + "%", miniMessageSafe(value.getValue()));
+        return MessageUtil.miniMessage(MessageUtil.replacePlaceholders(sender, message));
+    }
+
     @Contract("_, _ -> new")
     public static @NotNull String translateAlternateColorCodes(char altColorChar, @NotNull String textToTranslate) {
         char[] b = textToTranslate.toCharArray();

@@ -75,6 +75,14 @@ public class BoatData {
         vehicleKeys = nextVehicleKeys;
     }
 
+    /** The keys AbstractBoat#controlBoat reads on {@code boat} before LocalPlayer#rideTick gives it new ones. */
+    public void useInputOf(PacketEntity boat) {
+        vehicleKeys = boat.boatInput;
+        vehicleHoriz = vehicleKeys.strafeImpulse();
+        vehicleForward = vehicleKeys.forwardImpulse();
+        vehicleJump = vehicleKeys.jump();
+    }
+
     public boolean usesWaterEntryPositionSnap() {
         return usesWaterEntryPositionSnap(oldStatus, status);
     }
@@ -141,16 +149,13 @@ public class BoatData {
                     // vehicle packet. If a tick-end packet after the mount
                     // transaction has already arrived, that passenger copy has
                     // completed and the next root boat tick starts from the staged
-                    // input, not the boat's pre-mount zero fields.
+                    // input, not the keys the boat kept from before the mount.
                     vehicleHoriz = nextVehicleHoriz;
                     vehicleForward = nextVehicleForward;
                     vehicleJump = nextVehicleJump;
                     vehicleKeys = nextVehicleKeys;
                 } else {
-                    vehicleHoriz = 0.0F;
-                    vehicleForward = 0.0F;
-                    vehicleJump = false;
-                    vehicleKeys = KnownInput.DEFAULT;
+                    useInputOf(vehicle);
                 }
             }
 

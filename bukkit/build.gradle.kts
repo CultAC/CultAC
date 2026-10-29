@@ -110,6 +110,11 @@ bukkit {
             default = Permission.Default.OP
         }
 
+        register("cult.info") {
+            description = "Explain what each check catches"
+            default = Permission.Default.OP
+        }
+
         register("cult.brand") {
             description = "Show client brands on join"
             default = Permission.Default.OP

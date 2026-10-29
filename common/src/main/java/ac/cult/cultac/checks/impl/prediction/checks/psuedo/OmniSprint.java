@@ -9,7 +9,12 @@ import java.util.function.Supplier;
 
 public class OmniSprint extends Check implements PostPredictionListener {
     public OmniSprint(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("OmniSprint").build());
+        super(
+                cultPlayer,
+                CheckInfo.builder()
+                        .name("OmniSprint")
+                        .description("Sprinted in a direction other than forward")
+                        .build());
     }
 
     double buffer;

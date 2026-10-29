@@ -11,6 +11,14 @@ import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.breaking.*;
 import ac.cult.cultac.checks.impl.chat.*;
 import ac.cult.cultac.checks.impl.cloud.Cloud;
+import ac.cult.cultac.checks.impl.cloud.CloudAutomation;
+import ac.cult.cultac.checks.impl.cloud.CloudAutomationExperimental;
+import ac.cult.cultac.checks.impl.cloud.CloudClient;
+import ac.cult.cultac.checks.impl.cloud.CloudClientExperimental;
+import ac.cult.cultac.checks.impl.cloud.CloudCombat;
+import ac.cult.cultac.checks.impl.cloud.CloudCombatExperimental;
+import ac.cult.cultac.checks.impl.cloud.CloudExploit;
+import ac.cult.cultac.checks.impl.cloud.CloudExploitExperimental;
 import ac.cult.cultac.checks.impl.combat.EntityHitboxes;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -408,8 +416,18 @@ public class CheckManager {
     // baseline. Keeping them out of callback lists preserves registration and
     // configuration without inventing behavior.
     private static ClassToInstanceMap<CheckListener> buildIdentityChecks(CultPlayer player) {
-        return listenerMap(
-                List.<CheckListener>of(new VehicleC(player), new BedrockMovement(player), new Cloud(player)));
+        return listenerMap(List.<CheckListener>of(
+                new VehicleC(player),
+                new BedrockMovement(player),
+                new Cloud(player),
+                new CloudCombat(player),
+                new CloudCombatExperimental(player),
+                new CloudAutomation(player),
+                new CloudAutomationExperimental(player),
+                new CloudClient(player),
+                new CloudClientExperimental(player),
+                new CloudExploit(player),
+                new CloudExploitExperimental(player)));
     }
 
     private static ClassToInstanceMap<PostPredictionListener> buildPostPredictionChecks(CultPlayer player) {

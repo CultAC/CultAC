@@ -9,6 +9,7 @@ import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
+import java.util.Map;
 import java.util.Objects;
 import net.kyori.adventure.text.Component;
 import org.incendo.cloud.Command;
@@ -77,30 +78,26 @@ public class CultAlerts implements BuildableCommand {
             return;
         }
         alerts.chooseScope(player, scope);
-        sender.sendMessage(message(sender, "alerts-scope-set", "%prefix% &fAlert scope set to &b%scope%", scope, ""));
+        sender.sendMessage(MessageUtil.getParsedComponent(
+                sender, "alerts-scope-set", "%prefix% &fAlert scope set to &b%scope%", Map.of("scope", scope.id())));
     }
 
     /** The scope that applies to {@code player} now and where it comes from. */
     static Component scopeLine(Sender sender, PlatformPlayer player) {
         AlertManagerImpl alerts = CultAPI.INSTANCE.getAlertManager();
+        var config = CultAPI.INSTANCE.getConfigManager().getConfig();
         String source;
         if (!alerts.networkAlerts()) {
-            source = text("alerts-scope-local", "network-wide alerts are not enabled on this server");
+            source = config.getStringElse("alerts-scope-local", "network-wide alerts are not enabled on this server");
         } else if (alerts.chosenScope(player) != null) {
-            source = text("alerts-scope-chosen", "chosen");
+            source = config.getStringElse("alerts-scope-chosen", "chosen");
         } else {
-            source = text("alerts-scope-default", "default");
+            source = config.getStringElse("alerts-scope-default", "default");
         }
-        return message(
-                sender, "alerts-scope", "%prefix% &fAlert scope: &b%scope% &7(%source%)", alerts.scope(player), source);
-    }
-
-    private static Component message(Sender sender, String key, String fallback, AlertScope scope, String source) {
-        String raw = text(key, fallback).replace("%scope%", scope.id()).replace("%source%", source);
-        return MessageUtil.miniMessage(MessageUtil.replacePlaceholders(sender, raw));
-    }
-
-    private static String text(String key, String fallback) {
-        return CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse(key, fallback);
+        return MessageUtil.getParsedComponent(
+                sender,
+                "alerts-scope",
+                "%prefix% &fAlert scope: &b%scope% &7(%source%)",
+                Map.of("scope", alerts.scope(player).id(), "source", source));
     }
 }

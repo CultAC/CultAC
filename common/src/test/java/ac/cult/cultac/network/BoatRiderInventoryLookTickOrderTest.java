@@ -367,7 +367,8 @@ class BoatRiderInventoryLookTickOrderTest {
     /**
      * Drives the boat steering left until {@link #HAND_OVER_TICK} with the inventory closed, leaves it for three ticks
      * with the keys released and drives it again, its deltaRotation starting from {@code startTurn}. Back aboard the
-     * keys steer left from the first tick until {@link #OPEN_TICK}, when they are released and the inventory opens, or,
+     * boat steers left from the first tick, by the left key it kept from the drive and then by the one pressed again,
+     * until {@link #OPEN_TICK}, when the keys are released and the inventory opens, or,
      * when {@code useItems}, a use_item comes from Minecraft#handleKeybinds every tick after instead. Counts the turned
      * looks MultiActionsO judges, or the use_items of a tick the boat turned the rider, those of them whose turn differs
      * from the one a client of {@code version} gives the boat and the rider from the same yaws, and the check's
@@ -409,7 +410,7 @@ class BoatRiderInventoryLookTickOrderTest {
                 }
                 turn *= landFriction();
                 vanillaTurn *= landFriction();
-                if (tick >= 1 && tick <= OPEN_TICK) {
+                if (tick <= OPEN_TICK) {
                     turn--;
                     vanillaTurn--;
                 }
@@ -453,7 +454,8 @@ class BoatRiderInventoryLookTickOrderTest {
      * Rides the boat at {@code boatYaw} just boarded, with the keys released and the inventory open. The rider starts at
      * the boat's yaw, which ClientPacketListener#handleSetEntityPassengersPacket gives a player newly aboard, and
      * positionRider turns it by {@code turn} each tick. The driver's boat turns by it as well and AbstractBoat#floatBoat
-     * multiplies it by the land friction each tick first.
+     * multiplies it by the land friction each tick first; on the first tick controlBoat then takes 1 from it for the
+     * left key the boat kept from its last drive.
      */
     private static Run ride(
             JavaTickFixture f, MultiActionsO check, ClientVersion version, float boatYaw, float turn, boolean drives) {
@@ -464,6 +466,7 @@ class BoatRiderInventoryLookTickOrderTest {
         for (int tick = 0; tick < TICKS; tick++) {
             if (drives) {
                 turn *= landFriction();
+                if (tick == 0) turn--;
                 boatYaw += turn;
             }
             float turned = clampRotation(yaw + turn, boatYaw);

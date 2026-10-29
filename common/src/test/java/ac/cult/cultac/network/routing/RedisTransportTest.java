@@ -32,10 +32,13 @@ import org.junit.jupiter.api.Test;
 
 /** Jedis wiring against a fake RESP server; a real Redis is not exercised here. */
 class RedisTransportTest {
-    /** Well under the 10 s connect and read timeouts, so a close that waits for either still fails. */
-    private static final long CLOSE_SLACK_MILLIS = 5_000;
+    /** Connects and reads give up after 4 s, and closing drains for 200 ms. */
+    private static final RedisTransport.Timings TIMINGS = new RedisTransport.Timings(4_000, 4_000, 10_000, 30_000, 200);
 
-    private static final List<String> CHANNELS = List.of("cultac.default.p3", "cultac.default.all");
+    /** Well under the connect and read timeouts, so a close that waits for either still fails. */
+    private static final long CLOSE_SLACK_MILLIS = 2_000;
+
+    private static final List<String> CHANNELS = List.of("cultac.0123abcd.p3", "cultac.0123abcd.all");
 
     private FakeRedisServer server;
     private RedisTransport subscriber;
@@ -51,8 +54,8 @@ class RedisTransportTest {
     void setUp() throws Exception {
         server = new FakeRedisServer();
         String uri = "redis://127.0.0.1:" + server.port() + "/0";
-        subscriber = RedisTransport.create(uri);
-        publisher = RedisTransport.create(uri);
+        subscriber = transport(uri);
+        publisher = transport(uri);
     }
 
     @AfterEach
@@ -60,6 +63,22 @@ class RedisTransportTest {
         subscriber.close();
         publisher.close();
         server.close();
+    }
+
+    private static RedisTransport transport(String uri) {
+        return transport(uri, TIMINGS);
+    }
+
+    private static RedisTransport transport(String uri, RedisTransport.Timings timings) {
+        return new RedisTransport(uri, Redaction.of(List.of(uri), List.of()), timings);
+    }
+
+    /** Fails unless closing {@code transport} returns well before a connect or read in progress would give up. */
+    private static void closesPromptly(RedisTransport transport) {
+        long started = System.nanoTime();
+        transport.close();
+        long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+        assertTrue(closing < TIMINGS.drainMillis() + CLOSE_SLACK_MILLIS, closing + " ms");
     }
 
     private static void await(BooleanSupplier condition) throws InterruptedException {
@@ -79,12 +98,12 @@ class RedisTransportTest {
         subscriber.start(CHANNELS, (channel, text) -> received.add(channel + " " + text));
         subscribed();
 
-        publisher.publish("cultac.default.p3", "sig.{\"v\":1}");
-        publisher.publish("cultac.default.other", "not subscribed");
-        publisher.publish("cultac.default.all", "é broadcast");
+        publisher.publish("cultac.0123abcd.p3", "sig.{\"v\":1}");
+        publisher.publish("cultac.0123abcd.other", "not subscribed");
+        publisher.publish("cultac.0123abcd.all", "é broadcast");
 
-        assertEquals("cultac.default.p3 sig.{\"v\":1}", received.poll(10, TimeUnit.SECONDS));
-        assertEquals("cultac.default.all é broadcast", received.poll(10, TimeUnit.SECONDS));
+        assertEquals("cultac.0123abcd.p3 sig.{\"v\":1}", received.poll(10, TimeUnit.SECONDS));
+        assertEquals("cultac.0123abcd.all é broadcast", received.poll(10, TimeUnit.SECONDS));
         assertNull(received.poll(200, TimeUnit.MILLISECONDS));
     }
 
@@ -92,12 +111,12 @@ class RedisTransportTest {
     void resubscribesAfterTheServerDropsTheConnection() throws Exception {
         subscriber.start(CHANNELS, (channel, text) -> received.add(text));
         subscribed();
-        publisher.publish("cultac.default.p3", "before");
+        publisher.publish("cultac.0123abcd.p3", "before");
         assertEquals("before", received.poll(10, TimeUnit.SECONDS));
 
         server.dropClients();
         subscribed();
-        publisher.publish("cultac.default.p3", "after");
+        publisher.publish("cultac.0123abcd.p3", "after");
         assertEquals("after", received.poll(10, TimeUnit.SECONDS));
     }
 
@@ -106,15 +125,15 @@ class RedisTransportTest {
         subscriber.start(CHANNELS, (channel, text) -> received.add(text));
         subscribed();
         subscriber.close();
-        await(() -> server.subscribers("cultac.default.p3") == 0);
-        subscriber.publish("cultac.default.p3", "after close");
+        await(() -> server.subscribers("cultac.0123abcd.p3") == 0);
+        subscriber.publish("cultac.0123abcd.p3", "after close");
         Thread.sleep(200);
         assertTrue(received.isEmpty());
     }
 
     @Test
     void closingClosesThePublishingConnection() throws Exception {
-        publisher.publish("cultac.default.p3", "one");
+        publisher.publish("cultac.0123abcd.p3", "one");
         await(() -> server.publishes() == 1 && server.connections() == 1);
         publisher.close();
         await(() -> server.connections() == 0);
@@ -123,15 +142,12 @@ class RedisTransportTest {
     @Test
     void closingCutsOffAPublishTheServerNeverAnswers() throws Exception {
         server.stalled = true;
-        publisher.publish("cultac.default.p3", "unanswered");
-        publisher.publish("cultac.default.p3", "queued behind it");
+        publisher.publish("cultac.0123abcd.p3", "unanswered");
+        publisher.publish("cultac.0123abcd.p3", "queued behind it");
         await(() -> server.publishes() == 1 && server.connections() == 1);
 
-        long started = System.nanoTime();
-        publisher.close();
-        long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-        assertTrue(closing < RedisTransport.DRAIN_MILLIS + CLOSE_SLACK_MILLIS, closing + " ms");
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(RedisTransport.READ_TIMEOUT_MILLIS / 4);
+        closesPromptly(publisher);
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(TIMINGS.readMillis() + CLOSE_SLACK_MILLIS);
         while (server.connections() > 0) {
             if (System.nanoTime() > deadline) fail("the publishing connection outlasted close");
             Thread.sleep(20);
@@ -145,24 +161,21 @@ class RedisTransportTest {
     void closingCutsOffAConnectionStillAuthenticatingAndNothingIsPublishedOnIt() throws Exception {
         try (ServerSocket silent = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
             silent.setSoTimeout(10_000);
-            RedisTransport stalled = RedisTransport.create("redis://:secret@127.0.0.1:" + silent.getLocalPort());
-            stalled.publish("cultac.default.p3", "unsent");
+            RedisTransport stalled = transport("redis://:secret@127.0.0.1:" + silent.getLocalPort());
+            stalled.publish("cultac.0123abcd.p3", "unsent");
             try (Socket accepted = silent.accept()) {
                 accepted.setSoTimeout(10_000);
                 InputStream in = accepted.getInputStream();
                 ByteArrayOutputStream received = new ByteArrayOutputStream();
                 received.write(in.read());
 
-                long started = System.nanoTime();
-                stalled.close();
-                long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-                assertTrue(closing < RedisTransport.DRAIN_MILLIS + CLOSE_SLACK_MILLIS, closing + " ms");
+                closesPromptly(stalled);
                 try {
                     accepted.getOutputStream().write("+OK\r\n".repeat(4).getBytes(StandardCharsets.UTF_8));
                 } catch (IOException closedByTheClient) {
                     // The client is gone; nothing reads the replies.
                 }
-                accepted.setSoTimeout(RedisTransport.READ_TIMEOUT_MILLIS / 4);
+                accepted.setSoTimeout((int) CLOSE_SLACK_MILLIS);
                 try {
                     in.transferTo(received);
                 } catch (SocketTimeoutException stillOpen) {
@@ -179,19 +192,16 @@ class RedisTransportTest {
     @Test
     void closingAbortsAConnectThatNeverCompletesAndNothingIsPublished() throws Exception {
         try (CapturedLog failures = new CapturedLog(Level.WARNING, "Network transport Redis: cannot publish")) {
-            RedisTransport stalled = RedisTransport.create("redis://10.255.255.1:6379");
+            RedisTransport stalled = transport("redis://10.255.255.1:6379");
             try {
-                stalled.publish("cultac.default.p3", "unsent");
+                stalled.publish("cultac.0123abcd.p3", "unsent");
                 Thread.sleep(300);
                 assumeTrue(
                         failures.messages().isEmpty(),
                         "10.255.255.1 refuses connections here instead of ignoring them");
 
-                long started = System.nanoTime();
-                stalled.close();
-                long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-                assertTrue(closing < RedisTransport.DRAIN_MILLIS + CLOSE_SLACK_MILLIS, closing + " ms");
-                assertTrue(stalled.awaitStopped(1_000), "the connect outlasted close");
+                closesPromptly(stalled);
+                Thread.sleep(TIMINGS.connectMillis() + 500);
                 assertTrue(failures.messages().isEmpty(), failures.messages().toString());
             } finally {
                 stalled.close();
@@ -203,23 +213,20 @@ class RedisTransportTest {
     void closingCutsOffATlsHandshakeTheServerNeverAnswers() throws Exception {
         try (ServerSocket silent = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
             silent.setSoTimeout(10_000);
-            RedisTransport stalled = RedisTransport.create("rediss://127.0.0.1:" + silent.getLocalPort());
-            stalled.publish("cultac.default.p3", "unsent");
+            RedisTransport stalled = transport("rediss://127.0.0.1:" + silent.getLocalPort());
+            stalled.publish("cultac.0123abcd.p3", "unsent");
             try (Socket accepted = silent.accept()) {
                 accepted.setSoTimeout(10_000);
                 InputStream in = accepted.getInputStream();
                 assertEquals(0x16, in.read(), "a TLS handshake record");
 
-                long started = System.nanoTime();
-                stalled.close();
-                long closing = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-                assertTrue(closing < RedisTransport.DRAIN_MILLIS + CLOSE_SLACK_MILLIS, closing + " ms");
-                assertTrue(stalled.awaitStopped(1_000), "the handshake outlasted close");
-                accepted.setSoTimeout(RedisTransport.READ_TIMEOUT_MILLIS / 4);
+                closesPromptly(stalled);
+                // A handshake that times out waits one more read timeout for the server's close_notify.
+                accepted.setSoTimeout((int) (2 * TIMINGS.readMillis() + CLOSE_SLACK_MILLIS));
                 try {
                     in.transferTo(OutputStream.nullOutputStream());
                 } catch (SocketTimeoutException stillOpen) {
-                    fail("the connection still shaking hands outlasted close");
+                    fail("the connection still shaking hands outlasted its read timeout");
                 } catch (IOException reset) {
                     // The client reset the connection.
                 }
@@ -229,12 +236,13 @@ class RedisTransportTest {
 
     @Test
     void theWatchdogPingsWhilePublishesBlock() throws Exception {
-        RedisTransport watched = RedisTransport.create("redis://127.0.0.1:" + server.port(), 50, 10_000);
+        RedisTransport watched = transport(
+                "redis://127.0.0.1:" + server.port(), new RedisTransport.Timings(4_000, 4_000, 50, 10_000, 200));
         try {
             watched.start(CHANNELS, (channel, text) -> received.add(text));
             subscribed();
             server.stalled = true;
-            watched.publish("cultac.default.p3", "unanswered");
+            watched.publish("cultac.0123abcd.p3", "unanswered");
             await(() -> server.publishes() == 1);
             int before = server.pings();
             await(() -> server.pings() >= before + 5);

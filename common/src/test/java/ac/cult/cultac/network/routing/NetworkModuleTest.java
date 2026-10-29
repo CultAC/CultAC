@@ -10,51 +10,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.NetworkRouting;
+import ac.cult.cultac.network.routing.TestNetworks.Players;
 import com.google.gson.JsonObject;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.logging.Level;
-import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 class NetworkModuleTest {
-    private static final NetworkSettings REDISBUNGEE =
-            new NetworkSettings("redisbungee", "p3", "default", "", "", List.of(), "", "", "");
+    private static final NetworkSettings REDISBUNGEE = new NetworkSettings("redisbungee", "", "p3", "", "");
 
     private final FakeBroker broker = new FakeBroker();
 
-    /** A proxy whose RedisBungee transport is the fake broker's. */
-    private final class Proxy implements NetworkPlatform {
-        byte[] forwardingSecret = "forwarding secret".getBytes(StandardCharsets.UTF_8);
-
-        @Override
-        public Collection<OnlinePlayer> onlinePlayers() {
-            return List.of();
-        }
-
-        @Override
-        public String address() {
-            return "proxy:25577";
-        }
-
-        @Override
-        public boolean proxy() {
-            return true;
-        }
-
-        @Override
-        public byte @Nullable [] defaultSecret() {
-            return forwardingSecret;
-        }
-
-        @Override
-        public MessageTransport redisBungee() {
-            return broker.transport();
-        }
+    /** A proxy with a forwarding secret, whose RedisBungee transport is the fake broker's. */
+    private Players proxy() {
+        return new Players()
+                .proxy(null)
+                .secret("forwarding secret".getBytes(StandardCharsets.UTF_8))
+                .redisBungee(broker::transport);
     }
 
     @BeforeAll
@@ -70,7 +46,7 @@ class NetworkModuleTest {
 
     @Test
     void aRunningTransportIsTheCurrentRoutingUntilStop() {
-        NetworkModule.platform(new Proxy());
+        NetworkModule.platform(proxy());
         NetworkModule.start(REDISBUNGEE);
 
         NetworkService service = NetworkModule.service();
@@ -86,16 +62,14 @@ class NetworkModuleTest {
 
     @Test
     void aReloadReconnectsOnlyWhenTheBlockChanged() {
-        NetworkModule.platform(new Proxy());
+        NetworkModule.platform(proxy());
         NetworkModule.start(REDISBUNGEE);
         NetworkService first = NetworkModule.service();
 
-        NetworkModule.configReloaded(
-                new NetworkSettings("redisbungee", "p3", "default", "", "", List.of(), "", "", ""));
+        NetworkModule.configReloaded(new NetworkSettings("redisbungee", "", "p3", "", ""));
         assertSame(first, NetworkModule.service());
 
-        NetworkModule.configReloaded(
-                new NetworkSettings("redisbungee", "p4", "default", "", "", List.of(), "", "", ""));
+        NetworkModule.configReloaded(new NetworkSettings("redisbungee", "", "p4", "", ""));
         assertNotSame(first, NetworkModule.service());
         assertFalse(first.enabled());
         assertEquals("p4", NetworkRouting.current().instanceId());
@@ -108,10 +82,9 @@ class NetworkModuleTest {
             assertFalse(service.enabled());
             hooked.add(service);
         });
-        NetworkModule.platform(new Proxy());
+        NetworkModule.platform(proxy());
         NetworkModule.start(REDISBUNGEE);
-        NetworkModule.configReloaded(
-                new NetworkSettings("redisbungee", "p4", "default", "", "", List.of(), "", "", ""));
+        NetworkModule.configReloaded(new NetworkSettings("redisbungee", "", "p4", "", ""));
 
         assertEquals(2, hooked.size());
         assertSame(NetworkModule.service(), hooked.get(1));
@@ -119,7 +92,7 @@ class NetworkModuleTest {
 
     @Test
     void withoutATransportTheBusStillRunsAndRoutingStaysLocal() {
-        NetworkModule.platform(new Proxy());
+        NetworkModule.platform(proxy());
         NetworkModule.start(NetworkSettings.OFF);
         NetworkService service = NetworkModule.service();
         assertNotNull(service);
@@ -129,57 +102,36 @@ class NetworkModuleTest {
     }
 
     @Test
-    void anUnknownTransportOrAMissingSecretStaysLocal() {
-        Proxy proxy = new Proxy();
-        NetworkModule.platform(proxy);
-        NetworkModule.start(new NetworkSettings("rabbitmq", "p3", "default", "", "", List.of(), "", "", ""));
-        assertFalse(NetworkRouting.current().enabled());
+    void anUnknownSchemeStaysLocalWithOneErrorNamingTheAcceptedSchemes() {
+        NetworkModule.platform(proxy());
+        assertStaysLocal(new NetworkSettings("amqp://broker:5672", "", "p3", "", ""), NetworkSettings.ACCEPTED);
+        assertStaysLocal(new NetworkSettings("cache:6379", "", "p3", "", ""), "names no scheme");
+        assertStaysLocal(
+                new NetworkSettings("nats://a:4222,redis://b:6379", "", "p3", "", ""), NetworkSettings.ACCEPTED);
+        assertTrue(broker.published.isEmpty());
+    }
 
-        NetworkModule.stop();
-        proxy.forwardingSecret = null;
-        NetworkModule.start(REDISBUNGEE);
-        assertFalse(NetworkRouting.current().enabled());
+    @Test
+    void withoutASigningKeyRoutingStaysLocalWithOneErrorAskingForTheSecret() {
+        Players proxy = proxy().secret(null);
+        NetworkModule.platform(proxy);
+        assertStaysLocal(REDISBUNGEE, "set network.secret");
         assertTrue(broker.published.isEmpty());
     }
 
     @Test
     void anInstanceIdNamingTheBroadcastChannelStaysLocal() {
-        NetworkModule.platform(new Proxy());
-        NetworkModule.start(new NetworkSettings("redisbungee", "all", "default", "", "", List.of(), "", "", ""));
+        NetworkModule.platform(proxy());
+        NetworkModule.start(new NetworkSettings("redisbungee", "", "all", "", ""));
         assertFalse(NetworkRouting.current().enabled());
     }
 
     @Test
-    void aNetworkOrInstanceIdNoChannelCanCarryStaysLocalWithOneErrorNamingTheKey() {
-        NetworkModule.platform(new Proxy());
-        for (String transport : List.of("redisbungee", "redis", "nats")) {
-            for (String network : List.of("eu.west", "eu west", "eu*", "eu>")) {
-                assertStaysLocal(
-                        new NetworkSettings(
-                                transport,
-                                "p3",
-                                network,
-                                "",
-                                "redis://cache:6379",
-                                List.of("nats://host:4222"),
-                                "",
-                                "",
-                                ""),
-                        "network.network");
-            }
+    void anInstanceIdNoChannelCanCarryStaysLocalWithOneErrorNamingTheKey() {
+        NetworkModule.platform(proxy());
+        for (String uri : List.of("redisbungee", "redis://cache:6379", "nats://host:4222")) {
             for (String instance : List.of("p.3", "p 3", "p*", "p>", "all")) {
-                assertStaysLocal(
-                        new NetworkSettings(
-                                transport,
-                                instance,
-                                "default",
-                                "",
-                                "redis://cache:6379",
-                                List.of("nats://host:4222"),
-                                "",
-                                "",
-                                ""),
-                        "network.instance-id");
+                assertStaysLocal(new NetworkSettings(uri, "", instance, "", ""), "network.instance-id");
             }
         }
         assertTrue(broker.published.isEmpty());
