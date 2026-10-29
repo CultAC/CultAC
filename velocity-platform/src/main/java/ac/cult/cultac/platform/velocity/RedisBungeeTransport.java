@@ -117,7 +117,7 @@ final class RedisBungeeTransport implements MessageTransport {
 
     @Override
     public void publish(String channel, String text) {
-        int size = text.length();
+        int size = Backlog.size(text);
         if (!backlog.admit(size)) return;
         try {
             sender.execute(() -> {

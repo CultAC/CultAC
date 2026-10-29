@@ -170,7 +170,7 @@ final class RedisTransport implements MessageTransport {
     @Override
     public void publish(String channel, String text) {
         if (closed) return;
-        int size = EnvelopeCodec.utf8Length(text);
+        int size = Backlog.size(text);
         if (!backlog.admit(size)) return;
         try {
             worker.execute(() -> {

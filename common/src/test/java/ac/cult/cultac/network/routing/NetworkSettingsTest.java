@@ -103,11 +103,28 @@ class NetworkSettingsTest {
                 "localhost",
                 "nats://a:4222,redis://b:6379",
                 "redis://a:6379,redis://b:6379",
+                "redis://a:6379,nats://b:4222",
+                ",, ,",
                 "http://cache:6379")) {
             assertNull(uri(unknown).transport(), unknown);
         }
         assertEquals("amqp", uri("amqp://broker:5672").scheme());
         assertEquals("", uri("cache:6379").scheme());
+        assertEquals("", uri(",, ,").scheme());
+    }
+
+    @Test
+    void aRedisPasswordMayHoldACommaWhileNatsServersSplitOnOne() {
+        NetworkSettings redis = uri("redis://:pa,ss@cache:6379");
+        assertEquals(NetworkSettings.REDIS, redis.transport());
+        assertEquals(List.of("redis://:pa,ss@cache:6379"), redis.servers());
+        assertEquals("pa,ss", redis.credential());
+        assertEquals(
+                List.of("nats://a:4222", "nats://b:4222"),
+                uri("nats://a:4222, nats://b:4222").servers());
+        NetworkSettings encoded = uri("nats://a%2Fb%23c%25d%2Ce%2Bf%20g@a:4222,nats://b:4222");
+        assertEquals(2, encoded.servers().size());
+        assertEquals("a/b#c%d,e+f g", encoded.credential());
     }
 
     @Test

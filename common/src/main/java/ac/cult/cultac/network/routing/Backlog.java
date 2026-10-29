@@ -34,6 +34,11 @@ public final class Backlog {
         this.throttle = throttle;
     }
 
+    /** The size {@link #admit} counts for {@code text}: its UTF-8 bytes. */
+    public static int size(String text) {
+        return EnvelopeCodec.utf8Length(text);
+    }
+
     /** Holds a place for an item of {@code size} bytes; false, and the drop counted, when it does not fit. */
     public boolean admit(long size) {
         if (items.incrementAndGet() <= maxItems) {

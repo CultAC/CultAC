@@ -1,6 +1,8 @@
 package ac.cult.cultac.manager.config.update;
 
 import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -160,7 +162,8 @@ public final class CultConfigSpecs {
     }
 
     private static String natsUri(YamlMap input) {
-        String token = text(input, "network.nats.token");
+        String token = URLEncoder.encode(text(input, "network.nats.token"), StandardCharsets.UTF_8)
+                .replace("+", "%20");
         List<?> listed = input.getList("network.nats.servers");
         List<String> servers = new ArrayList<>();
         if (listed != null) {

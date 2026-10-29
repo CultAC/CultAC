@@ -79,8 +79,10 @@ public record NetworkSettings(
         if (uri.isEmpty()) return NONE;
         if (uri.equalsIgnoreCase(REDISBUNGEE)) return REDISBUNGEE;
         List<String> servers = servers();
+        if (servers.isEmpty()) return null;
         String first = scheme(servers.getFirst());
-        if (first.equals("redis") || first.equals("rediss")) return servers.size() == 1 ? REDIS : null;
+        if (first.equals("redis") || first.equals("rediss"))
+            return SCHEME.matcher(uri).results().count() == 1 ? REDIS : null;
         for (String server : servers) {
             String scheme = scheme(server);
             if (!scheme.equals("nats") && !scheme.equals("tls")) return null;
@@ -89,10 +91,13 @@ public record NetworkSettings(
     }
 
     String scheme() {
-        return uri.isEmpty() ? "" : scheme(servers().getFirst());
+        return scheme(uri);
     }
 
+    /** The NATS servers {@link #uri} lists, comma-separated; a Redis URI whole, since its password may hold a comma. */
     List<String> servers() {
+        String scheme = scheme();
+        if (scheme.equals("redis") || scheme.equals("rediss")) return List.of(uri);
         return Arrays.stream(uri.split(","))
                 .map(String::strip)
                 .filter(server -> !server.isEmpty())

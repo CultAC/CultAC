@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.network.routing.NetworkSettings;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -82,6 +83,20 @@ class NetworkUriUpgradeTest {
         assertEquals("/etc/cultac/nats.creds", network.get("nats-credentials-file"));
         assertEquals("lobby-1", network.get("instance-id"));
         assertEquals("shared", network.get("secret"));
+    }
+
+    @Test
+    void aNatsTokenIsEncodedForTheUri() throws Exception {
+        Map<String, Object> network = upgrade("""
+                transport: nats
+                nats:
+                  servers: [nats://a:4222, nats://b:4222]
+                  token: "a/b#c%d,e+f g"
+                """);
+        String encoded = "a%2Fb%23c%25d%2Ce%2Bf%20g";
+        assertEquals("nats://" + encoded + "@a:4222,nats://" + encoded + "@b:4222", network.get("uri"));
+        assertEquals(
+                NetworkSettings.NATS, new NetworkSettings((String) network.get("uri"), "", "", "", "").transport());
     }
 
     @Test
