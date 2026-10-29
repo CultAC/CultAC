@@ -69,9 +69,9 @@ class DialogNbtTest {
                 .append(Component.text("Notch", NamedTextColor.WHITE, TextDecoration.BOLD))
                 .append(Component.newline())
                 .append(Component.text("Online 12m", NamedTextColor.GRAY));
-        assertEquals(new NbtValue.Numeric(Kind.INT, 60), headTextWidth(card, 300));
+        assertEquals(new NbtValue.Numeric(Kind.INT, 74), headTextWidth(card, 300));
         assertEquals(
-                new NbtValue.Numeric(Kind.INT, 49),
+                new NbtValue.Numeric(Kind.INT, 63),
                 headTextWidth(Component.text("Notch_2", NamedTextColor.WHITE, TextDecoration.BOLD), 300));
         assertEquals(new NbtValue.Numeric(Kind.INT, 40), headTextWidth(card, 40));
     }

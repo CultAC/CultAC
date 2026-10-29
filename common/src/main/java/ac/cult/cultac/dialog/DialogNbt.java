@@ -61,12 +61,13 @@ final class DialogNbt {
     /**
      * The client centres a head's text in a box as wide as its {@code width}, beside the head, so the box is fitted to
      * the text to keep the two together. Widths follow the default font: most glyphs advance 6 pixels, 7 when bold.
+     * The client wraps 4 pixels inside each side of the box; one more glyph is slack for wider fonts.
      */
     private static Dialog.Text fitted(Dialog.Text text) {
         List<Integer> lines = new ArrayList<>(List.of(0));
         measure(text.text(), false, lines);
         int widest = lines.stream().mapToInt(Integer::intValue).max().orElse(0);
-        return new Dialog.Text(text.text(), Math.max(1, Math.min(text.width(), widest)));
+        return new Dialog.Text(text.text(), Math.min(text.width(), widest + 2 * 4 + 6));
     }
 
     private static void measure(Component component, boolean bold, List<Integer> lines) {
