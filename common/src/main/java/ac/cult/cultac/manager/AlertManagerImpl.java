@@ -12,7 +12,6 @@ import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.network.routing.NetworkService;
 import ac.cult.cultac.network.routing.SharedClaims;
-import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
@@ -57,11 +56,12 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     private final BooleanSupplier relay;
     private final AtomicBoolean networkHooked = new AtomicBoolean();
 
-    /** Who a message reached; {@code pair} is set on a verbose line that also went to the other instances. */
-    private static final class Recipients extends HashSet<@Nullable PlatformPlayer> {
-        @Nullable
-        String pair;
-    }
+    /**
+     * Who a message reached, null standing for the console; {@code pair} is set on a verbose line that also went to the
+     * other instances.
+     */
+    public record Recipients(
+            Set<@Nullable PlatformPlayer> players, @Nullable String pair) {}
 
     private enum AlertType {
         NORMAL(AlertKind.ALERT, "%prefix% &fAlerts enabled", "%prefix% &fAlerts disabled"),
@@ -114,13 +114,12 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
          * @param toConsole whether the console may get it
          * @return listeners this message was sent to, null means console
          */
-        Recipients send(
+        Set<@Nullable PlatformPlayer> send(
                 Component component,
                 @Nullable Set<@Nullable PlatformPlayer> excluding,
                 Predicate<PlatformPlayer> covered,
                 boolean toConsole) {
-            Recipients listeners = new Recipients();
-            listeners.addAll(players);
+            Set<@Nullable PlatformPlayer> listeners = new HashSet<>(players);
             if (excluding != null) {
                 Set<Object> excludedNatives = Collections.newSetFromMap(new IdentityHashMap<>());
                 for (PlatformPlayer excluded : excluding) {
@@ -147,7 +146,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         this(
                 new AlertScopes(RuntimeEnvironment.host(), AlertManagerImpl::dataStore),
                 NetworkModule::service,
-                () -> CultAPI.INSTANCE.getPlatform() == Platform.VELOCITY,
+                NetworkModule::proxy,
                 RuntimeEnvironment.host(),
                 () -> platformServer != null && platformServer.receivesForwardedAlerts());
     }
@@ -499,7 +498,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
-    public Set<PlatformPlayer> sendBrand(Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
+    public Recipients sendBrand(Component component, @Nullable Recipients excluding) {
         return sendBrand(AlertSubject.NONE, component, excluding);
     }
 
@@ -511,13 +510,11 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
-    public Set<PlatformPlayer> sendBrand(
-            @NotNull CultPlayer subject, Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
+    public Recipients sendBrand(@NotNull CultPlayer subject, Component component, @Nullable Recipients excluding) {
         return sendBrand(AlertSubject.of(subject), component, excluding);
     }
 
-    Set<PlatformPlayer> sendBrand(
-            AlertSubject subject, Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
+    Recipients sendBrand(AlertSubject subject, Component component, @Nullable Recipients excluding) {
         return raise(AlertType.BRAND, subject, component, excluding);
     }
 
@@ -528,26 +525,25 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
-    public Set<PlatformPlayer> sendVerbose(Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
+    public Recipients sendVerbose(Component component, @Nullable Recipients excluding) {
         return sendVerbose(AlertSubject.NONE, component, excluding);
     }
 
     /**
      * Sends a verbose line about {@code subject} to the staff whose scope covers the subject's server, and to the other
-     * instances while one wants verbose. Passed to {@link #sendAlert(CultPlayer, Component, Set)} as
-     * {@code excluding}, the returned set keeps the alert from everyone who got this verbose copy, here or elsewhere.
+     * instances while one wants verbose. Passed to {@link #sendAlert(CultPlayer, Component, Recipients)} as
+     * {@code excluding}, the returned recipients keep the alert from everyone who got this verbose copy, here or
+     * elsewhere.
      *
      * @param component the message to send to listeners
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
-    public Set<PlatformPlayer> sendVerbose(
-            @NotNull CultPlayer subject, Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
+    public Recipients sendVerbose(@NotNull CultPlayer subject, Component component, @Nullable Recipients excluding) {
         return sendVerbose(AlertSubject.of(subject), component, excluding);
     }
 
-    Set<PlatformPlayer> sendVerbose(
-            AlertSubject subject, Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
+    Recipients sendVerbose(AlertSubject subject, Component component, @Nullable Recipients excluding) {
         return raise(AlertType.VERBOSE, subject, component, excluding);
     }
 
@@ -558,7 +554,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
-    public Set<PlatformPlayer> sendAlert(Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
+    public Recipients sendAlert(Component component, @Nullable Recipients excluding) {
         return sendAlert(AlertSubject.NONE, component, excluding);
     }
 
@@ -570,13 +566,11 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
-    public Set<PlatformPlayer> sendAlert(
-            @NotNull CultPlayer subject, Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
+    public Recipients sendAlert(@NotNull CultPlayer subject, Component component, @Nullable Recipients excluding) {
         return sendAlert(AlertSubject.of(subject), component, excluding);
     }
 
-    Set<PlatformPlayer> sendAlert(
-            AlertSubject subject, Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
+    Recipients sendAlert(AlertSubject subject, Component component, @Nullable Recipients excluding) {
         return raise(AlertType.NORMAL, subject, component, excluding);
     }
 
@@ -588,22 +582,20 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         deliverReceived(AlertKind.ALERT, component, null, null);
     }
 
-    private Set<PlatformPlayer> raise(
-            AlertType type,
-            AlertSubject subject,
-            Component component,
-            @Nullable Set<@Nullable PlatformPlayer> excluding) {
+    private Recipients raise(
+            AlertType type, AlertSubject subject, Component component, @Nullable Recipients excluding) {
         Predicate<PlatformPlayer> covered =
                 subject.none() ? staff -> true : staff -> covers(staff, subject.server(), true);
-        Recipients recipients = type.send(component, excluding, covered, true);
+        Set<@Nullable PlatformPlayer> reached =
+                type.send(component, excluding == null ? null : excluding.players(), covered, true);
         String pair = switch (type) {
             case VERBOSE -> AlertNetwork.newPair();
-            case NORMAL -> excluding instanceof Recipients verbose ? verbose.pair : null;
+            case NORMAL -> excluding == null ? null : excluding.pair();
             case BRAND -> null;
         };
         AlertSubject wire = proxy.getAsBoolean() || subject.none() ? subject : subject.on(network.instanceId());
-        if (network.publish(type.kind, wire, component, pair) && type == AlertType.VERBOSE) recipients.pair = pair;
-        return recipients;
+        boolean published = network.publish(type.kind, wire, component, pair);
+        return new Recipients(reached, published && type == AlertType.VERBOSE ? pair : null);
     }
 
     /**

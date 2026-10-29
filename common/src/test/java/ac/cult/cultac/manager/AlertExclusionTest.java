@@ -6,8 +6,8 @@ import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
-import java.util.Set;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.Test;
@@ -28,7 +28,7 @@ class AlertExclusionTest {
             alerts.setVerboseEnabled(verboseWrapper, true, true);
             alerts.setAlertsEnabled(alertWrapper, true, true);
 
-            Set<PlatformPlayer> verboseRecipients = alerts.sendVerbose(Component.text("verbose"), null);
+            Recipients verboseRecipients = alerts.sendVerbose(Component.text("verbose"), null);
             alerts.sendAlert(Component.text("alert"), verboseRecipients);
 
             assertEquals(1, messages(verboseWrapper) + messages(alertWrapper));

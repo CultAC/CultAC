@@ -13,6 +13,7 @@ import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.manager.alerts.AlertKind;
 import ac.cult.cultac.manager.alerts.AlertScope;
 import ac.cult.cultac.manager.alerts.AlertScopes;
@@ -144,9 +145,9 @@ class AlertScopeDeliveryTest {
     private Set<PlatformPlayer> raise(AlertKind kind, AlertSubject subject) {
         Component message = Component.text(kind.id());
         return switch (kind) {
-            case ALERT -> alerts.sendAlert(subject, message, null);
-            case VERBOSE -> alerts.sendVerbose(subject, message, null);
-            case BRAND -> alerts.sendBrand(subject, message, null);
+            case ALERT -> alerts.sendAlert(subject, message, null).players();
+            case VERBOSE -> alerts.sendVerbose(subject, message, null).players();
+            case BRAND -> alerts.sendBrand(subject, message, null).players();
         };
     }
 
@@ -345,7 +346,7 @@ class AlertScopeDeliveryTest {
         peer.verboseChanged();
         assertTrue(alerts.hasVerboseListeners());
 
-        Set<PlatformPlayer> verboseRecipients = alerts.sendVerbose(ON_PVP, Component.text("verbose"), null);
+        Recipients verboseRecipients = alerts.sendVerbose(ON_PVP, Component.text("verbose"), null);
         alerts.sendAlert(ON_PVP, Component.text("flag"), verboseRecipients);
         alerts.sendAlert(ON_PVP, Component.text("alone"), null);
 
@@ -364,7 +365,7 @@ class AlertScopeDeliveryTest {
         subscribe(AlertKind.VERBOSE, verbose);
         subscribe(AlertKind.ALERT, alertsOnly);
 
-        Set<PlatformPlayer> verboseRecipients = alerts.sendVerbose(ON_PVP, Component.text("verbose"), null);
+        Recipients verboseRecipients = alerts.sendVerbose(ON_PVP, Component.text("verbose"), null);
         alerts.sendAlert(ON_PVP, Component.text("flag"), verboseRecipients);
         assertEquals(1, messages(verbose));
         assertEquals(1, messages(alertsOnly));
