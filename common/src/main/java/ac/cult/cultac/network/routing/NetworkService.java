@@ -202,8 +202,7 @@ public final class NetworkService implements NetworkRouting {
         String name = settings.transport();
         if (NetworkSettings.NONE.equals(name)) return null;
         if (name == null) {
-            LogUtil.error("Network routing off: network.type \"" + settings.type() + "\" is not one of "
-                    + NetworkSettings.ACCEPTED);
+            LogUtil.error("Network routing off: network.type is not one of " + NetworkSettings.ACCEPTED);
             return null;
         }
         String invalid = NetworkSettings.invalidInstanceId(instanceId);
@@ -363,7 +362,6 @@ public final class NetworkService implements NetworkRouting {
     void sendDelta() {
         if (transport == null) return;
         try {
-            boolean wanted = verbose.getAsBoolean();
             synchronized (rosterOrder) {
                 List<OnlinePlayer> changed = new ArrayList<>();
                 List<UUID> left = new ArrayList<>();
@@ -379,6 +377,7 @@ public final class NetworkService implements NetworkRouting {
                     verboseReported = false;
                 }
                 if (!running || !current()) return;
+                boolean wanted = verbose.getAsBoolean();
                 if (changed.isEmpty() && left.isEmpty() && (!verboseChange || wanted == verboseSent)) return;
                 verboseSent = wanted;
                 publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(changed, false, left, wanted));
@@ -433,10 +432,10 @@ public final class NetworkService implements NetworkRouting {
     /** Publishes a full snapshot, which covers every report so far; one made while it is taken rides the next delta. */
     private void publishRoster() {
         if (transport == null) return;
-        boolean wanted = verbose.getAsBoolean();
         synchronized (rosterOrder) {
             drainReports();
             if (!running || !current()) return;
+            boolean wanted = verbose.getAsBoolean();
             Collection<OnlinePlayer> players = platform.onlinePlayers();
             verboseSent = wanted;
             publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(players, true, List.of(), wanted));

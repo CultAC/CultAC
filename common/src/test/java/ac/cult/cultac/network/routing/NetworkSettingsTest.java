@@ -208,10 +208,17 @@ class NetworkSettingsTest {
     }
 
     @Test
+    void aCredentialOfSpacesIsKeptAsWritten() {
+        NetworkSettings settings = read(Map.of("network.type", "redis", "network.redis.password", "  "), Map.of());
+        assertEquals("  ", settings.redis().password());
+        assertEquals("  ", settings.credential());
+    }
+
+    @Test
     void theCredentialIsThePasswordTheTokenOrUserAndPassword() {
         assertEquals("pw", redis("", "pw").credential());
         assertEquals("default:pw", redis("default", "pw").credential());
-        assertEquals("default", redis("default", "").credential());
+        assertEquals("default:", redis("default", "").credential());
         assertNull(redis("", "").credential());
         assertEquals("token", nats("user", "pw", "token").credential());
         assertEquals("user:pw", nats("user", "pw", "").credential());
@@ -253,6 +260,9 @@ class NetworkSettingsTest {
                 uriKey("tls://a:4222, tls://user:pw@b:4443"),
                 nats("user", "pw", "").resolveSecret(null));
         assertArrayEquals(uriKey("nats://:pw@a:4222"), nats("", "pw", "").resolveSecret(null));
+        assertArrayEquals(uriKey("redis://user:@cache"), redis("user", "").resolveSecret(null));
+        assertArrayEquals(uriKey("nats://user:@a:4222"), nats("user", "", "").resolveSecret(null));
+        assertArrayEquals(uriKey("nats://%3Aabc@a:4222"), nats("", "", ":abc").resolveSecret(null));
         assertNull(uriKey("redis://cache:6379"));
         assertNull(redis("", "").resolveSecret(null));
     }

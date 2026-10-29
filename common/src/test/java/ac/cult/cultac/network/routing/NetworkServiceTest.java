@@ -749,6 +749,28 @@ class NetworkServiceTest {
     }
 
     @Test
+    void aVerboseChangeReportedWhileADeltaIsTakenRidesTheNextOne() {
+        NetworkService a = started("p3", new Players());
+        NetworkService b = started("p7", new Players());
+        AtomicBoolean wanted = new AtomicBoolean();
+        AtomicBoolean reportOnRead = new AtomicBoolean(true);
+        b.verbose(() -> {
+            boolean now = wanted.get();
+            if (reportOnRead.getAndSet(false)) {
+                wanted.set(true);
+                b.verboseChanged();
+            }
+            return now;
+        });
+        b.playerChanged(new OnlinePlayer(ALICE, "Alice", "lobby"));
+        b.sendDelta();
+        assertFalse(a.peersWantVerbose());
+
+        b.sendDelta();
+        assertTrue(a.peersWantVerbose());
+    }
+
+    @Test
     void aVerboseChangeRidesTheNextDeltaWithThePlayers() {
         NetworkService a = started("p3", new Players());
         NetworkService b = started("p7", new Players());

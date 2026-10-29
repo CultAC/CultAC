@@ -114,7 +114,9 @@ public record NetworkSettings(
         /** The token, else the password or {@code user:password}, the way a NATS URI's user info gave it. */
         @Nullable
         String credential() {
-            return token.isEmpty() ? NetworkSettings.credential(username, password) : token;
+            if (token.isEmpty()) return NetworkSettings.credential(username, password);
+            String credential = token.startsWith(":") ? token.substring(1) : token;
+            return credential.isEmpty() ? null : credential;
         }
 
         @Override
@@ -224,7 +226,7 @@ public record NetworkSettings(
     private static String credential(ConfigManager config, Function<String, String> env, String key, String envName) {
         String value = env.apply(envName);
         if (value == null || value.isBlank()) value = config.getStringElse(key, "");
-        return value == null || value.isBlank() ? "" : value;
+        return value == null ? "" : value;
     }
 
     private static boolean flag(ConfigManager config, Function<String, String> env, String key, String envName) {
@@ -253,7 +255,7 @@ public record NetworkSettings(
 
     private static @Nullable String credential(String username, String password) {
         if (username.isEmpty()) return password.isEmpty() ? null : password;
-        return password.isEmpty() ? username : username + ":" + password;
+        return username + ":" + password;
     }
 
     /** {@code instance-id}, else RedisBungee's proxy id, else {@link #cloudProxyId}, else {@code address} made safe. */
@@ -306,7 +308,7 @@ public record NetworkSettings(
     }
 
     private static String raw(@Nullable String value) {
-        return value == null || value.isBlank() ? "" : value;
+        return value == null ? "" : value;
     }
 
     private static String set(String value) {

@@ -203,6 +203,13 @@ class NetworkUriUpgradeTest {
     }
 
     @Test
+    void aPasswordOfSpacesSurvivesTheMigration() throws Exception {
+        assertEquals(
+                redis("cache:6379", "", "  ", false),
+                upgrade16("uri: \"redis://:%20%20@cache:6379\"\n").get("redis"));
+    }
+
+    @Test
     void anIpv6RedisHostKeepsItsBrackets() throws Exception {
         assertEquals(
                 redis("[::1]:6390", "", "", false),
