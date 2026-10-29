@@ -9,12 +9,13 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import java.lang.management.ManagementFactory;
 import java.util.Arrays;
+import java.util.function.ToIntFunction;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 /**
- * Thread CPU and allocation per decoded entity metadata packet, over a mix of one, two and four entry packets;
- * CULT_METADATA_BENCH=1 enables it.
+ * Thread CPU and allocation per decoded entity metadata packet, over a mix of one, two and four entry packets,
+ * with one held reader and with a reader per packet; CULT_METADATA_BENCH=1 enables it.
  */
 @EnabledIfEnvironmentVariable(named = "CULT_METADATA_BENCH", matches = "1")
 class ModelEntityMetadataBenchTest {
@@ -24,27 +25,40 @@ class ModelEntityMetadataBenchTest {
 
     @Test
     void decode() {
-        ThreadMXBean bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
-        bean.setThreadAllocatedMemoryEnabled(true);
-        var values = new ModelEntityMetadataValues(
+        var values = values();
+        measure("METADATA-DECODE", packet -> values.read(packet).packedItems().size());
+    }
+
+    @Test
+    void decodeWithReaderPerPacket() {
+        measure("METADATA-FRESH", packet -> values().readOnce(packet, null).packedItems().size());
+    }
+
+    private static ModelEntityMetadataValues values() {
+        return new ModelEntityMetadataValues(
                 ProtocolCodecs.decoder(),
                 ProtocolVersion.V26_3,
                 new WireRegistryState(ProtocolVersion.V26_3, () -> null),
                 name -> null);
+    }
+
+    private static void measure(String label, ToIntFunction<ByteBuf> read) {
+        ThreadMXBean bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
+        bean.setThreadAllocatedMemoryEnabled(true);
         ByteBuf[] packets = new ByteBuf[10];
         for (int i = 0; i < packets.length; i++) packets[i] = packet(i < 5 ? 1 : i < 8 ? 2 : 4);
-        for (int i = 0; i < 3; i++) run(bean, values, packets);
+        for (int i = 0; i < 3; i++) run(bean, read, packets);
         long[] cpu = new long[REPS], bytes = new long[REPS];
         for (int rep = 0; rep < REPS; rep++) {
-            long[] result = run(bean, values, packets);
+            long[] result = run(bean, read, packets);
             cpu[rep] = result[0];
             bytes[rep] = result[1];
         }
         Arrays.sort(cpu);
         Arrays.sort(bytes);
         System.out.printf(
-                "METADATA-DECODE cpu median %.1f ns/packet (min %.1f max %.1f) alloc median %.1f B/packet (min %.1f"
-                        + " max %.1f)%n",
+                "%s cpu median %.1f ns/packet (min %.1f max %.1f) alloc median %.1f B/packet (min %.1f max %.1f)%n",
+                label,
                 cpu[REPS / 2] / (double) PACKETS,
                 cpu[0] / (double) PACKETS,
                 cpu[REPS - 1] / (double) PACKETS,
@@ -54,15 +68,12 @@ class ModelEntityMetadataBenchTest {
         for (ByteBuf packet : packets) packet.release();
     }
 
-    private static long[] run(ThreadMXBean bean, ModelEntityMetadataValues values, ByteBuf[] packets) {
+    private static long[] run(ThreadMXBean bean, ToIntFunction<ByteBuf> read, ByteBuf[] packets) {
         long thread = Thread.currentThread().getId();
         long allocated = bean.getThreadAllocatedBytes(thread);
         long cpu = bean.getCurrentThreadCpuTime();
         int total = 0;
-        for (int i = 0; i < PACKETS; i++) {
-            ByteBuf packet = packets[i % packets.length];
-            total += values.read(packet.readerIndex(0)).packedItems().size();
-        }
+        for (int i = 0; i < PACKETS; i++) total += read.applyAsInt(packets[i % packets.length].readerIndex(0));
         long spent = bean.getCurrentThreadCpuTime() - cpu;
         long garbage = bean.getThreadAllocatedBytes(thread) - allocated;
         sink += total;

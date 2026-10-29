@@ -129,6 +129,11 @@ public interface WireValueDecoder extends AutoCloseable {
     /** The entry's wire bytes are {@code length} bytes of the decoded buffer from its absolute index {@code offset}. */
     record MetadataValue(int index, String kind, Object value, int offset, int length) {}
 
+    /** Receives a {@link MetadataValue}'s components without the record, in wire order. */
+    interface MetadataSink {
+        void accept(int index, String kind, Object value, int offset, int length);
+    }
+
     /** Builds the consumer's owned NBT tree directly, without a serialized transport copy. */
     interface NbtFactory<T> {
         T read(byte[] networkNbt);
@@ -242,6 +247,13 @@ public interface WireValueDecoder extends AutoCloseable {
                                 value.length())
                         : value)
                 .toList();
+    }
+
+    /** As {@link #metadata(ProtocolVersion, ByteBuf, Registries, NbtFactory)}, handing each value to {@code sink}. */
+    default <T> void metadata(
+            ProtocolVersion version, ByteBuf input, Registries registries, NbtFactory<T> factory, MetadataSink sink) {
+        for (var value : metadata(version, input, registries, factory))
+            sink.accept(value.index(), value.kind(), value.value(), value.offset(), value.length());
     }
 
     RegistryValues registry(ByteBuf input);
