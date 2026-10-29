@@ -307,16 +307,48 @@ public final class CultConfigSpecs {
     public static @NotNull ConfigUpdater.Spec cultConfig(String resourceDirectory) {
         ConfigUpdater.Spec.Builder builder = ConfigUpdater.Spec.builder(
                         resourceDirectory,
-                        resourceDirectory.equals("/punishments/") ? 4 : 0,
+                        resourceDirectory.equals("/punishments/") ? 5 : 0,
                         ConfigUpdater.ConfigFlavor.V2)
                 .cultVersioning();
         if (resourceDirectory.equals("/punishments/")) {
             builder.migration(1, CultConfigSpecs::addBedrockPunishment)
                     .migration(2, CultConfigSpecs::addMissingCheckPunishments)
                     .migration(3, CultConfigSpecs::addNoSneakSlowPunishment)
-                    .migration(4, CultConfigSpecs::addSkinBlinkerAndCloudPunishments);
+                    .migration(4, CultConfigSpecs::addSkinBlinkerAndCloudPunishments)
+                    .migration(5, CultConfigSpecs::excludeCloudFromDefaultMisc);
         }
         return builder.build();
+    }
+
+    /** {@code Misc}'s selectors as revision 4 shipped them. */
+    private static final List<String> DEFAULT_MISC_CHECKS = List.of(
+            "Vehicle",
+            "NoSlow",
+            "NoSneakSlow",
+            "Sprint",
+            "MultiActions",
+            "Place",
+            "Baritone",
+            "Break",
+            "TransactionOrder",
+            "Elytra",
+            "Chat",
+            "Exploit",
+            "SkinBlinker");
+
+    private static final List<String> DEFAULT_MISC_COMMANDS =
+            List.of("10:5 [alert]", "1:1 [log]", "20:10 [webhook]", "20:10 [proxy]");
+
+    /** Keeps an unmodified default {@code Misc} group's {@code Exploit} selector off the Cloud checks. */
+    private static void excludeCloudFromDefaultMisc(MigrationContext ctx) {
+        Map<String, Object> misc = ctx.output().getMap("Punishments.Misc");
+        if (misc == null
+                || !DEFAULT_MISC_CHECKS.equals(misc.get("checks"))
+                || !DEFAULT_MISC_COMMANDS.equals(misc.get("commands"))
+                || !Integer.valueOf(300).equals(misc.get("remove-violations-after"))) return;
+        List<Object> checks = new ArrayList<>(DEFAULT_MISC_CHECKS);
+        checks.add("!Cloud");
+        ctx.output().put("Punishments.Misc.checks", checks);
     }
 
     private static void addSkinBlinkerAndCloudPunishments(MigrationContext ctx) {
