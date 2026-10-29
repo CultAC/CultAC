@@ -38,6 +38,10 @@ password. With none of these, the network stays off and the log asks for `networ
 channels with instances using the same key, so several networks can share one broker. When instances disagree on the
 key, set the same `network.secret` everywhere.
 
+Each instance logs one line when routing starts, naming its transport, its instance id, where its key came from and
+the channel prefix the key gives, such as `cultac.1a2b3c4d.*`. Instances that cannot see each other show different
+prefixes there; compare those lines to find the one whose key differs.
+
 ## Instance ids
 
 Each instance needs an id no other instance uses, made of letters, digits, `_` and `-`. An empty `network.instance-id`

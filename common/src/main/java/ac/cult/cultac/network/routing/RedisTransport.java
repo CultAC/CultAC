@@ -38,10 +38,10 @@ final class RedisTransport implements MessageTransport {
 
     private final ScheduledExecutorService watchdog;
     private final Backlog backlog = new Backlog(
-            "Network transport Redis: dropped a message to publish; " + MAX_BACKLOG_MESSAGES + " messages or "
-                    + MAX_BACKLOG_BYTES / (1024 * 1024) + " MB are already waiting",
-            MAX_BACKLOG_MESSAGES,
-            MAX_BACKLOG_BYTES);
+            "Network transport Redis: dropped a message to publish; " + Backlog.MAX_ITEMS + " messages or "
+                    + Backlog.MAX_BYTES / (1024 * 1024) + " MB are already waiting",
+            Backlog.MAX_ITEMS,
+            Backlog.MAX_BYTES);
     private volatile boolean closed;
 
     private volatile @Nullable Subscriber subscriber;
