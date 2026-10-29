@@ -1,15 +1,18 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
+import io.netty.buffer.ByteBuf;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntUnaryOperator;
 
 public final class SectionPool {
     private static final CachedSection CANONICAL_AIR = createCanonicalAir();
 
     static final long STABILITY_DELAY_NANOS = TimeUnit.SECONDS.toNanos(5);
+    private static final int WIRE_CANDIDATES = 8;
 
     public static final AtomicLong internCallCounter = new AtomicLong(0);
     public static final AtomicLong internDedupCounter = new AtomicLong(0);
@@ -27,6 +30,31 @@ public final class SectionPool {
 
     public static SectionPool forChunk(String dimension, int chunkX, int sectionIndex, int chunkZ) {
         return SectionPoolRegistry.forChunk(dimension, chunkX, sectionIndex, chunkZ);
+    }
+
+    /** The pool at a section position if one exists; null otherwise and for a null dimension. Creates nothing. */
+    public static SectionPool existing(String dimension, int chunkX, int sectionIndex, int chunkZ) {
+        return SectionPoolRegistry.existing(dimension, chunkX, sectionIndex, chunkZ);
+    }
+
+    /**
+     * A copy-on-write view of a pooled section whose contents the block container at the reader index holds exactly,
+     * read past that container; null, with the reader index unchanged, when none does. A pooled section's storage is
+     * not written until it leaves the pool under this lock, and the view marks it shared before then.
+     */
+    synchronized PalettedSection sharedBlocks(
+            ByteBuf input,
+            boolean lengthPrefixed,
+            int sourceRegistrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize) {
+        if (nonUniformSections == null) return null;
+        for (int i = 0, candidates = Math.min(nonUniformSections.size(), WIRE_CANDIDATES); i < candidates; i++) {
+            PalettedSection states = nonUniformSections.get(i).states();
+            if (states.skipIfEncodes(input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize))
+                return states.copyOnWrite();
+        }
+        return null;
     }
 
     CachedSection internRetained(CachedSection section) {

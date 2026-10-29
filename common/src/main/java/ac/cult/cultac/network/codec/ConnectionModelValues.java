@@ -46,6 +46,12 @@ public final class ConnectionModelValues {
                         var dimension = player.compensatedWorld.getLastClientboundDimension();
                         return new int[] {dimension.minHeight(), dimension.sectionCount() * 16};
                     },
+                    () -> {
+                        var player = connection.player();
+                        return player == null || player.compensatedWorld.isClientboundUnresolved()
+                                ? null
+                                : player.compensatedWorld.getLastClientboundDimension().dimension();
+                    },
                     stacks);
         return values;
     }

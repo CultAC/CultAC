@@ -11,6 +11,7 @@ import ac.cult.cultac.utils.latency.CompensatedGeysers;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.latency.PalettedSection;
+import ac.cult.cultac.utils.latency.SectionPool;
 import io.netty.buffer.Unpooled;
 import java.util.ArrayList;
 
@@ -37,7 +38,8 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 for (int i = 0; i < chunks.length; i++) {
                     bytes.readShort(); // Existing cache recalculates block/fluid counts from the decoded states.
                     bytes.readShort();
-                    chunks[i] = new CachedSection(PalettedSection.readBlocks(bytes));
+                    var pool = SectionPool.existing(dimension.dimension(), packet.x(), i, packet.z());
+                    chunks[i] = new CachedSection(PalettedSection.readBlocks(bytes, pool));
                     biomes[i] = PalettedSection.readBiomeValues(bytes, biomeSize);
                 }
             } finally {

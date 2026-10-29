@@ -2,6 +2,7 @@ package ac.cult.cultac.network.packet;
 
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.latency.PalettedSection;
+import ac.cult.cultac.utils.latency.SectionPool;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
@@ -30,12 +31,26 @@ public final class SectionSnapshot {
             int modelBiomes,
             IntUnaryOperator states,
             IntUnaryOperator biomes) {
+        return read(input, version, sourceStates, modelStates, sourceBiomes, modelBiomes, states, biomes, null);
+    }
+
+    /** As the read without a pool, sharing the block storage of a section in {@code pool} that the wire holds. */
+    public static SectionSnapshot read(
+            ByteBuf input,
+            ProtocolVersion version,
+            int sourceStates,
+            int modelStates,
+            int sourceBiomes,
+            int modelBiomes,
+            IntUnaryOperator states,
+            IntUnaryOperator biomes,
+            SectionPool pool) {
         short nonEmpty = input.readShort();
         short fluids = version.atLeast(ProtocolVersion.V26_1) ? input.readShort() : 0;
         return new SectionSnapshot(
                 nonEmpty,
                 fluids,
-                PalettedSection.readBlocks(input, version, sourceStates, states, modelStates),
+                PalettedSection.readBlocks(input, version, sourceStates, states, modelStates, pool),
                 PalettedSection.readBiomes(input, version, sourceBiomes, biomes, modelBiomes));
     }
 

@@ -118,6 +118,34 @@ public final class PalettedSection {
         return readBlocks(input, version, registrySize).remap(mapper, targetRegistrySize, true);
     }
 
+    /**
+     * As {@link #readBlocks(ByteBuf, ProtocolVersion, int, IntUnaryOperator, int)}, sharing the storage of a section in
+     * {@code pool} when the container holds exactly its contents.
+     */
+    public static PalettedSection readBlocks(
+            ByteBuf input,
+            ProtocolVersion version,
+            int registrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize,
+            SectionPool pool) {
+        if (pool != null) {
+            var shared = pool.sharedBlocks(
+                    input, !version.atLeast(ProtocolVersion.V1_21_5), registrySize, mapper, targetRegistrySize);
+            if (shared != null) return shared;
+        }
+        return readBlocks(input, version, registrySize, mapper, targetRegistrySize);
+    }
+
+    /** As {@link #readBlocks(ByteBuf)}, sharing the storage of a section in {@code pool} that the container holds. */
+    public static PalettedSection readBlocks(ByteBuf input, SectionPool pool) {
+        if (pool != null) {
+            var shared = pool.sharedBlocks(input, false, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES);
+            if (shared != null) return shared;
+        }
+        return readBlocks(input);
+    }
+
     /** {@link #readBiomes(ByteBuf, ProtocolVersion, int)} then {@link #remap}, remapping the read storage in place. */
     public static PalettedSection readBiomes(
             ByteBuf input, ProtocolVersion version, int registrySize, IntUnaryOperator mapper, int targetRegistrySize) {
@@ -551,6 +579,69 @@ public final class PalettedSection {
             for (int i = 0; i < paletteSize; i++) hash = 31 * hash + palette[i];
         }
         return hash;
+    }
+
+    /**
+     * Whether the block container at the reader index, read as {@link #read} then remapped by {@code mapper} into
+     * {@code targetRegistrySize} IDs, would equal this local section in every field; the reader index is then past the
+     * container, and otherwise unchanged. A container that read would reject never matches.
+     */
+    boolean skipIfEncodes(
+            ByteBuf input,
+            boolean lengthPrefixed,
+            int sourceRegistrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize) {
+        int start = input.readerIndex();
+        try {
+            if (encodedAt(input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize)) return true;
+        } catch (RuntimeException rejected) {
+            // The full read that follows raises the same failure from the same reader index.
+        }
+        input.readerIndex(start);
+        return false;
+    }
+
+    private boolean encodedAt(
+            ByteBuf input,
+            boolean lengthPrefixed,
+            int sourceRegistrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize) {
+        if (size != 4096
+                || minimumBits != 4
+                || maximumLocalBits != 8
+                || registrySize != targetRegistrySize
+                || isGlobal()
+                || bits == 0
+                || paletteSize == 0) return false;
+        int wireBits = input.readByte();
+        if (wireBits < 1 || wireBits > maximumLocalBits || Math.max(minimumBits, wireBits) != bits) return false;
+        int capacity = 1 << bits;
+        int entries = Wire.readLength(input, bits <= 4 ? capacity : input.readableBytes());
+        if (entries != paletteSize || palette.length != Math.max(capacity, entries)) return false;
+        for (int i = 0; i < entries; i++) {
+            int id = Wire.readVarInt(input);
+            if (id < 0 || id >= sourceRegistrySize) return false;
+            int mapped = mapper.applyAsInt(id);
+            if (mapped != palette[i] || mapped < 0 || mapped >= targetRegistrySize) return false;
+        }
+        int perWord = 64 / bits, length = (size + perWord - 1) / perWord;
+        if (words.length != length) return false;
+        if (lengthPrefixed && Wire.readLength(input, input.readableBytes() / Long.BYTES) != length) return false;
+        int bytes = length * Long.BYTES;
+        if (input.readableBytes() < bytes) return false;
+        int index = input.readerIndex();
+        byte[] array = input.hasArray() ? input.array() : copiedBytes(input, index, bytes);
+        if (array == null) {
+            for (int i = 0; i < length; i++) if (input.getLong(index + i * Long.BYTES) != words[i]) return false;
+        } else {
+            int offset = input.hasArray() ? input.arrayOffset() + index : 0;
+            for (int i = 0; i < length; i++)
+                if ((long) BIG_ENDIAN_LONGS.get(array, offset + i * Long.BYTES) != words[i]) return false;
+        }
+        input.skipBytes(bytes);
+        return true;
     }
 
     boolean sameContents(PalettedSection other) {
