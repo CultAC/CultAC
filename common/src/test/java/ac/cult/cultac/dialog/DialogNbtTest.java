@@ -64,6 +64,19 @@ class DialogNbtTest {
     }
 
     @Test
+    void theHeadsTextIsFittedToItsWidestLineSoItSitsBesideTheHead() {
+        Component card = Component.empty()
+                .append(Component.text("Notch", NamedTextColor.WHITE, TextDecoration.BOLD))
+                .append(Component.newline())
+                .append(Component.text("Online 12m", NamedTextColor.GRAY));
+        assertEquals(new NbtValue.Numeric(Kind.INT, 60), headTextWidth(card, 300));
+        assertEquals(
+                new NbtValue.Numeric(Kind.INT, 49),
+                headTextWidth(Component.text("Notch_2", NamedTextColor.WHITE, TextDecoration.BOLD), 300));
+        assertEquals(new NbtValue.Numeric(Kind.INT, 40), headTextWidth(card, 40));
+    }
+
+    @Test
     void inputsCarryTheirKeysAndTheSliderStepsByWholeNumbers() {
         List<NbtValue> inputs =
                 ((NbtValue.Sequence) DialogNbt.encode(sample(), "p/").values().get("inputs")).values();
@@ -125,6 +138,16 @@ class DialogNbtTest {
                 .exit(Component.text("Back"), Dialog.WIDE, click -> {})
                 .columns(3)
                 .build();
+    }
+
+    private static NbtValue headTextWidth(Component text, int width) {
+        Dialog dialog = Dialog.titled(Component.text("Title"))
+                .head(NOTCH, "Notch", text, width)
+                .button(Component.text("Next"), Dialog.WIDE, click -> {})
+                .build();
+        List<NbtValue> body =
+                ((NbtValue.Sequence) DialogNbt.encode(dialog, "p/").values().get("body")).values();
+        return compound(compound(body.get(0)).get("description")).get("width");
     }
 
     private static String clickId(NbtValue button) {

@@ -52,10 +52,33 @@ final class DialogNbt {
                 compound(
                         "type", text("minecraft:item"),
                         "item", playerHead(head.player(), head.name()),
-                        "description", plainMessage(head.description()),
+                        "description", plainMessage(fitted(head.description())),
                         "show_decorations", bool(false),
                         "show_tooltip", bool(false));
         };
+    }
+
+    /**
+     * The client centres a head's text in a box as wide as its {@code width}, beside the head, so the box is fitted to
+     * the text to keep the two together. Widths follow the default font: most glyphs advance 6 pixels, 7 when bold.
+     */
+    private static Dialog.Text fitted(Dialog.Text text) {
+        List<Integer> lines = new ArrayList<>(List.of(0));
+        measure(text.text(), false, lines);
+        int widest = lines.stream().mapToInt(Integer::intValue).max().orElse(0);
+        return new Dialog.Text(text.text(), Math.max(1, Math.min(text.width(), widest)));
+    }
+
+    private static void measure(Component component, boolean bold, List<Integer> lines) {
+        TextDecoration.State state = component.decoration(TextDecoration.BOLD);
+        boolean isBold = state == TextDecoration.State.NOT_SET ? bold : state == TextDecoration.State.TRUE;
+        if (component instanceof TextComponent text) {
+            text.content().codePoints().forEach(c -> {
+                if (c == '\n') lines.add(0);
+                else lines.set(lines.size() - 1, lines.getLast() + (isBold ? 7 : 6));
+            });
+        }
+        for (Component child : component.children()) measure(child, isBold, lines);
     }
 
     private static NbtValue.Compound plainMessage(Dialog.Text text) {

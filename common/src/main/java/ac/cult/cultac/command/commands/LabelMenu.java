@@ -117,7 +117,7 @@ final class LabelMenu {
         if (wizard.nothingPicked()) {
             line.append(Component.newline()).append(Component.text(LabelLines.PICK_ONE, NamedTextColor.RED));
         }
-        Dialog.Builder page = page().text(line.build()).columns(3);
+        Dialog.Builder page = page().text(line.asComponent()).columns(3);
         List<String> picked = wizard.checks();
         for (LabelCatalog.Entry check : LabelCatalog.current().cheats()) {
             Component label = picked.contains(check.id())
@@ -172,7 +172,7 @@ final class LabelMenu {
                     wizard.days()));
             askFlags(wizard.days());
         }
-        return page.text(line.build())
+        return page.text(line.asComponent())
                 .button(LabelLines.next(), Dialog.WIDE, click -> {
                     Page next = wizard.window(
                             click.text(CONFIDENCE), clean ? null : click.number(SPAN), System.currentTimeMillis());
