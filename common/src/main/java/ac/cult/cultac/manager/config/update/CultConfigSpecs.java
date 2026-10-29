@@ -532,17 +532,15 @@ public final class CultConfigSpecs {
      * stays. The new layout leaves out the state or verbose line the operator turned off. {@code include-state} is
      * added by the default rewrite; {@code embed-image-url} and {@code include-verbose}, which no bundled file
      * carries, are kept.
-     * v3 → v4: the shipped sensitivity line shows percentages; the rest of the file is kept.
      * v4 → v5: the description goes back to one value per line, with verbose and state as fields, and the footer
-     * shows only the version. A description still in the shipped v3/v4 layout, in any language and with or without
-     * its state and verbose lines, takes the new default, and the shipped footer text does too; anything the operator
-     * wrote stays.
+     * shows only the version. A file from before v4 has its shipped sensitivity line in percentages first. A
+     * description still in the shipped v3/v4 layout, in any language and with or without its state and verbose lines,
+     * takes the new default, and the shipped footer text does too; anything the operator wrote stays.
      */
     public static @NotNull ConfigUpdater.Spec discord() {
         return ConfigUpdater.Spec.builder("/discord/", 5, ConfigUpdater.ConfigFlavor.V2)
                 .migration(2, CultConfigSpecs::discordAlertLayout)
                 .migration(3, CultConfigSpecs::discordAlertLayout)
-                .migration(4, CultConfigSpecs::discordPercentSensitivity)
                 .migration(5, CultConfigSpecs::discordValuePerLine)
                 .build();
     }
@@ -737,18 +735,16 @@ public final class CultConfigSpecs {
         keepUnbundledDiscordKeys(ctx);
     }
 
-    static void discordPercentSensitivity(MigrationContext ctx) {
-        keepUnbundledDiscordKeys(ctx);
-        List<?> content = ctx.output().getList("violation-content");
-        if (content == null || !content.contains(SHIPPED_V3_DISCORD_SENSITIVITY)) return;
-        List<Object> layout = new ArrayList<>(content);
-        layout.replaceAll(line -> SHIPPED_V3_DISCORD_SENSITIVITY.equals(line) ? PERCENT_DISCORD_SENSITIVITY : line);
-        ctx.output().put("violation-content", layout);
-    }
-
     static void discordValuePerLine(MigrationContext ctx) {
         keepUnbundledDiscordKeys(ctx);
         List<?> content = ctx.output().getList("violation-content");
+        Integer version = ctx.input().getInt("config-version");
+        if (content != null && (version == null || version < 4) && content.contains(SHIPPED_V3_DISCORD_SENSITIVITY)) {
+            List<Object> layout = new ArrayList<>(content);
+            layout.replaceAll(line -> SHIPPED_V3_DISCORD_SENSITIVITY.equals(line) ? PERCENT_DISCORD_SENSITIVITY : line);
+            ctx.output().put("violation-content", layout);
+            content = layout;
+        }
         List<?> newContent = ctx.defaults().getList("violation-content");
         if (content != null && newContent != null && isShippedV4DiscordLayout(content)) {
             ctx.output().put("violation-content", new ArrayList<>(newContent));
