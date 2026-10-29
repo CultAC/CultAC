@@ -67,23 +67,39 @@ public final class ModelItemValues {
         return decoder.item(version, input, registries, ModelNbtFactory.INSTANCE, cached);
     }
 
+    /**
+     * Held stacks are keyed by the bytes after the leading count, which reaches a decoded stack only as its count, so
+     * one held stack serves every positive count. The structure checks read no byte past a stack they accept, so input
+     * that begins with a held key holds that stack.
+     */
     private final class CachedStacks implements WireValueDecoder.ItemReuse<NbtValue, SimItemStack> {
         @Override
-        public SimItemStack reuse(ByteBuf input, int start, int end) {
-            var stack = cache.get(input, start, end);
-            return stack == null ? null : stack.copy();
+        public SimItemStack reuse(ByteBuf input) {
+            int start = input.readerIndex(), count = 0, index = start, next;
+            do {
+                if (index == input.writerIndex() || index - start == 5) return null;
+                next = input.getUnsignedByte(index);
+                count |= (next & 0x7f) << ((index++ - start) * 7);
+            } while ((next & 0x80) != 0);
+            if (count <= 0) return null;
+            int slot = cache.find(input, index);
+            if (slot < 0) return null;
+            input.readerIndex(index + cache.length(slot));
+            return cache.stack(slot).copyWithCount(count);
         }
 
         @Override
         public SimItemStack decoded(WireValueDecoder.DecodedItem<NbtValue> value, ByteBuf input, int start, int end) {
             var stack = item(value);
+            int index = start;
+            while ((input.getUnsignedByte(index++) & 0x80) != 0) {}
             // Bundle contents memoize their weight and are never shared between received stacks.
             if (input.readerIndex() == end
-                    && end - start <= ItemStackCache.MAX_BYTES
+                    && end - index <= ItemStackCache.MAX_BYTES
                     && !stack.isEmpty()
                     && stack.patch().added().bundle() == null) {
-                int size = ItemStackCache.retained(end - start, value.components(), value.componentLayouts());
-                cache.put(input, start, end, stack.copy(), size);
+                int size = ItemStackCache.retained(end - index, value.components(), value.componentLayouts());
+                cache.put(input, index, end, stack.copy(), size);
             }
             return stack;
         }

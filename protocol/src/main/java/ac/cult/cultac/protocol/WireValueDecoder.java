@@ -215,10 +215,13 @@ public interface WireValueDecoder extends AutoCloseable {
         return reuse.decoded(item, input, start, input.readerIndex());
     }
 
-    /** Values for accepted stacks, by their bytes: {@code input} from {@code start} up to {@code end}. */
+    /** Values for accepted stacks: a held value for a stack the input repeats, otherwise one per decoded stack. */
     interface ItemReuse<T, R> {
-        /** What {@link #decoded} returned for these bytes, or null to decode them; the input is not consumed. */
-        R reuse(ByteBuf input, int start, int end);
+        /**
+         * What {@link #decoded} returned for the stack {@code input} continues with, consuming it, or null to check and
+         * decode the stack. Offered before any check: the checks read no byte past the stack they accept.
+         */
+        R reuse(ByteBuf input);
 
         /** The value of a stack decoded from {@code start}; {@code input} is positioned after it. */
         R decoded(DecodedItem<T> item, ByteBuf input, int start, int end);

@@ -78,7 +78,9 @@ class ModelItemDecodeBenchTest {
         for (var sample : samples) {
             var cache = caches.computeIfAbsent(sample.protocol(), protocol -> new ItemStackCache());
             var bytes = sample.bytes();
-            if (cache.get(bytes, bytes.readerIndex(), bytes.writerIndex()) != null) reused++;
+            int index = bytes.readerIndex();
+            while ((bytes.getByte(index++) & 0x80) != 0) {}
+            if (cache.find(bytes, index) >= 0) reused++;
             values.computeIfAbsent(sample.protocol(), protocol -> cached(protocol, cache))
                     .sentItem(bytes.duplicate());
         }

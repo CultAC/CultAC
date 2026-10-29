@@ -75,6 +75,11 @@ class ItemStackCacheTest {
         assertArrayEquals(bytes(expected), bytes(actual));
     }
 
+    private static SimItemStack held(ItemStackCache cache, ByteBuf input, int start) {
+        int slot = cache.find(input, start);
+        return slot < 0 ? null : cache.stack(slot);
+    }
+
     @Test
     void repeatedStacksAreSeparateCopies() {
         var values = cached();
@@ -84,6 +89,38 @@ class ItemStackCacheTest {
         assertNotSame(first, second);
         assertSame(first.patch(), second.patch());
         assertSameStack(plain.item(Unpooled.wrappedBuffer(bytes), false), second);
+    }
+
+    @Test
+    void aHeldStackFollowedByMoreBytesEndsWhereItsBytesEnd() {
+        var values = cached();
+        byte[] bytes = sword();
+        var first = read(values, bytes);
+        var input = Unpooled.buffer().writeBytes(bytes).writeBytes(bytes).writeByte(0xff);
+        var reused = values.sentItem(input);
+        assertSame(first.patch(), reused.patch());
+        assertEquals(bytes.length, input.readerIndex());
+        assertSame(first.patch(), values.sentItem(input).patch());
+        assertEquals(bytes.length * 2, input.readerIndex());
+    }
+
+    @Test
+    void anotherPositiveCountReusesTheHeldStack() {
+        var values = cached();
+        var stack = ItemUtil.modelItems().stack("minecraft:diamond_sword", 1);
+        stack.components(stack.components().with("minecraft:damage", new JsonPrimitive(5)));
+        var first = read(values, bytes(stack));
+        for (int count : new int[] {7, 300, 1}) {
+            stack.setCount(count);
+            byte[] bytes = bytes(stack);
+            var reused = read(values, bytes);
+            assertSame(first.patch(), reused.patch());
+            assertEquals(count, reused.count());
+            assertSameStack(plain.item(Unpooled.wrappedBuffer(bytes), false), reused);
+        }
+        stack.setCount(0);
+        byte[] empty = bytes(stack);
+        assertTrue(read(values, empty).isEmpty());
     }
 
     @Test
@@ -183,7 +220,7 @@ class ItemStackCacheTest {
         byte[] first = box(1, nested);
         var decoded = ProtocolCodecs.decoder()
                 .item(VERSION, Unpooled.wrappedBuffer(first), false, names, ModelNbtFactory.INSTANCE);
-        int size = ItemStackCache.retained(first.length, decoded.components(), decoded.componentLayouts());
+        int size = ItemStackCache.retained(first.length - 1, decoded.components(), decoded.componentLayouts());
         assertTrue(size > ItemStackCache.BUDGET / ItemStackCache.ENTRIES);
 
         var cache = new ItemStackCache();
@@ -195,7 +232,7 @@ class ItemStackCacheTest {
             assertSame(held.patch(), read(values, bytes).patch());
         }
         assertEquals(ItemStackCache.BUDGET / size * size, cache.held());
-        assertNull(cache.get(Unpooled.wrappedBuffer(first), 0, first.length));
+        assertNull(held(cache, Unpooled.wrappedBuffer(first), 1));
     }
 
     @Test
@@ -206,15 +243,15 @@ class ItemStackCacheTest {
         int half = ItemStackCache.BUDGET / 2;
         cache.put(Unpooled.wrappedBuffer(keys[0]), 0, 1, stack, half);
         cache.put(Unpooled.wrappedBuffer(keys[1]), 0, 1, stack, half);
-        cache.get(Unpooled.wrappedBuffer(keys[0]), 0, 1);
+        held(cache, Unpooled.wrappedBuffer(keys[0]), 0);
         cache.put(Unpooled.wrappedBuffer(keys[2]), 0, 1, stack, half);
-        assertSame(stack, cache.get(Unpooled.wrappedBuffer(keys[0]), 0, 1));
-        assertNull(cache.get(Unpooled.wrappedBuffer(keys[1]), 0, 1));
-        assertSame(stack, cache.get(Unpooled.wrappedBuffer(keys[2]), 0, 1));
+        assertSame(stack, held(cache, Unpooled.wrappedBuffer(keys[0]), 0));
+        assertNull(held(cache, Unpooled.wrappedBuffer(keys[1]), 0));
+        assertSame(stack, held(cache, Unpooled.wrappedBuffer(keys[2]), 0));
         assertEquals(half * 2, cache.held());
 
         cache.put(Unpooled.wrappedBuffer(keys[1]), 0, 1, stack, ItemStackCache.BUDGET + 1);
-        assertNull(cache.get(Unpooled.wrappedBuffer(keys[1]), 0, 1));
+        assertNull(held(cache, Unpooled.wrappedBuffer(keys[1]), 0));
         assertEquals(half * 2, cache.held());
     }
 }

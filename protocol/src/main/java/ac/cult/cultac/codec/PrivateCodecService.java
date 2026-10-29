@@ -217,15 +217,12 @@ public final class PrivateCodecService implements WireValueDecoder {
             NbtFactory<T> factory,
             ItemReuse<T, R> reuse) {
         checkOpen();
+        R reused = reuse.reuse(input);
+        if (reused != null) return reused;
         var type = types(version);
         var scan = input.duplicate();
         ItemStructureGuard.scanItemStack(type, version, scan, false);
         int start = input.readerIndex(), end = scan.readerIndex();
-        R reused = reuse.reuse(input, start, end);
-        if (reused != null) {
-            input.readerIndex(end);
-            return reused;
-        }
         var decoded = readScanned(type, input, false, false);
         return reuse.decoded(item(decoded.item(), registries, version, decoded.patch(), factory), input, start, end);
     }
