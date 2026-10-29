@@ -371,15 +371,13 @@ class CloudHistoryTest {
             assertTrue(answered.local.get(), failure.toString());
             assertNote(answered.sent.get(0), CloudHistory.UNAVAILABLE, NamedTextColor.GRAY);
         }
-        for (int status : new int[] {401, 403}) {
-            Cloud cloud = new Cloud(3);
-            cloud.findingsFailures.put(cloud.at(2).id(), new HistoryClient.Failure(status, "HTTP " + status));
+        Cloud refused = new Cloud(3);
+        refused.findingsFailures.put(refused.at(2).id(), new HistoryClient.Failure(401, "HTTP 401"));
 
-            Answered answered = answer(cloud, violation -> true);
+        Answered answered = answer(refused, violation -> true);
 
-            assertTrue(answered.local.get());
-            assertNote(answered.sent.get(0), CloudHistory.REFUSED, NamedTextColor.RED);
-        }
+        assertTrue(answered.local.get());
+        assertNote(answered.sent.get(0), CloudHistory.REFUSED, NamedTextColor.RED);
     }
 
     @Test
@@ -405,15 +403,24 @@ class CloudHistoryTest {
 
     @Test
     void aRefusedKeyIsToldAndFallsBackToThisServer() {
-        for (int status : new int[] {401, 403}) {
-            Cloud cloud = new Cloud(3);
-            cloud.sessionsFailure = new HistoryClient.Failure(status, "HTTP " + status);
+        Cloud cloud = new Cloud(3);
+        cloud.sessionsFailure = new HistoryClient.Failure(401, "HTTP 401");
 
-            Answered answered = answer(cloud, null);
+        Answered answered = answer(cloud, null);
 
-            assertTrue(answered.local.get());
-            assertNote(answered.sent.get(0), CloudHistory.REFUSED, NamedTextColor.RED);
-        }
+        assertTrue(answered.local.get());
+        assertNote(answered.sent.get(0), CloudHistory.REFUSED, NamedTextColor.RED);
+    }
+
+    @Test
+    void aForbiddenHistoryIsToldNeutrallyAndFallsBackToThisServer() {
+        Cloud cloud = new Cloud(3);
+        cloud.sessionsFailure = new HistoryClient.Failure(403, "HTTP 403");
+
+        Answered answered = answer(cloud, null);
+
+        assertTrue(answered.local.get());
+        assertNote(answered.sent.get(0), CloudHistory.UNAVAILABLE, NamedTextColor.GRAY);
     }
 
     @Test

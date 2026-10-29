@@ -149,7 +149,7 @@ final class CloudHistory {
     static Component note(Throwable error) {
         HistoryClient.Failure failure = failure(error);
         String why = failure != null ? failure.getMessage() : LabelClient.unanswered(error);
-        boolean refused = failure != null && (failure.status() == 401 || failure.status() == 403);
+        boolean refused = failure != null && failure.status() == 401;
         return Component.text(refused ? REFUSED : UNAVAILABLE, refused ? NamedTextColor.RED : NamedTextColor.GRAY)
                 .hoverEvent(HoverEvent.showText(Component.text(why, NamedTextColor.GRAY)));
     }

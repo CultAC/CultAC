@@ -1028,7 +1028,8 @@ public class CultHistory implements BuildableCommand {
 
     /** Whether history commands answer from the cloud, whose counts suggestions cannot ask for. */
     private static boolean readsFromCloud() {
-        return HistoryClient.configured() != null;
+        HistoryClient client = HistoryClient.configured();
+        return client != null && !client.refused();
     }
 
     private static @Nullable UUID resolveTargetUuid(CommandContext<Sender> ctx) {
