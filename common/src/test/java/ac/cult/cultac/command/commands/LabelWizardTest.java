@@ -28,7 +28,7 @@ class LabelWizardTest {
         assertEquals(Page.SPAN, wizard.choose(Verdict.CLEAN));
         assertEquals(List.of(), wizard.checks());
         assertTrue(wizard.asksConfidence());
-        assertEquals(Page.VERDICT, wizard.backFromSpan());
+        assertEquals(Page.VERDICT, wizard.back(Page.SPAN));
     }
 
     @Test
@@ -53,13 +53,24 @@ class LabelWizardTest {
         assertFalse(wizard.asksConfidence());
         wizard.toggle("autoclicker");
         assertEquals(Page.SPAN, wizard.next());
-        assertEquals(Page.CHECKS, wizard.backFromSpan());
+        assertEquals(Page.CHECKS, wizard.back(Page.SPAN));
         wizard.window(LabelWizard.EXTREME, 7f, NOW);
         assertEquals(LabelWizard.HIGH, wizard.confidence());
         LabelRequest.Window label = wizard.labels("seen").get(0);
         assertEquals("suspected", label.value());
         assertNull(label.confidence());
         assertEquals("seen", label.note());
+    }
+
+    @Test
+    void backShowsThePageBefore() {
+        LabelWizard wizard = new LabelWizard(NOTCH, 7);
+        wizard.choose(Verdict.CHEATING);
+        assertEquals(Page.VERDICT, wizard.back(Page.CHECKS));
+        assertEquals(Page.CHECKS, wizard.back(Page.SPAN));
+        assertEquals(Page.SPAN, wizard.back(Page.REVIEW));
+        wizard.choose(Verdict.CLEAN);
+        assertEquals(Page.VERDICT, wizard.back(Page.SPAN));
     }
 
     @Test
@@ -134,7 +145,9 @@ class LabelWizardTest {
         wizard.window(LabelWizard.EXTREME, null, NOW);
         try {
             LabelCatalog.use(LabelCatalogTest.swapped());
-            assertEquals(List.of("killaura"), wizard.labels(null).stream().map(LabelRequest.Window::cheat).toList());
+            assertEquals(
+                    List.of("killaura"),
+                    wizard.labels(null).stream().map(LabelRequest.Window::cheat).toList());
         } finally {
             LabelCatalog.use(LabelCatalog.bundled());
         }

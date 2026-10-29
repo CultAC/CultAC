@@ -24,13 +24,18 @@ import org.jetbrains.annotations.Nullable;
  * a token of this CultAC instance, so a proxy passes on the clicks of a dialog its backend's CultAC drew.
  */
 public final class Dialogs {
-    static final String CLICK_PREFIX =
-            "cultac:dialog/" + Long.toHexString(new SecureRandom().nextLong() >>> 1) + "/";
+    /**
+     * Starts every click id this instance writes: {@code CLICK_PREFIX + <dialog id> + "/" + <button index>}, the exit
+     * button's index one past the last button's.
+     */
+    static final String CLICK_PREFIX = "cultac:dialog/" + Long.toHexString(new SecureRandom().nextLong() >>> 1) + "/";
+
     private static final long MAX_PAYLOAD_HEAP = 65_536L;
     private static final Map<UUID, Shown> SHOWN = new ConcurrentHashMap<>();
     private static final AtomicInteger NEXT_ID = new AtomicInteger();
 
-    private record Shown(CultPlayer viewer, int id, Dialog dialog) {}
+    /** A dialog shown to {@code viewer}; a rejoin brings a new CultPlayer under the same UUID, which it never answers. */
+    record Shown(CultPlayer viewer, int id, Dialog dialog) {}
 
     private Dialogs() {}
 
@@ -80,7 +85,7 @@ public final class Dialogs {
                 return;
             }
             int id = NEXT_ID.incrementAndGet();
-            byte[] nbt = BinaryNbt.write(DialogNbt.encode(dialog, CLICK_PREFIX + id + "/"));
+            byte[] nbt = BinaryNbt.write(DialogNbt.encode(dialog, clickPrefix(id)));
             SHOWN.put(viewer.getUniqueId(), new Shown(viewer, id, dialog));
             viewer.user.write(new CultWrite(ClientboundShowDialog.inline(nbt), true));
         });
@@ -107,9 +112,7 @@ public final class Dialogs {
      */
     static boolean clicked(CultPlayer viewer, ServerboundCustomClickAction click) {
         if (!click.id().startsWith(CLICK_PREFIX)) return false;
-        Shown shown = SHOWN.get(viewer.getUniqueId());
-        if (shown == null || shown.viewer() != viewer) return true;
-        Dialog.Button button = button(shown.dialog(), shown.id(), click.id());
+        Dialog.Button button = pick(SHOWN.get(viewer.getUniqueId()), viewer, click.id());
         Response response = response(click.payload().bytes());
         if (button == null || response == null) return true;
         try {
@@ -120,9 +123,15 @@ public final class Dialogs {
         return true;
     }
 
+    /** The button a click from {@code viewer} runs: one on the dialog last {@code shown} to that very player. */
+    static Dialog.@Nullable Button pick(@Nullable Shown shown, CultPlayer viewer, String clickId) {
+        if (shown == null || shown.viewer() != viewer) return null;
+        return button(shown.dialog(), shown.id(), clickId);
+    }
+
     /** The button of {@code dialog}, shown as {@code id}, that {@code clickId} names; null for another dialog's. */
     static Dialog.@Nullable Button button(Dialog dialog, int id, String clickId) {
-        String prefix = CLICK_PREFIX + id + "/";
+        String prefix = clickPrefix(id);
         if (!clickId.startsWith(prefix)) return null;
         int index;
         try {
@@ -130,8 +139,13 @@ public final class Dialogs {
         } catch (NumberFormatException notAButton) {
             return null;
         }
-        if (index >= 0 && index < dialog.buttons().size()) return dialog.buttons().get(index);
+        if (index >= 0 && index < dialog.buttons().size())
+            return dialog.buttons().get(index);
         return index == dialog.buttons().size() ? dialog.exit() : null;
+    }
+
+    private static String clickPrefix(int id) {
+        return CLICK_PREFIX + id + "/";
     }
 
     /** The inputs a click carried; null when its payload is not a vanilla one. */

@@ -22,7 +22,7 @@ public record Dialog(
         @Nullable Button exit,
         int columns) {
     /** The client's default width for text, inputs and the exit button. */
-    public static final int WIDE = 200;
+    public static final int DEFAULT_WIDTH = 200;
 
     public Dialog {
         Objects.requireNonNull(title);
@@ -85,7 +85,7 @@ public record Dialog(
         }
 
         public Builder text(Component text) {
-            return text(text, WIDE);
+            return text(text, DEFAULT_WIDTH);
         }
 
         public Builder text(Component text, int width) {
@@ -93,8 +93,9 @@ public record Dialog(
             return this;
         }
 
-        public Builder head(UUID player, String name, Component description, int width) {
-            body.add(new Head(player, name, new Text(description, width)));
+        /** {@code player}'s head with {@code description} beside it, wrapped to at most {@code maxWidth} pixels. */
+        public Builder head(UUID player, String name, Component description, int maxWidth) {
+            body.add(new Head(player, name, new Text(description, maxWidth)));
             return this;
         }
 

@@ -127,15 +127,16 @@ class DialogNbtTest {
                 .input(new Dialog.Choice(
                         "confidence",
                         Component.text("Confidence"),
-                        Dialog.WIDE,
+                        Dialog.DEFAULT_WIDTH,
                         List.of(
                                 new Dialog.Option("high", Component.text("High"), true),
                                 new Dialog.Option("extreme", Component.text("Extreme"), false))))
-                .input(new Dialog.Slider("span", Component.text("Span"), "%s: last %s days", Dialog.WIDE, 1, 30, 7))
+                .input(new Dialog.Slider(
+                        "span", Component.text("Span"), "%s: last %s days", Dialog.DEFAULT_WIDTH, 1, 30, 7))
                 .input(new Dialog.TextBox("note", Component.text("Note"), 300, 256))
-                .button(Component.text("Next"), Dialog.WIDE, click -> {})
+                .button(Component.text("Next"), Dialog.DEFAULT_WIDTH, click -> {})
                 .button(Component.text("Other"), Component.text("Why"), 110, click -> {})
-                .exit(Component.text("Back"), Dialog.WIDE, click -> {})
+                .exit(Component.text("Back"), Dialog.DEFAULT_WIDTH, click -> {})
                 .columns(3)
                 .build();
     }
@@ -143,7 +144,7 @@ class DialogNbtTest {
     private static NbtValue headTextWidth(Component text, int width) {
         Dialog dialog = Dialog.titled(Component.text("Title"))
                 .head(NOTCH, "Notch", text, width)
-                .button(Component.text("Next"), Dialog.WIDE, click -> {})
+                .button(Component.text("Next"), Dialog.DEFAULT_WIDTH, click -> {})
                 .build();
         List<NbtValue> body =
                 ((NbtValue.Sequence) DialogNbt.encode(dialog, "p/").values().get("body")).values();

@@ -117,9 +117,13 @@ final class LabelWizard {
         return nothingPicked ? Page.CHECKS : Page.SPAN;
     }
 
-    /** Page 3's Back: the checks, or the verdict for Clean. */
-    Page backFromSpan() {
-        return verdict == Verdict.CLEAN ? Page.VERDICT : Page.CHECKS;
+    /** The page Back on {@code page} shows: the one before it, which for Clean's span is the verdict. */
+    Page back(Page page) {
+        return switch (page) {
+            case VERDICT, CHECKS -> Page.VERDICT;
+            case SPAN -> verdict == Verdict.CLEAN ? Page.VERDICT : Page.CHECKS;
+            case REVIEW -> Page.SPAN;
+        };
     }
 
     /**

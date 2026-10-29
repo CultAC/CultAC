@@ -188,7 +188,6 @@ class CultLabelTest {
         return String.join(" ", parts);
     }
 
-    /** A menu that is {@code showable} or not, and that fails the test if it is ever opened. */
     private Sender sender(boolean player) {
         return (Sender) Proxy.newProxyInstance(
                 Sender.class.getClassLoader(), new Class<?>[] {Sender.class}, (proxy, method, args) -> {

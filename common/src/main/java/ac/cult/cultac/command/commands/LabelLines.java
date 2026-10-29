@@ -21,8 +21,8 @@ import net.kyori.adventure.text.format.TextDecoration;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * The wording of the {@code /cult label <player>} menu: what each line says, and which label on file the new ones would
- * clash with.
+ * Text the {@code /cult label} command and its menu share: chat lines, the lines several pages repeat, and which label
+ * on file the new ones would clash with. Words one page alone uses stay on that page in {@link LabelMenu}.
  */
 final class LabelLines {
     static String javaOnly() {
@@ -37,7 +37,7 @@ final class LabelLines {
 
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH);
     private static final DateTimeFormatter MINUTE = DateTimeFormatter.ofPattern("MMM d HH:mm", Locale.ENGLISH);
-    private static final String DOT = " · ";
+    static final String DOT = " · ";
     private static final String ARMED = "armed";
 
     private LabelLines() {}
@@ -203,11 +203,14 @@ final class LabelLines {
             String player, Verdict verdict, List<String> checks, boolean asksConfidence, String confidence, int days) {
         String what = verdict == Verdict.CLEAN
                 ? "clean across all checks"
-                : verdict.display.toLowerCase(Locale.ROOT) + " ("
-                        + String.join(
-                                ", ", checks.stream().map(LabelLines::name).toList()) + ")";
+                : verdict.display.toLowerCase(Locale.ROOT) + " (" + names(checks) + ")";
         return "Labelled " + player + " " + what + (asksConfidence ? ", " + confidence : "")
                 + (verdict == Verdict.CLEAN ? "" : " (" + lastDays(days) + ")");
+    }
+
+    /** The checks' names, comma-separated, in order. */
+    static String names(List<String> checks) {
+        return String.join(", ", checks.stream().map(LabelLines::name).toList());
     }
 
     static String capitalized(String word) {

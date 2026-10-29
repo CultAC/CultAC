@@ -34,10 +34,9 @@ import org.jetbrains.annotations.Nullable;
  * ahead of the review, which opens with whatever has arrived. Every handler runs on the staff member's thread.
  */
 final class LabelMenu {
-    private static final int CELL = 110;
-    private static final int REVIEW = 300;
-    private static final int BACK_ON_REVIEW = 160;
-    private static final String DOT = " · ";
+    private static final int CELL_WIDTH = 110;
+    private static final int CARD_WIDTH = 300;
+    private static final int BACK_WIDTH = 160;
     private static final String CONFIDENCE = "confidence";
     private static final String SPAN = "span";
     private static final String NOTE = "note";
@@ -52,7 +51,9 @@ final class LabelMenu {
     private final boolean mayLabelClean;
     private final LabelWizard wizard;
     private final CompletableFuture<LabelClient.Reply> labelsOnFile;
+    /** Each check's flags over the last {@code flagsDays} days; 0 days until first asked. */
     private CompletableFuture<Map<String, Integer>> flags = CompletableFuture.completedFuture(Map.of());
+
     private int flagsDays;
 
     private LabelMenu(DialogViewer staff, Sender sender, UUID labellerId, LabelClient client, LabelWizard wizard) {
@@ -79,6 +80,7 @@ final class LabelMenu {
     }
 
     private void show(Page page) {
+        if ((page == Page.SPAN || page == Page.REVIEW) && verdict() != Verdict.CLEAN) askFlags(wizard.days());
         CultLabel.answering(
                 sender,
                 () -> staff.show(
@@ -101,13 +103,14 @@ final class LabelMenu {
                         lines(
                                 Component.text(wizard.target.name(), NamedTextColor.WHITE, TextDecoration.BOLD),
                                 Component.text(LabelLines.status(onlineMillis(), elsewhere()), NamedTextColor.GRAY)),
-                        REVIEW)
+                        CARD_WIDTH)
                 .text(gray("Step 1 · What's your verdict?"));
         for (Verdict verdict : Verdict.values()) {
             if (verdict == Verdict.CLEAN && !mayLabelClean) continue;
-            page.button(LabelLines.verdict(verdict), Dialog.WIDE, click -> show(wizard.choose(verdict)));
+            page.button(LabelLines.verdict(verdict), Dialog.DEFAULT_WIDTH, click -> show(wizard.choose(verdict)));
         }
-        return page.exit(gray("Cancel"), Dialog.WIDE, click -> staff.close()).build();
+        return page.exit(gray("Cancel"), Dialog.DEFAULT_WIDTH, click -> staff.close())
+                .build();
     }
 
     private Dialog checksPage() {
@@ -123,23 +126,20 @@ final class LabelMenu {
             Component label = picked.contains(check.id())
                     ? Component.text("☑ " + check.name(), NamedTextColor.WHITE)
                     : gray("☐ " + check.name());
-            page.button(label, CELL, click -> show(wizard.toggle(check.id())));
+            page.button(label, CELL_WIDTH, click -> show(wizard.toggle(check.id())));
         }
-        return page.button(LabelLines.next(), CELL, click -> show(wizard.next()))
-                .exit(gray("Back"), Dialog.WIDE, click -> show(Page.VERDICT))
+        return page.button(LabelLines.next(), CELL_WIDTH, click -> show(wizard.next()))
+                .exit(gray("Back"), Dialog.DEFAULT_WIDTH, click -> show(wizard.back(Page.CHECKS)))
                 .build();
     }
 
     private Dialog spanPage() {
         Verdict verdict = verdict();
         boolean clean = verdict == Verdict.CLEAN;
-        String what = clean
-                ? "all checks"
-                : String.join(
-                        ", ", wizard.checks().stream().map(LabelLines::name).toList());
+        String what = clean ? "all checks" : LabelLines.names(wizard.checks());
         TextComponent.Builder line = Component.text()
                 .append(LabelLines.verdict(verdict))
-                .append(gray(DOT))
+                .append(gray(LabelLines.DOT))
                 .append(Component.text(what, NamedTextColor.WHITE));
         Dialog.Builder page = page();
         if (wizard.asksConfidence()) {
@@ -154,7 +154,7 @@ final class LabelMenu {
             page.input(new Dialog.Choice(
                     CONFIDENCE,
                     Component.text("Confidence"),
-                    Dialog.WIDE,
+                    Dialog.DEFAULT_WIDTH,
                     List.of(
                             new Dialog.Option(LabelWizard.HIGH, Component.text("High"), !extreme),
                             new Dialog.Option(LabelWizard.EXTREME, Component.text("Extreme"), extreme))));
@@ -166,20 +166,18 @@ final class LabelMenu {
                     SPAN,
                     Component.text("Span"),
                     "%s: last %s days",
-                    Dialog.WIDE,
+                    Dialog.DEFAULT_WIDTH,
                     LabelWizard.MIN_DAYS,
                     LabelWizard.MAX_DAYS,
                     wizard.days()));
-            askFlags(wizard.days());
         }
         return page.text(line.asComponent())
-                .button(LabelLines.next(), Dialog.WIDE, click -> {
-                    Page next = wizard.window(
-                            click.text(CONFIDENCE), clean ? null : click.number(SPAN), System.currentTimeMillis());
-                    if (!clean) askFlags(wizard.days());
-                    show(next);
-                })
-                .exit(gray("Back"), Dialog.WIDE, click -> show(wizard.backFromSpan()))
+                .button(
+                        LabelLines.next(),
+                        Dialog.DEFAULT_WIDTH,
+                        click -> show(wizard.window(
+                                click.text(CONFIDENCE), clean ? null : click.number(SPAN), System.currentTimeMillis())))
+                .exit(gray("Back"), Dialog.DEFAULT_WIDTH, click -> show(wizard.back(Page.SPAN)))
                 .build();
     }
 
@@ -198,7 +196,7 @@ final class LabelMenu {
         card.add(LabelLines.presence(wizard.target.name(), onlineMillis(), elsewhere()));
         CultPlayer target = local();
         if (target != null) {
-            card.add(gray(target.getTransactionPing() + "ms" + DOT + target.getBrand() + " "
+            card.add(gray(target.getTransactionPing() + "ms" + LabelLines.DOT + target.getBrand() + " "
                     + target.getClientVersion().getReleaseName()));
         }
 
@@ -211,18 +209,18 @@ final class LabelMenu {
         }
 
         Dialog.Builder page = Dialog.titled(LabelLines.title("Review ", wizard.target.name()))
-                .head(wizard.target.id(), wizard.target.name(), lines(card), REVIEW)
-                .text(lines(summary), REVIEW);
+                .head(wizard.target.id(), wizard.target.name(), lines(card), CARD_WIDTH)
+                .text(lines(summary), CARD_WIDTH);
         LabelClient.Reply listed = labelsOnFile.getNow(NO_LABELS);
         List<JsonObject> labels = listed.ok() ? LabelClient.labels(listed.body()) : List.of();
         JsonObject conflict = LabelLines.conflict(verdict, labels, wizard.from(), wizard.to());
-        if (conflict != null) page.text(lines(LabelLines.conflictLines(verdict, conflict, listed)), REVIEW);
-        return page.input(new Dialog.TextBox(NOTE, gray("Note (optional)"), REVIEW, LabelRequest.MAX_NOTE))
+        if (conflict != null) page.text(lines(LabelLines.conflictLines(verdict, conflict, listed)), CARD_WIDTH);
+        return page.input(new Dialog.TextBox(NOTE, gray("Note (optional)"), CARD_WIDTH, LabelRequest.MAX_NOTE))
                 .button(
                         Component.text("Confirm", NamedTextColor.WHITE, TextDecoration.BOLD),
-                        REVIEW,
+                        CARD_WIDTH,
                         click -> confirm(click))
-                .exit(gray("Back"), BACK_ON_REVIEW, click -> show(Page.SPAN))
+                .exit(gray("Back"), BACK_WIDTH, click -> show(wizard.back(Page.REVIEW)))
                 .build();
     }
 

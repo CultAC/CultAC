@@ -4,19 +4,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 import ac.cult.blocksim.data.nbt.BinaryNbt;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.data.nbt.NbtValue.Kind;
+import ac.cult.cultac.player.CultPlayer;
 import java.util.Map;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.Test;
 
 class DialogsTest {
     private static final Dialog DIALOG = Dialog.titled(Component.text("Title"))
-            .button(Component.text("First"), Dialog.WIDE, click -> {})
-            .button(Component.text("Second"), Dialog.WIDE, click -> {})
-            .exit(Component.text("Back"), Dialog.WIDE, click -> {})
+            .button(Component.text("First"), Dialog.DEFAULT_WIDTH, click -> {})
+            .button(Component.text("Second"), Dialog.DEFAULT_WIDTH, click -> {})
+            .exit(Component.text("Back"), Dialog.DEFAULT_WIDTH, click -> {})
             .build();
 
     @Test
@@ -32,6 +34,17 @@ class DialogsTest {
         assertNull(Dialogs.button(DIALOG, 7, Dialogs.CLICK_PREFIX + "7/3"));
         assertNull(Dialogs.button(DIALOG, 7, Dialogs.CLICK_PREFIX + "7/-1"));
         assertNull(Dialogs.button(DIALOG, 7, Dialogs.CLICK_PREFIX + "7/x"));
+    }
+
+    @Test
+    void aClickRunsOnlyForThePlayerTheDialogWasShownTo() {
+        CultPlayer viewer = mock(CultPlayer.class);
+        CultPlayer rejoined = mock(CultPlayer.class);
+        Dialogs.Shown shown = new Dialogs.Shown(viewer, 7, DIALOG);
+        String first = Dialogs.CLICK_PREFIX + "7/0";
+        assertSame(DIALOG.buttons().get(0), Dialogs.pick(shown, viewer, first));
+        assertNull(Dialogs.pick(shown, rejoined, first));
+        assertNull(Dialogs.pick(null, viewer, first));
     }
 
     @Test

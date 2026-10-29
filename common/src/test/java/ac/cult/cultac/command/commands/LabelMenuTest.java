@@ -101,31 +101,40 @@ class LabelMenuTest {
     void nextWithNothingPickedStaysAndSaysWhy() {
         open(false);
         click("Cheating");
-        click(plain(LabelLines.next()));
+        click(next());
         assertTrue(body(screen.page()).contains(LabelLines.PICK_ONE));
     }
 
     @Test
-    void everyBackShowsThePageBeforeAtOnce() {
+    void backFromTheChecksShowsTheVerdicts() {
         open(false);
-        String first = LabelCatalog.current().cheats().get(0).name();
         click("Cheating");
         exit();
         assertEquals(List.of("Cheating", "Suspected"), labels(screen.page()));
+    }
+
+    @Test
+    void backFromTheSpanKeepsTheTicks() {
+        open(false);
         click("Cheating");
-        click("☐ " + first);
-        click(plain(LabelLines.next()));
+        click("☐ " + first());
+        click(next());
         assertEquals(List.of("confidence", "span"), keys(screen.page()));
         exit();
-        assertTrue(labels(screen.page()).contains("☑ " + first));
-        click(plain(LabelLines.next()));
-        click(plain(LabelLines.next()), new Response(Map.of("confidence", "extreme", "span", 3f)));
+        assertTrue(labels(screen.page()).contains("☑ " + first()));
+    }
+
+    @Test
+    void backFromTheReviewKeepsTheConfidenceAndSpan() {
+        open(false);
+        click("Cheating");
+        click("☐ " + first());
+        click(next());
+        click(next(), new Response(Map.of("confidence", "extreme", "span", 3f)));
         assertEquals(List.of("note"), keys(screen.page()));
         exit();
-        Dialog.Slider span = (Dialog.Slider) screen.page().inputs().get(1);
-        assertEquals(3, span.initial());
-        Dialog.Choice confidence = (Dialog.Choice) screen.page().inputs().get(0);
-        assertTrue(confidence.options().get(1).initial());
+        assertEquals(3, ((Dialog.Slider) input("span")).initial());
+        assertTrue(((Dialog.Choice) input("confidence")).options().get(1).initial());
     }
 
     @Test
@@ -138,14 +147,19 @@ class LabelMenuTest {
     }
 
     @Test
-    void theReviewOpensWithoutWaitingForTheCloud() {
+    void theReviewOpensWithoutWaitingForTheCloudAndSumsUpTheLabel() {
         open(false);
         click("Suspected");
-        click("☐ " + LabelCatalog.current().cheats().get(0).name());
-        click(plain(LabelLines.next()));
+        click("☐ " + first());
+        click(next());
         assertEquals(List.of("span"), keys(screen.page()));
-        click(plain(LabelLines.next()), new Response(Map.of("span", 7f)));
+        click(next(), new Response(Map.of("span", 3f)));
         assertEquals("Review Notch", plain(screen.page().title()));
+        String body = body(screen.page());
+        assertTrue(body.contains("Suspected"), body);
+        assertTrue(body.contains("last 3 days"), body);
+        assertTrue(body.contains(first()), body);
+        assertEquals(List.of("note"), keys(screen.page()));
         assertEquals(List.of("Confirm"), labels(screen.page()));
     }
 
@@ -153,12 +167,27 @@ class LabelMenuTest {
     void confirmClosesTheMenu() {
         open(false);
         click("Cheating");
-        click("☐ " + LabelCatalog.current().cheats().get(0).name());
-        click(plain(LabelLines.next()));
-        click(plain(LabelLines.next()), new Response(Map.of("confidence", "high", "span", 7f)));
+        click("☐ " + first());
+        click(next());
+        click(next(), new Response(Map.of("confidence", "high", "span", 7f)));
         assertFalse(screen.closed);
         click("Confirm", new Response(Map.of("note", "seen twice")));
         assertTrue(screen.closed);
+    }
+
+    private static String first() {
+        return LabelCatalog.current().cheats().get(0).name();
+    }
+
+    private static String next() {
+        return plain(LabelLines.next());
+    }
+
+    private Dialog.Input input(String key) {
+        return screen.page().inputs().stream()
+                .filter(input -> input.key().equals(key))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(key + " not in " + keys(screen.page())));
     }
 
     private void open(boolean mayLabelClean) {
