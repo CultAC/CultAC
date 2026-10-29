@@ -2,7 +2,6 @@ package ac.cult.cultac.command;
 
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
-import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
@@ -31,8 +30,8 @@ import org.jetbrains.annotations.Nullable;
  * the parse with a {@link PlayerElsewhereException}; {@link #handle} then forwards the whole command line to that
  * instance or engine generation for the commands that work across instances, and tells the sender the others only work
  * on the same server.
- * Without a transport, a player who is not here on an instance that looks networked gets the network-disabled
- * message. While a transport runs, player suggestions add the roster's names.
+ * Without a transport, a player who is not here fails as with the platform's parser. While a transport runs, player
+ * suggestions add the roster's names.
  */
 public final class NetworkPlayerArguments implements CloudPlatformCommandArguments {
     static final int MAX_SUGGESTIONS = 25;
@@ -67,7 +66,7 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                         String name = input.peekString();
                         return base.parseFuture(context, input).thenApply(result -> {
                             PlayerElsewhereException elsewhere =
-                                    result.failure().isEmpty() ? otherGeneration(context, name) : elsewhere(name, true);
+                                    result.failure().isEmpty() ? otherGeneration(context, name) : elsewhere(name);
                             return elsewhere == null ? result : ArgumentParseResult.failure(elsewhere);
                         });
                     }
@@ -92,7 +91,7 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
     public static ParserDescriptor<Sender, String> playerName(ParserDescriptor<Sender, String> base) {
         return ParserDescriptor.of(
                 base.parser().flatMapSuccess((context, name) -> {
-                    PlayerElsewhereException elsewhere = elsewhere(name, false);
+                    PlayerElsewhereException elsewhere = elsewhere(name);
                     if (elsewhere == null) elsewhere = otherGeneration(context, name);
                     return elsewhere == null
                             ? ArgumentParseResult.successFuture(name)
@@ -118,7 +117,7 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                             PlayerSelector here = result.parsedValue().orElse(null);
                             if (here != null) return ArgumentParseResult.success(new NetworkTarget(here, null));
                             Throwable failure = result.failure().orElseThrow();
-                            if (!(failure instanceof PlayerElsewhereException elsewhere) || elsewhere.where() == null)
+                            if (!(failure instanceof PlayerElsewhereException elsewhere))
                                 return ArgumentParseResult.failure(failure);
                             if (input.cursor() == start) input.readString();
                             return ArgumentParseResult.success(new NetworkTarget(null, elsewhere.where()));
@@ -133,20 +132,15 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
                 NetworkTarget.class);
     }
 
-    /**
-     * Why {@code name} is not here: on another instance, or, for an online-player argument, possibly on one this
-     * instance cannot reach. Null when it is here or nowhere the network knows.
-     */
-    private static @Nullable PlayerElsewhereException elsewhere(String name, boolean online) {
+    /** {@code name} on another instance; null when it is here, nowhere the network knows, or no transport runs. */
+    private static @Nullable PlayerElsewhereException elsewhere(String name) {
         if (name.isEmpty()) return null;
         NetworkRouting routing = NetworkRouting.current();
-        if (routing.enabled()) {
-            NetworkPlayer where = routing.locate(name).orElse(null);
-            return where == null || where.instance().equals(routing.instanceId())
-                    ? null
-                    : new PlayerElsewhereException(name, where);
-        }
-        return online && NetworkModule.networked() ? new PlayerElsewhereException(name, null) : null;
+        if (!routing.enabled()) return null;
+        NetworkPlayer where = routing.locate(name).orElse(null);
+        return where == null || where.instance().equals(routing.instanceId())
+                ? null
+                : new PlayerElsewhereException(name, where);
     }
 
     /** {@code name} here but held by another engine generation, for a command that runs where its player is. */
@@ -208,14 +202,6 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
         if (!(context.exception().getCause() instanceof PlayerElsewhereException elsewhere)) throw context.exception();
         Sender sender = context.context().sender();
         NetworkPlayer where = elsewhere.where();
-        if (where == null) {
-            sender.sendMessage(MessageUtil.getParsedComponent(
-                    sender,
-                    "network-disabled-command",
-                    "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to"
-                            + " configure a messaging backend (Redis or NATS) in the CultAC configuration."));
-            return;
-        }
         String line = line(context.context());
         if (!routed(line)) {
             sender.sendMessage(whereabouts(
@@ -251,19 +237,16 @@ public final class NetworkPlayerArguments implements CloudPlatformCommandArgumen
     public record NetworkTarget(
             @Nullable PlayerSelector here, @Nullable NetworkPlayer elsewhere) {}
 
-    /**
-     * A typed player who is not on this instance: on {@code where}, or, when it is null, possibly on an instance this
-     * one has no transport to reach.
-     */
+    /** A typed player who is held elsewhere: on {@code where}, another instance or another engine generation here. */
     public static final class PlayerElsewhereException extends IllegalArgumentException {
-        private final transient @Nullable NetworkPlayer where;
+        private final transient NetworkPlayer where;
 
-        PlayerElsewhereException(String name, @Nullable NetworkPlayer where) {
+        PlayerElsewhereException(String name, NetworkPlayer where) {
             super("Player is not on this server: " + name);
             this.where = where;
         }
 
-        public @Nullable NetworkPlayer where() {
+        public NetworkPlayer where() {
             return where;
         }
     }

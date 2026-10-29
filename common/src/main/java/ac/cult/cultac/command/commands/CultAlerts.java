@@ -74,7 +74,7 @@ public class CultAlerts implements BuildableCommand {
                     sender,
                     "network-disabled-alerts",
                     "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to"
-                            + " configure a messaging backend (Redis or NATS) in the CultAC configuration."));
+                            + " set network.type in the CultAC configuration."));
             return;
         }
         alerts.chooseScope(player, scope);

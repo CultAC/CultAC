@@ -284,12 +284,12 @@ class NetworkPlayerArgumentsTest {
     }
 
     @Test
-    void withoutATransportAPlayerWhoIsNotHereGetsTheNetworkDisabledMessageOnANetwork() {
+    void withoutATransportAPlayerWhoIsNotHereIsTheUsualParseFailureEvenWithRedisBungee() {
         withoutTransport();
         NetworkModule.platform(new Networked());
         execute(sender, "cult debug mods Alice");
         assertTrue(ranOnP7.isEmpty() && ranOnP9.isEmpty());
-        assertTrue(messages().getFirst().contains("Network-wide commands are not enabled"), messages()::toString);
+        assertEquals(List.of("Invalid argument: Player is not online: Alice"), messages());
     }
 
     @Test
@@ -377,13 +377,13 @@ class NetworkPlayerArgumentsTest {
         var parser = NetworkPlayerArguments.anyInstance(new NetworkPlayerArguments(local).singlePlayerSelectorParser())
                 .parser();
 
-        PlayerElsewhereException elsewhere = assertInstanceOf(
-                PlayerElsewhereException.class,
+        assertEquals(
+                "Player is not online: Alice",
                 parser.parseFuture(new CommandContext<>(sender, manager), CommandInput.of("Alice"))
                         .join()
                         .failure()
-                        .orElseThrow());
-        assertNull(elsewhere.where());
+                        .orElseThrow()
+                        .getMessage());
     }
 
     @Test

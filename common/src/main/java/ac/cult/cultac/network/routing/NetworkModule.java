@@ -57,12 +57,6 @@ public final class NetworkModule {
         return hooks != null && hooks.proxy();
     }
 
-    /** Whether this instance looks like one of several on a network: RedisBungee runs here. Any thread, cheap. */
-    public static boolean networked() {
-        NetworkPlatform hooks = platform;
-        return hooks != null && hooks.redisBungeeId() != null;
-    }
-
     public static void start() {
         start(NetworkSettings.read(CultAPI.INSTANCE.getConfigManager().getConfig()));
     }

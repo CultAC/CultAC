@@ -16,10 +16,8 @@ class NetworkMessagesTest {
         for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh")) {
             try (var input = getClass().getResourceAsStream("/messages/" + locale + ".yml")) {
                 Map<?, ?> messages = new Yaml().load(new String(input.readAllBytes(), StandardCharsets.UTF_8));
-                for (String key : List.of("network-disabled-command", "network-disabled-alerts")) {
-                    String text = assertInstanceOf(String.class, messages.get(key), locale + " " + key);
-                    assertTrue(text.startsWith("%prefix% "), locale + " " + key);
-                }
+                String text = assertInstanceOf(String.class, messages.get("network-disabled-alerts"), locale);
+                assertTrue(text.startsWith("%prefix% ") && text.contains("network.type"), locale);
             } catch (IOException failure) {
                 throw new AssertionError(locale, failure);
             }
