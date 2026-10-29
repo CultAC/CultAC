@@ -306,6 +306,17 @@ class AlertScopeDeliveryTest {
     }
 
     @Test
+    void relayedAlertsAreDroppedWhileATransportCarriesTheSameAlerts() {
+        relay = true;
+        PlatformPlayer global = staff(null, AlertScope.GLOBAL);
+        subscribe(AlertKind.ALERT, global);
+
+        alerts.relayAlert(Component.text("from another server"));
+
+        assertEquals(0, messages(global));
+    }
+
+    @Test
     void withoutATransportEveryoneIsServerScopedAndNothingIsBroadcast() {
         AlertManagerImpl offline = manager(networks.withoutTransport("p9"));
         PlatformPlayer global = staff("lobby", AlertScope.GLOBAL);

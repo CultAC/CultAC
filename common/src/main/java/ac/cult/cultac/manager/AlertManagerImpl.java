@@ -576,9 +576,11 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
     /**
      * Shows an alert another server forwarded through the proxy's plugin messaging as one received about an unknown
-     * server: global-scope staff only, never the console, and not broadcast again.
+     * server: global-scope staff only, never the console, and not broadcast again. Dropped while a network transport
+     * runs, which carries the same alert.
      */
     public void relayAlert(Component component) {
+        if (network.running()) return;
         deliverReceived(AlertKind.ALERT, component, null, null);
     }
 
