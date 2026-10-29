@@ -476,7 +476,41 @@ public class Collisions {
                 && player.lastX < maxX
                 && player.lastZ > minZ
                 && player.lastZ < maxZ) {
-            if (listOfBlocks == null) listOfBlocks = new ArrayList<>();
+            if (listOfBlocks == null) {
+                return onlyCheckCollide
+                        && (isIntersected(
+                                        minX - 10,
+                                        Double.NEGATIVE_INFINITY,
+                                        maxZ,
+                                        maxX + 10,
+                                        Double.POSITIVE_INFINITY,
+                                        maxZ,
+                                        wantedBB)
+                                || isIntersected(
+                                        minX - 10,
+                                        Double.NEGATIVE_INFINITY,
+                                        minZ,
+                                        maxX + 10,
+                                        Double.POSITIVE_INFINITY,
+                                        minZ,
+                                        wantedBB)
+                                || isIntersected(
+                                        maxX,
+                                        Double.NEGATIVE_INFINITY,
+                                        minZ - 10,
+                                        maxX,
+                                        Double.POSITIVE_INFINITY,
+                                        maxZ + 10,
+                                        wantedBB)
+                                || isIntersected(
+                                        minX,
+                                        Double.NEGATIVE_INFINITY,
+                                        minZ - 10,
+                                        minX,
+                                        Double.POSITIVE_INFINITY,
+                                        maxZ + 10,
+                                        wantedBB));
+            }
 
             // South border
             listOfBlocks.add(new SimpleCollisionBox(
@@ -498,6 +532,17 @@ public class Collisions {
             }
         }
         return false;
+    }
+
+    /** {@link SimpleCollisionBox#isIntersected} for a box with these bounds against {@code other}. */
+    private static boolean isIntersected(
+            double minX, double minY, double minZ, double maxX, double maxY, double maxZ, SimpleCollisionBox other) {
+        return other.maxX - SimpleCollisionBox.COLLISION_EPSILON > minX
+                && other.minX + SimpleCollisionBox.COLLISION_EPSILON < maxX
+                && other.maxY - SimpleCollisionBox.COLLISION_EPSILON > minY
+                && other.minY + SimpleCollisionBox.COLLISION_EPSILON < maxY
+                && other.maxZ - SimpleCollisionBox.COLLISION_EPSILON > minZ
+                && other.minZ + SimpleCollisionBox.COLLISION_EPSILON < maxZ;
     }
 
     // This is mostly taken from Tuinity collisions
@@ -956,7 +1001,8 @@ public class Collisions {
         }
 
         Vec3 stuckSpeed = null;
-        SimpleCollisionBox stepFrom = fromAabb.copy();
+        SimpleCollisionBox stepFrom = fromAabb;
+        SimpleCollisionBox spare = null;
         // MCP-Reborn Entity#move stores the clipped delta plus the original movement.
         // Entity#checkInsideBlocks then replays the clipped delta one axis at a time
         // using Direction.axisStepOrder(originalMovement), so corner-only diagonal
@@ -971,12 +1017,15 @@ public class Collisions {
                 continue;
             }
 
-            SimpleCollisionBox stepTo = stepFrom.copy();
+            SimpleCollisionBox stepTo = spare != null && spare.getClass() == SimpleCollisionBox.class
+                    ? spare.set(stepFrom)
+                    : stepFrom.copy();
             offsetAlongAxis(stepTo, axis, movementOnAxis);
             Vec3 stepStuckSpeed = checkStuckSpeedAlongMovement(player, stepFrom, stepTo, powderSnowCanApply);
             if (stepStuckSpeed != null) {
                 stuckSpeed = stepStuckSpeed;
             }
+            spare = stepFrom == fromAabb ? null : stepFrom;
             stepFrom = stepTo;
         }
 
