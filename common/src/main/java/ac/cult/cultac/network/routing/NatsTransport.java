@@ -17,11 +17,8 @@ import java.util.concurrent.TimeoutException;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * NATS through jnats, which connects in the background, retries the first connection and every later one with its own
- * reconnect wait and jitter, and restores the subscriptions after a reconnect. The URI's user info is a token or a user
- * and password; {@code nats-credentials-file} adds a {@code .creds} file; {@code tls://} servers connect over TLS. The
- * connection jnats makes is known from its first event, and one still connecting when this transport closes is closed
- * at that event.
+ * NATS through jnats, which connects, reconnects and restores the subscriptions in the background. The connection is
+ * known from its first event; one still connecting when this transport closes is closed at that event.
  */
 final class NatsTransport implements MessageTransport {
 

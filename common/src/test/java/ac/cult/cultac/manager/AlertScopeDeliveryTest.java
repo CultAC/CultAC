@@ -24,7 +24,6 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
@@ -157,19 +156,14 @@ class AlertScopeDeliveryTest {
                 .count();
     }
 
-    private boolean peerSeesGlobalVerbose() {
-        return peer.peerFlags().get("p3").get("gv").getAsBoolean();
+    private boolean peerSeesVerbose() {
+        return peer.peersWantVerbose();
     }
 
     private static JsonObject body(String kind, String text, String server, boolean withPlayer) {
         JsonObject body = new JsonObject();
         body.addProperty("kind", kind);
-        if (withPlayer) {
-            JsonObject player = new JsonObject();
-            player.addProperty("u", UUID.randomUUID().toString());
-            player.addProperty("n", "Bob");
-            body.add("player", player);
-        }
+        body.addProperty("player", withPlayer);
         body.addProperty("server", server);
         JsonObject component = new JsonObject();
         component.addProperty("text", text);
@@ -265,7 +259,7 @@ class AlertScopeDeliveryTest {
         assertEquals(1, messages(sameServer));
         assertEquals(1, messages(betweenServers));
         JsonObject sent = networks.broadcasts("alert").get(0);
-        assertFalse(sent.has("player"));
+        assertFalse(sent.get("player").getAsBoolean());
         assertTrue(sent.get("server").isJsonNull());
 
         peer.broadcast("alert", body("alert", "received", "pvp", false));
@@ -335,10 +329,7 @@ class AlertScopeDeliveryTest {
         JsonObject alert = sent.get(0);
         assertEquals("alert", alert.get("kind").getAsString());
         assertEquals("pvp", alert.get("server").getAsString());
-        assertEquals("Bob", alert.getAsJsonObject("player").get("n").getAsString());
-        assertEquals(
-                ON_PVP.uuid().toString(),
-                alert.getAsJsonObject("player").get("u").getAsString());
+        assertTrue(alert.get("player").getAsBoolean());
         assertEquals(
                 Component.text("flag"),
                 GsonComponentSerializer.gson()
@@ -350,7 +341,8 @@ class AlertScopeDeliveryTest {
 
     @Test
     void verboseGoesOutWhileAPeerWantsItAndItsAlertSaysSo() {
-        peer.flag("gv", new JsonPrimitive(true));
+        peer.verbose(() -> true);
+        peer.verboseChanged();
         assertTrue(alerts.hasVerboseListeners());
 
         Set<PlatformPlayer> verboseRecipients = alerts.sendVerbose(ON_PVP, Component.text("verbose"), null);
@@ -431,9 +423,6 @@ class AlertScopeDeliveryTest {
 
             sender.broadcast("alert", body("alert", "flag", "pvp", true));
             assertEquals(1, messages(global), "newer first: " + newerFirst);
-
-            first.sendLocal("alert", body("alert", "flag", "pvp", true));
-            assertEquals(1, messages(global), "newer first: " + newerFirst);
             leave();
         }
     }
@@ -470,22 +459,35 @@ class AlertScopeDeliveryTest {
     }
 
     @Test
-    void theGlobalVerboseFlagFollowsSubscribers() {
+    void theVerboseFlagFollowsSubscribersOfEitherScope() {
         PlatformPlayer global = staff("lobby", AlertScope.GLOBAL);
         PlatformPlayer server = staff("lobby", AlertScope.SERVER);
-        assertFalse(peerSeesGlobalVerbose());
+        assertFalse(peerSeesVerbose());
 
         alerts.setVerboseEnabled(server, true, true);
-        assertFalse(peerSeesGlobalVerbose());
+        assertTrue(peerSeesVerbose());
         alerts.setVerboseEnabled(global, true, true);
-        assertTrue(peerSeesGlobalVerbose());
-
-        alerts.chooseScope(global, AlertScope.SERVER);
-        assertFalse(peerSeesGlobalVerbose());
-        alerts.chooseScope(global, AlertScope.GLOBAL);
-        assertTrue(peerSeesGlobalVerbose());
+        alerts.setVerboseEnabled(server, false, true);
+        assertTrue(peerSeesVerbose());
 
         alerts.handlePlayerQuit(global);
-        assertFalse(peerSeesGlobalVerbose());
+        assertFalse(peerSeesVerbose());
+    }
+
+    @Test
+    void aServerScopedVerboseListenerOnOneProxyGetsVerboseAnotherProxyRaisesAboutAPlayerOnItsServer() {
+        PlatformPlayer listener = staff("pvp", AlertScope.SERVER);
+        PlatformPlayer elsewhere = staff("lobby", AlertScope.SERVER);
+        AlertManagerImpl other =
+                new AlertManagerImpl(new AlertScopes(null, () -> null), () -> peer, () -> true, host(), () -> false);
+        other.network().attach(peer);
+        assertFalse(other.hasVerboseListeners());
+
+        subscribe(AlertKind.VERBOSE, listener, elsewhere);
+        assertTrue(other.hasVerboseListeners());
+        other.sendVerbose(ON_PVP, Component.text("verbose"), null);
+
+        assertEquals(1, messages(listener));
+        assertEquals(0, messages(elsewhere));
     }
 }

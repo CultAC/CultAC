@@ -14,9 +14,14 @@ public enum AlertKind {
     }
 
     public static @Nullable AlertKind parse(@Nullable String id) {
+        return parse(values(), id);
+    }
+
+    /** The constant of {@code values} whose lower-case name is {@code id}, ignoring case and surrounding space. */
+    static <E extends Enum<E>> @Nullable E parse(E[] values, @Nullable String id) {
         if (id == null) return null;
-        for (AlertKind kind : values()) {
-            if (kind.id().equals(id)) return kind;
+        for (E value : values) {
+            if (value.name().equalsIgnoreCase(id.trim())) return value;
         }
         return null;
     }

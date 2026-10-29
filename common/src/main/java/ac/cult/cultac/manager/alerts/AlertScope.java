@@ -16,11 +16,7 @@ public enum AlertScope {
     }
 
     public static @Nullable AlertScope parse(@Nullable String id) {
-        if (id == null) return null;
-        for (AlertScope scope : values()) {
-            if (scope.id().equalsIgnoreCase(id.trim())) return scope;
-        }
-        return null;
+        return AlertKind.parse(values(), id);
     }
 
     /**

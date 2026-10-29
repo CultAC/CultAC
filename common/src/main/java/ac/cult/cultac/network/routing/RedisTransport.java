@@ -15,20 +15,15 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPubSub;
 
 /**
- * Redis pub/sub through Jedis, which connects over TLS for a {@code rediss://} URI and checks the host name. One
- * connection subscribes on its own thread and reconnects with a backoff capped at {@value #MAX_BACKOFF_MILLIS} ms. A
- * subscribed connection reads without a timeout, so a watchdog thread of its own pings it and drops it when no pong
- * comes back in time. A second connection publishes from one daemon worker thread, at most
- * {@value #MAX_BACKLOG_MESSAGES} messages of {@value #MAX_BACKLOG_BYTES} bytes in all waiting for it; the rest are
- * dropped. Closing waits a while for the backlog, then interrupts the worker, which sends nothing more and ends at the
- * latest when a connect in progress gives up at the connect timeout.
+ * Redis pub/sub through Jedis. One connection subscribes on its own thread, reconnecting with a capped backoff; it
+ * reads without a timeout, so a watchdog pings it and drops it when no pong comes back in time. A second connection
+ * publishes from one worker thread behind a {@link Backlog}. Closing drains the backlog briefly, then interrupts the
+ * worker, which ends at the latest when a connect in progress times out.
  */
 final class RedisTransport implements MessageTransport {
     static final int DEFAULT_PORT = 6379;
     static final long MIN_BACKOFF_MILLIS = 1_000;
     static final long MAX_BACKOFF_MILLIS = 30_000;
-    static final int MAX_BACKLOG_MESSAGES = 4096;
-    static final long MAX_BACKLOG_BYTES = 16L * 1024 * 1024;
 
     /** How long a connect and a read may take, how often the watchdog pings, and how long closing drains. */
     record Timings(int connectMillis, int readMillis, long pingMillis, long pongTimeoutMillis, long drainMillis) {

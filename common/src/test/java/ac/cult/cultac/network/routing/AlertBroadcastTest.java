@@ -62,7 +62,7 @@ class AlertBroadcastTest {
         }
 
         @Override
-        public boolean wantGlobalVerbose() {
+        public boolean wantVerbose() {
             return wantsVerbose.get();
         }
     }

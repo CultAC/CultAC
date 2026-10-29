@@ -22,13 +22,14 @@ import org.jetbrains.annotations.Nullable;
  * {@value #REPLAY_WINDOW_MILLIS} ms. Any thread.
  */
 final class EnvelopeCodec {
-    static final int MAX_BYTES = 256 * 1024;
+    /** Under the 1 MiB a NATS server takes by default, with room for its headers. */
+    static final int MAX_BYTES = 768 * 1024;
+
     static final long MAX_SKEW_MILLIS = 30_000;
     static final long REPLAY_WINDOW_MILLIS = 60_000;
 
     private static final String HMAC = "HmacSHA256";
 
-    /** Why a message was dropped. */
     enum Drop {
         TOO_LARGE,
         MALFORMED,
@@ -41,7 +42,7 @@ final class EnvelopeCodec {
         REPLAYED
     }
 
-    /** Exactly one of {@code envelope} and {@code drop} is set. */
+    /** {@code drop} is null when the envelope is accepted; {@code envelope} is set whenever the text parsed. */
     record Result(@Nullable Envelope envelope, @Nullable Drop drop) {
         static Result dropped(Drop drop) {
             return new Result(null, drop);
@@ -68,9 +69,8 @@ final class EnvelopeCodec {
     }
 
     /**
-     * Reads {@code text} received at {@code now}. {@code broadcast}: it arrived on the broadcast channel, where this
-     * instance's own messages are dropped. {@code trusted}: it came over the in-process bus, whose text needs no
-     * signature and is always this instance's own.
+     * Reads {@code text}; this instance's own are dropped on the {@code broadcast} channel, and {@code trusted} bus
+     * text needs no signature.
      */
     Result decode(String text, boolean broadcast, boolean trusted, long now) {
         if (utf8Length(text) > MAX_BYTES) return Result.dropped(Drop.TOO_LARGE);
@@ -86,9 +86,9 @@ final class EnvelopeCodec {
         }
         if (envelope.v() != Envelope.VERSION) return Result.dropped(Drop.UNSUPPORTED_VERSION);
         if (!envelope.broadcast() && !envelope.to().equals(self)) return Result.dropped(Drop.NOT_ADDRESSED);
-        if (!trusted && broadcast && envelope.from().equals(self)) return Result.dropped(Drop.OWN_BROADCAST);
-        if (Math.abs(now - envelope.ts()) > MAX_SKEW_MILLIS) return Result.dropped(Drop.STALE);
-        if (!knownType.test(envelope.type())) return Result.dropped(Drop.UNKNOWN_TYPE);
+        if (!trusted && broadcast && envelope.from().equals(self)) return new Result(envelope, Drop.OWN_BROADCAST);
+        if (Math.abs(now - envelope.ts()) > MAX_SKEW_MILLIS) return new Result(envelope, Drop.STALE);
+        if (!knownType.test(envelope.type())) return new Result(envelope, Drop.UNKNOWN_TYPE);
         if (!firstSighting(envelope.id(), now)) return Result.dropped(Drop.REPLAYED);
         return new Result(envelope, null);
     }

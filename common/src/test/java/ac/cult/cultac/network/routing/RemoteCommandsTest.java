@@ -12,7 +12,6 @@ import ac.cult.cultac.bridge.protocol.CommandRoots;
 import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.command.IsolatedCommandManager;
 import ac.cult.cultac.network.NetworkPlayer;
-import ac.cult.cultac.network.RoutingHolder;
 import ac.cult.cultac.network.routing.NetworkPlatform.Holder;
 import ac.cult.cultac.network.routing.RemoteCommands.Commands;
 import ac.cult.cultac.network.routing.TestNetworks.Players;
@@ -39,6 +38,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
+import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -93,6 +93,7 @@ class RemoteCommandsTest {
             sender.sendMessage(Component.text("ran " + line));
             return CompletableFuture.completedFuture(null);
         };
+        Supplier<Set<String>> nodes = () -> NODES;
 
         @Override
         public CompletionStage<?> execute(Sender sender, String line) {
@@ -103,7 +104,7 @@ class RemoteCommandsTest {
 
         @Override
         public Set<String> permissionNodes() {
-            return NODES;
+            return nodes.get();
         }
     }
 
@@ -179,13 +180,12 @@ class RemoteCommandsTest {
 
     private NetworkService service(
             String instance, Players players, @Nullable HostContext host, boolean transport, Recorder commands) {
-        NetworkService service = networks.service(instance)
+        return networks.service(instance)
                 .platform(players)
                 .host(host)
                 .transport(transport ? broker.transport() : null)
+                .commands(commands)
                 .build();
-        service.commands(commands);
-        return service;
     }
 
     private NetworkService started(String instance, Players players, Recorder commands) {
@@ -205,7 +205,7 @@ class RemoteCommandsTest {
     /** The bodies of the {@code cmd} messages {@code service} receives. */
     private static List<JsonObject> requests(NetworkService service) {
         List<JsonObject> bodies = new CopyOnWriteArrayList<>();
-        service.on(RemoteCommands.CMD, (envelope, origin) -> bodies.add(envelope.body()));
+        service.on(RemoteCommands.CMD, envelope -> bodies.add(envelope.body()));
         return bodies;
     }
 
@@ -543,6 +543,56 @@ class RemoteCommandsTest {
     }
 
     @Test
+    void outputOutOfOrderIsHeldOnlyWithinTheCapsAsItArrives() {
+        NetworkService a = started("p3", new Players(), new Recorder());
+        Recorder there = new Recorder();
+        there.behaviour = (sender, line) -> new CompletableFuture<>();
+        NetworkService b = started("p7", new Players().with(ALICE, "Alice"), there);
+        List<JsonObject> requests = requests(b);
+
+        a.run(staff, LINE, aliceOn("p7"));
+        String id = requests.getFirst().get("id").getAsString();
+        String filler = "x".repeat(20_000);
+        for (int seq = RemoteCommands.MAX_COMPONENTS + 1_000; seq > 0; seq--)
+            b.send("p3", RemoteCommands.OUT, output(id, seq, Component.text(seq + filler)));
+        assertTrue(staff.plain().isEmpty());
+
+        b.send("p3", RemoteCommands.OUT, output(id, 0, Component.text("first")));
+        List<String> heard = staff.plain();
+        assertTrue(
+                heard.size() > 2 && heard.size() <= RemoteCommands.MAX_OUTPUT_BYTES / filler.length() + 2,
+                heard::toString);
+        assertEquals("first", heard.getFirst());
+        for (int seq = 1; seq < heard.size() - 1; seq++) assertEquals(seq + filler, heard.get(seq));
+        assertTrue(heard.getLast().contains("was cut"), heard.getLast());
+    }
+
+    @Test
+    void aFailureAfterTheRequestWasClaimedStillAnswersWithItsReason() {
+        NetworkService a = started("p3", new Players(), new Recorder());
+        Recorder throwing = new Recorder();
+        throwing.behaviour = (sender, line) -> {
+            throw new IllegalStateException("no command manager");
+        };
+        started("p7", new Players().with(ALICE, "Alice"), throwing);
+        Recorder unreadable = new Recorder();
+        unreadable.nodes = () -> {
+            throw new IllegalStateException("no permission nodes");
+        };
+        started("p9", new Players().with(BOB, "Bob"), unreadable);
+
+        assertFalse(a.run(staff, LINE, aliceOn("p7")).join());
+        assertFalse(
+                a.run(staff, LINE, new NetworkPlayer(BOB, "Bob", "p9", null)).join());
+        assertEquals(
+                List.of(
+                        "p7 could not run the command: no command manager",
+                        "p9 could not run the command: no permission nodes"),
+                staff.plain());
+        assertTrue(unreadable.lines.isEmpty());
+    }
+
+    @Test
     void aComponentTooLargeForOneMessageIsReplacedAndTheRestStillArrives() {
         NetworkService a = started("p3", new Players(), new Recorder());
         Recorder there = new Recorder();
@@ -758,14 +808,14 @@ class RemoteCommandsTest {
         List<Component> heard = new ArrayList<>();
         RemoteCommandSource forwarded = new RemoteCommandSource(
                 MOD, "Mod", false, List.of("cult.debug"), commands.permissionNodes(), heard::add, clock::get, null);
-        RoutingHolder.install(a);
+        TestNetworks.install(a);
         try {
             commands.execute(forwarded, LINE)
                     .toCompletableFuture()
                     .handle((ran, failure) -> null)
                     .join();
         } finally {
-            RoutingHolder.uninstall(a);
+            NetworkModule.stop();
         }
         assertTrue(forwarded.left());
         assertTrue(heard.isEmpty());
@@ -791,11 +841,11 @@ class RemoteCommandsTest {
     }
 
     @Test
-    void withoutATransportAPlayerElsewhereGetsTheNetworkDisabledMessage() {
+    void withoutATransportACommandForAnotherInstanceIsNotForwarded() {
         NetworkService alone = service("p3", new Players(), null, false, new Recorder());
         alone.start();
         assertFalse(alone.run(staff, LINE, aliceOn("p7")).join());
-        assertTrue(staff.plain().getFirst().contains("Network-wide commands are not enabled"), staff.plain()::toString);
+        assertEquals(List.of("The command could not be forwarded to p7."), staff.plain());
     }
 
     @Test

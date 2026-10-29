@@ -1,12 +1,18 @@
 package ac.cult.cultac.network.routing;
 
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.network.RoutingHolder;
+import ac.cult.cultac.network.NetworkPlayer;
+import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
+import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.anticheat.MessageUtil;
+import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
@@ -39,6 +45,18 @@ public final class NetworkModule {
         return service;
     }
 
+    /** The running service, else {@link #NO_ROUTING}. */
+    public static NetworkRouting routing() {
+        NetworkService running = service;
+        return running == null ? NO_ROUTING : running;
+    }
+
+    /** Whether this instance is a proxy, whose players are on backend servers. */
+    public static boolean proxy() {
+        NetworkPlatform hooks = platform;
+        return hooks != null && hooks.proxy();
+    }
+
     /** Whether this instance looks like one of several on a network: RedisBungee runs here. Any thread, cheap. */
     public static boolean networked() {
         NetworkPlatform hooks = platform;
@@ -50,7 +68,24 @@ public final class NetworkModule {
     }
 
     static synchronized void start(NetworkSettings settings) {
-        if (service == null) begin(settings);
+        NetworkPlatform hooks = platform;
+        if (service != null || hooks == null) return;
+        NetworkService created = NetworkService.create(settings, hooks, RuntimeEnvironment.host());
+        for (Consumer<NetworkService> hook : startHooks) {
+            try {
+                hook.accept(created);
+            } catch (RuntimeException failure) {
+                LogUtil.warn("A network feature failed to start", failure);
+            }
+        }
+        start(created);
+    }
+
+    /** Starts {@code created} as the running service, unless one runs. */
+    static synchronized void start(NetworkService created) {
+        if (service != null) return;
+        created.start();
+        service = created;
     }
 
     /** Reconnects when the reloaded {@code network} block differs from the running one. */
@@ -64,7 +99,7 @@ public final class NetworkModule {
         NetworkService running = service;
         if (running == null || settings.equals(running.settings())) return;
         end(NetworkModule::closeInBackground);
-        begin(settings);
+        start(settings);
     }
 
     public static synchronized void stop() {
@@ -89,29 +124,39 @@ public final class NetworkModule {
         if (running != null) running.playerLeft(uuid);
     }
 
-    private static void begin(NetworkSettings settings) {
-        NetworkPlatform hooks = platform;
-        if (hooks == null) return;
-        NetworkService started = NetworkService.create(settings, hooks, RuntimeEnvironment.host());
-        for (Consumer<NetworkService> hook : startHooks) {
-            try {
-                hook.accept(started);
-            } catch (RuntimeException failure) {
-                LogUtil.warn("A network feature failed to start", failure);
-            }
-        }
-        started.start();
-        service = started;
-        RoutingHolder.install(started);
-        if (!started.enabled()) return;
-        LogUtil.info("Network routing on over " + started.transportName() + " as instance " + started.instanceId());
-    }
-
     private static void end(Executor closing) {
         NetworkService running = service;
         service = null;
-        if (running == null) return;
-        RoutingHolder.uninstall(running);
-        running.stop(closing);
+        if (running != null) running.stop(closing);
     }
+
+    /** The routing before the service starts: it knows no player and runs nothing. */
+    private static final NetworkRouting NO_ROUTING = new NetworkRouting() {
+        @Override
+        public boolean enabled() {
+            return false;
+        }
+
+        @Override
+        public String instanceId() {
+            return "local";
+        }
+
+        @Override
+        public Optional<NetworkPlayer> locate(String nameOrUuid) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Collection<NetworkPlayer> roster() {
+            return List.of();
+        }
+
+        @Override
+        public CompletableFuture<Boolean> run(Sender sender, String line, NetworkPlayer where) {
+            sender.sendMessage(MessageUtil.getParsedComponent(
+                    sender, "player-not-found", "%prefix% &cPlayer is exempt or offline!"));
+            return CompletableFuture.completedFuture(false);
+        }
+    };
 }

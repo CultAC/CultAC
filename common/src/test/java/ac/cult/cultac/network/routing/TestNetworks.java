@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonObject;
@@ -12,10 +13,15 @@ import com.google.gson.JsonParser;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
@@ -48,9 +54,18 @@ public final class TestNetworks {
         return NetworkSettings.channel(KEY, instance);
     }
 
-    /** A platform reporting the players put online, each held by this generation unless {@link #holders} says else. */
+    /** Makes {@code service} the one {@code NetworkRouting.current()} returns, until {@link NetworkModule#stop}. */
+    public static void install(NetworkService service) {
+        NetworkModule.stop();
+        NetworkModule.start(service);
+    }
+
+    /**
+     * A platform reporting the players put online in that order, each held by this generation unless {@link #holders}
+     * says else.
+     */
     public static final class Players implements NetworkPlatform {
-        public final Map<UUID, OnlinePlayer> online = new ConcurrentHashMap<>();
+        public final Map<UUID, OnlinePlayer> online = Collections.synchronizedMap(new LinkedHashMap<>());
         public final Map<UUID, Holder> holders = new ConcurrentHashMap<>();
         private String address = "test:1";
         private boolean proxy;
@@ -88,7 +103,9 @@ public final class TestNetworks {
 
         @Override
         public Collection<OnlinePlayer> onlinePlayers() {
-            return List.copyOf(online.values());
+            synchronized (online) {
+                return List.copyOf(online.values());
+            }
         }
 
         @Override
@@ -157,6 +174,11 @@ public final class TestNetworks {
         service.tick();
     }
 
+    /** Stops {@code service}, which sends its goodbye unless a later generation took over. */
+    public void stop(NetworkService service) {
+        service.stop();
+    }
+
     /** The body of every {@code type} message broadcast so far, oldest first. */
     public List<JsonObject> broadcasts(String type) {
         List<JsonObject> bodies = new ArrayList<>();
@@ -178,6 +200,7 @@ public final class TestNetworks {
         private @Nullable ScheduledExecutorService scheduler;
         private @Nullable ExecutorService receiver;
         private LogThrottle drops = new LogThrottle();
+        private RemoteCommands.Commands commands = RemoteCommands.CULT;
 
         private Builder(String instance) {
             this.instance = instance;
@@ -219,9 +242,40 @@ public final class TestNetworks {
             return this;
         }
 
+        public Builder commands(RemoteCommands.Commands commands) {
+            this.commands = commands;
+            return this;
+        }
+
+        /** Commands that add each line run here to {@code ran} and do nothing else. */
+        public Builder recording(List<String> ran) {
+            return commands(new RemoteCommands.Commands() {
+                @Override
+                public CompletionStage<?> execute(Sender sender, String line) {
+                    ran.add(line);
+                    return CompletableFuture.completedFuture(null);
+                }
+
+                @Override
+                public Set<String> permissionNodes() {
+                    return Set.of();
+                }
+            });
+        }
+
         public NetworkService build() {
             return new NetworkService(
-                    SETTINGS, platform, host, instance, key, transport, clock::get, scheduler, receiver, drops);
+                    SETTINGS,
+                    platform,
+                    host,
+                    instance,
+                    key,
+                    transport,
+                    clock::get,
+                    scheduler,
+                    receiver,
+                    drops,
+                    commands);
         }
 
         public NetworkService start() {

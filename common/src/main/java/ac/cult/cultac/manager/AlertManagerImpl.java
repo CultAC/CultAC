@@ -181,11 +181,8 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         }
 
         @Override
-        public boolean wantGlobalVerbose() {
-            for (PlatformPlayer staff : AlertType.VERBOSE.players) {
-                if (scopes.scope(staff) == AlertScope.GLOBAL) return true;
-            }
-            return false;
+        public boolean wantVerbose() {
+            return !AlertType.VERBOSE.players.isEmpty();
         }
     }
 
@@ -333,7 +330,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
     /** Starts loading {@code player}'s persisted alert scope; the default applies until it lands. */
     public void loadScope(@NotNull PlatformPlayer player) {
-        scopes.load(player, network::demandChanged);
+        scopes.load(player);
     }
 
     /** {@code player}'s alert scope as it applies now: {@code server} for everyone unless {@link #networkAlerts}. */
@@ -349,7 +346,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     /** Sets and persists {@code player}'s alert scope. */
     public void chooseScope(@NotNull PlatformPlayer player, @NotNull AlertScope scope) {
         scopes.choose(player, scope);
-        if (hasVerboseEnabled(player)) network.demandChanged();
     }
 
     /** Whether other instances' alerts reach this one: over a network transport, or the proxy's plugin messaging. */

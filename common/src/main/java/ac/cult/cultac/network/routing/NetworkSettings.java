@@ -19,11 +19,8 @@ import javax.crypto.spec.SecretKeySpec;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * The config's {@code network} block, each key overridden by its {@code CULTAC_NETWORK_*} environment variable when
- * that is set and not blank. {@code uri} picks the transport: empty for none, {@code redis://} or {@code rediss://}
- * for Redis, {@code nats://} or {@code tls://} (comma-separated) for NATS, {@code redisbungee} for RedisBungee's own
- * pub/sub. {@code cloudProxyId} is {@code cloud.proxy-id} (or {@code CULTAC_PROXY_ID}), which an empty
- * {@code instanceId} may fall back on. Records compare equal when a reload needs no reconnect.
+ * The config's {@code network} block, each key overridden by its non-blank {@code CULTAC_NETWORK_*} environment
+ * variable, and {@code cloud.proxy-id}. Records compare equal when a reload needs no reconnect.
  */
 public record NetworkSettings(
         String uri, String secret, String instanceId, String natsCredentialsFile, String cloudProxyId) {
@@ -77,10 +74,7 @@ public record NetworkSettings(
         return value == null ? "" : value.strip();
     }
 
-    /**
-     * {@value #NONE}, {@value #REDIS}, {@value #NATS} or {@value #REDISBUNGEE}, as {@link #uri} names it; null when
-     * its scheme is none of {@value #ACCEPTED}, or when NATS servers mix in another scheme.
-     */
+    /** The transport {@link #uri} names; null for a scheme outside {@value #ACCEPTED} or mixed NATS schemes. */
     public @Nullable String transport() {
         if (uri.isEmpty()) return NONE;
         if (uri.equalsIgnoreCase(REDISBUNGEE)) return REDISBUNGEE;
@@ -94,12 +88,10 @@ public record NetworkSettings(
         return NATS;
     }
 
-    /** The scheme {@link #uri} starts with, lowercased; empty when it has none. */
     String scheme() {
         return uri.isEmpty() ? "" : scheme(servers().getFirst());
     }
 
-    /** Each comma-separated server in {@link #uri}; one for Redis. */
     List<String> servers() {
         return Arrays.stream(uri.split(","))
                 .map(String::strip)
@@ -112,10 +104,7 @@ public record NetworkSettings(
         return scheme.lookingAt() ? scheme.group(1).toLowerCase(Locale.ROOT) : "";
     }
 
-    /**
-     * The credential in {@link #uri}'s first user info: a Redis password, or {@code user:password} when it names a
-     * user; a NATS token or {@code user:password}. Null when no server carries one.
-     */
+    /** The password, token or {@code user:password} in {@link #uri}'s first user info; null without one. */
     @Nullable
     String credential() {
         if (uri.isEmpty() || uri.equalsIgnoreCase(REDISBUNGEE)) return null;
@@ -133,11 +122,7 @@ public record NetworkSettings(
         return null;
     }
 
-    /**
-     * This instance's id: {@code instance-id}, else RedisBungee's proxy id, else {@link #cloudProxyId}, else
-     * {@code address} with each character a channel cannot carry made a {@code -}. Each supplier runs only when the
-     * ones before it named nothing.
-     */
+    /** {@code instance-id}, else RedisBungee's proxy id, else {@link #cloudProxyId}, else {@code address} made safe. */
     public String resolveInstanceId(Supplier<@Nullable String> redisBungeeId, Supplier<String> address) {
         if (!instanceId.isEmpty()) return instanceId;
         String proxyId = redisBungeeId.get();
@@ -154,11 +139,7 @@ public record NetworkSettings(
         return null;
     }
 
-    /**
-     * The key messages are signed with: {@code secret}, else {@code platformSecret} (the forwarding secret the proxy
-     * and its backends share), else HMAC-SHA256 of {@code "cultac-network-signing"} keyed by {@link #credential}; null
-     * when none of them is set.
-     */
+    /** {@code secret}, else {@code platformSecret}, else a key derived from {@link #credential}; null without any. */
     public byte @Nullable [] resolveSecret(byte @Nullable [] platformSecret) {
         if (!secret.isEmpty()) return secret.getBytes(StandardCharsets.UTF_8);
         if (platformSecret != null && platformSecret.length > 0) return platformSecret.clone();
@@ -176,10 +157,7 @@ public record NetworkSettings(
         }
     }
 
-    /**
-     * {@code cultac.<namespace>.<instance>}, the namespace the first 8 hex digits of the SHA-256 of {@code key}: only
-     * instances that can verify each other share channels.
-     */
+    /** {@code cultac.<8 hex digits of SHA-256(key)>.<instance>}: only instances sharing a key share channels. */
     public static String channel(byte @Nullable [] key, String instance) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(key == null ? new byte[0] : key);
