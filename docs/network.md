@@ -82,8 +82,8 @@ password. In order, CultAC uses:
 3. Your Redis password (with the username in front when you set one), or your NATS token, else your NATS password
    (with the username in front when you set one).
 
-A proxy and the servers behind it therefore agree without any setup, and so do servers that log into Redis or NATS
-with the same password. If none of these exist, for example a Redis server without a password and no Velocity,
+A proxy and the servers behind it therefore agree without any setup, and so do servers without Velocity that log into
+Redis or NATS with the same login. If none of these exist, for example a Redis server without a password and no Velocity,
 cross-server features stay off and the log says so: set a password on your Redis or NATS server, or run behind
 Velocity with modern forwarding.
 
@@ -98,10 +98,10 @@ use the same value on every proxy and server.
 
 ## Server names
 
-Every proxy and server needs its own name on the network, made of letters, digits, `_` and `-`. Leave
-`network.instance-id` empty to use the RedisBungee proxy id, then `cloud.proxy-id`, then the server's IP and port. On
-a backend server, set it to the name your proxy uses for that server: alerts with the `server` scope match staff and
-players by that name.
+Every proxy and server needs its own name on the network, made of the letters A to Z (either case), digits, `_` and
+`-`, and not `all`. Leave `network.instance-id` empty to use the RedisBungee proxy id, then `cloud.proxy-id`, then the
+server's IP and port. On a backend server, set it to the name your proxy uses for that server: alerts with the
+`server` scope match staff and players by that name.
 
 ## Commands across servers
 
