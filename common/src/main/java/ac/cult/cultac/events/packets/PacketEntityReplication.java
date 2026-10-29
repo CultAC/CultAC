@@ -1391,6 +1391,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 player.headArcFrom = Float.NaN;
                 player.boatYawBeforeTurn = mounted.clientPhysicalYaw;
                 player.mountYaw = mounted.clientPhysicalYaw;
+                if (!player.isBedrockMovement()) player.boatData.useInputOf(mounted);
             }
             if (resyncState != null) {
                 applyVehicleProtocolResync(transaction, resyncState);

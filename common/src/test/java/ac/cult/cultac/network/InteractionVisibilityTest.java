@@ -18,6 +18,7 @@ import ac.cult.blocksim.entity.PaintingSize;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
@@ -33,6 +34,7 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
@@ -761,12 +763,12 @@ class InteractionVisibilityTest {
     }
 
     @Test
-    void shulkerVisibilityUsesTheClosedBoxWithoutChangingItsAnimation() throws Exception {
+    void shulkerVisibilityUsesTheOpenLidWithoutChangingItsAnimation() throws Exception {
         try (var setup = new Setup()) {
             var player = setup.fixture.player;
             var world = player.compensatedWorld;
             player.pose = ac.cult.cultac.utils.enums.Pose.SWIMMING;
-            player.z = 1.6;
+            player.z = 1.45;
             setup.block(0, 64, 2, "shulker_box[facing=north]");
             var data = new ac.cult.blocksim.engine.BlockEntityData(
                     "minecraft:shulker_box",
@@ -776,7 +778,7 @@ class InteractionVisibilityTest {
                     new ac.cult.blocksim.data.nbt.NbtValue.Compound(java.util.Map.of()));
             world.applyPredictedBlockEntityData(TARGET, data);
 
-            assertEquals(ClientVisibility.BlockVisibility.OUT_OF_RANGE, setup.visibility.blockVisibility(TARGET, .1));
+            assertEquals(ClientVisibility.BlockVisibility.VISIBLE, setup.visibility.blockVisibility(TARGET, .1));
             assertEquals(
                     1.0F,
                     world.getClientBlockEntityData(TARGET)
@@ -788,6 +790,67 @@ class InteractionVisibilityTest {
                             player, world.getBlockStateIdAt(TARGET), 0, 64, 2)
                     .downCast(movement);
             assertEquals(1.5, movement.getFirst().minZ, "Movement still models the real open lid");
+        }
+    }
+
+    /**
+     * ShulkerBoxBlock#getShape is ShulkerBoxBlockEntity#getBoundingBox at the lid's progress, which
+     * ShulkerBoxBlockEntity#updateAnimation steps by 0.1F each client tick from the block event, and Minecraft#tick
+     * picks before ClientLevel#tickBlockEntities. Eight opening ticks and one closing tick leave the side of the lid
+     * above the stone and carpet in front of the box.
+     */
+    @Test
+    void theSideOfAClosingShulkerLidAboveTheBlockInFrontIsSelectable() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            var world = player.compensatedWorld;
+            var box = new BlockPos(-126, 72, 435);
+            world.ensureValidationChunkLoaded(-8, 27);
+            setup.block(-126, 72, 435, "shulker_box[facing=up]");
+            setup.block(-126, 72, 436, "stone");
+            setup.block(-126, 73, 436, "white_carpet");
+            player.x = -125.50587410529556;
+            player.y = 72;
+            player.z = 437.30000001192093;
+            var place = setup.check(PlaceVisibility.class);
+            var breaking = setup.check(BreakVisibility.class);
+            var sequence = setup.check(BadPacketsH.class);
+            var top = new Vec3d(0.4860837459564209, 1.0, 0.5524590611457825);
+            int blockId = DataTables.defaults().registry().blockIndex(state("shulker_box[facing=up]"));
+            assertFalse(setup.route(
+                            ServerboundPackets.USE_ITEM_ON,
+                            new ServerboundUseItemOn(Hand.MAIN_HAND, box, Direction.UP, top, false, false, 1))
+                    .isCancelled());
+
+            float progress = 0;
+            world.applyClientBlockEvent("minecraft:overworld", new ClientboundBlockEvent(box, 1, 1, blockId));
+            for (int tick = 0; tick < 8; tick++) {
+                world.onClientTickEnd();
+                progress += 0.1F;
+            }
+            world.applyClientBlockEvent("minecraft:overworld", new ClientboundBlockEvent(box, 1, 0, blockId));
+            world.onClientTickEnd();
+            progress -= 0.1F;
+            assertEquals(
+                    progress,
+                    world.getClientBlockEntityData(box).data().get("progress").getAsFloat());
+
+            var side = new Vec3d(0.48814332485198975, 1.1587804555892944, 1.0);
+            assertFalse(setup.route(
+                            ServerboundPackets.USE_ITEM_ON,
+                            new ServerboundUseItemOn(Hand.MAIN_HAND, box, Direction.SOUTH, side, false, false, 2))
+                    .isCancelled());
+            assertFalse(setup.route(
+                            ServerboundPackets.USE_ITEM_ON,
+                            new ServerboundUseItemOn(Hand.MAIN_HAND, box, Direction.UP, top, false, false, 3))
+                    .isCancelled());
+            assertFalse(setup.route(
+                            ServerboundPackets.PLAYER_ACTION,
+                            new ServerboundPlayerAction(PlayerAction.START_DESTROY_BLOCK, box, Direction.SOUTH, 4))
+                    .isCancelled());
+            assertEquals(0, place.violations);
+            assertEquals(0, breaking.violations);
+            assertEquals(0, sequence.violations);
         }
     }
 
@@ -806,6 +869,32 @@ class InteractionVisibilityTest {
                     world.withSelectionSnapshot(() -> setup.visibility.blockFaceHidden(TARGET, Direction.NORTH, 0)));
             assertNull(world.getClientBlockEntityData(TARGET));
             assertEquals(state("air"), world.getBlockStateIdAt(TARGET));
+        }
+    }
+
+    @Test
+    void aLocallyBrokenOpenShulkerKeepsItsLidInTheSameTicksSelection() throws Exception {
+        try (var setup = new Setup()) {
+            var world = setup.fixture.player.compensatedWorld;
+            setup.block(0, 64, 2, "shulker_box[facing=north]");
+            world.applyPredictedBlockEntityData(
+                    TARGET,
+                    new ac.cult.blocksim.engine.BlockEntityData(
+                            "minecraft:shulker_box",
+                            new ac.cult.blocksim.data.Components(java.util.Map.of(
+                                    "animation_status", new com.google.gson.JsonPrimitive("OPENED"),
+                                    "progress", new com.google.gson.JsonPrimitive(1.0F))),
+                            new ac.cult.blocksim.data.nbt.NbtValue.Compound(java.util.Map.of())));
+            world.beginSelectionSnapshot();
+            world.startPredicting();
+            world.updateBlock(TARGET, state("air"));
+            world.stopPredicting(1);
+
+            var selected = world.withSelectionSnapshot(() -> world.getClientBlockEntityData(TARGET));
+            assertEquals(1.0F, selected.data().get("progress").getAsFloat());
+            assertNull(world.getClientBlockEntityData(TARGET));
+            world.endSelectionSnapshot();
+            assertNull(world.getClientBlockEntityData(TARGET));
         }
     }
 

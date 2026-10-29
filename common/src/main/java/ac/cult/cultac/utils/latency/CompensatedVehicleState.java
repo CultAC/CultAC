@@ -69,6 +69,9 @@ public final class CompensatedVehicleState implements Debuggable {
     @Nullable
     public Integer serverPlayerVehicleTransaction;
 
+    @Nullable
+    private Integer dismountedMountTransaction;
+
     CompensatedVehicleState(CultPlayer player, CompensatedEntities entities) {
         this.player = player;
         this.entities = entities;
@@ -342,6 +345,11 @@ public final class CompensatedVehicleState implements Debuggable {
         if (canClientAuthoritativelyMoveVisibleRoot(vehicle)) {
             markVehicleSwitchBufferWindow(vehicle);
         }
+        if (serverPlayerVehicle == null || serverPlayerVehicle != vehicleId) {
+            dismountedMountTransaction = null;
+        } else if (serverPlayerVehiclePassengers != null) {
+            dismountedMountTransaction = serverPlayerVehicleTransaction;
+        }
         serverPlayerVehicle = vehicleId;
         serverPlayerVehiclePassengers = null;
         serverPlayerVehicleTransaction = transaction;
@@ -360,6 +368,7 @@ public final class CompensatedVehicleState implements Debuggable {
         serverPlayerVehicle = null;
         serverPlayerVehiclePassengers = null;
         serverPlayerVehicleTransaction = null;
+        dismountedMountTransaction = null;
         player.getSetbackTeleportUtil().clearVehicleTeleports();
     }
 
@@ -720,7 +729,14 @@ public final class CompensatedVehicleState implements Debuggable {
      * Before the client processes a mount, its movement is ordinary LocalPlayer#tick movement.
      */
     public boolean hasClientPlayerPassengerState() {
-        return entities.playerEntity.inVehicle() || hasPendingServerDismount();
+        return entities.playerEntity.inVehicle() || hasClientVisiblePendingDismount();
+    }
+
+    /** Whether a server dismount is pending and the client has processed the mount it ends. */
+    public boolean hasClientVisiblePendingDismount() {
+        return hasPendingServerDismount()
+                && (dismountedMountTransaction == null
+                        || player.lastTransactionReceived.get() >= dismountedMountTransaction);
     }
 
     private boolean containsLocalPlayer(@Nullable int[] passengers) {
