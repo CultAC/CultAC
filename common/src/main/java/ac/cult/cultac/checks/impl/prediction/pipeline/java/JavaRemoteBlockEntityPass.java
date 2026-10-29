@@ -21,6 +21,19 @@ public final class JavaRemoteBlockEntityPass {
         if (player.isBedrockMovement()) return;
         int riderPass = player.compensatedEntities.beginRiderPushPass();
         var pass = player.compensatedWorld.lastBlockEntityPass();
+        var prediction = player.checkManager.getSimulationProcessor().getLastPrediction();
+        var selected = prediction == null ? null : JavaMovementEngine.passAfterTravel(prediction);
+        var path = selected == null ? null : selected.result().path();
+        player.compensatedEntities.prepareLocalBlockEntityPath(
+                path != null
+                                && path.pass().gameTime() == pass.gameTime()
+                                && prediction
+                                                .getSimulationContext()
+                                                .getItemUse()
+                                                .tick()
+                                        == player.packetStateData.acceptedClientTick
+                        ? path
+                        : null);
         if (pass.movers().isEmpty()) return;
         var entities = player.compensatedEntities;
         var selfRoot = entities.rootOfSelf();
@@ -87,48 +100,44 @@ public final class JavaRemoteBlockEntityPass {
             var entities = player.compensatedEntities;
             // The riders of the player's own riding trees are positioned, and never push it.
             if (actor != entities.selfRidingRoot() && actor != entities.serverVehicleRoot()) {
-                SimpleCollisionBox seatedFrom =
-                        GetBoundingBox.getPacketEntityBoundingBox(player, position.x, position.y, position.z, actor);
-                recordRiders(
-                        player,
-                        actor,
-                        seatedFrom,
-                        !result.position().equals(position),
-                        pass,
-                        riderPass,
-                        actor.pistonMovementPatch());
+                recordRiders(player, actor, pass, riderPass, actor.pistonMovementPatch(), new SimpleCollisionBox());
             }
         }
     }
 
     /**
-     * PistonMovingBlockEntity#moveCollidedEntities and ShulkerBoxBlockEntity#moveCollidedEntities move every entity in
-     * their area, riders included, after this tick's Entity#positionRider seated them. A rider keeps that place until
-     * its next Entity#rideTick, whose LivingEntity#pushEntities runs before positionRider reseats it. For each living
-     * rider of {@code vehicle}'s tree, records the place this pass leaves it: its seat on the root at {@code rootStart},
-     * moved by the pass when the pass may reach it. Riders of a root the pass neither moved nor reaches keep their seat,
-     * which the push reader derives without a record.
+     * Block entities move each rider independently from its committed seat. Untouched riders already retain their
+     * seat; snapshot and replay only when a candidate is reached, preserving every existing candidate in that case.
      */
     private static void recordRiders(
             CultPlayer player,
             PacketEntity vehicle,
-            SimpleCollisionBox rootStart,
-            boolean rootMoved,
             ClientBlockEntityPass pass,
             int riderPass,
-            JavaMovementPatch patch) {
+            JavaMovementPatch patch,
+            SimpleCollisionBox scratch) {
         var passengers = vehicle.passengers;
         for (int i = 0; i < passengers.size(); i++) {
             PacketEntity rider = passengers.get(i);
-            if (JavaLivingEntityPushes.ticksPush(rider)) {
-                SimpleCollisionBox seat = player.compensatedEntities.untrackedRiderSeatOn(rider, rootStart);
-                if (seat != null) {
-                    boolean reached = mayReach(pass, seat);
-                    if (reached) seat = movedRider(player, rider, seat, pass, patch);
-                    if (reached || rootMoved) rider.recordRiderPushBox(riderPass, seat);
+            int count = rider.possibleMovementCollisionBoxCandidateCount();
+            boolean reached = false;
+            for (int candidate = 0; candidate < count && !reached; candidate++) {
+                rider.positionCollisionBoxCandidate(candidate, scratch);
+                reached = mayReach(pass, rider.movementBoxAt(scratch));
+            }
+            if (reached) {
+                // Freeze the inputs before recording output: later reads can otherwise see this pass's first result.
+                var seats = new java.util.ArrayList<SimpleCollisionBox>(count);
+                for (int candidate = 0; candidate < count; candidate++)
+                    seats.add(rider.positionCollisionBoxCandidate(candidate, new SimpleCollisionBox()));
+                for (SimpleCollisionBox original : seats) {
+                    rider.movementBoxAt(scratch.set(original));
+                    SimpleCollisionBox seat =
+                            mayReach(pass, scratch) ? movedRider(player, rider, original, pass, patch) : original;
+                    rider.recordRiderPushBox(riderPass, seat);
                 }
             }
-            if (!rider.passengers.isEmpty()) recordRiders(player, rider, rootStart, rootMoved, pass, riderPass, patch);
+            if (!rider.passengers.isEmpty()) recordRiders(player, rider, pass, riderPass, patch, scratch);
         }
     }
 
@@ -148,22 +157,36 @@ public final class JavaRemoteBlockEntityPass {
         double side = riderSideReach(player, root, 0);
         double up = riderHeightReach(player, root, 0);
         if (!mayReach(
-                pass,
-                rootBox.minX - side,
-                rootBox.minY - up,
-                rootBox.minZ - side,
-                rootBox.maxX + side,
-                rootBox.maxY + up,
-                rootBox.maxZ + side)) return;
-        Vec3 at = root.clientPhysicalPosition;
-        recordRiders(
-                player,
-                root,
-                GetBoundingBox.getPacketEntityBoundingBox(player, at.x, at.y, at.z, root),
-                false,
-                pass,
-                riderPass,
-                root.pistonMovementPatch());
+                        pass,
+                        rootBox.minX - side,
+                        rootBox.minY - up,
+                        rootBox.minZ - side,
+                        rootBox.maxX + side,
+                        rootBox.maxY + up,
+                        rootBox.maxZ + side)
+                && !heldRiderMayReach(player, root, pass, rootBox, 0)) return;
+        recordRiders(player, root, pass, riderPass, root.pistonMovementPatch(), rootBox);
+    }
+
+    /** A non-ticking rider can keep its old seat after a packet moved its parent arbitrarily far away. */
+    private static boolean heldRiderMayReach(
+            CultPlayer player,
+            PacketEntity vehicle,
+            ClientBlockEntityPass pass,
+            SimpleCollisionBox scratch,
+            int depth) {
+        if (depth > player.compensatedEntities.entityMap.size()) return true;
+        for (int i = 0; i < vehicle.passengers.size(); i++) {
+            PacketEntity rider = vehicle.passengers.get(i);
+            for (int candidate = 0, count = rider.possibleMovementCollisionBoxCandidateCount();
+                    candidate < count;
+                    candidate++) {
+                rider.positionCollisionBoxCandidate(candidate, scratch);
+                if (mayReach(pass, rider.movementBoxAt(scratch))) return true;
+            }
+            if (heldRiderMayReach(player, rider, pass, scratch, depth + 1)) return true;
+        }
+        return false;
     }
 
     // Each hop seats a rider within its vehicle's width plus its own of the vehicle's centre.

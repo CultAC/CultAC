@@ -139,6 +139,10 @@ public class PacketEntity {
     }
 
     private void clientPositionChanged() {
+        if (riderPosition != null && riding != null && (riderInterpolation == null || !riderInterpolation.running())) {
+            riderPosition.positioned = false;
+            if (riderPushBoxes != null) riderPushBoxes.clear();
+        }
         if (tracker != null
                 && !readingTickPositions
                 && (pistonStates == null || !pistonStates.running())
@@ -690,8 +694,9 @@ public class PacketEntity {
 
     private void prepareRiderInterpolation(CultPlayer player) {
         if (riderInterpolation != null && !riderInterpolation.running() && !riderInterpolation.active()) {
-            riderInterpolation.run(
-                    this, () -> setRiderReplayPosition(player.compensatedEntities.untrackedRiderPacketBox(this)));
+            // Read the committed seat or shove before replay switches position readers to the expired path.
+            SimpleCollisionBox physical = player.compensatedEntities.untrackedRiderPacketBox(this);
+            riderInterpolation.run(this, () -> setRiderReplayPosition(physical));
         }
         if (riderInterpolation != null
                 || player.isBedrockMovement()
@@ -935,6 +940,9 @@ public class PacketEntity {
 
     public void onMovement(CultPlayer player) {
         resumeTrackedRiderInterpolation();
+        // Remote riders keep their packet interpolation in ClientRiderInterpolation. Their ordinary state tick
+        // still runs, at the seat they held before their root's tick; no interpolation snapshot is rebuilt here.
+        if (lazyRiderPosition()) return;
         if (!player.isBedrockMovement()) {
             orderAtClientTickStart = player.compensatedEntities.clientTickOrder(this);
             tickedAtClientTick = player.packetStateData.acceptedClientTick;
@@ -1297,6 +1305,11 @@ public class PacketEntity {
         vehicle.passengers.add(this);
         if (vehicle.tracker != null) vehicle.tracker.onPassengerAdded();
         riding = vehicle;
+        if (riderPosition != null) {
+            riderPosition.positioned = false;
+            riderPosition.tickedAt = Integer.MIN_VALUE;
+            riderPosition.seatedAtPass = Integer.MIN_VALUE;
+        }
         if (newPacketLocation != null && newPacketLocation.hasActiveInterpolationTarget()) {
             prepareRiderInterpolation(positionPlayer);
             if (hasRiderInterpolation()) tracker.replayRiderInterpolation(this);
@@ -1339,6 +1352,106 @@ public class PacketEntity {
         this.newPacketLocation = new ReachInterpolationData(box);
         keepPositionCertainty();
         clientPositionChanged();
+    }
+
+    // Only readers of a remote rider allocate its working boxes, once for the lifetime of that entity.
+    private ClientRiderPosition riderPosition;
+
+    private ClientRiderPosition riderPosition() {
+        if (riderPosition == null) riderPosition = new ClientRiderPosition();
+        return riderPosition;
+    }
+
+    public boolean lazyRiderTickedThisTick() {
+        return riderPosition != null && riderPosition.tickedAt == positionPlayer.packetStateData.acceptedClientTick;
+    }
+
+    public boolean lazyRiderSeatedAfterPass(int pass) {
+        return riderPosition != null && riderPosition.seatedAtPass >= pass;
+    }
+
+    /** A shove persists while a non-ticking rider has not been reseated, even across an empty block-entity pass. */
+    public @Nullable List<SimpleCollisionBox> currentRiderPushBoxes() {
+        return lazyRiderSeatedAfterPass(riderPushPass) || riderPushBoxes == null || riderPushBoxes.isEmpty()
+                ? null
+                : riderPushBoxes;
+    }
+
+    public int lazyRiderCommittedCount(boolean beforeTick) {
+        if (beforeTick && lazyRiderTickedThisTick()) return riderPosition.beforeCount;
+        return riderPosition != null && riderPosition.positioned ? riderPosition.currentCount : 1;
+    }
+
+    public SimpleCollisionBox lazyRiderCommittedBox(SimpleCollisionBox out, boolean beforeTick) {
+        return lazyRiderCommittedBox(0, out, beforeTick);
+    }
+
+    public SimpleCollisionBox lazyRiderCommittedBox(int index, SimpleCollisionBox out, boolean beforeTick) {
+        if (beforeTick && lazyRiderTickedThisTick()) out.set(riderPosition.box(true, index));
+        else if (riderPosition != null && riderPosition.positioned) out.set(riderPosition.box(false, index));
+        else {
+            Vec3 at = clientPhysicalPosition;
+            return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                    out,
+                    at.x,
+                    at.y,
+                    at.z,
+                    BoundingBoxSize.getWidth(positionPlayer, this),
+                    BoundingBoxSize.getHeight(positionPlayer, this));
+        }
+        // Synced pose/scale changes rebuild an entity's dimensions without reseating it.
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                out,
+                (out.minX + out.maxX) / 2,
+                out.minY,
+                (out.minZ + out.maxZ) / 2,
+                BoundingBoxSize.getWidth(positionPlayer, this),
+                BoundingBoxSize.getHeight(positionPlayer, this));
+    }
+
+    public void putLazyRiderTickPosition(boolean before, int index, SimpleCollisionBox box) {
+        riderPosition().put(before, index, box);
+    }
+
+    public void beginLazyRiderTick(int count) {
+        ClientRiderPosition state = riderPosition();
+        state.beforeCount = count;
+        state.tickedAt = positionPlayer.packetStateData.acceptedClientTick;
+    }
+
+    public void finishLazyRiderTick(int pass, int count) {
+        ClientRiderPosition state = riderPosition();
+        state.currentCount = count;
+        state.positioned = true;
+        state.seatedAtPass = pass;
+    }
+
+    private boolean lazyRiderPosition() {
+        return tracker != null
+                && positionPlayer != null
+                && !positionPlayer.isBedrockMovement()
+                && (riderInterpolation == null || !riderInterpolation.running())
+                && tracker.isUntrackedRider(this)
+                && tracker.rootOf(this) != null;
+    }
+
+    private SimpleCollisionBox riderCandidate(int index, SimpleCollisionBox out) {
+        return tracker.riderPositionCandidate(this, index, out, riderPosition().point);
+    }
+
+    private SimpleCollisionBox riderBounds(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        int count = tracker.riderPositionCount(this);
+        riderCandidate(0, out);
+        for (int i = 1; i < count; i++) out.union(riderCandidate(i, scratch));
+        return out;
+    }
+
+    /** Materializes only the physical position required by a rider's state tick and ticking-chunk callbacks. */
+    public void setLazyRiderPhysicalPosition(SimpleCollisionBox box) {
+        Vec3 previous = clientPhysicalPosition;
+        clientPhysicalPosition = positionFromCollisionBox(box, previous);
+        clientPhysicalPositionExact = true;
+        if (previous != clientPhysicalPosition && tracker != null) tracker.onClientEntityPositionChanged(this);
     }
 
     private SimpleCollisionBox passengerPhysicalBox;
@@ -1512,6 +1625,7 @@ public class PacketEntity {
 
     /** The bounds of {@link #getPossibleCollisionBoxes()} in {@code out}; {@code scratch} must be distinct. */
     public SimpleCollisionBox getPossibleCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        if (lazyRiderPosition()) return riderBounds(out, scratch);
         primaryCollisionBoxes(false, out, scratch);
         var other = pistonStates == null ? null : pistonStates.other();
         if (other != null) ReachInterpolationData.combineCollisionBox(out, other.bounds(false, scratch), out);
@@ -1536,6 +1650,7 @@ public class PacketEntity {
 
     /** The bounds of {@link #getPossibleMovementCollisionBoxes()} in {@code out}; {@code scratch} must be distinct. */
     public SimpleCollisionBox getPossibleMovementCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        if (lazyRiderPosition()) return riderBounds(out, scratch);
         List<SimpleCollisionBox> view = tickPositionView();
         if (view != null) {
             out.set(view.getFirst());
@@ -1596,6 +1711,7 @@ public class PacketEntity {
             riderPushPass = pass;
         }
         riderPushBoxes.add(box);
+        if (tracker != null && riding != null && riderPushBoxes.size() == 1) tracker.onLazyRiderMoved(this, box);
     }
 
     /** The boxes {@link #recordRiderPushBox} recorded for block-entity pass {@code pass}, else null. Read only. */
@@ -1628,6 +1744,12 @@ public class PacketEntity {
     }
 
     public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidates() {
+        if (lazyRiderPosition()) {
+            int count = tracker.riderPositionCount(this);
+            List<SimpleCollisionBox> boxes = new ArrayList<>(count);
+            for (int i = 0; i < count; i++) boxes.add(riderCandidate(i, new SimpleCollisionBox()));
+            return boxes;
+        }
         List<SimpleCollisionBox> view = tickPositionView();
         if (view != null) return view;
         if (pistonStates != null && pistonStates.other() != null) {
@@ -1649,6 +1771,7 @@ public class PacketEntity {
 
     /** The number of {@link #getPossibleMovementCollisionBoxCandidates()}. */
     public int possibleMovementCollisionBoxCandidateCount() {
+        if (lazyRiderPosition()) return tracker.riderPositionCount(this);
         List<SimpleCollisionBox> view = tickPositionView();
         if (view != null) return view.size();
         var other = pistonStates == null ? null : pistonStates.other();
@@ -1664,6 +1787,12 @@ public class PacketEntity {
 
     /** Writes the {@code index}th of {@link #getPossibleMovementCollisionBoxCandidates()} into {@code out}. */
     public SimpleCollisionBox possibleMovementCollisionBoxCandidate(int index, SimpleCollisionBox out) {
+        return positionCollisionBoxCandidate(index, out);
+    }
+
+    /** A position box before entity-specific geometry (for example a shulker's peek) moves its centre or feet. */
+    public SimpleCollisionBox positionCollisionBoxCandidate(int index, SimpleCollisionBox out) {
+        if (lazyRiderPosition()) return riderCandidate(index, out);
         List<SimpleCollisionBox> view = tickPositionView();
         if (view != null) return out.set(view.get(index));
         var other = pistonStates == null ? null : pistonStates.other();
@@ -1704,6 +1833,9 @@ public class PacketEntity {
     }
 
     public SimpleCollisionBox getExactMovementCollisionBox() {
+        if (lazyRiderPosition()) {
+            return tracker.riderPositionCount(this) == 1 ? riderCandidate(0, new SimpleCollisionBox()) : null;
+        }
         List<SimpleCollisionBox> view = tickPositionView();
         if (view != null) return view.size() == 1 ? view.getFirst().copy() : null;
         SimpleCollisionBox primary = primaryExactMovementCollisionBox();

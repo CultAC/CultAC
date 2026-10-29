@@ -51,9 +51,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mockito;
 
 /**
- * Riders outside the local player's own riding trees are untracked: never positioned or ticked, skipped by checks,
- * and anchored at their current seat when they dismount so their normal tracking resumes from the position the client
- * leaves the vehicle from. Entity collision still meets them at that seat, and a shulker rider's peek steps there.
+ * Remote rider positions are derived from their compensated root at the reader's client-tick position. Their state
+ * ticks with the root; reach, placement and collision read the seat, and dismount resumes ordinary interpolation there.
  */
 class UntrackedRiderTest {
     private static final int SELF = 7;
@@ -103,18 +102,21 @@ class UntrackedRiderTest {
 
     @ParameterizedTest
     @EnumSource(Client.class)
-    void untrackedRidersAreNeitherPositionedNorTicked(Client client) {
+    void remoteRidersExposeTheirSeatAndTickWithTheirRoot(Client client) {
         CultPlayer player = world(client.version);
         try {
             PacketEntity mounted = entity(player, MOUNTED);
             Vec3 before = mounted.clientPhysicalPosition;
             for (int tick = 1; tick <= 3; tick++) step(player, tick, VEHICLE);
-            assertSame(before, mounted.clientPhysicalPosition, "an untracked rider was positioned");
+            assertSame(before, mounted.clientPhysicalPosition, "a lazy rider allocated committed position vectors");
+            SimpleCollisionBox seat = seatBox(player, VEHICLE, MOUNTED);
+            assertBoxEquals(seat, mounted.getPossibleCollisionBoxes());
+            assertBoxEquals(seat, mounted.getPossibleMovementCollisionBoxes());
 
             List<PacketEntity> ticked = new ArrayList<>();
             player.compensatedEntities.forEachTrackedEntity(ticked::add);
             player.compensatedEntities.tickClientEntities(ticked::add);
-            assertFalse(ticked.contains(mounted), "an untracked rider was ticked");
+            assertTrue(ticked.contains(mounted), "a remote rider never ran its state tick");
             assertTrue(ticked.contains(entity(player, VEHICLE)));
         } finally {
             close(player);
@@ -123,7 +125,7 @@ class UntrackedRiderTest {
 
     @ParameterizedTest
     @EnumSource(Client.class)
-    void mountedTargetsAreExemptFromReach(Client client) {
+    void mountedTargetsAreMeasuredForReachAtTheirSeat(Client client) {
         CultPlayer player = world(client.version);
         try {
             // Control: the same far attack on an unmounted target flags.
@@ -132,7 +134,18 @@ class UntrackedRiderTest {
             assertTrue(flagged > 0, "the harness cannot flag reach");
 
             attack(player, MOUNTED);
-            assertEquals(flagged, reachViolations(player), "flagged an attack on an untracked rider");
+            assertTrue(reachViolations(player) > flagged, "a remote rider bypassed reach");
+
+            // Moving the root moves the picked rider box too; its stale spawn remains twelve blocks away.
+            PacketEntity root = entity(player, VEHICLE);
+            root.setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, 2.0, 62.2, 0.0, root));
+            player.packetStateData.acceptedClientTick++;
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            player.xRot = -90.0F;
+            player.yRot = 0.0F;
+            double beforeNear = reachViolations(player);
+            attack(player, MOUNTED);
+            assertEquals(beforeNear, reachViolations(player), "a legal attack used the rider's stale spawn box");
         } finally {
             close(player);
         }
@@ -143,6 +156,7 @@ class UntrackedRiderTest {
     void untrackedRidersCollideAtTheirSeat(Client client) {
         CultPlayer player = world(client.version);
         try {
+            player.packetEntityReplication.onPlayerTickEnd(null);
             PacketEntity vehicle = entity(player, BOAT_VEHICLE);
             PacketEntity boat = entity(player, RIDING_BOAT);
             assertTrue(player.compensatedEntities.isUntrackedRider(boat));
@@ -175,6 +189,8 @@ class UntrackedRiderTest {
             add(player, MINECART, minecart, -20.5, 8.5);
             add(player, CART_SHULKER, EntityTypeIds.SHULKER, -20.5, 8.5);
             mount(player, MINECART, CART_SHULKER);
+            player.packetStateData.acceptedClientTick++;
+            player.packetEntityReplication.onPlayerTickEnd(null);
             assertTrue(player.compensatedEntities.isUntrackedRider(entity(player, CART_SHULKER)));
 
             // EntityTypes#MINECART seats a rider 0.1875 above the cart, and a closed shell is the unit box over it, so
@@ -205,12 +221,14 @@ class UntrackedRiderTest {
             add(player, SHULKER_MOUNT, EntityTypeIds.PLAYER, 20.5, 0.5);
             add(player, OPEN_SHULKER, EntityTypeIds.SHULKER, 20.5, 0.5);
             mount(player, SHULKER_MOUNT, OPEN_SHULKER);
+            player.packetEntityReplication.onPlayerTickEnd(null);
             var shulker = (PacketEntityShulker) entity(player, OPEN_SHULKER);
             assertTrue(entities.isUntrackedRider(shulker));
             assertShell(
                     1.0, seatBox(player, SHULKER_MOUNT, OPEN_SHULKER), entities.untrackedRiderCollisionBox(shulker));
 
             // Shulker#onPeekAmountChange opens it upward from its seat, moving what the opened part meets.
+            player.packetStateData.acceptedClientTick++;
             shulker.onShapeData(null, (byte) 100);
             List<ClientBlockEntityPass.ShulkerPeek> opening = new ArrayList<>(entities.shulkerPeekMoves(true));
             opening.addAll(entities.shulkerPeekMoves(false));
@@ -229,6 +247,178 @@ class UntrackedRiderTest {
             for (int tick = 29; tick <= 55; tick++) step(player, tick, VEHICLE);
             assertShell(
                     1.0, seatBox(player, SHULKER_MOUNT, OPEN_SHULKER), entities.untrackedRiderCollisionBox(shulker));
+        } finally {
+            close(player);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    void seatChangesAtTheRiderTickAndMovementReadsUseTheCorrectSide(Client client) {
+        CultPlayer player = world(client.version);
+        try {
+            CompensatedEntities entities = player.compensatedEntities;
+            PacketEntity rider = entity(player, MOUNTED);
+            PacketEntity root = entity(player, VEHICLE);
+            SimpleCollisionBox spawn = rider.getPossibleMovementCollisionBoxes();
+            assertEquals(64.0, spawn.minY, 0.0, "set_passengers must not run positionRider");
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            SimpleCollisionBox seated = rider.getPossibleMovementCollisionBoxes();
+            // Avatar's passenger point is height 1.8F; its rider's VEHICLE attachment is 0.6 above its feet.
+            assertEquals(64.0 + (double) 1.8F - 0.6D, seated.minY, 0.0);
+
+            player.packetStateData.acceptedClientTick++;
+            root.setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, 25.0, 64.0, 0.0, root));
+            assertBoxEquals(seated, rider.getPossibleMovementCollisionBoxes());
+            entities.beginMovementPositionReads();
+            try {
+                long order = entities.clientTickOrder(root);
+                entities.setPassTickedThroughOrder(order - 1);
+                assertBoxEquals(seated, rider.getPossibleMovementCollisionBoxes());
+                entities.setPassTickedThroughOrder(order);
+                SimpleCollisionBox next = rider.getPossibleMovementCollisionBoxes();
+                assertEquals(25.0, (next.minX + next.maxX) / 2, 0.0);
+                assertEquals(seated.minY, next.minY, 0.0);
+            } finally {
+                entities.setPassTickedThroughOrder(Long.MIN_VALUE);
+                entities.endMovementPositionReads();
+            }
+            assertBoxEquals(seated, rider.getPossibleMovementCollisionBoxes());
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            SimpleCollisionBox committed = rider.getPossibleMovementCollisionBoxes();
+            assertEquals(25.0, (committed.minX + committed.maxX) / 2, 0.0);
+
+            // A deferred reader can still replay the side before the already committed rider tick.
+            entities.beginMovementPositionReads();
+            try {
+                entities.setPassTickedThroughOrder(entities.clientTickOrder(root) - 1);
+                assertBoxEquals(seated, rider.getPossibleMovementCollisionBoxes());
+            } finally {
+                entities.setPassTickedThroughOrder(Long.MIN_VALUE);
+                entities.endMovementPositionReads();
+            }
+        } finally {
+            close(player);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    void placementSeesARemoteRiderAboveItsVehicle(Client client) {
+        CultPlayer player = world(client.version);
+        try {
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
+                if (entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer remote)
+                    remote.profile = new UUID(0, entity.getEntityId());
+            }
+            var queries = new ac.cult.cultac.utils.blockplace.ClientEntityQueries(player);
+            var occupied = new ac.cult.blocksim.data.Box(11.9, 66.0, -0.1, 12.1, 66.5, 0.1);
+            assertTrue(queries.hasEntityIn(occupied));
+            assertFalse(queries.isUnobstructed(ac.cult.blocksim.engine.shapes.Shapes.create(occupied)));
+            var empty = new ac.cult.blocksim.data.Box(11.9, 68.0, -0.1, 12.1, 68.5, 0.1);
+            assertFalse(queries.hasEntityIn(empty));
+            assertTrue(queries.isUnobstructed(ac.cult.blocksim.engine.shapes.Shapes.create(empty)));
+        } finally {
+            close(player);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    void frozenRiderKeepsItsSeatAndIndependentShoveUntilItTicksAgain(Client client) {
+        CultPlayer player = world(client.version);
+        try {
+            CompensatedEntities entities = player.compensatedEntities;
+            mount(player, OWN_VEHICLE, CO_RIDER);
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            PacketEntity root = entity(player, OWN_VEHICLE), rider = entity(player, CO_RIDER);
+            SimpleCollisionBox seat = rider.getPossibleMovementCollisionBoxes();
+            player.packetStateData.acceptedClientTick++;
+            player.packetStateData.serverTicksFrozen = true;
+            root.setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, 14.0, 64.0, 4.0, root));
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            assertBoxEquals(seat, rider.getPossibleMovementCollisionBoxes());
+
+            SimpleCollisionBox shoved = seat.copy().offset(0.51, 0, 0);
+            rider.recordRiderPushBox(entities.beginRiderPushPass(), shoved);
+            entities.beginRiderPushPass(); // an empty later pass cannot put a frozen rider back on its seat
+            assertBoxEquals(shoved, rider.getPossibleMovementCollisionBoxes());
+            // A later setPos from a packet replaces the shove before the next rideTick, even while frozen.
+            SimpleCollisionBox synced = shoved.copy().offset(0.25, 0, 0);
+            rider.setPositionRaw(synced);
+            assertBoxEquals(synced, rider.getPossibleMovementCollisionBoxes());
+            player.packetStateData.acceptedClientTick++;
+            player.packetStateData.serverTicksFrozen = false;
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            assertEquals(
+                    14.0,
+                    (rider.getPossibleMovementCollisionBoxes().minX + rider.getPossibleMovementCollisionBoxes().maxX)
+                            / 2,
+                    0.0);
+            assertBoxEquals(seatBox(player, OWN_VEHICLE, CO_RIDER), rider.getPossibleMovementCollisionBoxes());
+        } finally {
+            close(player);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    void aRotatingBoatSeatPreviewMatchesItsCommittedRiderTick(Client client) {
+        CultPlayer player = world(client.version);
+        try {
+            add(player, 2500, EntityTypeIds.PIG, -12, 0);
+            mount(player, BOAT_VEHICLE, 2500, RIDING_BOAT);
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            var root = (ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot) entity(player, BOAT_VEHICLE);
+            PacketEntity rider = entity(player, RIDING_BOAT);
+            SimpleCollisionBox before = rider.getPossibleMovementCollisionBoxes();
+            root.packetYaw = 90;
+            root.steps = 3;
+            player.packetStateData.acceptedClientTick++;
+            SimpleCollisionBox preview;
+            player.compensatedEntities.beginMovementPositionReads();
+            try {
+                player.compensatedEntities.setPassTickedThroughOrder(player.compensatedEntities.clientTickOrder(root));
+                preview = rider.getPossibleMovementCollisionBoxes();
+            } finally {
+                player.compensatedEntities.setPassTickedThroughOrder(Long.MIN_VALUE);
+                player.compensatedEntities.endMovementPositionReads();
+            }
+            assertTrue(Math.abs(preview.minX - before.minX) > 0.1, "the next yaw never rotated the rear seat");
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            assertBoxEquals(preview, rider.getPossibleMovementCollisionBoxes());
+        } finally {
+            close(player);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    void aRearingHorseSeatPreviewMatchesItsCommittedRiderTick(Client client) {
+        CultPlayer player = world(client.version);
+        try {
+            add(player, 2500, EntityTypeIds.HORSE, 12, 0);
+            add(player, 2501, EntityTypeIds.ZOMBIE, 12, 0);
+            mount(player, 2500, 2501);
+            var root = (ac.cult.cultac.utils.data.packetentity.PacketEntityHorse) entity(player, 2500);
+            root.isRearing = true;
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            PacketEntity rider = entity(player, 2501);
+            SimpleCollisionBox before = rider.getPossibleMovementCollisionBoxes();
+            player.packetStateData.acceptedClientTick++;
+            SimpleCollisionBox preview;
+            player.compensatedEntities.beginMovementPositionReads();
+            try {
+                player.compensatedEntities.setPassTickedThroughOrder(player.compensatedEntities.clientTickOrder(root));
+                preview = rider.getPossibleMovementCollisionBoxes();
+            } finally {
+                player.compensatedEntities.setPassTickedThroughOrder(Long.MIN_VALUE);
+                player.compensatedEntities.endMovementPositionReads();
+            }
+            assertTrue(preview.minY > before.minY, "the next horse animation never raised the rider");
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            assertBoxEquals(preview, rider.getPossibleMovementCollisionBoxes());
         } finally {
             close(player);
         }
@@ -348,7 +538,12 @@ class UntrackedRiderTest {
         player.x = 0;
         player.y = 64;
         player.z = 0;
-        // Players tick on every client, loaded chunk or not; the test world has no chunks.
+        // The world also ticks non-player riders, including the boat and shulker cases.
+        var column = new CompensatedWorld.CachedChunk(new CompensatedWorld.CachedSection[24], 0);
+        for (int x = -2; x <= 1; x++) {
+            player.compensatedWorld.addToCache(column, x, -1);
+            player.compensatedWorld.addToCache(column, x, 0);
+        }
         add(player, VEHICLE, EntityTypeIds.PLAYER, 12, 0);
         add(player, MOUNTED, EntityTypeIds.PLAYER, 12, 0);
         add(player, OWN_VEHICLE, EntityTypeIds.ZOMBIE, 10, 4);

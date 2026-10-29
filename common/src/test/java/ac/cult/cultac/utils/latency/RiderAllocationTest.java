@@ -124,6 +124,19 @@ class RiderAllocationTest {
             double bareTick = perOperation(bean, barePass);
             double riderTick = riddenTick - bareTick;
 
+            PacketEntity[] riders = entities.entityMap.values().stream()
+                    .filter(entities::isUntrackedRider)
+                    .toArray(PacketEntity[]::new);
+            SimpleCollisionBox output = new SimpleCollisionBox(), readScratch = new SimpleCollisionBox();
+            double lazyReads = perOperation(bean, () -> {
+                for (PacketEntity rider : riders) {
+                    rider.getPossibleMovementCollisionBoxes(output, readScratch);
+                    rider.getPossibleCollisionBoxes(output, readScratch);
+                }
+            });
+            System.out.println("RIDER-READS " + client + " " + lazyReads + " B for " + riders.length + " riders");
+            assertTrue(lazyReads <= 8, "lazy box reads allocated " + lazyReads + " B");
+
             String report = String.format(
                     "%s: sweep=%.1f B, vehicleTickEnd=%.1f B, farHats=%.1f B, riderPushes=%.1f B,"
                             + " riderCollisions=%.1f B, riderNoCollision=%.1f B, riderPeeks=%.1f B,"
@@ -155,6 +168,48 @@ class RiderAllocationTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    void movingLoadedRidersDoNotAddPerTickAllocations(Client client) {
+        var platformBean = ManagementFactory.getThreadMXBean();
+        assumeTrue(platformBean instanceof ThreadMXBean);
+        ThreadMXBean bean = (ThreadMXBean) platformBean;
+        assumeTrue(bean.isThreadAllocatedMemorySupported());
+        bean.setThreadAllocatedMemoryEnabled(true);
+        CultPlayer ridden = world(client.version, true), bare = world(client.version, false);
+        try {
+            Runnable withRiders = movingTicks(ridden), withoutRiders = movingTicks(bare);
+            perOperation(bean, withRiders);
+            perOperation(bean, withoutRiders);
+            double extra = perOperation(bean, withRiders) - perOperation(bean, withoutRiders);
+            System.out.println("RIDER-MOVING " + client + " riderShare=" + extra + " B/tick");
+            assertTrue(extra <= 64, "moving riders added " + extra + " B/tick");
+        } finally {
+            close(ridden);
+            close(bare);
+        }
+    }
+
+    private static Runnable movingTicks(CultPlayer player) {
+        PacketEntity[] roots = new PacketEntity[PLAYERS * 2];
+        for (int i = 0; i < PLAYERS; i++) {
+            roots[i] = player.compensatedEntities.getEntity(VEHICLE + i);
+            roots[PLAYERS + i] = player.compensatedEntities.getEntity(SHULKER_MOUNT + i);
+        }
+        SimpleCollisionBox box = new SimpleCollisionBox();
+        return () -> {
+            int tick = ++player.packetStateData.acceptedClientTick;
+            double shift = (tick & 1) == 0 ? 0.0 : 0.25;
+            for (int i = 0; i < roots.length; i++) {
+                double x = i % PLAYERS + shift;
+                double z = i < PLAYERS ? -3.0 : -9.0;
+                ac.cult.cultac.utils.nmsutil.GetBoundingBox.getBoundingBoxFromPosAndSize(box, x, 64.0, z, .6F, 1.8F);
+                roots[i].setPositionRaw(box);
+            }
+            player.packetEntityReplication.onPlayerTickEnd(null);
+        };
+    }
+
     private static double perOperation(ThreadMXBean bean, Runnable operation) {
         long thread = Thread.currentThread().getId();
         for (int i = 0; i < WARMUP; i++) operation.run();
@@ -179,6 +234,12 @@ class RiderAllocationTest {
         player.x = 0;
         player.y = 64;
         player.z = 0;
+        var column = new CompensatedWorld.CachedChunk(new CompensatedWorld.CachedSection[24], 0);
+        for (int x = 0; x <= 2; x++) {
+            player.compensatedWorld.addToCache(column, x, -1);
+            player.compensatedWorld.addToCache(column, x, 0);
+            player.compensatedWorld.addToCache(column, x, 1);
+        }
         var replication = player.packetEntityReplication;
         // A collision candidate in both worlds, so collision readers past their empty-world return are compared.
         replication.addEntity(BOAT, EntityTypeIds.OAK_BOAT, new Vec3(0, 64, 20), 0, 0, 0, -1);

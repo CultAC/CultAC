@@ -885,8 +885,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
         if (entity.type == EntityTypeIds.ARMOR_STAND) return false;
 
-        // Riders outside the local player's own riding tree have no simulated position.
-        if (player.compensatedEntities.isUntrackedRider(entity)) return false;
+        if (player.isBedrockMovement() && player.compensatedEntities.isUntrackedRider(entity)) return false;
 
         return player.gamemode != GameMode.SPECTATOR;
     }

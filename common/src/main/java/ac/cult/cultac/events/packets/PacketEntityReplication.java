@@ -462,8 +462,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             }
             entity.onMovement(player);
         };
-        // From the seats their roots gave them before this tick: a rider's rideTick reads where positionRider left it.
-        player.compensatedEntities.tickUntrackedShulkerRiders();
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_17)) {
             player.compensatedEntities.tickClientEntities(tick);
         } else {

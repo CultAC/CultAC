@@ -94,7 +94,6 @@ public final class JavaFishingHookFlight {
 
     /** 0 means outside every candidate; 1 means either side is possible; 2 means certainly still inside. */
     private static int ownerTreeOverlap(CultPlayer player, PacketEntity entity, SimpleCollisionBox query) {
-        if (player.compensatedEntities.isUntrackedRider(entity)) return 0;
         int overlap = 0;
         if (pickable(player, entity)) {
             int count = 0, hits = 0;
@@ -132,7 +131,7 @@ public final class JavaFishingHookFlight {
         candidates.add(player.compensatedEntities.getSelf());
         PacketEntity owner = hook.clientOwner(player);
         for (PacketEntity target : candidates) {
-            if (target == hook || player.compensatedEntities.isUntrackedRider(target)
+            if (target == hook
                     || target.isDead || !target.actionAlive
                     || target instanceof PacketEntityInteraction
                     || !(target.type == EntityTypeIds.ITEM || pickable(player, target))
@@ -177,7 +176,6 @@ public final class JavaFishingHookFlight {
 
     private static List<SimpleCollisionBox> boxes(CultPlayer player, PacketEntity entity) {
         var entities = player.compensatedEntities;
-        if (entities.isUntrackedRider(entity)) return List.of();
         if (entity != entities.getSelf()) return entity.getPossibleMovementCollisionBoxCandidates();
         var result = player.checkManager.getSimulationProcessor().getLastPrediction();
         var context = result == null ? null : result.getSimulationContext();

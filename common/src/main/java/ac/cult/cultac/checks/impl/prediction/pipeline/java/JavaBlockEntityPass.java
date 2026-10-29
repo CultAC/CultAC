@@ -47,7 +47,33 @@ public final class JavaBlockEntityPass {
             Double boatLastYd,
             ClientFluidHeights fluidHeights,
             LastMove lastMove,
-            ReachInterpolationData oldInterpolation) {
+            ReachInterpolationData oldInterpolation,
+            JavaBlockEntityPath path) {
+        public Result(
+                JavaPassState state,
+                boolean moved,
+                boolean fixedX,
+                boolean fixedY,
+                boolean fixedZ,
+                ReachInterpolationData interpolation,
+                Double boatLastYd,
+                ClientFluidHeights fluidHeights,
+                LastMove lastMove,
+                ReachInterpolationData oldInterpolation) {
+            this(
+                    state,
+                    moved,
+                    fixedX,
+                    fixedY,
+                    fixedZ,
+                    interpolation,
+                    boatLastYd,
+                    fluidHeights,
+                    lastMove,
+                    oldInterpolation,
+                    null);
+        }
+
         public Result(
                 JavaPassState state,
                 boolean moved,
@@ -187,8 +213,15 @@ public final class JavaBlockEntityPass {
         long tickedThrough = entities.passTickedThroughOrder();
         List<ClientBlockEntityPass.Lid> lids = pass.lids();
         int blockEntityMovers = 0, lid = 0;
+        List<JavaBlockEntityPath.Step> localMoves = null;
+        boolean recordLocal = env.authoritative() && env.context().getVehicle() == null;
+        Vec3 previousLocal = entities.passLocalPlayerPosition();
+        int moverIndex = 0;
         try (var ignored = world.beginBlockEntityReplay(pass)) {
             for (ClientBlockEntityPass.Mover mover : pass.movers()) {
+                if (!env.authoritative())
+                    entities.setPassLocalPlayerPosition(localPlayerAtMover(env, pass, mover, replay.state.position()));
+                Vec3 before = replay.state.position();
                 // A move collides with the entities as the tick has left them by then: every entity has ticked
                 // before the block entities, and a shulker's move follows its own tick and those before it.
                 entities.setPassTickedThroughOrder(
@@ -208,9 +241,15 @@ public final class JavaBlockEntityPass {
                 } else if (mover instanceof ClientBlockEntityPass.ShulkerPeek peek) {
                     replay.shulkerPeek(peek);
                 }
+                if (recordLocal && !before.equals(replay.state.position())) {
+                    if (localMoves == null) localMoves = new java.util.ArrayList<>();
+                    localMoves.add(new JavaBlockEntityPath.Step(moverIndex, replay.state.position()));
+                }
+                moverIndex++;
             }
         } finally {
             entities.setPassTickedThroughOrder(tickedThrough);
+            entities.setPassLocalPlayerPosition(previousLocal);
         }
         return new Result(
                 replay.state,
@@ -222,7 +261,30 @@ public final class JavaBlockEntityPass {
                 replay.boatLastYd,
                 replay.fluidHeights,
                 replay.lastMove,
-                replay.oldInterpolation);
+                replay.oldInterpolation,
+                localMoves == null ? null : new JavaBlockEntityPath(pass, start.position(), List.copyOf(localMoves)));
+    }
+
+    private static Vec3 localPlayerAtMover(
+            JavaBlockEntityMove.Environment env,
+            ClientBlockEntityPass pass,
+            ClientBlockEntityPass.Mover mover,
+            Vec3 actorPosition) {
+        var player = env.player();
+        var prediction = player.checkManager.getSimulationProcessor().getLastPrediction();
+        var selected = prediction == null ? null : JavaMovementEngine.passAfterTravel(prediction);
+        var path = selected == null ? null : selected.result().path();
+        if (path == null
+                || path.pass().gameTime() != pass.gameTime()
+                || prediction.getSimulationContext().getItemUse().tick() != player.packetStateData.acceptedClientTick)
+            return null;
+        int index = path.pass().movers().indexOf(mover);
+        if (index < 0) return null;
+        Vec3 before = path.position(index, false);
+        // Level#getEntities captures its section-ordered list before moving any of its entries.
+        boolean localFirst = player.compensatedEntities.localPlayerPrecedesInEntityQuery(
+                env.actor(), before, actorPosition, path, index);
+        return path.position(index, localFirst);
     }
 
     private static final class Replay {

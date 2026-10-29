@@ -121,7 +121,7 @@ public final class JavaSpinAttack {
         var scratch = new SimpleCollisionBox();
         for (var entity : entities.entityMap.values()) {
             // Owner decision: foreign riding trees have no movement positions for collision readers.
-            if (entity == entities.getSelf() || entities.isUntrackedRider(entity)) continue;
+            if (entity == entities.getSelf()) continue;
             if (entity instanceof PacketEntityPlayer remote && remote.profile != null
                     && remote.actionSpectator(entities.clientPlayerModes)) continue;
             int positions = entity.possibleMovementCollisionBoxCandidateCount(), count = 0, hits = 0;

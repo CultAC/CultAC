@@ -221,10 +221,6 @@ public class PacketEntityHook extends PacketEntity {
         }
         if (followTarget == null) return;
         var entities = player.compensatedEntities;
-        if (entities.isUntrackedRider(followTarget)) {
-            followTarget = null;
-            return;
-        }
         var prediction = player.checkManager.getSimulationProcessor().getLastPrediction();
         var context = prediction == null ? null : prediction.getSimulationContext();
         followRange = null;
@@ -253,9 +249,7 @@ public class PacketEntityHook extends PacketEntity {
             entities.setPassTickedThroughOrder(entities.clientTickOrder(this) - 1);
             try {
                 followPositions = new ArrayList<>();
-                var boxes = entities.isUntrackedRider(followTarget)
-                        ? List.of(entities.currentMovementBox(followTarget))
-                        : followTarget.getPossibleMovementCollisionBoxCandidates();
+                var boxes = followTarget.getPossibleMovementCollisionBoxCandidates();
                 double height = (double) BoundingBoxSize.getHeight(player, followTarget) * 0.8;
                 for (var box : boxes) {
                     Vec3 position = feet(box).add(0, height, 0);

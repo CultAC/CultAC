@@ -93,6 +93,7 @@ public class PacketServerTeleport {
             player.x = pos.x;
             player.y = pos.y;
             player.z = pos.z;
+            player.compensatedEntities.observeLocalPlayerPosition(pos);
             player.xRot = finalYaw;
             player.yRot = finalPitch;
 

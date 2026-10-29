@@ -105,26 +105,118 @@ public class BoundingBoxSize {
             SimpleCollisionBox box,
             int passengerIndex,
             int passengerCount) {
+        SimpleCollisionBox point = ridingPosition(
+                entity, passenger, player, box, passengerIndex, passengerCount, new SimpleCollisionBox());
+        return new Vec3(point.minX, point.minY, point.minZ);
+    }
+
+    /** Entity#positionRider's position in out.minX/minY/minZ; no temporary vectors or boxes. */
+    public static SimpleCollisionBox ridingPosition(
+            PacketEntity entity,
+            PacketEntity passenger,
+            CultPlayer player,
+            SimpleCollisionBox box,
+            int passengerIndex,
+            int passengerCount,
+            SimpleCollisionBox out) {
         double x = (box.maxX + box.minX) / 2.0;
         double y = box.minY;
         double z = (box.maxZ + box.minZ) / 2.0;
-
-        Vec3 passengerAttachment;
-        if (entity instanceof PacketEntityTrackXRot xRotEntity && EntityTypeUtil.isBoat(entity.type)) {
-            passengerAttachment = getBoatPassengerAttachmentPoint(
-                    entity, passenger, xRotEntity.interpYaw, passengerIndex, passengerCount);
+        if (entity instanceof PacketEntityTrackXRot rot && EntityTypeUtil.isBoat(entity.type)) {
+            float offset = getSingleBoatPassengerOffset(entity);
+            if (passengerCount > 1) {
+                offset = Math.max(passengerIndex, 0) == 0 ? 0.2F : -0.6F;
+                if (passenger.isAnimal()) offset += 0.2F;
+            }
+            double height = isRaft(entity) ? getHeight(entity) * 0.8888889F : getHeight(entity) / 3.0F;
+            rotatePoint(out, 0.0, height, offset,
+                    player.isBedrockMovement() ? rot.interpYaw : getAttachmentYaw(entity, player));
         } else if (entity instanceof PacketEntityCamel camel) {
-            passengerAttachment =
-                    getCamelPassengerAttachmentPoint(camel, passenger, player, passengerIndex, passengerCount);
+            boolean driver = Math.max(passengerIndex, 0) == 0;
+            float scale = camel.scale * (camel.isBaby ? getBabyScale(camel, player.getClientVersion()) : 1.0F);
+            float offset = 0.5F;
+            if (passengerCount > 1) {
+                if (!driver) offset = -0.7F;
+                if (passenger.isAnimal()) offset += 0.2F;
+            }
+            long poseTime = camel.poseTime(player.compensatedWorld.clientGameTime() - 1);
+            float height = (float) getCamelBodyAnchorYOffset(camel, player.getClientVersion(), driver, scale, poseTime);
+            rotatePoint(out, 0.0, height, offset * scale, getAttachmentYaw(camel, player));
         } else {
-            passengerAttachment = getDefaultPassengerAttachmentPoint(entity, player, passengerIndex);
+            EntityTypes.Type type = baseDimensions(entity);
+            var points = type.passengers();
+            var point = points.get(Math.clamp(passengerIndex, 0, points.size() - 1));
+            double px = point.x(), py = point.y(), pz = point.z();
+            float dimensions = defaultDimensionsScale(entity, player.getClientVersion(), player.isBedrockMovement());
+            if (!type.fixed() && dimensions != 1.0F) {
+                px *= dimensions;
+                py *= dimensions;
+                pz *= dimensions;
+            }
+            if (!type.fixed() && entity.scale != 1.0F) {
+                px *= entity.scale;
+                py *= entity.scale;
+                pz *= entity.scale;
+            }
+            // EntityAttachments uses (float) (PI / 180), unlike the dynamic seat overrides.
+            rotateAttachment(out, px, py, pz, getAttachmentYaw(entity, player));
+            if (entity.isAvatar() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
+                out.minY = entity == player.compensatedEntities.getSelf()
+                        ? (player.pose == ac.cult.cultac.utils.enums.Pose.SLEEPING
+                                        || player.pose == ac.cult.cultac.utils.enums.Pose.DYING
+                                ? .2F
+                                : player.pose.height * entity.scale)
+                        : PacketEntity.avatarHeight(entity.actionPose, entity.scale);
+            }
+            if (entity instanceof PacketEntityHorse horse) {
+                double sx = out.minX, sy = out.minY, sz = out.minZ;
+                // AbstractHorse#tick writes standAnimO before positionRider reads the attachment.
+                float stand = attachmentAfterTick(horse, player) ? horse.standAnim : horse.standAnimO;
+                rotatePoint(
+                        out,
+                        0.0,
+                        0.15D * stand * entity.scale,
+                        -0.7D * stand * entity.scale,
+                        getAttachmentYaw(entity, player));
+                out.minX += sx;
+                out.minY += sy;
+                out.minZ += sz;
+            } else if (entity instanceof PacketEntityStrider strider) {
+                out.minY += (float) strider.getPassengerAttachmentYOffset() * entity.scale;
+            }
         }
+        x += out.minX;
+        y += out.minY;
+        z += out.minZ;
+        EntityTypes.Type riderType = baseDimensions(passenger);
+        var attachment = riderType.vehicle().getFirst();
+        double ax = attachment.x(), ay = attachment.y(), az = attachment.z();
+        if (!riderType.fixed() && passenger.scale != 1.0F) {
+            ax *= passenger.scale;
+            ay *= passenger.scale;
+            az *= passenger.scale;
+        }
+        rotateAttachment(out, ax, ay, az, getAttachmentYaw(passenger, player));
+        out.minX = x - out.minX;
+        out.minY = y - out.minY;
+        out.minZ = z - out.minZ;
+        return out;
+    }
 
-        // Vanilla Entity#positionRider subtracts the rider's current, scaled attachment
-        // after the vehicle supplies its passenger point, including for stationary seats.
-        Vec3 vehicleAttachment = nativeVector(
-                baseDimensions(passenger).vehicleAttachment(passenger.scale, getAttachmentYaw(passenger, player)));
-        return new Vec3(x, y, z).add(passengerAttachment).subtract(vehicleAttachment);
+    private static void rotateAttachment(SimpleCollisionBox out, double x, double y, double z, float yaw) {
+        rotateRadians(out, x, y, z, -yaw * (float) (Math.PI / 180.0));
+    }
+
+    private static void rotatePoint(SimpleCollisionBox out, double x, double y, double z, float yaw) {
+        rotateRadians(out, x, y, z, -yaw * ((float) Math.PI / 180F));
+    }
+
+    private static void rotateRadians(SimpleCollisionBox out, double x, double y, double z, float radians) {
+        float cos = ac.cult.blocksim.engine.VanillaMath.cos(radians);
+        float sin = ac.cult.blocksim.engine.VanillaMath.sin(radians);
+        out.minX = x * cos + z * sin;
+        out.minY = y;
+        out.minZ = z * cos - x * sin;
     }
 
     /**
@@ -136,72 +228,21 @@ public class BoundingBoxSize {
         if (player.compensatedEntities.vehicles.canClientEchoLocalAuthoritativeMoveVehiclePacket(entity)) {
             return entity.clientPhysicalYaw;
         }
-        return entity instanceof PacketEntityTrackXRot xRotEntity ? xRotEntity.interpYaw : entity.clientPhysicalYaw;
+        if (!(entity instanceof PacketEntityTrackXRot rotated)) return entity.clientPhysicalYaw;
+        // A movement reader may ask after commonTick before the end-of-tick traversal has committed it.
+        return rotated.steps > 0 && attachmentAfterTick(entity, player)
+                ? rotated.interpYaw + CultMath.wrapDegrees(rotated.packetYaw - rotated.interpYaw) / rotated.steps
+                : rotated.interpYaw;
     }
 
-    private static Vec3 getDefaultPassengerAttachmentPoint(
-            PacketEntity vehicle, CultPlayer player, int passengerIndex) {
-        int index = Math.max(passengerIndex, 0);
-        float vehicleYaw = getAttachmentYaw(vehicle, player);
-        Vec3 passengerAttachment = nativeVector(baseDimensions(vehicle)
-                .passengerAttachment(
-                        index,
-                        defaultDimensionsScale(vehicle, player.getClientVersion(), player.isBedrockMovement()),
-                        vehicle.scale,
-                        vehicleYaw));
-        if (vehicle.isAvatar() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
-            // Avatar#POSES supplies the current dimensions' default passenger attachment, at that pose's height.
-            float height;
-            if (vehicle == player.compensatedEntities.getSelf())
-                height = player.pose == ac.cult.cultac.utils.enums.Pose.SLEEPING
-                                || player.pose == ac.cult.cultac.utils.enums.Pose.DYING
-                        ? .2F
-                        : player.pose.height * vehicle.scale;
-            else height = PacketEntity.avatarHeight(vehicle.actionPose, vehicle.scale);
-            passengerAttachment = new Vec3(passengerAttachment.x, height, passengerAttachment.z);
-        }
-        if (vehicle instanceof PacketEntityHorse horse) {
-            // MCP-Reborn AbstractHorse#getPassengerAttachmentPoint adds this rearing offset to the default point.
-            passengerAttachment = passengerAttachment.add(
-                    new Vec3(0.0D, 0.15D * horse.standAnimO * vehicle.scale, -0.7D * horse.standAnimO * vehicle.scale)
-                            .yRot(-vehicleYaw * ((float) Math.PI / 180F)));
-        } else if (vehicle instanceof PacketEntityStrider strider) {
-            // MCP-Reborn Strider#getPassengerAttachmentPoint adds a client-only
-            // walk-animation Y offset before passenger positioning.
-            passengerAttachment = passengerAttachment.add(
-                    0.0D, (float) strider.getPassengerAttachmentYOffset() * vehicle.scale, 0.0D);
-        }
-        return passengerAttachment;
-    }
-
-    /**
-     * MCP-Reborn 26.3 Camel#getPassengerAttachmentPoint: the seat sits {@code 0.5 * scale} ahead of the camel at its
-     * sit-animation height, not at the type's default attachment. The rider was last positioned in the previous
-     * client tick's ClientLevel#tickEntities, which runs before ClientLevel#tickTime advances the game time that tick's
-     * ClientTickEnd recorded.
-     */
-    private static Vec3 getCamelPassengerAttachmentPoint(
-            PacketEntityCamel camel,
-            PacketEntity passenger,
-            CultPlayer player,
-            int passengerIndex,
-            int passengerCount) {
-        ClientVersion version = player.getClientVersion();
-        boolean driver = Math.max(passengerIndex, 0) == 0;
-        // LivingEntity#getPassengerRidingPosition passes getScale() * getAgeScale().
-        float scale = camel.scale * (camel.isBaby ? getBabyScale(camel, version) : 1.0F);
-        float offset = 0.5F;
-        if (passengerCount > 1) {
-            if (!driver) {
-                offset = -0.7F;
-            }
-            if (passenger.isAnimal()) {
-                offset += 0.2F;
-            }
-        }
-        long poseTime = camel.poseTime(player.compensatedWorld.clientGameTime() - 1);
-        float height = (float) getCamelBodyAnchorYOffset(camel, version, driver, scale, poseTime);
-        return new Vec3(0.0D, height, offset * scale).yRot(-getAttachmentYaw(camel, player) * ((float) Math.PI / 180F));
+    private static boolean attachmentAfterTick(PacketEntity entity, CultPlayer player) {
+        var entities = player.compensatedEntities;
+        return !player.isBedrockMovement()
+                && entities.readingMovementPositions()
+                && entities.clientTickOrder(entity) <= entities.tickedThroughOrder()
+                && !entity.tickedThisTick(player)
+                && !entity.lazyRiderTickedThisTick()
+                && entities.ticksInClientTick(entity);
     }
 
     // MCP-Reborn 26.3 Camel#getBodyAnchorAnimationYOffset at partialTicks 0.
@@ -260,22 +301,6 @@ public class BoundingBoxSize {
                 ? 0.425F
                 : adultSitting * getBabyScale(camel, version);
         return babySitting * camel.scale;
-    }
-
-    private static Vec3 getBoatPassengerAttachmentPoint(
-            PacketEntity vehicle, PacketEntity passenger, float vehicleYaw, int passengerIndex, int passengerCount) {
-        int index = Math.max(passengerIndex, 0);
-        float zOffset = getSingleBoatPassengerOffset(vehicle);
-
-        if (passengerCount > 1) {
-            zOffset = index == 0 ? 0.2F : -0.6F;
-            if (passenger.isAnimal()) {
-                zOffset += 0.2F;
-            }
-        }
-
-        double rideHeight = isRaft(vehicle) ? getHeight(vehicle) * 0.8888889F : getHeight(vehicle) / 3.0F;
-        return new Vec3(0.0D, rideHeight, zOffset).yRot(-vehicleYaw * ((float) Math.PI / 180F));
     }
 
     private static float getSingleBoatPassengerOffset(PacketEntity vehicle) {
@@ -476,9 +501,5 @@ public class BoundingBoxSize {
 
     private static EntityTypes.Type baseDimensions(PacketEntity packetEntity) {
         return EntityTypeUtil.modelType(packetEntity.type);
-    }
-
-    private static Vec3 nativeVector(ac.cult.blocksim.engine.Vec3 point) {
-        return new Vec3(point.x(), point.y(), point.z());
     }
 }

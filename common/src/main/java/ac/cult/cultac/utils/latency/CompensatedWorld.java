@@ -880,9 +880,11 @@ public class CompensatedWorld {
         return false;
     }
 
-    // A shulker entity riding outside the own riding tree has no simulated position.
+    // Bedrock still omits remote riders from its entity contacts.
     private boolean ridesUntracked(ShulkerData data) {
-        return data.entity != null && player.compensatedEntities.isUntrackedRider(data.entity);
+        return player.isBedrockMovement()
+                && data.entity != null
+                && player.compensatedEntities.isUntrackedRider(data.entity);
     }
 
     private SimpleCollisionBox openShulkerCollisionBox(ShulkerData data) {

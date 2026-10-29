@@ -502,6 +502,8 @@ class JavaEntityPushTest {
             PacketEntity vehicle = entity(f, 100, new Vec3(4.5, FLOOR_Y, 4.5));
             vehicle.setClientTickOrder(-1L);
             entity(f, 101, TOUCHING).mount(vehicle);
+            f.player.compensatedEntities.tickClientEntities(entity -> {});
+            f.player.packetStateData.acceptedClientTick++;
 
             PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
 
@@ -625,6 +627,21 @@ class JavaEntityPushTest {
             Vec3 push = JavaLivingEntityPushes.impulse(new Vec3(BELOW_TOUCHING.x, 0, BELOW_TOUCHING.z), second);
             assertEquals(0.0, push.x, 0.0, "the kept seat is straight ahead of the player");
             assertExact(f.tick(second.add(0, fall(SECOND_FALL), PUSH * 0.91F + push.z), false));
+        }
+    }
+
+    @Test
+    void aPistonStillMovesARiderWhoseNonTickingRootWasTeleportedAway() throws Exception {
+        try (var f = falling()) {
+            PacketEntity root = entity(f, 100, BELOW_TOUCHING);
+            seatSlime(f, root);
+            PacketEntity rider = f.player.compensatedEntities.getEntity(RIDER);
+            snap(f, root, new Vec3(1000.5, FLOOR_Y, 1000.5));
+            assertFalse(f.player.compensatedEntities.isTicking(root));
+            extendStoneEast(f, FLOOR_Y + 9);
+            assertExact(f.tick(CONTACT, false));
+            SimpleCollisionBox box = rider.getPossibleMovementCollisionBoxes();
+            assertEquals(0.51, box.minX, 1.0E-6, "the piston must find the held rider independently of its root");
         }
     }
 
@@ -845,6 +862,10 @@ class JavaEntityPushTest {
     private static void seatSlime(JavaTickFixture f, PacketEntity vehicle) {
         f.player.compensatedEntities.addEntity(RIDER, EntityTypeIds.SLIME, AWAY, 0, 0, 0);
         f.player.compensatedEntities.entityMap.get(RIDER).mount(vehicle);
+        // This scenario starts with an established passenger. set_passengers alone does not seat it:
+        // run the prior tick's positionRider pass without advancing the movement under test.
+        f.player.compensatedEntities.tickClientEntities(entity -> {});
+        f.player.packetStateData.acceptedClientTick++;
     }
 
     /** A piston at x -2, z 1 and height {@code y}, facing east, starts pushing the stone beside it east to x 0. */

@@ -38,6 +38,8 @@ public class PacketEntityShulker extends PacketEntity {
     // The block the last tick saw the shulker in, and whether DATA_PEEK_ID was handled since.
     private long block;
     private boolean peekDataSinceBlock;
+    private SimpleCollisionBox reachBounds;
+    private SimpleCollisionBox reachPositions;
 
     public PacketEntityShulker(CultPlayer player, int entityId, int type, double x, double y, double z) {
         super(player, entityId, type, x, y, z);
@@ -69,6 +71,10 @@ public class PacketEntityShulker extends PacketEntity {
 
     @Override
     public void onMovement(CultPlayer player) {
+        if (untrackedRider()) {
+            tickAsUntrackedRider();
+            return;
+        }
         super.onMovement(player);
         if (modelled()) tickPeek();
     }
@@ -297,8 +303,12 @@ public class PacketEntityShulker extends PacketEntity {
     @Override
     public SimpleCollisionBox getPossibleCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
         if (!modelled()) return super.getPossibleCollisionBoxes(out, scratch);
-        SimpleCollisionBox reach = super.getPossibleCollisionBoxes(new SimpleCollisionBox(), scratch);
-        SimpleCollisionBox positions = super.getPossibleMovementCollisionBoxes(new SimpleCollisionBox(), scratch);
+        if (reachBounds == null) {
+            reachBounds = new SimpleCollisionBox();
+            reachPositions = new SimpleCollisionBox();
+        }
+        SimpleCollisionBox reach = super.getPossibleCollisionBoxes(reachBounds, scratch);
+        SimpleCollisionBox positions = super.getPossibleMovementCollisionBoxes(reachPositions, scratch);
         getPossibleMovementCollisionBoxes(out, scratch);
         return out.set(
                 out.minX - (positions.minX - reach.minX),
@@ -322,10 +332,27 @@ public class PacketEntityShulker extends PacketEntity {
 
     /** Shulker#makeBoundingBox with currentPeekAmount {@code peek} at the position {@code positionBox} holds. */
     private SimpleCollisionBox shape(SimpleCollisionBox positionBox, float peek) {
-        Vec3 position = clientPosition(positionBox);
-        Box box = ShulkerGeometry.progressBounds(
-                size(), blockSim(facing.getOpposite()), physicalPeek(peek), blockSim(position));
-        return positionBox.set(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ());
+        // Shulker#getProgressAabb: the unit shell extends by physicalPeek * size along the open face.
+        double x = (positionBox.maxX - positionBox.minX) / 2 + positionBox.minX;
+        double y = positionBox.minY;
+        double z = (positionBox.maxZ - positionBox.minZ) / 2 + positionBox.minZ;
+        if (riding == null) {
+            x = CultMath.floor(x) + 0.5;
+            y = CultMath.floor(y + 0.5);
+            z = CultMath.floor(z) + 0.5;
+        }
+        float size = size();
+        double half = size * 0.5;
+        Direction open = facing.getOpposite();
+        double extent = (double) physicalPeek(peek) * size;
+        double dx = open.getStepX() * extent, dy = open.getStepY() * extent, dz = open.getStepZ() * extent;
+        return positionBox.set(
+                x - half + Math.min(0, dx),
+                y + Math.min(0, dy),
+                z - half + Math.min(0, dz),
+                x + half + Math.max(0, dx),
+                y + size + Math.max(0, dy),
+                z + half + Math.max(0, dz));
     }
 
     /** Shulker#getPhysicalPeek, with the client's Mth#sin. */

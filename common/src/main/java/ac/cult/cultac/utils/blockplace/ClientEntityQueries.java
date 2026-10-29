@@ -291,10 +291,9 @@ public final class ClientEntityQueries {
                 || entity.type == EntityTypeIds.END_CRYSTAL;
     }
 
-    // Riders outside the local player's own riding tree have no simulated position.
     private boolean present(PacketEntity entity) {
         return (!(entity instanceof PacketEntityPlayer remote) || remote.actionPresent)
-                && !player.compensatedEntities.isUntrackedRider(entity);
+                && (!player.isBedrockMovement() || !player.compensatedEntities.isUntrackedRider(entity));
     }
 
     private boolean spectator(PacketEntity entity) {

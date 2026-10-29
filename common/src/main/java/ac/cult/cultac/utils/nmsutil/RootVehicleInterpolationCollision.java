@@ -82,7 +82,7 @@ public final class RootVehicleInterpolationCollision {
     private static List<SimpleCollisionBox> localPlayerBoxes(CultPlayer player) {
         Vec3 position = localPlayerPositionAtRootEntityTick(player);
         var prediction = player.checkManager.getSimulationProcessor().getLastPrediction();
-        if (prediction != null) {
+        if (prediction != null && player.compensatedEntities.passLocalPlayerPosition() == null) {
             var pass =
                     ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine.passAfterTravel(prediction);
             if (pass != null) position = pass.travel().position();
@@ -115,7 +115,7 @@ public final class RootVehicleInterpolationCollision {
         for (PacketEntity other : player.compensatedEntities.entityMap.values()) {
             if (other.getEntityId() == player.entityID
                     || !selection.mayCollide(other)
-                    || player.compensatedEntities.isUntrackedRider(other)) continue;
+                    || player.isBedrockMovement() && player.compensatedEntities.isUntrackedRider(other)) continue;
             int count = other.possibleMovementCollisionBoxCandidateCount();
             int blocking = 0;
             for (int i = 0; i < count; i++) {
@@ -157,7 +157,7 @@ public final class RootVehicleInterpolationCollision {
             if (entity.getEntityId() == player.entityID
                     || entity.newPacketLocation == null
                     || !selection.mayCollide(entity)
-                    || player.compensatedEntities.isUntrackedRider(entity)) {
+                    || player.isBedrockMovement() && player.compensatedEntities.isUntrackedRider(entity)) {
                 continue;
             }
             for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
@@ -177,6 +177,7 @@ public final class RootVehicleInterpolationCollision {
      */
     private static Vec3 localPlayerPositionAtRootEntityTick(CultPlayer player) {
         var entities = player.compensatedEntities;
+        if (entities.passLocalPlayerPosition() != null) return entities.passLocalPlayerPosition();
         if (player.packetStateData.receivedMovementThisClientTick
                 && !entities.getSelf().inVehicle()) {
             var prediction = player.checkManager.getSimulationProcessor().getLastPrediction();

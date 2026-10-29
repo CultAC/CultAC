@@ -1399,6 +1399,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 player.y = clampVector.y;
                 player.z = clampVector.z;
 
+                if (teleportData.isTeleport()) player.compensatedEntities.observeLocalPlayerPosition(clampVector);
+
                 player.checkManager.onPositionUpdate(update);
             } else if (update.getTeleportData()
                     .isTeleport()) { // Mojang doesn't use their own exit vehicle field to leave vehicles, manually call

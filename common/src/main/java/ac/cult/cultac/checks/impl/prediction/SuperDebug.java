@@ -618,7 +618,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
         sb.append("\nNearby packet entity boxes:\n");
         for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-            if (player.compensatedEntities.isUntrackedRider(entity)) continue;
+            if (player.isBedrockMovement() && player.compensatedEntities.isUntrackedRider(entity)) continue;
             SimpleCollisionBox box = entity.getPossibleCollisionBoxes();
             if (!box.isCollided(queryBox)) {
                 continue;
