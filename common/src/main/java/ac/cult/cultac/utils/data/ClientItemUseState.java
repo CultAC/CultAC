@@ -74,6 +74,9 @@ public final class ClientItemUseState {
     /** Client outcomes of a completion event; {@code skipped} is a client that completes nothing. */
     public record Completions(List<Completion> completions, boolean skipped) {}
 
+    /** A stack LivingEntity#releaseUsingItem may release, from the hand the use holds. */
+    public record Release(Hand hand, SimItemStack stack) {}
+
     private List<Use> candidates = List.of();
     private boolean inactive = true;
     private Use obligation;
@@ -227,6 +230,26 @@ public final class ClientItemUseState {
             }
         }
         return new Completions(List.copyOf(completions), skipped);
+    }
+
+    /**
+     * The stacks LivingEntity#releaseUsingItem may hand to Item#releaseUsing. Through 1.21.4 it releases useItem, the
+     * stack the last LivingEntity#updatingUsingItem bound, even when the hand holds another item since. From 1.21.5 it
+     * reads the used hand again and releases that stack only while ItemStack#isSameItem holds. Neither resets
+     * useItemRemaining, so a switch to another stack of the same item keeps the charge.
+     */
+    public List<Release> releases(ClientVersion version, SimItemStack main, SimItemStack off) {
+        boolean rereadsHand = version.isNewerThanOrEquals(ClientVersion.V_1_21_5);
+        var releases = new ArrayList<Release>(candidates.size());
+        for (Use use : candidates) {
+            SimItemStack held = use.hand() == Hand.MAIN_HAND ? main : off;
+            if (rereadsHand && !sameItem(use.stack(), held)) continue;
+            var release = new Release(use.hand(), rereadsHand ? held : use.stack());
+            if (releases.stream()
+                    .noneMatch(other -> other.hand() == release.hand() && other.stack() == release.stack()))
+                releases.add(release);
+        }
+        return List.copyOf(releases);
     }
 
     /**

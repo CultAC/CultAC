@@ -14,20 +14,14 @@ import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.packet.ServerboundPackets;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.BlockPos;
-import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
-import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -443,7 +437,7 @@ class JavaRiptideSpinAttackTest {
 
     /**
      * A riptide 3 trident used for eleven ticks standing in water at {@link #SHALLOWS}, then released at
-     * {@code pitch} through PacketPlayerDigging; the velocity the release tick moves by.
+     * {@code pitch} through the use and release listeners; the velocity the release tick moves by.
      */
     private static Vec3 releaseOnTheGround(JavaTickFixture f, float pitch) {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.WATER.defaultState());
@@ -453,14 +447,11 @@ class JavaRiptideSpinAttackTest {
         f.player.getInventory().inventory.getInventoryStorage().setItem(Inventory.HOTBAR_OFFSET, trident);
         f.place(SHALLOWS, SETTLED);
         f.input(NONE);
-        var use = new ServerboundUseItem(Hand.MAIN_HAND, 1, 0, pitch);
-        new PacketPlayerDigging().onUseItem(f.event(ServerboundPackets.USE_ITEM, use), f.player, use);
+        f.useItem(Hand.MAIN_HAND, 0, pitch);
         for (int tick = 0; tick < 11; tick++) f.tick(SHALLOWS, true);
         f.player.xRot = 0.0F;
         f.player.yRot = pitch;
-        var release =
-                new ServerboundPlayerAction(PlayerAction.RELEASE_USE_ITEM, new BlockPos(0, 0, 0), Direction.DOWN, 0);
-        new PacketPlayerDigging().onPlayerAction(f.event(ServerboundPackets.PLAYER_ACTION, release), f.player, release);
+        f.releaseUsingItem();
         assertTrue(f.player.riptideSpinCertain, "the release is not certain");
         return SETTLED.add(push(pitch));
     }

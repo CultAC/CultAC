@@ -12,6 +12,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -61,6 +62,22 @@ class JavaRiptideCandidatesTest {
                         false,
                         result.getSimulationContext().getWorldData().isInLava());
             }
+        }
+    }
+
+    /** A release that may hand over a riptide 1 or a riptide 3 trident spins at either level's push. */
+    @ParameterizedTest
+    @ValueSource(ints = {1, 3})
+    void aReleaseOfEitherPossibleTridentSpinsAtItsOwnLevel(int level) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 start = new Vec3(0.5, FLOOR_Y + 5, 0.5);
+            release(f, start, true);
+            f.player.packetStateData.riptideLevel = 1;
+            f.player.packetStateData.riptideAlternativeLevels = List.of(3);
+            float strength = 3.0F * ((1.0F + level) / 4.0F);
+            var result = f.tick(start.add(FALL.add(0, 0, strength)), false);
+            assertTrue(exact(result), describe(result));
+            assertEquals(level, result.getSimulationContext().getRiptideLevel());
         }
     }
 

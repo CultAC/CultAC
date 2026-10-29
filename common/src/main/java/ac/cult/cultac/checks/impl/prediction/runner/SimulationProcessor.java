@@ -1542,6 +1542,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.lastGliding = this.player.isGliding;
             if (!this.player.isBedrockMovement()) this.endSpinAttack(result);
             this.player.packetStateData.riptideLevel = 0;
+            this.player.packetStateData.riptideAlternativeLevels = List.of();
             this.player.packetStateData.riptideReleaseCertain = false;
             this.player.riptideSpinAttackTicks = Math.max(0, this.player.riptideSpinAttackTicks - 1);
             this.player.compensatedEntities.fishingRodPulls.clear();
@@ -2520,7 +2521,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     /**
      * The carried contexts, each split by TridentItem#releaseUsing's outcome on a release tick: the release spins
-     * only when Entity#isInWaterOrRain holds, and a spin leaves onGround false for the tick's LivingEntity#aiStep.
+     * only when Entity#isInWaterOrRain holds, and a spin leaves onGround false for the tick's LivingEntity#aiStep. A
+     * release that may hand over tridents of several riptide levels spins once per level.
      */
     private List<SimulationContext> createReleaseSimulationContexts(
             CultPlayer player,
@@ -2586,6 +2588,25 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 spin.setWaterMovementEfficiency(
                         getWaterMovementEfficiency(player.compensatedEntities.getSelf(), DesyncStatus.FALSE));
                 released.add(spin);
+            }
+            // Each other trident the release may hand TridentItem#releaseUsing pushes at its own riptide level.
+            for (int level : player.packetStateData.riptideAlternativeLevels) {
+                for (SimulationContext spin : this.createSimulationContexts(
+                        player,
+                        lastPrediction,
+                        target,
+                        start,
+                        end,
+                        testing,
+                        xRot,
+                        yRot,
+                        authoredMovementFrame,
+                        movementProfile)) {
+                    spin.setRiptideLevel(level);
+                    spin.setWaterMovementEfficiency(
+                            getWaterMovementEfficiency(player.compensatedEntities.getSelf(), DesyncStatus.FALSE));
+                    released.add(spin);
+                }
             }
         } finally {
             player.packetStateData.riptideReleaseCertain = certain;

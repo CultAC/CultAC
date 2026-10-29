@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.data;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ac.cult.blocksim.data.nbt.CanonicalSnbt;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.value.Hand;
@@ -93,6 +94,50 @@ class ClientItemUseStateTest {
             assertEquals(Hand.MAIN_HAND, state.hand());
             assertTrue(state.handKnown());
         }
+    }
+
+    @Test
+    void throughOneTwentyOneFourAReleaseHandsOverTheStackTheLastEntityTickBound() {
+        var state = new ClientItemUseState();
+        var charged = trident(1);
+        state.start(Hand.MAIN_HAND, charged, ClientItemUseState.duration(charged), true);
+        // A number key selected an apple in the release tick's handleKeybinds, before the release.
+        var releases = state.releases(ClientVersion.V_1_21_4, food(), SimItemStack.EMPTY);
+        assertEquals(1, releases.size());
+        assertEquals(Hand.MAIN_HAND, releases.getFirst().hand());
+        assertEquals(1, riptide(releases.getFirst().stack()));
+        // From 1.21.5 the release reads the hand again: an apple is not the same item, so nothing is released.
+        assertEquals(List.of(), state.releases(ClientVersion.V_1_21_5, food(), SimItemStack.EMPTY));
+    }
+
+    @Test
+    void fromOneTwentyOneFiveAReleaseHandsOverTheTridentTheHandHolds() {
+        var state = new ClientItemUseState();
+        var charged = trident(1);
+        var held = trident(3);
+        var hotbar = List.of(charged, held);
+        state.start(Hand.MAIN_HAND, charged, ClientItemUseState.duration(charged), true);
+        state.prepare(0, 1, ClientVersion.V_26_3, charged, SimItemStack.EMPTY, hotbar);
+        assertEquals(
+                List.of(new ClientItemUseState.Release(Hand.MAIN_HAND, held)),
+                state.releases(ClientVersion.V_26_3, held, SimItemStack.EMPTY));
+        // Through 1.21.4 an unreported selection leaves every trident the entity tick may have bound.
+        state.prepare(1, 1, ClientVersion.V_1_21_4, charged, SimItemStack.EMPTY, hotbar);
+        assertEquals(
+                List.of(1, 3),
+                state.releases(ClientVersion.V_1_21_4, held, SimItemStack.EMPTY).stream()
+                        .map(release -> riptide(release.stack()))
+                        .toList());
+    }
+
+    private static SimItemStack trident(int riptide) {
+        var trident = ItemUtil.modelItems().stack("minecraft:trident", 1);
+        trident.setComponent("minecraft:enchantments", CanonicalSnbt.parse("{'minecraft:riptide':" + riptide + "}"));
+        return trident;
+    }
+
+    private static int riptide(SimItemStack stack) {
+        return ItemUtil.enchantmentLevel(stack, "minecraft:riptide");
     }
 
     private static SimItemStack food() {

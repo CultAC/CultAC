@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.List;
 
 // This is to keep all the packet data out of the main player class
 // Helps clean up the player class and makes devs aware they are sync'd to the netty thread
@@ -51,6 +52,9 @@ public class PacketStateData {
     private int slowedByUsingItemSlot = Integer.MIN_VALUE;
     public KnownInput knownInput = KnownInput.DEFAULT;
     public int riptideLevel = 0;
+    // Other riptide levels this tick's release may spin with: through 1.21.4 it releases whichever trident the last
+    // entity tick bound, which an unreported hotbar selection leaves open.
+    public List<Integer> riptideAlternativeLevels = List.of();
     public boolean riptideReleaseCertain = false;
     public int acceptedClientTick = 0;
     public Boolean glidingBeforeClientAction;

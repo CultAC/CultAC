@@ -13,6 +13,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -36,9 +37,15 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAbilities;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
@@ -62,7 +69,9 @@ final class JavaTickFixture implements AutoCloseable {
     final CultPlayer player;
     final CheckManagerListener listener = new CheckManagerListener();
     private final PacketPlayerSteer steer = new PacketPlayerSteer();
+    private final PacketPlayerDigging digging = new PacketPlayerDigging();
     private int teleportId;
+    private int useSequence;
 
     JavaTickFixture() throws Exception {
         Class.forName(VerboseCodecs.class.getName());
@@ -270,6 +279,31 @@ final class JavaTickFixture implements AutoCloseable {
         var event = event(ServerboundPackets.ACCEPT_TELEPORTATION, packet);
         new PacketServerTeleport().onAcceptTeleportation(event, player, packet);
         assertFalse(event.isCancelled(), "the teleport acceptance was rejected");
+    }
+
+    /** ServerboundUseItem through PacketPlayerDigging, then the check listeners, in the production route order. */
+    void useItem(Hand hand, float yaw, float pitch) {
+        var packet = new ServerboundUseItem(hand, ++useSequence, yaw, pitch);
+        var event = event(ServerboundPackets.USE_ITEM, packet);
+        digging.onUseItem(event, player, packet);
+        listener.onUseItem(event, player, packet);
+    }
+
+    /** ServerboundSetCarriedItem through PacketPlayerDigging, then the check listeners. */
+    void selectHotbarSlot(int slot) {
+        var packet = new ServerboundSetCarriedItem(slot);
+        var event = event(ServerboundPackets.SET_CARRIED_ITEM, packet);
+        digging.onSetCarriedItem(event, player, packet);
+        listener.onSetCarriedItem(event, player, packet);
+    }
+
+    /** MultiPlayerGameMode#releaseUsingItem's RELEASE_USE_ITEM through PacketPlayerDigging, then the check listeners. */
+    void releaseUsingItem() {
+        var packet =
+                new ServerboundPlayerAction(PlayerAction.RELEASE_USE_ITEM, new BlockPos(0, 0, 0), Direction.DOWN, 0);
+        var event = event(ServerboundPackets.PLAYER_ACTION, packet);
+        digging.onPlayerAction(event, player, packet);
+        listener.onPlayerAction(event, player, packet);
     }
 
     void abilities(boolean flying) {
