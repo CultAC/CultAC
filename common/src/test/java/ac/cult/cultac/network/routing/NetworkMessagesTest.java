@@ -35,7 +35,7 @@ class NetworkMessagesTest {
                         "alerts-scope",
                         "alerts-scope-set",
                         "alerts-scope-chosen",
-                        "alerts-scope-permission",
+                        "alerts-scope-default",
                         "alerts-scope-local")) {
                     assertInstanceOf(String.class, messages.get(key), locale + " " + key);
                 }
