@@ -53,24 +53,7 @@ class WorldBenchTest {
 
     @Test
     void chunkSections() throws Exception {
-        List<int[]> sections = loadSections();
-        List<byte[]> chunks = new ArrayList<>();
-        for (int start = 0; start < sections.size(); start += SECTIONS_PER_CHUNK) {
-            ByteBuf wire = Unpooled.buffer();
-            for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
-                int index = start + i;
-                int[] states = index < sections.size() ? sections.get(index) : new int[4096];
-                wire.writeShort(0);
-                wire.writeShort(0);
-                encode(wire, states, STATES);
-                int[] biomes = new int[BIOMES];
-                Arrays.fill(biomes, 1);
-                if (index % 8 == 7) for (int cell = 32; cell < BIOMES; cell++) biomes[cell] = 2;
-                encode(wire, biomes, BIOMES);
-            }
-            chunks.add(ByteBufUtil.getBytes(wire));
-            wire.release();
-        }
+        List<byte[]> chunks = columns(loadSections());
         int sectionsTotal = chunks.size() * SECTIONS_PER_CHUNK;
         List<SectionSnapshot[]> decoded = new ArrayList<>();
         for (byte[] chunk : chunks) decoded.add(decode(chunk));
@@ -133,6 +116,105 @@ class WorldBenchTest {
             for (long tick = 0; tick < ticks; tick++) entities.tick();
             return ticks;
         });
+    }
+
+    /** A second player loading the columns a first player holds, its block storage shared through the pools. */
+    @Test
+    void twoPlayersOneWorld() throws Exception {
+        List<byte[]> chunks = columns(loadSections());
+        String dimension = "bench:two-players";
+        int sectionsTotal = chunks.size() * SECTIONS_PER_CHUNK;
+        for (int column = 0; column < chunks.size(); column++) {
+            SectionSnapshot[] snapshots = decode(chunks.get(column));
+            for (int i = 0; i < snapshots.length; i++)
+                SectionPool.forChunk(dimension, column, i, 0).internRetained(new CachedSection(snapshots[i].copyBlocks()));
+        }
+        long shared = 0;
+        for (int column = 0; column < chunks.size(); column++) {
+            var bytes = Unpooled.wrappedBuffer(chunks.get(column));
+            for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
+                bytes.readShort();
+                bytes.readShort();
+                var pool = SectionPool.existing(dimension, column, i, 0);
+                var view = pool == null ? null : pool.sharedBlocks(bytes, false, STATES, IntUnaryOperator.identity(), STATES);
+                if (view != null) shared++;
+                else PalettedSection.readBlocks(bytes);
+                PalettedSection.readBiomes(bytes, BIOMES);
+            }
+            bytes.release();
+        }
+        String hits = "shared " + shared + " of " + sectionsTotal + " sections";
+        System.out.println(System.getenv().getOrDefault("CULT_BENCH_LABEL", "run") + " two-players " + hits);
+        report("decode-first", sectionsTotal, units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++) for (byte[] chunk : chunks) seen += decode(chunk).length;
+            return seen;
+        });
+        report("decode-second", sectionsTotal, units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++)
+                for (int column = 0; column < chunks.size(); column++) {
+                    var bytes = Unpooled.wrappedBuffer(chunks.get(column));
+                    for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
+                        var snapshot = SectionSnapshot.read(
+                                bytes,
+                                ProtocolVersion.V26_3,
+                                STATES,
+                                STATES,
+                                BIOMES,
+                                BIOMES,
+                                IntUnaryOperator.identity(),
+                                IntUnaryOperator.identity(),
+                                SectionPool.existing(dimension, column, i, 0));
+                        seen += snapshot.uniformBiome();
+                    }
+                    bytes.release();
+                }
+            return seen;
+        });
+        report("raw-second", sectionsTotal, units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++)
+                for (int column = 0; column < chunks.size(); column++) {
+                    var bytes = Unpooled.wrappedBuffer(chunks.get(column));
+                    CachedSection[] cached = new CachedSection[SECTIONS_PER_CHUNK];
+                    int[][] biomes = new int[SECTIONS_PER_CHUNK][];
+                    for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
+                        bytes.readShort();
+                        bytes.readShort();
+                        var pool = SectionPool.existing(dimension, column, i, 0);
+                        cached[i] = new CachedSection(PalettedSection.readBlocks(bytes, pool));
+                        biomes[i] = PalettedSection.readBiomeValues(bytes, BIOMES);
+                    }
+                    bytes.release();
+                    var chunk = CachedChunk.received(cached, 0, List.of(), biomes);
+                    for (CachedSection section : cached) if (section.isEmpty() && !section.hasFluid()) seen++;
+                    seen += chunk.biomeAt(0, 0, 0, 0);
+                }
+            return seen;
+        });
+    }
+
+    /** The sections as chunk section data, {@value #SECTIONS_PER_CHUNK} to a column. */
+    private static List<byte[]> columns(List<int[]> sections) {
+        List<byte[]> chunks = new ArrayList<>();
+        for (int start = 0; start < sections.size(); start += SECTIONS_PER_CHUNK) {
+            ByteBuf wire = Unpooled.buffer();
+            for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
+                int index = start + i;
+                int[] states = index < sections.size() ? sections.get(index) : new int[4096];
+                wire.writeShort(0);
+                wire.writeShort(0);
+                encode(wire, states, STATES);
+                int[] biomes = new int[BIOMES];
+                Arrays.fill(biomes, 1);
+                if (index % 8 == 7) for (int cell = 32; cell < BIOMES; cell++) biomes[cell] = 2;
+                encode(wire, biomes, BIOMES);
+            }
+            chunks.add(ByteBufUtil.getBytes(wire));
+            wire.release();
+        }
+        return chunks;
     }
 
     private static SectionSnapshot[] decode(byte[] chunk) {
